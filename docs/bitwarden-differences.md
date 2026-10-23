@@ -176,6 +176,18 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md); owner's decision, 2026-10-19
   at 22:42 UTC).
 
+## Decrypted items in memory
+
+- While a vault is unlocked, the official clients keep every decrypted item in memory
+  state, cleared only on lock or logout
+  ([ciphers.state.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/services/key-state/ciphers.state.ts#L22-L29),
+  [cipher.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/services/cipher.service.ts#L239-L258)).
+  Pateat's crypto Worker keeps no decrypted item between requests: each field listing
+  or resolution decrypts its one item with the SDK and disposes it before replying
+  ([vault adapter](architecture.md#vault-adapter); owner's decision 2026-10-23, which
+  chose this over a copy narrowed to the allowed fields). It costs one SDK decryption
+  per request; a login reads only a few fields.
+
 ## Self-hosted server address
 
 - The official clients accept any `http://` or `https://` server URL and add `https://`

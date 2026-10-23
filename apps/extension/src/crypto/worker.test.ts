@@ -143,10 +143,14 @@ function expectEverySnapshotDisposedOnce() {
   expect(undisposedAtReply.every((count) => count === 0)).toBe(true);
 }
 
-/** Loads a fresh Worker module and opens 129 logins, the first with `uris`' rules, plus two unreadable items. */
+/**
+ * Loads a fresh Worker module and opens 129 logins, the first with `uris`' rules, and with
+ * `withUnreadable` also an unsupported and an invalid item.
+ */
 async function openWorker(
   uris: readonly (readonly { uri: string | null; match: number | null }[])[] = savedUris,
   defaultMatch = 0,
+  withUnreadable = false,
 ) {
   vi.resetModules();
   mocks.snapshots.clear();
@@ -168,8 +172,17 @@ async function openWorker(
           collectionIds: [],
           login: { password: `synthetic-password-${index + 1}`, uris: uris[index] ?? [] },
         })),
-        { id: itemId(unsupportedIndex), type: 5, name: "Synthetic SSH key", collectionIds: [] },
-        { id: itemId(invalidIndex), type: 1, name: "Synthetic invalid login", collectionIds: [] },
+        ...(withUnreadable
+          ? [
+              {
+                id: itemId(unsupportedIndex),
+                type: 5,
+                name: "Synthetic SSH key",
+                collectionIds: [],
+              },
+              { id: itemId(invalidIndex), type: 1, name: "Synthetic invalid", collectionIds: [] },
+            ]
+          : []),
       ],
       uriMatchContext: { equivalentDomains: [], defaultMatch },
     },
@@ -399,6 +412,10 @@ describe("crypto Worker Regex URIs (ADR 0056)", () => {
 });
 
 describe("crypto Worker field requests", () => {
+  beforeEach(async () => {
+    await openWorker(savedUris, 0, true);
+  });
+
   it("decrypts once per resolve and disposes the snapshot before replying", async () => {
     expect(await resolve(1)).toEqual(resolved(1));
 
