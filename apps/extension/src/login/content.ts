@@ -194,6 +194,46 @@ const fillSettleMs = 500;
  */
 const offerQuietMs = 1000;
 const offerWaitMs = 5000;
+/**
+ * A fill compared with the account the page shows waits until the document has loaded and
+ * its DOM has had no change for `accountQuietMs`, or `accountWaitMs` while it keeps
+ * changing: Duolingo's sign-in shows its remembered account's address after the password
+ * field (2026-10-23), and a check before it would pass.
+ */
+const accountQuietMs = 1000;
+const accountWaitMs = 5000;
+
+/**
+ * Resolves once `document` has loaded and its DOM has had no change for `quietMs`, or at
+ * `until` (a time in ms since the epoch), whichever comes first.
+ */
+function settled(document: Document, quietMs: number, until: number): Promise<void> {
+  return new Promise((resolve) => {
+    const view = document.defaultView;
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    const restart = () => {
+      clearTimeout(quiet);
+      if (document.readyState === "complete") quiet = setTimeout(done, quietMs);
+    };
+    const observer = new MutationObserver(restart);
+    const cap = setTimeout(done, Math.max(0, until - Date.now()));
+    function done(): void {
+      observer.disconnect();
+      clearTimeout(quiet);
+      clearTimeout(cap);
+      view?.removeEventListener("load", restart);
+      resolve();
+    }
+    observer.observe(document, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+    });
+    view?.addEventListener("load", restart);
+    restart();
+  });
+}
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
   readonly probeStatus?: boolean;
@@ -965,6 +1005,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return { ok: true, mutation: "possible" } as const;
       };
       if (step.kind === "fill") {
+        // A fill compared with the shown account waits for the page to settle, so an
+        // account it shows after its fields is compared too (`accountQuietMs`).
+        if (command.account) {
+          await settled(
+            document,
+            accountQuietMs,
+            Math.min(Date.now() + accountWaitMs, operation.expiresAt),
+          );
+          if (cancelled) return fail("cancelled", "document-cancelled");
+          if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
+          if (step.path !== pagePath()) return fail("cancelled", "page-changed");
+        }
         // Resolve every target first so a partial/ambiguous mapping never causes partial fill.
         const inputs = step.fields.map((field) => {
           const found = matches(field.target);

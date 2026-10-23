@@ -951,7 +951,10 @@ recipe cannot place them in a search box. A Hidden custom field goes only into a
 password or short numeric input, and a Linked custom field follows the field it reads.
 Before a fill step that writes a secret but not the username (a site that remembers the
 account and asks only for the password), the background sends the selected item's
-username to the content script with that one fill. The content script compares it with
+username to the content script with that one fill. The content script first waits until
+the document has loaded and its DOM has not changed for 1 second, for at most 5 seconds
+and never past the operation's expiry, because a page can show the remembered account
+after its password field (Duolingo, 2026-10-23). It then compares the username with
 the account identifiers shown in the form, or the page when there is no form, and the
 first eight `h1`-`h3` headings; every element boundary but a `<wbr>` separates words,
 format characters are left out (so `taro.yamada@<wbr>example.com` is one address), and
