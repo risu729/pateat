@@ -1045,7 +1045,10 @@ function adjacentText(element: Element, keys?: ReadonlySet<Element>): string | u
  * A field's label. The keys of a page's software keyboards (`keys`, ADR 0067), with their
  * labels and order, are never part of it; the rest of a label around them is.
  */
-function fieldLabel(input: HTMLInputElement, keys?: ReadonlySet<Element>): string | undefined {
+function fieldLabel(
+  input: HTMLInputElement | HTMLSelectElement,
+  keys?: ReadonlySet<Element>,
+): string | undefined {
   const labels = [...(input.labels ?? [])].flatMap((label) => {
     const text = uncutText(renderedText(label, rawLimit, { leave: keys }));
     return text ? [text] : [];
@@ -1074,7 +1077,9 @@ function actionLabel(element: HTMLElement): string | undefined {
   );
 }
 
-function autocomplete(input: HTMLInputElement): ObservedCandidate["autocomplete"] {
+function autocomplete(
+  input: HTMLInputElement | HTMLSelectElement,
+): ObservedCandidate["autocomplete"] {
   const tokens = autocompleteTokens(input);
   if (tokens.length === 1 && tokens[0] === "off") return "off";
   return observedAutocompleteTokens.find((token) => tokens.includes(token));
@@ -1393,6 +1398,32 @@ function pageKeypads(document: Document, index: LocatorIndex, tokens: boolean): 
 function keypadPositionTarget(field: Element, container: Element): LoginKeypadTarget | undefined {
   const value = keypadPosition(field, container);
   return value === undefined ? undefined : { by: "position", value };
+}
+
+/** How many selects a judged page's description carries at most (ADR 0061). */
+const maxSelects = 12;
+/**
+ * The shown, enabled single-choice selects of a judged page (ADR 0061), each as a `select`
+ * with its label and `autocomplete`, never its options: the judge may name one as a split
+ * birth date's or card expiry date's part, and the fill matches an option by its number.
+ */
+function describeSelects(document: Document): { form: HTMLFormElement | null; draft: Draft }[] {
+  return [...document.querySelectorAll("select")].flatMap((select) => {
+    if (select.multiple || select.matches(":disabled") || presence(select) !== "visible") return [];
+    const label = fieldLabel(select);
+    const hint = autocomplete(select);
+    return [
+      {
+        form: select.form,
+        draft: {
+          element: select,
+          role: "select" as const,
+          ...(label ? { label } : {}),
+          ...(hint ? { autocomplete: hint } : {}),
+        },
+      },
+    ];
+  });
 }
 
 /**
@@ -2232,9 +2263,12 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * box with no ID, a password change form's field or a hotel search's read-only date
  * picker, is left out (owner, 2026-10-12, ADR 0029). A disabled one is left out too, but
  * the result says so (`disabledLeftOut`): it may be a code field waiting for a timer or a
- * sent code, so such a page completes only when the judge answers `signed-in`. A radio
- * button, select or text area, or an ARIA widget for one, is left out as well, and the
- * result says when the page shows one that is no part of a site search
+ * sent code, so such a page completes only when the judge answers `signed-in`. Up to
+ * twelve shown single-choice selects follow the fields as `select`, by their label and
+ * `autocomplete` and never their options, located by a lasting attribute or left out, so
+ * the judge can name a split birth date's or card expiry date's parts (ADR 0061). A radio
+ * button or text area, or an ARIA widget for one, is left out as well, and the result
+ * says when the page shows one, or any select, that is no part of a site search
  * (`inputLeftOut`, `leftOutInputs`): an `optional` answer does not complete such a page
  * (ADR 0065). Buttons
  * and links are only possible markers; those past the limit or without a locator are
@@ -2310,6 +2344,9 @@ function describeSignedIn(document: Document): ObservationResult {
         : [];
     });
   const fieldsFound = located(fieldEntries);
+  // A select is no sign-in field: one without a lasting locator, or past the limit, is
+  // left out (ADR 0061).
+  const selectsFound = located(describeSelects(document)).slice(0, maxSelects);
   if (fieldsFound.length > maxCandidates) gap ??= "too-many-fields";
   // A field nothing can locate is left out unless it may be a sign-in field, as a search
   // box with no ID or a password change form's fields are not (S2 of ADR 0029: a new
@@ -2358,9 +2395,10 @@ function describeSignedIn(document: Document): ObservationResult {
     ];
   });
   const ranked = byLandmark(markersFound, openModals(document));
+  const fieldsShown = [...fieldsFound, ...selectsFound].slice(0, maxCandidates);
   const chosen = [
-    ...fieldsFound.slice(0, maxCandidates),
-    ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
+    ...fieldsShown,
+    ...ranked.slice(0, Math.max(0, maxCandidates - fieldsShown.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
   const result = observe(

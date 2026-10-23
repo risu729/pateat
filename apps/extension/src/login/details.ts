@@ -1,7 +1,10 @@
 import {
   getItemEligibility,
   resolveDetailSourceField,
+  type DatePart,
+  type DetailField,
   type DetailFormat,
+  type DetailPart,
   type DetailLink,
   type LocalSettings,
   type LoginDetail,
@@ -16,7 +19,8 @@ import type { LoginSecretKind } from "./wire";
 // detail, the owner's links to them, and the value a page wants made from a field's
 // value. Values are made here, in the service worker, right after the vault read, so a
 // whole phone number never reaches the page, nor a whole card number except for a
-// `card-number` input.
+// `card-number` input, and a value split over several inputs reaches it only as its
+// parts: a date's year, month and day, or a card number's or PIN's digit groups.
 
 /** The login item a link belongs to: its site and its vault account and item. */
 export type DetailOwner = Pick<DetailLink, "origin" | "provider" | "userId" | "itemId">;
@@ -237,6 +241,94 @@ export function detailSecret(
   detail: Exclude<LoginDetail, "secret-answer">,
 ): Extract<LoginSecretKind, "card-code" | "card-number" | "pin" | "detail"> {
   return detail === "card-code" || detail === "card-number" || detail === "pin" ? detail : "detail";
+}
+
+/** One value a `detail` fill types or chooses, and which inputs it may go into. */
+export type DetailFillValue = {
+  value: string;
+  secret: LoginSecretKind;
+  /**
+   * A digit group's input's `maxlength`: the group's length, or, for the last group, the
+   * length its input declared when its digits are fewer.
+   */
+  group?: number;
+  /** A split date's part, whose range a select's option values must lie in. */
+  part?: DatePart;
+  /** A card expiry year, which a select may write with two or four digits. */
+  shortYear?: true;
+};
+
+/** A split date's part as its format writes it: `yyyy` or `yy`, `mm` or `m`, `dd` or `d`. */
+function datePartText(
+  date: { year: string; month: number; day: number },
+  part: DatePart,
+  format: DetailPart["format"],
+): string | undefined {
+  if (part === "year") return format === "yy" ? date.year.slice(-2) : date.year;
+  const number = part === "month" ? date.month : date.day;
+  return format === "m" || format === "d" ? String(number) : String(number).padStart(2, "0");
+}
+
+/**
+ * The values a `detail` field's inputs want, in their order (ADR 0061), made from the
+ * linked field's value (and, for a card's expiry date, `cardYear`): one input's value as
+ * `detailValue` makes it, or one per part of a split value: a date's year, month and day
+ * each in its part's format, chosen in a select by that number; a card number's or PIN's
+ * digits cut into its groups' lengths, every group but the last exactly and the last
+ * with the digits left, at least one and at most its length. Undefined when the value is
+ * unreadable or the field is a secret question's, whose answer goes with its question;
+ * `unfit` when a readable card number's or PIN's digits do not fit its groups.
+ */
+export function detailFieldValues(
+  field: DetailField,
+  value: string,
+  cardYear?: string,
+): DetailFillValue[] | "unfit" | undefined {
+  if (field.detail === "secret-answer") return undefined;
+  if (!("parts" in field)) {
+    const made = detailValue(field.detail, field.format, value, cardYear);
+    return made === undefined ? undefined : [{ value: made, secret: detailSecret(field.detail) }];
+  }
+  if (field.detail === "birth-date" || field.detail === "card-expiry") {
+    const read = field.detail === "birth-date" ? readBirthDate(value) : undefined;
+    const expiry =
+      field.detail === "card-expiry" && cardYear !== undefined
+        ? readExpiry(value, cardYear)
+        : undefined;
+    const date = read
+      ? { year: String(read.year), month: read.month, day: read.day }
+      : expiry && { year: expiry.year, month: Number(expiry.month), day: 0 };
+    if (!date) return undefined;
+    const made: DetailFillValue[] = [];
+    for (const part of field.parts) {
+      if (typeof part.part !== "string") return undefined;
+      const text = datePartText(date, part.part, part.format);
+      if (text === undefined) return undefined;
+      made.push({
+        value: text,
+        secret: "date-part",
+        part: part.part,
+        ...(field.detail === "card-expiry" && part.part === "year"
+          ? { shortYear: true as const }
+          : {}),
+      });
+    }
+    return made;
+  }
+  const whole = detailValue(field.detail, undefined, value);
+  if (whole === undefined) return undefined;
+  const lengths = field.parts.map((part) => part.length ?? 0);
+  const earlier = lengths.slice(0, -1).reduce((sum, length) => sum + length, 0);
+  const last = whole.length - earlier;
+  if (last < 1 || last > lengths.at(-1)!) return "unfit";
+  const secret = detailSecret(field.detail);
+  let at = 0;
+  return lengths.map((length, index) => {
+    const size = index === lengths.length - 1 ? last : length;
+    const group = whole.slice(at, at + size);
+    at += size;
+    return { value: group, secret, group: length };
+  });
 }
 
 /**

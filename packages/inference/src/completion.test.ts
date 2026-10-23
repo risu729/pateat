@@ -1402,13 +1402,13 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
     }
   });
 
-  it("fails closed on an unknown detail or format, more than three, or details beside another decision", async () => {
+  it("fails closed on an unknown detail, format or part, more than twelve inputs, or details beside another decision", async () => {
     for (const result of [
       answer([{ field: "phone", value: "password" }]),
       answer([{ field: "birth", value: "birth-date", format: "ddmmyyyy" }]),
-      // A separate expiry month or year is no format.
-      answer([{ field: "birth", value: "card-expiry", format: "mm" }]),
-      answer([...both, both[0], both[1]]),
+      answer([{ field: "birth", value: "birth-date", format: "yyyy", part: "week" }]),
+      answer([{ field: "phone", value: "card-number", part: "7" }]),
+      answer(Array.from({ length: 13 }, () => both[1])),
       { decision: "rejected", details: both, detailSubmit: "next" },
       { decision: "signed-in", marker: "next", detailSubmit: "next" },
     ])
@@ -1445,7 +1445,12 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
       /A challenge that asks for a fact about the person instead of a code fills details and detailSubmit\./u,
     );
     expect(completionInstructions).toMatch(
-      /value is birth-date for a birth date asked in one input, whole or as its year and month or its month and day, with format yyyymmdd, yyyymm, yyyy-mm-dd, yyyy\/mm\/dd or mmdd as the page says or shows; a birth date split over several inputs, or written in a form none of these formats match, such as a two-digit or era year or a separator the format lacks, is no detail; phone-last-4 for the last four digits of a phone number; card-last-4 for the last four digits of a card number; card-code for a card's security code; card-number for a card's whole number asked in one input; card-expiry for a card's expiry month and year asked in one input, with format mmyy, mm\/yy, mmyyyy or mm\/yyyy as the page says or shows; a card number or expiry date split over several inputs is no detail; pin for a PIN or passcode made of digits, such as a card's or an account's, never the account's password; secret-answer for the answer to a secret question the page shows; member-id for a member, customer or contract number that is not the account's sign-in ID\./u,
+      /value is birth-date for a birth date asked in one input, whole or as its year and month or its month and day, with format yyyymmdd, yyyymm, yyyy-mm-dd, yyyy\/mm\/dd or mmdd as the page says or shows; a birth date written in a form none of these formats match, such as a two-digit or era year or a separator the format lacks, is no detail; phone-last-4 for the last four digits of a phone number; card-last-4 for the last four digits of a card number; card-code for a card's security code; card-number for a card's whole number; card-expiry for a card's expiry month and year, in one input with format mmyy, mm\/yy, mmyyyy or mm\/yyyy as the page says or shows; pin for a PIN or passcode made of digits, such as a card's or an account's, never the account's password; secret-answer for the answer to a secret question the page shows; member-id for a member, customer or contract number that is not the account's sign-in ID\./u,
+    );
+    // A value split over several inputs is a detail now (owner, 2026-10-23 12:26 UTC).
+    expect(completionInstructions).not.toMatch(/split over several inputs(?:,| is) no detail/u);
+    expect(completionInstructions).toMatch(
+      /A value split over several inputs or selects lists each of them with the same value and its part\. A birth date's year, month and day \(all three, the year and month, or the month and day\) and a card expiry date's month and year are part year, month and day\. Every date part also names its format: yyyy for a year, or yy for a card expiry year written with two digits; mm or m for a month and dd or d for a day, m and d when the page writes them without a leading zero; a select, whose options are not shown here, takes yyyy, mm and dd\. A card number's or PIN's boxes are part 1, 2 and so on in the order the digits go, with no format\. A birth year asked with two digits or as an era year is no detail\./u,
     );
     // A whole card number and a PIN are details now (owner, 2026-10-23 11:41 UTC); a
     // password and a code sent to the person are still none.
@@ -1455,6 +1460,346 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
     expect(completionInstructions).not.toMatch(/a PIN, a password/u);
     // The stop's instructions extend them.
     expect(completionStopInstructions.startsWith(completionInstructions)).toBe(true);
+  });
+
+  describe("a value split over several inputs (owner, 2026-10-23 12:26 UTC)", () => {
+    // Synthetic pages: a birth date in three selects, and a card number in four boxes.
+    const select = (id: string, label?: string) => ({
+      id,
+      role: "select",
+      target: { by: "name", value: id },
+      ...(label ? { label } : {}),
+      group: "form-1",
+    });
+    const box = (id: string, maxLength?: number) => ({
+      id,
+      role: "tel",
+      target: { by: "name", value: id },
+      ...(maxLength === undefined ? {} : { maxLength }),
+      group: "form-1",
+    });
+    const dateSelects = [select("year", "Date of birth"), select("month"), select("day")];
+    const datePage = [...dateSelects, phone, next];
+    const dateAnswer = [
+      { field: "year", value: "birth-date", part: "year", format: "yyyy" },
+      { field: "month", value: "birth-date", part: "month", format: "m" },
+      { field: "day", value: "birth-date", part: "day", format: "dd" },
+    ];
+    const boxes = [box("c1", 4), box("c2", 4), box("c3", 4), box("c4", 4)];
+    const cardAnswer = boxes.map((entry, at) => ({
+      field: entry.id,
+      value: "card-number",
+      part: String(at + 1),
+    }));
+    const name = (value: string) => ({ by: "name", value });
+
+    it("keeps a birth date in three selects as one field in place of its first part", async () => {
+      const outcome = await judged(datePage, answer([...dateAnswer, both[1]]));
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          status: "ok",
+          value: {
+            decision: "challenge",
+            detail: {
+              fields: [
+                {
+                  detail: "birth-date",
+                  parts: [
+                    { part: "year", format: "yyyy", target: name("year") },
+                    { part: "month", format: "m", target: name("month") },
+                    { part: "day", format: "dd", target: name("day") },
+                  ],
+                },
+                keptPhone,
+              ],
+              target: { by: "id", value: "next" },
+            },
+          },
+        }),
+      );
+      // The answer is logged with its parts.
+      expect(outcome.answer).toEqual(answer([...dateAnswer, both[1]]));
+    });
+
+    it("gives a date part named without a format a four-digit year and a padded month and day", async () => {
+      // The judge often leaves a part's format out (paid run, 2026-10-23).
+      const unformatted = dateAnswer.map(({ format: _format, ...rest }) => rest);
+      const outcome = await judged(datePage, answer(unformatted));
+      expect(outcome).toMatchObject({
+        status: "ok",
+        value: {
+          detail: {
+            fields: [
+              {
+                detail: "birth-date",
+                parts: [
+                  { part: "year", format: "yyyy", target: name("year") },
+                  { part: "month", format: "mm", target: name("month") },
+                  { part: "day", format: "dd", target: name("day") },
+                ],
+              },
+            ],
+          },
+        },
+      });
+      const unnamed = (ids: string[], value: string, parts: string[]) =>
+        parts.map((part, at) => ({ field: ids[at]!, value, part }));
+      // A text input's maxlength must hold the part so made.
+      const short = await judged(
+        [box("y", 2), box("m", 2), box("d", 2), next],
+        answer(unnamed(["y", "m", "d"], "birth-date", ["year", "month", "day"])),
+      );
+      expect(short).toMatchObject({
+        status: "ok",
+        value: { detailsDropped: ["too-short", "parts", "parts"] },
+      });
+      // A card expiry year in a two-character box is written with two digits.
+      const expiry = await judged(
+        [box("em", 2), box("ey", 2), next],
+        answer(unnamed(["em", "ey"], "card-expiry", ["month", "year"])),
+      );
+      expect(expiry).toMatchObject({
+        status: "ok",
+        value: {
+          detail: {
+            fields: [
+              {
+                detail: "card-expiry",
+                parts: [
+                  { part: "month", format: "mm", target: name("em") },
+                  { part: "year", format: "yy", target: name("ey") },
+                ],
+              },
+            ],
+          },
+        },
+      });
+      // A four-character box takes four digits.
+      const long = await judged(
+        [box("em", 2), box("ey", 4), next],
+        answer(unnamed(["em", "ey"], "card-expiry", ["month", "year"])),
+      );
+      expect(long).toMatchObject({
+        status: "ok",
+        value: {
+          detail: {
+            fields: [
+              {
+                parts: [
+                  { part: "month", format: "mm" },
+                  { part: "year", format: "yyyy" },
+                ],
+              },
+            ],
+          },
+        },
+      });
+      // A box that declares no length gives no hint which the page wants: the year is not
+      // filled unless the judge names its format, and the month goes with it.
+      const open = await judged(
+        [box("em", 2), box("ey"), next],
+        answer(unnamed(["em", "ey"], "card-expiry", ["month", "year"])),
+      );
+      expect(open).toMatchObject({
+        status: "ok",
+        value: { detailsDropped: ["format", "parts"] },
+      });
+      expect(open.status === "ok" && open.value).not.toHaveProperty("detail");
+      const named = await judged(
+        [box("em", 2), box("ey"), next],
+        answer([
+          { field: "em", value: "card-expiry", part: "month" },
+          { field: "ey", value: "card-expiry", part: "year", format: "yy" },
+        ]),
+      );
+      expect(named).toMatchObject({
+        status: "ok",
+        value: {
+          detail: {
+            fields: [{ parts: [{ part: "month" }, { part: "year", format: "yy" }] }],
+          },
+        },
+      });
+    });
+
+    it("matches a year in a select by its four digits whatever format the judge names", async () => {
+      const outcome = await judged(
+        datePage,
+        answer(
+          dateAnswer.map((entry) => (entry.part === "year" ? { ...entry, format: "yy" } : entry)),
+        ),
+      );
+      expect(outcome).toMatchObject({
+        status: "ok",
+        value: {
+          detail: {
+            fields: [
+              {
+                detail: "birth-date",
+                parts: [{ part: "year", format: "yyyy", target: name("year") }, {}, {}],
+              },
+            ],
+          },
+        },
+      });
+    });
+
+    it("keeps a card number's boxes in their numbers' order, each as long as its maxlength", async () => {
+      const outcome = await judged(
+        [...boxes, next],
+        // Named out of order: the numbers decide.
+        answer([cardAnswer[2], cardAnswer[0], cardAnswer[3], cardAnswer[1]]),
+      );
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          status: "ok",
+          value: {
+            decision: "challenge",
+            detail: {
+              fields: [
+                {
+                  detail: "card-number",
+                  parts: boxes.map((entry, at) => ({
+                    part: at + 1,
+                    length: 4,
+                    target: name(entry.id),
+                  })),
+                },
+              ],
+              target: { by: "id", value: "next" },
+            },
+          },
+        }),
+      );
+    });
+
+    it("keeps a card expiry date in month and year selects and a PIN in four boxes of one digit", async () => {
+      const pinBoxes = [1, 2, 3, 4].map((at) => box(`p${at}`, 1));
+      const outcome = await judged(
+        [select("exp_m"), select("exp_y"), ...pinBoxes, next],
+        answer([
+          { field: "exp_m", value: "card-expiry", part: "month", format: "mm" },
+          { field: "exp_y", value: "card-expiry", part: "year", format: "yy" },
+          ...pinBoxes.map((entry, at) => ({ field: entry.id, value: "pin", part: String(at + 1) })),
+        ]),
+      );
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          value: {
+            decision: "challenge",
+            detail: {
+              fields: [
+                {
+                  detail: "card-expiry",
+                  parts: [
+                    { part: "month", format: "mm", target: name("exp_m") },
+                    // A select's year is matched by its four digits, though named `yy`.
+                    { part: "year", format: "yyyy", target: name("exp_y") },
+                  ],
+                },
+                {
+                  detail: "pin",
+                  parts: pinBoxes.map((entry, at) => ({
+                    part: at + 1,
+                    length: 1,
+                    target: name(entry.id),
+                  })),
+                },
+              ],
+              target: { by: "id", value: "next" },
+            },
+          },
+        }),
+      );
+    });
+
+    it.each([
+      [
+        "a birth date without its day's select, which a year and month alone would not miss",
+        datePage,
+        [dateAnswer[0], dateAnswer[2]],
+        ["parts", "parts"],
+      ],
+      [
+        "a birth date with its month named twice",
+        [...datePage, select("month2")],
+        [...dateAnswer, { ...dateAnswer[1], field: "month2" }],
+        ["parts", "parts", "parts", "parts"],
+      ],
+      [
+        // A select's year is matched by its four digits instead, whatever the judge names.
+        "a two-digit birth year in a box",
+        [box("year", 2), box("month", 2), box("day", 2), next],
+        [{ ...dateAnswer[0], format: "yy" }, dateAnswer[1], dateAnswer[2]],
+        ["format", "parts", "parts"],
+      ],
+      [
+        // A box left out of a number that still has 12 digits is caught at the fill, where
+        // the card's digits must fill the boxes exactly.
+        "card number boxes of fewer than 12 digits",
+        [box("c1", 3), box("c2", 3), box("c3", 3), next],
+        cardAnswer.slice(0, 3),
+        ["parts", "parts", "parts"],
+      ],
+      [
+        "a card number's box without a maxlength",
+        [...boxes.slice(0, 3), box("c4"), next],
+        cardAnswer,
+        ["no-length", "parts", "parts", "parts"],
+      ],
+      [
+        "a card number's box that is a select",
+        [...boxes.slice(0, 3), select("c4"), next],
+        cardAnswer,
+        ["not-input", "parts", "parts", "parts"],
+      ],
+      [
+        "a phone's last four digits split over two boxes",
+        [box("t1", 2), box("t2", 2), next],
+        [
+          { field: "t1", value: "phone-last-4", part: "1" },
+          { field: "t2", value: "phone-last-4", part: "2" },
+        ],
+        ["part", "part"],
+      ],
+      [
+        "a card expiry month without its part, which no one-input format names",
+        [select("exp_m"), next],
+        [{ field: "exp_m", value: "card-expiry", format: "mm" }],
+        ["format"],
+      ],
+      [
+        "a select asked for a whole birth date",
+        [select("dob"), next],
+        [{ field: "dob", value: "birth-date", format: "yyyymmdd" }],
+        ["not-input"],
+      ],
+    ])("keeps no handler for %s", async (_label, candidates, details, why) => {
+      const outcome = await judged(candidates, answer(details));
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          status: "ok",
+          value: { decision: "challenge", detailsDropped: why },
+        }),
+      );
+      expect(hasDetail(outcome)).toBe(false);
+    });
+
+    it("keeps three fields at most", async () => {
+      const outcome = await judged(
+        [...dateSelects, ...boxes, birth, phone, next],
+        answer([...dateAnswer, ...cardAnswer, both[0], both[1]]),
+      );
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          value: expect.objectContaining({ detailsDropped: ["too-many"] }),
+        }),
+      );
+      const value = outcome.status === "ok" ? outcome.value : undefined;
+      expect(
+        value?.decision === "challenge" && value.detail?.fields.map((field) => field.detail),
+      ).toEqual(["birth-date", "card-number", "birth-date"]);
+    });
   });
 });
 

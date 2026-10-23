@@ -45,7 +45,7 @@ afterEach(() => {
 });
 
 /** The page's answer to the popup's `login.detail.fill` of `input` with these values. */
-async function fill(command: Record<string, unknown>) {
+async function fill({ account, ...field }: Record<string, unknown>) {
   const token = sent.find((message) => typeof message["token"] === "string")?.["token"];
   const answer: { value?: unknown } = {};
   for (const listener of listeners)
@@ -55,8 +55,8 @@ async function fill(command: Record<string, unknown>) {
         type: "login.detail.fill",
         token,
         path: location.pathname,
-        target: { by: "name", value: "asked" },
-        ...command,
+        fields: [{ target: { by: "name", value: "asked" }, ...field }],
+        ...(account ? { account } : {}),
       },
       { id: "synthetic-extension" },
       (value) => (answer.value = value),

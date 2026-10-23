@@ -940,11 +940,12 @@ than in this repository.
   beside the sign-in form (`beside`), delivery 3, links to the items that hold the
   values, proposed in the popup, delivery 4, secret-question answers and member IDs,
   delivery 5, whole card numbers, expiry dates and PINs, delivery 6, the judge's
-  account slots and secret-question pairing, and delivery 7, the card guess from the
-  last digits and brand a page shows, are implemented. エポスNet asks for the card's
-  security code after the password (owner, 2026-10-12 04:18 UTC: it can wait), and
-  other sites ask for a birth date or similar details as extra verification. The owner
-  sees these as one need (2026-10-12 05:29 UTC): the value is in a card or
+  account slots and secret-question pairing, delivery 7, the card guess from the last
+  digits and brand a page shows, and delivery 8, values split over several inputs and
+  selects, are implemented. エポスNet asks for the card's security code after the
+  password (owner, 2026-10-12 04:18 UTC: it can wait), and other sites ask for a birth
+  date or similar details as extra verification. The owner sees these as one need
+  (2026-10-12 05:29 UTC): the value is in a card or
   identity item, not in the login item, so the login has to be linked to that item. The
   owner chose how to link them (05:27 UTC): Pateat guesses the item from the site being
   logged into and what its pages show (such as a card name, brand or masked last

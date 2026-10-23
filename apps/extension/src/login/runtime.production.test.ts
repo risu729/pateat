@@ -17738,6 +17738,291 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       10_000,
     );
 
+    describe("a value split over several inputs (owner, 2026-10-23 12:26 UTC)", () => {
+      // A synthetic page that asks for a birth date in three selects, a year, a month
+      // written without a leading zero and a day with one.
+      const splitBirth = {
+        detail: "birth-date" as const,
+        parts: [
+          { part: "year" as const, format: "yyyy" as const, target: target("by") },
+          { part: "month" as const, format: "m" as const, target: target("bm") },
+          { part: "day" as const, format: "dd" as const, target: target("bd") },
+        ],
+      };
+      const born = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        handlers: [{ ...detailHandler, path: "/signin", fields: [splitBirth] }],
+      });
+      it("chooses a birth date's year, month and day in three selects, made after one read", async () => {
+        onClick({
+          login: { path: "/signin", present: ["by", "bm", "bd", "confirm"] },
+          confirm: toHome,
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                userId,
+                itemId,
+                detail: "birth-date",
+                source: { itemId: otherItemId, field: { custom: "生年月日" } },
+              },
+            ],
+          },
+          { passkeys: noPasskey, report, otherCustom: [{ name: "生年月日", kind: "text" }] },
+        );
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId.startsWith("custom.") ? "1990-04-05" : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(born);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        // Each part goes to the content script on its own, never the whole date.
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          [
+            { slot: "detail", value: "1990", secret: "date-part", part: "year" },
+            { slot: "detail 2", value: "4", secret: "date-part", part: "month" },
+            { slot: "detail 3", value: "05", secret: "date-part", part: "day" },
+          ],
+        ]);
+        expect(JSON.stringify(fake.state.messages)).not.toContain("1990-04-05");
+        expect(h.fields.mock.calls.map(([request]) => request.account.itemId)).toEqual([
+          itemId,
+          otherItemId,
+        ]);
+        // Its selects are observed as ones a value can be set in before the fill is chosen.
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({
+            type: "login.observe",
+            targets: [target("by"), target("bm"), target("bd")],
+            require: ["settable", "settable", "settable"],
+          }),
+        );
+        expect(clicks("confirm")).toBe(1);
+        expect(handlerReports(report)).toEqual([[0, "detail", "entered", 2]]);
+      }, 10_000);
+
+      it("ends as a challenge with nothing chosen when a select has no option for its part", async () => {
+        onClick({
+          login: { path: "/signin", present: ["by", "bm", "bd", "confirm"] },
+          confirm: toHome,
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                userId,
+                itemId,
+                detail: "birth-date",
+                source: { itemId: otherItemId, field: { custom: "生年月日" } },
+              },
+            ],
+          },
+          { passkeys: noPasskey, report, otherCustom: [{ name: "生年月日", kind: "text" }] },
+        );
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId.startsWith("custom.") ? "1990-04-05" : "synthetic-secret",
+        );
+        // The content script finds no option for one part before it chooses any.
+        const clicked = fake.state.onExecute!;
+        fake.state.onExecute = async (message, tabId) => {
+          const values = message["values"] as { slot: string }[] | undefined;
+          if (values?.some((value) => value.slot === "detail 2"))
+            fake.state.executeReply = { ok: false, reason: "value-mismatch" };
+          return clicked(message, tabId);
+        };
+        h.recipes.recipe.mockResolvedValue(born);
+        expect(await h.hello()).toEqual({ ok: true });
+        // The person finishes the page, so the login is watched as after a judged
+        // challenge (ADR 0027).
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          { timeout: 6_000 },
+        );
+        expect(detailFills()).toHaveLength(1);
+        expect(clicks("confirm")).toBe(0);
+        expect(handlerReports(report)).toEqual([
+          [0, "detail", "entered", 2],
+          [0, "detail", "detail-unfit", 2],
+        ]);
+      }, 10_000);
+
+      it("types a card number's digits as groups into four boxes", async () => {
+        const boxed = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          handlers: [
+            {
+              ...detailHandler,
+              path: "/signin",
+              fields: [
+                {
+                  detail: "card-number" as const,
+                  parts: [1, 2, 3, 4].map((part) => ({
+                    part,
+                    length: 4,
+                    target: target(`c${part}`),
+                  })),
+                },
+              ],
+            },
+          ],
+        });
+        onClick({
+          login: { path: "/signin", present: ["c1", "c2", "c3", "c4", "confirm"] },
+          confirm: toHome,
+        });
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                userId,
+                itemId,
+                detail: "card-number",
+                source: { itemId: otherItemId, field: "card.number" },
+              },
+            ],
+          },
+          { passkeys: noPasskey },
+        );
+        const original = h.store.handle.getMockImplementation()!;
+        h.store.handle.mockImplementation(async () => {
+          const response = await original();
+          if (response.ok)
+            response.catalog.connections[0]!.items[1]!.fields = [
+              { id: "card.number", label: "number", name: null, kind: "text" as const },
+            ];
+          return response;
+        });
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId === "card.number" ? "4000 0000 0000 0002" : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(boxed);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          ["4000", "0000", "0000", "0002"].map((value, at) => ({
+            slot: at === 0 ? "detail" : `detail ${at + 1}`,
+            value,
+            secret: "card-number",
+            group: 4,
+          })),
+        ]);
+        expect(JSON.stringify(fake.state.messages)).not.toContain("4000000000000002");
+        expect(clicks("confirm")).toBe(1);
+      }, 10_000);
+
+      /** A login whose page asks for a card number in boxes of `lengths`. */
+      function boxedCard(lengths: number[], digits: string) {
+        const boxed = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          handlers: [
+            {
+              ...detailHandler,
+              path: "/signin",
+              fields: [
+                {
+                  detail: "card-number" as const,
+                  parts: lengths.map((length, at) => ({
+                    part: at + 1,
+                    length,
+                    target: target(`c${at + 1}`),
+                  })),
+                },
+              ],
+            },
+          ],
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                userId,
+                itemId,
+                detail: "card-number",
+                source: { itemId: otherItemId, field: "card.number" },
+              },
+            ],
+          },
+          { passkeys: noPasskey, report },
+        );
+        const original = h.store.handle.getMockImplementation()!;
+        h.store.handle.mockImplementation(async () => {
+          const response = await original();
+          if (response.ok)
+            response.catalog.connections[0]!.items[1]!.fields = [
+              { id: "card.number", label: "number", name: null, kind: "text" as const },
+            ];
+          return response;
+        });
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId === "card.number" ? digits : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(boxed);
+        return { h, report };
+      }
+
+      it("types a 16-digit card number into boxes whose last takes up to 7 digits", async () => {
+        onClick({
+          login: { path: "/signin", present: ["c1", "c2", "c3", "c4", "confirm"] },
+          confirm: toHome,
+        });
+        const { h } = boxedCard([4, 4, 4, 7], "4000 0000 0000 0002");
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        // The last group goes only into a box of its input's length.
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          [
+            { slot: "detail", value: "4000", secret: "card-number", group: 4 },
+            { slot: "detail 2", value: "0000", secret: "card-number", group: 4 },
+            { slot: "detail 3", value: "0000", secret: "card-number", group: 4 },
+            { slot: "detail 4", value: "0002", secret: "card-number", group: 7 },
+          ],
+        ]);
+        expect(clicks("confirm")).toBe(1);
+      }, 10_000);
+
+      it("fills nothing, and leaves the page to the person, when the card's digits do not fit its boxes", async () => {
+        onClick({ login: { path: "/signin", present: ["c1", "c2", "c3", "confirm"] } });
+        // 16 digits leave 8 for a last box of 4.
+        const { h, report } = boxedCard([4, 4, 4], "4000 0000 0000 0002");
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          { timeout: 6_000 },
+        );
+        expect(detailFills()).toEqual([]);
+        expect(clicks("confirm")).toBe(0);
+        expect(handlerReports(report)).toEqual([
+          [0, "detail", "entered", 2],
+          [0, "detail", "detail-unfit", 2],
+        ]);
+        // A value that does not fit the page is no change of the owner's settings.
+        expect(report.mock.calls.map(([entry]) => entry)).not.toContainEqual(
+          expect.objectContaining({ outcome: "policy-changed" }),
+        );
+      }, 10_000);
+    });
+
     describe("the popup's Fill", () => {
       const popup = {
         id: "synthetic-extension",
@@ -17754,7 +18039,14 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         onClick({
           login: {
             path: "/confirm",
-            present: [...fields.map((entry) => entry.target.value), "confirm"],
+            present: [
+              ...fields.flatMap((entry) =>
+                "parts" in entry
+                  ? entry.parts.map((part) => part.target.value)
+                  : [entry.target.value],
+              ),
+              "confirm",
+            ],
           },
           confirm: toHome,
         });
@@ -17831,8 +18123,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           expect(popupFills()).toEqual([
             expect.objectContaining({
               path: "/confirm",
-              target: target("card"),
-              ...filled,
+              fields: [{ target: target("card"), ...filled }],
               account: { username: cardValues["login.username"] },
             }),
           ]);
@@ -17846,6 +18137,67 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         },
         10_000,
       );
+
+      it("offers and fills a card expiry split over two selects as its one link", async () => {
+        // Owner, 2026-10-23 12:26 UTC: a split value is offered like its one-input form.
+        const h = await stopped(
+          [
+            {
+              detail: "card-expiry",
+              parts: [
+                { part: "month", format: "mm", target: target("em") },
+                { part: "year", format: "yy", target: target("ey") },
+              ],
+            },
+          ],
+          { username: true },
+        );
+        asCard(h);
+        h.fields.mockImplementation(
+          async (request) => cardValues[request.fieldId] ?? "synthetic-secret",
+        );
+        const offered = await h.login.handle(
+          { version: 1, type: "login.detail.get", tabId: 1 },
+          popup,
+        );
+        expect(offered).toMatchObject({
+          offer: {
+            details: [
+              {
+                detail: "card-expiry",
+                candidates: [{ itemId: otherItemId, fieldId: "card.expMonth" }],
+              },
+            ],
+          },
+        });
+        expect(await fill(h, "card-expiry", otherItemId, "card.expMonth")).toEqual({ ok: true });
+        // Each select gets only its own part, checked as settable before the fill.
+        expect(popupFills()).toEqual([
+          expect.objectContaining({
+            path: "/confirm",
+            fields: [
+              { target: target("em"), value: "04", secret: "date-part", part: "month" },
+              {
+                target: target("ey"),
+                value: "31",
+                secret: "date-part",
+                part: "year",
+                shortYear: true,
+              },
+            ],
+          }),
+        ]);
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({
+            type: "login.observe",
+            targets: [target("em"), target("ey"), target("confirm")],
+            require: ["settable", "settable", "shown"],
+          }),
+        );
+        expect(
+          await h.login.handle({ version: 1, type: "login.detail.get", tabId: 1 }, popup),
+        ).toMatchObject({ links: [{ detail: "card-expiry", pending: true }] });
+      }, 10_000);
 
       it("fills the login item's PIN, and never another login item's", async () => {
         const h = await stopped([{ detail: "pin", target: target("pin") }], {
@@ -17871,7 +18223,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(popupFills()).toEqual([]);
         expect(await fill(h, "pin", itemId, fieldId)).toEqual({ ok: true });
         expect(popupFills()).toEqual([
-          expect.objectContaining({ path: "/confirm", value: "0123", secret: "pin" }),
+          expect.objectContaining({
+            path: "/confirm",
+            fields: [{ target: target("pin"), value: "0123", secret: "pin" }],
+          }),
         ]);
         // The item has no username, so the page is not asked to compare accounts.
         expect(popupFills()[0]).not.toHaveProperty("account");
@@ -18397,9 +18752,13 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(answerFills()).toEqual([
         expect.objectContaining({
           type: "login.detail.fill",
-          target: target("answer"),
-          secret: "answer",
-          question: { question: "母親の旧姓は" },
+          fields: [
+            expect.objectContaining({
+              target: target("answer"),
+              secret: "answer",
+              question: { question: "母親の旧姓は" },
+            }),
+          ],
         }),
       ]);
       expect(h.settings.settings.detailLinks).toBeUndefined();
@@ -18531,7 +18890,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(answerFills()).toEqual([
         expect.objectContaining({
           type: "login.detail.fill",
-          question: { name: "母親の旧姓は？" },
+          fields: [expect.objectContaining({ question: { name: "母親の旧姓は？" } })],
         }),
       ]);
     });
@@ -20182,16 +20541,14 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
             type: "login.observe",
             path: "/signin",
             targets: [target("birth"), target("confirm")],
-            require: ["writable", "shown"],
+            require: ["settable", "shown"],
           }),
         );
         expect(popupFills()).toEqual([
           expect.objectContaining({
             type: "login.detail.fill",
             path: "/signin",
-            target: target("birth"),
-            value: "199004",
-            secret: "detail",
+            fields: [{ target: target("birth"), value: "199004", secret: "detail" }],
           }),
         ]);
         expect(JSON.stringify(fake.state.messages)).not.toContain("1990-04-01");
@@ -20238,7 +20595,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(
           await fill(h, "synthetic-document", { detail: "phone-last-4", fieldId: phoneField }),
         ).toEqual({ ok: true });
-        expect(popupFills().at(-1)).toMatchObject({ target: target("phone"), value: "5678" });
+        expect(popupFills().at(-1)).toMatchObject({
+          fields: [{ target: target("phone"), value: "5678" }],
+        });
         expect(fake.state.session[pendingKey]).toHaveLength(1);
         await signedIn(h);
         expect(savedLinks(h)).toEqual([

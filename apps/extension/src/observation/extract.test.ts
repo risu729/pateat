@@ -2238,11 +2238,51 @@ describe("extractSignedInObservation", () => {
       title: "Accounts",
       headings: ["Welcome back"],
     });
+    // A select is described by its label and place, never its options (ADR 0061, owner
+    // 2026-10-23 12:26 UTC); the text before it labels it, as for an input.
     expect(summary(observation)).toEqual([
       { role: "link", target: { by: "id", value: "home" }, label: "Home" },
       { role: "link", target: { by: "id", value: "account" }, label: "Account [number]-[number]" },
       { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
+      { role: "select", target: { by: "id", value: "lang" }, label: "Welcome back" },
     ]);
+    expect(JSON.stringify(observation)).not.toContain("English");
+  });
+
+  it("describes a page's selects by their labels, for a split birth date (ADR 0061)", () => {
+    page(
+      `<form><p>Confirm your date of birth</p>
+        <label for="by">Year of birth</label>
+        <select id="by" name="by"><option value="">--</option><option>1990</option></select>
+        <label>Month <select name="bm"><option>4</option></select></label>
+        <label>Day <select name="bd"><option>5</option></select></label>
+        <select name="off" disabled><option>1</option></select>
+        <select name="many" multiple><option>1</option></select>
+        <select name="gone" hidden><option>1</option></select>
+        <button id="confirm" type="button">Confirm</button></form>`,
+    );
+    const observation = signedIn();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      { role: "select", target: { by: "id", value: "by" }, label: "Year of birth", group: "f1" },
+      { role: "select", target: { by: "name", value: "bm" }, label: "Month", group: "f1" },
+      { role: "select", target: { by: "name", value: "bd" }, label: "Day", group: "f1" },
+      { role: "button", target: { by: "id", value: "confirm" }, label: "Confirm", group: "f1" },
+    ]);
+    // An option's text never reaches the description.
+    expect(JSON.stringify(observation)).not.toContain("1990");
+    // At most twelve selects, so the markers keep their room.
+    page(
+      `${Array.from({ length: 14 }, (_, at) => `<select name="s${at}"><option>1</option></select>`).join("")}
+      <button id="logout" type="button">Sign out</button>`,
+    );
+    const many = summary(signedIn());
+    expect(many.filter((entry) => entry.role === "select")).toHaveLength(12);
+    expect(many.at(-1)).toEqual({
+      role: "button",
+      target: { by: "id", value: "logout" },
+      label: "Sign out",
+    });
   });
 
   it("never names a marker by an ID that another load may change", () => {

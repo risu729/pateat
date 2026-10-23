@@ -40,4 +40,14 @@ describe("secret input rule on Chromium inputs", () => {
   ] as const)("%s into %s is %s", (secret, html, expected) => {
     expect(acceptsSecret(field(html), secret)).toBe(expected);
   });
+
+  it.each([
+    ["date-part", "<select><option>1</option></select>", true],
+    ["date-part", "<select multiple><option>1</option></select>", false],
+    ["detail", "<select><option>1</option></select>", false],
+    ["pin", "<select><option>1</option></select>", false],
+  ] as const)("%s into %s is %s, by a select's own type", (secret, html, expected) => {
+    document.body.innerHTML = html;
+    expect(acceptsSecret(document.querySelector("select")!, secret)).toBe(expected);
+  });
 });
