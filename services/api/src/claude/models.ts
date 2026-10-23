@@ -216,13 +216,20 @@ export async function listApiModels(
  * The models whose fast mode failed on the owner's last `FAST_FAILURE_RUN` fast calls
  * within `FAST_FAILURE_WINDOW_MS`, as when the organization has no fast mode access.
  */
-export async function fastFailingModels(db: Db, ownerId: string, now: number) {
+export async function fastFailingModels(
+  db: Db,
+  ownerId: string,
+  now: number,
+  /** Whose key's calls count (ADR 0040): a device's key fails apart from the owner's. */
+  source: "service" | "device" = "service",
+) {
   const rows = await drizzle(db)
     .select({ modelId: inferenceLog.modelId, outcome: inferenceLog.outcome })
     .from(inferenceLog)
     .where(
       and(
         eq(inferenceLog.ownerId, ownerId),
+        eq(inferenceLog.source, source),
         eq(inferenceLog.speed, "fast"),
         gt(inferenceLog.createdAt, now - FAST_FAILURE_WINDOW_MS),
       ),

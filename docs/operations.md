@@ -37,8 +37,9 @@ credentials and deployment authorization; the read-only diagnosis below does not
 | Symptom | Checks and recovery |
 | --- | --- |
 | Site access is missing | Check Chrome's site-access control and the extension's site policy. Grant only the intended origin. A missing provider host permission also prevents Bitwarden sync. |
-| Vault works offline but Sync needs sign-in | The cached vault and the provider session are separate. Sign in to that Bitwarden connection again in settings; keep **Enable automatic unlock on this device** selected if wanted. A failed online sign-in must not be treated as permission to delete the cache. |
-| Automatic unlock is off | Sign in again with **Enable automatic unlock on this device**. **Disable automatic unlock** also forgets the sync session; browser restart does not restore it. |
+| Vault works offline but Sync needs sign-in | The cached vault and the provider session are separate. Sign in to that Bitwarden connection again in settings. A failed online sign-in must not be treated as permission to delete the cache. |
+| A vault is locked | The vault timeout locked it, or the browser restarted with a timeout other than Never. Press **Unlock** on its row in settings and enter the master password; no server is contacted. The diagnostics page logs each timeout as `vault.timeout`. |
+| A connection is logged out | **Log out**, or the timeout with the Log out action, removed the key and the sync sign-in. **Sign in again**; the encrypted cache is kept. |
 | A refresh failed temporarily | Retry **Sync** after connectivity, a 429 or a provider outage recovers. Retryable refresh failures retain the prior session. A rejected session needs sign-in again. |
 | The service device is rejected/expired | Revoke the old device in `/manage` when possible, disconnect the extension's service connection and pair again through the intended Access login. A new device restores service-held settings/recipes, not the Bitwarden vault or unlock key. |
 | Disconnect could not contact the service | The extension forgets the credential locally. Revoke the device separately in `/manage`; the UI reports when remote revocation was unconfirmed. |

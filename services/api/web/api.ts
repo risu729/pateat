@@ -1,8 +1,14 @@
 import {
   manageDashboardSchema,
+  manageClaudeSchema,
+  manageClaudeTestSchema,
   manageDevicesSchema,
+  profilesSchema,
+  profileSchema,
   manageErrorSchema,
   manageModelsSchema,
+  manageProfileInUseSchema,
+  manageProblemsSchema,
   manageRecipeConflictSchema,
   manageRecipesSchema,
   manageRequestLogDeletedSchema,
@@ -15,6 +21,7 @@ import {
   type ManageErrorCode,
   type ModelConfig,
   type SyncSettingsState,
+  type WifIdentifiers,
 } from "@pateat/contracts";
 import * as v from "valibot";
 
@@ -24,11 +31,15 @@ export class ManageApiError extends Error {
     | ManageErrorCode
     | "settings_conflict"
     | "recipe_conflict"
+    | "profile_in_use"
     | "network"
     | "unexpected-response";
-  constructor(code: ManageApiError["code"]) {
+  /** With `profile_in_use`: the labels of the devices that use the profile. */
+  readonly devices: string[];
+  constructor(code: ManageApiError["code"], devices: string[] = []) {
     super(code);
     this.code = code;
+    this.devices = devices;
   }
 }
 
@@ -56,6 +67,9 @@ async function call(fetcher: ManageFetch, path: string, init?: RequestInit) {
     throw new ManageApiError("settings_conflict");
   if (response.status === 409 && v.is(manageRecipeConflictSchema, body))
     throw new ManageApiError("recipe_conflict");
+  const inUse = v.safeParse(manageProfileInUseSchema, body);
+  if (response.status === 409 && inUse.success)
+    throw new ManageApiError("profile_in_use", inUse.output.devices);
   const error = v.safeParse(manageErrorSchema, body);
   throw new ManageApiError(error.success ? error.output.error : "unexpected-response");
 }
@@ -67,10 +81,60 @@ async function read<TSchema extends v.GenericSchema>(response: Response, schema:
 }
 
 export function createManageClient(fetcher: ManageFetch = (input, init) => fetch(input, init)) {
+  let selectedProfile: string | undefined;
+  async function profilePath(profileId?: string) {
+    let id = profileId ?? selectedProfile;
+    if (!id) {
+      const result = await read(await call(fetcher, "/profiles"), profilesSchema);
+      if (result.profiles.length !== 1) throw new ManageApiError("bad_request");
+      id = result.profiles[0]!.id;
+    }
+    return `/profiles/${encodeURIComponent(id)}/settings`;
+  }
   return {
     /** The dashboard's aggregates over the range, ending now. */
     async dashboard(range: ManageDashboardRange) {
       return read(await call(fetcher, `/dashboard?range=${range}`), manageDashboardSchema);
+    },
+    get profileId() {
+      return selectedProfile;
+    },
+    selectProfile(profileId: string) {
+      selectedProfile = profileId;
+    },
+    async profiles() {
+      return read(await call(fetcher, "/profiles"), profilesSchema);
+    },
+    async copyProfile(name: string, copyFrom: string) {
+      return read(
+        await call(fetcher, "/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, name, copyFrom }),
+        }),
+        profileSchema,
+      );
+    },
+    async renameProfile(profileId: string, name: string) {
+      return read(
+        await call(fetcher, `/profiles/${encodeURIComponent(profileId)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, name }),
+        }),
+        profileSchema,
+      );
+    },
+    /** Refused while a device uses the profile, or when it is the owner's only one. */
+    async deleteProfile(profileId: string) {
+      await call(fetcher, `/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
+    },
+    async assignProfile(deviceId: string, profileId: string) {
+      await call(fetcher, `/devices/${encodeURIComponent(deviceId)}/profile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, profileId }),
+      });
     },
     async devices() {
       return read(await call(fetcher, "/devices"), manageDevicesSchema);
@@ -78,15 +142,16 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
     async revokeDevice(deviceId: string) {
       await call(fetcher, `/devices/${encodeURIComponent(deviceId)}/revoke`, { method: "POST" });
     },
-    async settings() {
-      return read(await call(fetcher, "/settings"), syncSettingsStateSchema);
+    async settings(profileId?: string) {
+      return read(await call(fetcher, await profilePath(profileId)), syncSettingsStateSchema);
     },
     /** Replaces the settings only if nobody wrote since `expectedRevision`. */
     async saveSettings(
       expectedRevision: number,
       settings: LocalSettings,
+      profileId?: string,
     ): Promise<SyncSettingsState> {
-      const response = await call(fetcher, "/settings", {
+      const response = await call(fetcher, await profilePath(profileId), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ version: 1, expectedRevision, settings }),
@@ -103,6 +168,22 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ version: 1, expectedRevision }),
       });
+      return read(response, syncRecipeWriteResultSchema);
+    },
+    /**
+     * Removes one layout of the recipe (ADR 0060) only if `expectedRevision` is still its
+     * current revision; removing its last layout revokes it.
+     */
+    async revokeLayout(recipeId: string, layout: string, expectedRevision: number) {
+      const response = await call(
+        fetcher,
+        `/recipes/${encodeURIComponent(recipeId)}/layouts/${encodeURIComponent(layout)}/revoke`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, expectedRevision }),
+        },
+      );
       return read(response, syncRecipeWriteResultSchema);
     },
     /** The model configuration and the models it may name (ADR 0014). */
@@ -125,6 +206,26 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
       const response = await call(fetcher, "/request-log", { method: "DELETE" });
       return read(response, manageRequestLogDeletedSchema);
     },
+    /** The Claude Console values for this owner and the identifiers saved here. */
+    async claude() {
+      return read(await call(fetcher, "/claude"), manageClaudeSchema);
+    },
+    async saveClaude(identifiers: WifIdentifiers) {
+      const response = await call(fetcher, "/claude", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, identifiers }),
+      });
+      return read(response, manageClaudeSchema);
+    },
+    /** Exchanges one token with the saved identifiers; the token never reaches the page. */
+    async testClaude() {
+      return read(await call(fetcher, "/claude/test", { method: "POST" }), manageClaudeTestSchema);
+    },
+    /** The newest problem lines devices sent (ADR 0066). */
+    async problems() {
+      return read(await call(fetcher, "/problems"), manageProblemsSchema);
+    },
   };
 }
 
@@ -140,10 +241,12 @@ export function describeError(error: unknown): string {
       return "Your sign-in could not be verified. Reload the page to sign in again.";
     case "access_unavailable":
       return "Owner sign-in is not configured for this service.";
+    case "access_keys_unavailable":
+      return "Your sign-in could not be checked. Try again later.";
     case "not_found":
       return "It no longer exists. Reload the page.";
     case "not_paired":
-      return "No device is paired with this account yet. Pair a device first; settings belong to an account with a paired device.";
+      return "No device is paired with this account yet. Pair a device first; settings and Claude identifiers belong to an account with a paired device.";
     case "payload_too_large":
       return "The change was refused because the settings would be too large. Remove some entries first.";
     case "recipe_conflict":
@@ -152,6 +255,14 @@ export function describeError(error: unknown): string {
       return "The settings changed elsewhere, for example by a device sync. The page now shows the current settings; make the change again.";
     case "model_unavailable":
       return "A choice names a model, effort or speed that is no longer offered. The page now shows the current list; choose again.";
+    case "profile_name_taken":
+      return "Another profile already has that name. Choose another name.";
+    case "last_profile":
+      return "This is the only profile. An account always keeps one.";
+    case "profile_in_use": {
+      const names = (error as ManageApiError).devices.map((label) => label || "Unnamed device");
+      return `Devices still use this profile: ${new Intl.ListFormat("en", { type: "conjunction" }).format(names)}. Move them to another profile on the Devices page first.`;
+    }
     case "rate_limited":
       return "Too many requests in the last minute. Wait a minute and try again.";
     case "bad_request":

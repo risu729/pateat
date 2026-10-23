@@ -597,9 +597,6 @@ describe("recipe generation role", () => {
       await generate({ ...request, observation: { ...page.observation, complete: false } }),
     ).toMatchObject({ status: "failed", error: "incomplete-observation", calls: 0 });
     expect(await generate({ ...request, slots: [] })).toMatchObject({ error: "invalid-request" });
-    expect(await generate({ ...request, repair: { reason: "unknown" } })).toMatchObject({
-      error: "invalid-request",
-    });
     const small = createRecipeGenerator({
       model,
       limits: { ...limits, maxInputBytes: 1_024 },
@@ -611,22 +608,6 @@ describe("recipe generation role", () => {
       calls: 0,
     });
     expect(model.doGenerateCalls).toHaveLength(0);
-  });
-
-  it("includes locator-only previous steps for a repair request", async () => {
-    const { model, generate } = generatorReturning(plan([["email", "email"]]));
-    const repair = {
-      reason: "structural-mismatch",
-      previousSteps: [
-        {
-          kind: "fill",
-          path: "/login",
-          fields: [{ slot: "email", target: { by: "name", value: "mail" } }],
-        },
-      ],
-    };
-    expect(await generate({ ...request, repair })).toMatchObject({ status: "ok" });
-    expect(generationRequest(model.doGenerateCalls[0]!)).toMatchObject({ task: "repair", repair });
   });
 
   it("refuses model identifiers that would resolve through a global default provider", () => {

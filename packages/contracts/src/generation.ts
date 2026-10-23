@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { deviceModelCallSchema, deviceModelSchema } from "./device-model";
 import {
   customSlotIdSchema,
   fillRoles,
@@ -7,13 +8,17 @@ import {
   type LoginObservation,
 } from "./observation";
 import {
-  chooserBranchSchema,
-  loginChooserRecipeSchema,
+  loginChooserDocumentSchema,
   loginEntryRecipeSchema,
-  loginRecipeSchema,
+  loginFieldTargetSchema,
+  loginRecipeDocumentSchema,
   loginRouteSchema,
+  parseRecipeBranch,
+  recipeBranchSchema,
+  recipeLayoutKeySchema,
   storedRecipeSlots,
 } from "./login";
+import { shownQuestionSchema } from "./settings";
 import { syncRecipeIdSchema } from "./sync";
 
 // Contracts for the service's recipe generation routes (ADR 0018). Requests carry the
@@ -39,8 +44,9 @@ const sameIdentity = (change: {
   recipe: { id: string; revision: number };
 }) => change.recipe.id === change.recipeId && change.recipe.revision === change.revision;
 /**
- * The active variant of `syncRecipeChangeSchema`, with the same identity check: a route
- * recipe, or a chooser recipe (ADR 0028) for an account list or one of its branches.
+ * The active variant of `syncRecipeChangeSchema`, with the same identity check: a login
+ * recipe with its layouts (ADR 0060), or a chooser recipe (ADR 0028) for an account list or
+ * one of its branches.
  */
 const activeChange = v.pipe(
   v.strictObject({
@@ -48,7 +54,7 @@ const activeChange = v.pipe(
     revision: writtenRevision,
     state: v.literal("active"),
     // An entry recipe (ADR 0031) answers only an entry request (`activeEntryChange`).
-    recipe: v.union([loginRecipeSchema, loginChooserRecipeSchema]),
+    recipe: v.union([loginRecipeDocumentSchema, loginChooserDocumentSchema]),
   }),
   v.check((change) => sameIdentity(change), "Recipe identity does not match its sync revision"),
 );
@@ -107,6 +113,10 @@ export const generationUnavailableReasonSchema = v.picklist([
   "recipe-conflict",
   /** The owner's recipe count or bytes would exceed the service limit. */
   "recipe-limit",
+  /**
+   * This device already asked to repair the recipe this UTC day (ADR 0041).
+   */
+  "repair-limit",
 ]);
 export const generationFailureSchema = v.picklist([
   "incomplete-observation",
@@ -145,9 +155,13 @@ export const generationOutputRejectionSchema = v.variant("check", [
 ]);
 
 /**
- * `POST /v1/recipes/generate`: one page; `base` continues a recipe after an advance. With
- * `branch`, `base` is a chooser recipe (ADR 0028) and the page is the next one of that
- * branch: its first page, after the click on the list, or a later one.
+ * `POST /v1/recipes/generate`: one page; `base` continues a recipe after an advance, and
+ * `branch` names the layout it continues (ADR 0060). With a chooser branch in `branch`,
+ * `base` is a chooser recipe (ADR 0028) and the page is the next one of that branch: its
+ * first page, after the click on the list, or a later one. With `repair`, the page is a
+ * page of that recipe revision whose elements no longer match it, sent to add a layout for
+ * it (ADR 0041): its start page, a form or a list of accounts whatever the recipe's kind,
+ * or with `layout` and `step` the page where that layout's step did not show.
  */
 export const recipeGenerationRequestSchema = v.pipe(
   v.strictObject({
@@ -156,21 +170,40 @@ export const recipeGenerationRequestSchema = v.pipe(
     slots: v.union([semanticSlotsSchema, v.strictTuple([])]),
     passkeyOnly: v.optional(v.literal(true)),
     base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
-    branch: v.optional(chooserBranchSchema),
+    branch: v.optional(recipeBranchSchema),
     /**
      * A hint for the page's kind (ADR 0035): whether a signed-in marker of the origin's
      * recipes or the username of a matching vault item shows in the page's header or
      * navigation (ADR 0029's E1 and E2). Only the flag leaves the device, never the page
      * text or username. Sent with a recipe's first page that is no list of accounts, the
-     * only pages whose kind the model answers for the recipe: a continuation keeps its
-     * first page's kind, and a list of accounts is always `sign-in`.
+     * only pages whose kind the model answers for the recipe: a continuation, or a later
+     * step's repair, keeps its first page's kind, and a list of accounts is always
+     * `sign-in`.
      */
     signedIn: v.optional(v.boolean()),
+    repair: v.optional(
+      v.pipe(
+        v.strictObject({
+          recipeId: syncRecipeIdSchema,
+          revision: writtenRevision,
+          layout: v.optional(recipeLayoutKeySchema),
+          step: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(31))),
+        }),
+        v.check(
+          (repair) => (repair.layout === undefined) === (repair.step === undefined),
+          "A later step's repair names its layout and step",
+        ),
+      ),
+    ),
+    /** The device makes the model calls with its own key (ADR 0040). */
+    deviceModel: v.optional(deviceModelSchema),
   }),
   v.check(
     (request) =>
       (request.signedIn !== undefined) ===
-      (request.base === undefined && request.observation.accounts === undefined),
+      (request.base === undefined &&
+        request.observation.accounts === undefined &&
+        request.repair?.layout === undefined),
     "A recipe's first page that lists no accounts, and only it, carries signedIn",
   ),
   // A list of accounts (ADR 0028) is sent without slots or value shapes, since nothing of
@@ -196,9 +229,19 @@ export const recipeGenerationRequestSchema = v.pipe(
         isEntryObservation(request.observation)),
     "A passkey-only request is a first page with no slots, fields or accounts",
   ),
-  v.check((request) => !request.branch || request.base !== undefined, "A branch needs a base"),
+  v.check(
+    (request) => (request.branch === undefined) === (request.base === undefined),
+    "A base names the layout it continues, and a layout needs a base",
+  ),
+  v.check(
+    (request) =>
+      !request.repair ||
+      (request.base === undefined &&
+        !request.passkeyOnly &&
+        (request.observation.accounts === undefined || request.repair.layout === undefined)),
+    "A repair is a form's page or a start page's list of accounts, without a base",
+  ),
 );
-
 /**
  * Whether an observation can be sent without slots, as a page's sign-in entry (ADR 0031):
  * it shows no field to fill and lists no accounts (ADR 0028).
@@ -213,11 +256,18 @@ export const isEntryObservation = (observation: LoginObservation) =>
  * `POST /v1/recipes/generate` without `slots`: an entry request (ADR 0031), a page without
  * a login form whose answer names the link that opens the site's login page. No slot is
  * offered, so the page shows no field to fill, and it never continues a recipe (`base`,
- * `branch`). Every other request has `slots`, empty only for a passkey-only page or a list
- * of accounts.
+ * `branch`). With `repair`, the page is the entry page of that recipe revision whose link
+ * no longer shows (ADR 0041). Every other request has `slots`, empty only for a
+ * passkey-only page or a list of accounts.
  */
 export const entryGenerationRequestSchema = v.pipe(
-  v.strictObject({ version: v.literal(1), observation: loginObservationSchema }),
+  v.strictObject({
+    version: v.literal(1),
+    observation: loginObservationSchema,
+    repair: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
+    /** The device makes the model call with its own key (ADR 0040). */
+    deviceModel: v.optional(deviceModelSchema),
+  }),
   v.check(
     (request) => isEntryObservation(request.observation),
     "An entry request's page shows no field and lists no accounts",
@@ -259,6 +309,8 @@ const generationAnswers = [
     status: v.literal("unavailable"),
     reason: generationUnavailableReasonSchema,
   }),
+  /** Only for a request with `deviceModel`: the model call the device makes next. */
+  deviceModelCallSchema,
 ] as const;
 const rejectsOnlyInvalidOutput = (result: {
   status: string;
@@ -341,9 +393,21 @@ export const recipeCompletionRequestSchema = v.pipe(
     revision: writtenRevision,
     /** The login's route; the service checks the stored recipe has it. */
     route: loginRouteSchema,
-    /** For a chooser recipe (ADR 0028): the branch the login took, whose route is judged. */
-    branch: v.optional(chooserBranchSchema),
+    /**
+     * The layout the login ran (ADR 0060), and for a chooser recipe (ADR 0028) the branch
+     * it took, whose route is judged.
+     */
+    branch: recipeBranchSchema,
     observation: loginObservationSchema,
+    /**
+     * The login account's slots, built as a generation request's are: its built-in fields,
+     * one per custom field it allows by name, and shapes as ADR 0010 allows; `totp` only on
+     * a page with a code field (owner 2026-10-23: the same information goes to every model
+     * call unless there is a sound reason). Never values, item names or bindings. The judge
+     * compares their names with the page, and may pair a secret question's answer input
+     * with one, which the service answers with and never stores (ADR 0061).
+     */
+    slots: v.union([semanticSlotsSchema, v.strictTuple([])]),
     /**
      * The description left out a disabled field that may not be a sign-in field (ADR 0029):
      * a page the model cannot decide is judged again when the path is next described in
@@ -358,10 +422,29 @@ export const recipeCompletionRequestSchema = v.pipe(
      * name, it tells the service that the login's item has no password but a passkey.
      */
     stop: v.optional(v.literal(true)),
+    /**
+     * The page still shows one of the route's fill fields, on a route path, beside another
+     * form with a text-like input and its own button (`showsBesideForm`, ADR 0061). The
+     * service judges such a page though it shows the route's fill field, and keeps only a
+     * `detail` handler from it. Never with `stop`.
+     */
+    beside: v.optional(v.literal(true)),
+    /** The device makes the model calls with its own key (ADR 0040). */
+    deviceModel: v.optional(deviceModelSchema),
   }),
   v.check(
-    (request) => request.stop !== true || (request.route === "password" && !request.branch),
+    (request) =>
+      request.stop !== true ||
+      (request.route === "password" && parseRecipeBranch(request.branch)?.branch === undefined),
     "A stop is a password login's without a chooser",
+  ),
+  v.check(
+    (request) =>
+      request.beside !== true ||
+      (request.stop !== true &&
+        request.route === "password" &&
+        parseRecipeBranch(request.branch)?.branch === undefined),
+    "A page beside the sign-in form is a password login's without a chooser or a stop",
   ),
 );
 
@@ -370,17 +453,22 @@ export const recipeCompletionRequestSchema = v.pipe(
  * revision that its signed-in marker completed without a model call, kept in the request
  * log for evaluation and never sent to a model (ADR 0029, owner 2026-10-18 08:05 UTC). The
  * page is on the recipe's origin and described as the judge's page is. The service keeps
- * one per recipe and branch in `PAGE_SAMPLE_INTERVAL_MS` and answers 201 when it kept this
- * one, 204 when it already had one.
+ * one per recipe and branch (a layout, ADR 0060) in `PAGE_SAMPLE_INTERVAL_MS` and answers
+ * 201 when it kept this one, 204 when it already had one.
  */
 export const recipePageSampleRequestSchema = v.strictObject({
   version: v.literal(1),
   revision: writtenRevision,
   /** The login's route, as the judge is told it; the service checks the revision has it. */
   route: loginRouteSchema,
-  /** For a chooser recipe (ADR 0028): the branch the login took. */
-  branch: v.optional(chooserBranchSchema),
+  /** The layout the login ran (ADR 0060), and for a chooser recipe the branch it took. */
+  branch: recipeBranchSchema,
   observation: loginObservationSchema,
+  /**
+   * The login account's slots, exactly as the judge request would carry them, so the
+   * logged sample is the request the judge would get (owner 2026-10-23).
+   */
+  slots: v.union([semanticSlotsSchema, v.strictTuple([])]),
 });
 
 export const recipeCompletionResultSchema = v.variant("status", [
@@ -396,13 +484,35 @@ export const recipeCompletionResultSchema = v.variant("status", [
   v.strictObject({ version: v.literal(1), status: v.literal("rejected") }),
   /**
    * `change` is the recipe with a handler added for the judged page; the login that sent
-   * the page may take it over (ADR 0027).
+   * the page may take it over (ADR 0027). `questions` pairs each secret question's answer
+   * input the judge kept with the request slot that holds its answer, and the question as
+   * the page shows it (ADR 0061): for this account only, kept in no recipe, and filled
+   * from only once the owner confirms it.
    */
   v.strictObject({
     version: v.literal(1),
     status: v.literal("challenge"),
     change: v.optional(activeChange),
+    questions: v.optional(
+      v.pipe(
+        v.array(
+          v.strictObject({
+            field: loginFieldTargetSchema,
+            slot: slotReference,
+            shown: shownQuestionSchema,
+          }),
+        ),
+        v.minLength(1),
+        v.maxLength(3),
+      ),
+    ),
   }),
+  /**
+   * The person is signed in and the page only offers something they may put off, such as a
+   * prompt to check two-factor settings or add a passkey (ADR 0065). Nothing is learned:
+   * the login completes there as signed in and leaves the page to the person.
+   */
+  v.strictObject({ version: v.literal(1), status: v.literal("optional") }),
   v.strictObject({ version: v.literal(1), status: v.literal("unclear") }),
   v.strictObject({
     version: v.literal(1),
@@ -414,6 +524,8 @@ export const recipeCompletionResultSchema = v.variant("status", [
     status: v.literal("unavailable"),
     reason: generationUnavailableReasonSchema,
   }),
+  /** Only for a request with `deviceModel`: the model call the device makes next. */
+  deviceModelCallSchema,
 ]);
 
 export type RecipeGenerationRequest = v.InferOutput<typeof recipeGenerationRequestSchema>;

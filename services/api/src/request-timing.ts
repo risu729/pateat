@@ -19,7 +19,8 @@ export const traceRequest = createMiddleware<ApiEnv>(async (c, next) => {
   await next();
   const serverMs = Date.now() - trace.startedAt;
   const { call, logId } = trace;
-  if (call) {
+  // A call left to the device (ADR 0040) ran nothing here to time.
+  if (call && call.status !== "device-call") {
     // `token` once the credential step ran, whatever it answered; `model` once a request
     // was sent, which a role's local refusal never does.
     const tokenMs = call.status === "called" ? call.timings.tokenMs : call.tokenMs;

@@ -17,19 +17,28 @@ export const logoutReasonSchema = v.picklist([
   "stopped-login",
 ]);
 export type LogoutReason = v.InferOutput<typeof logoutReasonSchema>;
-/** The toolbar popup's line saying why it asks for an account (ADR 0021), in its language. */
+/**
+ * The toolbar popup's line saying why it asks for an account (ADR 0021), in its language;
+ * the icon's title says the same (`choiceTitle` in `badge.ts`). `other-tab` covers both a
+ * logout and a rejected login in another tab; `rejectedElsewhere` names the rejection when
+ * the popup knows another tab still asks after one.
+ */
 export function choiceReason(
   logout: LogoutReason | undefined,
   matches: number,
   t: TFunction,
+  rejectedElsewhere = false,
 ): string {
   if (logout === undefined) return t("matchingAccounts", { count: matches });
+  if (logout === "other-tab" && rejectedElsewhere)
+    return t("The site did not accept a login in another tab.");
   return t(
     {
-      "this-tab": "You logged out of this site in this tab",
-      rejected: "The site did not accept the last login in this tab",
-      "other-tab": "You logged out of this site in another tab",
-      "stopped-login": "The last login on this site stopped in this tab",
+      "this-tab": "You were logged out of this site in this tab.",
+      rejected: "The site did not accept the last login in this tab.",
+      "other-tab":
+        "You were logged out of this site in another tab, or the site did not accept a login there.",
+      "stopped-login": "The last login on this site stopped in this tab.",
     }[logout],
   );
 }
@@ -50,6 +59,23 @@ export const pickRequestSchema = v.strictObject({
   /** Save it as the site default once the login is confirmed `authenticated`. */
   makeDefault: v.boolean(),
 });
+/**
+ * The popup asks again for the master password a tab's login waits for: the window did not
+ * open by itself, as for a tab that was in the background, or it was closed.
+ */
+export const repromptRequestSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.reprompt.ask"),
+  tabId,
+});
+export const repromptResponseSchema = v.variant("ok", [
+  v.strictObject({ ok: v.literal(true) }),
+  v.strictObject({
+    ok: v.literal(false),
+    reason: v.picklist(["not-waiting", "unavailable", "closed", "document-gone"]),
+  }),
+]);
+export type RepromptResponse = v.InferOutput<typeof repromptResponseSchema>;
 export const choiceResponseSchema = v.variant("ok", [
   v.strictObject({
     ok: v.literal(true),
@@ -107,11 +133,11 @@ export function pickFailure(
   if (reason === "origin-busy")
     return makeDefault
       ? t(
-          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 5 minutes, then choose again.",
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab, or wait up to 10 minutes, then choose again.",
           { name },
         )
       : t(
-          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, or wait up to 10 minutes, then choose again.",
         );
   if (reason === "not-started")
     return makeDefault
@@ -123,10 +149,10 @@ export function pickFailure(
           name,
         });
   return makeDefault
-    ? t("This page is no longer waiting for a choice. {{name}} was not made the default.", {
+    ? t("This page no longer waits for an account choice. {{name}} was not made the default.", {
         name,
       })
-    : t("This page is no longer waiting for a choice");
+    : t("This page no longer waits for an account choice.");
 }
 /** The toolbar popup asks what Pateat did on a tab's page (ADR 0038). */
 export const statusRequestSchema = v.strictObject({
@@ -187,7 +213,7 @@ export const statusResponseSchema = v.variant("ok", [
       v.strictObject({
         outcome: code,
         reason: v.optional(code),
-        page: v.optional(v.picklist(["accounts", "entry", "continuation"])),
+        page: v.optional(v.picklist(["accounts", "entry", "continuation", "repair"])),
       }),
     ),
   }),
@@ -204,6 +230,8 @@ export interface ChoiceClient {
   pick(request: PickRequest): Promise<PickResponse>;
   /** What Pateat did on the tab's page, for the popup's page section (ADR 0038). */
   status(tabId: number): Promise<StatusResponse>;
+  /** Opens the master password window again for the tab's waiting login. */
+  reprompt(tabId: number): Promise<RepromptResponse>;
 }
 
 export function createChoiceClient(send: (message: unknown) => Promise<unknown>): ChoiceClient {
@@ -222,6 +250,11 @@ export function createChoiceClient(send: (message: unknown) => Promise<unknown>)
       v.parse(
         statusResponseSchema,
         await send({ version: 1, type: "login.status.get", tabId: tab }),
+      ),
+    reprompt: async (tab) =>
+      v.parse(
+        repromptResponseSchema,
+        await send({ version: 1, type: "login.reprompt.ask", tabId: tab }),
       ),
   };
 }

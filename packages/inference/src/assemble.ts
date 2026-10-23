@@ -1,4 +1,6 @@
 import {
+  detailFieldInputs,
+  detailInputRefusal,
   extendsRecipe,
   fillRoles,
   handlerTargets,
@@ -13,6 +15,7 @@ import {
   routeFillTargets,
   sameLoginTarget as sameTarget,
   splitCodeInputs,
+  type DetailField,
   type LoginFieldTarget,
   type LoginEntryRecipe,
   type LoginObservation,
@@ -50,8 +53,9 @@ export type CompletionRejection =
   | "marker-limit"
   | "origin-mismatch"
   /**
-   * The marker is an element one of the recipe's own steps or handlers uses, on any path:
-   * a marker proves a sign-in wherever it shows.
+   * The marker is an element one of the recipe's own steps, its passkey route or handlers
+   * use, or its account switch or rejection, on any path: a marker proves a sign-in
+   * wherever it shows.
    */
   | "step-target"
   /** The marker is not an element of the judged page. */
@@ -71,7 +75,7 @@ const effects = (steps: readonly LoginStep[]) =>
   }).length;
 const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
-/** Every element a handler of the recipe uses on `path`: buttons and code fields. */
+/** Every element a handler of the recipe uses on `path`: buttons, code and detail inputs. */
 const handlerElements = (recipe: LoginRecipe, path: string) =>
   (recipe.handlers ?? []).filter((handler) => handler.path === path).flatMap(handlerTargets);
 /** The code fields of the recipe's `totp` handlers on `path`. */
@@ -126,7 +130,8 @@ export function entryRecipe(page: {
  * becomes the `passkey` route (ADR 0027); a continuation needs a single-variant recipe and
  * a page with neither. The revision is the next one; the caller stores it with a
  * conditional write. The recipe keeps the first account switch a page names that is not
- * also one of its click targets or its passkey button.
+ * also one of its click targets, its passkey button, a handler's element, its rejection or
+ * a signed-in marker.
  */
 export function appendPageSteps(
   base: LoginRecipe | undefined,
@@ -158,10 +163,17 @@ export function appendPageSteps(
   const variants = [steps, ...alternatives];
   const { accountSwitch: kept, ...rest } = base ?? {};
   const passkey = base?.passkey?.target ?? page.passkey;
+  // Elements the switch must not be: the base's handlers, rejection and markers.
+  const taken = [
+    ...(base?.handlers ?? []).flatMap(handlerTargets),
+    ...(base?.rejection ? [base.rejection] : []),
+    ...(base?.completion ?? []).map((marker) => marker.target),
+  ];
   const accountSwitch = [kept, page.accountSwitch].find(
     (target) =>
       target !== undefined &&
       !(passkey && sameTarget(passkey, target)) &&
+      !taken.some((element) => sameTarget(element, target)) &&
       !variants.some((variant) =>
         variant.some((step) => step.kind === "click" && sameTarget(step.target, target)),
       ),
@@ -197,7 +209,8 @@ export function appendPageSteps(
  * Adds the judged signed-in marker to a generated recipe in its next revision (ADR 0029):
  * the first one, or one more after those learned before, up to four. A marker proves a
  * sign-in on any path, so it must be an element of the judged page and none of the
- * elements the recipe's steps, passkey route or handlers use on any path. The page must
+ * elements the recipe's steps, passkey route or handlers use on any path, nor its account
+ * switch or rejection. The page must
  * not still show any element a step uses on its own path, nor a field any step fills on
  * any path: a failed sign-in that shows the login form again, on its own path or where
  * the form posted, is not learned as signed in. On a step's own path the marker also
@@ -232,6 +245,9 @@ export function addCompletion(
     ...steps.flatMap(stepTargets),
     ...(base.passkey ? [base.passkey.target] : []),
     ...(base.handlers ?? []).flatMap(handlerTargets),
+    // A login page that shows the switch or the rejection must not read as signed in.
+    ...(base.accountSwitch ? [base.accountSwitch] : []),
+    ...(base.rejection ? [base.rejection] : []),
   ];
   if (own.some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };
@@ -296,6 +312,11 @@ export type HandlerRejection =
    * handler's field is a field the route fills.
    */
   | "step-target"
+  /**
+   * A `detail` handler's input is not an input of the page that `detailInputRefusal`
+   * accepts with its button (ADR 0061).
+   */
+  | "not-detail-field"
   /** The recipe already has a handler of this kind on that path. */
   | "duplicate"
   /** The result breaks the recipe contract, such as its handler bound. */
@@ -305,7 +326,8 @@ export type HandlerRejection =
  * Adds a handler for the judged page to a generated recipe in its next revision (ADR
  * 0027): a `passkey` handler for its security-key or passkey button, a `password` handler
  * for its button that goes on to the password (ADR 0048), or a `totp` handler for its
- * TOTP code field and the button that submits it. The route's steps
+ * TOTP code field and the button that submits it, or the field alone on a page that
+ * shows no button for it (ADR 0027 amendment of 2026-10-23). The route's steps
  * are kept as they are, so a running login can take the result over (`extendsRecipe`).
  * The page may be on a route path: a second-factor form on the sign-in path still gets a
  * handler. A `totp` handler's button may even be the route's own submit button on that
@@ -319,13 +341,17 @@ export function addHandler(
   page: Pick<LoginObservation, "origin" | "path" | "candidates">,
   handler:
     | { kind: "passkey" | "password"; target: LoginTarget }
-    | { kind: "totp"; field: LoginFieldTarget; target: LoginTarget },
+    | { kind: "totp"; field: LoginFieldTarget; target?: LoginTarget | undefined }
+    | { kind: "detail"; fields: DetailField[]; target: LoginTarget },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
-  const button = page.candidates.find(
-    (candidate) => candidate.role === "button" && sameTarget(candidate.target, handler.target),
-  );
-  if (!button) return { ok: false, reason: "not-on-page" };
+  const { target } = handler;
+  const button =
+    target &&
+    page.candidates.find(
+      (candidate) => candidate.role === "button" && sameTarget(candidate.target, target),
+    );
+  if (target && !button) return { ok: false, reason: "not-on-page" };
   const handlers = base.handlers ?? [];
   if (handlers.some((entry) => entry.kind === handler.kind && entry.path === page.path))
     return { ok: false, reason: "duplicate" };
@@ -335,7 +361,37 @@ export function addHandler(
     ...(base.completion ?? []).map((marker) => marker.target),
     ...handlerElements(base, page.path),
   ];
-  if (handler.kind !== "totp") {
+  if (handler.kind === "detail") {
+    // A detail handler always has a button, which must be on the page (ADR 0061).
+    if (!button) return { ok: false, reason: "not-on-page" };
+    // The judge's checks, again (ADR 0061). The route's sign-in form may still show beside
+    // the inputs, so no input or button is a route step's, a route fill field anywhere, or
+    // another element the recipe checks. A split value's part may be a select, and a digit
+    // group's input must still allow its length (ADR 0061).
+    const entries = handler.fields.flatMap(detailFieldInputs);
+    const inputs = entries.map((entry) => ({
+      entry,
+      field: page.candidates.find(
+        (candidate) =>
+          ((fillRoles as readonly string[]).includes(candidate.role) ||
+            candidate.role === "select") &&
+          sameTarget(candidate.target, entry.target),
+      ),
+    }));
+    if (inputs.some((input) => !input.field)) return { ok: false, reason: "not-on-page" };
+    if (inputs.some((input) => detailInputRefusal(input.entry, input.field!, button)))
+      return { ok: false, reason: "not-detail-field" };
+    const fills = routeFillTargets(base, "password");
+    if (
+      [...fills, ...routeTargets(base, page.path), ...others].some((element) =>
+        [...entries.map((entry) => entry.target), handler.target].some((own) =>
+          sameTarget(element, own),
+        ),
+      )
+    )
+      return { ok: false, reason: "step-target" };
+  } else if (handler.kind !== "totp") {
+    if (!button) return { ok: false, reason: "not-on-page" };
     // The label, the text and an id, name or test ID locator all count.
     if (handler.kind === "passkey" && registersPasskey(button))
       return { ok: false, reason: "registration" };
@@ -376,7 +432,7 @@ export function addHandler(
     );
     if (!field) return { ok: false, reason: "not-on-page" };
     // The judge's own checks, again: the executor fills a TOTP code only into such a field
-    // (ADR 0013), and one per form with its button.
+    // (ADR 0013), and one per form with its button, or in a form that shows none.
     if (!isTotpCode(page, field, button)) return { ok: false, reason: "not-code-field" };
     const fills = routeFillTargets(base, "password");
     // A split code's other inputs are filled too.
@@ -385,11 +441,12 @@ export function addHandler(
       [...fills, ...routeTargets(base, page.path), ...others].some((element) =>
         filled.some((input) => sameTarget(element, input)),
       ) ||
-      [
-        ...fills,
-        ...(base.passkey?.path === page.path ? [base.passkey.target] : []),
-        ...others,
-      ].some((element) => sameTarget(element, handler.target))
+      (target !== undefined &&
+        [
+          ...fills,
+          ...(base.passkey?.path === page.path ? [base.passkey.target] : []),
+          ...others,
+        ].some((element) => sameTarget(element, target)))
     )
       return { ok: false, reason: "step-target" };
   }

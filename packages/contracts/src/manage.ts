@@ -1,5 +1,12 @@
 import * as v from "valibot";
-import { deviceIdSchema } from "./pairing";
+import { recipeLayoutKeySchema } from "./login";
+import { deviceIdSchema, profileIdSchema } from "./pairing";
+import {
+  problemEventSchema,
+  problemFieldsAllowed,
+  problemFieldsSchema,
+  problemLevelSchema,
+} from "./problems";
 import {
   MAX_SETTINGS_DOCUMENT_BYTES,
   settingsDocumentBytes,
@@ -23,6 +30,7 @@ const headRevision = v.pipe(
 
 export const manageDeviceSchema = v.strictObject({
   id: deviceIdSchema,
+  profileId: profileIdSchema,
   /** Empty for a device paired without a label. */
   label: v.pipe(v.string(), v.maxLength(64)),
   createdAt: timestamp,
@@ -55,10 +63,32 @@ export const manageSettingsConflictSchema = v.strictObject({
   current: syncSettingsStateSchema,
 });
 
-/** One recipe's current head: the active recipe, or a tombstone once revoked. */
+/**
+ * Who made a layout's first page, a chooser layout's list included (ADR 0060, generation
+ * provenance): the model that generated it, or none when a device's document changed or
+ * added it, and when that write was recorded.
+ */
+export const manageLayoutSourceSchema = v.strictObject({
+  origin: v.picklist(["generated", "judged", "device"]),
+  model: v.nullable(v.pipe(v.string(), v.maxLength(128))),
+  createdAt: timestamp,
+});
+/**
+ * One recipe's current head: the active recipe, or a tombstone once revoked, and when each
+ * of its layouts was last used (ADR 0058, ADR 0060): by a login that started or ended on it,
+ * or a write the login's page caused. `null` for a layout no login used yet. `firstPage` is
+ * `null` when the service has no record of it.
+ */
 export const manageRecipeSchema = v.strictObject({
   change: syncRecipeChangeSchema,
   updatedAt: timestamp,
+  layouts: v.array(
+    v.strictObject({
+      key: recipeLayoutKeySchema,
+      lastUsedAt: v.nullable(timestamp),
+      firstPage: v.nullable(manageLayoutSourceSchema),
+    }),
+  ),
 });
 /**
  * An active head whose stored document no longer passes the recipe contract. Devices
@@ -75,7 +105,11 @@ export const manageRecipesSchema = v.strictObject({
   recipes: v.array(manageRecipeSchema),
   unreadable: v.array(manageUnreadableRecipeSchema),
 });
-/** Revokes the recipe if `expectedRevision` is still its head; devices drop it on sync. */
+/**
+ * Revokes the recipe if `expectedRevision` is still its head; devices drop it on sync. The
+ * same body removes one layout of it (`/recipes/:recipeId/layouts/:layout/revoke`, ADR
+ * 0060): the next revision keeps the others, and removing the last one revokes the recipe.
+ */
 export const manageRecipeRevokeSchema = v.strictObject({
   version: v.literal(1),
   expectedRevision: headRevision,
@@ -88,7 +122,8 @@ export const manageRecipeConflictSchema = v.strictObject({
 
 /**
  * How long the service keeps each request log row, login result code and login record
- * (ADR 0012, ADR 0055; owner, 2026-10-18).
+ * (ADR 0012, ADR 0055; owner, 2026-10-18), and each problem line devices sent (ADR 0066;
+ * owner, 2026-10-23 13:00 UTC).
  */
 export const INFERENCE_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 /**
@@ -100,24 +135,48 @@ const rowCount = v.pipe(v.number(), v.integer(), v.minValue(0));
 /**
  * The owner's request log (ADR 0012): how many requests it holds, how many login result
  * codes devices sent (ADR 0019, amended 2026-10-18), how many login records (ADR 0055),
- * and the oldest row's time of any of them.
+ * how many problem lines (ADR 0066), and the oldest row's time of any of them.
  */
 export const manageRequestLogSchema = v.strictObject({
   version: v.literal(1),
   entries: rowCount,
   outcomes: rowCount,
   logins: rowCount,
+  problems: rowCount,
   oldestAt: v.nullable(timestamp),
 });
 /**
- * Deleting the whole request log: how many requests, login result codes and login records
- * it removed.
+ * Deleting the whole request log: how many requests, login result codes, login records and
+ * problem lines it removed.
  */
 export const manageRequestLogDeletedSchema = v.strictObject({
   version: v.literal(1),
   deleted: rowCount,
   outcomes: rowCount,
   logins: rowCount,
+  problems: rowCount,
+});
+/** Problem lines `/manage/api/problems` lists at most, newest first. */
+export const MANAGE_PROBLEMS_LIMIT = 200;
+/** One problem line a device sent (ADR 0066), with the device's label. */
+export const manageProblemSchema = v.pipe(
+  v.strictObject({
+    /** Empty for a device paired without a label. */
+    device: v.pipe(v.string(), v.maxLength(64)),
+    extensionBuild: v.pipe(v.string(), v.maxLength(40)),
+    level: problemLevelSchema,
+    event: problemEventSchema,
+    fields: problemFieldsSchema,
+    /** When the device wrote it, by its clock. */
+    loggedAt: timestamp,
+    /** When the service received it. */
+    receivedAt: timestamp,
+  }),
+  v.check((problem) => problemFieldsAllowed(problem.event, problem.fields)),
+);
+export const manageProblemsSchema = v.strictObject({
+  version: v.literal(1),
+  problems: v.pipe(v.array(manageProblemSchema), v.maxLength(MANAGE_PROBLEMS_LIMIT)),
 });
 
 /** The periods the dashboard summarizes, ending now. */
@@ -354,6 +413,59 @@ export const manageDashboardSchema = v.strictObject({
   needsPerson: v.array(manageDashboardFailureSchema),
 });
 
+/**
+ * The identifiers an owner copies from their own Workload Identity Federation rule in
+ * the Claude Console (ADR 0015). None is a secret.
+ */
+export const wifIdentifiersSchema = v.strictObject({
+  federationRuleId: v.pipe(v.string(), v.regex(/^fdrl_[A-Za-z0-9]{1,64}$/)),
+  organizationId: v.pipe(v.string(), v.uuid()),
+  serviceAccountId: v.pipe(v.string(), v.regex(/^svac_[A-Za-z0-9]{1,64}$/)),
+  workspaceId: v.pipe(v.string(), v.regex(/^wrkspc_[A-Za-z0-9]{1,64}$/)),
+});
+
+/** What the owner enters in the Claude Console, and the identifiers saved here. */
+export const manageClaudeSchema = v.strictObject({
+  version: v.literal(1),
+  console: v.strictObject({
+    /** Null while the operator has not configured this service's OIDC issuer. */
+    issuer: v.nullable(v.pipe(v.string(), v.url())),
+    /** The federation rule's exact subject: `owner:<ownerId>`. */
+    subject: v.pipe(v.string(), v.startsWith("owner:")),
+    audience: v.pipe(v.string(), v.url()),
+  }),
+  /** Null when none are saved, or when the saved row no longer validates. */
+  identifiers: v.nullable(wifIdentifiersSchema),
+  /** A row is saved but no longer validates; the owner enters the identifiers again. */
+  storedInvalid: v.boolean(),
+});
+/** Replaces the owner's identifiers. */
+export const manageClaudeWriteSchema = v.strictObject({
+  version: v.literal(1),
+  identifiers: wifIdentifiersSchema,
+});
+
+const httpStatus = v.pipe(v.number(), v.integer(), v.minValue(100), v.maxValue(599));
+/**
+ * The outcome of one token exchange with the saved identifiers. The token itself never
+ * leaves the service.
+ */
+export const manageClaudeTestSchema = v.strictObject({
+  version: v.literal(1),
+  result: v.variant("status", [
+    v.strictObject({
+      status: v.literal("ready"),
+      /** How long Anthropic said the token lasts. */
+      expiresInSeconds: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    }),
+    v.strictObject({
+      status: v.picklist(["not_configured", "stored_invalid", "issuer_unavailable"]),
+    }),
+    v.strictObject({ status: v.literal("rejected"), httpStatus }),
+    v.strictObject({ status: v.literal("failed"), httpStatus: v.optional(httpStatus) }),
+  ]),
+});
+
 export const manageErrorCodeSchema = v.picklist([
   "bad_request",
   /** No Access token: the page must be reloaded through Access. */
@@ -362,19 +474,36 @@ export const manageErrorCodeSchema = v.picklist([
   "forbidden",
   /** The service has no Access configuration. */
   "access_unavailable",
+  /** Access's signing keys could not be fetched, so no token can be checked. */
+  "access_keys_unavailable",
   "not_found",
-  /** Settings belong to an account with a paired device; this identity has none. */
+  /**
+   * Settings and Claude identifiers belong to an account with a paired device; this
+   * identity has none.
+   */
   "not_paired",
   "method_not_allowed",
   "payload_too_large",
   "unsupported_media_type",
   /** A model choice names a model, effort or speed the model list does not offer. */
   "model_unavailable",
+  /** Another profile already has the name. */
+  "profile_name_taken",
+  /** The owner's only profile cannot be deleted. */
+  "last_profile",
   /** Too many requests from this identity in the last minute. */
   "rate_limited",
   "internal_error",
 ]);
 export const manageErrorSchema = v.strictObject({ error: manageErrorCodeSchema });
+/**
+ * A profile that devices still use cannot be deleted; `devices` holds their labels, empty
+ * labels included, so the page can name them (ADR 0076).
+ */
+export const manageProfileInUseSchema = v.strictObject({
+  error: v.literal("profile_in_use"),
+  devices: v.array(v.pipe(v.string(), v.maxLength(64))),
+});
 
 export type ManageDevice = v.InferOutput<typeof manageDeviceSchema>;
 export type ManageDevices = v.InferOutput<typeof manageDevicesSchema>;
@@ -382,13 +511,20 @@ export type ManageSettingsWrite = v.InferOutput<typeof manageSettingsWriteSchema
 export type ManageRecipe = v.InferOutput<typeof manageRecipeSchema>;
 export type ManageUnreadableRecipe = v.InferOutput<typeof manageUnreadableRecipeSchema>;
 export type ManageRecipes = v.InferOutput<typeof manageRecipesSchema>;
+export type ManageLayoutSource = v.InferOutput<typeof manageLayoutSourceSchema>;
 export type ManageRequestLog = v.InferOutput<typeof manageRequestLogSchema>;
 export type ManageRequestLogDeleted = v.InferOutput<typeof manageRequestLogDeletedSchema>;
+export type ManageProblem = v.InferOutput<typeof manageProblemSchema>;
+export type ManageProblems = v.InferOutput<typeof manageProblemsSchema>;
 export type ManageDashboardRange = v.InferOutput<typeof manageDashboardRangeSchema>;
 export type ManageDurations = v.InferOutput<typeof manageDurationsSchema>;
 export type ManageLoginParts = v.InferOutput<typeof manageLoginPartsSchema>;
 export type ManageDashboardEvent = v.InferOutput<typeof manageDashboardEventSchema>;
 export type ManageDashboardFailure = v.InferOutput<typeof manageDashboardFailureSchema>;
 export type ManageDashboard = v.InferOutput<typeof manageDashboardSchema>;
+export type WifIdentifiers = v.InferOutput<typeof wifIdentifiersSchema>;
+export type ManageClaude = v.InferOutput<typeof manageClaudeSchema>;
+export type ManageClaudeWrite = v.InferOutput<typeof manageClaudeWriteSchema>;
+export type ManageClaudeTest = v.InferOutput<typeof manageClaudeTestSchema>;
 export type ManageErrorCode = v.InferOutput<typeof manageErrorCodeSchema>;
 export type ManageError = v.InferOutput<typeof manageErrorSchema>;

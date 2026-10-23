@@ -1,3 +1,4 @@
+import { wifIdentifiersSchema, type WifIdentifiers } from "@pateat/contracts";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
@@ -10,15 +11,6 @@ import { readIssuerConfig, signOwnerAssertion } from "./issuer";
 // Pinned like the generation adapter's base URL; nothing in the environment redirects it.
 const TOKEN_URL = "https://api.anthropic.com/v1/oauth/token";
 const EXCHANGE_TIMEOUT_MS = 10_000;
-
-/** The identifiers an owner copies from their federation rule. None is a secret. */
-export const wifIdentifiersSchema = v.strictObject({
-  federationRuleId: v.pipe(v.string(), v.regex(/^fdrl_[A-Za-z0-9]{1,64}$/)),
-  organizationId: v.pipe(v.string(), v.uuid()),
-  serviceAccountId: v.pipe(v.string(), v.regex(/^svac_[A-Za-z0-9]{1,64}$/)),
-  workspaceId: v.pipe(v.string(), v.regex(/^wrkspc_[A-Za-z0-9]{1,64}$/)),
-});
-export type WifIdentifiers = v.InferOutput<typeof wifIdentifiersSchema>;
 
 const tokenResponseSchema = v.object({
   access_token: v.pipe(v.string(), v.nonEmpty()),

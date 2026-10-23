@@ -49,7 +49,9 @@ const strictness: Record<SemanticSlot["kind"], number> = {
 };
 /**
  * What a field offers, or nothing: a Text field, a Hidden field, or a Linked field whose
- * source is allowed too. A Linked field that reads the password counts only when the
+ * source is allowed too. A Text or Hidden field the catalog flags as holding a TOTP key
+ * (`totpSeed`) is never offered: it fills only the `totp` slot, as a generated code (ADR
+ * 0027, owner 2026-10-23). A Linked field that reads the password counts only when the
  * password holds a value. Bitwarden links only built-in fields today; a Linked field that
  * reads a Text field would be offered like that Text field.
  */
@@ -58,6 +60,7 @@ function offerClass(
   field: VaultItemMetadata["fields"][number],
   allowed: ReadonlySet<string>,
 ): OfferClass | undefined {
+  if (field.totpSeed === true) return undefined;
   if (field.kind === "text") return { kind: "identifier", source: "text", priority: 0 };
   if (field.kind === "hidden") return { kind: "hidden", priority: 2 };
   if (field.kind !== "linked" || !field.linkedFieldId || !allowed.has(field.linkedFieldId))

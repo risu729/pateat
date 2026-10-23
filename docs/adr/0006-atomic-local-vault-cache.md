@@ -80,6 +80,18 @@ its own requests, since any other await lets it auto-commit; success is reported
 after `complete`; and strict durability and the deadline, cancellation and quota
 mappings are kept. See [dependency policy](../development.md#dependency-policy).
 
+## Amendment: lock and the vault timeout
+
+On 2026-10-23 the owner chose the official extension's Lock, Log out and vault timeout
+([ADR 0075](0075-vault-lock-and-timeout.md)). The retained key above is kept on disk
+only while the timeout is **Never**, the default. With any other timeout the record is
+`locked`: it keeps the encrypted context, identity and security floors without the key,
+and the key of a vault unlocked in this browser session is held in memory
+(`chrome.storage.session`), so a browser restart locks it. Unlock opens the saved
+context offline with the master password. "Disabling automatic unlock" is now
+**Log out**, with the same effect, and a password sign-in always retains the key as the
+timeout says; "explicit enable intent" above is that sign-in.
+
 ## Sources
 
 - [IndexedDB transaction scheduling](https://w3c.github.io/IndexedDB/#transaction-scheduling).

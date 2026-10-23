@@ -10,3 +10,6 @@ reflow = true
 [per-file-ignores]
 # The home page's hero shows the title, so the page has no level 1 heading.
 "apps/docs/src/index.md" = ["MD041"]
+# Japanese has no spaces between words, so a line break inside a paragraph shows as a
+# space; keep each Japanese paragraph on one line.
+"README.ja.md" = ["MD013"]

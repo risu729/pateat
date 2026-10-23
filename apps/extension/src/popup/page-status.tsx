@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import { Bug, CircleCheck, CircleX, Info, LoaderCircle, TriangleAlert } from "lucide-react";
+import type { ReactNode } from "react";
 import type { StatusResponse } from "../login/choice-wire";
 
 type Status = Extract<StatusResponse, { ok: true }>;
@@ -12,22 +13,30 @@ export type StatusLine = { id: string; tone: StatusTone; text: string };
 const OUTCOMES: Record<string, string> = {
   "credential-rejected": "the site did not accept the password",
   "retry-limit": "the steps kept failing, and the retry limit was reached",
-  "submission-limit": "the sign-in was already submitted as often as allowed",
-  "unknown-submit": "the result after submitting could not be judged",
+  "submission-limit": "the login was already submitted as often as allowed",
+  "unknown-submit": "the page after submitting did not show whether it worked",
   "structural-mismatch": "the page did not match the recipe",
   timeout: "the page did not respond in time",
   "left-origin": "the tab moved to another site during the login",
-  interrupted: "the page moved before submitting, or the extension restarted",
+  interrupted: "the page moved on before submitting, or Pateat restarted",
   "value-mismatch": "a value did not fit its input, so nothing was filled",
   "fill-rejected": "the page marked a filled input as invalid, so nothing was pressed",
-  "wrong-account": "the page shows another account than the chosen one",
+  "wrong-account": "the page shows a different account from the one chosen",
   "account-switched": "the page showed another account, so the login switched accounts",
   "account-not-listed": "the list of accounts does not show this account",
   challenge: "the site asks for another step, such as a code",
   "challenge-abandoned": "the site's other step was not finished",
-  "watch-abandoned": "no later page showed that the sign-in finished",
+  "watch-abandoned": "no later page showed that the login finished",
   cancelled: "the login was cancelled",
   "policy-changed": "the settings or the vault changed during the login",
+};
+/**
+ * Why a login ended after Pateat pressed keys on the page's software keyboard
+ * (`keypad-pressed`, ADR 0067), where it differs from {@link OUTCOMES}.
+ */
+const KEYPAD_OUTCOMES: Record<string, string> = {
+  "fill-rejected":
+    "the page's software keyboard did not show a key Pateat pressed, so nothing more was pressed",
 };
 /** Outcomes that end a login without a failure (ADR 0038 item 4). */
 const QUIET = new Set(["cancelled", "account-switched", "interrupted", "policy-changed"]);
@@ -50,7 +59,7 @@ const NOT_STARTED: Record<string, string> = {
   "no-recipe-on-path": "no recipe of this site starts on this page",
   "confirm-unsupported":
     "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
-  "logged-out": "you logged out of this site; choose an account to log in again",
+  "logged-out": "Pateat waits for you to choose an account",
   "account-ambiguous": "several accounts match; choose one to log in",
   "origin-busy": "another tab's login to this site is running or did not succeed",
   "tab-busy": "another login runs in this tab",
@@ -59,6 +68,8 @@ const NOT_STARTED: Record<string, string> = {
   "no-route": "the recipe has no way to log in with this vault item",
   "entry-blocked": "the site's sign-in link was not pressed",
   "account-changed": "the chosen account changed",
+  "master-password-reprompt":
+    "this vault item asks for the master password first; enter it in the window Pateat opens",
   "field-unavailable":
     "the vault item's username could not be read, so its account cannot be found on the list",
 };
@@ -67,7 +78,7 @@ const NOT_STARTED: Record<string, string> = {
 const NOT_SENT: Record<string, string> = {
   sending: "another request for this page is already being sent to the AI",
   sent: "the AI was asked about this page within the last 10 minutes, so it is not asked again yet",
-  "not-connected": "Pateat is not connected to its service",
+  "not-connected": "Pateat cannot use the sync service on this device",
   "no-vault-match": "no vault item matches this site",
   "vault-unavailable": "the vault could not be read",
   "connection-disabled": "the vault connection is turned off",
@@ -123,7 +134,7 @@ function refusalText(refused: NonNullable<Status["refused"]>, t: TFunction): str
     );
     return HELD_PASSKEY.has(why)
       ? t(
-          "{{text}}. Pateat signs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
+          "{{text}}. Pateat logs in with its passkey only when the passkey needs no username, and the page asks for a passkey or the recipe presses a passkey button",
           { text },
         )
       : text;
@@ -142,7 +153,9 @@ function recipeLines(status: Status, t: TFunction): StatusLine[] {
         ? t("the site's list of accounts")
         : generation?.page === "continuation"
           ? t("the rest of the site's sign-in")
-          : t("the site's sign-in page");
+          : generation?.page === "repair"
+            ? t("the site's changed sign-in page")
+            : t("the site's sign-in page");
   const lines: StatusLine[] = [];
   if (status.recipe === "page")
     lines.push({ id: "recipe", tone: "idle", text: t("This site has a recipe for this page.") });
@@ -246,7 +259,7 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
   if (login.state === "authenticated")
     return [
       login.unconfirmed
-        ? { id: "login", tone: "warn", text: t("The sign-in could not be confirmed.") }
+        ? { id: "login", tone: "warn", text: t("The login could not be confirmed.") }
         : { id: "login", tone: "ok", text: t("Logged in.") },
     ];
   if (login.state === "logged-out")
@@ -257,7 +270,7 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
         text:
           login.outcome === "rejected"
             ? t("The site did not accept the last login; choose an account to try again.")
-            : t("Logged out of this site in this tab."),
+            : t("You were logged out of this site in this tab."),
       },
     ];
   const outcome = login.outcome ?? "";
@@ -287,21 +300,40 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
         ),
       },
     ];
-  const why = outcome ? plain(OUTCOMES, outcome, t) : t("no reason was recorded");
+  const why = outcome
+    ? plain(
+        login.cause === "keypad-pressed" && outcome in KEYPAD_OUTCOMES ? KEYPAD_OUTCOMES : OUTCOMES,
+        outcome,
+        t,
+      )
+    : t("no reason was recorded");
   const lines: StatusLine[] = [
     QUIET.has(outcome)
       ? { id: "login", tone: "idle", text: t("The login stopped: {{why}}.", { why }) }
-      : {
-          id: "login",
-          tone: UNSETTLED.has(outcome) ? "warn" : "err",
-          text: t("The login did not succeed: {{why}}.", { why }),
-        },
+      : UNSETTLED.has(outcome)
+        ? // As the icon's title says for these (ADR 0038): not a failure, only unknown.
+          {
+            id: "login",
+            tone: "warn",
+            text: t("The result of the login is not known: {{why}}.", { why }),
+          }
+        : { id: "login", tone: "err", text: t("The login did not succeed: {{why}}.", { why }) },
   ];
   if (RECIPE_FAILURES.has(outcome))
     lines.push({
       id: "login-recipe",
       tone: "idle",
       text: t("This recipe is not made again automatically."),
+    });
+  // The field holds the characters of the keys pressed before the stop, which no step
+  // clears (ADR 0067).
+  if (login.cause === "keypad-pressed")
+    lines.push({
+      id: "login-keypad",
+      tone: "warn",
+      text: t(
+        "Pateat pressed keys on the page's software keyboard before it stopped. Reload the page before you enter the value.",
+      ),
     });
   return lines;
 }
@@ -323,32 +355,41 @@ const ICONS = {
   err: CircleX,
 } as const;
 
+/**
+ * The popup's "This page" section: the page's status when the worker describes the page,
+ * then what else the popup offers for it, such as its personal details (ADR 0061).
+ */
 export function PageStatusSection({
   status,
+  children,
   onOpenDiagnostics,
 }: {
-  status: Status;
+  status: Status | undefined;
+  children?: ReactNode;
   onOpenDiagnostics: () => void;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   return (
     <section className="popup-section" aria-labelledby="popup-page-heading">
       <h2 id="popup-page-heading">{t("This page")}</h2>
-      <ul id="popup-page-status" className="popup-lines" aria-live="polite">
-        {pageStatusLines(status, t).map((line) => {
-          const Icon = ICONS[line.tone];
-          return (
-            <li
-              key={line.id}
-              id={`popup-page-${line.id}`}
-              className={`popup-line popup-line--${line.tone}`}
-            >
-              <Icon size={16} strokeWidth={2} aria-hidden="true" />
-              <span>{line.text}</span>
-            </li>
-          );
-        })}
-      </ul>
+      {status && (
+        <ul id="popup-page-status" className="popup-lines" aria-live="polite">
+          {pageStatusLines(status, t).map((line) => {
+            const Icon = ICONS[line.tone];
+            return (
+              <li
+                key={line.id}
+                id={`popup-page-${line.id}`}
+                className={`popup-line popup-line--${line.tone}`}
+              >
+                <Icon size={16} strokeWidth={2} aria-hidden="true" />
+                <span>{line.text}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {children}
       <div>
         <a
           id="popup-open-diagnostics"

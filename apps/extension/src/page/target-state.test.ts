@@ -83,6 +83,29 @@ describe("targetState", () => {
     expect(targetState(document, signIn, "clickable")).toBe("unusable");
   });
 
+  it("counts a shown single-choice select as settable, as a split date's part (ADR 0061)", () => {
+    const at = { by: "id", value: "s" } as const;
+    page(`<select id="s"><option>1</option></select>`);
+    expect(targetState(document, at, "settable")).toBe("unique");
+    // A select is never writable, as a password or code goes only into an input.
+    expect(targetState(document, at, "writable")).toBe("unusable");
+    for (const html of [
+      `<select id="s" multiple><option>1</option></select>`,
+      `<select id="s" disabled><option>1</option></select>`,
+      `<fieldset disabled><select id="s"><option>1</option></select></fieldset>`,
+      `<select id="s" style="display:none"><option>1</option></select>`,
+    ]) {
+      page(html);
+      expect(targetState(document, at, "settable"), html).toBe("unusable");
+      expect(targetCheck(document, at, "settable"), html).not.toBe("ok");
+    }
+    // An input is settable when it is writable.
+    page(`<input id="s" type="tel" maxlength="4">`);
+    expect(targetState(document, at, "settable")).toBe("unique");
+    page(`<input id="s" type="tel" readonly>`);
+    expect(targetCheck(document, at, "settable")).toBe("not-writable");
+  });
+
   it("names the check that decided each state, as codes", () => {
     const check = (html: string, require: TargetRequirement = "described-writable") => {
       page(html);

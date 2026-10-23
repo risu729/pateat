@@ -1,4 +1,10 @@
 import { expect, test, type BrowserContext, type Page, type Worker } from "@playwright/test";
+import {
+  newLayoutKey,
+  toLoginLayout,
+  type LoginRecipe,
+  type LoginRecipeDocument,
+} from "../../packages/contracts/src/index";
 import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
 import { logs } from "./login-fixture";
 import { startLoginFixture } from "./login-server";
@@ -22,9 +28,9 @@ async function serveSite(context: BrowserContext, fixture: { origin: string }) {
   });
 }
 
-const target = (value: string) => ({ by: "id", value });
-/** The multi-page fixture flow, published the way a generated recipe is (ADR 0013). */
-const recipe = {
+const target = (value: string) => ({ by: "id" as const, value });
+/** The multi-page fixture flow as the one layout of the published recipe (ADR 0060). */
+const route: LoginRecipe = {
   version: 1,
   id: recipeId,
   revision: 1,
@@ -39,16 +45,34 @@ const recipe = {
         { slot: "branch", target: target("branch") },
         { slot: "account", target: target("account") },
       ],
+      effect: "prepare",
     },
     { kind: "assert", path: "/identity", target: target("next"), present: true },
     { kind: "click", path: "/identity", target: target("next"), purpose: "advance" },
     { kind: "wait", path: "/password", target: target("password"), present: true, timeoutMs: 3000 },
-    { kind: "fill", path: "/password", fields: [{ slot: "password", target: target("password") }] },
+    {
+      kind: "fill",
+      path: "/password",
+      fields: [{ slot: "password", target: target("password") }],
+      effect: "prepare",
+    },
     { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
   ],
   completion: [{ target: target("authenticated") }],
   rejection: target("rejected"),
   maxSubmissions: 2,
+};
+/**
+ * The recipe published the way a generated one is stored (ADR 0013, ADR 0060): one layout,
+ * created now so the service never finds it idle.
+ */
+const createdAt = Date.now();
+const recipe: LoginRecipeDocument = {
+  version: 1,
+  id: recipeId,
+  revision: 1,
+  origin: site,
+  layouts: [toLoginLayout(route, { key: newLayoutKey(createdAt, []), createdAt })],
 };
 
 function storedRecipes(background: Worker) {
@@ -77,7 +101,7 @@ type VaultBrowser = {
  * service and pairs the device, so the site's recipe and binding come only from the
  * service and no site default is saved.
  */
-async function prepare(browser: VaultBrowser, service: SyncService) {
+async function prepare(browser: VaultBrowser, service: SyncService, others: { id: string }[] = []) {
   const options = await browser.context.newPage();
   await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
   const accepted = await setupRequest(options, {
@@ -112,6 +136,14 @@ async function prepare(browser: VaultBrowser, service: SyncService) {
     body: { version: 1, expectedRevision: 0, state: "active", recipe },
   });
   expect(published.status).toBe(200);
+  for (const other of others) {
+    // oxlint-disable-next-line no-await-in-loop -- one recipe at a time, as a device stores them
+    const stored = await service.request(`/v1/recipes/${other.id}`, {
+      method: "PUT",
+      body: { version: 1, expectedRevision: 0, state: "active", recipe: other },
+    });
+    expect(stored.status).toBe(200);
+  }
   const account = { provider: "bitwarden", userId: connection.userId, itemId: item.id };
   const binding = {
     recipeId,
@@ -162,9 +194,11 @@ async function prepare(browser: VaultBrowser, service: SyncService) {
     expectedRevision: local.snapshot.revision,
     settings: local.snapshot.settings,
   });
-  await expect
-    .poll(async () => JSON.stringify(await storedRecipes(browser.background)))
-    .toContain(recipeId);
+  for (const id of [recipeId, ...others.map((other) => other.id)])
+    // oxlint-disable-next-line no-await-in-loop -- each recipe arrives with the same sync
+    await expect
+      .poll(async () => JSON.stringify(await storedRecipes(browser.background)))
+      .toContain(id);
   // The sync names the binding's account after this device's connection.
   const named = { ...binding, accountName: connection.label };
   await expect
@@ -363,6 +397,122 @@ test("a password page shown alone, as for an account the site remembers, logs in
               { state: "authenticated", outcome: "authenticated", startStep: 4, submissions: 1 },
             ],
           });
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
+
+test("a page whose recipe was generated as a verification only watches, and logs what it showed and how the person left it (ADR 0035)", async () => {
+  const fixture = await startLoginFixture(0, { password: "test_password" });
+  const service = await startSyncService();
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        await setupProbe(browser.page, { action: "configure", variant: "uri" });
+        const confirmRoute: LoginRecipe = {
+          version: 1,
+          id: "synthetic-confirm",
+          revision: 1,
+          origin: site,
+          pageKind: "confirm",
+          slots: ["password"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/confirm-transfer",
+              fields: [{ slot: "password", target: target("confirm-password") }],
+              effect: "prepare",
+            },
+            {
+              kind: "click",
+              path: "/confirm-transfer",
+              target: target("confirm"),
+              purpose: "submit",
+            },
+          ],
+          completion: [{ target: target("authenticated") }],
+          maxSubmissions: 1,
+        };
+        const confirm: LoginRecipeDocument = {
+          version: 1,
+          id: confirmRoute.id,
+          revision: 1,
+          origin: site,
+          layouts: [toLoginLayout(confirmRoute, { key: newLayoutKey(createdAt, []), createdAt })],
+        };
+        const { options } = await prepare(browser, service, [confirm]);
+
+        const page = await browser.context.newPage();
+        // The site still knows the account, so its result page shows the recipes' marker.
+        await page.addInitScript(() => {
+          sessionStorage.setItem("identityMatched", "true");
+          sessionStorage.setItem("passwordMatched", "true");
+        });
+        await page.goto(`${site}/account`);
+        await page.goto(`${site}/confirm-transfer`);
+        await expect(page.locator("#confirm-password")).toBeVisible();
+        // Nothing is filled or pressed there; the person confirms the transfer themselves.
+        await page.waitForTimeout(2_000);
+        await expect(page.locator("#confirm-password")).toHaveValue("");
+        await page.locator("#confirm").click();
+        await expect(page.locator("#authenticated")).toBeVisible();
+        expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+          attempts: [],
+        });
+
+        const diagnostics = await browser.context.newPage();
+        const entries = async () => {
+          await diagnostics.goto(`chrome-extension://${browser.extensionId}/diagnostics.html`);
+          await diagnostics.getByRole("button", { name: "Download logs" }).click();
+          const text = (await diagnostics.locator("#logs-preview").textContent()) ?? "";
+          return text
+            .trim()
+            .split("\n")
+            .slice(1)
+            .map((line) => JSON.parse(line) as Record<string, unknown>);
+        };
+        await expect
+          .poll(async () =>
+            (await entries()).filter((entry) => entry["event"] === "login.confirm-left"),
+          )
+          .toEqual([
+            expect.objectContaining({
+              recipe: "synthetic-confirm",
+              recipeRevision: 1,
+              pageKind: "confirm",
+              personSubmitted: true,
+              nextE1: true,
+              url: "/confirm-transfer",
+            }),
+          ]);
+        const logged = await entries();
+        expect(
+          logged.filter(
+            (entry) =>
+              entry["event"] === "login.refused" && entry["detail"] === "confirm-unsupported",
+          ),
+        ).toEqual([
+          expect.objectContaining({
+            reason: "not-started",
+            recipe: "synthetic-confirm",
+            recipeRevision: 1,
+            pageKind: "confirm",
+            amount: true,
+            e1: false,
+            previousUrl: "/account",
+            url: "/confirm-transfer",
+          }),
+        ]);
+        // No value or page text is logged.
+        const text = JSON.stringify(logged);
+        for (const absent of ["1,200", "Confirm", "test_password"])
+          expect(text).not.toContain(absent);
       },
       { args: ["--ignore-certificate-errors"] },
     );

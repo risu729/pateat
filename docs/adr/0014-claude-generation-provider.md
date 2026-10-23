@@ -6,7 +6,9 @@ had semantic accuracy 0.9375, no false submits and one refusal; after the instru
 change below, the second run had 1.0 with no refusal. Results are in
 [the plan](../plan.md#ai-evaluation-harness-progress). Amended by
 [ADR 0015](0015-per-owner-claude-credentials.md): the service uses per-owner
-credentials instead of one operator key.
+credentials instead of one operator key. Amended by
+[ADR 0040](0040-running-without-the-service.md): a device may hold its own key and make
+the calls itself.
 
 Date: 2026-10-10
 
@@ -28,9 +30,10 @@ monthly Claude API credit and chose the model. The offline harness in
 - The adapter uses the official AI SDK provider `@ai-sdk/anthropic`, version-matched
   to the pinned `ai` package.
 - The API key stays on the server as a Worker secret, as ADR 0003 requires. The
-  extension never holds it. [ADR 0015](0015-per-owner-claude-credentials.md) replaces
-  this operator key with credentials each owner brings, starting with Workload
-  Identity Federation.
+  extension never holds it (until [ADR 0040](0040-running-without-the-service.md), where
+  a device may hold its own owner's key).
+  [ADR 0015](0015-per-owner-claude-credentials.md) replaces this operator key with
+  credentials each owner brings, starting with Workload Identity Federation.
 - The default monthly spending limit is $100 against the $200 credit, leaving room
   for the overshoot ADR 0003 allows from in-flight and concurrent requests. The owner
   first set $150 and lowered it to $100 on 2026-10-11. Nothing is reserved before a
@@ -53,8 +56,8 @@ monthly Claude API credit and chose the model. The offline harness in
 - Each owner chooses the models (owner, 2026-10-23 11:11 and 11:31 UTC). For each role
   (`generate`, `judge`) the owner saves an ordered list of up to three choices, each a
   provider (`anthropic`; others such as OpenAI may follow), model, effort and speed
-  (`standard` or `fast`), in `inference_model_configs`. Only the web UI's Models page
-  (`/manage/models`) reads or writes it; device tokens cannot, so a stolen one cannot
+  (`standard` or `fast`), in `inference_model_configs`. Only the web UI's Claude page
+  (`/manage/claude`) reads or writes it; device tokens cannot, so a stolen one cannot
   raise the cost per call. Without a saved list both roles ask `claude-opus-5-5` at
   effort `low`, then `claude-sonnet-5-5` at `low` after a refusal
   (`DEFAULT_MODEL_CONFIG`). A choice in fast mode whose call fails `rate-limited`,

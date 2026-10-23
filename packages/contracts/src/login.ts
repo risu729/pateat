@@ -1,8 +1,18 @@
 import * as v from "valibot";
 import {
+  datePartSchema,
+  detailFormatFits,
+  detailFormatSchema,
+  detailPartFormatFits,
+  detailPartFormatSchema,
+  loginDetailSchema,
   parseSiteUrl,
   recipeSlotIdSchema,
   resolveSiteAccount,
+  type DatePart,
+  type DetailFormat,
+  type DetailPartFormat,
+  type LoginDetail,
   type SettingsSnapshot,
   type VaultCatalog,
   type VaultItemMetadata,
@@ -175,8 +185,43 @@ export const loginMarkerTargetSchema = v.variant("by", [
   ...loginTargetSchema.options,
   loginLinkTargetSchema,
 ]);
+/**
+ * The element that holds a page's software keyboard (ADR 0067): an `id`, `data-testid`
+ * or class locator of the keypad's container or an ancestor of it, or its position from
+ * the field (owner's choice, 2026-10-23 13:01 UTC). A class names the one element of the
+ * document whose class list holds the value. A position is `<up>:<path>`: from the field
+ * up that many parents, then down the child elements at each index of the dot-separated
+ * path, as `3:1.0`. A class or a position names the keypad only while the element it
+ * finds holds the page's one keypad. A fill field that names one takes its characters
+ * only from the keypad's keys, one press per character, and may be read-only. The recipe
+ * carries no key, label or layout: the executor reads the keys on the page.
+ */
+export const loginKeypadTargetSchema = v.variant("by", [
+  v.strictObject({
+    by: v.literal("id"),
+    value: loginAttributeTargetSchema.options[0].entries.value,
+  }),
+  loginAttributeTargetSchema.options[1],
+  v.strictObject({
+    by: v.literal("class"),
+    value: v.pipe(v.string(), v.maxLength(120), v.regex(/^-?[A-Za-z_][A-Za-z0-9_-]*$/u)),
+  }),
+  v.strictObject({
+    by: v.literal("position"),
+    value: v.pipe(
+      v.string(),
+      v.regex(/^(?:[1-9]|1\d|20):(?:0|[1-9]\d?)(?:\.(?:0|[1-9]\d?)){0,11}$/u),
+    ),
+  }),
+]);
 const fields = v.pipe(
-  v.array(v.strictObject({ slot: recipeSlotIdSchema, target: loginFieldTargetSchema })),
+  v.array(
+    v.strictObject({
+      slot: recipeSlotIdSchema,
+      target: loginFieldTargetSchema,
+      keypad: v.optional(loginKeypadTargetSchema),
+    }),
+  ),
   v.minLength(1),
   v.maxLength(20),
   v.check((entries) => unique(entries.map((entry) => entry.slot)), "Duplicate fill slots"),
@@ -200,6 +245,10 @@ export const loginStepSchema = v.variant("kind", [
           ? step.event === undefined
           : step.fields.length === 1 && step.event !== undefined,
       "Effectful fill requires one field and one trigger event",
+    ),
+    v.check(
+      (step) => step.effect === "prepare" || step.fields.every((field) => !field.keypad),
+      "A keypad field is entered by a preparing fill",
     ),
   ),
   v.pipe(
@@ -245,12 +294,178 @@ const stepTargetCount = (step: v.InferOutput<typeof loginStepSchema>) =>
  */
 export const loginRouteSchema = v.picklist(["password", "passkey"]);
 /**
+ * The details Pateat never fills, though it learns the page that asks for them (ADR 0061):
+ * none, since the owner decided that every linked value is filled, a whole card number
+ * and a PIN included (2026-10-23 11:41 UTC). Kept for a detail a later decision stops
+ * filling.
+ */
+export const manualDetails: readonly LoginDetail[] = [];
+/**
+ * The fewest characters a detail's value has once made, which an input's `maxlength` must
+ * hold: a dated value's format, 12 digits of a card number, and 4 of a PIN.
+ */
+export function detailLength(entry: {
+  detail: LoginDetail;
+  format?: DetailFormat | undefined;
+}): number {
+  switch (entry.detail) {
+    case "secret-answer":
+    case "member-id":
+      return 1;
+    case "card-code":
+      return 3;
+    case "card-number":
+      return 12;
+    case "birth-date":
+      return entry.format?.length ?? 8;
+    case "card-expiry":
+      return entry.format?.length ?? 4;
+    default:
+      return 4;
+  }
+}
+/** One input asks for the whole value. */
+const wholeDetailFieldSchema = v.pipe(
+  v.strictObject({
+    detail: loginDetailSchema,
+    format: v.optional(detailFormatSchema),
+    target: loginFieldTargetSchema,
+  }),
+  v.check(
+    (entry) => detailFormatFits(entry.detail, entry.format),
+    "A birth date or card expiry input has a format of its own, and no other input has one",
+  ),
+);
+/**
+ * At most this many inputs hold one split value (ADR 0061): a 19-digit card number in
+ * groups of four takes five.
+ */
+export const MAX_DETAIL_PARTS = 6;
+/**
+ * One input of a value split over several (ADR 0061): a date's `year`, `month` or `day`
+ * with its own `format`, which may be a select, or a card number's or PIN's digit group,
+ * numbered from 1 in order, with its `length`, the input's `maxlength` when the page was
+ * judged.
+ */
+export const detailPartSchema = v.strictObject({
+  part: v.union([
+    datePartSchema,
+    v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_DETAIL_PARTS)),
+  ]),
+  format: v.optional(detailPartFormatSchema),
+  length: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(19))),
+  target: loginFieldTargetSchema,
+});
+/** The parts a split date may have together, each once, as its one-input formats do. */
+const datePartSets: Partial<Record<LoginDetail, readonly (readonly DatePart[])[]>> = {
+  "birth-date": [
+    ["year", "month", "day"],
+    ["year", "month"],
+    ["month", "day"],
+  ],
+  "card-expiry": [["month", "year"]],
+};
+/** The digits a split card number or PIN has in all, as its whole value does. */
+const groupDigits: Partial<Record<LoginDetail, readonly [number, number]>> = {
+  "card-number": [12, 19],
+  pin: [4, 12],
+};
+/**
+ * Whether `parts` make one value of `detail` split over several inputs (ADR 0061): a
+ * birth date's year, month and day, its year and month, or its month and day, or a card
+ * expiry date's month and year, each part once with a format of its own and no length;
+ * or a card number's or a PIN's digit groups numbered 1 to n in order, each with a length
+ * and no format, that add up to a whole card number's 12 to 19 digits or a PIN's 4 to 12.
+ * No other detail is split.
+ */
+export function detailPartsFit(
+  detail: LoginDetail,
+  parts: readonly {
+    part: DatePart | number;
+    format?: DetailPartFormat | undefined;
+    length?: number | undefined;
+  }[],
+): boolean {
+  const sets = datePartSets[detail];
+  if (sets) {
+    const names = parts.map((entry) => entry.part);
+    return (
+      parts.every(
+        (entry) =>
+          typeof entry.part === "string" &&
+          entry.length === undefined &&
+          detailPartFormatFits(detail, entry.part, entry.format),
+      ) &&
+      unique(names.map(String)) &&
+      sets.some((set) => set.length === names.length && set.every((name) => names.includes(name)))
+    );
+  }
+  const digits = groupDigits[detail];
+  if (!digits) return false;
+  const total = parts.reduce((sum, entry) => sum + (entry.length ?? 0), 0);
+  return (
+    parts.every(
+      (entry, index) =>
+        entry.part === index + 1 && entry.format === undefined && entry.length !== undefined,
+    ) &&
+    total >= digits[0] &&
+    total <= digits[1]
+  );
+}
+/**
+ * Several inputs ask for one value split over them (ADR 0061), such as a birth date's
+ * year, month and day selects or a card number's four boxes; a login fills them together.
+ */
+const splitDetailFieldSchema = v.pipe(
+  v.strictObject({
+    detail: loginDetailSchema,
+    parts: v.pipe(v.array(detailPartSchema), v.minLength(2), v.maxLength(MAX_DETAIL_PARTS)),
+  }),
+  v.check(
+    (entry) => detailPartsFit(entry.detail, entry.parts),
+    "A split value has each of its parts once, as its detail allows",
+  ),
+);
+/** What a `detail` handler's field asks for: a value in one input, or one split over several. */
+export const detailFieldSchema = v.union([wholeDetailFieldSchema, splitDetailFieldSchema]);
+export type DetailField = v.InferOutput<typeof detailFieldSchema>;
+export type DetailPart = v.InferOutput<typeof detailPartSchema>;
+/** One input a detail field fills, with the part of the value it takes when split. */
+export type DetailInput = {
+  detail: LoginDetail;
+  format?: DetailFormat | DetailPartFormat | undefined;
+  part?: DetailPart["part"] | undefined;
+  length?: number | undefined;
+  target: LoginFieldTarget;
+};
+/** The inputs a detail field fills: its one input, or its parts in order. */
+export function detailFieldInputs(field: DetailField): DetailInput[] {
+  return "parts" in field
+    ? field.parts.map((part) => ({ detail: field.detail, ...part }))
+    : [field];
+}
+/**
+ * The one-input format a split birth date reads as (its year and month as `yyyymm`, its
+ * month and day as `mmdd`), so the popup names it as it names such an input; a field's own
+ * format otherwise.
+ */
+export function detailFieldFormat(field: DetailField): DetailFormat | undefined {
+  if (!("parts" in field)) return field.format;
+  if (field.detail !== "birth-date") return undefined;
+  const names = field.parts.map((entry) => entry.part);
+  if (!names.includes("day")) return "yyyymm";
+  return names.includes("year") ? undefined : "mmdd";
+}
+/**
  * A branch on the page that appears after an effect step (ADR 0027), entered when its
  * path matches and all its elements show, and run only for an item with the handler's
  * fact. Its steps follow from its kind. `passkey` clicks a button such as "Use security
  * key"; `totp` fills the item's TOTP code into `field` and clicks `target`, its submit
- * button; `password` clicks a button such as "Password" on a page that asks how to
- * confirm the sign-in, which goes on to typing the password (ADR 0048).
+ * button, or, without `target`, types the code as the submission on a page that shows no
+ * button for it and submits the code once it is in (ADR 0027 amendment of 2026-10-23);
+ * `password` clicks a button such as "Password" on a page that asks how to confirm the
+ * sign-in, which goes on to typing the password (ADR 0048); `detail` fills one of its
+ * inputs with a personal detail of a linked item and clicks `target` (ADR 0061).
  */
 export const loginHandlerSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("passkey"), path, target: loginTargetSchema }),
@@ -260,12 +475,46 @@ export const loginHandlerSchema = v.variant("kind", [
       kind: v.literal("totp"),
       path,
       field: loginFieldTargetSchema,
+      target: v.optional(loginTargetSchema),
+    }),
+    v.check(
+      (handler) =>
+        handler.target === undefined ||
+        handler.field.by !== handler.target.by ||
+        handler.field.value !== handler.target.value,
+      "The code field cannot be its submit button",
+    ),
+  ),
+  /**
+   * A page that asks for a personal detail (ADR 0061): one to three fields, each the
+   * detail it asks for in one input or split over several, of which a login fills the
+   * first it has a linked value for, and the button that submits it. A page that offers a
+   * choice, as radio buttons do, lists each field.
+   */
+  v.pipe(
+    v.strictObject({
+      kind: v.literal("detail"),
+      path,
+      fields: v.pipe(v.array(detailFieldSchema), v.minLength(1), v.maxLength(3)),
       target: loginTargetSchema,
     }),
     v.check(
       (handler) =>
-        handler.field.by !== handler.target.by || handler.field.value !== handler.target.value,
-      "The code field cannot be its submit button",
+        unique(
+          handler.fields.flatMap((field) =>
+            detailFieldInputs(field).map((input) => JSON.stringify(input.target)),
+          ),
+        ),
+      "Duplicate detail inputs",
+    ),
+    v.check(
+      (handler) =>
+        !handler.fields.some((field) =>
+          detailFieldInputs(field).some(
+            (input) => JSON.stringify(input.target) === JSON.stringify(handler.target),
+          ),
+        ),
+      "A detail input cannot be its submit button",
     ),
   ),
 ]);
@@ -319,6 +568,9 @@ const variantsOf = (recipe: {
   steps: v.InferOutput<typeof loginStepSchema>[];
   alternatives?: { slots: string[]; steps: v.InferOutput<typeof loginStepSchema>[] }[] | undefined;
 }) => [{ slots: recipe.slots, steps: recipe.steps }, ...(recipe.alternatives ?? [])];
+/** How many slots some routes fill together, each once (ADR 0060). */
+const routeSlotCount = (routes: readonly Parameters<typeof variantsOf>[0][]) =>
+  new Set(routes.flatMap((route) => variantsOf(route).flatMap((variant) => variant.slots))).size;
 const targetKey = (target: v.InferOutput<typeof loginMarkerTargetSchema>) => JSON.stringify(target);
 /** The elements a recipe's markers name: each marker and the elements it needs missing. */
 const completionTargetCount = (
@@ -326,12 +578,20 @@ const completionTargetCount = (
 ) => (markers ?? []).reduce((count, marker) => count + 1 + (marker.absent?.length ?? 0), 0);
 /**
  * Every element a handler uses, in the order its steps use them: a `totp` handler's code
- * field, then its button. The handler is entered only when all of them show (ADR 0027).
+ * field or a `detail` handler's inputs, then its button when it has one. The handler is
+ * entered only when all of them show (ADR 0027).
  */
 export function handlerTargets(
   handler: v.InferOutput<typeof loginHandlerSchema>,
 ): v.InferOutput<typeof loginTargetSchema>[] {
-  return handler.kind === "totp" ? [handler.field, handler.target] : [handler.target];
+  if (handler.kind === "totp")
+    return handler.target ? [handler.field, handler.target] : [handler.field];
+  if (handler.kind === "detail")
+    return [
+      ...handler.fields.flatMap((field) => detailFieldInputs(field).map((input) => input.target)),
+      handler.target,
+    ];
+  return [handler.target];
 }
 /** The `passkey` route's one step: a click on its button that submits. */
 const passkeyStep = (passkey: {
@@ -351,126 +611,154 @@ const passkeyStep = (passkey: {
  */
 export const pageKindSchema = v.picklist(["sign-in", "confirm", "unclear"]);
 export type PageKind = v.InferOutput<typeof pageKindSchema>;
-export const loginRecipeSchema = v.pipe(
-  v.strictObject({
-    version: v.literal(1),
-    id: identifier,
-    revision,
-    origin: loginOriginSchema,
-    /**
-     * The start page's kind (ADR 0035). Generation stores it on every recipe it makes; a
-     * continuation keeps the first page's, and a chooser branch is `sign-in`. Only a
-     * `sign-in` recipe starts a login, counts as a logout or is filled after one.
-     */
-    pageKind: pageKindSchema,
-    /** The slots of the password route's first variant (variant 0). */
-    slots: v.pipe(
-      v.array(recipeSlotIdSchema),
-      v.maxLength(20),
-      v.check(unique, "Duplicate recipe slots"),
+/**
+ * The most layouts one recipe holds (ADR 0060): versions of the same start page, such as
+ * the page in another language or after the site changed it.
+ */
+export const MAX_RECIPE_LAYOUTS = 3;
+/**
+ * The most bytes one stored recipe document takes as JSON (ADR 0060): with the write's
+ * envelope it stays within the service's 128 KiB request body limit, so a device can write
+ * back any document it synced. Each layout's own limits allow more than a third of it.
+ */
+export const MAX_RECIPE_DOCUMENT_BYTES = 120 * 1024;
+const fitsDocumentBytes = (recipe: unknown) =>
+  new TextEncoder().encode(JSON.stringify(recipe)).byteLength <= MAX_RECIPE_DOCUMENT_BYTES;
+/**
+ * A layout's stable key (ADR 0060): the service writes the layout's creation time in epoch
+ * milliseconds, made unique within the recipe, and never changes or reuses it, so records
+ * name a layout by it even after others are added or removed.
+ */
+export const recipeLayoutKeySchema = v.pipe(v.string(), v.regex(/^\d{1,16}$/u));
+/** The language a layout's page was in when it was generated; a mixed page has none. */
+export const recipeLanguageSchema = v.picklist(["ja", "en"]);
+const layoutCreatedAt = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(0),
+  v.maxValue(Number.MAX_SAFE_INTEGER),
+);
+/** The members of one login route: what a recipe's layout and a chooser branch hold. */
+const routeEntries = {
+  /**
+   * The start page's kind (ADR 0035), kept by each layout (ADR 0060). Generation stores it
+   * on every layout it makes; a continuation keeps the layout's own, and a chooser branch
+   * is `sign-in`. Only a `sign-in` layout starts a login, counts as a logout or is filled
+   * after one.
+   */
+  pageKind: pageKindSchema,
+  /** The slots of the password route's first variant (variant 0). */
+  slots: v.pipe(
+    v.array(recipeSlotIdSchema),
+    v.maxLength(20),
+    v.check(unique, "Duplicate recipe slots"),
+  ),
+  /** A button-only start page: no password route or fallback (ADR 0053). */
+  passkeyOnly: v.optional(v.literal(true)),
+  /** The password route's first variant (variant 0): its steps. */
+  steps: routeStepList,
+  /**
+   * Further variants of the password route (ADR 0027), one per other identifier set the
+   * start page offers, such as a contract number beside a branch and account number.
+   * Each names the slots its fill steps use; the executor takes the first variant the
+   * item's binding fills.
+   */
+  alternatives: v.optional(
+    v.pipe(
+      v.array(v.strictObject({ slots: recipeSlotList, steps: routeStepList })),
+      v.minLength(1),
+      v.maxLength(MAX_PASSWORD_ALTERNATIVES),
     ),
-    /** A button-only start page: no password route or fallback (ADR 0053). */
-    passkeyOnly: v.optional(v.literal(true)),
-    /** The password route's first variant (variant 0): its steps. */
-    steps: routeStepList,
-    /**
-     * Further variants of the password route (ADR 0027), one per other identifier set the
-     * start page offers, such as a contract number beside a branch and account number.
-     * Each names the slots its fill steps use; the executor takes the first variant the
-     * item's binding fills.
-     */
-    alternatives: v.optional(
-      v.pipe(
-        v.array(v.strictObject({ slots: recipeSlotList, steps: routeStepList })),
-        v.minLength(1),
-        v.maxLength(MAX_PASSWORD_ALTERNATIVES),
-      ),
-    ),
-    /**
-     * The `passkey` route (ADR 0027): the start page's button that signs in with a
-     * discoverable passkey, such as "Sign in with a passkey". The route clicks it and fills
-     * nothing; the passkey request it causes is answered by the bridge with the login's
-     * own item.
-     */
-    passkey: v.optional(v.strictObject({ path, target: loginTargetSchema })),
-    /**
-     * The signed-in markers (ADR 0029): elements the judge picked on signed-in pages, in
-     * the order they were learned, each proving a sign-in on any path of the origin it was
-     * learned on. A generated recipe has none until the page after its first sign-in is
-     * judged (ADR 0018); until then only the sign-in state of ADR 0029 completes a login. A
-     * later page the judge answers `signed-in` for adds its marker, up to four.
-     */
-    completion: v.optional(
-      v.pipe(
-        v.array(
-          v.strictObject({
-            target: loginMarkerTargetSchema,
-            /**
-             * Another origin the marker was learned on (ADR 0022): the page a `password`
-             * login's tab moved to right after the submission, of the recipe's site or,
-             * after a second factor, of another site. Such a
-             * marker proves a sign-in only on a page of that origin the tab moved to; one
-             * without proves it on the recipe's own origin.
-             */
-            origin: v.optional(loginOriginSchema),
-            /**
-             * Elements that must be missing as well, even hidden, such as the sign-in
-             * fields of a page that signs in on its own path, where the marker was learned.
-             * A login page that still holds a hidden "Sign out" element then never counts
-             * as signed in.
-             */
-            absent: v.optional(
-              v.pipe(
-                v.array(loginTargetSchema),
-                v.minLength(1),
-                v.maxLength(4),
-                v.check(
-                  (targets) => unique(targets.map((target) => JSON.stringify(target))),
-                  "Duplicate absent targets",
-                ),
+  ),
+  /**
+   * The `passkey` route (ADR 0027): the start page's button that signs in with a
+   * discoverable passkey, such as "Sign in with a passkey". The route clicks it and fills
+   * nothing; the passkey request it causes is answered by the bridge with the login's
+   * own item.
+   */
+  passkey: v.optional(v.strictObject({ path, target: loginTargetSchema })),
+  /**
+   * The signed-in markers (ADR 0029): elements the judge picked on signed-in pages, in
+   * the order they were learned, each proving a sign-in on any path of the origin it was
+   * learned on. A generated recipe has none until the page after its first sign-in is
+   * judged (ADR 0018); until then only the sign-in state of ADR 0029 completes a login. A
+   * later page the judge answers `signed-in` for adds its marker, up to four.
+   */
+  completion: v.optional(
+    v.pipe(
+      v.array(
+        v.strictObject({
+          target: loginMarkerTargetSchema,
+          /**
+           * Another origin the marker was learned on (ADR 0022): the page a `password`
+           * login's tab moved to right after the submission, of the recipe's site or,
+           * after a second factor, of another site. Such a
+           * marker proves a sign-in only on a page of that origin the tab moved to; one
+           * without proves it on the recipe's own origin.
+           */
+          origin: v.optional(loginOriginSchema),
+          /**
+           * Elements that must be missing as well, even hidden, such as the sign-in
+           * fields of a page that signs in on its own path, where the marker was learned.
+           * A login page that still holds a hidden "Sign out" element then never counts
+           * as signed in.
+           */
+          absent: v.optional(
+            v.pipe(
+              v.array(loginTargetSchema),
+              v.minLength(1),
+              v.maxLength(4),
+              v.check(
+                (targets) => unique(targets.map((target) => JSON.stringify(target))),
+                "Duplicate absent targets",
               ),
             ),
-          }),
-        ),
-        v.minLength(1),
-        v.maxLength(MAX_COMPLETION_MARKERS),
-        v.check(
-          (markers) =>
-            unique(markers.map((marker) => JSON.stringify([marker.origin ?? "", marker.target]))),
-          "Duplicate completion markers",
-        ),
+          ),
+        }),
+      ),
+      v.minLength(1),
+      v.maxLength(MAX_COMPLETION_MARKERS),
+      v.check(
+        (markers) =>
+          unique(markers.map((marker) => JSON.stringify([marker.origin ?? "", marker.target]))),
+        "Duplicate completion markers",
       ),
     ),
-    rejection: v.optional(loginTargetSchema),
-    /**
-     * The button or link that switches to another account, such as "Use another account"
-     * on a password page for a remembered account. When a fill finds the page showing
-     * another account than the selected one, the executor clicks it once and ends the
-     * attempt, so a recipe that starts on the page it leads to can log in (owner
-     * decision, 2026-10-11).
-     */
-    accountSwitch: v.optional(loginTargetSchema),
-    /**
-     * Second-factor pages learned from judged pages (ADR 0027), and pages that ask how to
-     * confirm the sign-in before the password (ADR 0048), one per kind and path.
-     * They are only ever appended, so a running login's entered handlers keep their index.
-     */
-    handlers: v.optional(
-      v.pipe(
-        v.array(loginHandlerSchema),
-        v.minLength(1),
-        v.maxLength(16),
-        v.check((handlers) => unique(handlers.map(handlerKey)), "Duplicate handlers"),
-      ),
+  ),
+  rejection: v.optional(loginTargetSchema),
+  /**
+   * The button or link that switches to another account, such as "Use another account"
+   * on a password page for a remembered account. When a fill finds the page showing
+   * another account than the selected one, the executor clicks it once and ends the
+   * attempt, so a recipe that starts on the page it leads to can log in (owner
+   * decision, 2026-10-11).
+   */
+  accountSwitch: v.optional(loginTargetSchema),
+  /**
+   * Second-factor pages learned from judged pages (ADR 0027), and pages that ask how to
+   * confirm the sign-in before the password (ADR 0048), one per kind and path.
+   * They are only ever appended, so a running login's entered handlers keep their index.
+   */
+  handlers: v.optional(
+    v.pipe(
+      v.array(loginHandlerSchema),
+      v.minLength(1),
+      v.maxLength(16),
+      v.check((handlers) => unique(handlers.map(handlerKey)), "Duplicate handlers"),
     ),
-    // Counts route steps only; an entered handler adds its own effects to the attempt.
-    maxSubmissions: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(8)),
-  }),
-  v.check(
+  ),
+  // Counts route steps only; an entered handler adds its own effects to the attempt.
+  maxSubmissions: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(8)),
+};
+const routeObject = v.strictObject(routeEntries);
+type RouteBody = v.InferOutput<typeof routeObject>;
+/** The checks every login route passes, whether a layout, a projection or a branch. */
+const routeRules: readonly (readonly [(recipe: RouteBody) => boolean, string])[] = [
+  [
     (recipe) => recipe.passkeyOnly === true || recipe.slots.length > 0,
     "A recipe has at least one slot",
-  ),
-  v.check(
+  ],
+  [
     (recipe) =>
       !recipe.passkeyOnly ||
       (recipe.slots.length === 0 &&
@@ -483,8 +771,8 @@ export const loginRecipeSchema = v.pipe(
         sameLoginTarget(recipe.steps[0]!.target, recipe.passkey.target) &&
         recipe.maxSubmissions === 1),
     "A passkey-only recipe has only its passkey submit",
-  ),
-  v.check(
+  ],
+  [
     (recipe) =>
       variantsOf(recipe).every((variant) =>
         variant.steps.every(
@@ -494,13 +782,13 @@ export const loginRecipeSchema = v.pipe(
         ),
       ),
     "Unknown semantic slot",
-  ),
-  v.check(
+  ],
+  [
     (recipe) =>
       variantsOf(recipe).every((variant) => stepEffects(variant.steps) <= recipe.maxSubmissions),
     "Effect attempt budget is too small",
-  ),
-  v.check(
+  ],
+  [
     (recipe) =>
       variantsOf(recipe).every(({ steps }) =>
         steps.every(
@@ -513,10 +801,10 @@ export const loginRecipeSchema = v.pipe(
         ),
       ),
     "Input-triggered effects cannot have a fallback click on the same path",
-  ),
+  ],
   // Variants are told apart by their slots, and every variant starts on the recipe's start
   // page. Each one submits, so a later page can never continue one variant of several.
-  v.check(
+  [
     (recipe) =>
       !recipe.alternatives ||
       variantsOf(recipe).every(({ slots, steps }) => {
@@ -529,8 +817,8 @@ export const loginRecipeSchema = v.pipe(
         );
       }),
     "Each variant fills exactly its slots, starts on the start path and submits",
-  ),
-  v.check(
+  ],
+  [
     (recipe) =>
       variantsOf(recipe).every((variant, index, all) =>
         all.every(
@@ -539,44 +827,47 @@ export const loginRecipeSchema = v.pipe(
         ),
       ),
     "A variant's slots repeat or are a subset of another variant's",
-  ),
+  ],
   // An element is filled as one slot whatever the variant, and no two variants fill the
   // same elements, so an ambiguous mapping never becomes two variants.
-  v.check((recipe) => {
-    if (!recipe.alternatives) return true;
-    const filled = variantsOf(recipe).map(({ steps }) =>
-      steps.flatMap((step) =>
-        step.kind === "fill"
-          ? step.fields.map((field) => ({
-              key: `${step.path}\n${targetKey(field.target)}`,
-              slot: field.slot,
-            }))
-          : [],
-      ),
-    );
-    const slotOf = new Map<string, string>();
-    for (const { key, slot } of filled.flat()) {
-      if ((slotOf.get(key) ?? slot) !== slot) return false;
-      slotOf.set(key, slot);
-    }
-    const keys = filled.map((entries) => new Set(entries.map((entry) => entry.key)));
-    return keys.every((set, index) =>
-      keys.every(
-        (other, otherIndex) =>
-          otherIndex === index ||
-          set.size !== other.size ||
-          [...set].some((key) => !other.has(key)),
-      ),
-    );
-  }, "A fill target maps to several slots, or two variants fill the same targets"),
+  [
+    (recipe) => {
+      if (!recipe.alternatives) return true;
+      const filled = variantsOf(recipe).map(({ steps }) =>
+        steps.flatMap((step) =>
+          step.kind === "fill"
+            ? step.fields.map((field) => ({
+                key: `${step.path}\n${targetKey(field.target)}`,
+                slot: field.slot,
+              }))
+            : [],
+        ),
+      );
+      const slotOf = new Map<string, string>();
+      for (const { key, slot } of filled.flat()) {
+        if ((slotOf.get(key) ?? slot) !== slot) return false;
+        slotOf.set(key, slot);
+      }
+      const keys = filled.map((entries) => new Set(entries.map((entry) => entry.key)));
+      return keys.every((set, index) =>
+        keys.every(
+          (other, otherIndex) =>
+            otherIndex === index ||
+            set.size !== other.size ||
+            [...set].some((key) => !other.has(key)),
+        ),
+      );
+    },
+    "A fill target maps to several slots, or two variants fill the same targets",
+  ],
   // A binding covers one variant, and bindings hold at most 20 slots.
-  v.check(
+  [
     (recipe) => new Set(variantsOf(recipe).flatMap((variant) => variant.slots)).size <= 20,
     "Too many recipe slots",
-  ),
+  ],
   // The executor checks the result elements and the next step's elements in one
   // observation of at most 24 elements.
-  v.check(
+  [
     (recipe) =>
       Math.max(
         0,
@@ -587,72 +878,89 @@ export const loginRecipeSchema = v.pipe(
         (recipe.rejection ? 1 : 0) <=
       24,
     "Too many result elements to observe with a step",
-  ),
+  ],
   // The switch is clicked instead of signing in, so it must not be a step's own button.
-  v.check((recipe) => {
-    if (!recipe.accountSwitch) return true;
-    const key = targetKey(recipe.accountSwitch);
-    return ![
-      ...variantsOf(recipe).flatMap((variant) =>
-        variant.steps.flatMap((step) => (step.kind === "click" ? [step.target] : [])),
-      ),
-      ...(recipe.handlers ?? []).flatMap(handlerTargets),
-      ...(recipe.rejection ? [recipe.rejection] : []),
-    ].some((target) => targetKey(target) === key);
-  }, "Account switch target is a step or rejection target"),
+  // A marker proves the sign-in wherever it shows (ADR 0029), so a login page that shows
+  // the switch must not read as signed in either.
+  [
+    (recipe) => {
+      if (!recipe.accountSwitch) return true;
+      const key = targetKey(recipe.accountSwitch);
+      return ![
+        ...variantsOf(recipe).flatMap((variant) =>
+          variant.steps.flatMap((step) => (step.kind === "click" ? [step.target] : [])),
+        ),
+        ...(recipe.handlers ?? []).flatMap(handlerTargets),
+        ...(recipe.rejection ? [recipe.rejection] : []),
+        ...(recipe.completion ?? []).map((marker) => marker.target),
+      ].some((target) => targetKey(target) === key);
+    },
+    "Account switch target is a step, rejection or completion marker target",
+  ],
   // The markers and the rejection are checked after every step, on any path, so a
   // variant's own element must never prove or refuse the sign-in. A marker proves it
   // wherever it shows (ADR 0029), so even a single variant's step never uses one; its
   // rejection on its own elements is left to the recipe's author.
-  v.check((recipe) => {
-    const used = new Set(
-      variantsOf(recipe).flatMap((variant) =>
-        variant.steps.flatMap((step) =>
-          (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target]).map(
-            targetKey,
-          ),
-        ),
-      ),
-    );
-    return (
-      !(recipe.completion ?? []).some((marker) => used.has(targetKey(marker.target))) &&
-      !(recipe.alternatives && recipe.rejection && used.has(targetKey(recipe.rejection)))
-    );
-  }, "Completion or rejection target is a variant's step target"),
-  // A marker of the recipe's own origin names none.
-  v.check(
-    (recipe) => !(recipe.completion ?? []).some((marker) => marker.origin === recipe.origin),
-    "Completion marker names the recipe's own origin",
-  ),
-  // A handler's element showing would otherwise prove the sign-in on its own page.
-  v.check((recipe) => {
-    const markers = new Set((recipe.completion ?? []).map((marker) => targetKey(marker.target)));
-    return !(recipe.handlers ?? []).some((handler) =>
-      handlerTargets(handler).some((target) => markers.has(targetKey(target))),
-    );
-  }, "Completion target is a handler target"),
-  // A `totp` handler types a code into a field of its own: never one a route step uses on
-  // its path, such as the password input of a form that asks for the code after it.
-  v.check(
-    (recipe) =>
-      !(recipe.handlers ?? []).some(
-        (handler) =>
-          handler.kind === "totp" &&
-          variantsOf(recipe).some((variant) =>
-            variant.steps.some(
-              (step) =>
-                step.path === handler.path &&
-                (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target])
-                  .map(targetKey)
-                  .includes(targetKey(handler.field)),
+  [
+    (recipe) => {
+      const used = new Set(
+        variantsOf(recipe).flatMap((variant) =>
+          variant.steps.flatMap((step) =>
+            (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target]).map(
+              targetKey,
             ),
           ),
-      ),
-    "The code field is a route step target",
-  ),
+        ),
+      );
+      return (
+        !(recipe.completion ?? []).some((marker) => used.has(targetKey(marker.target))) &&
+        !(recipe.alternatives && recipe.rejection && used.has(targetKey(recipe.rejection)))
+      );
+    },
+    "Completion or rejection target is a variant's step target",
+  ],
+  // A handler's element showing would otherwise prove the sign-in on its own page.
+  [
+    (recipe) => {
+      const markers = new Set((recipe.completion ?? []).map((marker) => targetKey(marker.target)));
+      return !(recipe.handlers ?? []).some((handler) =>
+        handlerTargets(handler).some((target) => markers.has(targetKey(target))),
+      );
+    },
+    "Completion target is a handler target",
+  ],
+  // A `totp` handler types a code into a field of its own: never one a route step uses on
+  // its path, such as the password input of a form that asks for the code after it. A
+  // `detail` handler's inputs and button are all its own (ADR 0061): the route's sign-in
+  // form may still show beside them.
+  // The `detail` slot is the handler's own, so no route step fills one by that name.
+  [
+    (recipe) =>
+      !variantsOf(recipe).some((variant) =>
+        variant.steps.some(
+          (step) => step.kind === "fill" && step.fields.some((field) => isDetailSlot(field.slot)),
+        ),
+      ) &&
+      !(recipe.handlers ?? []).some((handler) => {
+        if (handler.kind !== "totp" && handler.kind !== "detail") return false;
+        const own = (handler.kind === "totp" ? [handler.field] : handlerTargets(handler)).map(
+          targetKey,
+        );
+        return variantsOf(recipe).some((variant) =>
+          variant.steps.some(
+            (step) =>
+              step.path === handler.path &&
+              (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target])
+                .map(targetKey)
+                .some((key) => own.includes(key)),
+          ),
+        );
+      }),
+    "The code field or a detail handler's element is a route step target, or a route slot is named as a detail handler's",
+  ],
   // A `password` handler's button leads to the password a route step types: it is never a
   // route step's own element on its path (ADR 0048).
-  v.check(
+  [
     (recipe) =>
       !(recipe.handlers ?? []).some(
         (handler) =>
@@ -668,11 +976,11 @@ export const loginRecipeSchema = v.pipe(
           ),
       ),
     "A password handler's button is a route step target",
-  ),
+  ],
   // A control named by its accessible name is only ever a `password` handler's button
   // (ADR 0048 amendment of 2026-10-19), never another element the executor presses or
   // checks.
-  v.check(
+  [
     (recipe) =>
       ![
         ...variantsOf(recipe).flatMap((variant) =>
@@ -687,43 +995,133 @@ export const loginRecipeSchema = v.pipe(
         ),
       ].some((target) => target.by === "accessible-name"),
     "Only a password handler's button is named by its accessible name",
-  ),
+  ],
   // The passkey route starts on the start page, beside the password route.
-  v.check(
+  [
     (recipe) => !recipe.passkey || recipe.passkey.path === recipe.steps[0]!.path,
     "The passkey route must start on the start path",
-  ),
+  ],
   // Its button is an element of its own: no password variant's step uses it on the start
   // page, and it never switches the account, proves or refuses the sign-in, or answers a
   // handler there.
-  v.check((recipe) => {
-    const { passkey } = recipe;
-    if (!passkey) return true;
-    const key = targetKey(passkey.target);
-    const onPath = (entries: { path: string; target: v.InferOutput<typeof loginTargetSchema> }[]) =>
-      entries.some((entry) => entry.path === passkey.path && targetKey(entry.target) === key);
-    return (
-      !onPath(
-        (recipe.passkeyOnly ? [] : variantsOf(recipe)).flatMap((variant) =>
-          variant.steps.flatMap((step) =>
-            (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target]).map(
-              (target) => ({ path: step.path, target }),
+  [
+    (recipe) => {
+      const { passkey } = recipe;
+      if (!passkey) return true;
+      const key = targetKey(passkey.target);
+      const onPath = (
+        entries: { path: string; target: v.InferOutput<typeof loginTargetSchema> }[],
+      ) => entries.some((entry) => entry.path === passkey.path && targetKey(entry.target) === key);
+      return (
+        !onPath(
+          (recipe.passkeyOnly ? [] : variantsOf(recipe)).flatMap((variant) =>
+            variant.steps.flatMap((step) =>
+              (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target]).map(
+                (target) => ({ path: step.path, target }),
+              ),
             ),
           ),
-        ),
-      ) &&
-      !onPath(
-        (recipe.handlers ?? []).flatMap((handler) =>
-          handlerTargets(handler).map((target) => ({ path: handler.path, target })),
-        ),
-      ) &&
-      ![
-        recipe.accountSwitch,
-        recipe.rejection,
-        ...(recipe.completion ?? []).map((marker) => marker.target),
-      ].some((target) => target !== undefined && targetKey(target) === key)
-    );
-  }, "Passkey target is a step, handler, completion, rejection or account switch target"),
+        ) &&
+        !onPath(
+          (recipe.handlers ?? []).flatMap((handler) =>
+            handlerTargets(handler).map((target) => ({ path: handler.path, target })),
+          ),
+        ) &&
+        ![
+          recipe.accountSwitch,
+          recipe.rejection,
+          ...(recipe.completion ?? []).map((marker) => marker.target),
+        ].some((target) => target !== undefined && targetKey(target) === key)
+      );
+    },
+    "Passkey target is a step, handler, completion, rejection or account switch target",
+  ],
+];
+/** Adds an issue for each of `routeRules` the route breaks. */
+function routeCheck<T extends RouteBody>() {
+  return v.rawCheck<T>(({ dataset, addIssue }) => {
+    if (!dataset.typed) return;
+    for (const [holds, message] of routeRules) if (!holds(dataset.value)) addIssue({ message });
+  });
+}
+/** Whether none of the route's markers names `origin`, which a marker of that origin leaves out. */
+const markersOffOrigin = (origin: string, route: Pick<RouteBody, "completion">) =>
+  !(route.completion ?? []).some((marker) => marker.origin === origin);
+/** A chooser branch's route (ADR 0028), stored inside its chooser layout. */
+export const loginRouteBodySchema = v.pipe(routeObject, routeCheck<RouteBody>());
+const recipeObject = v.strictObject({
+  version: v.literal(1),
+  id: identifier,
+  revision,
+  origin: loginOriginSchema,
+  /**
+   * The layout this recipe was projected from (ADR 0060), which a login records and resumes
+   * by; absent only for a recipe that comes from no stored layout, as the probe build's.
+   */
+  layout: v.optional(recipeLayoutKeySchema),
+  ...routeEntries,
+});
+/**
+ * The recipe a login runs: one layout of a stored recipe document, projected with the
+ * document's ID, revision and origin (`layoutRecipe`, ADR 0060).
+ */
+export const loginRecipeSchema = v.pipe(
+  recipeObject,
+  routeCheck<v.InferOutput<typeof recipeObject>>(),
+  // A marker of the recipe's own origin names none.
+  v.check(
+    (recipe) => markersOffOrigin(recipe.origin, recipe),
+    "Completion marker names the recipe's own origin",
+  ),
+);
+const layoutObject = v.strictObject({
+  key: recipeLayoutKeySchema,
+  language: v.optional(recipeLanguageSchema),
+  createdAt: layoutCreatedAt,
+  ...routeEntries,
+});
+/**
+ * One layout of a stored login recipe (ADR 0060): a whole login route with its own
+ * handlers, signed-in markers and continuation pages, its stable key, the language of the
+ * page it was generated from and when it was created.
+ */
+export const loginLayoutSchema = v.pipe(
+  layoutObject,
+  routeCheck<v.InferOutput<typeof layoutObject>>(),
+);
+/**
+ * A stored login recipe (ADR 0060): one generated recipe per origin and start path, holding
+ * up to `MAX_RECIPE_LAYOUTS` layouts of that start page. Every layout starts on the same
+ * path, so the ID, the bindings and the site defaults stay the recipe's.
+ */
+export const loginRecipeDocumentSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    id: identifier,
+    revision,
+    origin: loginOriginSchema,
+    layouts: v.pipe(v.array(loginLayoutSchema), v.minLength(1), v.maxLength(MAX_RECIPE_LAYOUTS)),
+  }),
+  v.check((recipe) => unique(recipe.layouts.map((layout) => layout.key)), "Duplicate layout keys"),
+  v.check(
+    (recipe) =>
+      recipe.layouts.every((layout) => layout.steps[0]!.path === recipe.layouts[0]!.steps[0]!.path),
+    "Every layout starts on the recipe's start path",
+  ),
+  // All layouts share one start page, so they share its kind (ADR 0060): a recipe is run,
+  // or kept as a confirm or unclear page, as a whole.
+  v.check(
+    (recipe) => recipe.layouts.every((layout) => layout.pageKind === recipe.layouts[0]!.pageKind),
+    "Every layout has the recipe's page kind",
+  ),
+  // Bindings are kept per recipe and hold at most 20 slots, so every layout's slots together
+  // fit one (ADR 0060).
+  v.check((recipe) => routeSlotCount(recipe.layouts) <= 20, "Too many recipe slots"),
+  v.check(
+    (recipe) => recipe.layouts.every((layout) => markersOffOrigin(recipe.origin, layout)),
+    "Completion marker names the recipe's own origin",
+  ),
+  v.check((recipe) => fitsDocumentBytes(recipe), "Recipe document too large"),
 );
 /**
  * A recipe whose only member is `entry` (ADR 0031): the start path of a page without a
@@ -764,9 +1162,26 @@ const chooserTargetSchema = v.variant("by", [
   loginAttributeTargetSchema.options[1],
   loginTextTargetSchema,
 ]);
+/** A chooser recipe's members, before the checks that relate them. */
+const chooserRecipeEntriesSchema = v.strictObject({
+  version: v.literal(1),
+  id: identifier,
+  revision,
+  origin: loginOriginSchema,
+  /** The layout this chooser was projected from (ADR 0060). */
+  layout: v.optional(recipeLayoutKeySchema),
+  chooser: v.strictObject({
+    path,
+    other: v.optional(chooserTargetSchema),
+    continue: v.optional(chooserTargetSchema),
+    afterAccount: v.optional(loginRecipeSchema),
+    afterOther: v.optional(loginRecipeSchema),
+  }),
+});
 /**
- * A recipe that starts on a page listing accounts to choose from (ADR 0028), such as
- * Cloudflare's saved profiles: `chooser.path` is where the list shows. `other` is the
+ * A recipe that starts on a page listing accounts to choose from (ADR 0028), as a login
+ * runs it: one layout of a stored chooser (`chooserLayoutRecipe`, ADR 0060), such as
+ * Cloudflare's saved profiles. `chooser.path` is where the list shows. `other` is the
  * button that continues without a listed account ("Sign in with another profile"), and
  * `continue` the one that continues with the one account a page shows beside it ("Log
  * back in" on Wise). The entry to click is never stored: it is found on the page from
@@ -774,32 +1189,28 @@ const chooserTargetSchema = v.variant("by", [
  *
  * Each branch is the route recipe for the page the click leads to, after a listed or
  * shown account (`afterAccount`) or after `other` (`afterOther`), under the chooser's own
- * ID, origin and revision. A branch is absent until a login takes it and its page is
- * generated as an ADR 0018 continuation.
+ * ID, origin, revision and layout. A branch is absent until a login takes it and its page
+ * is generated as an ADR 0018 continuation.
  *
- * A login on the list runs `chooserRoute` for what it clicks there.
+ * A login on the list runs `chooserRoute` for what it clicks there, so a branch is held
+ * only when that route is a recipe for every click that leads to it. With the click on
+ * the list in front, a branch has at most 31 steps, at most 7 of them clicks or fills
+ * that advance or submit, nothing that proves or hands off the sign-in on the button it
+ * clicks there, and no `passkeyOnly`; `chooserRoute` decides each case.
  */
 export const loginChooserRecipeSchema = v.pipe(
-  v.strictObject({
-    version: v.literal(1),
-    id: identifier,
-    revision,
-    origin: loginOriginSchema,
-    chooser: v.strictObject({
-      path,
-      other: v.optional(chooserTargetSchema),
-      continue: v.optional(chooserTargetSchema),
-      afterAccount: v.optional(loginRecipeSchema),
-      afterOther: v.optional(loginRecipeSchema),
-    }),
-  }),
+  chooserRecipeEntriesSchema,
   v.check(
-    ({ id, revision: current, origin, chooser }) =>
+    ({ id, revision: current, origin, layout, chooser }) =>
       [chooser.afterAccount, chooser.afterOther].every(
         (branch) =>
-          !branch || (branch.id === id && branch.revision === current && branch.origin === origin),
+          !branch ||
+          (branch.id === id &&
+            branch.revision === current &&
+            branch.origin === origin &&
+            branch.layout === layout),
       ),
-    "A chooser branch has the chooser's ID, revision and origin",
+    "A chooser branch has the chooser's ID, revision, origin and layout",
   ),
   v.check(
     ({ chooser }) =>
@@ -812,17 +1223,104 @@ export const loginChooserRecipeSchema = v.pipe(
     ({ chooser }) => !chooser.afterOther || chooser.other !== undefined,
     "A chooser has an other-account branch only with its button",
   ),
+  // A branch runs only as `chooserRoute` builds it, so every click that leads to it must
+  // make a recipe of it.
+  v.check(
+    (recipe) => chooserClicks(recipe).every((click) => chooserRoute(recipe, click) !== undefined),
+    "A chooser branch cannot run after the click that leads to it",
+  ),
 );
 /**
- * Any recipe the service stores and devices sync: a recipe with a login route
- * (`loginRecipeSchema`, which every login runs), an entry recipe (ADR 0031) or a chooser
- * recipe (ADR 0028). Strict objects keep them apart, so `entry` or `chooser` is never
- * beside `slots`, `steps` or another login route member.
+ * One layout of a stored chooser (ADR 0060): its list's buttons and the routes of its
+ * branches, with its stable key, language and creation time. A list whose buttons are
+ * named by their text gets another layout on a day the site shows another language.
+ */
+export const loginChooserLayoutSchema = v.pipe(
+  v.strictObject({
+    key: recipeLayoutKeySchema,
+    language: v.optional(recipeLanguageSchema),
+    createdAt: layoutCreatedAt,
+    other: v.optional(chooserTargetSchema),
+    continue: v.optional(chooserTargetSchema),
+    afterAccount: v.optional(loginRouteBodySchema),
+    afterOther: v.optional(loginRouteBodySchema),
+  }),
+  v.check(
+    (layout) =>
+      !layout.other ||
+      !layout.continue ||
+      JSON.stringify(layout.other) !== JSON.stringify(layout.continue),
+    "The chooser's other and continue buttons differ",
+  ),
+  v.check(
+    (layout) => !layout.afterOther || layout.other !== undefined,
+    "A chooser has an other-account branch only with its button",
+  ),
+);
+/** A stored chooser's members, before the checks that relate them. */
+const chooserDocumentEntriesSchema = v.strictObject({
+  version: v.literal(1),
+  id: identifier,
+  revision,
+  origin: loginOriginSchema,
+  chooser: v.strictObject({
+    path,
+    layouts: v.pipe(
+      v.array(loginChooserLayoutSchema),
+      v.minLength(1),
+      v.maxLength(MAX_RECIPE_LAYOUTS),
+    ),
+  }),
+});
+/**
+ * A stored chooser recipe (ADR 0028, ADR 0060): the list's path, and up to
+ * `MAX_RECIPE_LAYOUTS` layouts of the list, each with its own branches. Each layout, as a
+ * login runs it (`chooserLayoutRecipe`), holds a branch only when `chooserRoute` makes a
+ * recipe of it for every click that leads there, as `loginChooserRecipeSchema` requires.
+ */
+export const loginChooserDocumentSchema = v.pipe(
+  chooserDocumentEntriesSchema,
+  v.check(
+    ({ chooser }) => unique(chooser.layouts.map((layout) => layout.key)),
+    "Duplicate layout keys",
+  ),
+  v.check(
+    ({ chooser }) =>
+      routeSlotCount(
+        chooser.layouts.flatMap((layout) =>
+          [layout.afterAccount, layout.afterOther].filter((branch) => branch !== undefined),
+        ),
+      ) <= 20,
+    "Too many recipe slots",
+  ),
+  v.check(
+    ({ origin, chooser }) =>
+      chooser.layouts.every((layout) =>
+        [layout.afterAccount, layout.afterOther].every(
+          (branch) => !branch || markersOffOrigin(origin, branch),
+        ),
+      ),
+    "Completion marker names the recipe's own origin",
+  ),
+  v.check(
+    (recipe) =>
+      chooserLayouts(recipe).every((layout) =>
+        chooserClicks(layout).every((click) => chooserRoute(layout, click) !== undefined),
+      ),
+    "A chooser branch cannot run after the click that leads to it",
+  ),
+  v.check((recipe) => fitsDocumentBytes(recipe), "Recipe document too large"),
+);
+/**
+ * Any recipe the service stores and devices sync: a login recipe with its layouts
+ * (`loginRecipeDocumentSchema`, whose layouts every login runs as `loginRecipeSchema`), an
+ * entry recipe (ADR 0031) or a chooser recipe (ADR 0028) with its layouts. Strict objects
+ * keep them apart, so `entry` or `chooser` is never beside `layouts`.
  */
 export const storedLoginRecipeSchema = v.union([
-  loginRecipeSchema,
+  loginRecipeDocumentSchema,
   loginEntryRecipeSchema,
-  loginChooserRecipeSchema,
+  loginChooserDocumentSchema,
 ]);
 export const loginAccountSchema = v.strictObject({
   origin: loginOriginSchema,
@@ -912,18 +1410,41 @@ export const sameLoginTarget = (left: LoginMarkerTarget, right: LoginMarkerTarge
   left.by === right.by && left.value === right.value;
 export type LoginAttributeTarget = v.InferOutput<typeof loginAttributeTargetSchema>;
 export type LoginFieldTarget = v.InferOutput<typeof loginFieldTargetSchema>;
+export type LoginKeypadTarget = v.InferOutput<typeof loginKeypadTargetSchema>;
 export type LoginStep = v.InferOutput<typeof loginStepSchema>;
 export type LoginEffect = "prepare" | "advance" | "submit";
 export function loginStepEffect(step: LoginStep): LoginEffect | undefined {
   return step.kind === "fill" ? step.effect : step.kind === "click" ? step.purpose : undefined;
 }
+/**
+ * Whether a fill presses keys on a page's software keyboard (ADR 0067). Its fill prepares,
+ * but the page may act on a press, as a PIN pad that submits at its last digit does.
+ */
+export const keypadStep = (step: LoginStep): boolean =>
+  step.kind === "fill" && step.fields.some((field) => field.keypad !== undefined);
 export type LoginRecipe = v.InferOutput<typeof loginRecipeSchema>;
 export type LoginEntryRecipe = v.InferOutput<typeof loginEntryRecipeSchema>;
-export type LoginChooserRecipe = v.InferOutput<typeof loginChooserRecipeSchema>;
+// Inferred from the members alone: the schema's own checks build `chooserRoute`, which
+// takes this type. Its checks change no member's type.
+export type LoginChooserRecipe = v.InferOutput<typeof chooserRecipeEntriesSchema>;
 export type StoredLoginRecipe = v.InferOutput<typeof storedLoginRecipeSchema>;
-/** Whether a stored recipe has a login route: its own `steps`. */
-export const isLoginRouteRecipe = (recipe: StoredLoginRecipe): recipe is LoginRecipe =>
-  "steps" in recipe;
+export type LoginLayout = v.InferOutput<typeof loginLayoutSchema>;
+export type LoginRecipeDocument = v.InferOutput<typeof loginRecipeDocumentSchema>;
+export type LoginChooserLayout = v.InferOutput<typeof loginChooserLayoutSchema>;
+// Inferred from the members alone, as `LoginChooserRecipe` is: the schema's own checks
+// project its layouts with `chooserLayoutRecipe`, which takes this type.
+export type LoginChooserDocument = v.InferOutput<typeof chooserDocumentEntriesSchema>;
+export type LoginRouteBody = v.InferOutput<typeof loginRouteBodySchema>;
+export type RecipeLanguage = v.InferOutput<typeof recipeLanguageSchema>;
+/** What a layout is besides its route (ADR 0060): its key, language and creation time. */
+export type LayoutMeta = { key: string; language?: RecipeLanguage | undefined; createdAt: number };
+/** Whether a recipe a login runs, or one of its answers, has a login route: its own `steps`. */
+export const isLoginRouteRecipe = (
+  recipe: LoginRecipe | LoginChooserRecipe | LoginEntryRecipe,
+): recipe is LoginRecipe => "steps" in recipe;
+/** Whether a stored recipe is a login recipe with layouts (ADR 0060). */
+export const isLoginRecipeDocument = (recipe: StoredLoginRecipe): recipe is LoginRecipeDocument =>
+  "layouts" in recipe;
 /**
  * Whether a route recipe may start a login (ADR 0035): only one generated as `sign-in`. A
  * `confirm` or `unclear` recipe is never run, never taken as a logout and never filled
@@ -933,16 +1454,237 @@ export const runsLogin = (recipe: Pick<LoginRecipe, "pageKind">): boolean =>
   recipe.pageKind === "sign-in";
 /**
  * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028)
- * or its first step's. The service keeps one generated recipe per origin and start path
- * either way. Each kind of stored recipe is named, so a new kind has to say where it
- * starts.
+ * or its layouts' first step's, which every layout shares (ADR 0060). The service keeps one
+ * generated recipe per origin and start path either way. Each kind of stored recipe is
+ * named, so a new kind has to say where it starts.
  */
 export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
   if ("entry" in recipe) return recipe.entry.path;
   if ("chooser" in recipe) return recipe.chooser.path;
-  if ("steps" in recipe) return recipe.steps[0]!.path;
+  if ("layouts" in recipe) return recipe.layouts[0]!.steps[0]!.path;
   const unknown: never = recipe;
   throw new Error(`Unknown stored recipe kind: ${JSON.stringify(unknown)}`);
+}
+/** A layout's key, language and creation time, without its route. */
+export function layoutMeta(layout: LayoutMeta): LayoutMeta {
+  return {
+    key: layout.key,
+    ...(layout.language ? { language: layout.language } : {}),
+    createdAt: layout.createdAt,
+  };
+}
+/** A login recipe's route without the members a stored layout holds instead. */
+export function routeBodyOf(recipe: LoginRecipe): LoginRouteBody {
+  const {
+    version: _version,
+    id: _id,
+    revision: _revision,
+    origin: _origin,
+    layout: _layout,
+    ...route
+  } = recipe;
+  return route;
+}
+/**
+ * One layout as the recipe a login runs (ADR 0060): its route with the document's ID,
+ * revision and origin, and its own key. Only that layout's signed-in markers come with it,
+ * so a layout that has none yet still learns its later pages (ADR 0018).
+ */
+export function layoutRecipe(recipe: LoginRecipeDocument, layout: LoginLayout): LoginRecipe {
+  const { key, language: _language, createdAt: _createdAt, ...route } = layout;
+  return {
+    version: 1,
+    id: recipe.id,
+    revision: recipe.revision,
+    origin: recipe.origin,
+    layout: key,
+    ...route,
+  };
+}
+/** Every layout of a stored login recipe as a recipe a login runs, in stored order. */
+export function recipeLayouts(recipe: LoginRecipeDocument): LoginRecipe[] {
+  return recipe.layouts.map((layout) => layoutRecipe(recipe, layout));
+}
+/** The layout with the key, as a recipe a login runs; `undefined` when it has none. */
+export function findLayoutRecipe(
+  recipe: LoginRecipeDocument,
+  key: string,
+): LoginRecipe | undefined {
+  const layout = recipe.layouts.find((entry) => entry.key === key);
+  return layout && layoutRecipe(recipe, layout);
+}
+/** The most recently created of some layouts; the later one in order on a tie. */
+export function newestLayout<T extends { createdAt: number }>(
+  layouts: readonly T[],
+): T | undefined {
+  return layouts.reduce<T | undefined>(
+    (newest, layout) => (!newest || layout.createdAt >= newest.createdAt ? layout : newest),
+    undefined,
+  );
+}
+/** A route a login ran, stored back as the layout `meta` names (ADR 0060). */
+export function toLoginLayout(recipe: LoginRecipe, meta: LayoutMeta): LoginLayout {
+  return { ...layoutMeta(meta), ...routeBodyOf(recipe) };
+}
+/**
+ * The recipe with `layout` in place of the layout of the same key, or added after the
+ * others when it has none. Every layout keeps the start page's kind (ADR 0060), so a layout
+ * of another kind than the recipe's replaces them all: the page is now that kind. The
+ * caller checks the result against the schema, which refuses a fourth layout: replacing
+ * the least used one is repair's to decide.
+ */
+export function withLoginLayout(
+  recipe: LoginRecipeDocument,
+  layout: LoginLayout,
+): LoginRecipeDocument {
+  if (recipe.layouts.some((entry) => entry.pageKind !== layout.pageKind))
+    return { ...recipe, layouts: [layout] };
+  const at = recipe.layouts.findIndex((entry) => entry.key === layout.key);
+  return {
+    ...recipe,
+    layouts:
+      at === -1
+        ? [...recipe.layouts, layout]
+        : recipe.layouts.map((entry, index) => (index === at ? layout : entry)),
+  };
+}
+/**
+ * One layout of a stored chooser as the chooser a login runs (ADR 0060): its buttons, and
+ * its branches as route recipes under the document's ID, revision and origin and its key.
+ */
+export function chooserLayoutRecipe(
+  recipe: LoginChooserDocument,
+  layout: LoginChooserLayout,
+): LoginChooserRecipe {
+  const branch = (route: LoginRouteBody | undefined): LoginRecipe | undefined =>
+    route && {
+      version: 1,
+      id: recipe.id,
+      revision: recipe.revision,
+      origin: recipe.origin,
+      layout: layout.key,
+      ...route,
+    };
+  const afterAccount = branch(layout.afterAccount);
+  const afterOther = branch(layout.afterOther);
+  return {
+    version: 1,
+    id: recipe.id,
+    revision: recipe.revision,
+    origin: recipe.origin,
+    layout: layout.key,
+    chooser: {
+      path: recipe.chooser.path,
+      ...(layout.other ? { other: layout.other } : {}),
+      ...(layout.continue ? { continue: layout.continue } : {}),
+      ...(afterAccount ? { afterAccount } : {}),
+      ...(afterOther ? { afterOther } : {}),
+    },
+  };
+}
+/** Every layout of a stored chooser as a chooser a login runs, in stored order. */
+export function chooserLayouts(recipe: LoginChooserDocument): LoginChooserRecipe[] {
+  return recipe.chooser.layouts.map((layout) => chooserLayoutRecipe(recipe, layout));
+}
+/** The chooser layout with the key, as a chooser a login runs; `undefined` when it has none. */
+export function findChooserLayout(
+  recipe: LoginChooserDocument,
+  key: string,
+): LoginChooserRecipe | undefined {
+  const layout = recipe.chooser.layouts.find((entry) => entry.key === key);
+  return layout && chooserLayoutRecipe(recipe, layout);
+}
+/** A chooser a login ran, stored back as the layout `meta` names (ADR 0060). */
+export function toChooserLayout(recipe: LoginChooserRecipe, meta: LayoutMeta): LoginChooserLayout {
+  const { other, continue: next, afterAccount, afterOther } = recipe.chooser;
+  return {
+    ...layoutMeta(meta),
+    ...(other ? { other } : {}),
+    ...(next ? { continue: next } : {}),
+    ...(afterAccount ? { afterAccount: routeBodyOf(afterAccount) } : {}),
+    ...(afterOther ? { afterOther: routeBodyOf(afterOther) } : {}),
+  };
+}
+/** The chooser with `layout` in place of the layout of the same key, or added after them. */
+export function withChooserLayout(
+  recipe: LoginChooserDocument,
+  layout: LoginChooserLayout,
+): LoginChooserDocument {
+  const at = recipe.chooser.layouts.findIndex((entry) => entry.key === layout.key);
+  return {
+    ...recipe,
+    chooser: {
+      ...recipe.chooser,
+      layouts:
+        at === -1
+          ? [...recipe.chooser.layouts, layout]
+          : recipe.chooser.layouts.map((entry, index) => (index === at ? layout : entry)),
+    },
+  };
+}
+/**
+ * One layout of a stored login or chooser recipe as the recipe a login runs (ADR 0060):
+ * the layout of the key, or the newest one without a key; `undefined` for an entry recipe
+ * or a key of no layout.
+ */
+export function storedLayoutRecipe(
+  recipe: StoredLoginRecipe,
+  key?: string,
+): LoginRecipe | LoginChooserRecipe | undefined {
+  if ("layouts" in recipe) {
+    const layout =
+      key === undefined
+        ? newestLayout(recipe.layouts)
+        : recipe.layouts.find((entry) => entry.key === key);
+    return layout && layoutRecipe(recipe, layout);
+  }
+  if ("chooser" in recipe) {
+    const layout =
+      key === undefined
+        ? newestLayout(recipe.chooser.layouts)
+        : recipe.chooser.layouts.find((entry) => entry.key === key);
+    return layout && chooserLayoutRecipe(recipe, layout);
+  }
+  return undefined;
+}
+/** The key, language and creation time of each layout of a stored recipe; none for an entry. */
+export function storedLayouts(recipe: StoredLoginRecipe): LayoutMeta[] {
+  if ("layouts" in recipe) return recipe.layouts.map(layoutMeta);
+  if ("chooser" in recipe) return recipe.chooser.layouts.map(layoutMeta);
+  return [];
+}
+/**
+ * The stored recipe without the layout of the key, as the next revision (ADR 0060);
+ * `undefined` when it has no such layout or that is its last one, which revoking the
+ * recipe removes instead.
+ */
+export function withoutLayout(
+  recipe: StoredLoginRecipe,
+  key: string,
+): StoredLoginRecipe | undefined {
+  const next = { revision: recipe.revision + 1 };
+  if ("layouts" in recipe) {
+    const layouts = recipe.layouts.filter((layout) => layout.key !== key);
+    return layouts.length === recipe.layouts.length || !layouts.length
+      ? undefined
+      : { ...recipe, ...next, layouts };
+  }
+  if ("chooser" in recipe) {
+    const layouts = recipe.chooser.layouts.filter((layout) => layout.key !== key);
+    return layouts.length === recipe.chooser.layouts.length || !layouts.length
+      ? undefined
+      : { ...recipe, ...next, chooser: { ...recipe.chooser, layouts } };
+  }
+  return undefined;
+}
+/**
+ * A key for a layout created at `createdAt` (ADR 0060): that time in epoch milliseconds,
+ * moved on by a millisecond while another layout of the recipe holds it.
+ */
+export function newLayoutKey(createdAt: number, taken: readonly string[]): string {
+  let at = Math.max(0, Math.trunc(createdAt));
+  while (taken.includes(String(at))) at += 1;
+  return String(at);
 }
 /**
  * A branch of a chooser recipe (ADR 0028): the page after a listed or shown account
@@ -950,6 +1692,47 @@ export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
  */
 export const chooserBranchSchema = v.picklist(["account", "other"]);
 export type ChooserBranch = v.InferOutput<typeof chooserBranchSchema>;
+/**
+ * Which route of a stored recipe a record or request is about (ADR 0060): a layout's key,
+ * and for a chooser (ADR 0028) the branch after a colon, such as `1760000000000:account`.
+ * The service keeps it in the `branch` columns of its records.
+ */
+export const recipeBranchSchema = v.pipe(v.string(), v.regex(/^\d{1,16}(?::(?:account|other))?$/u));
+/**
+ * The branch name of a layout and chooser branch (ADR 0060): the key, then the chooser
+ * branch after a colon.
+ */
+export function recipeBranch(layout: string, branch?: ChooserBranch): string {
+  return branch ? `${layout}:${branch}` : layout;
+}
+/** A branch name's layout key and chooser branch, if it is one (`recipeBranchSchema`). */
+export function parseRecipeBranch(
+  value: string,
+): { layout: string; branch?: ChooserBranch } | undefined {
+  if (!v.is(recipeBranchSchema, value)) return undefined;
+  const [layout, branch] = value.split(":") as [string, ChooserBranch | undefined];
+  return branch ? { layout, branch } : { layout };
+}
+/**
+ * The route a stored recipe runs on a branch name (ADR 0060): a login recipe's layout, or
+ * the route of a chooser layout's branch with that chooser (absent until generated). A
+ * name of no layout of the recipe, a chooser branch of a login recipe or a login recipe's
+ * name on a chooser answers `undefined`.
+ */
+export function storedBranchRoute(
+  recipe: StoredLoginRecipe,
+  value: string,
+): { route: LoginRecipe | undefined; chooser?: LoginChooserRecipe } | undefined {
+  const named = parseRecipeBranch(value);
+  if (!named) return undefined;
+  if ("layouts" in recipe) {
+    const route = named.branch ? undefined : findLayoutRecipe(recipe, named.layout);
+    return route && { route };
+  }
+  if (!("chooser" in recipe) || !named.branch) return undefined;
+  const chooser = findChooserLayout(recipe, named.layout);
+  return chooser && { route: chooserBranch(chooser, named.branch), chooser };
+}
 const branchMember = { account: "afterAccount", other: "afterOther" } as const;
 /** A chooser's route recipe for one branch, if a login generated it already. */
 export function chooserBranch(
@@ -1031,6 +1814,7 @@ export function chooserRoute(
       id: recipe.id,
       revision: recipe.revision,
       origin: recipe.origin,
+      ...(recipe.layout === undefined ? {} : { layout: recipe.layout }),
       // A list of accounts is always a sign-in page (ADR 0035).
       pageKind: "sign-in",
     });
@@ -1052,6 +1836,7 @@ export function chooserRoute(
     id: recipe.id,
     revision: recipe.revision,
     origin: recipe.origin,
+    ...(recipe.layout === undefined ? {} : { layout: recipe.layout }),
     pageKind: "sign-in",
     slots: [...new Set(["username", ...(branch?.slots ?? [])])],
     steps: [
@@ -1062,17 +1847,35 @@ export function chooserRoute(
   });
   return parsed.success ? parsed.output : undefined;
 }
-/** The slots a stored recipe's routes fill: none for an entry, its branches' for a chooser. */
-export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
-  if ("steps" in recipe) return recipeSlots(recipe);
-  if ("entry" in recipe) return [];
+/**
+ * The clicks a login can take on a chooser's list, each with its `chooserRoute`: an
+ * account's entry, the `continue` and `other` buttons the chooser has, and `other-shown`
+ * once its `other` branch starts on the list's path.
+ */
+function chooserClicks(recipe: LoginChooserRecipe): ChooserClick[] {
+  const { chooser } = recipe;
   return [
-    ...new Set(
-      [recipe.chooser.afterAccount, recipe.chooser.afterOther].flatMap((branch) =>
-        branch ? recipeSlots(branch) : [],
-      ),
-    ),
+    "entry",
+    ...(chooser.continue ? (["continue"] as const) : []),
+    ...(chooser.other ? (["other"] as const) : []),
+    ...(chooser.afterOther?.steps[0]!.path === chooser.path ? (["other-shown"] as const) : []),
   ];
+}
+/**
+ * The slots a stored recipe's routes fill, over all its layouts (ADR 0060): none for an
+ * entry, its branches' for a chooser.
+ */
+export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
+  if ("entry" in recipe) return [];
+  const routes =
+    "layouts" in recipe
+      ? recipeLayouts(recipe)
+      : chooserLayouts(recipe).flatMap((chooser) =>
+          [chooser.chooser.afterAccount, chooser.chooser.afterOther].filter(
+            (branch) => branch !== undefined,
+          ),
+        );
+  return [...new Set(routes.flatMap(recipeSlots))];
 }
 export type LoginRoute = v.InferOutput<typeof loginRouteSchema>;
 export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
@@ -1317,30 +2120,55 @@ export function passwordStopOrMiss(
   if (!before.some((step) => loginStepEffect(step) === "advance")) return { miss: "no-advance" };
   return before.some((step) => fills(step, lacking)) ? { miss: "fills-lacking" } : { stop };
 }
-/** The slot a `totp` handler's fill uses; a binding for it reads the item's TOTP field. */
+/**
+ * The slot a `totp` handler's fill uses; it always fills a generated code. A binding for it
+ * reads the item's TOTP field, or a Text or Hidden custom field that a saved binding names
+ * and that holds a TOTP seed.
+ */
 export const TOTP_HANDLER_SLOT = "totp";
 /**
- * The steps a handler runs: a `passkey` handler's click, a `password` handler's click that
- * advances to the password page (ADR 0048), or a `totp` handler's fill of the code into
- * its field followed by the click on its submit button.
+ * The slot a `detail` handler's fill uses (ADR 0061). No binding slot reads it: the value
+ * comes from the item the binding's `details` link for the input's detail.
  */
-export function handlerSteps(handler: LoginHandler): LoginStep[] {
+export const DETAIL_HANDLER_SLOT = "detail";
+/**
+ * The slot of a `detail` handler's fill of the `index`th input of its chosen field: the
+ * first `detail`, a split value's further parts `detail 2` to `detail 6` (ADR 0061).
+ */
+export const detailSlot = (index: number) =>
+  index === 0 ? DETAIL_HANDLER_SLOT : `${DETAIL_HANDLER_SLOT} ${index + 1}`;
+/** Whether `slot` is one a `detail` handler's fill uses, which no route step fills. */
+export const isDetailSlot = (slot: string) => /^detail(?: [2-6])?$/u.test(slot);
+/**
+ * The steps a handler runs: a `passkey` handler's click, a `password` handler's click that
+ * advances to the password page (ADR 0048), a `totp` handler's fill of the code into its
+ * field, or a `detail` handler's fill of its field at `field`, every input of a split
+ * value at once (ADR 0061), followed by the click on its submit button. A `totp` handler
+ * without a button runs one fill that submits through the code's own input (ADR 0027
+ * amendment of 2026-10-23): nothing is clicked.
+ */
+export function handlerSteps(handler: LoginHandler, field = 0): LoginStep[] {
+  if (handler.kind === "totp") {
+    const code = [{ slot: TOTP_HANDLER_SLOT, target: handler.field }];
+    if (!handler.target)
+      return [{ kind: "fill", path: handler.path, fields: code, effect: "submit", event: "input" }];
+    return [
+      { kind: "fill", path: handler.path, fields: code, effect: "prepare" },
+      { kind: "click", path: handler.path, target: handler.target, purpose: "submit" },
+    ];
+  }
   const click: LoginStep = {
     kind: "click",
     path: handler.path,
     target: handler.target,
     purpose: handler.kind === "password" ? "advance" : "submit",
   };
-  if (handler.kind !== "totp") return [click];
-  return [
-    {
-      kind: "fill",
-      path: handler.path,
-      fields: [{ slot: TOTP_HANDLER_SLOT, target: handler.field }],
-      effect: "prepare",
-    },
-    click,
-  ];
+  if (handler.kind !== "detail") return [click];
+  // A value split over several inputs fills them all in one step (ADR 0061).
+  const fills = detailFieldInputs(handler.fields[field] ?? handler.fields[0]!).map(
+    (input, index) => ({ slot: detailSlot(index), target: input.target }),
+  );
+  return [{ kind: "fill", path: handler.path, fields: fills, effect: "prepare" }, click];
 }
 
 /**
@@ -1358,12 +2186,17 @@ export const loginItemFactsSchema = v.strictObject({
   discoverablePasskey: v.boolean(),
 });
 export type LoginItemFacts = v.InferOutput<typeof loginItemFactsSchema>;
-/** The fact each handler kind requires. */
+/**
+ * The fact each handler kind requires. A `detail` handler requires none of the item's
+ * own: it needs a linked value for one of its inputs, checked when it is entered (ADR
+ * 0061).
+ */
 export const handlerFact = {
   passkey: "passkey",
   password: "password",
   totp: "totp",
-} as const satisfies Record<LoginHandler["kind"], keyof LoginItemFacts>;
+  detail: undefined,
+} as const satisfies Record<LoginHandler["kind"], keyof LoginItemFacts | undefined>;
 /** The field a fill of `fieldId` reads: a Linked field's built-in source, or the field itself. */
 export function loginFieldSource(item: Pick<VaultItemMetadata, "fields">, fieldId: string): string {
   const field = item.fields.find((entry) => entry.id === fieldId);
@@ -1386,15 +2219,17 @@ export function loginFieldFacts(
 }
 
 /**
- * Whether `next` only adds to `previous` (ADR 0027): a newer revision of the same recipe
- * whose routes and route steps are unchanged, and whose handlers and signed-in markers
- * extend the old ones in order. A running login takes over only such a
+ * Whether `next` only adds to `previous` (ADR 0027): a newer revision of the same recipe and
+ * layout (ADR 0060) whose routes and route steps are unchanged, and whose handlers and
+ * signed-in markers extend the old ones in order. A revision that only changed another
+ * layout of the recipe is one. A running login takes over only such a
  * revision, so its recorded steps and entered handlers keep their meaning.
  */
 export function extendsRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {
   if (
     next.id !== previous.id ||
     next.origin !== previous.origin ||
+    next.layout !== previous.layout ||
     next.revision <= previous.revision
   )
     return false;
@@ -1435,19 +2270,21 @@ export function refillsLoginSlot(
 }
 /**
  * Whether `next` continues `previous` on the page after its final `advance` step (ADR
- * 0018): a newer revision of the same recipe whose steps are `previous`'s steps followed by
- * at least one more, none of which fills a slot `previous`'s steps already fill.
- * `previous` has no completion and no alternatives and ends in an advance; `next` has no
- * alternatives. The page kind (ADR 0035), the `passkey` route and the rejection are
- * unchanged, the handlers extend the old ones in order, the account switch is unchanged or
- * newly added, and signed-in markers may be new. A running login at its final advance takes
- * over only such a revision, so the steps it ran keep their meaning.
+ * 0018): a newer revision of the same recipe and layout (ADR 0060) whose steps are
+ * `previous`'s steps followed by at least one more, none of which fills a slot
+ * `previous`'s steps already fill. `previous` has no completion and no alternatives and
+ * ends in an advance; `next` has no alternatives. The page kind (ADR 0035), the `passkey`
+ * route and the rejection are unchanged, the handlers extend the old ones in order, the
+ * account switch is unchanged or newly added, and signed-in markers may be new. A running
+ * login at its final advance takes over only such a revision, so the steps it ran keep
+ * their meaning.
  */
 export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {
   const last = previous.steps.at(-1);
   if (
     next.id !== previous.id ||
     next.origin !== previous.origin ||
+    next.layout !== previous.layout ||
     next.revision <= previous.revision ||
     previous.completion !== undefined ||
     previous.alternatives !== undefined ||

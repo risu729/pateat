@@ -15,6 +15,7 @@ export const SETTINGS_QUERY_KEY = ["settings"] as const;
 const EMPTY_SETTINGS: LocalSettings = {
   connections: [],
   excludedSites: [],
+  repromptSites: [],
   siteDefaults: [],
   bindings: [],
 };
@@ -83,7 +84,11 @@ export function excludeSite(hostname: string, includeSubdomains: boolean): Setti
 }
 
 export function useSettings(client: ManageClient) {
-  return useQuery({ queryKey: SETTINGS_QUERY_KEY, queryFn: () => client.settings() });
+  const profileId = client.profileId;
+  return useQuery({
+    queryKey: [...SETTINGS_QUERY_KEY, profileId],
+    queryFn: () => client.settings(profileId),
+  });
 }
 
 export type SettingsEdit = {
@@ -99,12 +104,14 @@ export type SettingsEdit = {
  */
 export function useSettingsEdit(client: ManageClient) {
   const queryClient = useQueryClient();
+  const profileId = client.profileId;
+  const queryKey = [...SETTINGS_QUERY_KEY, profileId];
   return useMutation({
     mutationFn: async ({ apply }: SettingsEdit) => {
       // Waits for the refetch a conflict started instead of reusing the stale copy.
       const state = await queryClient.query({
-        queryKey: SETTINGS_QUERY_KEY,
-        queryFn: () => client.settings(),
+        queryKey,
+        queryFn: () => client.settings(profileId),
         staleTime: Number.POSITIVE_INFINITY,
       });
       const edited = apply(state.settings ?? EMPTY_SETTINGS);
@@ -113,9 +120,9 @@ export function useSettingsEdit(client: ManageClient) {
       if (!next.success) throw new ManageApiError("bad_request");
       if (settingsDocumentBytes(next.output) > MAX_SETTINGS_DOCUMENT_BYTES)
         throw new ManageApiError("payload_too_large");
-      return client.saveSettings(state.revision, next.output);
+      return client.saveSettings(state.revision, next.output, state.profileId);
     },
-    onSuccess: (state) => queryClient.setQueryData(SETTINGS_QUERY_KEY, state),
+    onSuccess: (state) => queryClient.setQueryData(queryKey, state),
     onError: (error) => {
       if (error instanceof ManageApiError && error.code === "settings_conflict")
         void queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });

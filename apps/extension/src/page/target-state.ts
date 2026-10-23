@@ -30,6 +30,29 @@ export function writable(element: Element | undefined): element is HTMLInputElem
   return textInput(element) && visible(element) && !element.disabled && !element.readOnly;
 }
 /**
+ * A shown single-choice select that is not disabled, nor inside a disabled fieldset: the
+ * only select Pateat sets, for a split birth date's or card expiry date's part (ADR 0061).
+ */
+export function choosable(element: Element | undefined): element is HTMLSelectElement {
+  return (
+    element instanceof HTMLSelectElement &&
+    !element.multiple &&
+    visible(element) &&
+    !element.matches(":disabled")
+  );
+}
+/** A writable input or a choosable select, as a `detail` handler's fill takes. */
+export function settable(element: Element | undefined): boolean {
+  return writable(element) || choosable(element);
+}
+/**
+ * A shown enabled input of a kind Pateat fills, read-only or not: a field entered on the
+ * page's software keyboard (ADR 0067), which pages keep read-only.
+ */
+export function keyable(element: Element | undefined): element is HTMLInputElement {
+  return textInput(element) && visible(element) && !element.disabled;
+}
+/**
  * A shown enabled button, or a shown script button that is not `aria-disabled`, neither
  * `inert` nor inside an `inert` element, which takes no click until the page lifts it, as
  * a submit control kept inert until its fields are filled (#853); with
@@ -101,6 +124,7 @@ export function targetState(
   const described = () => element instanceof HTMLElement && presence(element) === "visible";
   const fragment = byName(target);
   return (require === "writable" && !writable(element)) ||
+    (require === "settable" && !settable(element)) ||
     (require === "clickable" && !clickable(element, { fragment })) ||
     (require === "described-writable" && !(writable(element) && described())) ||
     (require === "described-clickable" && !(clickable(element, { fragment }) && described())) ||
@@ -134,13 +158,15 @@ export function targetCheck(
   if (targetState(document, target, require, options) === "unique") return "ok";
   const [element] = found;
   const fragment = byName(target);
-  const writing = require === "writable" || require === "described-writable";
+  const writing =
+    require === "writable" || require === "described-writable" || require === "settable";
   const clicking = require === "clickable" || require === "described-clickable";
   // The input and button tests require the content script's visibility first: an element
   // it does not see is named by why, apart from one that shows but takes no input.
   if ((writing || clicking) && element instanceof HTMLElement && !visible(element))
     return element.closest("[hidden]") ? "hidden-attr" : "not-rendered";
-  if (writing && !writable(element)) return "not-writable";
+  if (writing && !(require === "settable" ? settable(element) : writable(element)))
+    return "not-writable";
   if (clicking && !clickable(element, { fragment })) return "not-clickable";
   if (
     (require === "described-writable" || require === "described-clickable") &&

@@ -4,8 +4,10 @@ Status: accepted by the owner on 2026-10-11 (13:47 UTC). Deliveries 1 (custom-fi
 names and Text shapes in generation) and 2 (handlers with the `passkey` handler) are
 implemented, and so are delivery 3: part A (`password` route variants and start
 detection over them) and part B (the start page's `passkey` route), and delivery 4 (the
-`totp` handler) except a binding that names another field for its code, which is
-deferred and ends `challenge` ([Implementation choices](#implementation-choices));
+`totp` handler), whose deferred part, a code made from a custom field, is implemented
+by the amendment of 2026-10-23 (owner, 2026-10-23: a Text or Hidden field shaped like a
+TOTP key is flagged and becomes the `totp` field, never a raw slot)
+([A TOTP code from a custom field](#amendment-2026-10-23-a-totp-code-from-a-custom-field));
 delivery 5 (the `sso` route) is not implemented. Amends
 [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
@@ -64,6 +66,14 @@ option B): the judge may also name a button that goes on to the password on a pa
 asks how to confirm the sign-in, stored as a third handler kind, `password`, entered
 only by a `password` login that has not filled its password, before other handlers
 shown with it, and only when its text names a password choice (implemented).
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): a route step's
+fill on a page's software keyboard, followed on its path by its submit click, is taken
+as submitted by the page as a code is: while the fill runs, when the page moves to
+another path or takes the field out of the document after a key press; when a new
+document replaces it after the page told the background of its first key press, while
+the fill runs or once it went in and before the click is prepared, but not after a stop
+the fill answered; and after the fill and before the click, when the page moved to
+another path or shows a signed-in marker or the rejection without the button.
 
 Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
 implemented): a later step a login may start at releases a watched login as its first
@@ -103,6 +113,10 @@ at each step, and a refused takeover logs why
 ([saved bindings that lack a slot](#amendment-2026-10-19-saved-bindings-that-lack-a-slot)),
 which amends [ADR 0013](0013-service-held-recipes-and-settings.md) (bindings are
 widened) and [ADR 0018](0018-recipe-generation-route.md) (the takeover); implemented.
+Amended on 2026-10-23 by [ADR 0065](0065-optional-pages-after-a-sign-in.md) (owner,
+12:27 UTC): a watched login's page judged `optional`, with no sign and no evidence,
+completes it as `signed-in` does once the password or a second factor was sent
+(implemented, local tests only).
 
 Date: 2026-10-11
 
@@ -241,6 +255,11 @@ now rather than later.
   the model whether an account has TOTP (owner, 13:42 UTC). `password` is offered only
   when a matching item has a non-empty password.
 - The model may also name the start page's passkey sign-in button and SSO entries.
+- The judge request carries the login item's slots, built the same way, so it can name
+  `detail` inputs (owner, 2026-10-23: every model call gets the same information unless
+  there is a sound reason;
+  [ADR 0061](0061-personal-details-during-a-login.md#the-judge-gets-the-accounts-slots)).
+  A judged handler still names only detail kinds and targets, never a field name.
 
 ### Learning
 
@@ -449,7 +468,10 @@ new owner decision:
 - **Judging.** The judge request does not name the variant. The extension does not send
   a page that shows a fill field of any variant on a path of the route, and the service
   answers `not-judgeable` for a page that shows one on any path. The login paths the
-  judge receives are every variant's step paths and the handlers' paths.
+  judge receives are every variant's step paths and the handlers' paths. Amended by
+  [ADR 0061](0061-personal-details-during-a-login.md#judging-a-page-beside-the-sign-in-form)
+  (owner, 2026-10-23 12:25 UTC): a page that also shows a detail form beside the
+  sign-in form is judged, and the service keeps only a `detail` handler from it.
 - **Start detection.** A document watches the first step of every variant of each
   recipe for its origin. A start path is left out only when several recipes start
   there; several variants of one recipe on it are watched together, and any of them
@@ -489,14 +511,17 @@ new owner decision:
   binding is stored or synced for the route.
 - **Held click.** The hold for a handler's click also covers the `passkey` route's
   click: while the button still shows in the document that clicked it, whatever path a
-  same-document URL change (`pushState`) has moved that document to, the page is
-  neither judged nor settled for up to two minutes, then the login ends `challenge`.
-  This applies to a handler's click too. A new document of the tab that shows the
-  button again on its path, as after a reload back to the start page, ends `challenge`
-  at once; the button is never clicked again or judged. A click left to the person
-  because a CAPTCHA shows is held the same way while its button shows in that document
-  ([ADR 0029](0029-local-sign-in-state.md), S4); a new document, or the same one after a
-  worker restart, is read as after Pateat's own click.
+  same-document URL change (`pushState`) has moved that document to, the page is neither
+  judged nor settled for up to two minutes, then the login ends `challenge`. A button
+  the page only hid no longer shows, as in an app that moved on in the same document and
+  kept its old view there, hidden; a page that hides the button while it waits, behind a
+  spinner, ends the hold as one that removes it does. A button that shows disabled or
+  busy, as "Verifying", still holds. This applies to a handler's click too. A new
+  document of the tab that shows the button again on its path, as after a reload back to
+  the start page, ends `challenge` at once; the button is never clicked again or judged.
+  A click left to the person because a CAPTCHA shows is held the same way while its
+  button shows in that document ([ADR 0029](0029-local-sign-in-state.md), S4); a new
+  document, or the same one after a worker restart, is read as after Pateat's own click.
   The hold lives in the service worker's memory, so a worker restart during the hold
   treats the same document as a new one and ends `challenge`; a click whose delivery
   failed while the button still shows also ends `challenge`. Both fail closed.
@@ -725,7 +750,7 @@ new owner decision:
   renders again at the same locator, still shown, enabled and not busy, is not a sign,
   nor is a status message on its own, since ordinary pages count digits or confirm the
   format in live regions. It also does so when, before the click, the page has left the
-  path or shows the completion or the rejection without the button, and when a new
+  path or shows the completion or the rejection without the button shown, and when a new
   document of the tab resumes a login whose code fill went in, or may have, and whose
   click has not run. The button is clicked, once, only when it was enabled within half a
   second of the code going in, stayed enabled and idle since, and nothing else showed a
@@ -908,6 +933,21 @@ so if the person then approves in that other tab, the login is not recorded as s
 in there. Keeping such a tab waiting instead would refuse a person who starts over in a
 new tab while an old logout is still recorded elsewhere.
 
+Amended 2026-10-23 by the owner (13:24 UTC,
+「同時に2つのタブで進むのは無駄ですね、やめましょう」), replacing the second point above
+and closing the known gap. Evidence: on Instagram (Real Chrome, 13:09 UTC) a login
+waited for its WhatsApp code in one tab, the sign-in page opened in a new tab 28 seconds
+later logged in again, and two codes were sent. Now only the watched login's own tab
+ends its watch. Until the watch ends (10 minutes) or its tab closes, the login holds the
+site against the site's other tabs, as ADR 0022's hold does, past that hold's 5 minutes:
+they are refused `origin-busy` and fill nothing. So a person who starts over in a new
+tab after an expired code or approval, as on 三菱UFJ銀行, closes the old tab or waits;
+the tooltip and popup say "wait up to 10 minutes". The owner added at 13:24 UTC
+「incognitoみたいに共有されないってわかってるなら 無駄にブロックしないで」: no tab holds
+back, or asks because of, a tab that Chrome reports in an incognito window when it is
+not, or the other way around, since the two keep separate cookies. A tab whose window
+Chrome has not reported yet counts as sharing.
+
 ## Consequences
 
 - npm in any order: B's login teaches the completion; A's login adds the security-key
@@ -921,7 +961,8 @@ new tab while an old logout is still recorded elsewhere.
   Anthropic, within the limits above, not only once per new recipe. The request log
   keeps them for a year ([ADR 0012](0012-inference-request-log.md)).
 - Custom-field names, and the Text shapes all matching items agree on, now reach the
-  service and Anthropic with each generation request, and the request log keeps them.
+  service and Anthropic with each generation request, and the request log keeps them;
+  since 2026-10-23 the login item's also go with each judge request.
 - A site that asks for a security key as its second factor signs in with no human
   action; that factor then comes down to "Pateat is unlocked and holds the passkey",
   which the owner accepted on 2026-10-11 (12:52 UTC).
@@ -1228,3 +1269,154 @@ Windows Hello" is still refused. The list is shared, so this widens the generate
 `passkey` route's button check and the passkey-only start page of
 [ADR 0053](0053-passkey-only-generation.md) alike; the judge's `passkey` handler check
 still uses only the registration words.
+
+## Amendment 2026-10-23: a TOTP code from a custom field
+
+Claude proposed this on 2026-10-17 in
+[PR #653](https://github.com/risu729/pateat/pull/653) and asked the owner four questions
+there. The owner decided on 2026-10-23 (option A of the open-PR triage). Q1 (Text and
+Hidden fields) and Q2 (every `totp` slot asks for a code) are accepted as implemented.
+Q3 (how the field is chosen) and Q4 (a key offered to generation as a raw slot) are
+answered together: the crypto Worker flags a Text or Hidden custom field whose value is
+shaped like a TOTP key in the value-free catalog, and generation and the default binding
+map such a field to `totp` and never offer it as a raw slot. This delivers the part of
+delivery 4 that "Which TOTP field" in [Implementation choices](#implementation-choices)
+deferred until Pateat can make a code from a custom field, which the owner moved to
+phase 4 on 2026-10-12 (14:26 UTC). The accepted text above is unchanged; where it says
+such a binding ends `challenge`, this section applies instead.
+
+- **Key shape** (`isTotpSeed` in `packages/bitwarden/src/totp.ts`). Since
+  [#939](https://github.com/risu729/pateat/pull/939), `generateLocalTotp` reads a key as
+  the official SDK does and makes a code from almost any string, so "the generator takes
+  it" cannot tell a key from a word. The test is stricter. After surrounding whitespace
+  is trimmed, a value of at most 8,192 characters is a key when it is one of:
+  - an `otpauth://totp/` or `otpauth://hotp/` URI, in any case, that parses as a URL and
+    whose last `secret` parameter holds at least one Base32 character and nothing but
+    Base32 characters, spaces and trailing `=`;
+  - `steam://`, in any case, followed by at least 16 Base32 characters and optional
+    trailing `=`;
+  - a bare key: Base32 letters and the digits 2 to 7, the letters all upper case or all
+    lower case, with at least one letter and at least one digit; unbroken, or in groups
+    of four separated by single spaces, the last group perhaps shorter; up to six `=` of
+    padding at the end; and at least 16 Base32 characters (80 bits).
+
+  So words and passphrases (`correcthorsebatterystaple`, `nottinghamforest`,
+  `this goes very fast`), sentences, PINs, digits alone and short codes are not keys.
+  The digit is a tradeoff: without it such words were flagged, which blocked their value
+  and made the `totp` handler submit a wrong code. With it, a random bare key that
+  happens to have no digit 2 to 7 is not flagged: 3.6% of 16-character keys and 0.13% of
+  32-character ones. Such a key still makes codes from the built-in TOTP field or as an
+  `otpauth://` URI, and a custom field holding it bare is filled by name as text, as
+  before. The exact rule is the agent's, not confirmed by the owner.
+- **The catalog flag.** When the Worker lists an item's fields, a Text or Hidden custom
+  field whose value has the key shape gets `totpSeed: true` in the field metadata and
+  the settings catalog. It is a flag only: neither the value nor its format is carried.
+- **Never as text.** Generation never offers such a field as a custom-field slot
+  (`customFieldOffers`). A binding that binds a slot other than `totp` to it, as a
+  binding saved earlier may, is refused when the login resolves its binding, before any
+  step runs (`totp-field-mismatch`, `totpFieldMismatch` in `packages/contracts`), and a
+  template that would bind one is skipped for the next template. So is a binding of the
+  `totp` slot to a custom field without the flag, which holds no key to make a code
+  from. Behind that, the Worker refuses to return a flagged field's value as text
+  (`unsupported-field`).
+- **The default `totp` field** (`totpFieldReference` in `packages/contracts`). Wherever
+  no saved entry names a field for `totp` (the automatic binding, a binding built from
+  templates and the gaps of a saved binding), the `totp` slot reads the built-in TOTP
+  field when it holds a value (the catalog does not flag it `empty`). Otherwise it reads
+  the item's one named flagged custom field, by its reference. With no flagged field, or
+  with several, it reads the built-in field as before. Generation still offers only the
+  built-in `totp` slot, so a code field generated for any matching item is filled from
+  the flagged field of an item that keeps its key there. After `authenticated`, the
+  saved or widened binding records the reference like any other.
+- **The code from a custom field.** The `totp` handler, and any fill of the `totp` slot
+  bound to a custom field, makes the code from that field in the crypto Worker. The
+  generator gets the trimmed value; the field's raw value never leaves the Worker. A
+  value without the key shape is refused (`invalid-totp`) and an empty field is
+  refused (`field-missing`). The login then stops as a policy change
+  (`field-unavailable`) without typing anything into the page.
+- **Which custom fields** (Q1, owner 2026-10-23). Only a flagged Text or Hidden custom
+  field holds a key. A `totp` binding that names a Boolean or Linked custom field, an
+  unflagged Text or Hidden field, or the item's username or password still ends
+  `challenge` (`missing-fact`) without reading it. So does a reference that resolves to
+  no field or to several. The item's built-in TOTP field is never read instead.
+- **The `totp` fact.** When the `totp` field is a custom field, from the saved binding
+  or by default, the fact recorded when the login starts says whether the account allows
+  that field (not excluded). The built-in TOTP field does not count then, nor does it
+  for a binding whose `totp` reference is refused as above.
+- **Every `totp` fill asks for a code** (Q2, owner 2026-10-23). A fill of the `totp`
+  slot always asks the Worker for a code and fills it under the TOTP fill rule. That
+  holds for a route step's fill as well as a handler's, so a binding that names a custom
+  field for a start page's code field types a code made from it, never the field's
+  value. A route step whose `totp` slot is bound to a field that cannot hold a key (a
+  Boolean or Linked custom field, the username or the password) stops as a policy change
+  (`field-unavailable`) instead of typing that value. A fill of any other slot is
+  unchanged, apart from the refusal above.
+- "One code per login", "Code fill rule" and the rest of "Which TOTP field" still hold:
+  the field is added to the plan for that login only, and a field excluded or removed
+  after the handler was entered stops the login as a policy change.
+
+Consequences: the catalog now carries one bit derived from a custom field's value. A
+field whose value changes into or out of the key shape changes how it fills after the
+next sync. An ordinary Text value that happens to have the key shape, such as a long
+reference code of capital letters and the digits 2 to 7, is no longer filled as text,
+and an item's only such field becomes its TOTP field.
+This differs from the official clients, which fill custom fields by name as they are and
+make codes only from the login TOTP
+([differences](../bitwarden-differences.md#totp-keys-in-custom-fields)). Not verified
+against a real Bitwarden vault or a real site: the change is covered by synthetic tests
+only, and a login in the owner's Chrome with an item that keeps its key in a custom
+field is still to be done.
+
+## Amendment 2026-10-23: code pages without a button
+
+**Problem** ([#916](https://github.com/risu729/pateat/issues/916), follow-up to
+[#850](https://github.com/risu729/pateat/issues/850)). On a Slack Enterprise workspace,
+the page after the password shows "Enter your authentication code" in six one-digit
+inputs. With build `658f10b`, which locates those inputs
+([#862](https://github.com/risu729/pateat/pull/862)), the page was judged at 10:44 UTC
+on 2026-10-23 and the judge answered `unclear`, so no `totp` handler was learned and the
+login ended as a challenge. The request log's metadata shows the verdict; the page
+description itself was not read for this amendment. The judge had to name the button
+that submits the code, and the page appears to show none: Slack's code inputs submit the
+code once its last digit is in. This is a general page shape, not a Slack feature
+([ADR 0033](0033-no-site-specific-features.md)).
+
+**Decision** (agent, 2026-10-23, built ahead of the owner's review as the owner allowed
+on 2026-10-23 05:28 UTC):
+
+- The judge's `code.submit` is optional. The judge leaves it out only when no button on
+  the page submits the code, as on a page that submits it once its last digit is in.
+  This changes the judge's prompt version, so such pages are judged again.
+- A `totp` handler's `target` is optional: `{ kind: "totp", path, field }` has no
+  button. The judge and the service keep such a handler only when the field passes the
+  same code rule as before (a code input of at least 6 characters alone in its form, or
+  the first input of a split code) and the field's form shows no button (the judge logs
+  `submit-unnamed`, the service answers `not-code-field`). A field outside any form may
+  have buttons elsewhere on the page, as a page's header or footer does. The service
+  checks the field against the recipe as before.
+- Its one step is a fill of the `totp` slot into the field with `effect: "submit"` and
+  `event: "input"`: the code is typed as a person types it, one digit per input for a
+  split code, and its last character is the submission. Nothing is clicked and no Enter
+  is pressed. The step counts as one submission. The extension enters the handler when
+  its field shows writable.
+- Once the last character went in, the page has the code: a page that then disables,
+  clears or removes the input, replaces it or leaves the path is taken as submitting
+  it, never as a failed fill. A page that kept a character out of an input it still
+  shows as it was never had the whole code: the login ends `fill-rejected`
+  (`VALUE_REJECTED` with the stage `code-refused`), as a refused code before a click
+  does. Otherwise the page is settled as after a handler's click: while the code field
+  still shows in that document, it is neither judged nor settled for up to two minutes,
+  then the login ends `challenge`. A new document of the tab is settled as usual. The
+  code is never typed again.
+
+**Consequences.** A code page that shows no button and waits for Enter, or for a
+button that appears only later, gets the code typed and then waits for the person, who
+presses Enter or the button; the login ends `challenge` after two minutes if the page
+still shows the code field. A judge that misses a real button outside the field's form,
+as on a page whose code input and Verify button are in no form, gives the same result;
+no local check catches that case, since such pages often show other buttons too. A
+route step after a buttonless handler never runs: an effectful fill ends the recipe's
+steps, as it does on a route. The Slack fix still depends on the item's TOTP seed
+being one the local TOTP reader accepts
+([#939](https://github.com/risu729/pateat/pull/939)) and needs a check in the owner's
+Chrome.

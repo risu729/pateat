@@ -52,6 +52,22 @@ marker completed is sent as a sample, once in 30 days per recipe and branch; see
 [the amendment below](#amendment-signed-in-page-samples-2026-10-18) (implemented, local
 tests only). This also amends [ADR 0012](0012-inference-request-log.md) and
 [ADR 0016](0016-recipe-generation-trigger.md).
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): a read-only input
+the step typed on the page's software keyboard is a sign-in input for F1 and F2, as is
+one the re-shown form holds beside a keypad, and an empty read-only password input
+beside a keypad counts for S2.
+
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (layouts accepted by the
+owner on 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe
+holds up to three layouts, and E1 counts a signed-in marker of any layout of the login's
+recipe, read as the login's own markers are; a page where another layout's markers
+cannot be read gives no sign-in state.
+
+Amended on 2026-10-23 by [ADR 0065](0065-optional-pages-after-a-sign-in.md) (owner,
+12:27 UTC): the judge may answer `optional` for a page after the sign-in that the person
+may put off; once the password or a second factor was sent, with no sign and no
+evidence, it completes the login as signed in, confirmed, and learns no marker,
+otherwise it ends `challenge` (implemented, local tests only).
 
 Date: 2026-10-12
 
@@ -147,6 +163,12 @@ then answered 04:51 and 04:54 UTC):
     page's content script for the comparison only and cleared after it, as the
     other-account check does; neither it nor the page text leaves the device. The body
     is excluded because "we sent a link to x@y" or "account locked" pages show it too.
+    The username must be a whole word; as ADR 0028 names do, one with a Latin letter
+    may touch a letter of another script, such as kana or kanji, at a Latin or digit
+    edge (`taro_yさん`). An all-digit one,
+    such as a member number, may touch kana or kanji only with 8 digits or more
+    (`会員番号12345678さん`); a shorter one there (`会員番号12345さん`, `2026年10月`,
+    `残り123件`) is no evidence, so the page goes to the judge (owner, 2026-10-23).
   - E3: the sign-in page's URL had a query value that is a same-origin URL or path
     (any parameter name, such as `return_to=/settings`), and the page after the
     submission is that URL. Values that are `/`, a sign-in path or the page the login
@@ -334,14 +356,14 @@ sign-in, so the completion check and E1 read the same markers. A page the judge 
 `signed-in` for adds its marker after the learned ones in the recipe's next revision,
 which a running login takes over; when the recipe has four, or the judge names one it
 has, nothing changes and the login completes. A marker is never an element the recipe's
-steps, passkey route or handlers use on any path, since it would then prove a sign-in on
-their pages. A marker learned on a step's own path keeps that path's fill fields as
-`absent` elements, which must now be missing on every path, so a site that keeps a
-hidden sign-in form on its signed-in pages does not complete on that marker. The recipes
-already stored when this shipped keep working: on 2026-10-12 at 18:07 UTC the owner
-chose to rewrite them once, so D1 migration 0013 turns each stored completion into a
-one-marker list, and leaves out one whose locator another element of the recipe also
-uses.
+steps, passkey route or handlers use on any path, nor its account switch or rejection
+(2026-10-23), since it would then prove a sign-in on their pages. A marker learned on a
+step's own path keeps that path's fill fields as `absent` elements, which must now be
+missing on every path, so a site that keeps a hidden sign-in form on its signed-in pages
+does not complete on that marker. The recipes already stored when this shipped keep
+working: on 2026-10-12 at 18:07 UTC the owner chose to rewrite them once, so D1
+migration 0013 turns each stored completion into a one-marker list, and leaves out one
+whose locator another element of the recipe also uses.
 
 Markers that name a link by its path (owner's choice 「リンク先で見分ける」 on a
 decision card, 2026-10-13 05:17 UTC): on the signed-in page's description, a link to the
@@ -525,9 +547,12 @@ What leaves the device, and how often:
   an effect step), the page it ended on is described exactly as for the judge: the same
   extractor and redaction, `headerText`, the account's usernames hidden as `[account]`
   ([ADR 0016](0016-recipe-generation-trigger.md#username-shape)), complete descriptions
-  only. A page the judge would not get (`username-shown`, `username-unread`, an
-  incomplete description) is not sent. E2's username comparison itself still never
-  leaves the device.
+  only, with the account's slots as the judge request carries them (owner, 2026-10-23:
+  the same information goes to every model call unless there is a sound reason;
+  [ADR 0061](0061-personal-details-during-a-login.md#the-judge-gets-the-accounts-slots)).
+  The service logs them in the sample's request. A page the judge would not get
+  (`username-shown`, `username-unread`, an incomplete description) is not sent. E2's
+  username comparison itself still never leaves the device.
 - At most once in 30 days (`PAGE_SAMPLE_INTERVAL_MS`) per service, device, recipe and
   chooser branch, recorded on the device before the request; the service keeps at most
   one per owner, recipe and branch in 30 days and answers a later one 204 without a row.

@@ -22,10 +22,22 @@ function mockClient() {
     saveSettings: vi.fn<ManageClient["saveSettings"]>(),
     recipes: vi.fn<ManageClient["recipes"]>(),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
+    revokeLayout: vi.fn<ManageClient["revokeLayout"]>(),
     requestLog: vi.fn<ManageClient["requestLog"]>(),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
     models: vi.fn<ManageClient["models"]>(),
     saveModels: vi.fn<ManageClient["saveModels"]>(),
+    profileId: undefined,
+    selectProfile: vi.fn<ManageClient["selectProfile"]>(),
+    profiles: vi.fn<ManageClient["profiles"]>(),
+    copyProfile: vi.fn<ManageClient["copyProfile"]>(),
+    renameProfile: vi.fn<ManageClient["renameProfile"]>(),
+    deleteProfile: vi.fn<ManageClient["deleteProfile"]>(),
+    assignProfile: vi.fn<ManageClient["assignProfile"]>(),
+    claude: vi.fn<ManageClient["claude"]>(),
+    saveClaude: vi.fn<ManageClient["saveClaude"]>(),
+    testClaude: vi.fn<ManageClient["testClaude"]>(),
+    problems: vi.fn<ManageClient["problems"]>(),
   } satisfies ManageClient;
 }
 

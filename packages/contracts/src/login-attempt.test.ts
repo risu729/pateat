@@ -109,6 +109,21 @@ describe("attempt identity and metadata", () => {
       expect(nextLoginOperation(attempt, recipe, stale, "fill-one")).toBeUndefined();
   });
 
+  it("keeps the layout the login started on, and runs no other one (ADR 0060)", () => {
+    const layered = { ...recipe, layout: "1760000000000" };
+    const attempt = transitionLoginAttempt(detected(layered), { type: "RESOLVE" });
+    expect(attempt.layout).toBe("1760000000000");
+    expect(parseAttemptMetadata(attempt)).toEqual(attempt);
+    expect(nextLoginOperation(attempt, layered, document, "fill-one")).toMatchObject({
+      operationId: "fill-one",
+    });
+    for (const other of [{ ...recipe, layout: "1760000000001" }, recipe])
+      expect(nextLoginOperation(attempt, other, document, "fill-one")).toBeUndefined();
+    // A login on a recipe without layouts keeps none.
+    expect(detected()).not.toHaveProperty("layout");
+    expect(() => parseAttemptMetadata({ ...attempt, layout: "1000:account" })).toThrow();
+  });
+
   it("excludes values, unknown fields and invalid counts from resumable metadata", () => {
     const attempt = detected();
     expect(parseAttemptMetadata(attempt)).toEqual(attempt);
@@ -242,6 +257,44 @@ describe("attempt identity and metadata", () => {
     expect(nextLoginOperation(start, recipe, document, "fill-one")).toMatchObject({
       step: { kind: "fill" },
     });
+  });
+  it("never issues or authorizes a keypad fill for a fill-only attempt", () => {
+    // A page's software keyboard may submit at its last press (ADR 0021 D, 0067).
+    const keypadRecipe: LoginRecipe = {
+      ...recipe,
+      steps: [
+        {
+          kind: "fill",
+          effect: "prepare",
+          path: "/login",
+          fields: [
+            {
+              slot: "password",
+              target: { by: "id", value: "password" },
+              keypad: { by: "id", value: "keys" },
+            },
+          ],
+        },
+        ...recipe.steps.slice(1),
+      ],
+    };
+    const ready = transitionLoginAttempt(detected(keypadRecipe), { type: "RESOLVE" });
+    const operation = nextLoginOperation(ready, keypadRecipe, document, "fill-one", 1000)!;
+    expect(operation).toMatchObject({ step: { kind: "fill" } });
+    const intent = (start: LoginAttemptMetadata) =>
+      transitionLoginAttempt(
+        transitionLoginAttempt(start, {
+          type: "PREPARE",
+          operationId: "fill-one",
+          kind: "fill",
+          effect: "prepare",
+        }),
+        { type: "MUTATION_INTENT", operationId: "fill-one" },
+      );
+    expect(validateLoginOperation(operation, intent(ready), document, 3, 1001)).toBe(true);
+    const fillOnly = { ...ready, fillOnly: true as const };
+    expect(nextLoginOperation(fillOnly, keypadRecipe, document, "fill-one", 1000)).toBeUndefined();
+    expect(validateLoginOperation(operation, intent(fillOnly), document, 3, 1001)).toBe(false);
   });
 });
 
@@ -894,6 +947,183 @@ describe("submission and failure reconciliation", () => {
       ).toMatchObject({ state: "blocked", outcome: "cancelled" });
   });
 
+  it("never settles as unknown a login with nothing possibly submitted (ADR 0022)", () => {
+    const top: LoginDocument = { ...document, frameId: 0 };
+    const next: LoginDocument = { ...top, documentId: "document-next" };
+    const ready = transitionLoginAttempt(
+      createAttemptMetadata({
+        timing: noTimeBefore,
+        id: "attempt-top",
+        recipe,
+        policyRevision: 3,
+        account: { origin: top.origin, connectionId: "demo-personal", itemId: "primary" },
+        choice: { route: "password", variant: 0 },
+        facts,
+        document: top,
+      }),
+      { type: "RESOLVE" },
+    );
+    let filled = transitionLoginAttempt(ready, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    filled = transitionLoginAttempt(filled, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    filled = transitionLoginAttempt(filled, { type: "OPERATION_OK", operationId: "fill-one" });
+    // A new page of the origin, or a restarted worker, before the first step ran: a page
+    // that does not show that step yet is no unknown result, since nothing was submitted.
+    for (const [between, paused, page] of [
+      [ready, transitionLoginAttempt(ready, { type: "NAVIGATED", document: next }), next],
+      [ready, recoverLoginAttempt(ready), top],
+    ] as const) {
+      expect(paused).toMatchObject({ state: "reconciling", outcome: "interrupted" });
+      const unknown = transitionLoginAttempt(
+        paused,
+        { type: "OBSERVED", result: "unknown", document: page },
+        5000,
+      );
+      expect(unknown.settled).toBeUndefined();
+      expect(unknown.watch).toBeUndefined();
+      expect(unknown.outcome).not.toBe("unknown-submit");
+      // The step goes on with its own bounded wait, as on any page.
+      expect(unknown).toMatchObject({
+        state: "ready",
+        stepIndex: between.stepIndex,
+        submissions: 0,
+        document: page,
+      });
+      expect(nextLoginOperation(unknown, recipe, page, "step-again")).toMatchObject({
+        stepIndex: between.stepIndex,
+      });
+    }
+    // After a fill the person may have submitted the values themselves: such a page still
+    // settles as unknown and is watched.
+    const afterFill = transitionLoginAttempt(
+      transitionLoginAttempt(filled, { type: "NAVIGATED", document: next }),
+      { type: "OBSERVED", result: "unknown", document: next },
+      5000,
+    );
+    expect(afterFill).toMatchObject({
+      state: "reconciling",
+      outcome: "unknown-submit",
+      settled: true,
+    });
+  });
+
+  it("treats a fill that confirmed it changed nothing as no possible submission (ADR 0022)", () => {
+    const top: LoginDocument = { ...document, frameId: 0 };
+    const away: LoginDocument = {
+      origin: "https://other.example",
+      tabId: top.tabId,
+      frameId: 0,
+      documentId: "document-away",
+    };
+    let filling = transitionLoginAttempt(
+      createAttemptMetadata({
+        timing: noTimeBefore,
+        id: "attempt-top",
+        recipe,
+        policyRevision: 3,
+        account: { origin: top.origin, connectionId: "demo-personal", itemId: "primary" },
+        choice: { route: "password", variant: 0 },
+        facts,
+        document: top,
+      }),
+      { type: "RESOLVE" },
+    );
+    filling = transitionLoginAttempt(filling, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    filling = transitionLoginAttempt(filling, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    const failed = transitionLoginAttempt(filling, {
+      type: "FAILED",
+      reason: "structural-mismatch",
+      mutation: "none",
+      operationId: "fill-one",
+      document: top,
+    });
+    expect(failed).toMatchObject({ state: "retryable", retryRequired: true, submissions: 0 });
+    // Leaving the origin ends it `interrupted`, not `left-origin`.
+    expect(transitionLoginAttempt(failed, { type: "NAVIGATED", document: away })).toMatchObject({
+      state: "blocked",
+      outcome: "interrupted",
+    });
+    // A restarted worker finds nothing in flight, and a page without the step is no
+    // unknown result: the step is tried again within its retries.
+    const restored = recoverLoginAttempt(failed);
+    expect(restored).toMatchObject({ state: "reconciling", outcome: "interrupted" });
+    const unknown = transitionLoginAttempt(
+      restored,
+      { type: "OBSERVED", result: "unknown", document: top },
+      5000,
+    );
+    expect(unknown.settled).toBeUndefined();
+    expect(unknown.watch).toBeUndefined();
+    expect(unknown).toMatchObject({ state: "retryable", stepIndex: 0, retries: 0 });
+    expect(transitionLoginAttempt(unknown, { type: "RETRY" })).toMatchObject({
+      state: "ready",
+      stepIndex: 0,
+      retries: 1,
+    });
+    // A fill that may have reached the page still counts as a possible submission.
+    const possible = transitionLoginAttempt(filling, {
+      type: "FAILED",
+      reason: "structural-mismatch",
+      mutation: "possible",
+      operationId: "fill-one",
+      document: top,
+    });
+    expect(possible).toMatchObject({ state: "reconciling" });
+    expect(transitionLoginAttempt(possible, { type: "NAVIGATED", document: away })).toMatchObject({
+      state: "blocked",
+      outcome: "left-origin",
+    });
+    expect(
+      transitionLoginAttempt(possible, { type: "OBSERVED", result: "unknown", document: top }),
+    ).toMatchObject({ state: "reconciling", outcome: "unknown-submit", settled: true });
+    // An advance fill waiting to be tried again is never taken past its own step.
+    let advancing = transitionLoginAttempt(
+      transitionLoginAttempt(
+        createAttemptMetadata({
+          timing: noTimeBefore,
+          id: "attempt-top",
+          recipe,
+          policyRevision: 3,
+          account: { origin: top.origin, connectionId: "demo-personal", itemId: "primary" },
+          choice: { route: "password", variant: 0 },
+          facts,
+          document: top,
+        }),
+        { type: "RESOLVE" },
+      ),
+      { type: "PREPARE", operationId: "fill-one", kind: "fill", effect: "advance" },
+    );
+    advancing = transitionLoginAttempt(advancing, {
+      type: "MUTATION_INTENT",
+      operationId: "fill-one",
+    });
+    advancing = transitionLoginAttempt(advancing, {
+      type: "FAILED",
+      reason: "structural-mismatch",
+      mutation: "none",
+      operationId: "fill-one",
+      document: top,
+    });
+    expect(advancing).toMatchObject({
+      state: "retryable",
+      operationEffect: "advance",
+      submissions: 0,
+    });
+    const again = transitionLoginAttempt(
+      recoverLoginAttempt(advancing),
+      { type: "OBSERVED", result: "unknown", document: top },
+      5000,
+    );
+    expect(again.stepIndex).toBe(0);
+  });
+
   it("values the page would not accept end the attempt without a retry", () => {
     const ready = transitionLoginAttempt(detected(), { type: "RESOLVE" });
     const filling = transitionLoginAttempt(ready, {
@@ -924,6 +1154,71 @@ describe("submission and failure reconciliation", () => {
     expect(mismatch).toMatchObject({ state: "blocked", outcome: "value-mismatch", submissions: 0 });
     expect(mismatch.mutationIntent).toBeUndefined();
     expect(transitionLoginAttempt(mismatch, { type: "RETRY" })).toEqual(mismatch);
+    // A split detail value that fits none of its inputs, such as a select with no option
+    // for its part, leaves the page to the person (ADR 0061, owner 2026-10-23 12:26 UTC).
+    const unfit = transitionLoginAttempt(intent, {
+      type: "VALUE_REJECTED",
+      operationId: "fill-one",
+      document,
+      stage: "before-fill",
+      challenge: true,
+    });
+    // A frame's login ends there.
+    expect(unfit).toMatchObject({ state: "blocked", outcome: "challenge", submissions: 0 });
+    expect(unfit.mutationIntent).toBeUndefined();
+    expect(unfit).not.toHaveProperty("watch");
+    // A top-level password login is watched for the person's finish, as after a judged
+    // challenge (ADR 0027).
+    const topDocument = { ...document, frameId: 0 };
+    let topIntent = transitionLoginAttempt(
+      { ...detected(), document: topDocument },
+      { type: "RESOLVE" },
+    );
+    topIntent = transitionLoginAttempt(topIntent, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    topIntent = transitionLoginAttempt(topIntent, {
+      type: "MUTATION_INTENT",
+      operationId: "fill-one",
+    });
+    const watched = transitionLoginAttempt(
+      topIntent,
+      {
+        type: "VALUE_REJECTED",
+        operationId: "fill-one",
+        document: topDocument,
+        stage: "before-fill",
+        challenge: true,
+      },
+      4000,
+    );
+    expect(watched).toMatchObject({
+      state: "watching",
+      outcome: "challenge",
+      submissions: 0,
+      watch: { since: 4000, documentId: "document-one" },
+    });
+    expect(watched.mutationIntent).toBeUndefined();
+    // A value that does not fit is no challenge, and is not watched.
+    expect(
+      transitionLoginAttempt(topIntent, {
+        type: "VALUE_REJECTED",
+        operationId: "fill-one",
+        document: topDocument,
+        stage: "before-fill",
+      }),
+    ).toMatchObject({ state: "blocked", outcome: "value-mismatch" });
+    expect(
+      transitionLoginAttempt(intent, {
+        type: "VALUE_REJECTED",
+        operationId: "fill-one",
+        document,
+        stage: "after-fill",
+        challenge: true,
+      }),
+    ).toEqual(intent);
     const rejected = transitionLoginAttempt(intent, {
       type: "VALUE_REJECTED",
       operationId: "fill-one",
@@ -974,6 +1269,16 @@ describe("submission and failure reconciliation", () => {
         stage: "after-fill",
       }),
     ).toEqual(submit);
+    // A TOTP code typed as its own submission whose character the page kept out never went
+    // in whole: it ends the attempt, and the submission stays counted (ADR 0027).
+    expect(
+      transitionLoginAttempt(submit, {
+        type: "VALUE_REJECTED",
+        operationId: "input-one",
+        document,
+        stage: "code-refused",
+      }),
+    ).toMatchObject({ state: "blocked", outcome: "fill-rejected", submissions: 1 });
   });
 
   it("policy revocation cancels in-flight work and stale replies cannot restore it", () => {
@@ -1626,6 +1931,90 @@ describe("the totp handler in an attempt (ADR 0027)", () => {
       operationEffect: "submit",
       submissions: 1,
     });
+  });
+});
+
+describe("the detail handler in an attempt (ADR 0061)", () => {
+  const detail = {
+    kind: "detail",
+    path: "/confirm",
+    fields: [
+      { detail: "birth-date", format: "yyyymm", target: { by: "name", value: "birth" } },
+      { detail: "phone-last-4", target: { by: "name", value: "phone" } },
+    ],
+    target: { by: "id", value: "submit" },
+  } as const;
+  const detailed: LoginRecipe = { ...recipe, handlers: [detail] };
+  const confirmPage = { ...document, documentId: "document-confirm" };
+  /** After the route's click, with the handler entered to fill input `field`. */
+  function entered(field?: number) {
+    let attempt = transitionLoginAttempt(detected(detailed), { type: "RESOLVE" });
+    for (const [operationId, kind] of [
+      ["fill-one", "fill"],
+      ["click-one", "click"],
+    ] as const) {
+      attempt = transitionLoginAttempt(attempt, { type: "PREPARE", operationId, kind });
+      attempt = transitionLoginAttempt(attempt, {
+        type: kind === "fill" ? "MUTATION_INTENT" : "SUBMIT_INTENT",
+        operationId,
+      });
+      if (kind === "fill")
+        attempt = transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId });
+    }
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId: "click-one" });
+    return transitionLoginAttempt(attempt, {
+      type: "HANDLER",
+      handler: 0,
+      ...(field === undefined ? {} : { field }),
+      steps: 2,
+      effects: 1,
+      document: confirmPage,
+    });
+  }
+  const fillOf = (name: string) => ({
+    step: {
+      kind: "fill",
+      path: "/confirm",
+      fields: [{ slot: "detail", target: { by: "name", value: name } }],
+      effect: "prepare",
+    },
+    handler: 0,
+  });
+  const click = {
+    step: { kind: "click", path: "/confirm", target: detail.target, purpose: "submit" },
+    handler: 0,
+  };
+
+  it("records the input the login fills and plans its fill and the button's click", () => {
+    const attempt = entered(1);
+    expect(attempt).toMatchObject({
+      state: "ready",
+      stepIndex: 2,
+      stepCount: 4,
+      handlers: [{ index: 0, start: 2, field: 1 }],
+    });
+    expect(attemptPlan(detailed, attempt)?.slice(2)).toEqual([fillOf("phone"), click]);
+  });
+
+  it("keeps the chosen input after a worker restart", () => {
+    const restored = recoverLoginAttempt(parseAttemptMetadata(structuredClone(entered(1))));
+    expect(restored.handlers).toEqual([{ index: 0, start: 2, field: 1 }]);
+    expect(attemptPlan(detailed, restored)?.slice(2)).toEqual([fillOf("phone"), click]);
+  });
+
+  it("plans the first input for a handler entered without one", () => {
+    const attempt = entered();
+    expect(attempt.handlers).toEqual([{ index: 0, start: 2 }]);
+    expect(attemptPlan(detailed, attempt)?.slice(2)).toEqual([fillOf("birth"), click]);
+    expect(attemptPlan(detailed, entered(0))?.slice(2)).toEqual([fillOf("birth"), click]);
+  });
+
+  it("refuses an input beyond a handler's three", () => {
+    expect(() => entered(3)).toThrow();
+    expect(() => entered(-1)).toThrow();
+    expect(() =>
+      parseAttemptMetadata({ ...entered(1), handlers: [{ index: 0, start: 2, field: 3 }] }),
+    ).toThrow();
   });
 });
 
@@ -3121,6 +3510,60 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     });
   });
 
+  it("judges the watch's own pages while watched at its stop, with no operation", () => {
+    // Watched at the stop with nothing in flight, the login has no effect step to name, yet
+    // its watch's pages are judged as any watched login's are (ADR 0036, ADR 0027).
+    const watching = transitionLoginAttempt(
+      atStop(),
+      { type: "OBSERVED", result: "challenge", document: top },
+      1000,
+    );
+    expect(watching.operationId).toBeUndefined();
+    const judging = { type: "JUDGING" } as const;
+    const once = transitionLoginAttempt(watching, judging);
+    expect(once).toMatchObject({ state: "watching", watch: { pages: 1 } });
+    const twice = transitionLoginAttempt(once, judging);
+    expect(twice.watch).toMatchObject({ pages: 2 });
+    expect(pagesLeft(twice, undefined)).toBe(0);
+    // Within the judge's limits.
+    expect(transitionLoginAttempt(twice, judging)).toEqual(twice);
+    // A page given back counts no more.
+    expect(transitionLoginAttempt(twice, { type: "UNJUDGED" }).watch).toMatchObject({
+      pages: 1,
+    });
+    // An operation the login does not hold is not its.
+    expect(transitionLoginAttempt(watching, { type: "JUDGING", operationId: "next-one" })).toEqual(
+      watching,
+    );
+    // Nor is a page judged without an operation before the login is watched.
+    const stopped = atStop();
+    expect(transitionLoginAttempt(stopped, judging)).toEqual(stopped);
+    const sent = advanced();
+    expect(transitionLoginAttempt(sent, judging)).toEqual(sent);
+    expect(transitionLoginAttempt(sent, { type: "UNJUDGED" })).toEqual(sent);
+    // A login watched after its advance's own challenge still names that step.
+    const challenged = transitionLoginAttempt(
+      sent,
+      { type: "OBSERVED", result: "challenge", document: top },
+      1000,
+    );
+    expect(challenged).toMatchObject({ state: "watching", operationId: "next-one" });
+    expect(transitionLoginAttempt(challenged, judging)).toEqual(challenged);
+    expect(
+      transitionLoginAttempt(challenged, { type: "JUDGING", operationId: "next-one" }).watch,
+    ).toMatchObject({ pages: 1 });
+    // Nor is a page judged without one for a login at its stop that settled as unknown
+    // after a new page, which is not watched at the stop.
+    const settled = transitionLoginAttempt(
+      transitionLoginAttempt(atStop(), { type: "NAVIGATED", document: top }),
+      { type: "OBSERVED", result: "unknown", document: top },
+      1000,
+    );
+    expect(settled).toMatchObject({ state: "reconciling", settled: true, stepIndex: 2 });
+    expect(settled.operationId).toBeUndefined();
+    expect(transitionLoginAttempt(settled, judging)).toEqual(settled);
+  });
+
   it("counts an answer at the stop as a submission and goes on no further", () => {
     const answered = transitionLoginAttempt(atStop(), answer);
     expect(answered).toMatchObject({
@@ -4127,5 +4570,230 @@ describe("a login's own times for the local log (ADR 0019)", () => {
     const times = attemptTimes(attempt, 10_000);
     expect(times).toMatchObject({ totalMs: 9_000, pageMs: 6_000, otherMs: 0 });
     expect(sum(times)).toBe(times.totalMs);
+  });
+});
+
+describe("a login that switches layouts where they part (ADR 0060)", () => {
+  /** An email page, then a password page; layout `1000`. */
+  const first: LoginRecipe = {
+    ...recipe,
+    layout: "1000",
+    slots: ["username", "password"],
+    steps: [
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/login",
+        fields: [{ slot: "username", target: { by: "id", value: "email" } }],
+      },
+      { kind: "click", path: "/login", target: { by: "id", value: "next" }, purpose: "advance" },
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/login/password",
+        fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+      },
+      {
+        kind: "click",
+        path: "/login/password",
+        target: { by: "id", value: "login" },
+        purpose: "submit",
+      },
+    ],
+    maxSubmissions: 2,
+  };
+  /** The same email page, then another password form; layout `2000`. */
+  const second: LoginRecipe = {
+    ...first,
+    layout: "2000",
+    steps: [
+      ...first.steps.slice(0, 2),
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/login/password",
+        fields: [{ slot: "password", target: { by: "id", value: "passcode" } }],
+      },
+      {
+        kind: "click",
+        path: "/login/password",
+        target: { by: "id", value: "verify" },
+        purpose: "advance",
+      },
+      { kind: "click", path: "/login/done", target: { by: "id", value: "ok" }, purpose: "submit" },
+    ],
+    maxSubmissions: 3,
+  };
+  const passwordPage = { ...document, documentId: "document-password" };
+  const layout = (change: Record<string, unknown> = {}) => ({
+    type: "LAYOUT" as const,
+    layout: "2000",
+    recipeRevision: 2,
+    steps: 5,
+    maxSubmissions: 3,
+    document: passwordPage,
+    ...change,
+  });
+  function advanced(selected = first) {
+    let attempt = transitionLoginAttempt(detected(selected), { type: "RESOLVE" });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    attempt = transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId: "fill-one" });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "next-one",
+      kind: "click",
+      effect: "advance",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMIT_INTENT", operationId: "next-one" });
+    return transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId: "next-one" });
+  }
+
+  it("goes on to the other layout's step after an advance, and runs only that layout", () => {
+    const before = advanced();
+    expect(before).toMatchObject({ state: "awaiting-result", layout: "1000", stepIndex: 1 });
+    const switched = transitionLoginAttempt(before, layout());
+    expect(switched).toMatchObject({
+      state: "ready",
+      layout: "2000",
+      recipeRevision: 2,
+      stepIndex: 2,
+      stepCount: 5,
+      submissions: 1,
+      maxSubmissions: 3,
+      document: passwordPage,
+    });
+    expect(switched.operationId).toBeUndefined();
+    expect(nextLoginOperation(switched, second, passwordPage, "fill-two")?.step).toEqual(
+      second.steps[2],
+    );
+    expect(nextLoginOperation(switched, first, passwordPage, "fill-two")).toBeUndefined();
+    // So does a login that resumes in a new document, its advance still in flight.
+    expect(transitionLoginAttempt(recoverLoginAttempt(before), layout())).toMatchObject({
+      state: "ready",
+      layout: "2000",
+      stepIndex: 2,
+    });
+  });
+
+  it("stays at its step when nothing is in flight", () => {
+    const at = transitionLoginAttempt(advanced(), {
+      type: "OBSERVED",
+      result: "continue",
+      document: passwordPage,
+    });
+    expect(at).toMatchObject({ state: "ready", stepIndex: 2 });
+    expect(transitionLoginAttempt(at, layout())).toMatchObject({
+      state: "ready",
+      layout: "2000",
+      stepIndex: 2,
+      stepCount: 5,
+    });
+    // On its first step it has not reached a place where layouts part.
+    const start = transitionLoginAttempt(detected(first), { type: "RESOLVE" });
+    expect(transitionLoginAttempt(start, layout({ document }))).toEqual(start);
+  });
+
+  it("refuses a switch the layout or the attempt does not allow", () => {
+    const before = advanced();
+    for (const refused of [
+      layout({ layout: "1000" }),
+      layout({ recipeRevision: 1 }),
+      // The layout has no step after the advance.
+      layout({ steps: 2 }),
+      layout({ document: { ...passwordPage, frameId: 3 } }),
+    ])
+      expect(transitionLoginAttempt(before, refused)).toEqual(before);
+    // A budget of the submissions already spent still holds the switch.
+    expect(transitionLoginAttempt(before, layout({ maxSubmissions: 1, steps: 3 }))).toMatchObject({
+      layout: "2000",
+      maxSubmissions: 1,
+    });
+    // The same attempt in a top document, as a stop needs one.
+    const top = parseAttemptMetadata({ ...before, document: { ...document, frameId: 0 } });
+    const topPage = { ...passwordPage, frameId: 0 };
+    expect(transitionLoginAttempt(top, layout({ document: topPage }))).toMatchObject({
+      layout: "2000",
+    });
+    for (const attempt of [
+      parseAttemptMetadata({ ...top, layout: undefined }),
+      parseAttemptMetadata({ ...top, variant: 1 }),
+      parseAttemptMetadata({ ...top, route: "passkey" }),
+      parseAttemptMetadata({ ...top, handlers: [{ index: 0, start: 2 }] }),
+      parseAttemptMetadata({ ...top, chooser: { click: "entry" } }),
+      parseAttemptMetadata({ ...top, fillOnly: true }),
+      parseAttemptMetadata({ ...top, stopAt: 2 }),
+      parseAttemptMetadata({ ...top, mutationIntent: undefined }),
+    ])
+      expect(transitionLoginAttempt(attempt, layout({ document: topPage }))).toEqual(attempt);
+    // Nor does a budget smaller than what the login spent.
+    const twice = parseAttemptMetadata({ ...top, submissions: 2 });
+    expect(transitionLoginAttempt(twice, layout({ document: topPage, maxSubmissions: 1 }))).toEqual(
+      twice,
+    );
+  });
+
+  it("goes past its own last step only after an advance", () => {
+    // The email page's Next was the login's last step: the other layout holds the next page.
+    const emailOnly = { ...first, steps: first.steps.slice(0, 2), slots: ["username"] };
+    const advancedOnly = advanced(emailOnly);
+    expect(advancedOnly).toMatchObject({ stepIndex: 1, stepCount: 2 });
+    expect(transitionLoginAttempt(advancedOnly, layout())).toMatchObject({
+      layout: "2000",
+      stepIndex: 2,
+    });
+    // After a submission that ended the login's own steps, it does not go on.
+    let submitted = transitionLoginAttempt(readyToClick(), {
+      type: "PREPARE",
+      operationId: "click-one",
+      kind: "click",
+    });
+    submitted = transitionLoginAttempt(submitted, {
+      type: "SUBMIT_INTENT",
+      operationId: "click-one",
+    });
+    submitted = transitionLoginAttempt(parseAttemptMetadata({ ...submitted, layout: "1000" }), {
+      type: "SUBMITTED",
+      operationId: "click-one",
+    });
+    expect(submitted).toMatchObject({ state: "awaiting-result", stepIndex: 1, stepCount: 2 });
+    expect(transitionLoginAttempt(submitted, layout({ document }))).toEqual(submitted);
+  });
+
+  it("does not switch while a step must be tried again", () => {
+    const at = parseAttemptMetadata({
+      ...transitionLoginAttempt(advanced(), {
+        type: "OBSERVED",
+        result: "continue",
+        document: passwordPage,
+      }),
+      retryRequired: true,
+    });
+    expect(transitionLoginAttempt(at, layout())).toEqual(at);
+  });
+
+  it("refuses a switch while a step that cannot advance is in flight", () => {
+    // The email fill, before its click.
+    let attempt = transitionLoginAttempt(detected(first), { type: "RESOLVE" });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    const reconciling = recoverLoginAttempt(attempt);
+    expect(reconciling).toMatchObject({ state: "reconciling", operationKind: "fill" });
+    expect(transitionLoginAttempt(reconciling, layout())).toEqual(reconciling);
+    // The click about to be sent.
+    const clicking = transitionLoginAttempt(
+      transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId: "fill-one" }),
+      { type: "PREPARE", operationId: "next-one", kind: "click", effect: "advance" },
+    );
+    expect(clicking.state).toBe("executing");
+    expect(transitionLoginAttempt(clicking, layout())).toEqual(clicking);
   });
 });
