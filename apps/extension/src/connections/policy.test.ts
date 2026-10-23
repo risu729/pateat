@@ -484,3 +484,28 @@ describe("deleted connection settings", () => {
     expect(h.read()).not.toHaveProperty("fieldPolicies");
   });
 });
+
+describe("leftover connection settings", () => {
+  it("drop entries outside the kept IDs, except connections this worker registered, and write nothing otherwise", async () => {
+    const h = harness();
+    const before = h.read();
+    const leftover = { ...before.settings.connections[0]!, connectionId: "leftover" };
+    before.settings.connections.push(leftover);
+    h.setSnapshot(before);
+    await h.policy.prune([accountProfile.connectionId, "leftover"]);
+    expect(h.storage.write).not.toHaveBeenCalled();
+    // A connection registered after the caller's registry read is not a leftover.
+    await h.policy.register("fresh", true);
+    await h.policy.prune([accountProfile.connectionId]);
+    expect(h.read().settings.connections.map((value) => value.connectionId)).toEqual([
+      accountProfile.connectionId,
+      "fresh",
+    ]);
+    expect(h.read().fieldPolicies?.map((value) => value.connectionId)).toEqual([
+      accountProfile.connectionId,
+    ]);
+    await h.policy.prune([]);
+    expect(h.read().settings.connections.map((value) => value.connectionId)).toEqual(["fresh"]);
+    expect(h.read()).not.toHaveProperty("fieldPolicies");
+  });
+});

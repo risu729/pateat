@@ -4,9 +4,9 @@ import type {
   VaultCatalog,
   VaultConnectionMetadata,
 } from "@pateat/contracts";
-import { CircleAlert, Vault } from "lucide-react";
+import { Vault } from "lucide-react";
 import type { ReactNode } from "react";
-import { Badge, checkClass, controlClass, fieldClass, Row, RowList, RowSub, RowTitle } from "./ui";
+import { Badge, checkClass, controlClass, fieldClass, Row, RowList, RowTitle } from "./ui";
 
 export function toggleId(ids: string[], id: string, included: boolean): string[] {
   return included ? [...new Set([...ids, id])] : ids.filter((entry) => entry !== id);
@@ -243,8 +243,9 @@ export function VaultAccess({
 }
 
 /**
- * Vaults that have no Bitwarden connection row on this page, such as the demo vaults, and
- * saved entries for connections this device no longer has.
+ * Vaults that have no Bitwarden connection row on this page, such as the demo vaults.
+ * Entries for connections this device no longer has are not shown; deleting a connection
+ * removes them and the background drops leftovers when it starts.
  */
 export function VaultRows({
   ids,
@@ -260,29 +261,16 @@ export function VaultRows({
   const rows: ReactNode[] = [];
   for (const id of ids) {
     const connection = draft.connections.find((entry) => entry.connectionId === id);
-    if (!connection) continue;
     const metadata = catalog.connections.find((entry) => entry.id === id);
+    if (!connection || !metadata) continue;
     rows.push(
-      metadata ? (
-        <Row key={id} icon={Vault} main={<RowTitle>{metadata.label}</RowTitle>}>
-          <VaultAccess
-            connection={connection}
-            metadata={metadata}
-            edit={(update) => change(id, update)}
-          />
-        </Row>
-      ) : (
-        <Row
-          key={id}
-          icon={CircleAlert}
-          main={
-            <>
-              <RowTitle>Unavailable connection</RowTitle>
-              <RowSub>{id}. Its saved settings are preserved.</RowSub>
-            </>
-          }
+      <Row key={id} icon={Vault} main={<RowTitle>{metadata.label}</RowTitle>}>
+        <VaultAccess
+          connection={connection}
+          metadata={metadata}
+          edit={(update) => change(id, update)}
         />
-      ),
+      </Row>,
     );
   }
   return <RowList id="connections">{rows}</RowList>;

@@ -1627,7 +1627,7 @@ test("each connection's row holds its vault access, which waits for saved settin
   } satisfies Extract<SettingsResponse, { ok: true }>["catalog"];
   function saved(revision: number): Extract<SettingsResponse, { ok: true }> {
     const settings = createDefaultSettings(catalog);
-    // An entry for a connection this device no longer has keeps a place on the page.
+    // An entry for a connection this device no longer has, as deletes before 2026-10-23 left.
     settings.connections.push({ ...settings.connections[0]!, connectionId: "gone" });
     return { version: 1, ok: true, snapshot: { version: 1, revision, settings }, catalog };
   }
@@ -1655,8 +1655,11 @@ test("each connection's row holds its vault access, which waits for saved settin
   const use = page.getByRole("switch", { name: "Synthetic vault: Use this vault", exact: true });
   await expect.element(use).not.toBeChecked();
   expect(document.getElementById("bitwarden-connections")?.contains(use.element())).toBe(true);
-  await expect.element(page.getByText("Unavailable connection", { exact: true })).toBeVisible();
-  await expect.element(page.getByText("gone. Its saved settings are preserved.")).toBeVisible();
+  // An entry for a connection this device no longer has shows no row, and never its bare ID.
+  await expect
+    .element(page.getByText("Unavailable connection", { exact: true }))
+    .not.toBeInTheDocument();
+  await expect.element(page.getByText(/\bgone\b/)).not.toBeInTheDocument();
   // There is no separate vault access section.
   await expect.element(page.getByRole("heading", { name: "Vault access" })).not.toBeInTheDocument();
 

@@ -133,6 +133,11 @@ export interface ConnectionPolicy {
   register(connectionId: string, enabled: boolean): Promise<void>;
   /** Drops a deleted connection's device-local settings and field policy; synced ones stay. */
   remove(connectionId: string): Promise<void>;
+  /**
+   * Drops device-local settings of connections outside `keep`, such as those a delete left
+   * before it removed them. Connections registered by this worker are never dropped.
+   */
+  prune(keep: readonly string[]): Promise<void>;
   /** Reconcile after durable cache acceptance; an unmatched binding never authorizes release. */
   adopt(input: {
     previous: VaultEntry | null;

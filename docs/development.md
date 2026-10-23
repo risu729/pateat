@@ -683,8 +683,13 @@ counted); inside, a line such as `1 of 3 groups, 2 of 40 items selected` or `1 i
 2 fields excluded` sums them up, and each item opens on its own with a summary such as
 `Item excluded` or `1 field excluded`. Open/closed state lasts only while the page is
 open. These controls wait while saved settings load. A saved entry for a connection
-that has no row is listed under the rows: the demo vaults with the same controls, or
-an unavailable connection whose saved settings are kept. Without a Bitwarden setup (the
+that has no row is listed under the rows when it is a demo vault, with the same
+controls. An entry for a connection this device no longer has is not listed: Delete
+connection removes it, and when the background starts it drops any entry whose
+connection is neither registered nor a demo vault, which clears those left by deletes
+before 2026-10-23 (shown then as "Unavailable connection" with a bare connection ID).
+Connections the running background registered are never dropped, so a sign-in that
+starts the background is not raced. Without a Bitwarden setup (the
 demo preview) the vaults are listed in their own Demo vaults panel. Custom-field
 reviews are not folded; they stay expanded under the connection rows because they block
 the item until saved.

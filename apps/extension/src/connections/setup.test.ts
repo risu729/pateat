@@ -225,6 +225,7 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
     remove: vi.fn<ConnectionSetupDependencies["policy"]["remove"]>(async () => {
       events.push("policy-remove");
     }),
+    prune: vi.fn<ConnectionSetupDependencies["policy"]["prune"]>(),
   };
   // The revision-date check is answered here and counted apart, so `fetch` counts only
   // the prelogin, token and sync requests.
@@ -1839,7 +1840,7 @@ describe("permission removal across connections", () => {
         put: vi.fn(),
         remove: vi.fn(),
       },
-      policy: { register: vi.fn(), adopt: vi.fn(), remove: vi.fn() },
+      policy: { register: vi.fn(), adopt: vi.fn(), remove: vi.fn(), prune: vi.fn() },
       vaultFor: vi.fn(),
       sessions: createProviderSessions({
         storeFor: (profile) => memories.get(profile.connectionId)!.store,

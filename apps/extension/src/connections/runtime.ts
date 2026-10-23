@@ -138,6 +138,16 @@ export function createConnectionRuntime(
     ...(options.baseCatalog ? { initialCatalog: options.baseCatalog } : {}),
   });
   const policy = createConnectionPolicy({ settings, current });
+  // Deletes before 2026-10-23 left the connection's settings behind; drop such leftovers.
+  void registry
+    .list()
+    .then((configurations) =>
+      policy.prune([
+        ...(options.baseCatalog?.connections.map((connection) => connection.id) ?? []),
+        ...configurations.map((configuration) => configuration.profile.connectionId),
+      ]),
+    )
+    .catch(() => undefined);
   const containsPermission =
     options.containsPermission ??
     (async (profile: BitwardenProfile) => {

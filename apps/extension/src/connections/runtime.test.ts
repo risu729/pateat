@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { SettingsSnapshot } from "@pateat/contracts";
 import type { CryptoHost } from "../crypto/host";
 import type { HostSessionRef } from "../crypto/wire";
 import type { VaultEntry } from "../vault/record";
@@ -25,7 +26,30 @@ vi.mock("wxt/browser", () => ({
     },
   },
 }));
-vi.mock("../settings", () => ({ createLocalSettingsRuntime: () => ({}) }));
+const settingsStore = vi.hoisted(() => {
+  let snapshot: SettingsSnapshot = {
+    version: 1,
+    revision: 0,
+    settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+  };
+  return {
+    set: (value: SettingsSnapshot) => {
+      snapshot = structuredClone(value);
+    },
+    get: () => structuredClone(snapshot),
+    read: async () => structuredClone(snapshot),
+    update: async (_revision: number | undefined, mutate: (value: SettingsSnapshot) => unknown) => {
+      snapshot = mutate(structuredClone(snapshot)) as SettingsSnapshot;
+      return structuredClone(snapshot);
+    },
+  };
+});
+vi.mock("../settings", () => ({
+  createLocalSettingsRuntime: () => ({
+    read: settingsStore.read,
+    update: settingsStore.update,
+  }),
+}));
 
 function settingsPort(
   postMessage: () => void,
@@ -165,5 +189,55 @@ describe("current vault catalog", () => {
     sessions.clear();
     expect((await runtime.current(id)).catalog.snapshotId).toBe(entry.accepted.snapshotId);
     expect(host.open).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("settings left by deleted connections", () => {
+  it("are dropped when the runtime starts, keeping registered and base connections", async () => {
+    const entry = (connectionId: string) => ({
+      connectionId,
+      enabled: true,
+      selection: { mode: "all" as const, groupIds: [], itemIds: [] },
+      excludedItemIds: [],
+      excludedFields: [],
+    });
+    const synced = {
+      origin: "https://example.com",
+      provider: "bitwarden",
+      userId: "user",
+      itemId: "item",
+    };
+    settingsStore.set({
+      version: 1,
+      revision: 3,
+      settings: {
+        connections: [entry("demo"), entry(accountProfile.connectionId), entry("deleted")],
+        excludedSites: [],
+        siteDefaults: [synced],
+        bindings: [],
+      },
+      fieldPolicies: [
+        {
+          connectionId: "deleted",
+          snapshotId: "20000000-0000-4000-8000-000000000002",
+          quarantinedItemIds: [],
+        },
+      ],
+    });
+    createConnectionRuntime({} as CryptoHost, {
+      registry: {
+        list: async () => [{ profile: { connectionId: accountProfile.connectionId } }],
+        get: async () => undefined,
+      } as never,
+      baseCatalog: { connections: [{ id: "demo" } as never] },
+    });
+    await vi.waitFor(() =>
+      expect(settingsStore.get().settings.connections.map((value) => value.connectionId)).toEqual([
+        "demo",
+        accountProfile.connectionId,
+      ]),
+    );
+    expect(settingsStore.get()).not.toHaveProperty("fieldPolicies");
+    expect(settingsStore.get().settings.siteDefaults).toEqual([synced]);
   });
 });

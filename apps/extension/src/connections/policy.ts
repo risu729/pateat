@@ -59,6 +59,19 @@ export function createConnectionPolicy(options: {
     connectionId: string,
   ): Promise<{ entry: VaultEntry; catalog: VaultCatalog["connections"][number] }>;
 }): ConnectionPolicy {
+  // Added by this worker, possibly after the registry read that a prune compares against.
+  const registered = new Set<string>();
+  const unknown = (keep: readonly string[]) => (id: string) =>
+    !keep.includes(id) && !registered.has(id);
+  function drop(snapshot: SettingsSnapshot, gone: (id: string) => boolean) {
+    snapshot.settings.connections = snapshot.settings.connections.filter(
+      (entry) => !gone(entry.connectionId),
+    );
+    const policies = snapshot.fieldPolicies?.filter((entry) => !gone(entry.connectionId));
+    if (policies?.length) snapshot.fieldPolicies = policies;
+    else delete snapshot.fieldPolicies;
+    return snapshot;
+  }
   return {
     async quarantined(connectionId, snapshotId) {
       return quarantinedItems(await options.settings.read(), connectionId, snapshotId);
@@ -67,6 +80,7 @@ export function createConnectionPolicy(options: {
       return protectedItemIds(await options.settings.read(), connectionId);
     },
     async register(connectionId, enabled) {
+      registered.add(connectionId);
       await options.settings.update(undefined, (snapshot) => {
         if (!snapshot.settings.connections.some((entry) => entry.connectionId === connectionId))
           snapshot.settings.connections.push({
@@ -80,23 +94,28 @@ export function createConnectionPolicy(options: {
       });
     },
     async remove(connectionId) {
-      await options.settings.update(undefined, (snapshot) => {
-        snapshot.settings.connections = snapshot.settings.connections.filter(
-          (entry) => entry.connectionId !== connectionId,
-        );
-        const policies = snapshot.fieldPolicies?.filter(
-          (entry) => entry.connectionId !== connectionId,
-        );
-        if (policies?.length) snapshot.fieldPolicies = policies;
-        else delete snapshot.fieldPolicies;
-        return snapshot;
-      });
+      registered.delete(connectionId);
+      await options.settings.update(undefined, (snapshot) =>
+        drop(snapshot, (id) => id === connectionId),
+      );
+    },
+    async prune(keep) {
+      const gone = unknown([...keep]);
+      const current = await options.settings.read();
+      // Nothing to drop writes nothing, so an open settings draft keeps its revision.
+      if (
+        !current.settings.connections.some((entry) => gone(entry.connectionId)) &&
+        !current.fieldPolicies?.some((entry) => gone(entry.connectionId))
+      )
+        return;
+      await options.settings.update(undefined, (snapshot) => drop(snapshot, gone));
     },
     async adopt(input) {
       const captured = structuredClone(input);
       const accepted = captured.next.accepted;
       if (!accepted) throw new Error("invalid-request");
       const id = captured.next.profile.connectionId;
+      registered.add(id);
       let review: string[] = [];
       await options.settings.update(undefined, (snapshot) => {
         let connection = snapshot.settings.connections.find((entry) => entry.connectionId === id);
