@@ -15,13 +15,14 @@ migrations to that database before activation
 
 All responses carry `Cache-Control: no-store` and `nosniff`; no route sends CORS
 headers. API routes answer JSON; the owner web UI is a React app, and `/pair/signed-in`,
-the Access and error pages are script-free HTML; none can be framed. Device routes (`/v1/*`) also send `Server-Timing` with `total` from the Worker
-receiving the request, before device authentication. A generation or completion request
-that reached the Claude credential step adds `token` (that step) and, once it sent the
-model request, `model`; a request refused at the credential step or by the role's local
-checks reports `token` alone. Parse it by metric name, as Cloudflare may add entries; no
-`Timing-Allow-Origin` is sent. Contracts live in `packages/contracts/src/sync.ts`,
-`pairing.ts`, `manage.ts` and `generation.ts`.
+the Access and error pages are script-free HTML; none can be framed. Device routes
+(`/v1/*`) also send `Server-Timing` with `total` from the Worker receiving the request,
+before device authentication. A generation or completion request that reached the Claude
+credential step adds `token` (that step) and, once it sent the model request, `model`; a
+request refused at the credential step or by the role's local checks reports `token`
+alone. Parse it by metric name, as Cloudflare may add entries; no `Timing-Allow-Origin`
+is sent. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts`, `manage.ts`
+and `generation.ts`.
 
 | Route | Purpose |
 | --- | --- |

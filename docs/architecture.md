@@ -3243,16 +3243,16 @@ field exclusions and custom-field review, which need the device's vault catalog
     saving, and says when a saved row no longer validates; the last save wins. Test the
     connection exchanges one token with the saved identifiers, which calls no model and
     costs nothing, and shows how long the token is valid for or why the exchange failed;
-    the token never reaches the page. Models holds, for recipe generation and the sign-in
-    judge, the ordered model choices (first, then fallbacks after a refusal), each a
-    model, effort and speed, from the models the owner's credential can list
+    the token never reaches the page. Models holds, for recipe generation and the
+    sign-in judge, the ordered model choices (first, then fallbacks after a refusal),
+    each a model, effort and speed, from the models the owner's credential can list
     ([ADR 0014](adr/0014-claude-generation-provider.md)); a model without a price, an
     effort it does not accept and fast mode that keeps failing cannot be chosen. Saving
     writes `PUT /manage/api/models`; Use the defaults restores Opus 5.5 then Sonnet 5.5.
     The page notes that none of the values is a secret and that archiving the federation
-    rule in the Console stops Pateat's access. It replaced the temporary script-free form
-    the owner chose on 2026-10-11 to try WIF before the web UI existed, and the separate
-    Models tab.
+    rule in the Console stops Pateat's access. It replaced the temporary script-free
+    form the owner chose on 2026-10-11 to try WIF before the web UI existed, and the
+    separate Models tab.
   - Request log (`/manage/request-log`): how many requests the
     [request log](adr/0012-inference-request-log.md) holds for the owner
     (requests answered without Claude included), and how many
