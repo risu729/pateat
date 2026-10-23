@@ -77,7 +77,16 @@ export type SetupReply =
       snapshotId: string;
       policyReviewItemIds: string[];
     }
-  | { ok: true; kind: "mfa-required"; flowId: string; providers: (0 | 1)[] }
+  | {
+      ok: true;
+      kind: "mfa-required";
+      flowId: string;
+      providers: (0 | 1)[];
+      /** Local `Date.now()` at which the sign-in stops waiting for its code. */
+      expiresAt: number;
+      /** The server refused the code just sent; the sign-in still waits for another. */
+      invalidCode?: true;
+    }
   /** The server's answer to sending an email two-step code; the sign-in keeps waiting. */
   | {
       ok: true;
@@ -92,6 +101,8 @@ export type SetupReply =
       kind: "new-device-verification-required";
       flowId: string;
       invalidOtp: boolean;
+      /** Local `Date.now()` at which the sign-in stops waiting for its code. */
+      expiresAt: number;
     }
   | {
       ok: true;
@@ -138,6 +149,8 @@ export interface ConnectionPolicy {
     catalog: VaultCatalog["connections"][number];
     /** Items whose decrypted custom fields the crypto host found equal in both snapshots. */
     sameCustomFields?: string[];
+    /** Set for an automatic check (ADR 0025), which a later conflicting save names. */
+    automatic?: true;
   }): Promise<{ policyReviewItemIds: string[] }>;
 }
 export type ConnectionSetupDependencies = {

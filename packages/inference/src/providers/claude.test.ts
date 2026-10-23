@@ -3,7 +3,9 @@ import { evaluationCorpus } from "../corpus/cases";
 import { createRecipeGenerator } from "../generation";
 import {
   claudeGeneration,
+  claudeModelRates,
   claudeRefusalCategory,
+  claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
 } from "./claude";
@@ -47,6 +49,8 @@ const groundTruth = () => {
   return JSON.stringify({
     result: {
       decision: "plan",
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: Object.entries(fields).map(([slot, candidate]) => ({ slot, candidate })),
       action: { candidate: action, purpose },
     },
@@ -172,5 +176,26 @@ describe("Claude generation adapter", () => {
   it("estimates cost only from fully reported usage", () => {
     expect(estimateClaudeCostUsd({ inputTokens: 3_000, outputTokens: 1_000 })).toBeCloseTo(0.032);
     expect(estimateClaudeCostUsd({ inputTokens: 3_000, outputTokens: null })).toBeUndefined();
+  });
+
+  it("charges a long prompt the higher rates the pricing page lists", () => {
+    const haiku = claudeModelRates("claude-haiku-5-5")!;
+    expect(estimateClaudeCostUsd({ inputTokens: 100_000, outputTokens: 0 }, haiku)).toBeCloseTo(
+      0.01,
+    );
+    expect(estimateClaudeCostUsd({ inputTokens: 100_001, outputTokens: 0 }, haiku)).toBeCloseTo(
+      0.05,
+    );
+    // The roles' 64 KiB input bound keeps every prompt below the threshold.
+    expect(claudeWorstCaseRates(haiku, 64 * 1024)).toEqual({ input: 0.1, output: 0.5 });
+    expect(claudeWorstCaseRates(haiku, 200_000)).toEqual({ input: 0.5, output: 2.5 });
+  });
+
+  it("prices the service's models from the committed pricing page", () => {
+    expect(claudeGeneration.rates).toEqual({ input: 4, output: 20 });
+    expect(claudeModelRates("claude-sonnet-5-5")).toEqual({ input: 2, output: 10 });
+    expect(claudeModelRates("claude-opus-5-5", "fast")).toEqual({ input: 8, output: 40 });
+    expect(claudeModelRates("claude-sonnet-5-5", "fast")).toBeUndefined();
+    expect(claudeModelRates("claude-opus-9")).toBeUndefined();
   });
 });

@@ -1,11 +1,15 @@
+import type { PageKind } from "@pateat/contracts";
 import type { EvaluationCase, ExpectedResult } from "./corpus/cases";
 import type { AbstentionReason, InferenceErrorCode, InferenceOutcome } from "./outcome";
 import type { GeneratedPageRejection, ValidatedPagePlan } from "./plan";
 import { checkPlanValues } from "./values";
 
 export type Verdict = "correct" | "correct-abstention" | "missed" | "false-submit" | "failed";
-/** A scored plan; a generated one may also name the passkey sign-in button (ADR 0027). */
-type ScoredPlan = ValidatedPagePlan & { passkeyButton?: string | undefined };
+/**
+ * A scored plan; a generated one may also name the passkey sign-in button (ADR 0027) and
+ * answer the page's kind (ADR 0035).
+ */
+type ScoredPlan = ValidatedPagePlan & { passkeyButton?: string | undefined; pageKind?: PageKind };
 
 export type CaseResult = {
   id: string;
@@ -24,6 +28,7 @@ export type CaseResult = {
     purpose: "advance" | "submit";
     accountSwitch?: string;
     passkeyButton?: string;
+    pageKind?: PageKind;
   };
   latencyMs: number;
   calls: number;
@@ -47,6 +52,12 @@ export type EvaluationReport = {
    * where the truth names none.
    */
   passkeyButtons: { expected: number; correct: number; missed: number; wrong: number };
+  /**
+   * The page kind each returned plan answered (ADR 0035), apart from the verdicts. Every
+   * corpus page is a sign-in page, so `confirm` and `unclear` count pages whose recipe
+   * would never log in.
+   */
+  pageKinds: Record<PageKind, number>;
   latencyMs: { p50: number; p95: number };
   calls: number;
   /** Known token sums; cases whose usage was not reported are counted, not treated as zero. */
@@ -126,6 +137,7 @@ export async function evaluateRole(options: {
     errors: {},
     jointMappingRejections: 0,
     passkeyButtons: { expected: 0, correct: 0, missed: 0, wrong: 0 },
+    pageKinds: { "sign-in": 0, confirm: 0, unclear: 0 },
     latencyMs: { p50: 0, p95: 0 },
     calls: 0,
     usage: { inputTokens: 0, outputTokens: 0, unknownInputCases: 0, unknownOutputCases: 0 },
@@ -158,6 +170,8 @@ export async function evaluateRole(options: {
       else if (named === truth) score.correct += 1;
       else score.wrong += 1;
     }
+    if (outcome.status === "ok" && outcome.value.pageKind !== undefined)
+      report.pageKinds[outcome.value.pageKind] += 1;
     let reason: CaseResult["reason"];
     if (outcome.status === "abstained") {
       reason = outcome.reason;
@@ -199,6 +213,7 @@ export async function evaluateRole(options: {
               ...(outcome.value.passkeyButton === undefined
                 ? {}
                 : { passkeyButton: outcome.value.passkeyButton }),
+              ...(outcome.value.pageKind === undefined ? {} : { pageKind: outcome.value.pageKind }),
             },
           }
         : {}),

@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import * as v from "valibot";
 
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
@@ -16,15 +17,21 @@ export const logoutReasonSchema = v.picklist([
   "stopped-login",
 ]);
 export type LogoutReason = v.InferOutput<typeof logoutReasonSchema>;
-/** The toolbar popup's line saying why it asks for an account (ADR 0021). */
-export function choiceReason(logout: LogoutReason | undefined, matches: number): string {
-  if (logout === undefined) return `${matches} accounts match this page`;
-  return {
-    "this-tab": "You logged out of this site in this tab",
-    rejected: "The site did not accept the last login in this tab",
-    "other-tab": "You logged out of this site in another tab",
-    "stopped-login": "The last login on this site stopped in this tab",
-  }[logout];
+/** The toolbar popup's line saying why it asks for an account (ADR 0021), in its language. */
+export function choiceReason(
+  logout: LogoutReason | undefined,
+  matches: number,
+  t: TFunction,
+): string {
+  if (logout === undefined) return t("matchingAccounts", { count: matches });
+  return t(
+    {
+      "this-tab": "You logged out of this site in this tab",
+      rejected: "The site did not accept the last login in this tab",
+      "other-tab": "You logged out of this site in another tab",
+      "stopped-login": "The last login on this site stopped in this tab",
+    }[logout],
+  );
 }
 /** The toolbar popup asks which accounts the refused login in a tab could use (ADR 0021). */
 export const choiceRequestSchema = v.strictObject({
@@ -80,23 +87,46 @@ export const pickResponseSchema = v.variant("ok", [
   }),
 ]);
 /**
- * The toolbar popup's message for a pick that started no login. A picked account becomes
- * the default only once its login succeeds (ADR 0021), so with `makeDefault` it says that
- * nothing was saved.
+ * The toolbar popup's message for a pick that started no login, in its language. A picked
+ * account becomes the default only once its login succeeds (ADR 0021), so with
+ * `makeDefault` it says that nothing was saved. Each case is one whole sentence to translate.
  */
 export function pickFailure(
   reason: Extract<v.InferOutput<typeof pickResponseSchema>, { ok: false }>["reason"],
   name: string,
   makeDefault: boolean,
+  t: TFunction,
 ): string {
-  const unsaved = makeDefault ? ` ${name} was not made the default.` : "";
   if (reason === "document-gone")
-    return `The page changed, so nothing was started.${unsaved} Reload it to choose again.`;
+    return makeDefault
+      ? t(
+          "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.",
+          { name },
+        )
+      : t("The page changed, so nothing was started. Reload it to choose again.");
   if (reason === "origin-busy")
-    return `Another tab's login to this site is running or did not succeed, so Pateat did not log in here.${unsaved} Close that tab or wait up to 5 minutes, then choose again.`;
+    return makeDefault
+      ? t(
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 5 minutes, then choose again.",
+          { name },
+        )
+      : t(
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
+        );
   if (reason === "not-started")
-    return `Pateat could not log in with ${name} on this page.${unsaved} Reload the page to choose again.`;
-  return `This page is no longer waiting for a choice${unsaved ? `.${unsaved}` : ""}`;
+    return makeDefault
+      ? t(
+          "Pateat could not log in with {{name}} on this page. {{name}} was not made the default. Reload the page to choose again.",
+          { name },
+        )
+      : t("Pateat could not log in with {{name}} on this page. Reload the page to choose again.", {
+          name,
+        });
+  return makeDefault
+    ? t("This page is no longer waiting for a choice. {{name}} was not made the default.", {
+        name,
+      })
+    : t("This page is no longer waiting for a choice");
 }
 /** The toolbar popup asks what Pateat did on a tab's page (ADR 0038). */
 export const statusRequestSchema = v.strictObject({

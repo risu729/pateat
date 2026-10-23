@@ -20,8 +20,11 @@ export function Button({
   variant?: keyof typeof VARIANTS;
   className?: string;
 }) {
+  // Chrome moves focus off a focused control that becomes disabled, so a button that starts
+  // an operation stays focusable while it runs (focusableWhenDisabled): Base UI marks it
+  // aria-disabled instead, which looks the same.
   const classes =
-    "inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold transition-colors outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-50";
+    "inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold transition-colors outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-50 aria-disabled:opacity-50";
   return (
     <ButtonPrimitive
       data-slot="button"
