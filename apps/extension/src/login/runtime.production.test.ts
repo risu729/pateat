@@ -10249,6 +10249,14 @@ describe("production login document admission", () => {
       });
       h.recipes.recipe.mockResolvedValue(generated);
       fake.state.present = new Set(["user", "password", "login"]);
+      // A readable sign-in state that shows no failure, so the page is looked at.
+      fake.state.signs = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(
         () => expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
@@ -15317,6 +15325,14 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         { passkeys: withPasskey, generation: service },
       );
       h.recipes.recipe.mockResolvedValue(twoPaths);
+      // A readable sign-in state that shows no failure, so the page is looked at.
+      fake.state.signs = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
       expect(await h.hello()).toEqual({ ok: true });
       await until(settled("reconciling", "unknown-submit"));
       expect(status()![0]).toMatchObject({ variant: 0 });
