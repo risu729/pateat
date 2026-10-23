@@ -339,6 +339,7 @@ export default defineBackground(() => {
         requested: login.passkeyRequested,
         answered: passkeyAnswered,
         conditional: login.conditionalRequest,
+        paused: login.passkeyPaused,
         hold: () => vaultSync.enter(false),
       })
     : createPasskeyRuntime(vaultPasskeys, {
@@ -355,6 +356,8 @@ export default defineBackground(() => {
         answered: passkeyAnswered,
         // ADR 0034: the page's own conditional request waits for the login of its page.
         conditional: login.conditionalRequest,
+        // ADR 0062: a paused site's own requests sign only on a choice in the chooser window.
+        paused: login.passkeyPaused,
         // The open vault is not replaced while a passkey request is looked up or signed.
         hold: () => vaultSync.enter(false),
       });

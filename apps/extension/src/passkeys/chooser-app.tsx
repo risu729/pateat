@@ -34,8 +34,8 @@ function Header({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Pateat's passkey chooser (ADR 0021): for several matches, or for any match after Pateat
- * signed in from the same tab. Choosing signs in with that passkey; "Use the browser"
+ * Pateat's passkey chooser (ADR 0021): for several matches, or for any match while automatic
+ * login of the site is paused (ADR 0062). Choosing signs in with that passkey; "Use the browser"
  * or closing the window hands the request to the browser or another extension.
  */
 export function ChooserApp({ client }: { client: ChooserClient }) {
@@ -60,7 +60,8 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
       }
       setView(response.view);
       // Replacing an existing default is opt-in: it also changes the password login account.
-      setMakeDefault(!response.view.replacesDefault);
+      // On a paused site a choice is for this sign-in only unless ticked (ADR 0062).
+      setMakeDefault(!response.view.replacesDefault && response.view.paused !== true);
     };
     void load();
   }, [client]);
@@ -107,6 +108,11 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
   return (
     <main className={MAIN}>
       <Header>Sign in to {host}</Header>
+      {view.paused && (
+        <p className="m-0 text-[15px]/6 text-ink-muted">
+          Automatic login is paused on {host}, so Pateat signs in only with the passkey you choose.
+        </p>
+      )}
       {/* Above the list, so it is seen before a choice is made. */}
       <p className="m-0 flex items-start gap-2.5" hidden={!canSave}>
         <input

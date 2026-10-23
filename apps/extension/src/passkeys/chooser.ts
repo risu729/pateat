@@ -31,6 +31,11 @@ export const chooserViewSchema = v.strictObject({
     v.maxLength(MAX_CHOOSER_ENTRIES),
   ),
   replacesDefault: v.boolean(),
+  /**
+   * Automatic login of the site is paused (ADR 0062): no entry is the default, and the box
+   * that makes the choice the default starts unticked.
+   */
+  paused: v.optional(v.literal(true)),
 });
 export type ChooserView = v.InferOutput<typeof chooserViewSchema>;
 
@@ -148,6 +153,7 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
           ...(entry.preferred === true ? { preferred: true as const } : {}),
         })) satisfies PasskeyDisplay[],
         replacesDefault: input.replacesDefault,
+        ...(input.paused === true ? { paused: true as const } : {}),
       });
       if (!view.success) return { kind: "unavailable" };
       const token = newId();

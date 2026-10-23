@@ -106,7 +106,7 @@ export function pickFailure(
   if (reason === "origin-busy")
     return `Another tab's login to this site is running or did not succeed, so Pateat did not log in here.${unsaved} Close that tab or wait up to 5 minutes, then choose again.`;
   if (reason === "paused-no-password")
-    return `Automatic login is paused on this site, and ${name} has no password, so Pateat did not log in.${unsaved} Resume automatic login to sign in with its passkey.`;
+    return `Automatic login is paused on this site, and ${name} has no password, so Pateat did not log in.${unsaved} To sign in with its passkey, use the page's own passkey sign-in button and choose ${name} in Pateat's window.`;
   if (reason === "not-started")
     return `Pateat could not log in with ${name} on this page.${unsaved} Reload the page to choose again.`;
   return `This page is no longer waiting for a choice${unsaved ? `.${unsaved}` : ""}`;

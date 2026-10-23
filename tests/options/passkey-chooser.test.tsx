@@ -84,3 +84,35 @@ test("hands the request to the browser", async () => {
     answer: { kind: "browser" },
   });
 });
+
+test("on a paused site, says so and leaves the box unticked (ADR 0062)", async () => {
+  const value = client(
+    view({
+      entries: [
+        { item: "Example", userName: "synthetic-user-1", account: "Probe" },
+        { item: "Example (work)", userName: "synthetic-user-2", account: "Probe" },
+      ],
+      paused: true,
+    }),
+  );
+  await render(<ChooserApp client={value} />);
+  await expect
+    .element(
+      page.getByText(
+        "Automatic login is paused on login.example.test, so Pateat signs in only with the passkey you choose.",
+      ),
+    )
+    .toBeVisible();
+  const box = page.getByRole("checkbox", {
+    name: "Use this account for login.example.test from now on",
+  });
+  await expect.element(box).not.toBeChecked();
+  await expect.element(page.getByText("Default")).not.toBeInTheDocument();
+  await page.getByRole("button", { name: /synthetic-user-1/u }).click();
+  expect(value.send).toHaveBeenLastCalledWith({
+    version: 1,
+    type: "passkey-chooser.answer",
+    request: REQUEST,
+    answer: { kind: "chosen", index: 0, makeDefault: false },
+  });
+});

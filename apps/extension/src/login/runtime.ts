@@ -2928,8 +2928,8 @@ export function createLoginRuntime(
       offerChoice(waiting.document, waiting.candidates, waiting.ask, waiting.paused);
       return { ok: false, reason: "origin-busy" };
     }
-    // On a paused site an item without a password is not handed on to its passkey, which
-    // the page signs in with by itself once the pause ends (ADR 0062).
+    // On a paused site an item without a password is not handed on to its passkey; the
+    // page's own passkey button signs in with it through the chooser window (ADR 0062).
     if (
       waiting.paused &&
       live?.document.documentId === waiting.document.documentId &&
@@ -11635,6 +11635,13 @@ export function createLoginRuntime(
     passkeyRequested,
     passkeyAnswered,
     conditionalRequest,
+    /**
+     * Whether automatic login of a top document's site is paused in the window kind of its
+     * tab, for the page's own passkey requests (ADR 0062). A pause that cannot be read counts
+     * as none.
+     */
+    passkeyPaused: async (input: { origin: string; incognito: boolean }) =>
+      (await pausedUntil({ url: input.origin, incognito: input.incognito })) !== undefined,
     /** A tab's page changed: a page of a paused site shows `II` on its badge (ADR 0062). */
     tabLoaded: (tab: Browser.tabs.Tab) => showTabPause(tab).catch(() => undefined),
   };

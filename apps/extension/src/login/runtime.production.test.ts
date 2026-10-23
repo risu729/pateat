@@ -26396,8 +26396,23 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
       }),
     );
     expect(pickFailure("paused-no-password", "Synthetic item", false)).toBe(
-      "Automatic login is paused on this site, and Synthetic item has no password, so Pateat did not log in. Resume automatic login to sign in with its passkey.",
+      "Automatic login is paused on this site, and Synthetic item has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button and choose Synthetic item in Pateat's window.",
     );
+  });
+
+  it("tells the passkey runtime which window kind's site is paused", async () => {
+    const { h } = paused();
+    fake.state.openTabs = [1];
+    expect(await h.login.passkeyPaused({ origin, incognito: false })).toBe(false);
+    await setPause(h, true);
+    expect(await h.login.passkeyPaused({ origin, incognito: false })).toBe(true);
+    // Incognito windows keep their own pauses, and another site is not paused.
+    expect(await h.login.passkeyPaused({ origin, incognito: true })).toBe(false);
+    expect(await h.login.passkeyPaused({ origin: "https://other.example", incognito: false })).toBe(
+      false,
+    );
+    await setPause(h, false);
+    expect(await h.login.passkeyPaused({ origin, incognito: false })).toBe(false);
   });
 
   it("hands on a conditional request whose site was paused while it was parked", async () => {

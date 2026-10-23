@@ -118,6 +118,38 @@ describe("passkey chooser window", () => {
     });
   });
 
+  it("tells the window that the site is paused (ADR 0062)", async () => {
+    const { browser } = fakeBrowser();
+    const chooser = createPasskeyChooser(browser);
+    void chooser.choose({
+      tabId: 7,
+      origin: "https://login.example.com",
+      rpId: "example.com",
+      entries: [entries[0]!],
+      replacesDefault: true,
+      paused: true,
+      signal: new AbortController().signal,
+    });
+    await vi.waitFor(() => expect(browser.createWindow).toHaveBeenCalledOnce());
+    const url = openedUrl(browser);
+    const request = new URL(url).searchParams.get("request");
+    expect(
+      await chooser.handle(
+        { version: 1, type: "passkey-chooser.load", request },
+        { url, tab: { windowId: 41 } },
+      ),
+    ).toEqual({
+      ok: true,
+      view: {
+        origin: "https://login.example.com",
+        rpId: "example.com",
+        entries: [entries[0]],
+        replacesDefault: true,
+        paused: true,
+      },
+    });
+  });
+
   it("refuses an index outside the list", async () => {
     const { browser } = fakeBrowser();
     const chooser = createPasskeyChooser(browser);
