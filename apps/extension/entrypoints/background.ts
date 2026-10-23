@@ -1,4 +1,5 @@
 import { BITWARDEN_READ_PROTOCOL } from "@pateat/bitwarden";
+import { accountPolicy } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
@@ -18,6 +19,11 @@ import { createSiteAccountsHandler } from "../src/vault/site-accounts";
 import { actionIconState, createActionIcon } from "../src/connections/action-icon";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
+import {
+  createPasskeyBrowserSites,
+  PENDING_BROWSER_SITES_KEY,
+  watchSettingsWrites,
+} from "../src/passkeys/browser-sites";
 import { createLoginReprompt, createVaultPasswordCheck } from "../src/login/reprompt";
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createPasskeyCreateHandler } from "../src/passkeys/create";
@@ -25,6 +31,7 @@ import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
+import { SETTINGS_STORAGE_KEY } from "../src/settings";
 import { sessionValue, trustedRecord } from "../src/storage";
 import {
   createVaultTimeout,
@@ -62,14 +69,16 @@ import { createLoginRecords } from "../src/service/login-records";
 import { createLoginOutcomes } from "../src/service/outcomes";
 import { createProblemReports } from "../src/service/problems";
 import { createRecipeUse } from "../src/service/recipe-use";
+import { createDeviceRecipes } from "../src/service/device-recipes";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
-import { createSettingsSync } from "../src/service/settings-sync";
+import { createSettingsSync, MAX_SETTINGS_DEFER_MS } from "../src/service/settings-sync";
 import {
   createBrowserGeneratedSlotStorage,
   createBrowserGenerationAttemptStorage,
   createBrowserLoginOutcomeStorage,
   createBrowserPageSampleStorage,
+  createBrowserDeviceRecipeStorage,
   createBrowserRecipeCacheStorage,
   createBrowserRecipeReplacementStorage,
   createBrowserRecipeRepairStorage,
@@ -134,6 +143,8 @@ export default defineBackground(() => {
     onSync: diagnosticsLog.vaultSync,
     onSignIn: diagnosticsLog.vaultSignIn,
     onRefresh: diagnosticsLog.vaultRefresh,
+    // A paired device uses no vault item until its first settings sync (ADR 0023).
+    settingsSyncPending: () => service.settingsSyncPending(),
     retention: async () => keyRetention(parseVaultTimeout(await vaultTimeoutSetting.read())),
     vaultTimeout: {
       check: () => vaultTimeout.check(),
@@ -195,7 +206,7 @@ export default defineBackground(() => {
   // A count reads only vaults already open, through the login runtime's vault path.
   const siteCounter = createSiteCounter({
     scope: createCountScope(
-      connections,
+      { ...connections, settingsSyncPending: () => service.settingsSyncPending() },
       { uris: vaultUris, passkeys: vaultPasskeyFinder },
       catalog,
     ),
@@ -228,6 +239,11 @@ export default defineBackground(() => {
   });
   const settings = connections.settings;
   const serviceTransport = createServiceTransport();
+  // ADR 0040: the recipes this device holds as its own, used while no service is paired.
+  const deviceRecipes = createDeviceRecipes({
+    storage: createBrowserDeviceRecipeStorage(),
+    transport: serviceTransport,
+  });
   const service = createServiceRuntime({
     storage: createBrowserServiceStorage(),
     transport: serviceTransport,
@@ -236,6 +252,15 @@ export default defineBackground(() => {
       browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
     // ADR 0066: a new device's lines start at its pairing.
     onPaired: (connection) => void problemReports?.paired(connection),
+    deviceRecipes: {
+      count: () => deviceRecipes.count(),
+      // Called only after the recipe sync below exists.
+      keepSynced: async () => {
+        const synced = await recipeSync.synced();
+        if (synced?.length) await deviceRecipes.keep(synced);
+      },
+      clear: () => deviceRecipes.clear(),
+    },
   });
   const settingsBaseStorage = createBrowserSettingsBaseStorage();
   const settingsHoldStorage = createBrowserSettingsHoldStorage();
@@ -246,6 +271,7 @@ export default defineBackground(() => {
     hold: settingsHoldStorage,
     // Synced changes replace the policy that running attempts were authorized under.
     applied: () => {
+      browserSites.changed();
       login.settingsChanged("synced");
       void siteCounter.refresh();
       passkeys.settingsChanged();
@@ -300,6 +326,12 @@ export default defineBackground(() => {
     storage: recipeCacheStorage,
     schedule: recipeScheduleStorage,
     settings: settingsSync,
+    device: deviceRecipes,
+    // Vault items become usable here, so the badge and passkey requests read them again.
+    settingsSynced: () => {
+      void siteCounter.refresh();
+      passkeys.settingsChanged();
+    },
     build: PATEAT_BUILD_REVISION,
     report: (outcome, changes) => {
       diagnosticsLog.recipeSync(outcome, changes);
@@ -334,11 +366,17 @@ export default defineBackground(() => {
         connections.registry.list(),
         settings.read(),
       ]);
-      return configurations
-        .map((configuration) => configuration.profile.connectionId)
-        .filter(
-          (id) => snapshot.settings.connections.find((entry) => entry.connectionId === id)?.enabled,
-        );
+      // A disabled account is left out of automatic sync (ADR 0023); one whose account is
+      // not known yet waits for its first sync by hand.
+      const enabled = await Promise.all(
+        configurations.map(async (configuration) => {
+          const id = configuration.profile.connectionId;
+          const account = await connections.account(id).catch(() => undefined);
+          const use = account && accountPolicy(snapshot.settings, account);
+          return use?.ok && use.policy?.enabled ? [id] : [];
+        }),
+      );
+      return enabled.flat();
     },
     // A stopped worker would leave a refresh claimed and require password sign-in (ADR 0008).
     // A sync opens the next snapshot with the vault's key, so it waits for the timeout's check.
@@ -393,6 +431,8 @@ export default defineBackground(() => {
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
     // ADR 0034: a popup choice keeps the page's request only when an item holds a passkey.
     passkeyItems: (origin) => originPasskeyItems(vaultPasskeys, origin),
+    // ADR 0007: a hostname chosen "Always" counts as listed while its write waits.
+    pendingBrowserSite: (origin) => browserSites.pending(origin),
     report: (report) => {
       diagnosticsLog.login(report);
       loginBadge.observe(report);
@@ -476,6 +516,26 @@ export default defineBackground(() => {
     // ADR 0034: the saved default ends a popup choice of that origin in another tab.
     login.siteDefaultSaved();
   };
+  // ADR 0007: the chooser's "Always for this site" hands every later passkey request of the
+  // page's hostname to the browser, until the site is removed on the settings page.
+  // A chosen hostname holds at once, while its write waits for a running login.
+  const browserSites = createPasskeyBrowserSites({
+    // settingsSaved() below recounts and uploads, as loginSettings would.
+    settings,
+    pending: sessionValue(PENDING_BROWSER_SITES_KEY),
+    // Waits for a running login, which the write would stop, as a settings sync does.
+    loginActive: () => login.active(),
+    maxWaitMs: MAX_SETTINGS_DEFER_MS,
+    keepAlive,
+    // The person changed a setting, as a save on the settings page does.
+    added: () => settingsSaved(),
+  });
+  // Every write of the settings, from any path, is read again by the next request.
+  watchSettingsWrites(browser.storage.local.onChanged, SETTINGS_STORAGE_KEY, () =>
+    browserSites.changed(),
+  );
+  const passkeyBrowserSite = (origin: string) => browserSites.has(origin);
+  const addBrowserSite = (origin: string) => browserSites.add(origin);
   const passkeyProbe =
     import.meta.env.MODE === "probe"
       ? createProbePasskeySource(vaultPasskeys, rememberPasskey)
@@ -502,6 +562,8 @@ export default defineBackground(() => {
         timeoutMs: passkeyProbe.timeoutMs,
         policy: passkeyProbe.policy,
         chooser: passkeyChooser,
+        browserSite: passkeyBrowserSite,
+        addBrowserSite,
         remember: passkeyProbe.remember,
         loginAccount: login.loginAccount,
         requested: login.passkeyRequested,
@@ -518,6 +580,9 @@ export default defineBackground(() => {
         // Only the local log keeps it; the page never learns why.
         report: diagnosticsLog.passkey,
         chooser: passkeyChooser,
+        // ADR 0007: "Always for this site" hands the hostname's requests to the browser.
+        browserSite: passkeyBrowserSite,
+        addBrowserSite,
         remember: rememberPasskey,
         // ADR 0027: a running login's passkey request is answered with its own item.
         loginAccount: login.loginAccount,
@@ -540,6 +605,7 @@ export default defineBackground(() => {
   const passkeyCreate = createPasskeyCreateHandler(passkeyProbe?.source ?? vaultPasskeys, {
     extensionId: browser.runtime.id,
     signIns,
+    browserSite: passkeyBrowserSite,
     ...(passkeyProbe
       ? { timeoutMs: passkeyProbe.timeoutMs }
       : { report: diagnosticsLog.passkeyCreate }),
@@ -630,16 +696,19 @@ export default defineBackground(() => {
   browser.runtime.onStartup.addListener(() => {
     void actionIcon.refresh();
   });
+  /** Settings this device changed: running work follows them, and they are uploaded. */
+  function settingsSaved() {
+    browserSites.changed();
+    login.settingsChanged("saved");
+    void siteCounter.refresh();
+    passkeys.settingsChanged();
+    diagnosticsLog.settingsChanged("saved");
+    void recipeSync.sync();
+  }
   listenForBackgroundMessages({
     settings: (request) =>
       settings.handle(request).then((response) => {
-        if (requestType(request) === "settings.save" && response.ok) {
-          login.settingsChanged("saved");
-          void siteCounter.refresh();
-          passkeys.settingsChanged();
-          diagnosticsLog.settingsChanged("saved");
-          void recipeSync.sync();
-        }
+        if (requestType(request) === "settings.save" && response.ok) settingsSaved();
         return response;
       }),
     siteAccounts: (request) =>

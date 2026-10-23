@@ -1,5 +1,5 @@
 import type { LoginObservation } from "@pateat/contracts";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listControls, otherAccountMiss } from "../page/account-list";
 import { findTargets } from "../page/targets";
 import {
@@ -10,6 +10,25 @@ import {
   extractSignedInObservation,
   fieldsMissDetail,
 } from "./extract";
+
+/** Closed shadow roots, which a content script reaches through `dom.openOrClosedShadowRoot`. */
+const closedRoots = vi.hoisted(() => new WeakMap<Element, ShadowRoot>());
+vi.mock("wxt/browser", () => ({
+  browser: {
+    dom: {
+      openOrClosedShadowRoot: (element: HTMLElement) =>
+        closedRoots.get(element) ?? element.shadowRoot,
+    },
+  },
+}));
+/** Gives the element `selector` names a shadow root holding `html`. */
+const shadow = (selector: string, html: string, mode: ShadowRootMode = "open") => {
+  const host = document.querySelector(selector)!;
+  const root = host.attachShadow({ mode });
+  if (mode === "closed") closedRoots.set(host, root);
+  root.innerHTML = html;
+  return root;
+};
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
 const page = (html: string, title = "") => {
@@ -483,19 +502,24 @@ describe("extractLoginObservation", () => {
       { by: "name", value: "password" },
       { by: "text", value: "Sign in" },
     ]);
-    // With no other locator the ID is still used, so the form stays complete.
+    // With no other locator the ID is still used, so the form stays complete; a button
+    // named by its accessible name takes that name first (ADR 0048 amendment of
+    // 2026-10-23).
     page(
       `<form><input id="mantine-ypxwydcwg"><input id="mantine-r5" type="password">
         <button id="mantine-qwhxkbtfz" aria-label="Sign in"></button></form>`,
     );
     const observation = observe();
     expect(observation.complete).toBe(true);
-    expect(observation.candidates.map(({ target }) => target)).toEqual(
-      ["mantine-ypxwydcwg", "mantine-r5", "mantine-qwhxkbtfz"].map((value) => ({
-        by: "id",
-        value,
-      })),
+    expect(observation.candidates.map(({ target }) => target)).toEqual([
+      ...["mantine-ypxwydcwg", "mantine-r5"].map((value) => ({ by: "id", value })),
+      { by: "accessible-name", value: "Sign in" },
+    ]);
+    page(
+      `<form><input id="mantine-ypxwydcwg"><input id="mantine-r5" type="password">
+        <button id="mantine-qwhxkbtfz"></button></form>`,
     );
+    expect(observe().candidates.at(-1)?.target).toEqual({ by: "id", value: "mantine-qwhxkbtfz" });
   });
 
   it("locates by an ID holding a random-looking run only when nothing else is unique", () => {
@@ -510,19 +534,24 @@ describe("extractLoginObservation", () => {
       { by: "autocomplete", value: "current-password" },
       { by: "text", value: "Sign in" },
     ]);
-    // With no other locator the ID is still used, so the form stays complete.
+    // With no other locator the ID is still used, so the form stays complete; a button
+    // named by its accessible name takes that name first (ADR 0048 amendment of
+    // 2026-10-23).
     page(
       `<form><input id="mantine-4p5f7ku4o"><input id="mantine-7pri31duh" type="password">
         <button id="mantine-a1b2c3d4e" aria-label="Sign in"></button></form>`,
     );
     const observation = observe();
     expect(observation.complete).toBe(true);
-    expect(observation.candidates.map(({ target }) => target)).toEqual(
-      ["mantine-4p5f7ku4o", "mantine-7pri31duh", "mantine-a1b2c3d4e"].map((value) => ({
-        by: "id",
-        value,
-      })),
+    expect(observation.candidates.map(({ target }) => target)).toEqual([
+      ...["mantine-4p5f7ku4o", "mantine-7pri31duh"].map((value) => ({ by: "id", value })),
+      { by: "accessible-name", value: "Sign in" },
+    ]);
+    page(
+      `<form><input id="mantine-4p5f7ku4o"><input id="mantine-7pri31duh" type="password">
+        <button id="mantine-a1b2c3d4e"></button></form>`,
     );
+    expect(observe().candidates.at(-1)?.target).toEqual({ by: "id", value: "mantine-a1b2c3d4e" });
     // Only a run of eight or more lower-case letters and digits that no other letter or
     // digit touches looks random: not a shorter one, nor one beside an upper-case letter.
     page(
@@ -1278,7 +1307,7 @@ describe("extractLoginObservation", () => {
     ]);
     // Without another button to submit with, it may be the script-run submit itself,
     // and so it may beside the fields even when a button elsewhere is located.
-    const submit = `<button aria-label="Sign in" style="width:16px;height:16px"></button>`;
+    const submit = `<button style="width:16px;height:16px"></button>`;
     for (const other of ["", `<header><button id="menu">Menu</button></header>`])
       for (const fields of [
         `<div><input id="u"><input id="p" type="password">${submit}</div>`,
@@ -1288,10 +1317,21 @@ describe("extractLoginObservation", () => {
         page(`${other}<main><section>${fields}</section></main>`);
         expect(observe().complete, other + fields).toBe(false);
       }
+    // One with an accessible name is named by it (ADR 0048 amendment of 2026-10-23).
+    page(
+      `<main><section><div><input id="u"><input id="p" type="password">
+        <button aria-label="Sign in" style="width:16px;height:16px"></button></div></section></main>`,
+    );
+    observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.at(-1)?.target).toEqual({
+      by: "accessible-name",
+      value: "Sign in",
+    });
     // Inside a form, a textless submit button still counts beside another located one.
     page(
       `<form><input name="mail"><input name="pass" type="password">${toggle}
-        <button aria-label="Go" style="width:16px;height:16px"></button></form>`,
+        <button style="width:16px;height:16px"></button></form>`,
     );
     expect(observe().complete).toBe(false);
     // An icon button may be the form's only, script-run submit, so there it still does.
@@ -1360,11 +1400,10 @@ describe("extractLoginObservation", () => {
       <form id="f"><input id="u"><input id="p" type="password" readonly><button id="go">Log in</button></form>`,
     );
     expect(observe().complete).toBe(false);
-    // A shadow-root control leaves out a form other than the login form.
+    // A control the executor cannot act on in a component's shadow tree flaws the form that
+    // holds the component, which is left out when it is not the login form (ADR 0070).
     page(`<form id="s"><input id="q"><div id="host"></div></form>${login}`);
-    document
-      .querySelector("#host")!
-      .attachShadow({ mode: "open" }).innerHTML = `<button>Voice</button>`;
+    shadow("#host", `<select><option>All</option></select>`);
     expect(observe().complete).toBe(true);
     expect(targets()).toEqual(["u", "p", "go"]);
     // Two login forms sharing field names leave both fields without a locator.
@@ -1625,10 +1664,9 @@ describe("extractLoginObservation", () => {
   });
 
   it("names the first cause of an incomplete observation, without page text (ADR 0019)", () => {
-    const gap = (html: string, shadow?: string) => {
+    const gap = (html: string, inShadow?: string) => {
       page(html);
-      if (shadow !== undefined)
-        document.querySelector("#host")!.attachShadow({ mode: "open" }).innerHTML = shadow;
+      if (inShadow !== undefined) shadow("#host", inShadow);
       const result = extractLoginObservation();
       if (!result.ok) throw new Error(`no observation: ${result.reason}`);
       return [result.observation.complete, result.gap];
@@ -1636,11 +1674,23 @@ describe("extractLoginObservation", () => {
     const form = (extra: string, button = `<button id="go">Log in</button>`) =>
       `<form id="f"><input id="u"><input id="p" type="password">${extra}${button}</form>`;
     expect(gap(form(""))).toEqual([true, undefined]);
-    for (const [html, shadow, expected] of [
-      // A fillable field in any shadow root.
-      [`${form("")}<div id="host"></div>`, `<input type="password">`, "shadow-field"],
-      // Another control in a shadow root inside the login form.
-      [form(`<div id="host"></div>`), `<button>Voice</button>`, "shadow-control"],
+    for (const [html, inShadow, expected] of [
+      // A shadow tree's controls count as the page's own (ADR 0070): a second password
+      // field outside every form, and a select in the login form.
+      [`${form("")}<div id="host"></div>`, `<input type="password">`, "unlocated-field"],
+      [form(`<div id="host"></div>`), `<select><option>A</option></select>`, "unsupported-control"],
+      // On a page without a form, a banner's required check box joins the login's fields
+      // wherever its markup sits, as one in the document's own tree does.
+      [
+        `<input id="u"><input id="p" type="password"><button id="go">Log in</button><div id="host"></div>`,
+        `<input type="checkbox" required>`,
+        "unlocated-checkbox",
+      ],
+      [
+        `<input id="u"><input id="p" type="password"><button id="go">Log in</button><div><input type="checkbox" required></div>`,
+        undefined,
+        "unlocated-checkbox",
+      ],
       [form(`<input id="pin" type="password" readonly>`), undefined, "unfillable-field"],
       [form(`<input id="pin" type="password" disabled>`), undefined, "unfillable-field"],
       [form(`<input id="pin" style="opacity:0">`), undefined, "unfillable-field"],
@@ -1674,9 +1724,63 @@ describe("extractLoginObservation", () => {
         undefined,
         "unfillable-field",
       ],
-      [`${form("<select id='k'></select>")}<div id="host"></div>`, `<input>`, "shadow-field"],
+      // A field outside the login form leaves its causes.
+      [
+        `${form("<select id='k'></select>")}<div id="host"></div>`,
+        `<input>`,
+        "unsupported-control",
+      ],
     ] as const)
-      expect(gap(html, shadow), html).toEqual([false, expected]);
+      expect(gap(html, inShadow), html).toEqual([false, expected]);
+  });
+
+  it("names a login form's button by its accessible name when nothing else does (ADR 0048 amendment of 2026-10-23)", () => {
+    // A submit input without a value, laid over the text that labels it (Amazon.co.jp,
+    // 2026-10-23).
+    const submit = (label: string, extra = "") =>
+      `<form id="f"><input id="email" type="email" autocomplete="username">
+        <span style="position:relative;display:inline-block">
+          <input type="submit" aria-labelledby="say" style="position:absolute;inset:0;opacity:0.01">
+          <span id="say" aria-hidden="true">${label}</span>
+        </span>${extra}</form>`;
+    page(submit("次に進む"));
+    const named = { by: "accessible-name", value: "次に進む" } as const;
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).find((candidate) => candidate.role === "button")).toMatchObject({
+      role: "button",
+      target: named,
+    });
+    expect(findTargets(document, named)).toEqual([document.querySelector("input[type=submit]")]);
+    const gap = (html: string) => {
+      page(html);
+      const result = extractLoginObservation();
+      return result.ok ? [result.observation.complete, result.gap] : result.reason;
+    };
+    // Never a name holding a number, one another control shares, or one redaction changes.
+    for (const html of [
+      submit("Step 2 next"),
+      submit("次に進む", `<button type="button" aria-label="次に進む">›</button>`),
+      submit("taro@example.com"),
+    ])
+      expect(gap(html), html).toEqual([false, "unlocated-button"]);
+    // A unique text or ID names it first.
+    page(submit("次に進む").replace(`type="submit"`, `type="submit" id="continue"`));
+    expect(summary(observe()).find((candidate) => candidate.role === "button")?.target).toEqual({
+      by: "id",
+      value: "continue",
+    });
+    // It comes before an ID another load may change, as a field's visible name does.
+    page(submit("次に進む").replace(`type="submit"`, `type="submit" id="mantine-4p5f7ku4o"`));
+    expect(summary(observe()).find((candidate) => candidate.role === "button")?.target).toEqual(
+      named,
+    );
+    // A script button or an icon button that nothing else names is still left out or flaws
+    // its form as before.
+    expect(
+      gap(`<form id="f"><input id="u"><input id="p" type="password">
+        <button type="button" aria-label="Log in"><svg width="16" height="16"></svg></button></form>`),
+    ).toEqual([false, "unlocated-button"]);
   });
 
   it("counts a control outside every form only near the sign-in fields outside one", () => {
@@ -2065,26 +2169,138 @@ describe("extractLoginObservation", () => {
     });
   });
 
-  it("marks a field in any shadow root incomplete", () => {
+  it("describes the fields of open and closed shadow roots as the page's own (ADR 0070)", () => {
+    // As Reddit's sign-in (2026-10-23): each input in its own component's shadow root,
+    // outside any form, every root reusing one inner ID and labelling by it.
+    const field = (name: string, type: string, tokens: string, label: string) =>
+      `<span id="label">${label}</span>
+      <input id="input" name="${name}" type="${type}" autocomplete="${tokens}" aria-labelledby="label">`;
     page(
-      `<form id="s"><input name="q" aria-label="検索"><button id="sb">検索</button></form>
-      <form id="login"><div id="host"></div></form>`,
+      `<h1>Log In</h1><text-field id="user"></text-field><text-field id="pass"></text-field>
+      <button id="login">Log In</button>`,
     );
-    document
-      .querySelector("#host")!
-      .attachShadow({ mode: "open" }).innerHTML = `<input id="u"><input id="p" type="password">`;
-    expect(observe().complete).toBe(false);
-    // A shadow host outside every form counts too.
-    page(`<input id="user"><div id="host"></div>`);
-    document
-      .querySelector("#host")!
-      .attachShadow({ mode: "open" }).innerHTML = `<input id="pw" type="password">`;
-    expect(observe().complete).toBe(false);
+    shadow("#user", field("username", "text", "username webauthn", "Email or username"));
+    const closed = shadow(
+      "#pass",
+      field("password", "password", "current-password", "Password"),
+      "closed",
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      {
+        role: "text",
+        target: { by: "name", value: "username" },
+        label: "Email or username",
+        autocomplete: "username",
+      },
+      {
+        role: "password",
+        target: { by: "name", value: "password" },
+        label: "Password",
+        autocomplete: "current-password",
+      },
+      { role: "button", target: { by: "id", value: "login" }, label: "Log In" },
+    ]);
+    // The executor's lookup finds what the description names, and counts every root's ID.
+    expect(findTargets(document, { by: "name", value: "password" })).toEqual([
+      closed.querySelector("input"),
+    ]);
+    expect(findTargets(document, { by: "id", value: "input" })).toHaveLength(2);
+
+    // A component's fields belong to the form that holds it, in the page's order: its
+    // shadow tree right where the component sits.
+    page(`<form id="f"><x-login id="host"></x-login><button id="go">Sign in</button></form>`);
+    shadow(
+      "#host",
+      `<label>User ID <input id="uid"></label><label>Password <input id="pw" type="password"></label>`,
+    );
+    expect(summary(observe())).toEqual([
+      { role: "text", target: { by: "id", value: "uid" }, label: "User ID", group: "f1" },
+      { role: "password", target: { by: "id", value: "pw" }, label: "Password", group: "f1" },
+      { role: "button", target: { by: "id", value: "go" }, label: "Sign in", group: "f1" },
+    ]);
+
+    // A button's text rendered by a component inside it names the button.
+    page(
+      `<input id="u"><input id="p" type="password"><button><x-label id="next"></x-label></button>`,
+    );
+    shadow("#next", `<span>Next</span>`);
+    expect(summary(observe()).map(({ target }) => target)).toEqual([
+      { by: "id", value: "u" },
+      { by: "id", value: "p" },
+      { by: "text", value: "Next" },
+    ]);
+
+    // A consent banner's check box in a shadow root outside every form changes nothing.
     page(`<form id="f"><input id="u"><button id="go">Go</button></form><div id="host"></div>`);
-    document.querySelector("#host")!.attachShadow({
-      mode: "open",
-    }).innerHTML = `<label>Analytics <input type="checkbox"></label>`;
+    shadow("#host", `<label>Analytics <input type="checkbox"></label>`);
     expect(observe().complete).toBe(true);
+    // Without a form, the sign-in fields' area reaches up through their components' hosts:
+    // a language picker far from it is not the sign-in's, one beside the fields is.
+    const nested = (depth: number, html: string) =>
+      "<div>".repeat(depth) + html + "</div>".repeat(depth);
+    for (const [beside, complete] of [
+      ["", true],
+      [`<select id="near"><option>EN</option></select>`, false],
+    ] as const) {
+      page(
+        nested(
+          5,
+          `<section><x-field id="host"></x-field><button id="go">Log In</button>${beside}</section>`,
+        ) + nested(6, `<select id="lang"><option>EN</option></select>`),
+      );
+      shadow("#host", `<input name="username"><input name="password" type="password">`);
+      expect(observe().complete, beside).toBe(complete);
+    }
+  });
+
+  it("names a shadow tree's field inside its host when nothing names it in the whole page (ADR 0070)", () => {
+    // Each component reuses its inner ID and has no name, token or label of its own.
+    page(
+      `<text-field id="user"></text-field><text-field id="pass"></text-field>
+      <button id="login">Log In</button>`,
+    );
+    shadow("#user", `<input id="input">`);
+    shadow("#pass", `<x-box><input id="input" type="password"></x-box>`, "closed");
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ target }) => target)).toEqual([
+      { by: "id", value: "input", within: [{ by: "id", value: "user" }] },
+      { by: "id", value: "input", within: [{ by: "id", value: "pass" }] },
+      { by: "id", value: "login" },
+    ]);
+    // The executor finds each one alone.
+    for (const { target } of observation.candidates)
+      expect(findTargets(document, target), JSON.stringify(target)).toHaveLength(1);
+
+    // A nested component without an ID of its own is looked inside through the nearest
+    // host that has one, the hosts nearest the field first.
+    page(
+      `<login-box id="box"></login-box><login-box id="other"></login-box><button id="go">Go</button>`,
+    );
+    for (const id of ["box", "other"])
+      shadow(`#${id}`, `<text-field></text-field>`)
+        .querySelector("text-field")!
+        .attachShadow({ mode: "open" }).innerHTML =
+        id === "box" ? `<input id="input" type="password">` : `<input id="input">`;
+    expect(summary(observe()).map(({ target }) => target)).toEqual([
+      { by: "id", value: "input", within: [{ by: "id", value: "box" }] },
+      { by: "id", value: "input", within: [{ by: "id", value: "other" }] },
+      { by: "id", value: "go" },
+    ]);
+
+    // Hosts that share their ID name no field.
+    page(
+      `<text-field id="f"></text-field><text-field id="f"></text-field><button id="go">Go</button>`,
+    );
+    for (const host of document.querySelectorAll("text-field"))
+      host.attachShadow({ mode: "open" }).innerHTML = `<input id="input" type="password">`;
+    expect(extractLoginObservation()).toMatchObject({
+      ok: true,
+      observation: { complete: false },
+      gap: "unlocated-field",
+    });
   });
 
   it("sends each path segment that may carry a session ID or token as [id] on every page (ADR 0039)", () => {
@@ -2238,11 +2454,51 @@ describe("extractSignedInObservation", () => {
       title: "Accounts",
       headings: ["Welcome back"],
     });
+    // A select is described by its label and place, never its options (ADR 0061, owner
+    // 2026-10-23 12:26 UTC); the text before it labels it, as for an input.
     expect(summary(observation)).toEqual([
       { role: "link", target: { by: "id", value: "home" }, label: "Home" },
       { role: "link", target: { by: "id", value: "account" }, label: "Account [number]-[number]" },
       { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
+      { role: "select", target: { by: "id", value: "lang" }, label: "Welcome back" },
     ]);
+    expect(JSON.stringify(observation)).not.toContain("English");
+  });
+
+  it("describes a page's selects by their labels, for a split birth date (ADR 0061)", () => {
+    page(
+      `<form><p>Confirm your date of birth</p>
+        <label for="by">Year of birth</label>
+        <select id="by" name="by"><option value="">--</option><option>1990</option></select>
+        <label>Month <select name="bm"><option>4</option></select></label>
+        <label>Day <select name="bd"><option>5</option></select></label>
+        <select name="off" disabled><option>1</option></select>
+        <select name="many" multiple><option>1</option></select>
+        <select name="gone" hidden><option>1</option></select>
+        <button id="confirm" type="button">Confirm</button></form>`,
+    );
+    const observation = signedIn();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      { role: "select", target: { by: "id", value: "by" }, label: "Year of birth", group: "f1" },
+      { role: "select", target: { by: "name", value: "bm" }, label: "Month", group: "f1" },
+      { role: "select", target: { by: "name", value: "bd" }, label: "Day", group: "f1" },
+      { role: "button", target: { by: "id", value: "confirm" }, label: "Confirm", group: "f1" },
+    ]);
+    // An option's text never reaches the description.
+    expect(JSON.stringify(observation)).not.toContain("1990");
+    // At most twelve selects, so the markers keep their room.
+    page(
+      `${Array.from({ length: 14 }, (_, at) => `<select name="s${at}"><option>1</option></select>`).join("")}
+      <button id="logout" type="button">Sign out</button>`,
+    );
+    const many = summary(signedIn());
+    expect(many.filter((entry) => entry.role === "select")).toHaveLength(12);
+    expect(many.at(-1)).toEqual({
+      role: "button",
+      target: { by: "id", value: "logout" },
+      label: "Sign out",
+    });
   });
 
   it("never names a marker by an ID that another load may change", () => {
@@ -3648,9 +3904,14 @@ describe("extractSignedInObservation", () => {
       `<button id="logout">Sign out</button>${Array.from({ length: 49 }, (_, index) => `<input id="f${index}">`).join("")}`,
     );
     expect(gap()).toEqual([false, "too-many-fields"]);
+    // A shadow root's fields are the page's own (ADR 0070): a search box is left out, a
+    // password field without a locator is not.
     page(`<button id="logout">Sign out</button><div id="host"></div>`);
-    document.getElementById("host")!.attachShadow({ mode: "open" }).innerHTML = "<input>";
-    expect(gap()).toEqual([false, "shadow-field"]);
+    shadow("#host", "<input>");
+    expect(gap()).toEqual([true, undefined]);
+    page(`<button id="logout">Sign out</button><div id="host"></div>`);
+    shadow("#host", `<input type="password">`, "closed");
+    expect(gap()).toEqual([false, "unlocated-field"]);
     page(`<button id="logout">Sign out</button><input id="q">`);
     expect(gap()).toEqual([true, undefined]);
   });
@@ -4204,36 +4465,31 @@ describe("extractAccountListObservation", () => {
   });
 
   it("names the first cause of an incomplete list, without page text (ADR 0019)", () => {
-    const gap = (html: string, shadow?: string) => {
+    const gap = (html: string) => {
       page(html);
-      if (shadow !== undefined)
-        document.querySelector("#host")!.attachShadow({ mode: "open" }).innerHTML = shadow;
       const result = extractAccountListObservation();
       if (!result.ok) throw new Error(`no observation: ${result.reason}`);
       return [result.observation.complete, result.gap];
     };
     const continueButton = `<button>Continue</button>`;
     expect(gap(`<button>a@example.com</button>${continueButton}`)).toEqual([true, undefined]);
-    for (const [html, shadow, expected] of [
-      [
-        `<button>a@example.com</button>${continueButton}<div id="host"></div>`,
-        `<input type="password">`,
-        "shadow-field",
-      ],
+    for (const [html, expected] of [
       [
         `${Array.from({ length: 9 }, (_, at) => `<button>a${at}@example.com</button>`).join("")}${continueButton}`,
-        undefined,
         "too-many-accounts",
       ],
       // An address that survives redaction is never sent, so its account is left out.
-      [`<button>a@example.com @home</button>${continueButton}`, undefined, "unlisted-accounts"],
+      [`<button>a@example.com @home</button>${continueButton}`, "unlisted-accounts"],
       [
         `<button>a@example.com</button>${continueButton}<div>${"<i></i>".repeat(4001)}</div>`,
-        undefined,
         "too-many-elements",
       ],
     ] as const)
-      expect(gap(html, shadow), html).toEqual([false, expected]);
+      expect(gap(html), html).toEqual([false, expected]);
+    // A field in a shadow root is the page's own (ADR 0070): a page showing one is no list.
+    page(`<button>a@example.com</button>${continueButton}<div id="host"></div>`);
+    shadow("#host", `<input type="password">`);
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
 });
 

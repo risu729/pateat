@@ -51,11 +51,12 @@ by the real-Chrome checks, not by CI. `CI Check` requires `Changes` and `Verify`
 succeed and `Browser` to be `success`, or `skipped` exactly when `Changes` reported a
 documentation-only PR; it runs even when an upstream job failed. A `Changes` job (no
 checkout, on `ubuntu-slim`) decides whether a PR needs the browser tests: a PR whose
-changed files are all under `docs/` or are `AGENTS.md`, `README.md` or `README.ja.md`
-skips the `Browser` job, runs only `Verify` (which still checks the documentation) and
-passes `CI Check` with the shards skipped; any other change, every main push and every
-manual run runs them. The owner chose
-[dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
+changed files are all under `docs/` or `apps/docs/` (the
+[docs website](development.md#docs-website)) or are `AGENTS.md`, `README.md` or
+`README.ja.md` skips the `Browser` job, runs only `Verify` (which still checks the
+documentation and builds the docs website) and passes `CI Check` with the shards
+skipped; any other change, every main push and every manual run runs them. The owner
+chose [dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
 2026-10-12 because on a `pull_request` event it reads the changed files through the API,
 so the job needs no checkout and only `pull-requests: read`; workflow-level `paths`
 filters are not used because a skipped workflow reports no `CI Check`. If the `Changes`
@@ -287,6 +288,39 @@ by unsigned commits (owner, 2026-10-19 01:01 UTC: "i allow bypass merging for PR
 unsigned commits"). Implementation is not deferred to later or follow-up work unless it
 is very large (owner, 2026-10-19 21:00 UTC:
 「実装を後回しにするのは基本的によほど大きくない限りやめて」).
+
+### Issue labels
+
+Every issue gets one `type:` label and, where it applies, one `area:` label. Labels were
+set up on the owner's request (2026-10-23 21:34 UTC), replacing GitHub's defaults.
+
+| Label | Use |
+| --- | --- |
+| `type: bug` | Pateat does something wrong, or nothing where it should act |
+| `type: feature` | New behaviour or a change to how Pateat works |
+| `type: refactor` | Code change with no change in behaviour |
+| `type: docs` | Documentation only |
+| `type: task` | Maintenance or tracking work that is none of the above |
+| `area: extension` | `apps/extension` and `packages/bitwarden`: content scripts, worker, popup, options |
+| `area: service` | `services/api` and `packages/inference`: API, `/manage`, recipe generation |
+| `area: ci` | GitHub Actions, build and release |
+| `security` | Affects how credentials or vault data are protected |
+| `accessibility` | Barrier affecting people with disabilities |
+| `status: needs real chrome` | Waiting for a check in the owner's real Chrome |
+| `status: needs log` | Waiting for the diagnostics log of the failed attempt |
+| `status: needs decision` | Waiting for the owner's decision |
+| `resolution: not reproducible` | Closed: a check on a later build did not show the problem |
+| `resolution: duplicate` | Closed: the same problem is tracked in another issue |
+| `resolution: by design` | Closed: the behaviour is intended |
+| `resolution: won't fix` | Closed: the owner decided not to change it |
+
+An issue in `packages/contracts` gets the area of the side it breaks, or both.
+Remove a `status:` label once its wait ends. Close an issue as not reproducible only
+after a recorded check failed to show the problem: add `resolution: not reproducible`,
+close it as "not planned", and comment with the build (commit link), where it was
+checked (real Chrome or cloud Chromium) and what was seen. An issue that only waits for
+a log keeps `status: needs log` and stays open. `dependencies` and the package-manager
+labels (`bun`, `mise`, `github-actions`, ...) are added by Renovate.
 
 ## Complete-service CI requirements
 

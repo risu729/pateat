@@ -1,0 +1,143 @@
+# ADR 0070: Shadow roots are read as part of the page
+
+Status: accepted by the owner on 2026-10-23 at 22:04 UTC, who chose to merge it once CI
+passed. Built ahead of the decision under the owner's instruction of 2026-10-23 05:28
+UTC to set the phases aside and build on best guesses. Earlier the same day the owner
+chose to go on with it (about 11:15 UTC), to give a component's control the form that
+holds the component and to read another extension's shadow roots as Bitwarden does, at
+11:53 UTC to add a locator that names the hosts a field sits inside, and at 12:14 UTC to
+use it only when no other locator names the field. Checked on Rakuten's real sign-in
+from a cloud browser (complete, 2026-10-23 about 21:55 UTC); Reddit blocks cloud
+browsers and is not yet checked on the real page. Amends the observation contract in
+[the plan](../plan.md) and, for the passkey page,
+[ADR 0053](0053-passkey-only-generation.md).
+
+Date: 2026-10-23
+
+## Context
+
+The content script read only the document's own tree. A fillable field in any shadow
+root marked a login page incomplete (`shadow-field`), as did another control in a shadow
+root inside a login form (`shadow-control`), so inference never received such a page,
+and the executor's locators could not find an element inside one anyway.
+
+- Reddit's sign-in (`https://www.reddit.com/login/`, 2026-10-23 about 06:00 UTC, cloud
+  Chromium, build `381116f`): its username, password and two one-time-code inputs each
+  sit in the open shadow root of a `<faceplate-text-input>`, outside any `<form>` of the
+  document. The extractor found no field and refused the page (`no-candidates`), so it
+  was never generated.
+- Rakuten's sign-in (`login.account.rakuten.com/sso/authorize`) was logged
+  `incomplete-observation` with `shadow-control` by the real-page corpus.
+
+The official Bitwarden extension collects and fills fields in shadow roots, open and
+closed: its `DomQueryService`
+([dom-query.service.ts at `dd4d858`](https://github.com/bitwarden/clients/blob/dd4d85816be0bed40c92d0890d6e7f1a497a85e8/apps/browser/src/autofill/services/dom-query.service.ts))
+walks each element's `shadowRoot` and, for a custom element or an element `attachShadow`
+accepts (`SHADOW_ROOT_CANDIDATE_NODE_NAMES`), the closed root that
+`chrome.dom.openOrClosedShadowRoot` gives a content script.
+
+## Decision
+
+- Every read of the page by the content script includes every shadow root in it, open or
+  closed, nested ones too: the extractor's descriptions of every kind of page, the
+  locators' counts, the executor's lookups and its checks around a fill or a click, the
+  sign-in checks and the account-list and entry scans. A closed root is asked for only
+  on a custom element or an element `attachShadow` accepts, as Bitwarden does. A shadow
+  tree is read right after its host and before the host's own children, as Bitwarden's
+  tree walker visits it; a selector still matches within one tree.
+- An `id`, `name`, `data-testid`, `data-test`, `autocomplete` token, visible name or
+  text names an element when exactly one element of the whole page, shadow trees
+  included, carries it, as before; Reddit's fields are
+  `{ "by": "name", "value": "password" }`. Only an element of a shadow tree that no such
+  locator names gets one `within` its hosts (owner, 2026-10-23 11:53 and 12:14 UTC): an
+  `id`, `name`, `data-testid`, `data-test`, `autocomplete` or visible-name locator with
+  `within`, one to three hosts outermost first, each named by its `id`, `name`,
+  `data-testid` or `data-test`, as
+  `{ "by": "id", "value": "input", "within": [{ "by": "id", "value": "login-pw" }] }`
+  for an input whose ID every component reuses. The first host is the one element of the
+  page carrying its value, each later one the one element of the previous host's shadow
+  tree (nested trees included), and the field the one element of the last host's tree;
+  the extractor picks the fewest hosts, nearest the field first. A host's value follows
+  an element's own rules (no generated or changing ID, no token, no redacted text), the
+  username check, the passkey registration check and the account-text refusal read it as
+  well, and text, accessible-name and link-path locators take no hosts. An inner ID
+  another load may change is never looked for inside hosts; the element keeps it as the
+  last resort it was. The change only adds a field to the recipe format, so stored
+  recipes stay valid; the service, deployed from `main`, takes it before an extension
+  sends it, and an extension older than this change refuses a recipe that carries it, as
+  it refuses any recipe format it does not know.
+- A control in a shadow tree without a form owner of its own belongs to the `<form>`
+  that holds its component's host, for the observation's groups, the login forms, the
+  fill's one-form rule, the checks of a form's inputs, the form Enter submits (ADR 0064)
+  and the sign-in form a `password-form-name` locator looks in (ADR 0072). One with its
+  own form in the shadow tree belongs to that form.
+- Text is read as it renders: a host's shadow tree instead of its children, a slot's
+  assigned nodes instead of its fallback. An ID named by `aria-labelledby`,
+  `aria-describedby` or `aria-errormessage` resolves in the referring element's own
+  tree, as the browser resolves it. An ancestor that hides an element (`hidden`,
+  `inert`, `aria-hidden`), a landmark, a live region, a form or a link around it counts
+  across shadow boundaries, through each tree's host, and so do the page's focused
+  element and the page behind an open modal at the top of a shadow tree.
+- The page watch observes each shadow root it finds whenever it checks the page, and the
+  submit listener listens on each, as neither a document's observer nor a `submit` event
+  crosses into or out of a shadow tree. Attaching a shadow root is no change an observer
+  reports, so a sign-in input in a root attached with no other change is found at the
+  latest when the page's offer is decided (once its DOM is quiet, ADR 0057), which then
+  checks the page first. While custom elements of the page are not yet defined, the
+  watch counts them every half second and checks the page when the count changes, as an
+  element defined late may attach its root then; it stops once the count stays the same
+  for ten seconds and starts again only for another count, so elements a page never
+  defines cost nothing after that.
+- Form destinations (ADR 0051): a field or submit control in a component's shadow tree
+  is checked against its own form and every form that holds the component, as the
+  component may submit its value with any of them. Each form's destination is checked on
+  its own, so one the background allows by the vault item hides no other; a `formaction`
+  counts only on the form's own controls.
+- The log codes `shadow-field` and `shadow-control` are removed: a shadow tree's control
+  now makes a page incomplete only for a reason that a control of the document would.
+
+## Consequences
+
+- A synthetic page built like Reddit's (inputs in shadow roots outside any form, each
+  root reusing the inner ID `input` and labelling by it) is described with
+  `{ by: "name", value: "username" }` and `{ by: "name", value: "password" }` and the
+  labels read from the shadow trees, complete. The packaged-extension test's
+  `?button=shadow` sign-in, with the password input in an open shadow root and the login
+  button in a closed one, is generated, filled and judged signed in by the synthetic
+  service in cloud Chromium. Rakuten's real sign-in
+  (`login.account.rakuten.com/sso/authorize`), observed from a cloud browser on
+  2026-10-23, is complete with `{ by: "id", value: "user_id" }` and its button
+  `cta001`; Reddit's blocks cloud browsers and has not been checked on the real site.
+- A query reads every shadow tree, and asking an element for a closed root costs more
+  than reading `shadowRoot`. One read of the page (an extraction, the page watch's
+  check, the offer's decision, or the executor's observation of its targets) asks each
+  element for its closed root once and looks each tree's hosts up once; a query under
+  one element outside such a read asks only that element's own.
+- Sites whose sign-in widgets are web components (Lit, Stencil, Salesforce Lightning and
+  the like) can be generated and filled. A cookie banner's or chat widget's controls in
+  a shadow root are now ordinary controls of the page: beside a login form they are left
+  out as any other form's controls are, but on a page whose login has no form they join
+  its fields, as such controls of the document's own tree already did: a banner's select
+  away from the fields is left out (#878), and so is its check box with no locator
+  unless it is required (#892); a required one makes that page incomplete
+  (`unlocated-checkbox`).
+- Another extension's UI in a closed shadow root on the page (a password manager's or a
+  translator's) is read as well, as Bitwarden reads it; its fields outside the login
+  form are left out as above. No element records which extension made it, and skipping a
+  root that loads a `chrome-extension://` URL would also skip a site's own field that a
+  password manager decorated with its icon, so no root is skipped (owner, 2026-10-23).
+- A page's software keyboard (ADR 0067) is still looked for in the document's own tree
+  only, as its locator by position walks the document's elements; a keypad drawn in a
+  shadow tree is not found, and its field is described as any read-only field is. No
+  such page has been seen.
+- Frames stay separate documents, each with its own content script, as before.
+
+## Alternatives
+
+- Keep the gaps: Reddit and Rakuten are never generated, while Bitwarden fills both.
+- Open shadow roots only: simpler, but a closed root's fields, which Bitwarden fills,
+  stay invisible and its controls cannot be told from the page's own.
+- No locator with hosts (Bitwarden needs none, and Reddit's fields have unique names):
+  the owner chose to add one for fields that no other locator names.
+- Hosts on every shadow tree's element: a recipe would break whenever a site rebuilt
+  its components, and Reddit's recipes would change for nothing.

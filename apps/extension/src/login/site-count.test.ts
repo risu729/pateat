@@ -23,26 +23,57 @@ const connectionId = "live";
 const snapshotId = "snapshot-1";
 const run: CountStep = async (job) => ({ value: await job() });
 
+const account = { provider: "bitwarden", server: "cloud-us", userId: "user" } as const;
+/**
+ * The live connection's synced policy (ADR 0023): whether its account is used, its
+ * excluded items and built-in fields, and the items whose custom fields wait for review
+ * (a review record whose evidence the item does not have).
+ */
 function settings(
-  change: Partial<SettingsSnapshot["settings"]["connections"][number]> = {},
+  change: {
+    enabled?: boolean;
+    excludedItemIds?: string[];
+    excludedFields?: { itemId: string; fieldId: string }[];
+    review?: string[];
+  } = {},
   more: Partial<SettingsSnapshot["settings"]> = {},
   revision = 1,
 ): SettingsSnapshot {
+  const itemIds = new Set([
+    ...(change.excludedItemIds ?? []),
+    ...(change.excludedFields ?? []).map((entry) => entry.itemId),
+  ]);
   return {
     version: 1,
     revision,
     settings: {
-      connections: [
+      connections: [],
+      accountPolicies: [
         {
-          connectionId,
-          enabled: true,
-          selection: { mode: "all", groupIds: [], itemIds: [] },
-          excludedItemIds: [],
-          excludedFields: [],
-          ...change,
+          ...account,
+          accountName: "Live",
+          enabled: change.enabled ?? true,
+          selection: { mode: "all" },
         },
       ],
+      itemPolicies: [...itemIds].map((itemId) => ({
+        ...account,
+        itemId,
+        itemName: itemId,
+        selected: false,
+        excluded: change.excludedItemIds?.includes(itemId) ?? false,
+        excludedFields: (change.excludedFields ?? [])
+          .filter((entry) => entry.itemId === itemId)
+          .map((entry) => entry.fieldId),
+      })),
+      customFieldReviews: (change.review ?? []).map((itemId) => ({
+        ...account,
+        itemId,
+        evidence: `bitwarden-v1:sha256:${"0".repeat(64)}`,
+        revisionDate: "2026-10-11T07:10:03Z",
+      })),
       excludedSites: [],
+      passkeyBrowserSites: [],
       repromptSites: [],
       siteDefaults: [],
       bindings: [],
@@ -81,6 +112,8 @@ function live(vault: Vault = {}): Extract<CountSource, { snapshotId: string }> &
   return {
     connectionId,
     snapshotId,
+    server: "cloud-us",
+    evidence: new Map(),
     open: {
       catalog: vi.fn(async () => vault.catalog ?? { ok: true as const, data: metadata(items) }),
       matchUris: vi.fn(async (url: string): Promise<VaultResult<UriCandidates>> => ({
@@ -116,6 +149,8 @@ function live(vault: Vault = {}): Extract<CountSource, { snapshotId: string }> &
     },
   };
 }
+/** An enabled connection the worker has not opened. */
+const closed: CountSource = { connectionId, snapshotId, server: "cloud-us", evidence: new Map() };
 const scope = (
   sources: CountSource[],
   snapshot = settings(),
@@ -166,12 +201,7 @@ describe("countSite", () => {
       count: { usable: 1, matching: 2, unevaluated: 0, excluded: "items" },
     });
     // A quarantined item is named as waiting for its review.
-    const review = {
-      ...settings(),
-      fieldPolicies: [
-        { connectionId, snapshotId, quarantinedItemIds: ["b"], protectedItemIds: [] },
-      ],
-    };
+    const review = settings({ review: ["b"] });
     expect(await countSite(origin, scope([source], review), run)).toEqual({
       kind: "count",
       count: { usable: 1, matching: 2, unevaluated: 0, excluded: "review" },
@@ -187,24 +217,8 @@ describe("countSite", () => {
         excludedFields: [{ itemId: "b", fieldId: "login.password" }],
       }),
     ],
-    [
-      "review",
-      {
-        ...settings(),
-        fieldPolicies: [
-          { connectionId, snapshotId, quarantinedItemIds: ["a", "b"], protectedItemIds: [] },
-        ],
-      },
-    ],
-    [
-      "items-review",
-      {
-        ...settings({ excludedItemIds: ["b"] }),
-        fieldPolicies: [
-          { connectionId, snapshotId, quarantinedItemIds: ["a"], protectedItemIds: [] },
-        ],
-      },
-    ],
+    ["review", settings({ review: ["a", "b"] })],
+    ["items-review", settings({ excludedItemIds: ["b"], review: ["a"] })],
     [
       "site",
       settings({}, { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] }),
@@ -263,12 +277,7 @@ describe("countSite", () => {
       count: { usable: 0, matching: 0, unevaluated: 1 },
     });
     // A quarantined item is never noted.
-    const review = {
-      ...settings(),
-      fieldPolicies: [
-        { connectionId, snapshotId, quarantinedItemIds: ["a"], protectedItemIds: [] },
-      ],
-    };
+    const review = settings({ review: ["a"] });
     const quarantined = live({ items: [{ id: "a" }], unknown: ["a"] });
     expect(await countSite(origin, scope([quarantined], review), run)).toEqual({
       kind: "count",
@@ -280,7 +289,9 @@ describe("countSite", () => {
     const fixed: VaultCatalog["connections"][number] = {
       id: connectionId,
       label: "Demo",
-      provider: "dummy",
+      provider: "bitwarden",
+      server: "cloud-us",
+      userId: "user",
       groups: [],
       items: [
         {
@@ -306,7 +317,7 @@ describe("countSite", () => {
   });
 
   it("does not count a vault the worker has not opened", async () => {
-    expect(await countSite(origin, scope([{ connectionId, snapshotId }]), run)).toEqual({
+    expect(await countSite(origin, scope([closed]), run)).toEqual({
       kind: "unchecked",
       reason: "not-opened",
     });
@@ -357,14 +368,21 @@ describe("createCountScope", () => {
       setHandle: (next?: { snapshotId: string }) => (current = next),
       deps: {
         settings: { read: async () => snapshot },
-        registry: { list: async () => [{ profile: { connectionId } }] },
+        registry: {
+          list: async () => [
+            { profile: { connectionId, environment: { kind: "cloud", region: "us" } } },
+          ],
+        },
         vaultFor: () => ({ store: { read: async () => record }, manager }),
       } as never,
     };
   }
   /** The popup's and the logins' matchers; these answer as if the vault closed meanwhile. */
   const match = { uris: vi.fn(async () => undefined), passkeys: vi.fn(async () => undefined) };
-  const active = { ok: true as const, data: { state: "active", accepted: { snapshotId } } };
+  const active = {
+    ok: true as const,
+    data: { state: "active", accepted: { snapshotId, userId: "user", prepared: { ciphers: [] } } },
+  };
 
   it.each([
     ["unreadable", { ok: false } as Record, undefined],
@@ -377,10 +395,36 @@ describe("createCountScope", () => {
     expect(manager.catalog).not.toHaveBeenCalled();
   });
 
+  it("counts nothing before this device's first settings sync (ADR 0023)", async () => {
+    const { deps, manager } = connections(active, { snapshotId });
+    const pending = { ...(deps as object), settingsSyncPending: async () => true } as never;
+    expect(await createCountScope(pending, match)()).toEqual({ unchecked: "settings-sync" });
+    const synced = { ...(deps as object), settingsSyncPending: async () => false } as never;
+    expect(await createCountScope(synced, match)()).toHaveProperty("key");
+    expect(manager.catalog).not.toHaveBeenCalled();
+  });
+
+  it("answers account-ambiguous when saved settings name this account on another server", async () => {
+    const elsewhere = { ...account, server: "cloud-eu" as const };
+    const snapshot = settings(
+      {},
+      {
+        accountPolicies: [
+          { ...elsewhere, accountName: "Live", enabled: true, selection: { mode: "all" } },
+        ],
+      },
+    );
+    const { deps, manager } = connections(active, { snapshotId }, snapshot);
+    expect(await createCountScope(deps, match)()).toEqual({ unchecked: "account-ambiguous" });
+    expect(manager.catalog).not.toHaveBeenCalled();
+  });
+
   it("keys the scope by the settings revision and each accepted snapshot", async () => {
-    const closed = await createCountScope(connections(active).deps, match)();
-    expect(closed).toMatchObject({ key: JSON.stringify([1, [[connectionId, snapshotId]]]) });
-    expect(closed).not.toHaveProperty(["sources", 0, "open"]);
+    const unopened = await createCountScope(connections(active).deps, match)();
+    expect(unopened).toMatchObject({
+      key: JSON.stringify([1, [[connectionId, snapshotId]]]),
+    });
+    expect(unopened).not.toHaveProperty(["sources", 0, "open"]);
     const open = await createCountScope(connections(active, { snapshotId }).deps, match)();
     expect(open).toMatchObject({ key: JSON.stringify([1, [[connectionId, snapshotId]]]) });
     expect(open).toHaveProperty(["sources", 0, "open"]);
@@ -466,8 +510,7 @@ describe("createSiteCounter", () => {
       }),
     };
     let snapshot = settings();
-    let source: CountSource =
-      options.open === false ? { connectionId, snapshotId } : live({ uris: ["a"] });
+    let source: CountSource = options.open === false ? closed : live({ uris: ["a"] });
     let unchecked: "locked" | "updating" | undefined;
     const shown = new Map<number, SiteCountState | undefined>();
     const history: [number, SiteCountState | undefined][] = [];

@@ -14,10 +14,15 @@ Date: 2026-10-23
 owner parts and described profiles as later work. This change builds them for the parts
 that exist today: `excludedSites` and `siteDefaults` are per profile, and `bindings`
 stay the owner's. `repromptSites` (the sites that ask for the master password, ADR 0021)
-joined the profile parts on 2026-10-23. ADR 0023's lists and ADR 0035's page permissions
-are not built yet; when they land, they add their fields to the profile document
-(`profileDocument` in `services/api/src/settings-store.ts`) and to the extension's
-merge.
+joined the profile parts on 2026-10-23, and so did `passkeyBrowserSites` (the sites
+whose passkey requests go to the browser, ADR 0007) and ADR 0023's lists
+(`accountPolicies`, `itemPolicies` and `customFieldReviews`), as did the popup's
+`popupPageSection` choice
+([ADR 0038](0038-login-status-badge.md#amendment-a-synced-setting-hides-the-popups-section-2026-10-23)),
+stored only while `false`. ADR 0035's page
+permissions are not built yet; when they land, they add their fields to the profile
+document (`profileDocument` in `services/api/src/settings-store.ts`) and to the
+extension's merge.
 
 ## Decision
 
@@ -30,7 +35,7 @@ merge.
   saves a site default and a binding together, and a device moved to another profile
   must not have an in-flight write land in the old one, so moving a device also
   advances the revision.
-- Migration `0029_settings_profiles` deletes every `settings` row instead of converting
+- Migration `0031_settings_profiles` deletes every `settings` row instead of converting
   it (owner, Q8): the product has no release to keep. Each owner gets a profile named
   "Default" whose ID is the owner's ID, and every device uses it. The first device to
   sync uploads its settings again.
@@ -63,13 +68,15 @@ merge.
   profile follows another's later changes, stays out.
 - Deleting is refused while any device that is not revoked uses the profile, and the
   refusal names those devices (owner, Q5); the owner's last profile cannot be deleted
-  (implementation). A deleted profile is kept with `deleted_at` so revoked devices still
-  name a row (implementation).
+  (implementation). Deleting removes the profile's document, so its exclusions, allowed
+  sites, master-password sites, passkey sites and saved accounts leave the service; only
+  the row stays, with its name and `deleted_at`, so revoked devices still name it
+  (implementation).
 - Names follow device labels' rules and are unique per owner, ignoring case
   (implementation).
 - The devices page moves a device to another profile; the Sites pages edit one profile
-  at a time and show which only when there are several, remembering the choice for the
-  browser tab (implementation).
+  at a time, and the read-only Vaults page lists one, showing which only when there are
+  several and remembering the choice for the browser tab (implementation).
 
 ### Editing another profile from the extension
 
@@ -79,6 +86,8 @@ merge.
   pairing allowlist names (owner, root A on 2026-10-19). The "pateat pair" application
   of [ADR 0030](0030-pairing-without-warp.md) is not accepted there, so a browser
   without WARP can pair but cannot edit other profiles. ADR 0030 is unchanged.
+- The editor changes a profile's exclusions and saved accounts; a save keeps the
+  profile's vault policy (ADR 0023) as it was (implementation).
 - When the sign-in is missing or expired, the editor shows **Open sign-in page**, which
   opens `/extension/signed-in` behind the same application.
 - A device credential never selects or edits another profile.

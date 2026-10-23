@@ -1154,6 +1154,71 @@ describe("submission and failure reconciliation", () => {
     expect(mismatch).toMatchObject({ state: "blocked", outcome: "value-mismatch", submissions: 0 });
     expect(mismatch.mutationIntent).toBeUndefined();
     expect(transitionLoginAttempt(mismatch, { type: "RETRY" })).toEqual(mismatch);
+    // A split detail value that fits none of its inputs, such as a select with no option
+    // for its part, leaves the page to the person (ADR 0061, owner 2026-10-23 12:26 UTC).
+    const unfit = transitionLoginAttempt(intent, {
+      type: "VALUE_REJECTED",
+      operationId: "fill-one",
+      document,
+      stage: "before-fill",
+      challenge: true,
+    });
+    // A frame's login ends there.
+    expect(unfit).toMatchObject({ state: "blocked", outcome: "challenge", submissions: 0 });
+    expect(unfit.mutationIntent).toBeUndefined();
+    expect(unfit).not.toHaveProperty("watch");
+    // A top-level password login is watched for the person's finish, as after a judged
+    // challenge (ADR 0027).
+    const topDocument = { ...document, frameId: 0 };
+    let topIntent = transitionLoginAttempt(
+      { ...detected(), document: topDocument },
+      { type: "RESOLVE" },
+    );
+    topIntent = transitionLoginAttempt(topIntent, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    topIntent = transitionLoginAttempt(topIntent, {
+      type: "MUTATION_INTENT",
+      operationId: "fill-one",
+    });
+    const watched = transitionLoginAttempt(
+      topIntent,
+      {
+        type: "VALUE_REJECTED",
+        operationId: "fill-one",
+        document: topDocument,
+        stage: "before-fill",
+        challenge: true,
+      },
+      4000,
+    );
+    expect(watched).toMatchObject({
+      state: "watching",
+      outcome: "challenge",
+      submissions: 0,
+      watch: { since: 4000, documentId: "document-one" },
+    });
+    expect(watched.mutationIntent).toBeUndefined();
+    // A value that does not fit is no challenge, and is not watched.
+    expect(
+      transitionLoginAttempt(topIntent, {
+        type: "VALUE_REJECTED",
+        operationId: "fill-one",
+        document: topDocument,
+        stage: "before-fill",
+      }),
+    ).toMatchObject({ state: "blocked", outcome: "value-mismatch" });
+    expect(
+      transitionLoginAttempt(intent, {
+        type: "VALUE_REJECTED",
+        operationId: "fill-one",
+        document,
+        stage: "after-fill",
+        challenge: true,
+      }),
+    ).toEqual(intent);
     const rejected = transitionLoginAttempt(intent, {
       type: "VALUE_REJECTED",
       operationId: "fill-one",

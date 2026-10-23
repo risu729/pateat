@@ -420,13 +420,16 @@ export const loginAttemptEventSchema = v.variant("type", [
    * a preparing fill, `code-refused` when the page kept a character of a TOTP code typed as
    * its own submission out of an input it still shows (ADR 0027 amendment of 2026-10-23),
    * so it never had the whole code. It ends the attempt without a retry, since the same
-   * values would be rejected again.
+   * values would be rejected again. `challenge` marks a `detail` handler's value split over
+   * several inputs that fits none of them, as when no option of a select matches its part
+   * (ADR 0061): nothing was filled and the page is left to the person as a challenge.
    */
   v.strictObject({
     type: v.literal("VALUE_REJECTED"),
     operationId: identifier,
     document: loginDocumentSchema,
     stage: v.picklist(["before-fill", "after-fill", "code-refused"]),
+    challenge: v.optional(v.literal(true)),
   }),
   /**
    * The attempt takes over a newer revision of its recipe that only adds handlers or
@@ -774,7 +777,7 @@ function record(
     case "VALUE_REJECTED":
       if (event.stage !== "before-fill") return { outcome: "fill-rejected" };
       return {
-        outcome: "value-mismatch",
+        outcome: event.challenge ? "challenge" : "value-mismatch",
         // As with a wrong account, the reserved fill effect never started.
         submissions:
           context.mutationIntent === true && (context.operationEffect ?? "prepare") !== "prepare"
@@ -964,6 +967,29 @@ function record(
   }
 }
 
+/** A fill's values the page would not accept, for this fill (ADR 0010). */
+const valueRejected = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
+  event.type === "VALUE_REJECTED" &&
+  operationMatches(context, event) &&
+  context.operationKind === "fill" &&
+  sameLoginDocument(context.document, event.document) &&
+  // Only a preparing fill is checked after filling; an effectful one has submitted,
+  // unless it is a code the page kept a character of out.
+  (event.stage === "before-fill" ||
+    (event.stage === "after-fill"
+      ? context.operationEffect === "prepare"
+      : context.operationEffect === "submit")) &&
+  !(event.challenge === true && event.stage !== "before-fill");
+/**
+ * A split `detail` value no input takes is left to the person as a challenge (ADR 0061);
+ * a top-level `password` login is then watched for their finish, as after a judged
+ * challenge (ADR 0027).
+ */
+const valueRejectedTransitions = [
+  { guard: "valueRejectedWatched", target: "watching", actions: "record" },
+  { guard: "valueRejected", target: "blocked", actions: "record" },
+] as const;
+
 const observedTransitions = [
   { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
   { guard: "observedWatched", target: "watching", actions: "record" },
@@ -1038,17 +1064,13 @@ function createLoginAttemptMachine() {
         operationMatches(context, event) &&
         context.operationKind === "fill" &&
         sameLoginDocument(context.document, event.document),
-      valueRejected: ({ context, event }) =>
+      valueRejected: ({ context, event }) => valueRejected(context, event),
+      valueRejectedWatched: ({ context, event }) =>
         event.type === "VALUE_REJECTED" &&
-        operationMatches(context, event) &&
-        context.operationKind === "fill" &&
-        sameLoginDocument(context.document, event.document) &&
-        // Only a preparing fill is checked after filling; an effectful one has submitted,
-        // unless it is a code the page kept a character of out.
-        (event.stage === "before-fill" ||
-          (event.stage === "after-fill"
-            ? context.operationEffect === "prepare"
-            : context.operationEffect === "submit")),
+        event.challenge === true &&
+        context.route === "password" &&
+        context.document.frameId === 0 &&
+        valueRejected(context, event),
       retryAvailable: ({ context, event }) =>
         context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
       failedPossibleMutation: ({ context, event }) =>
@@ -1379,7 +1401,7 @@ function createLoginAttemptMachine() {
             { target: "retryable", actions: "record" },
           ],
           WRONG_ACCOUNT: { guard: "wrongAccount", target: "blocked", actions: "record" },
-          VALUE_REJECTED: { guard: "valueRejected", target: "blocked", actions: "record" },
+          VALUE_REJECTED: valueRejectedTransitions,
           AUTO_SUBMITTED: { guard: "canAutoSubmit", target: "reconciling", actions: "record" },
         },
       },
@@ -1397,7 +1419,7 @@ function createLoginAttemptMachine() {
             { target: "reconciling", actions: "record" },
           ],
           WRONG_ACCOUNT: { guard: "wrongAccount", target: "blocked", actions: "record" },
-          VALUE_REJECTED: { guard: "valueRejected", target: "blocked", actions: "record" },
+          VALUE_REJECTED: valueRejectedTransitions,
         },
       },
       "awaiting-result": {

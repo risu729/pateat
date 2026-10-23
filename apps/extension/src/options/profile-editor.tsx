@@ -67,8 +67,12 @@ export function ProfileEditor({
     setCatalog(metadata.catalog);
     setDraft({
       ...(remote.settings ?? {
+        accountPolicies: [],
+        itemPolicies: [],
+        customFieldReviews: [],
         excludedSites: [],
         repromptSites: [],
+        passkeyBrowserSites: [],
         siteDefaults: [],
         bindings: [],
       }),

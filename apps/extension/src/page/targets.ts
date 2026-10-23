@@ -1,4 +1,4 @@
-import type { LoginMarkerTarget } from "@pateat/contracts";
+import type { LoginHostChain, LoginMarkerTarget } from "@pateat/contracts";
 import {
   buttonText,
   controlName,
@@ -10,6 +10,7 @@ import {
   isScriptLink,
   linkText,
 } from "./text";
+import { closestAcross, formOf, inputsOf, queryAll, shadowRootOf } from "./shadow";
 
 const attributes = {
   id: "id",
@@ -37,7 +38,7 @@ export function linkPath(element: Element): string | undefined {
 
 /** The `<a href>` links of `document` whose {@link linkPath} is `path`. */
 export function linksTo(document: Document, path: string): HTMLAnchorElement[] {
-  return [...document.querySelectorAll("a[href]")].filter(
+  return queryAll(document, "a[href]").filter(
     (link): link is HTMLAnchorElement => linkPath(link) === path,
   );
 }
@@ -98,8 +99,11 @@ const shownAmong = (found: Element[], hidden: boolean) =>
  * attribute or `autocomplete` locator names several elements, only the visible ones count,
  * unless `hidden` asks for every one (`shownAmong`, ADR 0037). A
  * signed-in marker's `href` locator matches the links whose {@link linkPath} equals the
- * value, whatever their query or fragment (ADR 0029). Callers reject anything but exactly
- * one match rather than taking the first.
+ * value, whatever their query or fragment (ADR 0029). Every locator looks in the
+ * document and in every shadow tree in it, open or closed, so an ID or name counts once
+ * for the whole page (ADR 0070); one with `within` looks only in the shadow tree of the
+ * hosts it names ({@link hostScopes}). Callers reject anything but exactly one match
+ * rather than taking the first.
  */
 export function findTargets(
   document: Document,
@@ -108,7 +112,7 @@ export function findTargets(
 ): Element[] {
   if (target.by === "href") return linksTo(document, target.value);
   if (target.by === "text") {
-    const elements = [...document.querySelectorAll("button, input, a")];
+    const elements = queryAll(document, "button, input, a");
     const named = elements.filter((element) => buttonText(element) === target.value);
     const linkMatches = () =>
       elements.filter((element) => !isScriptLink(element) && linkText(element) === target.value);
@@ -118,47 +122,87 @@ export function findTargets(
     if (hasNativeButton(document, target.value)) return links ? linkMatches() : [];
     if (named.length > 0) return named;
     if (links) return linkMatches();
-    return [...document.querySelectorAll("[role]")].filter(
+    return queryAll(document, "[role]").filter(
       (element) => isRoleButton(element) && buttonText(element) === target.value,
     );
   }
-  if (target.by === "label")
-    return [...document.querySelectorAll("input")].filter(
-      (input) => fieldName(input) === target.value,
-    );
   if (target.by === "password-form-name")
     return shownAmong(
-      [...document.querySelectorAll("[name]")].filter(
+      queryAll(document, "[name]").filter(
         (element) =>
-          element.getAttribute("name") === target.value && signInForm(formOf(element), hidden),
+          element.getAttribute("name") === target.value && signInForm(formAround(element), hidden),
       ),
       hidden,
     );
   if (target.by === "accessible-name")
-    return [...document.querySelectorAll(namedControls)].filter(
+    return queryAll(document, namedControls).filter(
       (element) => controlName(element) === target.value,
     );
+  if (!target.within) return findIn(document, target, hidden);
+  const { within } = target;
+  return shownAmong(
+    hostScopes(document, within).flatMap((scope) => findIn(scope, target, true)),
+    hidden,
+  );
+}
+
+/** A locator that may look inside the hosts its `within` names. */
+type ScopedTarget = Exclude<
+  LoginMarkerTarget,
+  { by: "href" | "text" | "accessible-name" | "password-form-name" }
+>;
+
+/**
+ * The shadow trees a locator's `within` names (ADR 0070): the shadow tree of each element
+ * whose attribute equals the first host's value among the page's elements, then of each
+ * that equals the next one's among those trees' elements, and so on. A host that names
+ * several elements gives each one's tree, so the locator counts its element in all of
+ * them and is ambiguous rather than taking the first.
+ */
+export function hostScopes(document: Document, within: LoginHostChain): ShadowRoot[] {
+  let scopes: (Document | ShadowRoot)[] = [document];
+  for (const host of within) {
+    const attribute = attributes[host.by];
+    scopes = scopes.flatMap((scope) =>
+      queryAll(scope, `[${attribute}]`).flatMap((element) =>
+        element.getAttribute(attribute) === host.value ? (shadowRootOf(element) ?? []) : [],
+      ),
+    );
+  }
+  return scopes as ShadowRoot[];
+}
+
+/** The elements an attribute, `autocomplete` or `label` locator names under `scope`. */
+function findIn(scope: Document | ShadowRoot, target: ScopedTarget, hidden: boolean): Element[] {
+  if (target.by === "label")
+    return queryAll(scope, "input").filter((input) => fieldName(input) === target.value);
   if (target.by === "autocomplete")
     return shownAmong(
-      [...document.querySelectorAll("input[autocomplete]")].filter((input) =>
+      queryAll(scope, "input[autocomplete]").filter((input) =>
         autocompleteTokens(input).includes(target.value),
       ),
       hidden,
     );
   const attribute = attributes[target.by];
   return shownAmong(
-    [...document.querySelectorAll(`[${attribute}]`)].filter(
+    queryAll(scope, `[${attribute}]`).filter(
       (element) => element.getAttribute(attribute) === target.value,
     ),
     hidden,
   );
 }
 
-/** An element's form owner, for a control, or its nearest `<form>` otherwise. */
-const formOf = (element: Element): HTMLFormElement | null =>
-  "form" in element && (element.form === null || element.form instanceof HTMLFormElement)
-    ? element.form
-    : element.closest("form");
+/**
+ * A control's form ({@link formOf}, across its hosts), or the nearest `<form>` around
+ * another element, shadow boundaries included.
+ */
+const formAround = (element: Element): HTMLFormElement | null =>
+  element instanceof HTMLInputElement ||
+  element instanceof HTMLButtonElement ||
+  element instanceof HTMLSelectElement ||
+  element instanceof HTMLTextAreaElement
+    ? formOf(element)
+    : (closestAcross(element, "form") as HTMLFormElement | null);
 
 /**
  * Whether `form` holds a shown password input not marked `new-password`, the form a
@@ -168,9 +212,8 @@ const formOf = (element: Element): HTMLFormElement | null =>
 function signInForm(form: HTMLFormElement | null, hidden: boolean): boolean {
   return (
     form !== null &&
-    [...form.elements].some(
+    inputsOf(form, form.ownerDocument).some(
       (element) =>
-        element instanceof HTMLInputElement &&
         element.type === "password" &&
         !autocompleteTokens(element).includes("new-password") &&
         (hidden || visible(element)),

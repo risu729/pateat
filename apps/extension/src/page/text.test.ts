@@ -5,6 +5,7 @@ import {
   controlName,
   isFragmentButton,
   isScriptButton,
+  readBehindModal,
   renderedText,
   shown,
 } from "./text";
@@ -34,6 +35,16 @@ describe("renderedText", () => {
     expect(read("<p>Customer</p><label>Number</label>")).toBe("Customer Number");
     expect(read("<span>Sign</span><b>in</b>")).toBe("Signin");
     expect(read("<span>Sign</span><b>in</b>", { everyElement: true })).toBe("Sign in");
+  });
+
+  it("reads a component's text as it renders: its shadow tree, with slotted nodes in place (ADR 0070)", () => {
+    document.body.innerHTML = `<div id="root"><x-card id="card"><a>in</a><i slot="end">now</i></x-card></div>`;
+    const card = document.getElementById("card")!;
+    const root = card.attachShadow({ mode: "closed" });
+    closedRoots.set(card, root);
+    root.innerHTML = `<b>Sign</b> <slot></slot> <slot name="end">fallback</slot> <slot name="none">here</slot>`;
+    const text = renderedText(document.getElementById("root")!, 4000, { everyElement: true });
+    expect(collapseText(text ?? "")).toBe("Sign in now here");
   });
 
   it("ignores hidden line breaks and skipped elements", () => {
@@ -133,6 +144,16 @@ describe("shown", () => {
       .animate([{ opacity: 0 }, { opacity: 1 }], 5000)
       .pause();
     expect(shown(by("text"))).toBe(true);
+  });
+
+  it("reads behind a modal at the top of a shadow tree (ADR 0070)", () => {
+    document.body.innerHTML = `<x-app id="host"></x-app>`;
+    const root = document.getElementById("host")!.attachShadow({ mode: "open" });
+    root.innerHTML = `<main aria-hidden="true"><b id="behind">Account</b></main>
+      <div role="dialog" aria-modal="true">Try the new plan</div>`;
+    const behind = root.getElementById("behind")!;
+    expect(shown(behind)).toBe(false);
+    expect(readBehindModal(document, () => shown(behind))).toBe(true);
   });
 
   it("counts an animation only while its current iteration still raises the opacity", () => {
@@ -307,6 +328,25 @@ describe("controlName", () => {
       undefined,
       undefined,
       undefined,
+      "Fallback",
+    ]);
+  });
+
+  it("reads a label hidden only by its own aria-hidden (ADR 0048 amendment of 2026-10-23)", () => {
+    document.body.innerHTML = `<input id="a" type="submit" aria-labelledby="t1">
+      <span id="t1" aria-hidden="true">次に進む<span aria-hidden="true">spinner</span></span>
+      <button id="b" aria-labelledby="t2" aria-label="Fallback"></button>
+      <div aria-hidden="true"><span id="t2">Ancestor</span></div>
+      <button id="c" aria-labelledby="t3" aria-label="Fallback"></button>
+      <span id="t3" aria-hidden="true" inert>Inert</span>
+      <button id="d" aria-labelledby="t4" aria-label="Fallback"></button>
+      <span id="t4" aria-hidden="true" style="display:none">Gone</span>`;
+    // Its own aria-hidden alone does not hide it; an aria-hidden descendant, an aria-hidden
+    // ancestor, inert and CSS still do, and a label with no text falls back to aria-label.
+    expect(["a", "b", "c", "d"].map((id) => controlName(document.getElementById(id)!))).toEqual([
+      "次に進む",
+      "Fallback",
+      "Fallback",
       "Fallback",
     ]);
   });

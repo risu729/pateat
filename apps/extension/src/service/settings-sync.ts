@@ -3,6 +3,7 @@ import {
   profileIdSchema,
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
+  popupPageSectionShown,
   savedLoginBindingSchema,
   settingsDocumentBytes,
   serviceOriginSchema,
@@ -28,40 +29,67 @@ export const MAX_SETTINGS_DEFER_MS = 2 * 60 * 1000;
 
 type SiteDefault = LocalSettings["siteDefaults"][number];
 type SiteRule = LocalSettings["excludedSites"][number];
+type PasskeyBrowserSite = LocalSettings["passkeyBrowserSites"][number];
 type Binding = LocalSettings["bindings"][number];
+type AccountPolicy = LocalSettings["accountPolicies"][number];
+type ItemPolicy = LocalSettings["itemPolicies"][number];
+type CustomFieldReview = LocalSettings["customFieldReviews"][number];
 
 /**
- * The part of the settings that means the same on every device (ADR 0013). Vault
- * connections, item selection and field exclusions stay on this device.
+ * The part of the settings that means the same on every device (ADR 0013): site
+ * exclusions, defaults and bindings, and each provider account's vault policy and
+ * custom-field reviews (ADR 0023). Vault connections stay on this device, and so does the
+ * policy of the unsynced demo provider.
  */
 export type SyncedSettings = {
+  accountPolicies: AccountPolicy[];
+  itemPolicies: ItemPolicy[];
+  customFieldReviews: CustomFieldReview[];
   excludedSites: SiteRule[];
+  passkeyBrowserSites: PasskeyBrowserSite[];
   repromptSites: SiteRule[];
   /** Kept while the list is off; absent in the settings is the same as empty (ADR 0077). */
   allowedSites: SiteRule[];
   allowedSitesEnabled: boolean;
   siteDefaults: SiteDefault[];
   bindings: Binding[];
+  popupPageSection: boolean;
 };
+
+const LOCAL_PROVIDER = "dummy";
+const shared = <T extends { provider: string }>(entries: T[]) =>
+  entries.filter((entry) => entry.provider !== LOCAL_PROVIDER);
+const localOnly = <T extends { provider: string }>(entries: T[]) =>
+  entries.filter((entry) => entry.provider === LOCAL_PROVIDER);
 
 export function syncedSettings(settings: LocalSettings): SyncedSettings {
   return {
+    accountPolicies: shared(settings.accountPolicies),
+    itemPolicies: shared(settings.itemPolicies),
+    customFieldReviews: shared(settings.customFieldReviews),
     excludedSites: settings.excludedSites,
+    passkeyBrowserSites: settings.passkeyBrowserSites,
     repromptSites: settings.repromptSites,
     allowedSites: settings.allowedSites ?? [],
     allowedSitesEnabled: settings.allowedSitesEnabled ?? false,
     siteDefaults: settings.siteDefaults,
     bindings: settings.bindings,
+    popupPageSection: popupPageSectionShown(settings),
   };
 }
 
 const emptySynced: SyncedSettings = {
+  accountPolicies: [],
+  itemPolicies: [],
+  customFieldReviews: [],
   excludedSites: [],
+  passkeyBrowserSites: [],
   repromptSites: [],
   allowedSites: [],
   allowedSitesEnabled: false,
   siteDefaults: [],
   bindings: [],
+  popupPageSection: true,
 };
 
 // The base of the next three-way merge. Normally both copies are the same; after an
@@ -121,10 +149,21 @@ export type SettingsSyncOutcome =
   | "storage-unavailable"
   | TransportFailure;
 
-const siteKey = (entry: SiteRule) => entry.hostname;
+const siteKey = (entry: SiteRule | PasskeyBrowserSite) => entry.hostname;
 const defaultKey = (entry: SiteDefault) => entry.origin;
 const bindingKey = (entry: Binding) =>
-  JSON.stringify([entry.recipeId, entry.origin, entry.provider, entry.userId, entry.itemId]);
+  JSON.stringify([
+    entry.recipeId,
+    entry.origin,
+    entry.provider,
+    entry.server,
+    entry.userId,
+    entry.itemId,
+  ]);
+const accountKey = (entry: AccountPolicy) =>
+  JSON.stringify([entry.provider, entry.server, entry.userId]);
+const itemKey = (entry: ItemPolicy | CustomFieldReview) =>
+  JSON.stringify([entry.provider, entry.server, entry.userId, entry.itemId]);
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 /** What each side last agreed to: the service's copy and the local copy it accounts for. */
@@ -158,6 +197,23 @@ function mergeValue<T>(base: { service: T; local: T }, local: T, service: T): T 
   return same(service, base.service) && !same(local, base.local) ? local : service;
 }
 
+/**
+ * An item's policy and its custom-field review merged as one entry: a review changes
+ * both, and taking one from each side could pair a review with custom-field exclusions it
+ * did not choose, making a field the reviewer excluded usable (ADR 0023).
+ */
+type ItemEntry = { key: string; policy?: ItemPolicy; review?: CustomFieldReview };
+
+function itemEntries(policies: ItemPolicy[], reviews: CustomFieldReview[]): ItemEntry[] {
+  const entries = new Map<string, ItemEntry>();
+  for (const policy of policies) entries.set(itemKey(policy), { key: itemKey(policy), policy });
+  for (const review of reviews) {
+    const key = itemKey(review);
+    entries.set(key, { key, ...entries.get(key), review });
+  }
+  return [...entries.values()];
+}
+
 export function mergeSyncedSettings(
   base: SyncBase,
   local: SyncedSettings,
@@ -167,11 +223,34 @@ export function mergeSyncedSettings(
     service: base.service[name],
     local: base.local[name],
   });
+  const items = mergeEntries(
+    {
+      service: itemEntries(base.service.itemPolicies, base.service.customFieldReviews),
+      local: itemEntries(base.local.itemPolicies, base.local.customFieldReviews),
+    },
+    itemEntries(local.itemPolicies, local.customFieldReviews),
+    itemEntries(service.itemPolicies, service.customFieldReviews),
+    (entry) => entry.key,
+  );
   return {
+    accountPolicies: mergeEntries(
+      part("accountPolicies"),
+      local.accountPolicies,
+      service.accountPolicies,
+      accountKey,
+    ),
+    itemPolicies: items.flatMap((entry) => (entry.policy ? [entry.policy] : [])),
+    customFieldReviews: items.flatMap((entry) => (entry.review ? [entry.review] : [])),
     excludedSites: mergeEntries(
       part("excludedSites"),
       local.excludedSites,
       service.excludedSites,
+      siteKey,
+    ),
+    passkeyBrowserSites: mergeEntries(
+      part("passkeyBrowserSites"),
+      local.passkeyBrowserSites,
+      service.passkeyBrowserSites,
       siteKey,
     ),
     repromptSites: mergeEntries(
@@ -198,6 +277,11 @@ export function mergeSyncedSettings(
       defaultKey,
     ),
     bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
+    popupPageSection: mergeValue(
+      part("popupPageSection"),
+      local.popupPageSection,
+      service.popupPageSection,
+    ),
   };
 }
 
@@ -248,22 +332,43 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
   const sorted = <T>(entries: T[], key: (entry: T) => string) =>
     entries.map((entry) => [key(entry), entry] as const).sort(([a], [b]) => (a < b ? -1 : 1));
   return (
+    same(sorted(left.accountPolicies, accountKey), sorted(right.accountPolicies, accountKey)) &&
+    same(sorted(left.itemPolicies, itemKey), sorted(right.itemPolicies, itemKey)) &&
+    same(sorted(left.customFieldReviews, itemKey), sorted(right.customFieldReviews, itemKey)) &&
     same(sorted(left.excludedSites, siteKey), sorted(right.excludedSites, siteKey)) &&
+    same(sorted(left.passkeyBrowserSites, siteKey), sorted(right.passkeyBrowserSites, siteKey)) &&
     same(sorted(left.repromptSites, siteKey), sorted(right.repromptSites, siteKey)) &&
     same(sorted(left.allowedSites, siteKey), sorted(right.allowedSites, siteKey)) &&
     left.allowedSitesEnabled === right.allowedSitesEnabled &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
-    same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey))
+    same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey)) &&
+    left.popupPageSection === right.popupPageSection
   );
 }
 
-/** Local settings with the synced part replaced. */
-function applySynced(settings: LocalSettings, synced: SyncedSettings): LocalSettings {
-  return { ...settings, ...synced };
+/**
+ * Local settings with the synced part replaced; the demo provider's policy stays. The
+ * popup's choice is kept only while it hides the page's status, as in the documents.
+ */
+function applySynced(settings: LocalSettings, merged: SyncedSettings): LocalSettings {
+  const { popupPageSection, ...lists } = merged;
+  const { popupPageSection: _replaced, ...rest } = settings;
+  return {
+    ...rest,
+    ...lists,
+    accountPolicies: [...merged.accountPolicies, ...localOnly(settings.accountPolicies)],
+    itemPolicies: [...merged.itemPolicies, ...localOnly(settings.itemPolicies)],
+    customFieldReviews: [...merged.customFieldReviews, ...localOnly(settings.customFieldReviews)],
+    ...(popupPageSection ? {} : { popupPageSection: false }),
+  };
 }
 
 /** The service holds only the synced part; it never stores device-local connections. */
-const serviceDocument = (synced: SyncedSettings): LocalSettings => ({ connections: [], ...synced });
+const serviceDocument = ({ popupPageSection, ...lists }: SyncedSettings): LocalSettings => ({
+  connections: [],
+  ...lists,
+  ...(popupPageSection ? {} : { popupPageSection: false }),
+});
 
 export function createSettingsSync(options: {
   transport: Pick<ServiceTransport, "settings" | "saveSettings">;

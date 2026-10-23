@@ -30,6 +30,7 @@ are assigned now so that profiles can be added without moving data again:
 | Data                                                       | Belongs to        |
 | ---------------------------------------------------------- | ----------------- |
 | `excludedSites`                                            | profile           |
+| `passkeyBrowserSites` (ADR 0007)                           | profile           |
 | `repromptSites` (2026-10-23)                               | profile           |
 | `allowedSites`, `allowedSitesEnabled` (ADR 0077)           | profile           |
 | `siteDefaults`                                             | profile           |
@@ -37,6 +38,7 @@ are assigned now so that profiles can be added without moving data again:
 | `itemPolicies` (ADR 0023)                                  | profile           |
 | `customFieldReviews` (ADR 0023)                            | profile           |
 | `pagePermissionDefaults`, `sitePagePermissions` (ADR 0035) | profile           |
+| `popupPageSection` (ADR 0038's amendment)                  | profile           |
 | `bindings`                                                 | owner (shared)    |
 | Recipes, Claude credentials, spending and generation state | owner (unchanged) |
 
@@ -82,7 +84,7 @@ Profiles are built for `excludedSites` and `siteDefaults`, with `bindings` share
 "Later: adding profiles" describes; [ADR 0076](0076-settings-profiles-delivered.md)
 records how, and the owner's choices made while building them. Two points differ from
 the text above: a pairing must choose a profile even when the owner has only one, and
-`devices.profile_id` refers to profiles that are deleted softly. ADR 0023's lists and
-ADR 0035's page permissions are still to be built; they become profile parts when they
-are. Later the same day the allowed sites joined them as a profile part, as the owner
-chose on 2026-10-19 ([ADR 0077](0077-allowed-sites.md)).
+`devices.profile_id` refers to profiles that are deleted softly. ADR 0023's lists are
+profile parts since 2026-10-23; ADR 0035's page permissions are still to be built and
+become profile parts when they are. The allowed sites are a profile part too, as the
+owner chose on 2026-10-19 ([ADR 0077](0077-allowed-sites.md)).

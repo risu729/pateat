@@ -15,6 +15,7 @@ The workspace uses one lockfile, `bun.lock`, which aube installs from
 
 ```text
 apps/extension/       WXT entrypoints and extension shell
+apps/docs/            VitePress docs website with the user-facing pages
 services/api/         Cloudflare Worker sync API and D1 schema
 packages/contracts/  Shared Valibot schemas and inferred types
 packages/bitwarden/  Provider-specific endpoint and transport boundary
@@ -70,22 +71,23 @@ a mise release that breaks the repository fails CI. The shared Renovate preset r
 ([risu729/renovate-config#2696](https://github.com/risu729/renovate-config/pull/2696)).
 
 The repository is a mise monorepo (owner decision, 2026-10-11). The root `mise.toml`
-sets `monorepo_root = true` and lists `apps/extension`, `services/api`, `packages/*` and
-`tests/*` as config roots. Each of those directories has its own `mise.toml` with the
-tasks for its code, run from that directory, and the tools and environment come from the
-root. A task's full name is its path and name, such as `//services/api:build`; inside
-that directory `mise run :build` also works. Each project has a `test` task (the
-extension's `test` runs its `test:<area>` tasks) and each except `packages/contracts`
-has a `typecheck` task, so `mise run '//...:typecheck'` type-checks everything. mise
-reads the workspace graph, so `mise run --affected '//...:test'` tests the workspace
-packages with changes since `HEAD~1` (including uncommitted and untracked files) and the
-packages that depend on them. A change outside a workspace package, such as `docs/`,
-`scripts/`, `tests/*`, the root `mise.toml` or `tasks.toml`, selects every package, and
-the `tests/*` suites are not workspace packages, so `--affected` never selects them.
-Repository-wide tasks (`install`, `check`, `fix`, `check:runtime`, `check:docs`,
-`check:sdk-source`, `test:tools`, `coverage:summary`, `browser:install`, the probe
-servers, `render:icons` and `generate:oidc-key`) stay in the root `tasks.toml`. Run them
-by their plain names from the root, or as `//:check:runtime` from inside a project.
+sets `monorepo_root = true` and lists `apps/extension`, `apps/docs`, `services/api`,
+`packages/*` and `tests/*` as config roots. Each of those directories has its own
+`mise.toml` with the tasks for its code, run from that directory, and the tools and
+environment come from the root. A task's full name is its path and name, such as
+`//services/api:build`; inside that directory `mise run :build` also works. Each project
+has a `test` task (the extension's `test` runs its `test:<area>` tasks) and each except
+`packages/contracts` has a `typecheck` task, so `mise run '//...:typecheck'` type-checks
+everything. mise reads the workspace graph, so `mise run --affected '//...:test'` tests
+the workspace packages with changes since `HEAD~1` (including uncommitted and untracked
+files) and the packages that depend on them. A change outside a workspace package, such
+as `docs/`, `scripts/`, `tests/*`, the root `mise.toml` or `tasks.toml`, selects every
+package, and the `tests/*` suites are not workspace packages, so `--affected` never
+selects them. Repository-wide tasks (`install`, `check`, `fix`, `check:runtime`,
+`check:docs`, `check:sdk-source`, `test:tools`, `coverage:summary`, `browser:install`,
+the probe servers, `render:icons` and `generate:oidc-key`) stay in the root
+`tasks.toml`. Run them by their plain names from the root, or as `//:check:runtime` from
+inside a project.
 
 `check:runtime` is one dependency graph rather than a list of separate `mise run` calls:
 it depends on `//...:typecheck`, `//...:test`, `//services/api:check:*` and
@@ -206,6 +208,10 @@ Focused tasks are available for diagnosis:
 | `mise run //apps/extension:test:dom` | Extract observations, resolve element locators, collect diagnostics and run the vault, provider-session and diagnostics stores on native IndexedDB in Chromium |
 | `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
+| `mise run //apps/docs:dev` | Serve the docs website with live reload ([docs website](#docs-website)) |
+| `mise run //apps/docs:build` | Render the docs website into `apps/docs/.vitepress/dist/` |
+| `mise run //apps/docs:test` | Build the docs website and check every local link and fragment in the built pages |
+| `mise run //apps/docs:preview` | Build and serve the built docs website |
 | `mise run check:sdk-source` | Validate installed SDK metadata against its pin and render [exact source notices](sdk-source.md#pinned-upstream-source) without writing files |
 
 On Linux, `mise run browser:install --with-deps` also installs the browser's system
@@ -249,6 +255,42 @@ containers' logs (`vaultwarden.log` in the Playwright test's output folder, prin
 the self-check). A run killed before `stop()` leaves its project behind:
 `docker compose ls --filter name=pateat-vaultwarden` lists them and
 `docker compose -p <project> down -v` removes one.
+
+### Docs website
+
+`apps/docs` is the user-facing docs website, built with VitePress 2, which the owner
+chose on 2026-10-11 before its stable release
+([decisions still requiring evidence](plan.md#decisions-still-requiring-evidence)).
+`vitepress` is pinned exactly to `2.0.0-alpha.20`, the npm `next` tag on 2026-10-15. Its
+English pages are in `apps/docs/src`: an introduction, installation, setup, permissions
+and a draft privacy policy with the Chrome Web Store Limited Use statement. The site
+serves the extension's own `apps/extension/icons/icon.svg` through a small Vite plugin
+in `.vitepress/config.ts` instead of keeping a copy, and `.vitepress/theme/brand.css`
+sets VitePress's default theme to the icon's green, darkened where text needs 4.5:1
+contrast. The pages link to this `docs/` directory, which the site does not include, by
+absolute GitHub URLs.
+
+VitePress fails the build on a dead link between pages. `//apps/docs:test` builds the
+site and then checks, with `apps/docs/check-links.mjs`, that every local link, asset
+and fragment in the built HTML resolves; it is one of the `//...:test` tasks, so
+`check:runtime` and CI's `Verify` job build the site on every run. A pull request that
+changes only `docs/` or `apps/docs/` skips the browser shards
+([CI](delivery.md#current-foundation-workflows)).
+
+The owner decided on 2026-10-23 that the site is deployed as a public Cloudflare Worker
+that serves only static assets, with a preview for each pull request, as biwa does
+(12:36 UTC), and that its publishing and deployment follow the owner's other
+repositories, whose setup the owner was changing at the time; that deployment is a
+separate pull request. The privacy policy's contact is `pateat@takuk.me` (owner, 12:37
+UTC). The owner kept the Limited Use statement's approach: while each service serves
+only its owner, the request log is the owner reading their own data, and the developer
+reads no one else's (2026-10-23). Claude's defaults, pending the owner's confirmation
+(2026-10-15): the site lives in `apps/docs` as a workspace package, and its tasks run
+VitePress with the mise-pinned Node like the other projects, where biwa runs it with
+Bun. The installation page assumes a release is a ZIP file on GitHub Releases, loaded
+with **Load unpacked**. `apps/docs/package.json` has no `license` field, like
+`services/api`, until the owner decides whether [LICENSING.md](../LICENSING.md)'s
+installation material covers the site.
 
 ### Test coverage
 
@@ -498,7 +540,10 @@ holds:
   chooser window was still open as the wait ran out, or `withheld` for a conditional
   request kept unanswered after a Pateat login of its page signed in, or after four
   minutes of waiting for that login or for a pick after a logout) and the delegate
-  `reason`. A conditional request is handed on as `no-recipe` (no recipe for the site),
+  `reason`. Any request of a hostname listed under "Sites whose passkey requests go to
+  the browser" on the settings page is handed on first, as `browser-site`
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md), amended 2026-10-23).
+  A conditional request is handed on as `no-recipe` (no recipe for the site),
   `no-login` (no login of its page started), `login-ended` (the login did not sign in)
   or `no-pick` (the popup offered its page a choice of accounts outside a logout, with
   an item that holds a passkey, and nothing was picked within four minutes)
@@ -515,14 +560,15 @@ holds:
   for the origin's site default item), `siteDefaultItem` (`unset`, `unresolved` when
   the saved account matches no connection, `not-searched` when the item is ineligible
   or its connection was not searched, or `searched`) and `complete`;
-- when the chooser window opened, `chooser`: `chosen`, `browser` (the user pressed "Use
-  the browser or another extension"), `closed` (the window or its tab was closed),
+- when the chooser window opened, `chooser`: `chosen`, `browser` (the user chose "Just
+  once" under "Use the browser or another extension"), `browser-site` (the user chose
+  "Always for this site" there), `closed` (the window or its tab was closed),
   `unavailable` (the window could not open, or another request held it), `timeout` (the
   wait ran out; the outcome is `not-allowed`) or `cancelled` (the page cancelled the
-  request). A `browser`, `closed` or `unavailable` ending delegates with the reason
-  `chooser-` plus that value; a choice that the settings no longer offer when it is
-  looked up again delegates with `settings-changed`, or `vault-incomplete` when the
-  vault could not be searched in full;
+  request). A `browser`, `browser-site`, `closed` or `unavailable` ending delegates with
+  the reason `chooser-` plus that value; a choice that the settings no longer offer when
+  it is looked up again delegates with `settings-changed`, or `vault-incomplete` when
+  the vault could not be searched in full;
 - `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
   again, or `logoutClicked` when instead a control that logs out was clicked on the RP
   ID's site in the tab and still waits for the site's first step (at most 10 minutes,
@@ -531,8 +577,8 @@ holds:
   the window is delegated with `chooser-unavailable`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
-  (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`
-  or `signing`);
+  (`browser-site-lookup`, `login-wait`, `account-lookup`, `passkey-lookup`,
+  `signed-before-lookup`, `chooser` or `signing`);
 - `mediation`: the request's mediation when it names one (`optional`, `conditional`,
   `required`, `silent`, `immediate` or `other`), whatever the outcome;
 - `uiMode`: `immediate` for Chrome's Immediate UI, separately from mediation
@@ -583,6 +629,7 @@ The sign-ins the check reads are kept per tab in `chrome.storage.session`
 
 - `origin` and `outcome`: `declined` (Pateat refused it with `NotAllowedError`) or
   `delegate` (handed on to the browser and other providers), with the delegate `reason`:
+  `browser-site` (the page's hostname is one whose passkey requests go to the browser),
   `not-signed-in` (no Pateat sign-in to that RP ID in the tab), `expired` (the latest
   one was more than five minutes ago), `not-listed` (no listed credential is a passkey
   Pateat could sign with there), `vault-incomplete` (none is, but a connection or item
@@ -637,15 +684,17 @@ locking any open vault session), and finally its saved configuration. Like forge
 is local only: no provider revocation is called, so other sessions stay signed in. It
 cancels a running Sync and is refused while a password sign-in for that connection is
 in progress. A failed step leaves the connection listed so deletion can be retried.
-Saved settings, recipes and their field-policy entries are not modified; anything that
-referred to the deleted connection resolves as an unavailable connection. This is how
-a connection left over by a failed first sign-in is removed.
+Saved settings and recipes are not modified: the synced vault policy names the provider
+account, not the connection, so it applies again when the account is connected later.
+This is how a connection left over by a failed first sign-in is removed.
 
-The add form's **Use this vault** choice becomes the same switch in the connection's
-row when the connection is added, before its first sign-in. If
-that sign-in does not finish, **Sign in again** completes the setup and keeps the
-choice. Sign-ins never change the entry; the policy is edited on the settings page.
-Like other saved settings, the entry stays after Delete connection.
+The add form's **Use this vault** choice is kept on this device until the first sign-in
+tells which provider account the connection holds. If that sign-in does not finish,
+**Sign in again** completes the setup and keeps the choice. Then it becomes the
+account's synced policy, the same switch in the connection's row, unless the account
+already has one, which wins ([ADR 0023](adr/0023-synced-vault-policy.md)). Later
+sign-ins never change the policy; it is edited on the settings page, and it stays after
+Delete connection.
 
 An error, cancellation or unsupported-interaction reply, and stopping setup, re-read
 the rows, so a connection whose first sign-in failed shows with Sign in again. Name
@@ -672,22 +721,29 @@ Compensation removes only a positively identified first-enrollment candidate,
 never an unknown or newer record. Connection status and policy metadata contain
 no field values. A changed
 catalog preserves unsaved policy edits and requires an explicit reload before
-saving those stale edits. Custom-field review must confirm the current field
-selection before releasing an item whose earlier exclusions cannot be rebound.
+saving those stale edits. An item with custom-field exclusions or an earlier review
+whose encrypted custom fields changed waits for review: the settings page lists it under
+the connection, starting with every current custom field excluded, and saving the
+review records the new evidence for every device. An item whose vault here is older than
+the review waits for this vault to sync instead. Until a device's first settings sync
+after pairing, the settings page warns that no vault item is used yet.
 Automatic website login is not activated by this setup slice.
 
 Each connection's row also holds its vault access policy, from the saved settings
-draft: the **Use this vault** switch, **Items for Pateat** (all except exclusions, or
+draft, once its vault is unlocked and its account known; the policy belongs to the
+provider account (provider, server and user ID) and is synced. It has the **Use this
+vault** switch, **Items for Pateat** (all except exclusions, or
 selected groups and items only) and two disclosures that start collapsed so a large
 vault stays manageable. "Included groups and items", shown only for a selection, and
 "Excluded items and fields" count what they hold (fields of an excluded item are not
 counted); inside, a line such as `1 of 3 groups, 2 of 40 items selected` or `1 item and
 2 fields excluded` sums them up, and each item opens on its own with a summary such as
 `Item excluded` or `1 field excluded`. Open/closed state lasts only while the page is
-open. These controls wait while saved settings load. A saved entry for a connection
-that has no row is listed under the rows: the demo vaults with the same controls, or
-an unavailable connection whose saved settings are kept. Without a Bitwarden setup (the
-demo preview) the vaults are listed in their own Demo vaults panel. Custom-field
+open. These controls wait while saved settings load. A row whose account the saved
+settings also name on another server says Pateat does not use it here. The demo vaults
+are listed under the rows with the same controls; their settings stay on the device.
+Without a Bitwarden setup (the demo preview) the vaults are listed in their own Demo
+vaults panel. Custom-field
 reviews are not folded; they stay expanded under the connection rows because they block
 the item until saved.
 
@@ -728,6 +784,11 @@ schema change backfills them from the logs without opening login pages where pos
 A change that needs no new model output rewrites them in a migration; one that needs new
 model output is rebuilt from the request log's observations by a separate tool; a recipe
 that cannot be rebuilt is discarded and generated again on the next visit.
+
+A second exception, chosen by the owner on 2026-10-23 at 21:13 UTC: settings stored
+before the synced `passkeyBrowserSites` list existed read it as an empty list, in the
+service and in the extension's local snapshot
+([ADR 0007](adr/0007-existing-passkey-assertions.md)).
 
 ## Platform features
 

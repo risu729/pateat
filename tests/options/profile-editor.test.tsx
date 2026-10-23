@@ -11,8 +11,12 @@ afterEach(async () => cleanup());
 test("local and remote profile site controls have unique IDs and their own descriptions", async () => {
   const draft: LocalSettings = {
     connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
     excludedSites: [],
     repromptSites: [],
+    passkeyBrowserSites: [],
     siteDefaults: [],
     bindings: [],
   };

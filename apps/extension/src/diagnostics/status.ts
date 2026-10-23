@@ -579,6 +579,7 @@ export async function collectDiagnostics(
             allowedSitesEnabled: settings.allowedSitesEnabled === true,
             siteDefaults: settings.siteDefaults.length,
             bindings: settings.bindings.length,
+            passkeyBrowserSites: settings.passkeyBrowserSites.length,
           },
         }
       : {}),

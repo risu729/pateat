@@ -25,6 +25,7 @@ function service() {
     forget: vi.fn<ServiceClient["forget"]>(),
     disconnect: vi.fn<ServiceClient["disconnect"]>(),
     openSignIn: vi.fn<ServiceClient["openSignIn"]>(),
+    deleteRecipes: vi.fn<ServiceClient["deleteRecipes"]>(),
   };
 }
 const status: DiagnosticsStatus = {
@@ -49,6 +50,7 @@ const status: DiagnosticsStatus = {
     allowedSitesEnabled: false,
     siteDefaults: 0,
     bindings: 0,
+    passkeyBrowserSites: 0,
   },
   storage: { localBytes: 100 },
   logs: { entries: 2, bytes: 100, recentErrors: 0, recentWarnings: 0 },

@@ -27,6 +27,10 @@ export const en = {
   "Unnamed item": "Unnamed item",
   Default: "Default",
   "Use the browser or another extension": "Use the browser or another extension",
+  "Just once": "Just once",
+  "Always for this site": "Always for this site",
+  "Pateat leaves passkeys on {{hostname}} to the browser. Undo it in Pateat's settings.":
+    "Pateat leaves passkeys on {{hostname}} to the browser. Undo it in Pateat's settings.",
   "Bitwarden asks for your master password before this item is used.":
     "Bitwarden asks for your master password before this item is used.",
   "Other passkeys": "Other passkeys",
@@ -210,6 +214,8 @@ export const en = {
   "the page showed no sign-in form": "the page showed no sign-in form",
   "the vault item has neither a password nor a passkey":
     "the vault item has neither a password nor a passkey",
+  "the vault item has no password, and Pateat leaves passkey requests on this site to the browser, as listed in its settings":
+    "the vault item has no password, and Pateat leaves passkey requests on this site to the browser, as listed in its settings",
   "the vault item has no password, and the recipe has no way on without one":
     "the vault item has no password, and the recipe has no way on without one",
   "the vault item has no password": "the vault item has no password",
@@ -328,6 +334,10 @@ export const en = {
     "Pateat: the vault is being updated, so this site's accounts were not counted.",
   "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.":
     "Pateat: a login or a page check was using the vault, so this site's accounts were not counted yet.",
+  "Pateat: this device has not finished its first settings sync with the sync service, so this site's accounts were not counted.":
+    "Pateat: this device has not finished its first settings sync with the sync service, so this site's accounts were not counted.",
+  "Pateat: saved settings name a vault's account on another server, so this site's accounts were not counted.":
+    "Pateat: saved settings name a vault's account on another server, so this site's accounts were not counted.",
   "{{first}} {{next}}": "{{first}} {{next}}",
   "Pateat: asking the AI…": "Pateat: asking the AI…",
   "Pateat: you were logged out of this site in this tab. Click to choose an account.":

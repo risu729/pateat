@@ -83,8 +83,12 @@ type Device = { ownerId: string; deviceId: string; credential: string };
 function settingsDocument(hostname: string) {
   return {
     connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
     excludedSites: [{ hostname, includeSubdomains: true }],
     repromptSites: [],
+    passkeyBrowserSites: [],
     siteDefaults: [],
     bindings: [],
   };

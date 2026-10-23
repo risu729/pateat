@@ -1,6 +1,7 @@
 import type { LoginTarget } from "@pateat/contracts";
 import { fits, shownAccounts } from "./accounts";
 import { findTargets } from "./targets";
+import { closestAcross, composedParent, containsAcross, queryAll, textWalker } from "./shadow";
 import { collapseText, isButton, isScriptButton, renderedText, shown } from "./text";
 
 /** Roles that make an element a list entry (ADR 0028). */
@@ -19,16 +20,17 @@ const footerScope =
  * own footer inside a section, or a main region inside a footer, is not chrome.
  */
 export function inPageChrome(element: Element): boolean {
-  if (element.closest(chromeSelector)) return true;
-  const main = element.closest("main, [role='main' i]");
+  if (closestAcross(element, chromeSelector)) return true;
+  const main = closestAcross(element, "main, [role='main' i]");
   const holds = (footer: Element | null): footer is Element =>
-    footer !== null && !(main && footer.contains(main));
-  if (holds(element.closest("[role='contentinfo' i]"))) return true;
-  const footer = element.closest("footer");
+    footer !== null && !(main && containsAcross(footer, main));
+  if (holds(closestAcross(element, "[role='contentinfo' i]"))) return true;
+  const footer = closestAcross(element, "footer");
+  const above = footer && composedParent(footer);
   return (
     holds(footer) &&
     !footer.getAttribute("role")?.trim() &&
-    !footer.parentElement?.closest(footerScope)
+    !(above && closestAcross(above, footerScope))
   );
 }
 const entryTextLimit = 300;
@@ -38,7 +40,8 @@ const textNodeLimit = 200;
 function disabled(element: HTMLElement): boolean {
   // `:disabled` also covers a button inside a disabled `<fieldset>`.
   return (
-    element.matches(":disabled") || element.closest("[aria-disabled='true' i], [inert]") !== null
+    element.matches(":disabled") ||
+    closestAcross(element, "[aria-disabled='true' i], [inert]") !== null
   );
 }
 
@@ -57,7 +60,7 @@ export function setsPointer(element: HTMLElement): boolean {
   const view = element.ownerDocument.defaultView;
   if (!view || view.getComputedStyle(element).cursor !== "pointer") return false;
   // `cursor` is inherited: only the element that sets it counts, not its descendants.
-  const parent = element.parentElement;
+  const parent = composedParent(element);
   return !parent || view.getComputedStyle(parent).cursor !== "pointer";
 }
 
@@ -86,9 +89,10 @@ const isEntry = (element: Element): boolean => entryLike(element);
  * or entry role anywhere around the text is rejected: a click inside it would land on
  * that control, such as a link to another origin or a disabled button.
  */
-function entryAround(element: HTMLElement | null): HTMLElement | null {
+function entryAround(element: Element | null): HTMLElement | null {
   let entry: HTMLElement | null = null;
-  for (let current = element; current; current = current.parentElement) {
+  for (let current = element; current; current = composedParent(current)) {
+    if (!(current instanceof HTMLElement)) continue;
     // Not the type guard: it would narrow `current` to `never` after it.
     if (isEntry(current)) entry ??= current;
     else if (control(current)) return null;
@@ -109,28 +113,23 @@ export interface AccountEntry {
  * counts as the inner one (ADR 0028).
  */
 export function accountEntries(root: Document | Element): AccountEntry[] {
-  const document = root instanceof Document ? root : root.ownerDocument;
   const start = root instanceof Document ? root.body : root;
   if (!start) return [];
-  const walker = document.createTreeWalker(start, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) =>
-      (node.nodeValue ?? "").includes("@") || (node.nodeValue ?? "").includes("＠")
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_SKIP,
-  });
+  const walker = textWalker(start, (node) => node.data.includes("@") || node.data.includes("＠"));
   const found = new Map<HTMLElement, AccountEntry>();
   for (let index = 0; index < textNodeLimit; index += 1) {
     const node = walker.nextNode();
     if (!node) break;
-    const element = entryAround(node.parentElement);
-    if (!element || found.has(element) || element.closest(chromeSelector)) continue;
+    const element = entryAround(composedParent(node));
+    if (!element || found.has(element) || closestAcross(element, chromeSelector)) continue;
     const text = renderedText(element, entryTextLimit, { everyElement: true }) ?? "";
     const accounts = shownAccounts(text).filter((account) => account.includes("@"));
     if (accounts.length) found.set(element, { element, accounts });
   }
   const entries = [...found.values()];
   return entries.filter(
-    (entry) => !entries.some((inner) => inner !== entry && entry.element.contains(inner.element)),
+    (entry) =>
+      !entries.some((inner) => inner !== entry && containsAcross(entry.element, inner.element)),
   );
 }
 
@@ -157,16 +156,13 @@ export type EntryMiss = (typeof entryMisses)[number];
  */
 export function accountEntryMiss(root: Document): EntryMiss | undefined {
   if (!root.body) return undefined;
-  const walker = root.createTreeWalker(root.body, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) =>
-      /[@＠]/u.test(node.nodeValue ?? "") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
-  });
+  const walker = textWalker(root.body, (node) => /[@＠]/u.test(node.data));
   let split = false;
   let hidden: EntryMiss | undefined;
   for (let index = 0; index < textNodeLimit; index += 1) {
     const node = walker.nextNode();
     if (!node) break;
-    const parent = node.parentElement;
+    const parent = composedParent(node);
     if (!parent || ["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(parent.tagName)) continue;
     const accounts = shownAccounts(collapseText(node.nodeValue ?? ""));
     if (!accounts.some((account) => account.includes("@"))) {
@@ -174,11 +170,11 @@ export function accountEntryMiss(root: Document): EntryMiss | undefined {
       continue;
     }
     // A hidden address counts only when no shown one tells more.
-    const unshown = parent.closest("[aria-hidden='true']")
+    const unshown = closestAcross(parent, "[aria-hidden='true']")
       ? "aria-hidden"
-      : parent.closest("[inert]")
+      : closestAcross(parent, "[inert]")
         ? "inert"
-        : parent.closest("[hidden]")
+        : closestAcross(parent, "[hidden]")
           ? "hidden"
           : !shown(parent)
             ? "not-rendered"
@@ -187,9 +183,10 @@ export function accountEntryMiss(root: Document): EntryMiss | undefined {
       hidden ??= unshown;
       continue;
     }
-    if (parent.closest(chromeSelector)) return "page-chrome";
+    if (closestAcross(parent, chromeSelector)) return "page-chrome";
     let entry = false;
-    for (let current: HTMLElement | null = parent; current; current = current.parentElement) {
+    for (let current: Element | null = parent; current; current = composedParent(current)) {
+      if (!(current instanceof HTMLElement)) continue;
       if (isEntry(current)) entry = true;
       else if (control(current)) return "inside-control";
     }
@@ -257,8 +254,8 @@ const scanLimit = 4000;
 
 /** Whether `element` is in a link, button or entry-like element, accepted or not. */
 function insideControl(element: HTMLElement): boolean {
-  for (let current: HTMLElement | null = element; current; current = current.parentElement)
-    if (control(current) || isEntry(current)) return true;
+  for (let current: Element | null = element; current; current = composedParent(current))
+    if (current instanceof HTMLElement && (control(current) || isEntry(current))) return true;
   return false;
 }
 
@@ -284,7 +281,7 @@ export function entryControls(
 ): HTMLElement[] {
   const start = root instanceof Document ? root.body : root;
   if (!start) return [];
-  const controls = [...start.querySelectorAll("*")]
+  const controls = queryAll(start, "*")
     .slice(0, scanLimit)
     .filter(
       (element): element is HTMLElement =>
@@ -295,10 +292,10 @@ export function entryControls(
   // A control holding another one is not innermost; marking ancestors keeps this linear.
   const outer = new Set<Element>();
   for (const item of controls) {
-    let parent = item.parentElement;
+    let parent = composedParent(item);
     while (parent && !outer.has(parent)) {
       outer.add(parent);
-      parent = parent.parentElement;
+      parent = composedParent(parent);
     }
   }
   return controls.filter((item) => !outer.has(item));
@@ -320,7 +317,6 @@ const besideScan = { shown: 400, walked: 5000 };
  * every entry-like element in that ancestor outside page chrome.
  */
 export function besideAccounts(root: Document | Element): BesideAccount[] {
-  const document = root instanceof Document ? root : root.ownerDocument;
   const start = root instanceof Document ? root.body : root;
   if (!start) return [];
   const controls = entryControls(root, { chrome: true });
@@ -329,36 +325,38 @@ export function besideAccounts(root: Document | Element): BesideAccount[] {
   const held = new Map<Element, number>();
   const worded = controls.filter(namedByText);
   for (const item of worded)
-    for (let parent = item.parentElement; parent; parent = parent.parentElement)
+    for (let parent = composedParent(item); parent; parent = composedParent(parent))
       held.set(parent, Math.min((held.get(parent) ?? 0) + 1, maxBesideButtons + 1));
-  const walker = document.createTreeWalker(start, NodeFilter.SHOW_TEXT, {
-    acceptNode: (node) =>
-      (node.nodeValue ?? "").trim() && !unshownText.has(node.parentElement?.tagName ?? "")
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_SKIP,
-  });
+  const walker = textWalker(
+    start,
+    (node) => node.data.trim() !== "" && !unshownText.has(composedParent(node)?.tagName ?? ""),
+  );
   const found = new Map<HTMLElement, BesideAccount>();
   let examined = 0;
   for (let walked = 0; walked < besideScan.walked; walked += 1) {
     const node = walker.nextNode();
     if (!node || examined >= besideScan.shown) break;
-    const element = node.parentElement;
-    if (!element || found.has(element) || !shown(element)) continue;
+    const element = composedParent(node);
+    if (!(element instanceof HTMLElement) || found.has(element) || !shown(element)) continue;
     examined += 1;
-    if (element.closest(`${chromeSelector}, ${contactSelector}`)) continue;
+    if (closestAcross(element, `${chromeSelector}, ${contactSelector}`)) continue;
     // The text must be the element's own, not a control's or a contact link's inside it.
-    if (insideControl(element) || element.querySelector(`a, button, [role], ${contactSelector}`))
+    if (
+      insideControl(element) ||
+      queryAll(element, `a, button, [role], ${contactSelector}`).length > 0
+    )
       continue;
     const text = renderedText(element, besideTextLimit + 1)
       ?.replace(/\s+/gu, " ")
       .trim();
     if (!text || text.length > besideTextLimit) continue;
-    let container = element.parentElement;
-    while (container && container !== start.parentElement && !held.get(container))
-      container = container.parentElement;
+    const above = composedParent(start);
+    let container = composedParent(element);
+    while (container && container !== above && !held.get(container))
+      container = composedParent(container);
     const holder = container;
     if (!holder || !held.has(holder) || held.get(holder)! > maxBesideButtons) continue;
-    const buttons = controls.filter((item) => holder.contains(item) && !inPageChrome(item));
+    const buttons = controls.filter((item) => containsAcross(holder, item) && !inPageChrome(item));
     if (buttons.length) found.set(element, { element, text, buttons });
   }
   return [...found.values()];
@@ -395,7 +393,7 @@ export function besideEmails(root: Document | Element): BesideAccount[] {
 function namedByText(element: HTMLElement): boolean {
   if (listControlText(element) !== "") return true;
   if (element instanceof HTMLInputElement) return (element.value || element.alt).trim() !== "";
-  return [...element.querySelectorAll("img")].some((image) => image.alt.trim() !== "");
+  return queryAll<HTMLImageElement>(element, "img").some((image) => image.alt.trim() !== "");
 }
 
 /** Rendered text read from a list control, as the observation names it (ADR 0028). */
@@ -418,10 +416,8 @@ function clickableListControl(element: HTMLElement): boolean {
   const text = listControlText(element);
   if (shownAccounts(text).some((shownAccount) => shownAccount.includes("@"))) return false;
   if (/[*●•]|\p{N}{4}/u.test(text)) return false;
-  const form = element.closest("form");
-  return (
-    !form || ![...form.querySelectorAll<HTMLElement>(filledFields)].some((field) => shown(field))
-  );
+  const form = closestAcross(element, "form");
+  return !form || !queryAll(form, filledFields).some((field) => shown(field));
 }
 
 /**
@@ -527,7 +523,7 @@ export function otherAccountMiss(
   const start = document.body;
   if (!start) return "no-other";
   let labelled = false;
-  for (const element of [...start.querySelectorAll("*")].slice(0, scanLimit)) {
+  for (const element of queryAll(start, "*").slice(0, scanLimit)) {
     if (!(element instanceof HTMLElement) || unshownText.has(element.tagName)) continue;
     if (!labelled && labelNamesOtherAccount(element)) labelled = true;
     if (element.childElementCount > 0) continue;
@@ -539,9 +535,9 @@ export function otherAccountMiss(
     if (inPageChrome(element)) return "other-in-chrome";
     let entry = false;
     for (
-      let current: HTMLElement | null = element;
+      let current: Element | null = element;
       current && !entry;
-      current = current.parentElement
+      current = composedParent(current)
     )
       entry = isEntry(current);
     return entry ? "other-not-control" : "other-not-entry";

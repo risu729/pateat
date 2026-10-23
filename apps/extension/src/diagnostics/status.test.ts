@@ -134,6 +134,7 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
         excludedSites: [{ origin: "https://excluded.example" }],
         siteDefaults: [],
         bindings: [],
+        passkeyBrowserSites: [{ hostname: "bank.example" }],
       }) as never,
     logs: async () => ({ entries: 120, bytes: 18_000, recentErrors: 2, recentWarnings: 3 }),
     recentLog: async () => ({
@@ -212,6 +213,7 @@ describe("diagnostics status", () => {
       allowedSitesEnabled: false,
       siteDefaults: 0,
       bindings: 0,
+      passkeyBrowserSites: 1,
     });
     expect(status.checks).toContainEqual({
       id: "clock",
@@ -468,14 +470,19 @@ describe("diagnostics status", () => {
     const browser = { name: "Chrome", version: "156", installType: "normal" };
     const off = await collectDiagnostics(dependencies());
     expect(formatReport(off, browser)).toContain(
-      "\nSettings: excluded sites 1 · allowed sites 0 (off) · site defaults 0 · bindings 0\n",
+      "\nSettings: excluded sites 1 · allowed sites 0 (off) · site defaults 0 · bindings 0 · passkey browser sites 1\n",
     );
     const on = await collectDiagnostics(
       dependencies({
         settings: async () =>
           ({
             connections: [],
+            accountPolicies: [],
+            itemPolicies: [],
+            customFieldReviews: [],
             excludedSites: [],
+            repromptSites: [],
+            passkeyBrowserSites: [],
             allowedSites: [
               { hostname: "bank.example", includeSubdomains: false },
               { hostname: "mail.example", includeSubdomains: true },

@@ -16,3 +16,5 @@ coverage/
 .vitest/
 work/
 *.tsbuildinfo
+**/.vitepress/cache/
+**/.vitepress/dist/

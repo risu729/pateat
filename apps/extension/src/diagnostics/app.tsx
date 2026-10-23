@@ -281,13 +281,14 @@ function Local({ status }: { status: DiagnosticsStatus }) {
           <Row term="Settings">
             {t(
               status.settings.allowedSitesEnabled
-                ? "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (on), site defaults {{siteDefaults}}, bindings {{bindings}}"
-                : "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (off), site defaults {{siteDefaults}}, bindings {{bindings}}",
+                ? "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (on), site defaults {{siteDefaults}}, bindings {{bindings}}, passkey sites for the browser {{passkeyBrowserSites}}"
+                : "excluded sites {{excludedSites}}, allowed sites {{allowedSites}} (off), site defaults {{siteDefaults}}, bindings {{bindings}}, passkey sites for the browser {{passkeyBrowserSites}}",
               {
                 excludedSites: status.settings.excludedSites,
                 allowedSites: status.settings.allowedSites,
                 siteDefaults: status.settings.siteDefaults,
                 bindings: status.settings.bindings,
+                passkeyBrowserSites: status.settings.passkeyBrowserSites,
               },
             )}
           </Row>

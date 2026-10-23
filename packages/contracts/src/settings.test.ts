@@ -7,12 +7,14 @@ import {
   detailSourceFieldSchema,
   DUMMY_VAULT_CATALOG,
   getItemEligibility,
+  isPasskeyBrowserSite,
   isSiteExcluded,
   itemAsksForMasterPassword,
   normalizeHostname,
   parseLocalSettings,
   parseSettingsResponse,
   parseSiteUrl,
+  popupPageSectionShown,
   resolveSiteAccount,
   SETTINGS_CHANGE_HISTORY,
   siteAccess,
@@ -20,18 +22,29 @@ import {
   siteRefusal,
   vaultCatalogSchema,
   type SettingsSnapshot,
+  type ItemPolicy,
 } from "./settings";
 import { createSettingsStore, type SettingsStorage } from "./settings-store";
 
+const personal = { provider: "dummy", server: "cloud-us", userId: "demo-personal-account" };
+
 function withDefault() {
   const settings = createDefaultSettings();
-  settings.siteDefaults.push({
-    origin: "https://bank.example",
-    provider: "dummy",
-    userId: "demo-personal-account",
-    itemId: "primary",
-  });
+  settings.siteDefaults.push({ origin: "https://bank.example", ...personal, itemId: "primary" });
   return settings;
+}
+
+/** An item policy of the demo personal account with nothing selected or excluded. */
+function itemPolicy(itemId: string, overrides: Partial<ItemPolicy> = {}): ItemPolicy {
+  return {
+    ...personal,
+    itemId,
+    itemName: itemId,
+    selected: false,
+    excluded: false,
+    excludedFields: [],
+    ...overrides,
+  };
 }
 
 describe("host policy and URL validation", () => {
@@ -225,32 +238,104 @@ describe("host policy and URL validation", () => {
   });
 });
 
+describe("passkey browser sites", () => {
+  it("matches only the exact hostname, whatever the scheme, port or path", () => {
+    const settings = createDefaultSettings();
+    expect(isPasskeyBrowserSite(settings, "https://bank.example")).toBe(false);
+    settings.passkeyBrowserSites = [{ hostname: "bank.example" }];
+    for (const url of [
+      "https://bank.example",
+      "https://BANK.example:8443/login",
+      "https://bank.example./",
+    ])
+      expect(isPasskeyBrowserSite(settings, url), url).toBe(true);
+    for (const url of [
+      "https://auth.bank.example",
+      "https://notbank.example",
+      "https://bank.example.evil.test",
+      "https://other.example/?site=bank.example",
+    ])
+      expect(isPasskeyBrowserSite(settings, url), url).toBe(false);
+    // An excluded site is a separate list; it does not hand passkeys on by itself.
+    const excluded = createDefaultSettings();
+    excluded.excludedSites = [{ hostname: "bank.example", includeSubdomains: true }];
+    expect(isPasskeyBrowserSite(excluded, "https://bank.example")).toBe(false);
+  });
+
+  it("hands on an invalid destination", () => {
+    for (const url of ["bank.example", "javascript:alert(1)", "https://user@bank.example"])
+      expect(isPasskeyBrowserSite(createDefaultSettings(), url), url).toBe(true);
+  });
+
+  it("accepts canonical hostnames once each and nothing else", () => {
+    const settings = createDefaultSettings();
+    const valid = {
+      ...settings,
+      passkeyBrowserSites: [{ hostname: "bank.example" }, { hostname: "xn--bcher-kva.example" }],
+    };
+    expect(parseLocalSettings(valid)).toEqual(valid);
+    for (const passkeyBrowserSites of [
+      [{ hostname: "BANK.EXAMPLE" }],
+      [{ hostname: "bank.example." }],
+      [{ hostname: "bank.example:443" }],
+      [{ hostname: "https://bank.example" }],
+      [{ hostname: "*.bank.example" }],
+      [{ hostname: "bank.example", includeSubdomains: false }],
+      [{ hostname: "bank.example" }, { hostname: "bank.example" }],
+      Array.from({ length: 1001 }, (_, index) => ({ hostname: `s${index}.example` })),
+    ])
+      expect(() => parseLocalSettings({ ...settings, passkeyBrowserSites })).toThrow();
+    // Settings written before the list existed read as listing no site.
+    const { passkeyBrowserSites: _list, ...without } = settings;
+    expect(parseLocalSettings(without)).toEqual(settings);
+  });
+});
+
 describe("scoped metadata eligibility and next-login defaults", () => {
   it("does not automatically enable future real providers", () => {
     const catalog = structuredClone(DUMMY_VAULT_CATALOG);
     catalog.connections[0]!.provider = "future-real-provider";
-    expect(createDefaultSettings(catalog).connections[0]!.enabled).toBe(false);
+    const settings = createDefaultSettings(catalog);
+    // Only the demo account has a policy; the other has none and is not used.
+    expect(settings.connections).toEqual([]);
+    expect(settings.accountPolicies).toEqual([
+      {
+        provider: "dummy",
+        server: "cloud-us",
+        userId: "demo-work-account",
+        accountName: "Demo work vault",
+        enabled: true,
+        selection: { mode: "all" },
+      },
+    ]);
+    expect(getItemEligibility(settings, catalog, "demo-personal", "primary")).toEqual({
+      eligible: false,
+      reason: "connection-disabled",
+    });
   });
   it("unions selected items and groups, with item exclusions winning", () => {
     const settings = createDefaultSettings();
-    const personal = settings.connections[0]!;
-    personal.selection = { mode: "selected", groupIds: [], itemIds: [] };
+    const policy = settings.accountPolicies[0]!;
+    policy.selection = { mode: "selected", groups: [] };
     expect(getItemEligibility(settings, DUMMY_VAULT_CATALOG, "demo-personal", "primary")).toEqual({
       eligible: false,
       reason: "item-not-selected",
     });
-    personal.selection.groupIds = ["everyday"];
+    policy.selection.groups = [{ id: "everyday", name: "Everyday" }];
     expect(
       getItemEligibility(settings, DUMMY_VAULT_CATALOG, "demo-personal", "primary").eligible,
     ).toBe(true);
     expect(
       getItemEligibility(settings, DUMMY_VAULT_CATALOG, "demo-personal", "secondary").eligible,
     ).toBe(false);
-    personal.selection.itemIds = ["secondary", "primary"];
+    settings.itemPolicies = [
+      itemPolicy("secondary", { selected: true }),
+      itemPolicy("primary", { selected: true }),
+    ];
     expect(
       getItemEligibility(settings, DUMMY_VAULT_CATALOG, "demo-personal", "secondary").eligible,
     ).toBe(true);
-    personal.excludedItemIds = ["primary"];
+    settings.itemPolicies[1]!.excluded = true;
     expect(getItemEligibility(settings, DUMMY_VAULT_CATALOG, "demo-personal", "primary")).toEqual({
       eligible: false,
       reason: "item-excluded",
@@ -263,7 +348,7 @@ describe("scoped metadata eligibility and next-login defaults", () => {
 
   it("scopes field exclusions by both connection and item", () => {
     const settings = createDefaultSettings();
-    settings.connections[0]!.excludedFields = [{ itemId: "primary", fieldId: "password" }];
+    settings.itemPolicies = [itemPolicy("primary", { excludedFields: ["password"] })];
     expect(
       getItemEligibility(settings, DUMMY_VAULT_CATALOG, "demo-personal", "primary"),
     ).toMatchObject({ eligible: true, fieldIds: ["username", "branch"] });
@@ -273,10 +358,7 @@ describe("scoped metadata eligibility and next-login defaults", () => {
     expect(getItemEligibility(settings, DUMMY_VAULT_CATALOG, "demo-work", "primary")).toMatchObject(
       { eligible: true, fieldIds: ["username", "password"] },
     );
-    settings.connections[0]!.excludedFields.push(
-      { itemId: "primary", fieldId: "username" },
-      { itemId: "primary", fieldId: "branch" },
-    );
+    settings.itemPolicies[0]!.excludedFields.push("username", "branch");
     expect(getItemEligibility(settings, DUMMY_VAULT_CATALOG, "demo-personal", "primary")).toEqual({
       eligible: false,
       reason: "fields-excluded",
@@ -290,9 +372,11 @@ describe("scoped metadata eligibility and next-login defaults", () => {
     settings.siteDefaults.push({
       origin: "https://bank.example",
       provider: "dummy",
+      server: "cloud-us",
       userId: "account-1",
       itemId: "primary",
     });
+    settings.accountPolicies[0]!.userId = "account-1";
     expect(resolveSiteAccount(settings, catalog, "https://bank.example/login")).toMatchObject({
       ok: true,
       connectionId: "demo-personal",
@@ -325,6 +409,7 @@ describe("scoped metadata eligibility and next-login defaults", () => {
     const named = {
       origin: "https://bank.example",
       provider: "dummy",
+      server: "https://vault.example",
       userId: "account-1",
       itemId: "primary",
       itemName: "Example Bank",
@@ -333,6 +418,7 @@ describe("scoped metadata eligibility and next-login defaults", () => {
     const unnamed = {
       origin: "https://mail.example",
       provider: "dummy",
+      server: "cloud-eu",
       userId: "account-1",
       itemId: "secondary",
     };
@@ -341,18 +427,27 @@ describe("scoped metadata eligibility and next-login defaults", () => {
   });
 
   it.each([
-    ["a mixed entry", { connectionId: "demo-personal", provider: "dummy", userId: "a" }],
-    ["an entry without a user ID", { provider: "dummy" }],
-    ["an entry without a provider", { userId: "a" }],
-    ["an empty item name", { provider: "dummy", userId: "a", itemName: "" }],
+    [
+      "a mixed entry",
+      { connectionId: "demo-personal", provider: "dummy", server: "cloud-us", userId: "a" },
+    ],
+    ["an entry without a user ID", { provider: "dummy", server: "cloud-us" }],
+    ["an entry without a provider", { server: "cloud-us", userId: "a" }],
+    ["an entry without a server", { provider: "dummy", userId: "a" }],
+    ["an HTTP server", { provider: "dummy", server: "http://vault.example", userId: "a" }],
+    ["an unknown region", { provider: "dummy", server: "cloud-jp", userId: "a" }],
+    ["an empty item name", { provider: "dummy", server: "cloud-us", userId: "a", itemName: "" }],
     [
       "an item name over 200 characters",
-      { provider: "dummy", userId: "a", itemName: "x".repeat(201) },
+      { provider: "dummy", server: "cloud-us", userId: "a", itemName: "x".repeat(201) },
     ],
-    ["an empty account name", { provider: "dummy", userId: "a", accountName: "" }],
+    [
+      "an empty account name",
+      { provider: "dummy", server: "cloud-us", userId: "a", accountName: "" },
+    ],
     [
       "an account name over 200 characters",
-      { provider: "dummy", userId: "a", accountName: "x".repeat(201) },
+      { provider: "dummy", server: "cloud-us", userId: "a", accountName: "x".repeat(201) },
     ],
   ])("rejects a site default with %s", (_label, fields) => {
     const settings = createDefaultSettings();
@@ -400,13 +495,13 @@ describe("scoped metadata eligibility and next-login defaults", () => {
       reason: "item-missing",
     });
     settings.siteDefaults[0]!.itemId = "primary";
-    settings.connections[0]!.enabled = false;
+    settings.accountPolicies[0]!.enabled = false;
     expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
       ok: false,
       reason: "connection-disabled",
     });
-    settings.connections[0]!.enabled = true;
-    settings.connections[0]!.excludedItemIds = ["primary"];
+    settings.accountPolicies[0]!.enabled = true;
+    settings.itemPolicies = [itemPolicy("primary", { excluded: true })];
     expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
       ok: false,
       reason: "item-excluded",
@@ -420,41 +515,43 @@ describe("scoped metadata eligibility and next-login defaults", () => {
 });
 
 describe("strict settings schema", () => {
+  it("shows the popup's This page section unless the settings hide it", () => {
+    const settings = createDefaultSettings();
+    expect(popupPageSectionShown(settings)).toBe(true);
+    expect(popupPageSectionShown(parseLocalSettings({ ...settings, popupPageSection: true }))).toBe(
+      true,
+    );
+    expect(
+      popupPageSectionShown(parseLocalSettings({ ...settings, popupPageSection: false })),
+    ).toBe(false);
+    expect(() => parseLocalSettings({ ...settings, popupPageSection: "hidden" })).toThrow();
+  });
+
   it("rejects secret-shaped extras, duplicates, ambiguous hosts and non-origin defaults", () => {
     expect(parseLocalSettings(createDefaultSettings())).toEqual(createDefaultSettings());
     const settings = createDefaultSettings();
+    const connection = { connectionId: "c1", enabled: true };
+    expect(parseLocalSettings({ ...settings, connections: [connection] }).connections).toEqual([
+      connection,
+    ]);
     for (const malformed of [
       { ...settings, password: "synthetic" },
-      { ...settings, connections: [{ ...settings.connections[0], secret: "synthetic" }] },
-      { ...settings, connections: [settings.connections[0], settings.connections[0]] },
+      { ...settings, fieldPolicies: [] },
+      { ...settings, connections: [{ ...connection, secret: "synthetic" }] },
+      { ...settings, connections: [{ ...connection, selection: { mode: "all" } }] },
+      { ...settings, connections: [connection, connection] },
+      { ...settings, accountPolicies: [{ ...settings.accountPolicies[0], secret: "synthetic" }] },
       { ...settings, excludedSites: [{ hostname: "BANK.EXAMPLE", includeSubdomains: true }] },
       { ...settings, excludedSites: [{ hostname: "bank.example:443", includeSubdomains: true }] },
       {
         ...settings,
-        siteDefaults: [
-          {
-            origin: "https://bank.example/",
-            provider: "dummy",
-            userId: "demo-personal-account",
-            itemId: "primary",
-          },
-        ],
+        siteDefaults: [{ origin: "https://bank.example/", ...personal, itemId: "primary" }],
       },
       {
         ...settings,
-        siteDefaults: [
-          {
-            origin: "https://user@bank.example",
-            provider: "dummy",
-            userId: "demo-personal-account",
-            itemId: "primary",
-          },
-        ],
+        siteDefaults: [{ origin: "https://user@bank.example", ...personal, itemId: "primary" }],
       },
-      {
-        ...settings,
-        connections: [{ ...settings.connections[0], excludedItemIds: ["primary", "primary"] }],
-      },
+      { ...settings, itemPolicies: [itemPolicy("primary"), itemPolicy("primary")] },
     ])
       expect(() => parseLocalSettings(malformed)).toThrow();
   });
@@ -464,6 +561,7 @@ describe("personal-detail links (ADR 0061)", () => {
   const link = {
     origin: "https://bank.example",
     provider: "dummy",
+    server: "cloud-us",
     userId: "demo-personal-account",
     itemId: "primary",
     detail: "birth-date",
@@ -597,6 +695,18 @@ describe("serialized persistent settings store", () => {
     });
   });
 
+  it("loads a snapshot written before passkeyBrowserSites with an empty list", async () => {
+    const { passkeyBrowserSites: _list, ...old } = withDefault();
+    const memory = memoryStorage({ version: 1, revision: 4, settings: old });
+    const store = createSettingsStore(memory.storage);
+    expect(await store.handle(get)).toMatchObject({
+      ok: true,
+      snapshot: { revision: 4, settings: { ...old, passkeyBrowserSites: [] } },
+    });
+    expect(memory.writes).toHaveLength(0);
+    expect(await store.handle(save(4))).toMatchObject({ ok: true, snapshot: { revision: 5 } });
+  });
+
   it("fails closed for corrupt/version-mismatched storage and never overwrites it", async () => {
     const corruptSnapshots = [
       null,
@@ -693,7 +803,7 @@ describe("serialized persistent settings store", () => {
     const store = createSettingsStore(memory.storage);
     const settings = withDefault();
     const pending = store.handle(save(0, settings));
-    settings.connections[0]!.enabled = false;
+    settings.accountPolicies[0]!.enabled = false;
     settings.siteDefaults[0]!.itemId = "secondary";
     expect(await pending).toMatchObject({ ok: true, snapshot: { settings: withDefault() } });
   });

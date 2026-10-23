@@ -162,6 +162,17 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   decision 2026-10-13 at 14:42 UTC). On an `http:` page only items saved with an
   `http://` URI count, as for logins (see URI matching above).
 
+## Popup display
+
+- The official extension keeps its popup display options, such as showing cards and
+  identities on the current tab page, in device storage
+  ([vault-settings.state.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/services/key-state/vault-settings.state.ts#L11-L27),
+  `VAULT_SETTINGS_DISK`), so each device has its own. Pateat's **Show "This page" in the
+  popup** checkbox is stored in the synced settings document as `popupPageSection`, so
+  every paired device follows one choice
+  ([ADR 0038's amendment](adr/0038-login-status-badge.md#amendment-a-synced-setting-hides-the-popups-section-2026-10-23),
+  owner's decision 2026-10-23 at 12:47 UTC).
+
 ## Passkeys
 
 - Chrome Immediate UI (`uiMode: "immediate"`): the official extension copies only
@@ -175,6 +186,22 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   incognito, so the site sees the rejection it would get from Chrome
   ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md); owner's decision, 2026-10-19
   at 22:42 UTC).
+- "Always for this site": the official popout's "Use device or hardware key" menu adds
+  the page's hostname to the excluded domains (`neverDomains`)
+  ([fido2-use-browser-link.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/apps/browser/src/autofill/popup/fido2/fido2-use-browser-link.component.ts#L38-L73)),
+  where every later `get` and `create` of that hostname goes to the browser
+  ([fido2-client.service.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/common/src/platform/services/fido2/fido2-client.service.ts#L81-L101)).
+  That list is stored on the device for all accounts
+  ([domain-settings.service.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/common/src/autofill/services/domain-settings.service.ts#L59-L61)),
+  also stops save prompts, and is edited, including adding a domain, under Settings >
+  Notifications > Excluded domains
+  ([excluded-domains.component.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/apps/browser/src/autofill/popup/settings/excluded-domains.component.ts#L137-L150)).
+  Pateat has the same menu and the same exact-hostname match, but keeps the hostname in
+  its own `passkeyBrowserSites` list, which is synced across the owner's devices;
+  Pateat's site exclusions stop logins too, so they cannot stand in for it. The settings
+  page only removes entries, and Pateat shows no toast before the window closes; the
+  menu item says what it does instead (owner's request, 2026-10-23 at 12:15 UTC;
+  [ADR 0007](adr/0007-existing-passkey-assertions.md#amendment-sites-whose-passkey-requests-go-to-the-browser-2026-10-23)).
 
 ## Master password re-prompt
 

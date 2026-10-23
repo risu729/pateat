@@ -5,6 +5,7 @@
 import { namedHosts } from "../login/entry";
 import { visible } from "./code-submission";
 import { autocompleteTokens } from "./targets";
+import { formOf, queryAll } from "./shadow";
 import { collapseText, isScriptLink, opensHere, renderedText, shown } from "./text";
 
 /** Hosts the worker is asked about at most; a link to any other counts as off-site. */
@@ -21,7 +22,7 @@ export function linkUrl(link: HTMLAnchorElement): URL | undefined {
  * the hosts its query values and the page's name, at most {@link MAX_ENTRY_HOSTS}.
  */
 export function entryHosts(document: Document): string[] {
-  const links = [...document.querySelectorAll("a[href]")].flatMap((link) => {
+  const links = queryAll(document, "a[href]").flatMap((link) => {
     const url = link instanceof HTMLAnchorElement && !isScriptLink(link) && linkUrl(link);
     return url ? [url] : [];
   });
@@ -64,7 +65,7 @@ function hasBox(element: Element): boolean {
   let top = Infinity;
   let right = -Infinity;
   let bottom = -Infinity;
-  for (const child of element.querySelectorAll("*"))
+  for (const child of queryAll(element, "*"))
     for (const rect of child.getClientRects()) {
       left = Math.min(left, rect.left);
       top = Math.min(top, rect.top);
@@ -101,10 +102,10 @@ export function entryElementRefusal(element: Element): EntryElementRefusal | und
  * inputs in one form. Inputs outside any form count as one form.
  */
 export function showsSignUp(document: Document): boolean {
-  const inputs = [...document.querySelectorAll("input")].filter(visible);
-  const forms = new Set(inputs.map((input) => input.form));
+  const inputs = queryAll<HTMLInputElement>(document, "input").filter(visible);
+  const forms = new Set(inputs.map(formOf));
   return [...forms].some((form) => {
-    const own = inputs.filter((input) => input.form === form);
+    const own = inputs.filter((input) => formOf(input) === form);
     const passwords = own.filter((input) => input.type === "password");
     const fresh = own.filter((input) => autocompleteTokens(input).includes("new-password"));
     return (

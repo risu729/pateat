@@ -5,12 +5,14 @@ import {
   namesPasskey,
   registersPasskey,
   isCodeField,
+  isLoginTarget,
   isStepTarget,
   loginStepSchema,
   personalDataAutocompleteTokens,
   recipeSlotIdSchema,
   reservedSlotIds,
   sameLoginTarget,
+  targetValues,
   type LoginEntryRecipe,
   type LoginObservation,
   type LoginStep,
@@ -256,15 +258,19 @@ function fieldText(candidate: ObservedCandidate): string | undefined {
   const placeholder = candidate.placeholder && tidy(candidate.placeholder);
   const description = candidate.description && tidy(candidate.description);
   const { by, value } = candidate.target;
+  // An attribute a component reuses inside every host (ADR 0070), such as `input`, names
+  // no field; its host's would, but a slot is named by the field's own text first.
+  const within = "within" in candidate.target && candidate.target.within;
   const sources = [
     candidate.label && ownLabel(tidy(candidate.label), [placeholder, description]),
     placeholder,
     description,
-    by === "id" ||
-    by === "name" ||
-    by === "test-id" ||
-    by === "data-test" ||
-    by === "password-form-name"
+    (by === "id" ||
+      by === "name" ||
+      by === "test-id" ||
+      by === "data-test" ||
+      by === "password-form-name") &&
+    !within
       ? tidy(value)
       : undefined,
   ];
@@ -393,10 +399,11 @@ export function validatePagePlan(
 ): { ok: true; plan: ValidatedPagePlan } | { ok: false; reason: PlanRejection } {
   if (plan.fields.length === 0) return { ok: false, reason: "empty-plan" };
   // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
-  // by its accessible name only a `password` handler's (ADR 0048), never a step's.
+  // by its accessible name only a `password` handler's (ADR 0048) or the plan's click
+  // (ADR 0048 amendment of 2026-10-23), never a field or the account switch.
   const candidates = new Map(
     observation.candidates.flatMap(({ target, ...candidate }) =>
-      isStepTarget(target) ? [[candidate.id, { ...candidate, target }] as const] : [],
+      isLoginTarget(target) ? [[candidate.id, { ...candidate, target }] as const] : [],
     ),
   );
   const requested = new Map(slots.map((slot) => [slot.id, slot]));
@@ -458,7 +465,10 @@ export function validatePagePlan(
     if (accountSwitch === undefined) return { ok: false, reason: "unknown-candidate" };
     if (usedCandidates.has(accountSwitch.id) || accountSwitch.id === action.id)
       return { ok: false, reason: "duplicate-candidate" };
-    if (!isActionRole(accountSwitch.role) && accountSwitch.role !== "link")
+    if (
+      (!isActionRole(accountSwitch.role) && accountSwitch.role !== "link") ||
+      !isStepTarget(accountSwitch.target)
+    )
       return { ok: false, reason: "incompatible-role" };
   }
 
@@ -863,7 +873,7 @@ const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
  * control must be a button or link of the page, not hold account text and not be the
  * other control. A list whose accounts are all shown beside buttons needs a named
  * control. Its locator is never `autocomplete` or `label`, which name only inputs, nor
- * `accessible-name`, which names only a `password` handler's button.
+ * `accessible-name`, which names only a `password` handler's button or a route step's click.
  */
 export function validateAccountList(
   observation: LoginObservation,
@@ -884,7 +894,9 @@ export function validateAccountList(
     )
       return "incompatible-role";
     if (
-      [candidate.label, target.value].some((text) => text !== undefined && accountText.test(text))
+      [candidate.label, ...targetValues(target)].some(
+        (text) => text !== undefined && accountText.test(text),
+      )
     )
       return "account-text";
     return { candidate: candidate.id, target };
@@ -962,7 +974,11 @@ export function validateEntry(
     target.by === "password-form-name"
   )
     return { ok: false, reason: "incompatible-role" };
-  if ([candidate.label, target.value].some((text) => text !== undefined && accountText.test(text)))
+  if (
+    [candidate.label, ...targetValues(target)].some(
+      (text) => text !== undefined && accountText.test(text),
+    )
+  )
     return { ok: false, reason: "account-text" };
   return { ok: true, entry: { entry: candidate.id, target } };
 }

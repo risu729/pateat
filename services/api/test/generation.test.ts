@@ -2297,6 +2297,7 @@ describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", ()
     recipeId,
     origin: ORIGIN,
     provider: "bitwarden",
+    server: "cloud-us",
     userId: "user-1",
     itemId: item,
     itemName: `Synthetic ${item}`,
@@ -2309,7 +2310,16 @@ describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", ()
       {
         version: 1,
         expectedRevision: 0,
-        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings },
+        settings: {
+          connections: [],
+          accountPolicies: [],
+          itemPolicies: [],
+          customFieldReviews: [],
+          excludedSites: [],
+          passkeyBrowserSites: [],
+          siteDefaults: [],
+          bindings,
+        },
       },
       "PUT",
     );

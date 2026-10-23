@@ -1,4 +1,4 @@
-import { browser } from "wxt/browser";
+import { closestAcross, composedParent, queryAll, shadowRootOf, treeOf } from "./shadow";
 
 /** Elements whose text is never page text: code, styles, raw markup and control contents. */
 const textless = new Set([
@@ -37,7 +37,7 @@ let behindModal: ReadonlySet<Element> | undefined;
  * `<dialog>` opened with `showModal()`.
  */
 export function openModals(document: Document): HTMLElement[] {
-  return [...document.querySelectorAll("[aria-modal='true' i], dialog")].filter(
+  return queryAll(document, "[aria-modal='true' i], dialog").filter(
     (element): element is HTMLElement =>
       (element.matches(":modal") ||
         (element.getAttribute("aria-modal")?.trim().toLowerCase() === "true" &&
@@ -64,9 +64,14 @@ export function readBehindModal<Result>(document: Document, read: () => Result):
   const outer = behindModal;
   const modals = openModals(document);
   const hidden = new Set<Element>();
+  // Up through the hosts of the shadow trees that hold a modal, each tree's top included
+  // (ADR 0070).
   for (const modal of modals)
-    for (let ancestor = modal.parentElement; ancestor; ancestor = ancestor.parentElement)
-      for (const sibling of ancestor.children) if (sibling.matches(hiders)) hidden.add(sibling);
+    for (let node: Element | null = modal; node; node = composedParent(node)) {
+      const parent = node.parentNode;
+      if (parent instanceof Element || parent instanceof ShadowRoot)
+        for (const sibling of parent.children) if (sibling.matches(hiders)) hidden.add(sibling);
+    }
   behindModal = hidden.size > 0 ? hidden : outer;
   try {
     return read();
@@ -99,12 +104,11 @@ export function readOwnInert<Result>(element: Element, read: () => Result): Resu
  * reads.
  */
 function hiddenByAttribute(element: Element): boolean {
-  for (
-    let hider = element.closest(hiders);
-    hider;
-    hider = hider.parentElement?.closest(hiders) ?? null
-  )
+  for (let hider = closestAcross(element, hiders); hider;) {
     if (!behindModal?.has(hider)) return true;
+    const parent = composedParent(hider);
+    hider = parent && closestAcross(parent, hiders);
+  }
   return false;
 }
 
@@ -113,7 +117,7 @@ function hiddenByAttribute(element: Element): boolean {
  * itself, or an `inert` or `aria-hidden="true"` one.
  */
 export function attributeHidden(element: Element): boolean {
-  return element.closest("[hidden]") !== null || hiddenByAttribute(element);
+  return closestAcross(element, "[hidden]") !== null || hiddenByAttribute(element);
 }
 
 /**
@@ -127,7 +131,7 @@ function flatParent(element: Element): Element | null | undefined {
   const parent = element.parentNode;
   if (parent instanceof ShadowRoot) return parent.host;
   const host = element.parentElement;
-  const root = host && browser?.dom?.openOrClosedShadowRoot?.(host);
+  const root = host && shadowRootOf(host);
   if (!root) return host;
   return [...root.querySelectorAll("slot")].find((slot) => slot.assignedNodes().includes(element));
 }
@@ -258,12 +262,12 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
   if (
     !(element instanceof HTMLElement) ||
     !element.isConnected ||
-    element.closest("[hidden]") ||
+    closestAcross(element, "[hidden]") ||
     hiddenByAttribute(element)
   )
     return false;
   if (rendered(element, opacity)) return true;
-  const parent = element.parentElement;
+  const parent = composedParent(element);
   const view = element.ownerDocument.defaultView;
   const style = view?.getComputedStyle(element);
   if (
@@ -317,14 +321,22 @@ export function renderedText(
 ): string | undefined {
   if (!shown(root) || textless.has(root.tagName)) return undefined;
   if (leave?.size)
-    for (let node: Element | null = root; node; node = node.parentElement)
+    for (let node: Element | null = root; node; node = composedParent(node))
       if (leave.has(node)) return undefined;
   const view = root.ownerDocument.defaultView;
   let text = "";
   // `undefined` marks the end of a block, so its text never joins the text after it.
   const pending: (ChildNode | undefined)[] = [];
-  const enqueue = (parent: Node) => {
-    for (let child = parent.lastChild; child; child = child.previousSibling) pending.push(child);
+  // The flat tree, as it renders: a host's shadow tree instead of its children, and a
+  // slot's assigned nodes instead of its fallback content (ADR 0070).
+  const enqueue = (parent: Element) => {
+    const assigned = parent instanceof HTMLSlotElement ? parent.assignedNodes() : [];
+    if (assigned.length > 0) {
+      for (let at = assigned.length - 1; at >= 0; at--) pending.push(assigned[at] as ChildNode);
+      return;
+    }
+    const from = shadowRootOf(parent) ?? parent;
+    for (let child = from.lastChild; child; child = child.previousSibling) pending.push(child);
   };
   enqueue(root);
   while (pending.length > 0 && text.length <= limit) {
@@ -443,8 +455,8 @@ export function opensHere(link: HTMLAnchorElement): boolean {
  * reloads the page and never counts, nor does a script link, nor a fragment that starts
  * with `#/` or `#!`, which a page's router reads as a route (`#/account/delete`), so such
  * a link may go to another page in all but its URL. Only an accessible-name
- * locator, which only a `password` handler's button uses, counts such a link as a button;
- * everywhere else it stays a link.
+ * locator of a `password` handler's button counts such a link as a button; everywhere
+ * else, a route step's click by that name included, it stays a link.
  */
 export function isFragmentButton(element: Element): element is HTMLAnchorElement {
   if (!(element instanceof HTMLAnchorElement)) return false;
@@ -483,7 +495,8 @@ function pointer(link: HTMLAnchorElement): boolean {
   const view = link.ownerDocument.defaultView;
   const points = (element: Element) =>
     /(?:^|, )pointer$/u.test(view!.getComputedStyle(element).cursor);
-  return view !== null && points(link) && !(link.parentElement && points(link.parentElement));
+  const parent = composedParent(link);
+  return view !== null && points(link) && !(parent && points(parent));
 }
 
 /**
@@ -507,7 +520,7 @@ export function isScriptButton(element: Element): boolean {
     return element.hasAttribute("href")
       ? scriptHref(element)
       : element.hasAttribute("onclick") || roleButton(element) || pointer(element);
-  return element.closest("a[href]") === null && roleButton(element);
+  return closestAcross(element, "a[href]") === null && roleButton(element);
 }
 
 /**
@@ -534,13 +547,13 @@ export function isRoleButton(element: Element): element is HTMLElement {
  * still comes from {@link buttonText}.
  */
 export function hasNativeButton(document: Document, text: string): boolean {
-  return [...document.querySelectorAll("button, input")].some((element) => {
+  return queryAll(document, "button, input").some((element) => {
     if (!isButton(element)) return false;
     const raw =
       element instanceof HTMLButtonElement
         ? [
             element.textContent ?? "",
-            ...[...element.querySelectorAll("img[alt]")].map((image) => image.getAttribute("alt")!),
+            ...queryAll(element, "img[alt]").map((image) => image.getAttribute("alt")!),
           ]
         : [element.type === "image" ? element.alt : element.value];
     return raw.some((part) => collapseText(part) === text);
@@ -549,7 +562,7 @@ export function hasNativeButton(document: Document, text: string): boolean {
 
 /** The `alt` of the shown images in a `<button>` or link that has no rendered text. */
 function imageText(element: Element): string {
-  return [...element.querySelectorAll("img[alt]")]
+  return queryAll(element, "img[alt]")
     .flatMap((image) => (shown(image) ? [image.getAttribute("alt")!] : []))
     .join(" ");
 }
@@ -620,25 +633,46 @@ export function fieldName(element: Element): string | undefined {
 
 /** The elements `element`'s `aria-labelledby` names, in its order. */
 function labelledBy(element: Element): Element[] {
-  const document = element.ownerDocument;
+  const tree = treeOf(element);
   return (element.getAttribute("aria-labelledby") ?? "").split(/\s+/u).flatMap((id) => {
-    const target = id ? document.getElementById(id) : null;
+    const target = id ? tree.getElementById(id) : null;
     return target ? [target] : [];
   });
 }
 
 /**
  * The rendered text of `elements`, collapsed; undefined when it is cut short, which could
- * collapse to a prefix of it.
+ * collapse to a prefix of it. With `ownHidden`, an element's own `aria-hidden="true"` does
+ * not hide it, as a control's label that the page hides from assistive technology so that
+ * the control alone announces it (`<span id="say" aria-hidden="true">Continue</span>`
+ * beside `<input type="submit" aria-labelledby="say">`, Amazon.co.jp, 2026-10-23); an
+ * `inert` or `aria-hidden` ancestor or descendant, and CSS, still hide.
  */
-function readNames(elements: readonly Element[]): string | undefined {
+function readNames(
+  elements: readonly Element[],
+  { ownHidden = false }: { ownHidden?: boolean } = {},
+): string | undefined {
   const readLimit = fieldNameLimit * 4;
   let raw = "";
   for (const part of elements) {
-    raw += ` ${renderedText(part, readLimit) ?? ""}`;
+    const read = () => renderedText(part, readLimit) ?? "";
+    raw += ` ${ownHidden ? readOwnAriaHidden(part, read) : read()}`;
     if (raw.length > readLimit) return undefined;
   }
   return collapseText(raw);
+}
+
+/** Runs `read` with `element`'s own `aria-hidden="true"`, but not `inert`, not hiding it. */
+function readOwnAriaHidden<Result>(element: Element, read: () => Result): Result {
+  if (element.getAttribute("aria-hidden") !== "true" || element.hasAttribute("inert"))
+    return read();
+  const outer = behindModal;
+  behindModal = new Set([...(outer ?? []), element]);
+  try {
+    return read();
+  } finally {
+    behindModal = outer;
+  }
 }
 
 /**
@@ -667,7 +701,8 @@ export function isNamedControl(element: Element): element is HTMLElement {
 /**
  * The accessible name an `{ by: "accessible-name" }` locator compares (ADR 0048 amendment
  * of 2026-10-19): for a shown {@link isNamedControl}, the rendered text of the elements
- * its `aria-labelledby` names, else its `aria-label`, the first that is not empty,
+ * its `aria-labelledby` names, each read even when its own `aria-hidden` hides it from
+ * assistive technology (ADR 0048 amendment of 2026-10-23), else its `aria-label`, the first that is not empty,
  * collapsed. A control that is not shown, or whose first name is longer than 120 code
  * units, has none; a later source is never tried in its place. Its visible text, an
  * image's `alt` and its `title` are not its name here.
@@ -675,7 +710,7 @@ export function isNamedControl(element: Element): element is HTMLElement {
 export function controlName(element: Element): string | undefined {
   if (!isNamedControl(element) || !shown(element)) return undefined;
   return firstName([
-    () => readNames(labelledBy(element)),
+    () => readNames(labelledBy(element), { ownHidden: true }),
     () => collapseText(element.getAttribute("aria-label") ?? ""),
   ]);
 }
@@ -717,10 +752,7 @@ export function controlContent(element: Element): string | undefined {
       if (node instanceof HTMLImageElement) part = node.alt;
       else if (node instanceof HTMLInputElement && labelInputTypes.has(node.type))
         part = node.type === "image" ? node.alt : node.value;
-      const root =
-        node instanceof HTMLElement
-          ? (node.shadowRoot ?? browser?.dom?.openOrClosedShadowRoot?.(node))
-          : undefined;
+      const root = node instanceof HTMLElement ? shadowRootOf(node) : undefined;
       const children = [...(root?.childNodes ?? []), ...node.childNodes];
       for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]!);
     }

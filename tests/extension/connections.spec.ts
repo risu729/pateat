@@ -5,8 +5,10 @@ import {
   setupRequest,
   settingsRequest,
   beginInput,
+  catalogAccount,
   inspectSetupPersistence,
 } from "./connection-fixture";
+import { excludedFieldReference } from "../../packages/contracts/src/index";
 import { v1Password } from "../../packages/bitwarden/src/__fixtures__/crypto";
 
 test("manual options setup accepts real SDK data and restores value-free catalog offline after full profile closure", async () => {
@@ -259,18 +261,34 @@ for (const variant of ["builtin-changed", "reencrypted", "changed", "reordered"]
       const first = await setupRequest(options, { type: "connection.begin", input: beginInput() });
       if (!first.ok || first.kind !== "ready") throw new Error("Synthetic setup failed");
       const saved = await settingsRequest(options);
-      const connection = saved.snapshot.settings.connections.find(
-        (entry) => entry.connectionId === first.connectionId,
-      )!;
+      const account = catalogAccount(saved.catalog, first.connectionId);
       const item = saved.catalog.connections.find((entry) => entry.id === first.connectionId)!
         .items[0]!;
-      connection.excludedFields.push({ itemId: item.id, fieldId: `custom.${first.snapshotId}.1` });
-      await settingsRequest(options, {
+      // Synced settings name the second of the three custom fields called "duplicate".
+      const reference = excludedFieldReference(item.fields, `custom.${first.snapshotId}.1`);
+      expect(reference).toEqual({ custom: "duplicate", position: 2, count: 3 });
+      const policy = {
+        ...account,
+        itemId: item.id,
+        itemName: item.label,
+        selected: false,
+        excluded: false,
+        excludedFields: [reference!],
+      };
+      saved.snapshot.settings.itemPolicies.push(policy);
+      const excluded = await settingsRequest(options, {
         version: 1,
         type: "settings.save",
         expectedRevision: saved.snapshot.revision,
         settings: saved.snapshot.settings,
+        // The settings page names the snapshot its draft showed (ADR 0023).
+        shownSnapshots: [{ connectionId: first.connectionId, snapshotId: first.snapshotId }],
       });
+      // The first custom-field exclusion records the fields it was made against.
+      expect(item.evidence).toMatch(/^bitwarden-v1:sha256:[0-9a-f]{64}$/);
+      expect(excluded.snapshot.settings.customFieldReviews).toEqual([
+        { ...account, itemId: item.id, evidence: item.evidence, revisionDate: item.revisionDate },
+      ]);
       expect(await setupProbe(browser.page, { action: "resolve", field: "custom-1" })).toEqual({
         ok: false,
         error: { code: "field-denied" },
@@ -295,12 +313,20 @@ for (const variant of ["builtin-changed", "reencrypted", "changed", "reordered"]
           ok: true,
           matched: true,
         });
+        // The reference still names the same field; the record follows the new ciphertext.
         const latest = await settingsRequest(options);
-        expect(
-          latest.snapshot.settings.connections.find(
-            (entry) => entry.connectionId === first.connectionId,
-          )!.excludedFields,
-        ).toContainEqual({ itemId: item.id, fieldId: `custom.${refreshed.snapshotId}.1` });
+        const current = latest.catalog.connections.find((entry) => entry.id === first.connectionId)!
+          .items[0]!;
+        expect(latest.snapshot.settings.itemPolicies).toEqual([policy]);
+        expect(latest.snapshot.settings.customFieldReviews).toEqual([
+          {
+            ...account,
+            itemId: item.id,
+            evidence: current.evidence,
+            revisionDate: current.revisionDate,
+          },
+        ]);
+        expect(latest.catalog.connections[0]?.quarantinedItemIds ?? []).toEqual([]);
       } else {
         expect(await setupProbe(browser.page, { action: "resolve", field: "password" })).toEqual({
           ok: false,
@@ -327,6 +353,27 @@ for (const variant of ["builtin-changed", "reencrypted", "changed", "reordered"]
           ok: false,
           error: { code: "field-denied" },
         });
+        // The review replaced the reference and recorded the fields it was made against.
+        const reviewed = await settingsRequest(options);
+        const current = reviewed.catalog.connections.find(
+          (entry) => entry.id === first.connectionId,
+        )!.items[0]!;
+        expect(reviewed.snapshot.settings.itemPolicies).toEqual([
+          {
+            ...policy,
+            excludedFields: [
+              excludedFieldReference(current.fields, `custom.${refreshed.snapshotId}.1`),
+            ],
+          },
+        ]);
+        expect(reviewed.snapshot.settings.customFieldReviews).toEqual([
+          {
+            ...account,
+            itemId: item.id,
+            evidence: current.evidence,
+            revisionDate: current.revisionDate,
+          },
+        ]);
       }
       expect(requests).toEqual([]);
     });

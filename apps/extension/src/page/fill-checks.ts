@@ -1,4 +1,5 @@
 import { valueMismatch, type ValueMismatch } from "@pateat/contracts";
+import { containsAcross, formOf, queryAll } from "./shadow";
 
 // The executor's local fill checks (ADR 0010). They read only the page and the values
 // already in the content script; nothing they see, including alert text that may echo
@@ -27,6 +28,9 @@ export function inputValueMismatch(
 const alertSelector = '[role="alert"], [aria-live="assertive"]';
 const statusSelector = '[role="status"], [aria-live="polite"]';
 
+/** An input a fill typed into, or a select a split date's part chose an option in (ADR 0061). */
+export type FilledControl = HTMLInputElement | HTMLSelectElement;
+
 /** What the page showed before a fill, to compare with once its handlers ran. */
 export interface FillBaseline {
   readonly texts: ReadonlySet<string>;
@@ -46,15 +50,15 @@ const validityFlags = [
   "valueMissing",
 ] as const satisfies readonly (keyof ValidityState)[];
 
-const ariaInvalid = (input: HTMLInputElement) =>
+const ariaInvalid = (input: FilledControl) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
 function feedbackTexts(
-  inputs: readonly HTMLInputElement[],
+  inputs: readonly FilledControl[],
   regions: "all" | "alert" = "all",
 ): Set<string> {
   const root = inputs[0]?.ownerDocument ?? document;
-  const form = inputs[0]?.form;
+  const form = inputs[0] && formOf(inputs[0]);
   const named = new Set(
     inputs.flatMap((input) =>
       ["aria-describedby", "aria-errormessage"].flatMap((name) =>
@@ -63,9 +67,9 @@ function feedbackTexts(
     ),
   );
   const shown = [
-    ...root.querySelectorAll(alertSelector),
-    ...(regions === "alert" ? [] : [...root.querySelectorAll(statusSelector)]).filter(
-      (element) => form?.contains(element) || named.has(element.id),
+    ...queryAll(root, alertSelector),
+    ...(regions === "alert" ? [] : queryAll(root, statusSelector)).filter(
+      (element) => (form && containsAcross(form, element)) || named.has(element.id),
     ),
   ];
   const texts = new Set<string>();
@@ -74,7 +78,7 @@ function feedbackTexts(
     // visibility toggle; visually hidden announcements still count as rendered.
     if (
       !(element instanceof HTMLElement) ||
-      inputs.some((input) => element.contains(input)) ||
+      inputs.some((input) => containsAcross(element, input)) ||
       !element.checkVisibility({ visibilityProperty: true })
     )
       continue;
@@ -84,7 +88,7 @@ function feedbackTexts(
   return texts;
 }
 
-export function fillBaseline(inputs: readonly HTMLInputElement[]): FillBaseline {
+export function fillBaseline(inputs: readonly FilledControl[]): FillBaseline {
   return {
     texts: feedbackTexts(inputs),
     inputs: inputs.map((input) => ({
@@ -105,7 +109,7 @@ export function fillBaseline(inputs: readonly HTMLInputElement[]): FillBaseline 
  * submission.
  */
 export function rejectsFill(
-  inputs: readonly HTMLInputElement[],
+  inputs: readonly FilledControl[],
   before: FillBaseline,
   { statuses = true }: { statuses?: boolean } = {},
 ): boolean {

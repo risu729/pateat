@@ -3,6 +3,17 @@ import { typeValue } from "./enter-value";
 import { blurElement, focusElement } from "./focus";
 import { pressElement } from "./script-url-click";
 
+/** Closed shadow roots, which a content script reaches through `dom.openOrClosedShadowRoot`. */
+const closedRoots = vi.hoisted(() => new WeakMap<Element, ShadowRoot>());
+vi.mock("wxt/browser", () => ({
+  browser: {
+    dom: {
+      openOrClosedShadowRoot: (element: HTMLElement) =>
+        closedRoots.get(element) ?? element.shadowRoot,
+    },
+  },
+}));
+
 const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
 const cleanups: (() => void)[] = [];
 
@@ -117,6 +128,21 @@ describe("focusElement and blurElement", () => {
     expect(await typeValue(field, "me", setter)).toBeUndefined();
     expect(events).toEqual(["focus@field", "focusin@field", "blur@field", "focusout@field"]);
     expect(root.activeElement).toBeNull();
+  });
+
+  it("finds the focused field inside a closed shadow root (ADR 0070)", async () => {
+    document.body.innerHTML = `<input id="a"><x-field id="host"></x-field>`;
+    const host = document.getElementById("host")!;
+    const root = host.attachShadow({ mode: "closed" });
+    closedRoots.set(host, root);
+    root.innerHTML = `<input id="field">`;
+    const field = root.getElementById("field") as HTMLInputElement;
+    (document.getElementById("a") as HTMLInputElement).focus();
+    unfocusedWindow();
+    const events = record(field);
+    expect(focusElement(field)).toBe(true);
+    expect(document.activeElement).toBe(host);
+    expect(events).toEqual(["focus@field", "focusin@field"]);
   });
 
   it("sends a press's focus move in a window without focus, and keeps the button focused", async () => {

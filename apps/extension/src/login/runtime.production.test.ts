@@ -6,6 +6,7 @@ import {
   laterStartSteps,
   parseLoginRecipe,
   recipeStartSteps,
+  type ExcludedField,
   type DetailLink,
   toLoginLayout,
   type LocalSettings,
@@ -443,6 +444,7 @@ const savedBinding: SavedLoginBinding = {
   recipeId: recipe.id,
   origin,
   provider: "bitwarden",
+  server: "cloud-us",
   userId,
   itemId,
   itemName: "Synthetic item",
@@ -461,6 +463,68 @@ const uriMatch = (overrides: Partial<UriCandidates> = {}): UriCandidates => ({
   ...overrides,
 });
 
+/** The live connection's synced account policy (ADR 0023): enabled, every item. */
+const liveAccountPolicy = (
+  overrides: Partial<LocalSettings["accountPolicies"][number]> = {},
+): LocalSettings["accountPolicies"][number] => ({
+  provider: "bitwarden",
+  server: "cloud-us",
+  userId,
+  accountName: "Synthetic live vault",
+  enabled: true,
+  selection: { mode: "all" },
+  ...overrides,
+});
+/** One item's synced policy for the live account. */
+const liveItemPolicy = (
+  id: string,
+  overrides: Partial<LocalSettings["itemPolicies"][number]> = {},
+): LocalSettings["itemPolicies"][number] => ({
+  provider: "bitwarden",
+  server: "cloud-us",
+  userId,
+  itemId: id,
+  itemName: id,
+  selected: false,
+  excluded: false,
+  excludedFields: [],
+  ...overrides,
+});
+/** The custom-field evidence every live item carries in the synthetic catalog. */
+const liveEvidence = `bitwarden-v1:sha256:${"a".repeat(64)}`;
+const liveRevisionDate = "2026-10-11T07:10:03.1234567Z";
+/** A review record matching the live item's evidence, which custom exclusions need. */
+const liveReview = (id = itemId): LocalSettings["customFieldReviews"][number] => ({
+  provider: "bitwarden",
+  server: "cloud-us",
+  userId,
+  itemId: id,
+  evidence: liveEvidence,
+  revisionDate: liveRevisionDate,
+});
+/**
+ * Settings that exclude these fields of the live item, with the review record a custom
+ * exclusion is recorded with (ADR 0023).
+ */
+const excludingLive = (
+  excludedFields: ExcludedField[],
+  id = itemId,
+): Pick<LocalSettings, "itemPolicies" | "customFieldReviews"> => ({
+  itemPolicies: [liveItemPolicy(id, { excludedFields })],
+  customFieldReviews: excludedFields.some((field) => typeof field !== "string")
+    ? [liveReview(id)]
+    : [],
+});
+/** The site default naming the live account's item. */
+const liveDefault = (overrides: Partial<LocalSettings["siteDefaults"][number]> = {}) => ({
+  origin,
+  provider: "bitwarden",
+  server: "cloud-us",
+  userId,
+  itemId,
+  ...overrides,
+});
+
 type CustomField = {
   name: string | null;
   kind: "text" | "hidden" | "linked";
@@ -475,8 +539,10 @@ function harness(
     allowedOrigins?: string[];
     uris?: LiveUriMatcher;
     quarantined?: boolean;
-    /** Adds a second, not enabled connection of the same provider account. */
+    /** Adds a second connection of the same provider account, which shares its policy. */
     duplicateAccount?: boolean;
+    /** The device is paired and waits for its first settings sync (ADR 0023). */
+    settingsSyncPending?: boolean;
     /** Adds a login username field to the item. */
     username?: boolean;
     /**
@@ -492,6 +558,8 @@ function harness(
     passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
     /** The items holding a discoverable passkey for an origin (ADR 0034). */
     passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+    /** A hostname chosen "Always for this site" whose write still waits (ADR 0007). */
+    pendingBrowserSite?: (origin: string) => boolean;
     /** Automatic vault sync (ADR 0025). */
     vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
     /** Receives the runtime's reports for the local log, without page URLs unless `urls`. */
@@ -532,18 +600,14 @@ function harness(
     }));
   const current = { current: snapshotId, userId: userId as string | undefined };
   const settings: LocalSettings = {
-    connections: [
-      {
-        connectionId,
-        enabled: true,
-        selection: { mode: "all", groupIds: [], itemIds: [] },
-        excludedItemIds: [],
-        excludedFields: [],
-      },
-    ],
+    connections: [],
+    accountPolicies: [liveAccountPolicy()],
+    itemPolicies: [],
+    customFieldReviews: [],
     excludedSites: [],
+    passkeyBrowserSites: [],
     repromptSites: [],
-    siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
+    siteDefaults: [liveDefault()],
     bindings: [savedBinding],
     ...overrides,
   };
@@ -568,11 +632,13 @@ function harness(
       ok: true,
       snapshot: structuredClone(snapshot),
       catalog: {
+        ...(live.settingsSyncPending ? { settingsSyncPending: true as const } : {}),
         connections: [
           {
             id: connectionId,
             label: "Synthetic live vault",
             provider: "bitwarden",
+            server: "cloud-us",
             ...(current.userId ? { userId: current.userId } : {}),
             snapshotId: current.current,
             state: "ready",
@@ -585,6 +651,8 @@ function harness(
                 ...(live.reprompt ? { reprompt: true as const } : {}),
                 allowedOrigins: live.allowedOrigins ?? [origin],
                 groupIds: [],
+                evidence: liveEvidence,
+                revisionDate: liveRevisionDate,
                 fields: [
                   ...(live.username
                     ? [
@@ -605,6 +673,8 @@ function harness(
                 label: "Other synthetic item",
                 allowedOrigins: [],
                 groupIds: [],
+                evidence: liveEvidence,
+                revisionDate: liveRevisionDate,
                 fields: [
                   ...(live.otherUsername
                     ? [
@@ -626,6 +696,8 @@ function harness(
                 label: "Extra synthetic item",
                 allowedOrigins: [],
                 groupIds: [],
+                evidence: liveEvidence,
+                revisionDate: liveRevisionDate,
                 fields: [
                   { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
                   ...(extra.builtin ?? []).map((field) => ({ ...field, name: null })),
@@ -640,6 +712,7 @@ function harness(
                   id: "duplicate-connection",
                   label: "Same account again",
                   provider: "bitwarden",
+                  server: "cloud-us",
                   userId,
                   snapshotId: current.current,
                   state: "ready" as const,
@@ -674,6 +747,7 @@ function harness(
     ...(live.repairs ? { repairs: live.repairs } : {}),
     ...(live.passkeys ? { passkeys: live.passkeys } : {}),
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
+    ...(live.pendingBrowserSite ? { pendingBrowserSite: live.pendingBrowserSite } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
     ...(live.askMasterPassword ? { askMasterPassword: live.askMasterPassword } : {}),
@@ -1875,7 +1949,7 @@ describe("production login document admission", () => {
     const report = vi.fn<(report: LoginReport) => void>();
     const h = harness({}, { report });
     fake.state.onAwait = () => {
-      h.settings.settings.connections[0]!.enabled = false;
+      h.settings.settings.accountPolicies = [liveAccountPolicy({ enabled: false })];
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
@@ -2499,8 +2573,8 @@ describe("production login document admission", () => {
       const h = harness(
         {
           siteDefaults: [
-            { origin, provider: "bitwarden", userId, itemId },
-            { origin: second, provider: "bitwarden", userId, itemId },
+            { origin, provider: "bitwarden", server: "cloud-us", userId, itemId },
+            { origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId },
           ],
           bindings: [savedBinding, { ...savedBinding, recipeId: secondRecipe.id, origin: second }],
         },
@@ -2758,7 +2832,9 @@ describe("production login document admission", () => {
         fake.state.tabUrls[1] = fake.state.pageUrl;
         const h = harness(
           {
-            siteDefaults: [{ origin: local, provider: "bitwarden", userId, itemId }],
+            siteDefaults: [
+              { origin: local, provider: "bitwarden", server: "cloud-us", userId, itemId },
+            ],
             bindings: [{ ...savedBinding, recipeId: localRecipe.id, origin: local }],
           },
           { allowedOrigins: [local] },
@@ -3074,7 +3150,7 @@ describe("production login document admission", () => {
           holdClicks(origin);
           const h = harness(
             {
-              siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
+              siteDefaults: [{ origin, provider: "bitwarden", server: "cloud-us", userId, itemId }],
               bindings: [{ ...savedBinding, slots: [{ slot: "username", field: "username" }] }],
             },
             { allowedOrigins: [origin], username: true },
@@ -4548,6 +4624,7 @@ describe("production login document admission", () => {
         {
           origin,
           provider: "bitwarden",
+          server: "cloud-us",
           userId,
           itemId,
           itemName: "Synthetic item",
@@ -4635,9 +4712,13 @@ describe("production login document admission", () => {
       }, 10_000);
     });
     it("refuses the only URI match when its account is connected more than once", async () => {
-      // The automatic choice names the provider account as a saved default would, so it
-      // stays ambiguous even though the other connection is not enabled.
-      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      // Both connections of the account follow its one synced policy (ADR 0023), so both
+      // are searched; the automatic choice names the provider account as a saved default
+      // would, so it stays ambiguous.
+      const uris = vi.fn<LiveUriMatcher>(async (connection) => ({
+        ok: true,
+        data: uriMatch({ connectionId: connection }),
+      }));
       const h = harness(unsaved, { allowedOrigins: [], uris, duplicateAccount: true });
       expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
       expect(h.fields).not.toHaveBeenCalled();
@@ -4789,7 +4870,9 @@ describe("production login document admission", () => {
       const second = "https://second.example";
       const h = harness(
         {
-          siteDefaults: [{ origin: second, provider: "bitwarden", userId, itemId }],
+          siteDefaults: [
+            { origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId },
+          ],
           bindings: [],
         },
         { allowedOrigins: [second], uris: async () => ({ ok: true, data: uriMatch() }), report },
@@ -4825,7 +4908,9 @@ describe("production login document admission", () => {
       const { completion: _unlearned, ...generated } = recipe;
       const h = harness(
         {
-          siteDefaults: [{ origin: second, provider: "bitwarden", userId, itemId }],
+          siteDefaults: [
+            { origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId },
+          ],
           bindings: [],
         },
         { allowedOrigins: [second], uris: async () => ({ ok: true, data: uriMatch() }) },
@@ -4895,7 +4980,7 @@ describe("production login document admission", () => {
       await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledTimes(1));
       // The saved default, which has no item name, is kept as is, never rewritten.
       expect(h.settings.settings.siteDefaults).toEqual([
-        { origin, provider: "bitwarden", userId, itemId },
+        { origin, provider: "bitwarden", server: "cloud-us", userId, itemId },
       ]);
       expect(h.settings.settings.bindings).toEqual([
         { ...savedBinding, accountName: "Synthetic live vault" },
@@ -4915,6 +5000,7 @@ describe("production login document admission", () => {
         {
           origin,
           provider: "bitwarden",
+          server: "cloud-us",
           userId,
           itemId,
           itemName: "Synthetic item",
@@ -4925,7 +5011,7 @@ describe("production login document admission", () => {
     });
     it("reports a locked vault, not a missing account, for a provider-account default", async () => {
       const h = harness(
-        { siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }] },
+        { siteDefaults: [{ origin, provider: "bitwarden", server: "cloud-us", userId, itemId }] },
         { allowedOrigins: [origin] },
       );
       h.snapshot.userId = undefined;
@@ -4934,7 +5020,11 @@ describe("production login document admission", () => {
     });
     it("refuses a provider-account default whose account is not connected here", async () => {
       const h = harness(
-        { siteDefaults: [{ origin, provider: "bitwarden", userId: "other-account", itemId }] },
+        {
+          siteDefaults: [
+            { origin, provider: "bitwarden", server: "cloud-us", userId: "other-account", itemId },
+          ],
+        },
         { allowedOrigins: [origin] },
       );
       expect(await h.hello()).toEqual({ ok: false, reason: "connection-missing" });
@@ -5187,7 +5277,17 @@ describe("production login document admission", () => {
         ["no live URI matching is available", unsaved, { allowedOrigins: [] }, "default-not-set"],
         [
           "the saved default's account is not connected here",
-          { siteDefaults: [{ origin, provider: "bitwarden", userId: "other-account", itemId }] },
+          {
+            siteDefaults: [
+              {
+                origin,
+                provider: "bitwarden",
+                server: "cloud-us",
+                userId: "other-account",
+                itemId,
+              },
+            ],
+          },
           { allowedOrigins: [origin] },
           "connection-missing",
         ],
@@ -5848,7 +5948,9 @@ describe("production login document admission", () => {
       });
       it("ends the choice once a default is saved for the site", async () => {
         const h = await refused();
-        h.settings.settings.siteDefaults = [{ origin, provider: "bitwarden", userId, itemId }];
+        h.settings.settings.siteDefaults = [
+          { origin, provider: "bitwarden", server: "cloud-us", userId, itemId },
+        ];
         expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
         expect(await pick(h)).toEqual({ ok: false, reason: "no-choice" });
         expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
@@ -5985,7 +6087,9 @@ describe("production login document admission", () => {
         const second = "https://second.example";
         const h = harness(
           {
-            siteDefaults: [{ origin: second, provider: "bitwarden", userId, itemId }],
+            siteDefaults: [
+              { origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId },
+            ],
             bindings: [{ ...savedBinding, recipeId: "second-signin", origin: second }],
           },
           {
@@ -6398,7 +6502,7 @@ describe("production login document admission", () => {
             ]),
           );
           expect(h.settings.settings.siteDefaults).toEqual([
-            { origin, provider: "bitwarden", userId, itemId },
+            { origin, provider: "bitwarden", server: "cloud-us", userId, itemId },
           ]);
           expect(logouts()).toEqual([]);
         });
@@ -6851,6 +6955,35 @@ describe("production login document admission", () => {
   });
   describe("with a saved account choice and a synced binding", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    it("uses no vault item before the first settings sync since pairing", async () => {
+      const h = harness({}, { settingsSyncPending: true });
+      expect(await h.hello()).toEqual({ ok: false, reason: "vault-unavailable" });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+    });
+    it("refuses an item whose custom fields changed since their review", async () => {
+      const h = harness({
+        bindings: [branchBinding],
+        ...excludingLive(["login.totp", { custom: "Branch", position: 1, count: 1 }]),
+        customFieldReviews: [
+          { ...liveReview(), evidence: `bitwarden-v1:sha256:${"b".repeat(64)}` },
+        ],
+      });
+      h.recipes.recipe.mockResolvedValue(branchRecipe);
+      expect(await h.hello()).toEqual({ ok: false, reason: "review-required" });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+    });
+    it("refuses an account whose user ID has synced policy on another server", async () => {
+      const h = harness({
+        accountPolicies: [
+          liveAccountPolicy(),
+          liveAccountPolicy({ server: "https://vault.example.test", enabled: false }),
+        ],
+      });
+      expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+      expect(h.fields).not.toHaveBeenCalled();
+    });
     it("fills a custom field through the synced binding's field name", async () => {
       const h = harness({ bindings: [branchBinding] });
       h.recipes.recipe.mockResolvedValue(branchRecipe);
@@ -6933,17 +7066,7 @@ describe("production login document admission", () => {
       [
         "the bound custom field is excluded",
         {},
-        {
-          connections: [
-            {
-              connectionId,
-              enabled: true,
-              selection: { mode: "all", groupIds: [], itemIds: [] },
-              excludedItemIds: [],
-              excludedFields: [{ itemId, fieldId: `custom.${snapshotId}.0` }],
-            },
-          ],
-        },
+        excludingLive([{ custom: "Branch", position: 1, count: 1 }]),
         "binding-field-excluded",
       ],
       [
@@ -8801,17 +8924,7 @@ describe("production login document admission", () => {
       ).toBe(undefined);
       // An empty or excluded username does not count, and an excluded one is never read.
       expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "" })).toEqual(digits(8));
-      const excluded = {
-        connections: [
-          {
-            connectionId,
-            enabled: true,
-            selection: { mode: "all" as const, groupIds: [], itemIds: [] },
-            excludedItemIds: [],
-            excludedFields: [{ itemId: otherItemId, fieldId: "login.username" }],
-          },
-        ],
-      };
+      const excluded = excludingLive(["login.username"], otherItemId);
       expect(
         await sentShape(
           { [itemId]: "00001234", [otherItemId]: "0000123456" },
@@ -9109,18 +9222,7 @@ describe("production login document admission", () => {
       fake.state.extracted = { login: loginPage };
       const service = generation();
       const report = vi.fn<(report: LoginReport) => void>();
-      const disabled = {
-        ...unsaved,
-        connections: [
-          {
-            connectionId,
-            enabled: false,
-            selection: { mode: "all" as const, groupIds: [], itemIds: [] },
-            excludedItemIds: [],
-            excludedFields: [],
-          },
-        ],
-      };
+      const disabled = { ...unsaved, accountPolicies: [liveAccountPolicy({ enabled: false })] };
       const h = harness(disabled, {
         allowedOrigins: [],
         uris: async () => ({ ok: true, data: uriMatch() }),
@@ -11108,7 +11210,9 @@ describe("production login document admission", () => {
 
         describe("with a login of the site", () => {
           const saved = {
-            siteDefaults: [{ origin, provider: "bitwarden" as const, userId, itemId }],
+            siteDefaults: [
+              { origin, provider: "bitwarden" as const, server: "cloud-us", userId, itemId },
+            ],
             bindings: [savedBinding],
           };
           const signin = `${origin}/signin`;
@@ -14168,23 +14272,15 @@ describe("production login document admission", () => {
       });
 
       it("offers a field an item excludes only from the items that allow it", async () => {
-        const settings = (excluded: object) => ({
-          connections: [
-            {
-              connectionId,
-              enabled: true,
-              selection: { mode: "all" as const, groupIds: [], itemIds: [] },
-              excludedItemIds: [],
-              excludedFields: [],
-              ...excluded,
-            },
-          ],
-        });
+        const settings = (excluded: Partial<LocalSettings["itemPolicies"][number]>) =>
+          "excludedFields" in excluded
+            ? excludingLive(excluded.excludedFields!)
+            : { itemPolicies: [liveItemPolicy(otherItemId, excluded)] };
         const values = { [`${itemId} ${field(0)}`]: "1", [`${otherItemId} ${field(0)}`]: "4567" };
         const field0 = await sendPage(
           values,
           twoItems,
-          settings({ excludedFields: [{ itemId, fieldId: field(0) }] }),
+          settings({ excludedFields: [{ custom: "Branch", position: 1, count: 1 }] }),
         );
         // Offers are numbered in the order the items' fields are found.
         expect(field0.custom.map((slot) => [slot.id, slot.fieldName, slot.valueShape])).toEqual([
@@ -14193,7 +14289,7 @@ describe("production login document admission", () => {
         ]);
         expect(field0.reads).toEqual([`${otherItemId} ${field(0)}`]);
         // An excluded item offers no field and is never read.
-        const item = await sendPage(values, twoItems, settings({ excludedItemIds: [otherItemId] }));
+        const item = await sendPage(values, twoItems, settings({ excluded: true }));
         expect(item.custom.map((slot) => [slot.fieldName, slot.valueShape])).toEqual([
           ["Branch", digits(1)],
           ["PIN", undefined],
@@ -14825,20 +14921,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
 
     it("names a password the account may not fill apart from an empty one", async () => {
       const report = vi.fn<(report: LoginReport) => void>();
-      const h = harness(
-        {
-          connections: [
-            {
-              connectionId,
-              enabled: true,
-              selection: { mode: "all", groupIds: [], itemIds: [] },
-              excludedItemIds: [],
-              excludedFields: [{ itemId, fieldId: "login.password" }],
-            },
-          ],
-        },
-        { passkeys: withPasskey, report, username: true },
-      );
+      const h = harness(excludingLive(["login.password"]), {
+        passkeys: withPasskey,
+        report,
+        username: true,
+      });
       // An email-first page: the route binds only the username, so no binding is refused,
       // and the item's password decides whether the route can finish.
       h.recipes.recipe.mockResolvedValue(
@@ -15287,7 +15374,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         // The settings half of a full sync, wired to the login as the background wires it.
         const settings = (excludedSites: { hostname: string; includeSubdomains: boolean }[]) => ({
           connections: [],
+          accountPolicies: [],
+          itemPolicies: [],
+          customFieldReviews: [],
           excludedSites,
+          passkeyBrowserSites: [],
           repromptSites: [],
           siteDefaults: [],
           bindings: [],
@@ -16287,15 +16378,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         const h = harness(
           {
             bindings: namedFor(),
-            connections: [
-              {
-                connectionId,
-                enabled: true,
-                selection: { mode: "all", groupIds: [], itemIds: [] },
-                excludedItemIds: [],
-                excludedFields: [{ itemId, fieldId: seedId }],
-              },
-            ],
+            ...excludingLive([{ custom: "Seed", position: 1, count: 1 }]),
           },
           {
             passkeys: noPasskey,
@@ -16492,20 +16575,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       it("is not entered when the account excludes that field", async () => {
         onClick({ login: toCode, verify: toHome });
         const report = vi.fn<(report: LoginReport) => void>();
-        const h = harness(
-          {
-            connections: [
-              {
-                connectionId,
-                enabled: true,
-                selection: { mode: "all", groupIds: [], itemIds: [] },
-                excludedItemIds: [],
-                excludedFields: [{ itemId, fieldId: seedId }],
-              },
-            ],
-          },
-          { passkeys: noPasskey, report, custom: seeded },
-        );
+        const h = harness(excludingLive([{ custom: "Seed", position: 1, count: 1 }]), {
+          passkeys: noPasskey,
+          report,
+          custom: seeded,
+        });
         withTotp(h, true);
         customCode(h);
         h.recipes.recipe.mockResolvedValue(coded);
@@ -17115,8 +17189,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const report = vi.fn<(report: LoginReport) => void>((value) => {
         // The owner excludes the TOTP field once the handler joined the login.
         if (value.type === "handler" && value.outcome === "entered")
-          h.settings.settings.connections[0]!.excludedFields = [
-            { itemId, fieldId: "login.totp-code" },
+          h.settings.settings.itemPolicies = [
+            liveItemPolicy(itemId, { excludedFields: ["login.totp-code"] }),
           ];
       });
       h = harness({}, { passkeys: noPasskey(), report });
@@ -17144,8 +17218,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const original = fake.state.onExecute!;
       fake.state.onExecute = async (message, tabId) => {
         if ((message["operation"] as { step: LoginStep }).step.kind === "click")
-          h.settings.settings.connections[0]!.excludedFields = [
-            { itemId, fieldId: "login.totp-code" },
+          h.settings.settings.itemPolicies = [
+            liveItemPolicy(itemId, { excludedFields: ["login.totp-code"] }),
           ];
         await original(message, tabId);
       };
@@ -17618,6 +17692,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     const linkTo = (detail: DetailLink["detail"], source: DetailLink["source"]): DetailLink => ({
       origin,
       provider: "bitwarden",
+      server: "cloud-us",
       userId,
       itemId,
       detail,
@@ -17738,6 +17813,295 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       10_000,
     );
 
+    describe("a value split over several inputs (owner, 2026-10-23 12:26 UTC)", () => {
+      // A synthetic page that asks for a birth date in three selects, a year, a month
+      // written without a leading zero and a day with one.
+      const splitBirth = {
+        detail: "birth-date" as const,
+        parts: [
+          { part: "year" as const, format: "yyyy" as const, target: target("by") },
+          { part: "month" as const, format: "m" as const, target: target("bm") },
+          { part: "day" as const, format: "dd" as const, target: target("bd") },
+        ],
+      };
+      const born = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        handlers: [{ ...detailHandler, path: "/signin", fields: [splitBirth] }],
+      });
+      it("chooses a birth date's year, month and day in three selects, made after one read", async () => {
+        onClick({
+          login: { path: "/signin", present: ["by", "bm", "bd", "confirm"] },
+          confirm: toHome,
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                server: "cloud-us",
+                userId,
+                itemId,
+                detail: "birth-date",
+                source: { itemId: otherItemId, field: { custom: "生年月日" } },
+              },
+            ],
+          },
+          { passkeys: noPasskey, report, otherCustom: [{ name: "生年月日", kind: "text" }] },
+        );
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId.startsWith("custom.") ? "1990-04-05" : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(born);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        // Each part goes to the content script on its own, never the whole date.
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          [
+            { slot: "detail", value: "1990", secret: "date-part", part: "year" },
+            { slot: "detail 2", value: "4", secret: "date-part", part: "month" },
+            { slot: "detail 3", value: "05", secret: "date-part", part: "day" },
+          ],
+        ]);
+        expect(JSON.stringify(fake.state.messages)).not.toContain("1990-04-05");
+        expect(h.fields.mock.calls.map(([request]) => request.account.itemId)).toEqual([
+          itemId,
+          otherItemId,
+        ]);
+        // Its selects are observed as ones a value can be set in before the fill is chosen.
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({
+            type: "login.observe",
+            targets: [target("by"), target("bm"), target("bd")],
+            require: ["settable", "settable", "settable"],
+          }),
+        );
+        expect(clicks("confirm")).toBe(1);
+        expect(handlerReports(report)).toEqual([[0, "detail", "entered", 2]]);
+      }, 10_000);
+
+      it("ends as a challenge with nothing chosen when a select has no option for its part", async () => {
+        onClick({
+          login: { path: "/signin", present: ["by", "bm", "bd", "confirm"] },
+          confirm: toHome,
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                server: "cloud-us",
+                userId,
+                itemId,
+                detail: "birth-date",
+                source: { itemId: otherItemId, field: { custom: "生年月日" } },
+              },
+            ],
+          },
+          { passkeys: noPasskey, report, otherCustom: [{ name: "生年月日", kind: "text" }] },
+        );
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId.startsWith("custom.") ? "1990-04-05" : "synthetic-secret",
+        );
+        // The content script finds no option for one part before it chooses any.
+        const clicked = fake.state.onExecute!;
+        fake.state.onExecute = async (message, tabId) => {
+          const values = message["values"] as { slot: string }[] | undefined;
+          if (values?.some((value) => value.slot === "detail 2"))
+            fake.state.executeReply = { ok: false, reason: "value-mismatch" };
+          return clicked(message, tabId);
+        };
+        h.recipes.recipe.mockResolvedValue(born);
+        expect(await h.hello()).toEqual({ ok: true });
+        // The person finishes the page, so the login is watched as after a judged
+        // challenge (ADR 0027).
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          { timeout: 6_000 },
+        );
+        expect(detailFills()).toHaveLength(1);
+        expect(clicks("confirm")).toBe(0);
+        expect(handlerReports(report)).toEqual([
+          [0, "detail", "entered", 2],
+          [0, "detail", "detail-unfit", 2],
+        ]);
+      }, 10_000);
+
+      it("types a card number's digits as groups into four boxes", async () => {
+        const boxed = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          handlers: [
+            {
+              ...detailHandler,
+              path: "/signin",
+              fields: [
+                {
+                  detail: "card-number" as const,
+                  parts: [1, 2, 3, 4].map((part) => ({
+                    part,
+                    length: 4,
+                    target: target(`c${part}`),
+                  })),
+                },
+              ],
+            },
+          ],
+        });
+        onClick({
+          login: { path: "/signin", present: ["c1", "c2", "c3", "c4", "confirm"] },
+          confirm: toHome,
+        });
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                server: "cloud-us",
+                userId,
+                itemId,
+                detail: "card-number",
+                source: { itemId: otherItemId, field: "card.number" },
+              },
+            ],
+          },
+          { passkeys: noPasskey },
+        );
+        const original = h.store.handle.getMockImplementation()!;
+        h.store.handle.mockImplementation(async () => {
+          const response = await original();
+          if (response.ok)
+            response.catalog.connections[0]!.items[1]!.fields = [
+              { id: "card.number", label: "number", name: null, kind: "text" as const },
+            ];
+          return response;
+        });
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId === "card.number" ? "4000 0000 0000 0002" : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(boxed);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          ["4000", "0000", "0000", "0002"].map((value, at) => ({
+            slot: at === 0 ? "detail" : `detail ${at + 1}`,
+            value,
+            secret: "card-number",
+            group: 4,
+          })),
+        ]);
+        expect(JSON.stringify(fake.state.messages)).not.toContain("4000000000000002");
+        expect(clicks("confirm")).toBe(1);
+      }, 10_000);
+
+      /** A login whose page asks for a card number in boxes of `lengths`. */
+      function boxedCard(lengths: number[], digits: string) {
+        const boxed = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          handlers: [
+            {
+              ...detailHandler,
+              path: "/signin",
+              fields: [
+                {
+                  detail: "card-number" as const,
+                  parts: lengths.map((length, at) => ({
+                    part: at + 1,
+                    length,
+                    target: target(`c${at + 1}`),
+                  })),
+                },
+              ],
+            },
+          ],
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {
+            detailLinks: [
+              {
+                origin,
+                provider: "bitwarden",
+                server: "cloud-us",
+                userId,
+                itemId,
+                detail: "card-number",
+                source: { itemId: otherItemId, field: "card.number" },
+              },
+            ],
+          },
+          { passkeys: noPasskey, report },
+        );
+        const original = h.store.handle.getMockImplementation()!;
+        h.store.handle.mockImplementation(async () => {
+          const response = await original();
+          if (response.ok)
+            response.catalog.connections[0]!.items[1]!.fields = [
+              { id: "card.number", label: "number", name: null, kind: "text" as const },
+            ];
+          return response;
+        });
+        h.fields.mockImplementation(async (request) =>
+          request.fieldId === "card.number" ? digits : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(boxed);
+        return { h, report };
+      }
+
+      it("types a 16-digit card number into boxes whose last takes up to 7 digits", async () => {
+        onClick({
+          login: { path: "/signin", present: ["c1", "c2", "c3", "c4", "confirm"] },
+          confirm: toHome,
+        });
+        const { h } = boxedCard([4, 4, 4, 7], "4000 0000 0000 0002");
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        // The last group goes only into a box of its input's length.
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          [
+            { slot: "detail", value: "4000", secret: "card-number", group: 4 },
+            { slot: "detail 2", value: "0000", secret: "card-number", group: 4 },
+            { slot: "detail 3", value: "0000", secret: "card-number", group: 4 },
+            { slot: "detail 4", value: "0002", secret: "card-number", group: 7 },
+          ],
+        ]);
+        expect(clicks("confirm")).toBe(1);
+      }, 10_000);
+
+      it("fills nothing, and leaves the page to the person, when the card's digits do not fit its boxes", async () => {
+        onClick({ login: { path: "/signin", present: ["c1", "c2", "c3", "confirm"] } });
+        // 16 digits leave 8 for a last box of 4.
+        const { h, report } = boxedCard([4, 4, 4], "4000 0000 0000 0002");
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          { timeout: 6_000 },
+        );
+        expect(detailFills()).toEqual([]);
+        expect(clicks("confirm")).toBe(0);
+        expect(handlerReports(report)).toEqual([
+          [0, "detail", "entered", 2],
+          [0, "detail", "detail-unfit", 2],
+        ]);
+        // A value that does not fit the page is no change of the owner's settings.
+        expect(report.mock.calls.map(([entry]) => entry)).not.toContainEqual(
+          expect.objectContaining({ outcome: "policy-changed" }),
+        );
+      }, 10_000);
+    });
+
     describe("the popup's Fill", () => {
       const popup = {
         id: "synthetic-extension",
@@ -17754,7 +18118,14 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         onClick({
           login: {
             path: "/confirm",
-            present: [...fields.map((entry) => entry.target.value), "confirm"],
+            present: [
+              ...fields.flatMap((entry) =>
+                "parts" in entry
+                  ? entry.parts.map((part) => part.target.value)
+                  : [entry.target.value],
+              ),
+              "confirm",
+            ],
           },
           confirm: toHome,
         });
@@ -17831,8 +18202,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           expect(popupFills()).toEqual([
             expect.objectContaining({
               path: "/confirm",
-              target: target("card"),
-              ...filled,
+              fields: [{ target: target("card"), ...filled }],
               account: { username: cardValues["login.username"] },
             }),
           ]);
@@ -17846,6 +18216,67 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         },
         10_000,
       );
+
+      it("offers and fills a card expiry split over two selects as its one link", async () => {
+        // Owner, 2026-10-23 12:26 UTC: a split value is offered like its one-input form.
+        const h = await stopped(
+          [
+            {
+              detail: "card-expiry",
+              parts: [
+                { part: "month", format: "mm", target: target("em") },
+                { part: "year", format: "yy", target: target("ey") },
+              ],
+            },
+          ],
+          { username: true },
+        );
+        asCard(h);
+        h.fields.mockImplementation(
+          async (request) => cardValues[request.fieldId] ?? "synthetic-secret",
+        );
+        const offered = await h.login.handle(
+          { version: 1, type: "login.detail.get", tabId: 1 },
+          popup,
+        );
+        expect(offered).toMatchObject({
+          offer: {
+            details: [
+              {
+                detail: "card-expiry",
+                candidates: [{ itemId: otherItemId, fieldId: "card.expMonth" }],
+              },
+            ],
+          },
+        });
+        expect(await fill(h, "card-expiry", otherItemId, "card.expMonth")).toEqual({ ok: true });
+        // Each select gets only its own part, checked as settable before the fill.
+        expect(popupFills()).toEqual([
+          expect.objectContaining({
+            path: "/confirm",
+            fields: [
+              { target: target("em"), value: "04", secret: "date-part", part: "month" },
+              {
+                target: target("ey"),
+                value: "31",
+                secret: "date-part",
+                part: "year",
+                shortYear: true,
+              },
+            ],
+          }),
+        ]);
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({
+            type: "login.observe",
+            targets: [target("em"), target("ey"), target("confirm")],
+            require: ["settable", "settable", "shown"],
+          }),
+        );
+        expect(
+          await h.login.handle({ version: 1, type: "login.detail.get", tabId: 1 }, popup),
+        ).toMatchObject({ links: [{ detail: "card-expiry", pending: true }] });
+      }, 10_000);
 
       it("fills the login item's PIN, and never another login item's", async () => {
         const h = await stopped([{ detail: "pin", target: target("pin") }], {
@@ -17871,7 +18302,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(popupFills()).toEqual([]);
         expect(await fill(h, "pin", itemId, fieldId)).toEqual({ ok: true });
         expect(popupFills()).toEqual([
-          expect.objectContaining({ path: "/confirm", value: "0123", secret: "pin" }),
+          expect.objectContaining({
+            path: "/confirm",
+            fields: [{ target: target("pin"), value: "0123", secret: "pin" }],
+          }),
         ]);
         // The item has no username, so the page is not asked to compare accounts.
         expect(popupFills()[0]).not.toHaveProperty("account");
@@ -18075,14 +18509,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
             brands: [],
           },
           {
-            connections: [
-              {
-                connectionId,
-                enabled: true,
-                selection: { mode: "all", groupIds: [], itemIds: [] },
-                excludedItemIds: ["card-c"],
-                excludedFields: [{ itemId: "card-b", fieldId: "card.number" }],
-              },
+            itemPolicies: [
+              liveItemPolicy("card-c", { excluded: true }),
+              liveItemPolicy("card-b", { excludedFields: ["card.number"] }),
             ],
           },
         );
@@ -18397,9 +18826,13 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(answerFills()).toEqual([
         expect.objectContaining({
           type: "login.detail.fill",
-          target: target("answer"),
-          secret: "answer",
-          question: { question: "母親の旧姓は" },
+          fields: [
+            expect.objectContaining({
+              target: target("answer"),
+              secret: "answer",
+              question: { question: "母親の旧姓は" },
+            }),
+          ],
         }),
       ]);
       expect(h.settings.settings.detailLinks).toBeUndefined();
@@ -18416,6 +18849,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           {
             origin,
             provider: "bitwarden",
+            server: "cloud-us",
             userId,
             itemId,
             detail: "secret-answer",
@@ -18486,6 +18920,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
             {
               origin,
               provider: "bitwarden",
+              server: "cloud-us",
               userId,
               itemId,
               detail: "secret-answer",
@@ -18531,7 +18966,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(answerFills()).toEqual([
         expect.objectContaining({
           type: "login.detail.fill",
-          question: { name: "母親の旧姓は？" },
+          fields: [expect.objectContaining({ question: { name: "母親の旧姓は？" } })],
         }),
       ]);
     });
@@ -18548,7 +18983,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
 
     it.each([
       ["is empty", {}, true],
-      ["is excluded", { excludedFields: [{ itemId, fieldId: "login.password" }] }, false],
+      ["is excluded", excludingLive(["login.password"]), false],
     ])(
       "offers no password when the matching item's password %s",
       async (_label, excluded, empty) => {
@@ -18557,16 +18992,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         const h = harness(
           {
             ...unsaved,
-            connections: [
-              {
-                connectionId,
-                enabled: true,
-                selection: { mode: "all", groupIds: [], itemIds: [] },
-                excludedItemIds: [],
-                excludedFields: [],
-                ...excluded,
-              },
-            ],
+            ...excluded,
           },
           { allowedOrigins: [], uris, username: true, custom: [], generation: service },
         );
@@ -18623,6 +19049,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     const passkeyOnlySetup = (
       passkeyItems: (origin: string) => Promise<readonly PasskeyItem[]>,
       candidates = uriMatch().candidates,
+      overrides: Partial<LocalSettings> = {},
     ) => {
       const service = {
         available: vi.fn(async (): Promise<true> => true),
@@ -18634,7 +19061,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const report = vi.fn<(report: LoginReport) => void>();
       const lookup = vi.fn(passkeyItems);
       const h = harness(
-        { siteDefaults: [], bindings: [] },
+        { siteDefaults: [], bindings: [], ...overrides },
         {
           uris: async () => ({ ok: true as const, data: uriMatch({ candidates }) }),
           passkeyItems: lookup,
@@ -18669,6 +19096,21 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       ]);
       expect(service.generate).not.toHaveBeenCalled();
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    });
+
+    it("does not generate on a site whose passkey requests go to the browser (ADR 0007)", async () => {
+      const { h, service, lookup, skipped } = passkeyOnlySetup(
+        async () => [{ connectionId, itemId }],
+        uriMatch().candidates,
+        { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+      );
+      expect(await showPasskey(h)).not.toEqual({ ok: false, reason: "generating" });
+      // Pateat answers no passkey request there, so no item holds one it may use.
+      expect(lookup).not.toHaveBeenCalled();
+      expect(skipped()).toEqual([
+        expect.objectContaining({ reason: "no-vault-match", detail: "no-passkey" }),
+      ]);
+      expect(service.generate).not.toHaveBeenCalled();
     });
 
     it("refuses a page announced as both an identifier page and a passkey page", async () => {
@@ -19241,6 +19683,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       h.settings.settings.siteDefaults.push({
         origin: "https://other.example",
         provider: "bitwarden",
+        server: "cloud-us",
         userId,
         itemId: otherItemId,
       });
@@ -19258,7 +19701,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
 
     it("stops a watched login once newer settings no longer allow its account", async () => {
       const { h, service } = await watched(["signed-in"]);
-      h.settings.settings.connections[0]!.enabled = false;
+      h.settings.settings.accountPolicies = [liveAccountPolicy({ enabled: false })];
       h.settings.revision += 1;
       h.login.settingsChanged("saved");
       await open(h, "/home");
@@ -19624,6 +20067,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     const linkTo = (detail: DetailLink["detail"], source: DetailLink["source"]): DetailLink => ({
       origin,
       provider: "bitwarden",
+      server: "cloud-us",
       userId,
       itemId,
       detail,
@@ -19666,18 +20110,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       h.recipes.recipe.mockResolvedValue(chosen);
       return { h, report };
     }
-    const excluding = (connection: Partial<LocalSettings["connections"][number]>) => ({
-      connections: [
-        {
-          connectionId,
-          enabled: true,
-          selection: { mode: "all" as const, groupIds: [], itemIds: [] },
-          excludedItemIds: [],
-          excludedFields: [],
-          ...connection,
-        },
-      ],
-    });
 
     describe("a saved link", () => {
       it("fills the linked birth date after its radio, and clicks the button once", async () => {
@@ -19843,10 +20275,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       );
 
       it.each([
-        ["an excluded item", excluding({ excludedItemIds: [identityId] })],
+        ["an excluded item", { itemPolicies: [liveItemPolicy(identityId, { excluded: true })] }],
         [
           "an excluded field",
-          excluding({ excludedFields: [{ itemId: identityId, fieldId: birthField }] }),
+          excludingLive([{ custom: "生年月日", position: 1, count: 1 }], identityId),
         ],
       ])(
         "is not used when it names %s",
@@ -20008,10 +20440,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         const h = harness(
           {
             detailLinks: [birthLink],
-            siteDefaults: [
-              { origin, provider: "bitwarden", userId, itemId },
-              { origin: second, provider: "bitwarden", userId, itemId },
-            ],
+            siteDefaults: [liveDefault(), liveDefault({ origin: second })],
           },
           { passkeys: noPasskey, report, extraItems, allowedOrigins: [origin, second] },
         );
@@ -20182,16 +20611,14 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
             type: "login.observe",
             path: "/signin",
             targets: [target("birth"), target("confirm")],
-            require: ["writable", "shown"],
+            require: ["settable", "shown"],
           }),
         );
         expect(popupFills()).toEqual([
           expect.objectContaining({
             type: "login.detail.fill",
             path: "/signin",
-            target: target("birth"),
-            value: "199004",
-            secret: "detail",
+            fields: [{ target: target("birth"), value: "199004", secret: "detail" }],
           }),
         ]);
         expect(JSON.stringify(fake.state.messages)).not.toContain("1990-04-01");
@@ -20238,7 +20665,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(
           await fill(h, "synthetic-document", { detail: "phone-last-4", fieldId: phoneField }),
         ).toEqual({ ok: true });
-        expect(popupFills().at(-1)).toMatchObject({ target: target("phone"), value: "5678" });
+        expect(popupFills().at(-1)).toMatchObject({
+          fields: [{ target: target("phone"), value: "5678" }],
+        });
         expect(fake.state.session[pendingKey]).toHaveLength(1);
         await signedIn(h);
         expect(savedLinks(h)).toEqual([
@@ -20432,7 +20861,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
 
       it("fills nothing once the login item may no longer be used", async () => {
         const { h } = await stopped();
-        h.settings.settings.connections[0]!.excludedItemIds = [itemId];
+        h.settings.settings.itemPolicies = [liveItemPolicy(itemId, { excluded: true })];
         expect(await fill(h, "synthetic-document")).toEqual({ ok: false, reason: "unavailable" });
         expect(popupFills()).toEqual([]);
         expect(reads(h)).toEqual([[itemId, "login.password"]]);
@@ -20567,6 +20996,11 @@ describe("password route variants (ADR 0027)", () => {
   };
   const branchField = `custom.${snapshotId}.0`;
   const contractField = `custom.${snapshotId}.1`;
+  /** How the synced settings name each live custom field (ADR 0023). */
+  const referenceOf = (fieldId: string): ExcludedField =>
+    fieldId === branchField
+      ? { custom: "Branch", position: 1, count: 1 }
+      : { custom: "Contract", position: 1, count: 1 };
   const bound = (slots: SavedLoginBinding["slots"]): SavedLoginBinding => ({
     ...savedBinding,
     recipeId: varied.id,
@@ -20581,17 +21015,8 @@ describe("password route variants (ADR 0027)", () => {
     { slot: "contract", field: { custom: "Contract" } },
     { slot: "password", field: "password" },
   ]);
-  const excluding = (fieldId: string): Partial<LocalSettings> => ({
-    connections: [
-      {
-        connectionId,
-        enabled: true,
-        selection: { mode: "all", groupIds: [], itemIds: [] },
-        excludedItemIds: [],
-        excludedFields: [{ itemId, fieldId }],
-      },
-    ],
-  });
+  const excluding = (fieldId: string): Partial<LocalSettings> =>
+    excludingLive([referenceOf(fieldId)]);
   const status = () =>
     fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   /** The targets each executed fill wrote. */
@@ -20750,9 +21175,7 @@ describe("password route variants (ADR 0027)", () => {
           { ...narrow, slots: [...narrow.slots, { slot: "password", field: "password" }] },
         ]),
       );
-      expect(h.settings.settings.siteDefaults).toEqual([
-        { origin, provider: "bitwarden", userId, itemId },
-      ]);
+      expect(h.settings.settings.siteDefaults).toEqual([liveDefault()]);
       expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
         expect.objectContaining({ type: "choice", outcome: "saved" }),
       );
@@ -21010,7 +21433,7 @@ describe("password route variants (ADR 0027)", () => {
       // revision stays the same, so only the plan decides.
       fake.state.onExecute = async (message) => {
         if ((message["operation"] as { step: LoginStep }).step.kind !== "fill") return;
-        h.settings.settings.connections[0]!.excludedFields = [{ itemId, fieldId }];
+        Object.assign(h.settings.settings, excludingLive([referenceOf(fieldId)]));
       };
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(status()).toMatchObject([{ state }]));
@@ -21115,15 +21538,7 @@ describe("password route variants (ADR 0027)", () => {
       "an excluded item",
       {
         bindings: [byContract],
-        connections: [
-          {
-            connectionId,
-            enabled: true,
-            selection: { mode: "all", groupIds: [], itemIds: [] },
-            excludedItemIds: [itemId],
-            excludedFields: [],
-          },
-        ],
+        itemPolicies: [liveItemPolicy(itemId, { excluded: true })],
       },
       both,
       "item-excluded",
@@ -21332,6 +21747,70 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(fills()).toBe(1);
     expect(clicks(button.value)).toBe(0);
     expect(clicks("login")).toBe(1);
+  });
+
+  it("fills the password route on a site whose passkey requests go to the browser (ADR 0007)", async () => {
+    fake.state.present = new Set(["password", "login", "Sign in with a passkey", "logout"]);
+    fake.state.observedPath = "/home";
+    const passkeys = discoverable();
+    const { h } = start(
+      learned,
+      { passkeys },
+      { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+    );
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({
+      route: "password",
+      variant: 0,
+      facts: { passkey: false, discoverablePasskey: false },
+    });
+    expect(fills()).toBe(1);
+    expect(clicks(button.value)).toBe(0);
+    // The item's passkeys are not even looked up there.
+    expect(passkeys).not.toHaveBeenCalled();
+  });
+
+  it('treats a hostname chosen "Always" as listed while its write waits (ADR 0007)', async () => {
+    fake.state.present = new Set(["password", "login", "Sign in with a passkey", "logout"]);
+    fake.state.observedPath = "/home";
+    const passkeys = discoverable();
+    const pendingBrowserSite = vi.fn((page: string) => page === origin);
+    const { h } = start(learned, { passkeys, pendingBrowserSite });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ route: "password", facts: { passkey: false } });
+    expect(clicks(button.value)).toBe(0);
+    expect(passkeys).not.toHaveBeenCalled();
+    expect(pendingBrowserSite).toHaveBeenCalledWith(origin);
+  });
+
+  it("never takes the passkey route on such a site, even for an item without a password", async () => {
+    // As in the test below, only the passkey route could sign this item in.
+    const custom = parseLoginRecipe({
+      ...learned,
+      slots: ["member-number", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [
+            { slot: "member-number", target: target("member") },
+            { slot: "password", target: target("password") },
+          ],
+        },
+        recipe.steps[1]!,
+      ],
+    });
+    const passkeys = discoverable();
+    const { h } = start(
+      custom,
+      { passkeys },
+      { bindings: [], passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] },
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "binding-not-found" });
+    expect(clicks(button.value)).toBe(0);
+    expect(passkeys).not.toHaveBeenCalled();
   });
 
   it("takes the passkey route for an item without a password or a fitting binding", async () => {
@@ -21610,6 +22089,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       {
         origin,
         provider: "bitwarden",
+        server: "cloud-us",
         userId,
         itemId,
         itemName: "Synthetic item",
@@ -22000,7 +22480,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       [
         "the item's exclusion",
         (h) => {
-          h.settings.settings.connections[0]!.excludedItemIds = [itemId];
+          h.settings.settings.itemPolicies = [liveItemPolicy(itemId, { excluded: true })];
         },
         { cause: "plan" },
       ],
@@ -23787,7 +24267,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     inPlace(
       () =>
         (fake.state.extracted = {
-          login: { ...passwordPage("/signin", false), gap: "shadow-control" },
+          login: { ...passwordPage("/signin", false), gap: "unsupported-control" },
         }),
     );
     const service = generation();
@@ -23806,7 +24286,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         origin,
         outcome: "skipped",
         reason: "incomplete-observation",
-        detail: "shadow-control",
+        detail: "unsupported-control",
         recipeId: emailFirst.id,
         baseRevision: 1,
       },
@@ -24177,7 +24657,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     const service = generation(answering(() => h, continuedOn("/signin")));
     h = start(service, {
       settings: {
-        siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
+        siteDefaults: [liveDefault()],
         bindings: [usernameOnly],
       },
       report: reports,
@@ -24197,9 +24677,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         slots: [...usernameOnly.slots, { slot: "password", field: "password" }],
       },
     ]);
-    expect(h.settings.settings.siteDefaults).toEqual([
-      { origin, provider: "bitwarden", userId, itemId },
-    ]);
+    expect(h.settings.settings.siteDefaults).toEqual([liveDefault()]);
   });
 
   it.each<[string, (() => LoginGeneration["slotFields"]) | undefined, CustomField[], string]>([
@@ -25957,12 +26435,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         // This tab logged out of the site (ADR 0021 D); the item is the site default.
         fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
         const reports: LoginReport[] = [];
-        const h = onList(
-          generation(),
-          reports,
-          {},
-          { siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }] },
-        );
+        const h = onList(generation(), reports, {}, { siteDefaults: [liveDefault()] });
         shows(h);
         expect(await h.hello()).toEqual({ ok: true });
         await vi.advanceTimersByTimeAsync(5_000);
@@ -27487,7 +27960,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         const reports: LoginReport[] = [];
         const h = keyOnList(service, withBranch(1, { afterAccount: passwordBranch() }), {
           settings: {
-            siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
+            siteDefaults: [{ origin, provider: "bitwarden", server: "cloud-us", userId, itemId }],
             bindings: [],
           },
           report: reports,
@@ -27811,9 +28284,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
         },
       ]),
     );
-    expect(h.settings.settings.siteDefaults).toEqual([
-      { origin, provider: "bitwarden", userId, itemId },
-    ]);
+    expect(h.settings.settings.siteDefaults).toEqual([liveDefault()]);
   });
 
   it("falls back to the password when the sign-in form still shows fifteen seconds after the answer", async () => {
@@ -28902,7 +29373,13 @@ describe("the start page's own passkey request (ADR 0034)", () => {
         h.login.settingsChanged(source);
         await flush();
         await stillWaits(request, 5_000);
-        h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", userId, itemId });
+        h.settings.settings.siteDefaults.push({
+          origin,
+          provider: "bitwarden",
+          server: "cloud-us",
+          userId,
+          itemId,
+        });
         h.login.settingsChanged(source);
         await flush();
         await handedOnSoon(request);
@@ -28921,7 +29398,13 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       h.login.siteDefaultSaved();
       await flush();
       await stillWaits(request, 5_000);
-      h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", userId, itemId });
+      h.settings.settings.siteDefaults.push({
+        origin,
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId,
+        itemId,
+      });
       h.login.siteDefaultSaved();
       await flush();
       await handedOnSoon(request);
@@ -28959,7 +29442,13 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       const { h } = choosing({ passkeyItems });
       await offered(h);
       // Saved without the runtime being told, as when the save raced the refusal.
-      h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", userId, itemId });
+      h.settings.settings.siteDefaults.push({
+        origin,
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId,
+        itemId,
+      });
       const request = ask(h);
       await flush();
       await handedOnSoon(request);
@@ -29681,17 +30170,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
   });
 
   it("still refuses an item whose password the account may not fill", async () => {
-    const excluded = {
-      connections: [
-        {
-          connectionId,
-          enabled: true,
-          selection: { mode: "all" as const, groupIds: [], itemIds: [] },
-          excludedItemIds: [],
-          excludedFields: [{ itemId, fieldId: "login.password" }],
-        },
-      ],
-    };
+    const excluded = excludingLive(["login.password"]);
     // A route that fills the password cannot bind it.
     const bound = start({}, { password: true, overrides: excluded });
     expect(await bound.h.hello()).toEqual({ ok: false, reason: "binding-field-excluded" });
@@ -29734,6 +30213,25 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     );
     expect(executed()).toEqual([]);
     expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  it("refuses a passkey-only item on a site whose passkey requests go to the browser, naming the list", async () => {
+    // ADR 0007: the item holds a passkey, which Pateat does not use there.
+    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    const { h, report } = start(
+      { passkeys },
+      { overrides: { passkeyBrowserSites: [{ hostname: new URL(origin).hostname }] } },
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "refused",
+        reason: "no-route",
+        detail: "password-empty:passkey-browser-site",
+      }),
+    );
+    expect(passkeys).not.toHaveBeenCalled();
+    expect(executed()).toEqual([]);
   });
 
   // Netflix in the owner's Chrome: the only item has neither a password nor a passkey, and
@@ -32146,17 +32644,7 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
     it("a refusal for the binding rather than the item's facts", async () => {
       const { h, reports, generation } = start({
         claim: claimed(),
-        overrides: {
-          connections: [
-            {
-              connectionId,
-              enabled: true,
-              selection: { mode: "all", groupIds: [], itemIds: [] },
-              excludedItemIds: [],
-              excludedFields: [{ itemId, fieldId: "login.password" }],
-            },
-          ],
-        },
+        overrides: excludingLive(["login.password"]),
       });
       expect(await h.hello()).toEqual({ ok: false, reason: "binding-field-excluded" });
       expect(generation.claimRepair).not.toHaveBeenCalled();

@@ -10,12 +10,18 @@ import { hasProfile } from "./profile-store";
 
 /** Profile parts are explicit so shared bindings cannot accidentally become policy. */
 export const profileDocument = (document: LocalSettings) => ({
+  accountPolicies: document.accountPolicies,
+  itemPolicies: document.itemPolicies,
+  customFieldReviews: document.customFieldReviews,
   excludedSites: document.excludedSites,
   repromptSites: document.repromptSites,
   // Allowed sites that are empty and off are left out, which reads back the same (ADR 0077).
   ...(document.allowedSites?.length ? { allowedSites: document.allowedSites } : {}),
   ...(document.allowedSitesEnabled ? { allowedSitesEnabled: true } : {}),
+  passkeyBrowserSites: document.passkeyBrowserSites,
   siteDefaults: document.siteDefaults,
+  // Kept only while it hides the popup's page status; absent means shown.
+  ...(document.popupPageSection === false && { popupPageSection: false }),
 });
 
 /**
@@ -36,9 +42,15 @@ export async function readSettings(
     .first<{ revision: number | null; shared: string | null; document: string | null }>();
   if (!row) throw new Error("profile-not-found");
   const shared = row.shared ? JSON.parse(row.shared) : { bindings: [] };
-  const profile = row.document
-    ? JSON.parse(row.document)
-    : { excludedSites: [], repromptSites: [], siteDefaults: [] };
+  const profile = {
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
+    excludedSites: [],
+    repromptSites: [],
+    siteDefaults: [],
+    ...(row.document ? JSON.parse(row.document) : {}),
+  };
   return v.parse(syncSettingsStateSchema, {
     version: 1,
     profileId,

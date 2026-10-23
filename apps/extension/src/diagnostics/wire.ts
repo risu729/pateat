@@ -208,6 +208,7 @@ export const diagnosticsStatusSchema = v.strictObject({
       allowedSitesEnabled: v.boolean(),
       siteDefaults: count,
       bindings: count,
+      passkeyBrowserSites: count,
     }),
   ),
   storage: v.strictObject({ localBytes: v.optional(count) }),

@@ -1,5 +1,7 @@
 import * as v from "valibot";
 import {
+  datePartSchema,
+  isDetailSlot,
   listClickSchema,
   loginFieldTargetSchema,
   loginOperationSchema,
@@ -21,6 +23,7 @@ export const loginSecretKinds = [
   "card-number",
   "pin",
   "detail",
+  "date-part",
   "answer",
 ] as const;
 /**
@@ -50,10 +53,13 @@ export type TargetState = v.InferOutput<typeof targetStateSchema>;
  * `password-choice` takes a shown button that names the password as the way to confirm the
  * sign-in, enabled or not: by its rendered text (`namesPasswordChoice`, ADR 0048), or with
  * an accessible name by that name and all the text it holds, hidden text too
- * (`namesPasswordControl`, its 2026-10-19 amendment).
+ * (`namesPasswordControl`, its 2026-10-19 amendment). `settable` takes a writable input or
+ * a shown enabled single-choice select, as a `detail` handler's fill of a split date's
+ * part may choose an option (ADR 0061).
  */
 export const targetRequirementSchema = v.picklist([
   "writable",
+  "settable",
   "clickable",
   "described-writable",
   "described-clickable",
@@ -107,12 +113,13 @@ export const inPlaceNextSchema = v.strictObject({
 export type InPlaceNext = v.InferOutput<typeof inPlaceNextSchema>;
 /**
  * Elements a step needs before it can run: each target matches exactly one element that
- * is a writable input (`fill`), an enabled visible button (`click`) or simply present.
- * No targets means the path alone is enough.
+ * is a writable input (`fill`; a writable input or a select for a `detail` handler's fill,
+ * ADR 0061), an enabled visible button (`click`) or simply present. No targets means the
+ * path alone is enough.
  */
 export const loginReadinessSchema = v.strictObject({
   path,
-  require: v.picklist(["writable", "clickable", "present"]),
+  require: v.picklist(["writable", "settable", "clickable", "present"]),
   targets: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
   /**
    * Those of a `fill` step's `targets` that are entered on the page's software keyboard
@@ -145,13 +152,17 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
       : [];
   return {
     path: step.path,
-    // Enter goes into a field (ADR 0064).
+    // A split date's part may be a select (ADR 0061); Enter goes into a field (ADR 0064).
     require:
-      step.kind === "fill" || (step.kind === "click" && step.press === "enter")
-        ? "writable"
-        : step.kind === "click"
-          ? "clickable"
-          : "present",
+      step.kind === "fill"
+        ? step.fields.some((field) => isDetailSlot(field.slot))
+          ? "settable"
+          : "writable"
+        : step.kind === "click" && step.press === "enter"
+          ? "writable"
+          : step.kind === "click"
+            ? "clickable"
+            : "present",
     targets,
     ...(keypad.length ? { keypad } : {}),
   };
@@ -460,6 +471,19 @@ export const chooseResultSchema = v.variant("ok", [
 /** Hosts the content script asks the worker about at most (ADR 0031). */
 const hostList = v.pipe(v.array(v.pipe(v.string(), v.maxLength(253))), v.maxLength(256));
 const href = v.pipe(v.string(), v.maxLength(8192));
+/** What a fill value of a split detail (ADR 0061) says about the input it goes into. */
+const splitPartEntries = {
+  /**
+   * A card number's or PIN's digit group goes only into an input whose `maxlength` is this,
+   * the group's length, or the last group's input's when its digits are fewer.
+   */
+  group: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(19))),
+  /** A split date's part, whose range a select's option values must lie in. */
+  part: v.optional(datePartSchema),
+  /** A card expiry year, which a select may write with two or four digits. */
+  shortYear: v.optional(v.literal(true)),
+};
+
 export const commandSchema = v.variant("type", [
   v.strictObject({
     version: v.literal(1),
@@ -511,6 +535,7 @@ export const commandSchema = v.variant("type", [
            * field's question (ADR 0061), checked just before it is typed.
            */
           question: v.optional(questionSchema),
+          ...splitPartEntries,
         }),
       ),
       v.maxLength(20),
@@ -571,19 +596,30 @@ export const commandSchema = v.variant("type", [
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("login.cancel"), token: id }),
   /**
-   * The popup's **Fill** of a personal detail (ADR 0061): types `value` into the one
-   * writable input `target` names on `path`, after checking its choosing radio button, and
-   * presses nothing. Outside any login: no operation, no submission.
+   * The popup's **Fill** of a personal detail (ADR 0061): types each value into the one
+   * writable input its `target` names on `path`, or chooses its option in a select for a
+   * split date's part, after checking the first input's choosing radio button, and presses
+   * nothing. Every input is checked before any is filled. Outside any login: no
+   * operation, no submission.
    */
   v.strictObject({
     version: v.literal(1),
     type: v.literal("login.detail.fill"),
     token: id,
     path,
-    target: loginFieldTargetSchema,
-    value: v.pipe(v.string(), v.minLength(1), v.maxLength(128)),
-    secret: v.optional(v.picklist(loginSecretKinds)),
-    question: v.optional(questionSchema),
+    fields: v.pipe(
+      v.array(
+        v.strictObject({
+          target: loginFieldTargetSchema,
+          value: v.pipe(v.string(), v.minLength(1), v.maxLength(128)),
+          secret: v.optional(v.picklist(loginSecretKinds)),
+          question: v.optional(questionSchema),
+          ...splitPartEntries,
+        }),
+      ),
+      v.minLength(1),
+      v.maxLength(6),
+    ),
     /** The login item's username: the page must not show another account. */
     account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
   }),
@@ -819,8 +855,6 @@ export const awaitResultSchema = v.strictObject({
 });
 /** Why an observation is incomplete; see `ObservationGap`. Value-free codes only. */
 export const observationGaps = [
-  "shadow-field",
-  "shadow-control",
   "unfillable-field",
   "unsupported-control",
   "unlocated-field",

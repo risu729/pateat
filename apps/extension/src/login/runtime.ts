@@ -13,13 +13,16 @@ import {
   extendsRecipe,
   fillLoginBinding,
   findLoginBinding,
+  connectionEnabled,
   getItemEligibility,
+  isFieldExcluded,
   handlerFact,
   handlerSlots,
   handlerSteps,
   handlerTargets,
   heldRouteMissing,
   isGeneratedRecipeId,
+  isPasskeyBrowserSite,
   isSiteExcluded,
   siteRefusal,
   loginFieldFacts,
@@ -70,20 +73,26 @@ import {
   siteDefaultConnection,
   templateLoginBinding,
   TOTP_HANDLER_SLOT,
-  DETAIL_HANDLER_SLOT,
-  detailFormatSchema,
+  detailFieldFormat,
+  detailFieldInputs,
+  detailFieldSchema,
+  detailSlot,
+  isDetailSlot,
   customFieldReference,
   resolveDetailSourceField,
   detailLinkSchema,
   loginDetailSchema,
-  loginFieldTargetSchema,
   loginTargetSchema,
+  type DatePart,
   type DetailLink,
   type LoginFieldTarget,
   questionText,
   shownQuestionSchema,
   storedQuestionSchema,
   detailSourceFieldSchema,
+  detailFormatFits,
+  detailFormatSchema,
+  loginFieldTargetSchema,
   type LoginDetail,
   totpFieldMismatch,
   totpFieldReference,
@@ -237,7 +246,7 @@ import {
   detailCandidates,
   detailFieldIds,
   detailFieldLabel,
-  detailSecret,
+  detailFieldValues,
   detailValue,
   isCardDetail,
   linkedField,
@@ -247,6 +256,7 @@ import {
   savedDetailLink,
   savedDetailLinks,
   type CardFacts,
+  type DetailFillValue,
   type DetailOwner,
 } from "./details";
 import { cardBrandOf, cardBrands, MAX_CARD_LAST_4 } from "../page/card-hints";
@@ -752,15 +762,28 @@ const detailOfferSchema = v.strictObject({
   handler: v.pipe(v.number(), v.integer(), v.minValue(0)),
   /** The login item and its site. */
   account: v.strictObject({ connectionId: v.string(), itemId: v.string(), origin: v.string() }),
+  /**
+   * The handler's fields Pateat fills: one in one input, which for a secret question's
+   * answer may carry the judge's pairing until the owner confirms it, or one split over
+   * several inputs.
+   */
   fields: v.pipe(
     v.array(
-      v.strictObject({
-        detail: loginDetailSchema,
-        format: v.optional(detailFormatSchema),
-        target: loginFieldTargetSchema,
-        /** For a secret question's answer: the judge's pairing, until the owner confirms it. */
-        paired: v.optional(pairedQuestionSchema),
-      }),
+      v.union([
+        v.pipe(
+          v.strictObject({
+            detail: loginDetailSchema,
+            format: v.optional(detailFormatSchema),
+            target: loginFieldTargetSchema,
+            paired: v.optional(pairedQuestionSchema),
+          }),
+          v.check(
+            (entry) => detailFormatFits(entry.detail, entry.format),
+            "A birth date or card expiry input has a format of its own, and no other input has one",
+          ),
+        ),
+        detailFieldSchema.options[1],
+      ]),
     ),
     v.minLength(1),
     v.maxLength(3),
@@ -1404,6 +1427,7 @@ const generationSlots: { slot: SemanticSlot; fieldId: string }[] = [
  */
 function offersGenerationField(
   settings: LocalSettings,
+  catalog: VaultCatalog,
   entry: { connectionId: string; item: VaultItemMetadata },
   fieldId: string,
 ): boolean {
@@ -1412,13 +1436,7 @@ function offersGenerationField(
   if (fieldId !== "login.password") return true;
   return (
     field.empty !== true &&
-    !settings.connections.some(
-      (connection) =>
-        connection.connectionId === entry.connectionId &&
-        connection.excludedFields.some(
-          (ref) => ref.itemId === entry.item.id && ref.fieldId === fieldId,
-        ),
-    )
+    !isFieldExcluded(settings, catalog, entry.connectionId, entry.item.id, fieldId)
   );
 }
 /**
@@ -1444,6 +1462,7 @@ function codeFieldOf(
   if (connection.provider !== "bitwarden" || !connection.userId) return undefined;
   const saved = findLoginBinding(bindings, recipe, {
     provider: connection.provider,
+    server: connection.server,
     userId: connection.userId,
     itemId,
   });
@@ -1758,11 +1777,12 @@ type GenerationScope = {
     item: VaultCatalog["connections"][number]["items"][number];
   }[];
   settings: SettingsSnapshot["settings"];
+  catalog: VaultCatalog;
   /** Every enabled connection answered and every item's URI rules were evaluated. */
   complete: boolean;
 };
 /** The items that matched a page and the settings they were matched under. */
-type VaultMatch = Pick<GenerationScope, "items" | "settings">;
+type VaultMatch = Pick<GenerationScope, "items" | "settings" | "catalog">;
 
 /** Each URI match's connection and item in the catalog; one the catalog lacks is left out. */
 function catalogItems(
@@ -2244,7 +2264,9 @@ export type LoginReport = (
        * for a `detail` handler (ADR 0061), `detail-manual` when its inputs ask only for
        * details Pateat never fills, `detail-unlinked` when no usable vault field is linked
        * for a shown input, `detail-unreadable` when the linked value is no date or has too
-       * few digits, `detail-unavailable` when the vault could not give it, and, about the
+       * few digits, `detail-unavailable` when the vault could not give it, `detail-unfit`
+       * when a value split over several inputs fits none of them, as when no option of a
+       * select matches its part or a card's digits do not fit its boxes, and, about the
        * site's links, `detail-saved` when the popup's fill was saved after the login was
        * confirmed, `detail-forgotten` when a refused value's link was removed, and
        * `detail-kept` when it could not be removed now.
@@ -2259,6 +2281,7 @@ export type LoginReport = (
         | "detail-unlinked"
         | "detail-unreadable"
         | "detail-unavailable"
+        | "detail-unfit"
         | "detail-saved"
         | "detail-forgotten"
         | "detail-kept"
@@ -2386,6 +2409,11 @@ export function createLoginRuntime(
      * keeps a page's own conditional request waiting.
      */
     passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+    /**
+     * Whether the origin's hostname was just chosen "Always for this site" and its settings
+     * write still waits (ADR 0007): the login treats it as listed already.
+     */
+    pendingBrowserSite?: (origin: string) => boolean;
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
     /**
@@ -2438,6 +2466,9 @@ export function createLoginRuntime(
     }) => Promise<"verified" | "closed" | "unavailable">;
   },
 ) {
+  /** A hostname whose passkey requests go to the browser, listed or just chosen (ADR 0007). */
+  const listedBrowserSite = (saved: LocalSettings, origin: string) =>
+    isPasskeyBrowserSite(saved, origin) || options.pendingBrowserSite?.(origin) === true;
   const { fields, sites, recipes = noLoginRecipes, uris, generation, repairs } = options;
   const badge =
     options.badge ?? createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() });
@@ -4067,7 +4098,7 @@ export function createLoginRuntime(
       delete live.uriMatch;
       const scope = await findLiveSiteCandidates({
         settings: snapshot.snapshot.settings,
-        catalog: { connections: [connection] },
+        catalog: { ...catalog, connections: [connection] },
         url: live.url,
         match: uris,
       });
@@ -4114,7 +4145,7 @@ export function createLoginRuntime(
       return { reason: "mismatch" };
     const scope = await findLiveSiteCandidates({
       settings: snapshot.snapshot.settings,
-      catalog: { connections: [connection] },
+      catalog: { ...snapshot.catalog, connections: [connection] },
       url,
       match: uris,
     });
@@ -4243,7 +4274,12 @@ export function createLoginRuntime(
     const connection = catalog.connections.find((entry) => entry.id === choice.connectionId);
     const item = connection?.items.find((entry) => entry.id === choice.itemId);
     if (!connection?.userId || !item) return { ok: false, reason: "vault-unavailable" };
-    const owner = { provider: connection.provider, userId: connection.userId, itemId: item.id };
+    const owner = {
+      provider: connection.provider,
+      server: connection.server,
+      userId: connection.userId,
+      itemId: item.id,
+    };
     const named = { ...owner, itemName: item.label, accountName: connection.label };
     // Names, and the flags that pick the `totp` slot's field (`totpFieldReference`).
     const fieldNames = item.fields.map(({ id, name, empty, totpSeed }) => ({
@@ -4304,11 +4340,14 @@ export function createLoginRuntime(
   /**
    * The item's facts for a new login (ADR 0027): its password and TOTP fields from the
    * catalog's value-free flags and the account's allowed fields, and its passkeys from one
-   * vault search. Read once per login; never sent anywhere.
+   * vault search. Read once per login; never sent anywhere. Without `passkeys`, as on a site
+   * whose passkey requests go to the browser (ADR 0007), the item holds no passkey here and
+   * the vault is not searched.
    */
   async function itemFacts(
     connection: VaultConnectionMetadata,
     owner: { origin: string; connectionId: string; itemId: string; fieldIds: string[] },
+    passkeys = true,
   ): Promise<LoginItemFacts> {
     const item = connection.items.find((entry) => entry.id === owner.itemId);
     const fieldFacts = item
@@ -4320,6 +4359,7 @@ export function createLoginRuntime(
     // Its synthetic `totp` field counts as a TOTP secret only when the probe says so.
     if (probeMode && owner.origin === origin && probeTotp && owner.fieldIds.includes("totp"))
       fieldFacts.totp = true;
+    if (!passkeys) return { ...fieldFacts, passkey: false, discoverablePasskey: false };
     // The synthetic item's configured passkey stands in for the vault search.
     if (probeMode && owner.origin === origin && probePasskey)
       return {
@@ -4366,6 +4406,7 @@ export function createLoginRuntime(
     return {
       origin: documentOrigin,
       provider: connection.provider,
+      server: connection.server,
       userId: connection.userId,
       itemId: item.id,
       // Named as a binding built for the item is.
@@ -4492,6 +4533,7 @@ export function createLoginRuntime(
           policy.settings.siteDefaults.push({
             origin: live.document.origin,
             provider: named.provider,
+            server: named.server,
             userId: named.userId,
             itemId: named.itemId,
             itemName: named.itemName,
@@ -4559,13 +4601,21 @@ export function createLoginRuntime(
     // A running or resumed login checks its recorded route alone.
     if (request.route) return resolveRoute(request.route);
     let facts: LoginItemFacts | undefined;
+    // Only a page the passkey scripts run on can answer a passkey request (ADR 0050), and
+    // none on a site whose passkey requests go to the browser (ADR 0007): there the item
+    // holds no passkey, so the login takes a password route or none.
+    const passkeyScripts = passkeyScriptsRun(live.document.origin, probeMode);
+    const browserSite =
+      passkeyScripts && listedBrowserSite(snapshot.snapshot.settings, live.document.origin);
+    const passkeyPage = passkeyScripts && !browserSite;
     const factsOf = async (
       resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>,
     ): Promise<LoginItemFacts> => {
-      const read = await itemFacts(resolved.connection, {
-        ...resolved.account,
-        origin: live.document.origin,
-      });
+      const read = await itemFacts(
+        resolved.connection,
+        { ...resolved.account, origin: live.document.origin },
+        passkeyPage,
+      );
       // The `totp` fact describes the field a `totp` handler makes its code from: a custom
       // field the saved binding names, or the one flagged as holding a key when the built-in
       // TOTP holds no value, counts when the account may read it, and the built-in TOTP then
@@ -4585,11 +4635,7 @@ export function createLoginRuntime(
       request.pageRequest === true && !chosen?.fillOnly && passkeyAnswersRequest(recipe);
     const { passkey: _button, ...buttonless } = recipe;
     const routeRecipe: LoginRecipe = request.later ? buttonless : recipe;
-    // Only a page the passkey scripts run on can answer a passkey request (ADR 0050).
-    if (
-      passkeyScriptsRun(live.document.origin, probeMode) &&
-      (recipeHasRoute(routeRecipe, "passkey") || pageRequest)
-    ) {
+    if (passkeyPage && (recipeHasRoute(routeRecipe, "passkey") || pageRequest)) {
       const resolved = await resolveRoute({ route: "passkey" });
       if (resolved.ok) {
         facts = await factsOf(resolved);
@@ -4657,6 +4703,9 @@ export function createLoginRuntime(
         if (miss !== "password-empty") return undefined;
         if (live.document.frameId !== 0) return { miss: "frame" as const };
         const result = passwordStopOrMiss(recipe, route, known, passwordSlots, lacking);
+        // The item's passkey is not used there, so the copy names the list (ADR 0007).
+        if (browserSite && "miss" in result && result.miss === "no-passkey")
+          return { miss: "passkey-browser-site" as const };
         return passwordField && ("stop" in result || result.miss === "no-password-step")
           ? { miss: "password-field" as const }
           : result;
@@ -4749,7 +4798,7 @@ export function createLoginRuntime(
       // that may happen.
       const unfit =
         facts && refusals.every((reason) => reason === "no-route")
-          ? heldRouteMissing(recipe, facts, passkeyScriptsRun(live.document.origin, probeMode))
+          ? heldRouteMissing(recipe, facts, passkeyPage)
           : undefined;
       const marked = unfit ? { unfit } : {};
       return routes.length === 1
@@ -5608,6 +5657,7 @@ export function createLoginRuntime(
       owner: {
         origin: login.origin,
         provider: connection.provider,
+        server: connection.server,
         userId: connection.userId,
         itemId: login.itemId,
       },
@@ -5647,28 +5697,37 @@ export function createLoginRuntime(
     const answers = answerSources(authorized, found);
     const linked = handler.fields.flatMap((field, index) => {
       if (manualDetails.includes(field.detail)) return [];
+      // A value split over several inputs needs every one of them (ADR 0061).
+      const targets = detailFieldInputs(field).map((input) => input.target);
       if (field.detail === "secret-answer")
-        return answers.length ? [{ index, target: field.target, answer: true }] : [];
+        return answers.length ? [{ index, targets, answer: true }] : [];
       if (refusedDetails.has(refusalKey(found.owner, field.detail))) return [];
       const link = savedDetailLink(authorized.settings, found.owner, field.detail);
       return link && linkedField(authorized.settings, authorized.catalog, found.connection, link)
-        ? [{ index, target: field.target, answer: false }]
+        ? [{ index, targets, answer: false }]
         : [];
     });
     if (!linked.length) return undefined;
+    const targets = linked.flatMap((entry) => entry.targets);
     const observed = await observe(
       run,
-      linked.map((entry) => entry.target),
-      linked.map(() => "writable" as const),
+      targets,
+      targets.map(() => "settable" as const),
     );
     // The page's own path, as `enterHandler` matched it: a same-document URL change may
     // not have reached `run.live.path` yet.
     if (!observed || observed.path !== handler.path) return undefined;
-    for (const [at, entry] of linked.entries()) {
-      if (observed.targets[at] !== "unique") continue;
+    let first = 0;
+    for (const entry of linked) {
+      const states = observed.targets.slice(first, first + entry.targets.length);
+      first += entry.targets.length;
+      if (states.some((state) => state !== "unique")) continue;
       // An answer input needs one of the item's question fields to be the page's question.
-      // eslint-disable-next-line no-await-in-loop
-      if (!entry.answer || (await askedSource(run.live, handler.path, entry.target, answers)))
+      if (
+        !entry.answer ||
+        // eslint-disable-next-line no-await-in-loop
+        (await askedSource(run.live, handler.path, entry.targets[0]!, answers))
+      )
         return entry.index;
       if (!current(run)) return undefined;
     }
@@ -5727,7 +5786,7 @@ export function createLoginRuntime(
   async function askedSource<T extends { ask: AskedQuestion }>(
     live: LiveDocument,
     path: string,
-    target: DetailHandler["fields"][number]["target"],
+    target: LoginFieldTarget,
     sources: readonly T[],
   ): Promise<T | undefined> {
     const named = sources
@@ -5778,7 +5837,7 @@ export function createLoginRuntime(
       return name ? [{ fieldId: candidate.fieldId, ask: askOf(name, question) }] : [];
     });
     for (const field of handler.fields) {
-      if (field.detail !== "secret-answer") continue;
+      if (field.detail !== "secret-answer" || "parts" in field) continue;
       // eslint-disable-next-line no-await-in-loop
       const asked = await askedSource(run.live, handler.path, field.target, questions);
       if (asked) return asked.fieldId !== answeredId;
@@ -5797,7 +5856,7 @@ export function createLoginRuntime(
       .filter((field) => !manualDetails.includes(field.detail))
       .map((field) => {
         const pairing =
-          field.detail === "secret-answer"
+          field.detail === "secret-answer" && !("parts" in field)
             ? paired.find((entry) => sameLoginTarget(entry.target, field.target))
             : undefined;
         return pairing
@@ -6057,9 +6116,10 @@ export function createLoginRuntime(
     authorized: Authorized,
     stepIndex: number,
   ): Promise<
-    | { value: string; secret?: LoginSecretKind; question?: AskedQuestion }
+    | (Omit<DetailFillValue, "secret"> & { secret?: LoginSecretKind; question?: AskedQuestion })[]
     | "unreadable"
     | "unavailable"
+    | "unfit"
   > {
     const index = attemptPlan(run.recipe, run.metadata)?.[stepIndex]?.handler;
     const handler = index === undefined ? undefined : run.recipe.handlers?.[index];
@@ -6070,6 +6130,7 @@ export function createLoginRuntime(
     let source: { itemId: string; fieldId: string } | undefined;
     let question: { field: DetailSourceField; ask: AskedQuestion } | undefined;
     if (field.detail === "secret-answer") {
+      if ("parts" in field) return "unavailable";
       const asked = await askedSource(
         run.live,
         handler.path,
@@ -6095,17 +6156,23 @@ export function createLoginRuntime(
       source.fieldId,
     );
     if (read === undefined) return "unavailable";
-    const value = detailValue(field.detail, field.format, read[0], read[1]);
-    read.fill("");
-    if (value === undefined) return "unreadable";
-    if (question) {
+    if (question && !("parts" in field)) {
+      const value = detailValue(field.detail, field.format, read[0]);
+      read.fill("");
+      if (value === undefined) return "unreadable";
       // Refused, the answer's link is removed by its question field.
       (run.answers ??= new Map()).set(index, question.field);
-      return { value, secret: "answer", question: question.ask };
+      return [{ value, secret: "answer", question: question.ask }];
     }
-    // An answer always goes with its question.
-    if (field.detail === "secret-answer") return "unavailable";
-    return { value, secret: detailSecret(field.detail) };
+    // An answer always goes with its question. A split value is made into all its parts
+    // here, right after the read (ADR 0061).
+    if (field.detail === "secret-answer") {
+      read.fill("");
+      return "unavailable";
+    }
+    const values = detailFieldValues(field, read[0], read[1]);
+    read.fill("");
+    return values ?? "unreadable";
   }
   /** The tab's page, when it is an HTTP(S) page the popup has a section for. */
   async function popupPage(tabId: number) {
@@ -6142,7 +6209,7 @@ export function createLoginRuntime(
   async function answerCandidate<T extends { itemId: string; fieldId: string }>(
     live: LiveDocument,
     path: string,
-    field: DetailOffer["fields"][number],
+    field: Extract<DetailOffer["fields"][number], { target: LoginFieldTarget }>,
     found: NonNullable<ReturnType<typeof detailOwner>>,
     policy: Pick<LocalSettings, "detailLinks">,
     candidates: readonly T[],
@@ -6194,7 +6261,7 @@ export function createLoginRuntime(
   async function guessCard<T extends { itemId: string }>(
     live: LiveDocument,
     offer: DetailOffer,
-    target: DetailHandler["fields"][number]["target"],
+    target: LoginFieldTarget,
     snapshot: { settings: LocalSettings; revision: number },
     catalog: VaultCatalog,
     candidates: T[],
@@ -6346,20 +6413,22 @@ export function createLoginRuntime(
       if (field.detail === "secret-answer") {
         const asked =
           live &&
+          !("parts" in field) &&
           // eslint-disable-next-line no-await-in-loop
           (await answerCandidate(live, offer!.path, field, found, policy, candidates));
         candidates = asked ? [asked.candidate] : [];
         // The popup shows the question as the page showed it.
-        question = asked?.shown;
+        question = asked ? asked.shown : undefined;
       }
-      // A card is guessed from the last digits and brand the page shows too.
+      // A card is guessed from the last digits and brand the page shows too, beside a split
+      // value's first input.
       let preselect = field.detail !== "member-id";
       if (live && isCardDetail(field.detail) && candidates.length > 1) {
         // eslint-disable-next-line no-await-in-loop
         const guess = await guessCard(
           live,
           offer!,
-          field.target,
+          "parts" in field ? field.parts[0]!.target : field.target,
           snapshot.snapshot,
           catalog,
           candidates,
@@ -6368,10 +6437,12 @@ export function createLoginRuntime(
         preselect &&= guess.preselect;
       }
       candidates = candidates.slice(0, MAX_DETAIL_CANDIDATES);
+      // A split birth date is named as the one input it reads as (ADR 0061).
+      const format = detailFieldFormat(field);
       if (candidates.length)
         details.push({
           detail: field.detail,
-          ...(field.format ? { format: field.format } : {}),
+          ...(format ? { format } : {}),
           candidates: candidates as [(typeof candidates)[number], ...typeof candidates],
           // A member ID's fields' names say little, and two cards may show the same last
           // digits, so none is chosen for the owner.
@@ -6481,35 +6552,29 @@ export function createLoginRuntime(
     // or the question confirmed for it, or, confirmed by this Fill, the question the judge
     // paired with the field (ADR 0061).
     const answer =
-      field.detail === "secret-answer"
+      field.detail === "secret-answer" && !("parts" in field)
         ? await answerCandidate(live, offer.path, field, found, snapshot.snapshot.settings, [
             chosen,
           ])
         : undefined;
     if (field.detail === "secret-answer" && !answer)
       return { ok: false, reason: "not-a-candidate" };
-    // Which inputs the value may fill; an answer goes only with its question.
-    const secret =
-      field.detail !== "secret-answer"
-        ? { secret: detailSecret(field.detail) }
-        : answer
-          ? { secret: "answer" as const, question: answer.ask }
-          : undefined;
-    if (!secret) return { ok: false, reason: "not-a-candidate" };
     const item = found.connection.items.find((entry) => entry.id === request.itemId);
     const reference = request.fieldId.startsWith("custom.")
       ? item && customFieldReference(item.fields, request.fieldId)
       : request.fieldId;
     const source = v.safeParse(detailLinkSchema.entries.source.entries.field, reference);
     if (!source.success) return { ok: false, reason: "not-a-candidate" };
-    // The page must still show the handler: the input writable and its button shown.
+    // The page must still show the handler: its inputs writable, a split date's selects
+    // choosable (ADR 0061), and its button shown.
+    const targets = detailFieldInputs(field).map((input) => input.target);
     const observed = v.safeParse(
       observationSchema,
       await send(live, {
         type: "login.observe",
         path: offer.path,
-        targets: [field.target, offer.target],
-        require: ["writable", "shown"],
+        targets: [...targets, offer.target],
+        require: [...targets.map(() => "settable" as const), "shown"],
       }).catch(() => undefined),
     );
     if (
@@ -6542,19 +6607,27 @@ export function createLoginRuntime(
       request.fieldId,
     );
     if (read === undefined) return { ok: false, reason: "unavailable" };
-    const value = detailValue(field.detail, field.format, read[0], read[1]);
+    // An answer goes only with its question; every other value, a split one's parts
+    // included, is made here right after the read.
+    const values =
+      field.detail === "secret-answer" && !("parts" in field)
+        ? ((value) =>
+            value === undefined || !answer
+              ? undefined
+              : [{ value, secret: "answer" as const, question: answer.ask }])(
+            detailValue(field.detail, field.format, read[0]),
+          )
+        : detailFieldValues(field, read[0], read[1]);
     read.fill("");
-    if (value === undefined) return { ok: false, reason: "unreadable" };
+    if (values === undefined || values === "unfit") return { ok: false, reason: "unreadable" };
     const command = {
       type: "login.detail.fill",
       path: offer.path,
-      target: field.target,
-      value,
-      ...secret,
+      fields: values.map((entry, at) => ({ ...entry, target: targets[at]! })),
       ...(own ? { account: own } : {}),
     };
     const response = await send(live, command).catch(() => undefined);
-    command.value = "";
+    for (const entry of [...values, ...command.fields]) entry.value = "";
     if (own) own.username = "";
     if (
       v.safeParse(v.object({ ok: v.literal(false), reason: v.literal("other-account") }), response)
@@ -6739,7 +6812,7 @@ export function createLoginRuntime(
                 : handler.kind === "detail"
                   ? // Its inputs present, as a choice page may disable all but one, and its
                     // button shown (ADR 0061).
-                    ([...handler.fields.map(() => "present" as const), "shown"] as const)
+                    ([...targets.slice(0, -1).map(() => "present" as const), "shown"] as const)
                   : handler.kind === "password"
                     ? // Shown, and its rendered text names the password choice (ADR 0048).
                       (["password-choice"] as const)
@@ -7032,7 +7105,11 @@ export function createLoginRuntime(
       if (!connection || !item) return undefined;
       reads = [
         ...reads,
-        ...usernameReads({ items: [{ connection, item }], settings: snapshot.snapshot.settings }),
+        ...usernameReads({
+          items: [{ connection, item }],
+          settings: snapshot.snapshot.settings,
+          catalog: snapshot.catalog,
+        }),
       ];
     }
     const own = (read: (typeof reads)[number]) =>
@@ -8112,13 +8189,7 @@ export function createLoginRuntime(
         connection.id === owner.connectionId &&
         item.id === owner.itemId &&
         item.fields.some((field) => field.id === "login.password") &&
-        !scope.settings.connections.some(
-          (entry) =>
-            entry.connectionId === connection.id &&
-            entry.excludedFields.some(
-              (ref) => ref.itemId === item.id && ref.fieldId === "login.password",
-            ),
-        ),
+        !isFieldExcluded(scope.settings, scope.catalog, connection.id, item.id, "login.password"),
     );
   }
   /**
@@ -8568,6 +8639,9 @@ export function createLoginRuntime(
         value: string;
         secret?: LoginSecretKind;
         question?: AskedQuestion;
+        group?: number;
+        part?: DatePart;
+        shortYear?: true;
       }[] = [];
       let expected: { username: string } | undefined;
       let list: ({ username: string; others: string[] } & Record<string, unknown>) | undefined;
@@ -8579,15 +8653,30 @@ export function createLoginRuntime(
             // not one of its own slots (ADR 0061).
             const own = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
             if (
-              field.slot === DETAIL_HANDLER_SLOT &&
+              isDetailSlot(field.slot) &&
               own !== undefined &&
               run.recipe.handlers?.[own]?.kind === "detail"
             ) {
+              // Every part of a split value is made at once, after one read (ADR 0061).
+              if (values.some((entry) => isDetailSlot(entry.slot))) continue;
               const made = await detailFill(run, authorized, operation.stepIndex);
               if (!current(run)) return;
+              const handler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
+              // A card number or PIN whose digits its groups cannot take is left to the
+              // person, as a split value no input takes is (ADR 0061).
+              if (made === "unfit") {
+                if (handler !== undefined)
+                  reportDetail(run.live.document, run.recipe, handler, "detail-unfit");
+                await change(run, {
+                  type: "VALUE_REJECTED",
+                  operationId: operation.operationId,
+                  document: run.live.document,
+                  stage: "before-fill",
+                  challenge: true,
+                });
+                return;
+              }
               if (typeof made === "string") {
-                const handler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]
-                  ?.handler;
                 if (handler !== undefined)
                   reportDetail(run.live.document, run.recipe, handler, `detail-${made}`);
                 await change(
@@ -8597,7 +8686,19 @@ export function createLoginRuntime(
                 );
                 return;
               }
-              values.push({ slot: field.slot, ...made });
+              const slots = operation.step.fields.filter((entry) => isDetailSlot(entry.slot));
+              if (made.length !== slots.length) {
+                for (const entry of made) entry.value = "";
+                await change(
+                  run,
+                  { type: "FAILED", reason: "structural-mismatch" },
+                  undefined,
+                  "unexpected-values",
+                );
+                return;
+              }
+              for (const [at, entry] of made.entries())
+                values.push({ slot: detailSlot(at), ...entry });
               continue;
             }
             const reference = authorized.binding.slots.find((entry) => entry.slot === field.slot);
@@ -8787,7 +8888,7 @@ export function createLoginRuntime(
           ...(passwordChoice ? { passwordChoice: true as const } : {}),
           // A `detail` handler's input is filled after its choosing radio (ADR 0061).
           ...(operation.step.kind === "fill" &&
-          operation.step.fields.some((field) => field.slot === DETAIL_HANDLER_SLOT)
+          operation.step.fields.some((field) => isDetailSlot(field.slot))
             ? { choose: true as const }
             : {}),
           // An advance whose next step is on its path has the document measure that step
@@ -8896,6 +8997,16 @@ export function createLoginRuntime(
           (result.output.reason === "fill-rejected" &&
             (operation.step.effect === "prepare" || codeRefused)))
       ) {
+        // A `detail` handler's value split over several inputs that fits none of them, as
+        // when no option of a select matches its part, fills nothing and leaves the page
+        // to the person (ADR 0061).
+        const own = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
+        const unfit =
+          result.output.reason === "value-mismatch" &&
+          own !== undefined &&
+          run.recipe.handlers?.[own]?.kind === "detail" &&
+          operation.step.fields.filter((field) => isDetailSlot(field.slot)).length > 1;
+        if (unfit) reportDetail(run.live.document, run.recipe, own, "detail-unfit");
         // The page's detail goes to the log and the popup, as `keypad-pressed` after a key
         // press on its keypad (ADR 0067).
         await change(
@@ -8910,6 +9021,7 @@ export function createLoginRuntime(
                 : codeRefused
                   ? "code-refused"
                   : "after-fill",
+            ...(unfit ? { challenge: true as const } : {}),
           },
           undefined,
           result.output.detail,
@@ -9149,6 +9261,7 @@ export function createLoginRuntime(
       items.some(({ connection, item }) =>
         offersGenerationField(
           snapshot.snapshot.settings,
+          snapshot.catalog,
           { connectionId: connection.id, item },
           fieldId,
         ),
@@ -9170,11 +9283,8 @@ export function createLoginRuntime(
     );
     // A passkey-only page fills nothing, so it needs a matching item rather than a slot.
     if (passkeyOnly ? !items.length : !slots.length && !offers.length) {
-      const enabled = snapshot.catalog.connections.some(
-        (connection) =>
-          snapshot.snapshot.settings.connections.find(
-            (entry) => entry.connectionId === connection.id,
-          )?.enabled,
+      const enabled = snapshot.catalog.connections.some((connection) =>
+        connectionEnabled(snapshot.snapshot.settings, snapshot.catalog, connection.id),
       );
       const unavailable = scope.unavailableConnections[0]?.reason;
       if (items.length) miss("no-vault-match", "no-slots");
@@ -9189,12 +9299,16 @@ export function createLoginRuntime(
     }
     // A passkey-only page also needs a usable discoverable passkey held by one of the
     // matching items (ADR 0053), looked up only once an item matched; passwords and
-    // unrelated RP matches never authorize generation.
+    // unrelated RP matches never authorize generation. On a site whose passkey requests go
+    // to the browser no item holds one Pateat may use (ADR 0007).
     if (passkeyOnly) {
-      const leave = await options.vault?.enter(false).catch(() => undefined);
+      const browserSite = listedBrowserSite(snapshot.snapshot.settings, live.document.origin);
+      const leave = browserSite
+        ? undefined
+        : await options.vault?.enter(false).catch(() => undefined);
       let held: readonly PasskeyItem[] = [];
       try {
-        held = (await options.passkeyItems?.(live.document.origin)) ?? [];
+        if (!browserSite) held = (await options.passkeyItems?.(live.document.origin)) ?? [];
       } catch {
         held = [];
       } finally {
@@ -9212,6 +9326,7 @@ export function createLoginRuntime(
       offers,
       items,
       settings: snapshot.snapshot.settings,
+      catalog: snapshot.catalog,
       // An item that could not be checked might have another username.
       complete: !scope.unavailableConnections.length && !scope.incompleteItems.length,
     };
@@ -9263,13 +9378,15 @@ export function createLoginRuntime(
    * The matching items' username reads: none for an item without one, with an empty one
    * (the catalog's value-free `empty` flag) or whose username the user excluded.
    */
-  function usernameReads(scope: Pick<GenerationScope, "items" | "settings">) {
+  function usernameReads(scope: Pick<GenerationScope, "items" | "settings" | "catalog">) {
     return scope.items.flatMap(({ connection, item }) => {
-      const excluded = scope.settings.connections
-        .find((entry) => entry.connectionId === connection.id)
-        ?.excludedFields.some(
-          (field) => field.itemId === item.id && field.fieldId === "login.username",
-        );
+      const excluded = isFieldExcluded(
+        scope.settings,
+        scope.catalog,
+        connection.id,
+        item.id,
+        "login.username",
+      );
       return excluded ||
         !item.fields.some((field) => field.id === "login.username" && field.empty !== true)
         ? []
@@ -9344,9 +9461,7 @@ export function createLoginRuntime(
       if (!fieldId) return "";
       if (
         excluded &&
-        settingsValue.connections
-          .find((entry) => entry.connectionId === connectionId)
-          ?.excludedFields.some((field) => field.itemId === itemId && field.fieldId === fieldId)
+        isFieldExcluded(settingsValue, snapshot.catalog, connectionId, itemId, fieldId)
       )
         return undefined;
       try {
@@ -9897,7 +10012,12 @@ export function createLoginRuntime(
     const scope: GenerationScope = {
       slots: generationSlots
         .filter(({ fieldId }) =>
-          offersGenerationField(policy, { connectionId: connection.id, item }, fieldId),
+          offersGenerationField(
+            policy,
+            snapshot.catalog,
+            { connectionId: connection.id, item },
+            fieldId,
+          ),
         )
         .map(({ slot }) => slot),
       offers: customFieldOffers([
@@ -9905,6 +10025,7 @@ export function createLoginRuntime(
       ]),
       items: [{ connection, item }],
       settings: policy,
+      catalog: snapshot.catalog,
       complete: true,
     };
     const plain = () => scope.offers.map((offer) => offer.slot);
@@ -12972,6 +13093,7 @@ export function createLoginRuntime(
     return {
       items: scope.ok ? catalogItems(snapshot.catalog, scope.candidates) : [],
       settings: snapshot.snapshot.settings,
+      catalog: snapshot.catalog,
     };
   }
   /**

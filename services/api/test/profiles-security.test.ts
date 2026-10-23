@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import {
   createDefaultSettings,
   devicePairResultSchema,
@@ -97,6 +98,7 @@ describe("settings profile isolation", () => {
       connections: [],
       excludedSites: [{ hostname: "default-only.example", includeSubdomains: false }],
       repromptSites: [{ hostname: "default-bank.example", includeSubdomains: true }],
+      passkeyBrowserSites: [{ hostname: "default-passkeys.example" }],
     };
     expect((await save(device.credential, settings.revision, shared)).status).toBe(200);
     const created = await pair(by, undefined, { label: "Agent", newProfile: "Agent browser" });
@@ -110,13 +112,20 @@ describe("settings profile isolation", () => {
     expect(state).toMatchObject({
       revision: 1,
       newProfile: true,
-      settings: { excludedSites: [], repromptSites: [], siteDefaults: [], bindings: [] },
+      settings: {
+        excludedSites: [],
+        repromptSites: [],
+        passkeyBrowserSites: [],
+        siteDefaults: [],
+        bindings: [],
+      },
     });
     expect(state.profileId).not.toBe(settings.profileId);
     const filled = await save(agent.credential, state.revision, {
       ...shared,
       excludedSites: [{ hostname: "agent-only.example", includeSubdomains: false }],
       repromptSites: [{ hostname: "agent-bank.example", includeSubdomains: false }],
+      passkeyBrowserSites: [{ hostname: "agent-passkeys.example" }],
     });
     expect(filled.status).toBe(200);
     const after = v.parse(
@@ -130,6 +139,8 @@ describe("settings profile isolation", () => {
     expect(after.settings?.repromptSites).toEqual([
       { hostname: "agent-bank.example", includeSubdomains: false },
     ]);
+    // So are the sites whose passkey requests go to the browser (ADR 0007).
+    expect(after.settings?.passkeyBrowserSites).toEqual([{ hostname: "agent-passkeys.example" }]);
     // The Default profile keeps its own sites that ask for the master password.
     const original = v.parse(
       syncSettingsStateSchema,
@@ -137,6 +148,9 @@ describe("settings profile isolation", () => {
     );
     expect(original.settings?.repromptSites).toEqual([
       { hostname: "default-bank.example", includeSubdomains: true },
+    ]);
+    expect(original.settings?.passkeyBrowserSites).toEqual([
+      { hostname: "default-passkeys.example" },
     ]);
     // Names are unique per owner, ignoring case.
     const taken = await pair(by, undefined, { newProfile: "agent BROWSER" });
@@ -193,7 +207,21 @@ describe("settings profile isolation", () => {
     const last = await remove(settings.profileId);
     expect(last.status).toBe(409);
     expect(await last.json()).toEqual({ error: "profile_in_use", devices: ["Synthetic browser"] });
+    // The copy takes these entries, which deleting it must remove from the service.
+    const entries = {
+      ...createDefaultSettings(),
+      connections: [],
+      excludedSites: [{ hostname: "copied-only.example", includeSubdomains: false }],
+      repromptSites: [{ hostname: "copied-bank.example", includeSubdomains: true }],
+      passkeyBrowserSites: [{ hostname: "copied-passkeys.example" }],
+    };
+    expect((await save(device.credential, settings.revision, entries)).status).toBe(200);
     const copied = await copy(by, settings.profileId);
+    const stored = () =>
+      env.DB.prepare("SELECT document FROM profiles WHERE id = ?")
+        .bind(copied.id)
+        .first<{ document: string | null }>();
+    expect((await stored())?.document).toContain("copied-only.example");
     const agent = v.parse(
       devicePairResultSchema,
       await (await pair(by, copied.id, { label: "Agent" })).json(),
@@ -206,6 +234,8 @@ describe("settings profile isolation", () => {
       204,
     );
     expect((await remove(copied.id)).status).toBe(204);
+    // The row stays for revoked devices to name, without its entries.
+    expect(await stored()).toEqual({ document: null });
     expect(await (await manage(by, "/profiles")).json()).toEqual({
       version: 1,
       profiles: [{ id: settings.profileId, name: "Default" }],
@@ -334,6 +364,7 @@ describe("settings profile isolation", () => {
       recipeId: "synthetic-login",
       origin: "https://bank.example",
       provider: "bitwarden",
+      server: "cloud-us",
       userId: USER,
       itemId: "synthetic-item",
       itemName: "Synthetic account",

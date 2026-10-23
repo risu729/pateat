@@ -14,6 +14,7 @@ import {
   savedDetailLink,
   savedDetailLinks,
 } from "./details";
+import { connectionPolicy } from "../connections/__fixtures__/policy";
 
 // Secret-question answers and member IDs (ADR 0061). Synthetic vault data only.
 const connectionId = "personal";
@@ -50,23 +51,18 @@ const connection: VaultConnectionMetadata = {
   id: connectionId,
   label: "Synthetic vault",
   provider: "bitwarden",
+  server: "cloud-us",
   userId: "synthetic-user",
   groups: [],
   items: [login, other],
 };
 const catalog: VaultCatalog = { connections: [connection] };
 const policy = (extra: Partial<LocalSettings> = {}): LocalSettings => ({
-  connections: [
-    {
-      connectionId,
-      enabled: true,
-      selection: { mode: "all", groupIds: [], itemIds: [] },
-      excludedItemIds: [],
-      excludedFields: [],
-    },
-  ],
+  connections: [{ connectionId, enabled: true }],
+  ...connectionPolicy(connection),
   excludedSites: [],
   repromptSites: [],
+  passkeyBrowserSites: [],
   siteDefaults: [],
   bindings: [],
   ...extra,
@@ -74,6 +70,7 @@ const policy = (extra: Partial<LocalSettings> = {}): LocalSettings => ({
 const owner = {
   origin: "https://bank.example",
   provider: "bitwarden",
+  server: "cloud-us",
   userId: "synthetic-user",
   itemId: "login",
 };
@@ -132,19 +129,25 @@ describe("links to the login item's own fields", () => {
   });
 
   it("never offers a field excluded in the settings", () => {
-    const excluded = policy({
-      connections: [
+    // A custom-field exclusion holds once the item's custom fields are reviewed (ADR 0023).
+    const reviewed: VaultConnectionMetadata = {
+      ...connection,
+      items: [
         {
-          connectionId,
-          enabled: true,
-          selection: { mode: "all", groupIds: [], itemIds: [] },
-          excludedItemIds: [],
-          excludedFields: [{ itemId: "login", fieldId: custom(0, "").id }],
+          ...login,
+          evidence: `bitwarden-v1:sha256:${"1".repeat(64)}`,
+          revisionDate: "2026-10-01T00:00:00.000Z",
         },
+        other,
       ],
-    });
+    };
+    const excluded = policy(
+      connectionPolicy(reviewed, {
+        excludedFields: [{ itemId: "login", fieldId: custom(0, "").id }],
+      }),
+    );
     expect(
-      detailCandidates(excluded, catalog, connection, "secret-answer", {
+      detailCandidates(excluded, { connections: [reviewed] }, reviewed, "secret-answer", {
         host: "bank.example",
         loginItemId: "login",
       }).map((entry) => entry.fieldLabel),

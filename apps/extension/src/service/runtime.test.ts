@@ -44,6 +44,7 @@ function setup(
     transport?: Pick<ServiceTransport, "pair" | "revoke">;
     hasSiteAccess?: (origin: string) => Promise<boolean>;
     onPaired?: (connection: { origin: string; deviceId: string }) => void;
+    deviceRecipes?: Parameters<typeof createServiceRuntime>[0]["deviceRecipes"];
   } = {},
 ) {
   const storage = options.storage ?? memoryStorage();
@@ -53,6 +54,7 @@ function setup(
     transport,
     hasSiteAccess: options.hasSiteAccess ?? (async () => true),
     ...(options.onPaired ? { onPaired: options.onPaired } : {}),
+    ...(options.deviceRecipes ? { deviceRecipes: options.deviceRecipes } : {}),
   });
   return { storage, transport, runtime };
 }
@@ -386,6 +388,75 @@ describe("background sync access", () => {
   });
 });
 
+describe("first settings sync since pairing (ADR 0023)", () => {
+  const connected = {
+    version: 1,
+    kind: "connected",
+    origin: ORIGIN,
+    label: "Work laptop",
+    deviceId: ISSUED.deviceId,
+    credential: CREDENTIAL,
+  };
+
+  it("leaves a device that was never paired unaffected", async () => {
+    expect(await setup().runtime.settingsSyncPending()).toBe(false);
+  });
+
+  it("waits from pairing until a settings sync is recorded, and keeps that through later outcomes", async () => {
+    const { storage, runtime } = setup();
+    await runtime.handle(pair);
+    expect(await runtime.settingsSyncPending()).toBe(true);
+    expect(await runtime.connection()).not.toHaveProperty("settingsSynced");
+    await runtime.recordSync(ISSUED.deviceId, { settingsSynced: true });
+    expect(await runtime.settingsSyncPending()).toBe(false);
+    expect(await runtime.connection()).toMatchObject({ settingsSynced: true });
+    for (const outcome of [{ cacheFull: true }, { syncedAt: 9_000 }, { rejected: true }] as const)
+      // oxlint-disable-next-line no-await-in-loop -- outcomes are recorded in order
+      await runtime.recordSync(ISSUED.deviceId, outcome);
+    expect(stored(storage)).toMatchObject({ settingsSynced: true });
+    expect(await runtime.settingsSyncPending()).toBe(false);
+    // The settings page is not told; the record only gates vault use.
+    const state = await runtime.handle({ version: 1, type: "service.get" });
+    expect(state.ok && state.state).not.toHaveProperty("settingsSynced");
+  });
+
+  it("waits again after pairing anew", async () => {
+    const { runtime } = setup({ storage: memoryStorage({ ...connected, settingsSynced: true }) });
+    expect(await runtime.settingsSyncPending()).toBe(false);
+    await runtime.handle({ version: 1, type: "service.disconnect" });
+    expect(await runtime.settingsSyncPending()).toBe(false);
+    await runtime.handle(pair);
+    expect(await runtime.settingsSyncPending()).toBe(true);
+  });
+
+  it("waits while a new pairing's credential is not saved yet", async () => {
+    const storage = memoryStorage();
+    storage.write = vi.fn(async () => {
+      throw new Error("Synthetic storage failure");
+    });
+    const { runtime } = setup({ storage });
+    await runtime.handle(pair);
+    expect(storage.write).toHaveBeenCalled();
+    expect(await runtime.settingsSyncPending()).toBe(true);
+  });
+
+  it("ignores another device's settings sync", async () => {
+    const { runtime } = setup({ storage: memoryStorage(connected) });
+    await runtime.recordSync("7a2e4d2f-6e1c-4b63-8e66-4e8b9f1f3c52", { settingsSynced: true });
+    expect(await runtime.settingsSyncPending()).toBe(true);
+  });
+
+  it("counts a record that cannot be read as waiting", async () => {
+    const corrupt = setup({ storage: memoryStorage({ ...connected, settingsSynced: "yes" }) });
+    expect(await corrupt.runtime.settingsSyncPending()).toBe(true);
+    const storage = memoryStorage({ ...connected, settingsSynced: true });
+    storage.read = vi.fn(async () => {
+      throw new Error("Synthetic storage failure");
+    });
+    expect(await setup({ storage }).runtime.settingsSyncPending()).toBe(true);
+  });
+});
+
 function connectedRecord() {
   return {
     version: 1,
@@ -486,5 +557,91 @@ describe("storage failures", () => {
       state: { kind: "connected" },
     });
     expect(storage.value()).toEqual(connected);
+  });
+});
+
+describe("recipes this device keeps as its own (ADR 0040)", () => {
+  function heldRecipes(count = 0) {
+    let held: number | undefined = count;
+    return {
+      count: vi.fn(async () => held),
+      keepSynced: vi.fn(async () => {
+        held = 3;
+      }),
+      clear: vi.fn(async () => {
+        held = 0;
+      }),
+    };
+  }
+
+  it("keeps the synced recipes before it disconnects, when asked", async () => {
+    const deviceRecipes = heldRecipes();
+    const { runtime, transport } = setup({ deviceRecipes });
+    await runtime.handle(pair);
+    expect(
+      await runtime.handle({ version: 1, type: "service.disconnect", keepRecipes: true }),
+    ).toEqual({ ok: true, state: { kind: "disconnected", keptRecipes: 3 }, revoked: true });
+    expect(deviceRecipes.keepSynced).toHaveBeenCalledOnce();
+    expect(deviceRecipes.keepSynced.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(transport.revoke).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("keeps nothing without being asked", async () => {
+    const deviceRecipes = heldRecipes();
+    const { runtime } = setup({ deviceRecipes });
+    await runtime.handle(pair);
+    expect(await runtime.handle({ version: 1, type: "service.disconnect" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected" },
+      revoked: true,
+    });
+    expect(deviceRecipes.keepSynced).not.toHaveBeenCalled();
+  });
+
+  it("stays paired when the recipes cannot be kept", async () => {
+    const deviceRecipes = heldRecipes();
+    deviceRecipes.keepSynced.mockRejectedValue(new Error("too large"));
+    const { runtime, transport } = setup({ deviceRecipes });
+    await runtime.handle(pair);
+    expect(
+      await runtime.handle({ version: 1, type: "service.disconnect", keepRecipes: true }),
+    ).toMatchObject({ ok: false, error: "recipes-not-kept", state: { kind: "connected" } });
+    expect(transport.revoke).not.toHaveBeenCalled();
+  });
+
+  it("says how many it holds, or that they cannot be read, and deletes them unpaired", async () => {
+    const deviceRecipes = heldRecipes(2);
+    const { runtime } = setup({ deviceRecipes });
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected", keptRecipes: 2 },
+    });
+    expect(await runtime.handle({ version: 1, type: "service.delete-recipes" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected" },
+    });
+    deviceRecipes.count.mockResolvedValue(-1);
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected", keptRecipes: -1 },
+    });
+    // Storage that is unavailable for now shows no count rather than offering deletion.
+    deviceRecipes.count.mockResolvedValue(undefined);
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
+      ok: true,
+      state: { kind: "disconnected" },
+    });
+  });
+
+  it("deletes them only while unpaired", async () => {
+    const deviceRecipes = heldRecipes(2);
+    const { runtime } = setup({ deviceRecipes });
+    await runtime.handle(pair);
+    expect(await runtime.handle({ version: 1, type: "service.delete-recipes" })).toMatchObject({
+      ok: false,
+      error: "wrong-state",
+    });
+    expect(deviceRecipes.clear).not.toHaveBeenCalled();
   });
 });

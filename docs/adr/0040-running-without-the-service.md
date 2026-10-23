@@ -7,9 +7,13 @@ key while the service is only used for sharing (12:51 UTC: "a third party would 
 want to put their key on my service"), that files can export and import everything
 pairing shares (12:49 UTC), and, on cards between 12:36 and 13:04 UTC, the upload rule,
 the key field, the spend stops, the log rows and the choice on unpairing below. The
-details marked "chosen by an agent" were not asked. Only the
-[paired part](#a-paired-device-with-its-own-key) is implemented so far; the rest comes
-in later pull requests. Amends [ADR 0012](0012-inference-request-log.md),
+details marked "chosen by an agent" were not asked. The
+[paired part](#a-paired-device-with-its-own-key) and the
+[recipes a device keeps](#recipes-a-device-keeps) are implemented; generation on an
+unpaired device and export and import come in later pull requests. On a card at 21:11
+UTC the owner decided to build generation on an unpaired device and to settle the Chrome
+Web Store question when the extension is submitted. Amends
+[ADR 0012](0012-inference-request-log.md),
 [ADR 0014](0014-claude-generation-provider.md) and
 [ADR 0015](0015-per-owner-claude-credentials.md).
 
@@ -33,7 +37,7 @@ is paired decides only where recipes are kept and shared.
 
 | | Key on this device | No key on this device |
 | --- | --- | --- |
-| Not paired | This device calls the model and keeps the recipes (later) | No new recipes; recipes already on the device still run (later) |
+| Not paired | This device calls the model and keeps the recipes (later) | No new recipes; recipes already on the device still run |
 | Paired | This device calls the model; the service checks and stores the result | The service calls the model with the owner's credential, as before |
 
 ### The key on the settings page
@@ -129,26 +133,51 @@ write any recipe with `PUT /v1/recipes/:id`, so recipes gain no new exposure, bu
 rows and the recipe units built from them are only as trustworthy as the device, and
 only `source` tells them apart from the service's own calls in evaluation data.
 
+### Recipes a device keeps
+
+A device keeps its own recipes apart from the synced cache, in trusted local storage
+(`pateat.device-recipes.v1`), and logins use them while no service is paired. While
+paired, logins use only the service's recipes.
+
+- **Unpairing** (card, 13:04 UTC): **Disconnect this device** asks whether to keep the
+  synced recipes. **Disconnect and keep recipes** stops a running sync and copies the
+  synced cache into the device's store before the device is revoked;
+  **Disconnect and delete recipes** leaves the store as it is and deletes the cache, as
+  before. Settings stay on the device either way, as they did before this change, so the
+  choice is about recipes only. Chosen by an agent: a recipe already kept under the same
+  ID is replaced only by a newer revision; the store holds at most 2 MiB, the synced
+  cache's share; when the recipes cannot be kept (too large, or the cache or the store
+  cannot be read or written) the device stays paired and the page says so
+  (`recipes-not-kept`). While disconnected, the settings page shows how many recipes are
+  kept, or that their stored copy cannot be read (not while storage is only
+  unavailable), with **Delete recipes on this device** (`service.delete-recipes`,
+  refused while paired).
+- **Upload once after pairing** (card, 12:36 UTC): each full sync of a paired device
+  first uploads the kept recipes (`PUT /v1/recipes/:id` with `expectedRevision: 0`, as
+  revision 1) and then pulls, so the pull brings them back from the service. A recipe
+  the service holds revoked under its ID is removed from the store at once, as the
+  service's copy wins; one it wrote or holds active is removed once the pull has put
+  that ID in the synced cache, so a disconnect that keeps the synced recipes cannot miss
+  it, and until then each full sync sends it again and gets a 409. A 400, 405, 413, or a
+  409 other than `recipe_limit` that names no recipe of that ID, keeps the recipe on the
+  device, and it is not sent again until a newer revision is kept under its ID.
+  `recipe_limit`, 429, a 5xx answer, any other answer or no connection stops the upload
+  until the next full sync; a 401 stops it, and the pull then marks the device rejected.
+  Chosen by an agent: a recipes-only sync after a judged page
+  ([ADR 0027](0027-per-account-login-routes.md)) uploads nothing, and a device
+  disconnected during the upload removes nothing from its store.
+
 ### Running without the service (later pull requests)
 
 - **Generation on the device**: unpaired, the device runs the same checks and builds
   the same model input with code shared with the service, and keeps its recipes in its
   own store. Without a key no recipe is made, and recipes already on the device still
   run. There is no editor for recipes or bindings.
-- **Upload once after pairing** (card, 12:36 UTC): recipes the device made are uploaded
-  once on the first full sync after pairing (`PUT /v1/recipes/:id` with
-  `expectedRevision: 0`) and then removed from the device's own store. If the service
-  already holds the ID, revoked included, the service's wins. A 400, 405, 413 or an
-  unknown 409 keeps the recipe on the device; `recipe_limit`, 429, a 5xx answer or no
-  connection tries again on the next full sync.
 - **Export and import** (12:49 UTC): a file can carry everything pairing shares
   (settings, recipes and bindings) to another device, never vault data, the sync
   service's sign-in or the AI key. How this meets settings profiles is decided when
   profiles gain inheritance, since one device may switch between, for example, letting
   the model work and logging in by hand.
-- **Unpairing** (card, 13:04 UTC): the confirmation asks whether to keep the synced
-  recipes and settings as this device's own, so it keeps working without the service,
-  or to delete them as now.
 
 ## Consequences
 
@@ -160,8 +189,8 @@ only `source` tells them apart from the service's own calls in evaluation data.
   extension update as well as a service deploy.
 - Recipes made on an unpaired device come from model output the extension receives
   directly. The Chrome Web Store reading in
-  [the remote code note](../research/2026-10-17-chrome-web-store-remote-code.md) must
-  be checked again before that part ships.
+  [the remote code note](../research/2026-10-17-chrome-web-store-remote-code.md) is
+  checked again when the extension with that part is submitted (owner, 21:11 UTC).
 
 ## Alternatives
 

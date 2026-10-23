@@ -1,4 +1,4 @@
-import type { ProblemReport } from "@pateat/contracts";
+import type { ProblemReport, StoredLoginRecipe } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
   DEVICE_TIMEOUT_MS,
@@ -504,8 +504,12 @@ describe("recipe changes", () => {
 describe("settings", () => {
   const document = {
     connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
     excludedSites: [],
     repromptSites: [],
+    passkeyBrowserSites: [],
     siteDefaults: [],
     bindings: [],
   };
@@ -608,7 +612,11 @@ function edgeRateLimitPage() {
 describe("rate limits on device-credential routes", () => {
   const document = {
     connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
     excludedSites: [],
+    passkeyBrowserSites: [],
     repromptSites: [],
     siteDefaults: [],
     bindings: [],
@@ -1129,6 +1137,87 @@ describe("revokeRecipe (ADR 0058 A)", () => {
       fetch: respond(200, { version: 1, change: tombstone }),
     }).revokeRecipe(ORIGIN, CREDENTIAL, recipeId, 3);
     expect(result.timing).toMatchObject({ roundTripMs: expect.any(Number) });
+  });
+});
+
+describe("writeRecipe (ADR 0040)", () => {
+  const recipeId = "gen-0123456789abcdef0123456789abcdef";
+  const other = "gen-fedcba9876543210fedcba9876543210";
+  const recipe: StoredLoginRecipe = {
+    version: 1,
+    id: recipeId,
+    revision: 1,
+    origin: "https://shop.example",
+    layouts: [
+      {
+        key: "1760000000000",
+        createdAt: 1760000000000,
+        pageKind: "sign-in",
+        slots: ["password"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/login",
+            fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+            effect: "submit",
+            event: "change",
+          },
+        ],
+        maxSubmissions: 1,
+      },
+    ],
+  };
+  const active = { recipeId, revision: 1, state: "active", recipe } as const;
+  const write = { version: 1 as const, expectedRevision: 0, state: "active" as const, recipe };
+  const send = (fetch: typeof globalThis.fetch) =>
+    untimed(createServiceTransport({ fetch }).writeRecipe(ORIGIN, CREDENTIAL, recipeId, write));
+
+  it("puts the new recipe with the device credential", async () => {
+    const fetch = respond(200, { version: 1, change: active });
+    expect(await send(fetch)).toEqual({ kind: "written", change: active });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/recipes/${recipeId}`);
+    expect(init).toMatchObject({ method: "PUT", redirect: "error", credentials: "omit" });
+    expect(JSON.parse(init!.body as string)).toEqual(write);
+  });
+
+  it("takes a 200 with another recipe's head as no answer", async () => {
+    expect(
+      await send(respond(200, { version: 1, change: { ...active, recipeId: other } })),
+    ).toEqual({ kind: "failed", error: "unexpected-response" });
+  });
+
+  it.each([
+    ["an active head", active],
+    ["a tombstone", { recipeId, revision: 3, state: "revoked" }],
+  ])("returns the service's head when it already holds the ID with %s", async (_, current) => {
+    expect(await send(respond(409, { error: "recipe_conflict", current }))).toEqual({
+      kind: "conflict",
+      current,
+    });
+  });
+
+  it.each([
+    ["no head", { error: "recipe_conflict", current: null }],
+    [
+      "another recipe's head",
+      { error: "recipe_conflict", current: { ...active, recipeId: other } },
+    ],
+    ["an unknown body", { error: "something_else" }],
+  ])("refuses for good on a 409 with %s", async (_, body) => {
+    expect(await send(respond(409, body))).toEqual({ kind: "refused" });
+  });
+
+  it.each([
+    [409, { error: "recipe_limit" }, { kind: "failed", error: "recipe-limit" }],
+    [400, { error: "bad_request" }, { kind: "refused" }],
+    [405, { error: "method_not_allowed" }, { kind: "refused" }],
+    [413, { error: "payload_too_large" }, { kind: "refused" }],
+    [401, { error: "device_revoked" }, { kind: "rejected" }],
+    [429, { error: "rate_limited" }, { kind: "failed", error: "rate-limited" }],
+    [500, { error: "internal_error" }, { kind: "failed", error: "unexpected-response" }],
+  ])("answers %i as its kind", async (status, body, expected) => {
+    expect(await send(respond(status, body))).toEqual(expected);
   });
 });
 

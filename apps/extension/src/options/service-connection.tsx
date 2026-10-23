@@ -12,7 +12,7 @@ import { formatLocale, i18n } from "../i18n";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import * as v from "valibot";
-import { CircleCheck, CircleX, Clock, Link, Lock, TriangleAlert } from "lucide-react";
+import { CircleCheck, CircleX, Clock, HardDrive, Link, Lock, TriangleAlert } from "lucide-react";
 import { Button } from "./button";
 import { ProfileEditor } from "./profile-editor";
 import type { SettingsClient } from "./client";
@@ -72,6 +72,8 @@ function errorMessage(error: ServiceErrorCode, origin?: string): ServiceMessage 
       return "The connection changed elsewhere. This page now shows its current state.";
     case "invalid-request":
       return "That request was not valid.";
+    case "recipes-not-kept":
+      return "The recipes could not be kept on this device, so it is still paired. Disconnect and delete them, or try again.";
   }
 }
 
@@ -128,6 +130,8 @@ export function ServiceConnection({
   const [profileChoice, setProfileChoice] = useState("");
   const [profileName, setProfileName] = useState("");
   const [replacement, setReplacement] = useState<Replacement | undefined>();
+  // The disconnect waiting for the choice to keep or delete the synced recipes (ADR 0040).
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   // The profile whose replacement the user confirmed; retries do not ask again.
   const confirmedProfile = useRef("");
   const [label, setLabel] = useState("Chrome");
@@ -162,6 +166,9 @@ export function ServiceConnection({
     // Any response carrying a state proves the stored record is readable.
     if (response.ok || response.state) setCorrupt(false);
     else if (response.error === "storage-corrupt") setCorrupt(true);
+    // A disconnect from elsewhere drops the pending choice, so a later pairing never
+    // shows it unasked.
+    if (response.state && response.state.kind !== "connected") setConfirmingDisconnect(false);
     if (response.ok) {
       setState(response.state);
       if (success !== undefined) setMessage(success);
@@ -359,6 +366,44 @@ export function ServiceConnection({
             }
           >
             {t("Forget saved connection")}
+          </Button>
+        </div>
+      )}
+      {state?.kind === "disconnected" && state.keptRecipes !== undefined && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <StatusLines
+            id="sync-service-kept-recipes"
+            lines={[
+              state.keptRecipes < 0
+                ? {
+                    tone: "err",
+                    icon: CircleX,
+                    text: t(
+                      "The recipes kept on this device cannot be read. Delete them to start again.",
+                    ),
+                  }
+                : {
+                    tone: "ok",
+                    icon: HardDrive,
+                    text: t("keptRecipes", { count: state.keptRecipes }),
+                  },
+            ]}
+          />
+          <Button
+            id="sync-service-delete-recipes"
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={() =>
+              void act(async () =>
+                receive(
+                  await client.deleteRecipes(),
+                  "The recipes kept on this device were deleted.",
+                ),
+              )
+            }
+          >
+            {t("Delete recipes on this device")}
           </Button>
         </div>
       )}
@@ -717,27 +762,82 @@ export function ServiceConnection({
                 id="sync-service-disconnect"
                 type="button"
                 variant="danger"
-                disabled={busy}
-                onClick={() =>
-                  void act(async () => {
-                    const response = await client.disconnect();
-                    receive(
-                      response,
-                      response.ok && response.revoked === false
-                        ? {
-                            key: "Disconnected on this device, but the service could not confirm it. Revoke this device from {{url}} in a browser that can open it.",
-                            values: { url: `${state.origin}/manage` },
-                          }
-                        : "Disconnected. The service no longer accepts this device.",
-                    );
-                  })
-                }
+                disabled={busy || confirmingDisconnect}
+                onClick={() => setConfirmingDisconnect(true)}
               >
                 {t("Disconnect this device")}
               </Button>
             }
           />
         </RowList>
+      )}
+      {state?.kind === "connected" && confirmingDisconnect && (
+        <fieldset
+          aria-describedby="sync-service-disconnect-detail"
+          className="m-0 flex min-w-0 flex-col gap-3 rounded-xl border-0 bg-warning-tint px-4 py-3 text-sm/5"
+        >
+          <legend className="float-left m-0 flex w-full items-start gap-2 p-0 font-semibold">
+            <TriangleAlert
+              aria-hidden
+              size={16}
+              strokeWidth={2}
+              className="mt-0.5 shrink-0 text-warning"
+            />
+            {t("Keep the synced recipes on this device?")}
+          </legend>
+          <p id="sync-service-disconnect-detail" className="m-0">
+            {t(
+              "Kept recipes stay this device's own, so logins go on without the service, and a service paired later receives them once. Settings stay on this device either way.",
+            )}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ["sync-service-disconnect-keep", "outline", true, "Disconnect and keep recipes"],
+                [
+                  "sync-service-disconnect-delete",
+                  "danger",
+                  false,
+                  "Disconnect and delete recipes",
+                ],
+              ] as const
+            ).map(([id, variant, keepRecipes, choice]) => (
+              <Button
+                key={id}
+                id={id}
+                type="button"
+                variant={variant}
+                disabled={busy}
+                onClick={() => {
+                  const origin = state.origin;
+                  setConfirmingDisconnect(false);
+                  void act(async () => {
+                    const response = await client.disconnect(keepRecipes);
+                    receive(
+                      response,
+                      response.ok && response.revoked === false
+                        ? {
+                            key: "Disconnected on this device, but the service could not confirm it. Revoke this device from {{url}} in a browser that can open it.",
+                            values: { url: `${origin}/manage` },
+                          }
+                        : "Disconnected. The service no longer accepts this device.",
+                    );
+                  });
+                }}
+              >
+                {t(choice)}
+              </Button>
+            ))}
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setConfirmingDisconnect(false)}
+            >
+              {t("Back")}
+            </Button>
+          </div>
+        </fieldset>
       )}
       {state?.kind === "connected" && client.profileEditor && settingsClient && (
         <ProfileEditor

@@ -68,7 +68,7 @@ export function carryLabel(
 }
 
 const identity = ({ role, target }: ObservedCandidate) =>
-  JSON.stringify([role, target.by, target.value]);
+  JSON.stringify([role, target.by, target.value, "within" in target ? target.within : undefined]);
 
 /** The page's fields to fill, in page order. */
 const fields = (observation: LoginObservation) =>

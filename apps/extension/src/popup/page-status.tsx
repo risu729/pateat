@@ -95,6 +95,9 @@ const plain = (table: Record<string, string>, code: string, t: TFunction) =>
  */
 const NO_PASSWORD: Record<string, string> = {
   "no-passkey": "the vault item has neither a password nor a passkey",
+  // ADR 0007: the item's passkey is not used on a site listed by "Always for this site".
+  "passkey-browser-site":
+    "the vault item has no password, and Pateat leaves passkey requests on this site to the browser, as listed in its settings",
   "no-advance": "the vault item has no password, and the recipe has no way on without one",
   alternatives:
     "the vault item has no password, and Pateat goes on to a passkey only on a recipe with one way to sign in",
@@ -357,7 +360,8 @@ const ICONS = {
 
 /**
  * The popup's "This page" section: the page's status when the worker describes the page,
- * then what else the popup offers for it, such as its personal details (ADR 0061).
+ * then what else the popup offers for it, such as its personal details (ADR 0061). Without
+ * `onOpenDiagnostics`, as when settings hide the page's status, it shows no log link.
  */
 export function PageStatusSection({
   status,
@@ -366,7 +370,7 @@ export function PageStatusSection({
 }: {
   status: Status | undefined;
   children?: ReactNode;
-  onOpenDiagnostics: () => void;
+  onOpenDiagnostics?: (() => void) | undefined;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   return (
@@ -390,20 +394,22 @@ export function PageStatusSection({
         </ul>
       )}
       {children}
-      <div>
-        <a
-          id="popup-open-diagnostics"
-          href="diagnostics.html"
-          className="popup-link popup-link--icon"
-          onClick={(event) => {
-            event.preventDefault();
-            onOpenDiagnostics();
-          }}
-        >
-          <Bug size={16} strokeWidth={2} aria-hidden="true" />
-          {t("Open the detailed log")}
-        </a>
-      </div>
+      {onOpenDiagnostics && (
+        <div>
+          <a
+            id="popup-open-diagnostics"
+            href="diagnostics.html"
+            className="popup-link popup-link--icon"
+            onClick={(event) => {
+              event.preventDefault();
+              onOpenDiagnostics();
+            }}
+          >
+            <Bug size={16} strokeWidth={2} aria-hidden="true" />
+            {t("Open the detailed log")}
+          </a>
+        </div>
+      )}
     </section>
   );
 }

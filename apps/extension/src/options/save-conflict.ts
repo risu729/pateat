@@ -5,12 +5,14 @@ import type { LocalizedMessage } from "./ui";
 const reasons = {
   "settings-save": "settings were saved in another window or the toolbar popup",
   "vault-added": "a Bitwarden vault was added",
+  "vault-removed": "a Bitwarden vault was removed",
   "vault-sync": "a Bitwarden vault was synced after a sign-in or Sync",
   "automatic-vault-sync": "a Bitwarden vault was synced automatically",
   "field-review": "custom fields were reviewed",
   "service-sync": "settings were merged with the Pateat sync service",
   "account-choice": "an account used to log in on a site was saved for that site",
   "detail-link": "a vault field for a personal detail was linked or unlinked for a site",
+  "passkey-browser-site": "a site was set to hand its passkey requests to the browser",
   unknown: "settings changed for a reason no longer recorded",
 } as const satisfies Record<SettingsConflictCause, string>;
 

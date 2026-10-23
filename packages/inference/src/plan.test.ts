@@ -146,26 +146,45 @@ describe("a button beside a form without one of its own", () => {
   });
 });
 
-describe("an accessible-name locator (ADR 0048 amendment of 2026-10-19)", () => {
-  it("names no route step's element, as only a password handler's button uses it", () => {
-    const named: Candidate = {
-      id: "login",
+describe("an accessible-name locator (ADR 0048 amendments)", () => {
+  const named: Candidate = {
+    id: "login",
+    role: "button",
+    target: { by: "accessible-name", value: "Log in" },
+  };
+  const page = {
+    ...observation,
+    candidates: [...observation.candidates.filter((entry) => entry.id !== "login"), named],
+  };
+  const fields = [
+    { slot: "username", candidate: "user" },
+    { slot: "password", candidate: "password" },
+  ];
+
+  it("names the plan's click (ADR 0048 amendment of 2026-10-23)", () => {
+    const result = validatePagePlan(page, slots, { fields, action });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan.steps.at(-1)).toEqual({
+      kind: "click",
+      path: observation.path,
+      target: named.target,
+      purpose: "submit",
+    });
+  });
+
+  it("never names the account switch", () => {
+    const other: Candidate = {
+      id: "other",
       role: "button",
-      target: { by: "accessible-name", value: "Log in" },
-    };
-    const page = {
-      ...observation,
-      candidates: [...observation.candidates.filter((entry) => entry.id !== "login"), named],
+      target: { by: "accessible-name", value: "Use another account" },
     };
     expect(
-      validatePagePlan(page, slots, {
-        fields: [
-          { slot: "username", candidate: "user" },
-          { slot: "password", candidate: "password" },
-        ],
+      validatePagePlan({ ...observation, candidates: [...observation.candidates, other] }, slots, {
+        fields,
         action,
+        accountSwitch: "other",
       }),
-    ).toEqual({ ok: false, reason: "unknown-candidate" });
+    ).toEqual({ ok: false, reason: "incompatible-role" });
   });
 });
 

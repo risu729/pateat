@@ -14,6 +14,7 @@ import {
   readBirthDate,
   savedDetailLink,
 } from "./details";
+import { connectionPolicy } from "../connections/__fixtures__/policy";
 
 // Synthetic vault data only: no real names, dates or numbers.
 const connectionId = "personal";
@@ -59,6 +60,7 @@ function vault(
     id: connectionId,
     label: "Synthetic vault",
     provider: "bitwarden",
+    server: "cloud-us",
     userId: "synthetic-user",
     groups: [],
     items,
@@ -66,23 +68,24 @@ function vault(
   };
   return { catalog: { connections: [connection] }, connection };
 }
+/** The vault account's policy; exclusions name catalog field IDs. */
 function policy(
-  connection: Partial<LocalSettings["connections"][number]> = {},
+  change: Parameters<typeof connectionPolicy>[1] = {},
   extra: Partial<LocalSettings> = {},
 ): LocalSettings {
+  const account = {
+    provider: "bitwarden",
+    server: "cloud-us",
+    userId: "synthetic-user",
+    label: "Synthetic vault",
+    items: [],
+  };
   return {
-    connections: [
-      {
-        connectionId,
-        enabled: true,
-        selection: { mode: "all", groupIds: [], itemIds: [] },
-        excludedItemIds: [],
-        excludedFields: [],
-        ...connection,
-      },
-    ],
+    connections: [{ connectionId, enabled: true }],
+    ...connectionPolicy(account, change),
     excludedSites: [],
     repromptSites: [],
+    passkeyBrowserSites: [],
     siteDefaults: [],
     bindings: [],
     ...extra,
@@ -91,6 +94,7 @@ function policy(
 const owner = {
   origin: "https://shop.example",
   provider: "bitwarden",
+  server: "cloud-us",
   userId: "synthetic-user",
   itemId: "login",
 };
@@ -373,7 +377,7 @@ describe("the live field a link reads (ADR 0061)", () => {
 
   it.each([
     ["excluded", policy({ excludedItemIds: ["card"] })],
-    ["not selected", policy({ selection: { mode: "selected", groupIds: [], itemIds: ["login"] } })],
+    ["not selected", policy({ selectedItemIds: ["login"] })],
     ["in a disabled connection", policy({ enabled: false })],
     [
       "whose field is excluded",

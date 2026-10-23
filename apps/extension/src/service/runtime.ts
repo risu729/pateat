@@ -26,11 +26,20 @@ const recordSchema = v.strictObject({
   rejected: v.optional(v.literal(true)),
   /** Recipes outgrew the local cache or settings their limits; cleared by a complete sync. */
   cacheFull: v.optional(v.literal(true)),
+  /**
+   * A settings sync has completed since this pairing; until then no vault item is used
+   * (ADR 0023), so a reinstall never runs on settings it has not merged yet.
+   */
+  settingsSynced: v.optional(v.literal(true)),
 });
 type ServiceRecord = v.InferOutput<typeof recordSchema>;
 
 /** A sync outcome kept on the connected record for the settings page. */
-export type RecipeSyncRecord = { syncedAt: number } | { rejected: true } | { cacheFull: true };
+export type RecipeSyncRecord =
+  | { syncedAt: number }
+  | { rejected: true }
+  | { cacheFull: true }
+  | { settingsSynced: true };
 
 /** What the background sync needs; never sent to the options page. */
 export type ServiceConnection = {
@@ -38,6 +47,8 @@ export type ServiceConnection = {
   deviceId: string;
   credential: string;
   rejected: boolean;
+  /** A settings sync has completed since pairing (ADR 0023). */
+  settingsSynced?: true;
 };
 
 export interface ServiceStorage {
@@ -56,6 +67,17 @@ export function createServiceRuntime(options: {
   hasSiteAccess: (origin: string) => Promise<boolean>;
   /** Told once a new device's credential is stored; never changes the pairing. */
   onPaired?: (connection: { origin: string; deviceId: string }) => void;
+  /** The recipes this device holds as its own (ADR 0040). */
+  deviceRecipes?: {
+    /** How many: -1 when they cannot be read, undefined while storage is unavailable. */
+    count(): Promise<number | undefined>;
+    /**
+     * Keeps the paired device's synced recipes as its own; rejects when they cannot be
+     * read or do not fit.
+     */
+    keepSynced(): Promise<void>;
+    clear(): Promise<void>;
+  };
 }) {
   const { storage, transport } = options;
   const hasSiteAccess = (origin: string) => options.hasSiteAccess(origin).catch(() => false);
@@ -142,6 +164,13 @@ export function createServiceRuntime(options: {
     const record = await current();
 
     switch (request.type) {
+      case "service.delete-recipes": {
+        if (record) return fail("wrong-state", record);
+        await options.deviceRecipes?.clear().catch(() => {
+          throw new StorageUnavailable();
+        });
+        return ok(undefined);
+      }
       case "service.get":
         return ok(record);
       case "service.pair": {
@@ -187,6 +216,15 @@ export function createServiceRuntime(options: {
       }
       case "service.disconnect": {
         if (!record) return fail("wrong-state", record);
+        // The synced recipes are kept before anything is revoked, so a device that cannot
+        // keep them stays paired (ADR 0040).
+        if (request.keepRecipes && options.deviceRecipes) {
+          try {
+            await options.deviceRecipes.keepSynced();
+          } catch {
+            return fail("recipes-not-kept", record);
+          }
+        }
         const result = await transport.revoke(record.origin, record.credential);
         // Forget the credential even when the service is unreachable; the owner
         // can still revoke this device from the service's management page.
@@ -194,6 +232,14 @@ export function createServiceRuntime(options: {
         return ok(undefined, result.kind === "revoked");
       }
     }
+  }
+
+  /** A disconnected state says how many recipes this device holds as its own. */
+  async function withKeptRecipes(response: ServiceResponse): Promise<ServiceResponse> {
+    if (response.state?.kind !== "disconnected" || !options.deviceRecipes) return response;
+    const kept = await options.deviceRecipes.count();
+    if (kept === undefined || kept === 0) return response;
+    return { ...response, state: { kind: "disconnected", keptRecipes: kept } };
   }
 
   function enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -205,7 +251,7 @@ export function createServiceRuntime(options: {
   return {
     handle(input: unknown): Promise<ServiceResponse> {
       return enqueue(() =>
-        run(input).catch((error: unknown) => {
+        run(input).then(withKeptRecipes, (error: unknown) => {
           if (error instanceof StorageUnavailable)
             return { ok: false, error: "storage-unavailable" } as const;
           if (error instanceof StorageCorrupt)
@@ -228,8 +274,24 @@ export function createServiceRuntime(options: {
             deviceId: record.deviceId,
             credential: record.credential,
             rejected: record.rejected === true,
+            ...(record.settingsSynced ? { settingsSynced: true as const } : {}),
           }
         : undefined;
+    },
+    /**
+     * Whether this device must not use vault items yet: it is paired and has not completed
+     * a settings sync since (ADR 0023). A record that cannot be read counts as waiting. A
+     * device that was never paired is unaffected.
+     */
+    async settingsSyncPending(): Promise<boolean> {
+      // A new pairing whose credential write failed has not synced either.
+      if (unsaved) return true;
+      try {
+        const record = await load();
+        return record !== undefined && !record.settingsSynced;
+      } catch {
+        return true;
+      }
     },
     /**
      * Records a sync outcome for the device that ran it. A record replaced meanwhile,

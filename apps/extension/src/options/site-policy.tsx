@@ -63,12 +63,14 @@ function unavailableReason(reason: string): string {
     "default-not-set": "No default account is set.",
     "item-origin-mismatch": "This account does not match the exact origin.",
     "connection-missing": "The vault connection is unavailable.",
-    "account-ambiguous": "This vault account is connected more than once.",
+    "account-ambiguous":
+      "This vault account is connected more than once, or its user ID has settings for another server.",
     "vault-unavailable": "The vault is locked or unavailable.",
     "connection-disabled": "The vault connection is turned off.",
     "item-missing": "This account is no longer in its vault.",
     "item-excluded": "This account is excluded.",
     "item-not-selected": "This account is outside the selected groups and items.",
+    "review-required": "This account's custom fields need review, or its vault needs a sync.",
     "fields-excluded": "All fields in this account are excluded.",
   };
   return Object.hasOwn(descriptions, reason)
@@ -80,6 +82,7 @@ type SiteAccountOption = {
   connectionId: string;
   connectionLabel: string;
   provider: string;
+  server: string;
   userId: string | undefined;
   itemId: string;
   itemName: string;
@@ -130,6 +133,7 @@ export function siteAccountOptions(
               connectionId: connection.id,
               connectionLabel: connection.label,
               provider: connection.provider,
+              server: connection.server,
               userId: connection.userId,
               itemId: item.id,
               itemName: item.label,
@@ -184,6 +188,7 @@ function defaultFor(
   const value = {
     origin,
     provider: option.provider,
+    server: option.server,
     userId,
     itemId: option.itemId,
     itemName: option.itemName,
@@ -324,6 +329,75 @@ function DefaultAccountEditor({
         </p>
       )}
     </>
+  );
+}
+
+/**
+ * The sites whose passkey requests go to the browser, added by the passkey window's "Always
+ * for this site" (ADR 0007). They are only removed here; removing one lets Pateat answer the
+ * site's next passkey request again.
+ */
+function PasskeyBrowserSites({
+  draft,
+  edit,
+  idPrefix,
+}: {
+  draft: LocalSettings;
+  edit: (update: (value: LocalSettings) => void) => boolean;
+  idPrefix: string;
+}) {
+  const { t } = useTranslation(undefined, { i18n });
+  const heading = useRef<HTMLHeadingElement>(null);
+  const sites = draft.passkeyBrowserSites.toSorted((left, right) =>
+    left.hostname.localeCompare(right.hostname),
+  );
+  return (
+    <section aria-labelledby={`${idPrefix}passkey-browser-heading`} className="flex flex-col gap-3">
+      <h3
+        id={`${idPrefix}passkey-browser-heading`}
+        ref={heading}
+        tabIndex={-1}
+        className="m-0 text-base leading-6 font-[650] outline-none"
+      >
+        {t("Sites whose passkey requests go to the browser")}
+      </h3>
+      <p className="m-0 text-[0.8125rem] leading-5 text-ink-muted">
+        {t(
+          'Added with "Always for this site" in Pateat\'s passkey window. Pateat answers no passkey request on these sites and logs in there only with a password. Remove a site to let Pateat answer again.',
+        )}
+      </p>
+      <RowList id={`${idPrefix}passkey-browser-sites`}>
+        {sites.map((site) => (
+          <SiteRow
+            key={site.hostname}
+            title={site.hostname}
+            controls={
+              <Button
+                type="button"
+                variant="outline"
+                aria-label={t("Remove {{hostname}} from this list", { hostname: site.hostname })}
+                onClick={() => {
+                  // The row goes away, so focus moves to the list's heading.
+                  if (
+                    edit((settings) => {
+                      settings.passkeyBrowserSites = settings.passkeyBrowserSites.filter(
+                        (entry) => entry.hostname !== site.hostname,
+                      );
+                    })
+                  )
+                    heading.current?.focus();
+                }}
+              >
+                {t("Remove")}
+              </Button>
+            }
+          />
+        ))}
+      </RowList>
+      {!sites.length && (
+        <StatusLines muted lines={[{ tone: "idle", icon: Info, text: t("No sites listed") }]} />
+      )}
+    </section>
   );
 }
 
@@ -908,6 +982,7 @@ export function SitePolicy({
           },
         ]}
       />
+      <PasskeyBrowserSites draft={draft} edit={edit} idPrefix={idPrefix} />
     </Panel>
   );
 }

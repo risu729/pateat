@@ -526,6 +526,68 @@ describe("personal-detail inputs (ADR 0061)", () => {
   ] as const)("refuses %s", (_label, entry, field, submit, why) => {
     expect(refusal(entry, field, submit)).toBe(why);
   });
+
+  describe("an input of a value split over several (owner, 2026-10-23 12:26 UTC)", () => {
+    const year = { detail: "birth-date", part: "year", format: "yyyy" } as const;
+    const month = { detail: "birth-date", part: "month", format: "m" } as const;
+    const expiryYear = { detail: "card-expiry", part: "year", format: "yy" } as const;
+    const group = { detail: "card-number", part: 2, length: 4 } as const;
+    const pinGroup = { detail: "pin", part: 1 } as const;
+
+    it("takes a date's part in a text, tel or number input or a select", () => {
+      for (const role of ["text", "tel", "number", "select"]) {
+        expect(refusal(year, { role })).toBeUndefined();
+        expect(refusal(expiryYear, { role })).toBeUndefined();
+      }
+      expect(refusal(year, { maxLength: 4 })).toBeUndefined();
+      expect(refusal(month, { maxLength: 2 })).toBeUndefined();
+      expect(refusal(expiryYear, { maxLength: 2 })).toBeUndefined();
+    });
+
+    it("takes a digit group where its whole value goes, in an input as long as the group", () => {
+      for (const role of ["password", "text", "tel"])
+        expect(refusal(group, { role, maxLength: 4 })).toBeUndefined();
+      // Without a length of its own, the judge's group takes the input's.
+      expect(refusal(pinGroup, { role: "password", maxLength: 1 })).toBeUndefined();
+    });
+
+    it.each([
+      ["a date's part in a password input", year, { role: "password" }, "not-input"],
+      ["a four-digit year in 3 characters", year, { maxLength: 3 }, "too-short"],
+      ["a month in 1 character", month, { maxLength: 1 }, "too-short"],
+      ["a digit group in a select", group, { role: "select", maxLength: undefined }, "not-input"],
+      ["a digit group without a maxlength", group, {}, "no-length"],
+      ["a digit group in a longer input", group, { maxLength: 5 }, "length-changed"],
+      ["a PIN's group in an email input", pinGroup, { role: "email", maxLength: 1 }, "not-input"],
+      ["a whole birth date in a select", birth, { role: "select" }, "not-input"],
+      ["a whole card number in a select", cardNumber, { role: "select" }, "not-input"],
+      ["a security code in a select", code, { role: "select" }, "not-input"],
+      [
+        "a date's part marked as a sign-in field",
+        year,
+        { role: "select", autocomplete: "username" },
+        "sign-in-field",
+      ],
+    ] as const)("refuses %s", (_label, entry, field, why) => {
+      expect(refusal(entry, field)).toBe(why);
+    });
+
+    it("describes a select by its locator and label, without lengths, options or a label locator", () => {
+      const select = { id: "y", role: "select", target: { by: "name", value: "y" }, label: "Year" };
+      expect(parse({ ...base, candidates: [...base.candidates, select] })).toBe(true);
+      for (const extra of [
+        { maxLength: 4 },
+        { description: "Choose the year" },
+        { inputMode: "numeric" },
+        { target: { by: "label", value: "Year" } },
+        { target: { by: "text", value: "Year" } },
+        { options: ["1990"] },
+      ])
+        expect(parse({ ...base, candidates: [...base.candidates, { ...select, ...extra }] })).toBe(
+          false,
+        );
+    });
+  });
 });
 
 describe("custom-field slots (ADR 0027)", () => {

@@ -43,6 +43,7 @@ function mockClient(initial: ServiceState = { kind: "disconnected" }) {
       .fn<ServiceClient["disconnect"]>()
       .mockResolvedValue(ok({ kind: "disconnected" }, true)),
     openSignIn: vi.fn<ServiceClient["openSignIn"]>().mockResolvedValue(undefined),
+    deleteRecipes: vi.fn<ServiceClient["deleteRecipes"]>(),
   };
 }
 
@@ -486,6 +487,8 @@ test("tells the owner when the service could not confirm a disconnect", async ()
   client.disconnect.mockResolvedValue(ok({ kind: "disconnected" }, false));
   await render(<ServiceConnection client={client} pollMs={60_000} />);
   await page.getByRole("button", { name: "Disconnect this device", exact: true }).click();
+  await page.getByRole("button", { name: "Disconnect and delete recipes", exact: true }).click();
+  expect(client.disconnect).toHaveBeenCalledExactlyOnceWith(false);
   await expect
     .element(
       page.getByText(
@@ -495,6 +498,93 @@ test("tells the owner when the service could not confirm a disconnect", async ()
     )
     .toBeVisible();
   expect(client.pair).not.toHaveBeenCalled();
+});
+
+test("asks whether to keep the synced recipes before disconnecting (ADR 0040)", async () => {
+  const client = mockClient(connected);
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  const disconnect = page.getByRole("button", { name: "Disconnect this device", exact: true });
+  await disconnect.click();
+  await expect
+    .element(page.getByRole("group", { name: "Keep the synced recipes on this device?" }))
+    .toBeVisible();
+  await expect.element(disconnect).toBeDisabled();
+  // Back leaves the device paired.
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect
+    .element(page.getByRole("group", { name: "Keep the synced recipes on this device?" }))
+    .not.toBeInTheDocument();
+  expect(client.disconnect).not.toHaveBeenCalled();
+
+  client.disconnect.mockResolvedValue(ok({ kind: "disconnected", keptRecipes: 3 }, true));
+  await disconnect.click();
+  await page.getByRole("button", { name: "Disconnect and keep recipes", exact: true }).click();
+  expect(client.disconnect).toHaveBeenCalledExactlyOnceWith(true);
+  await expect
+    .element(
+      page.getByText(
+        "3 recipes kept on this device. Logins use them without a service, and a service paired later receives them once.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+});
+
+test("says when the recipes could not be kept, and the device stays paired", async () => {
+  const client = mockClient(connected);
+  client.disconnect.mockResolvedValue({ ok: false, error: "recipes-not-kept", state: connected });
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await page.getByRole("button", { name: "Disconnect this device", exact: true }).click();
+  await page.getByRole("button", { name: "Disconnect and keep recipes", exact: true }).click();
+  await expect
+    .element(
+      page.getByText(
+        "The recipes could not be kept on this device, so it is still paired. Disconnect and delete them, or try again.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Disconnect this device", exact: true }))
+    .toBeEnabled();
+});
+
+test("deletes the recipes kept on this device", async () => {
+  const client = mockClient({ kind: "disconnected", keptRecipes: 1 });
+  client.deleteRecipes.mockResolvedValue(ok({ kind: "disconnected" }));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await expect
+    .element(
+      page.getByText(
+        "1 recipe kept on this device. Logins use it without a service, and a service paired later receives it once.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  await page.getByRole("button", { name: "Delete recipes on this device", exact: true }).click();
+  expect(client.deleteRecipes).toHaveBeenCalledOnce();
+  await expect
+    .element(page.getByText("The recipes kept on this device were deleted.", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Delete recipes on this device", exact: true }))
+    .not.toBeInTheDocument();
+});
+
+test("offers to delete kept recipes it cannot read", async () => {
+  const client = mockClient({ kind: "disconnected", keptRecipes: -1 });
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await expect
+    .element(
+      page.getByText(
+        "The recipes kept on this device cannot be read. Delete them to start again.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Delete recipes on this device", exact: true }))
+    .toBeEnabled();
 });
 
 const LOCAL_PROFILE = "00000000-0000-4000-8000-000000000010";

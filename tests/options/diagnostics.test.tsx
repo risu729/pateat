@@ -50,6 +50,7 @@ function status(overrides: Partial<DiagnosticsStatus> = {}): DiagnosticsStatus {
       allowedSitesEnabled: true,
       siteDefaults: 2,
       bindings: 0,
+      passkeyBrowserSites: 1,
     },
     storage: { localBytes: 900 },
     logs: { entries: 1284, bytes: 212 * 1024, recentErrors: 0, recentWarnings: 2 },

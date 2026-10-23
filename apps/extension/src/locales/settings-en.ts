@@ -18,6 +18,7 @@ export const settingsEn = {
   "settings were saved in another window or the toolbar popup":
     "settings were saved in another window or the toolbar popup",
   "a Bitwarden vault was added": "a Bitwarden vault was added",
+  "a Bitwarden vault was removed": "a Bitwarden vault was removed",
   "a Bitwarden vault was synced after a sign-in or Sync":
     "a Bitwarden vault was synced after a sign-in or Sync",
   "a Bitwarden vault was synced automatically": "a Bitwarden vault was synced automatically",
@@ -28,6 +29,8 @@ export const settingsEn = {
     "an account used to log in on a site was saved for that site",
   "a vault field for a personal detail was linked or unlinked for a site":
     "a vault field for a personal detail was linked or unlinked for a site",
+  "a site was set to hand its passkey requests to the browser":
+    "a site was set to hand its passkey requests to the browser",
   "settings changed for a reason no longer recorded":
     "settings changed for a reason no longer recorded",
   "{{error}} Your unsaved changes are kept.": "{{error}} Your unsaved changes are kept.",
@@ -64,12 +67,15 @@ export const settingsEn = {
   Sections: "Sections",
   Diagnostics: "Diagnostics",
   "Other saved vault settings": "Other saved vault settings",
+  "Pateat uses no vault item until this device completes its first settings sync with the sync service.":
+    "Pateat uses no vault item until this device completes its first settings sync with the sync service.",
   "Local settings": "Local settings",
   "This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms, or sign passkey requests.":
     "This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms, or sign passkey requests.",
   "Licenses and source": "Licenses and source",
   "GPL-3.0-only, no warranty": "GPL-3.0-only, no warranty",
   Theme: "Theme",
+  'Show "This page" in the popup': 'Show "This page" in the popup',
   Light: "Light",
   Dark: "Dark",
   "Stored settings are invalid. They were not replaced.":
@@ -156,6 +162,13 @@ export const settingsEn = {
   "A default account takes effect at the next login.":
     "A default account takes effect at the next login.",
   "{{item}} ({{method}})": "{{item}} ({{method}})",
+  "Sites whose passkey requests go to the browser":
+    "Sites whose passkey requests go to the browser",
+  'Added with "Always for this site" in Pateat\'s passkey window. Pateat answers no passkey request on these sites and logs in there only with a password. Remove a site to let Pateat answer again.':
+    'Added with "Always for this site" in Pateat\'s passkey window. Pateat answers no passkey request on these sites and logs in there only with a password. Remove a site to let Pateat answer again.',
+  "Remove {{hostname}} from this list": "Remove {{hostname}} from this list",
+  Remove: "Remove",
+  "No sites listed": "No sites listed",
   "Vault timeout": "Vault timeout",
   "Saved on this device.": "Saved on this device.",
   "The vault timeout could not be saved. Try again.":
