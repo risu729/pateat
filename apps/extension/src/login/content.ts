@@ -376,6 +376,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           "id",
           "name",
           "data-testid",
+          "data-test",
           "type",
           "autocomplete",
           "hidden",

@@ -54,7 +54,7 @@ export const loginAutocompleteTokens = [
   "webauthn",
 ] as const;
 /**
- * An attribute locator: the element whose `id`, `name` or `data-testid` equals the
+ * An attribute locator: the element whose `id`, `name`, `data-testid` or `data-test` equals the
  * value, or the `<input>` whose `autocomplete` attribute holds the token among its
  * whitespace-separated tokens, ignoring case (for fields with no `id` or `name`, such as
  * `autocomplete="username webauthn"`). `id` and `name` take any ASCII except whitespace
@@ -67,8 +67,10 @@ export const loginAttributeTargetSchema = v.variant("by", [
     by: v.picklist(["id", "name"]),
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[\x21-\x7e]+$/u)),
   }),
+  // `data-test` is the test attribute some pages use instead (Duolingo's sign-in
+  // submit, 2026-10-23; ADR 0071).
   v.strictObject({
-    by: v.literal("test-id"),
+    by: v.picklist(["test-id", "data-test"]),
     value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[a-zA-Z0-9_.:-]+$/)),
   }),
   v.strictObject({ by: v.literal("autocomplete"), value: v.picklist(loginAutocompleteTokens) }),

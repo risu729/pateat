@@ -153,6 +153,7 @@ const locators = [
   ["id", "id"],
   ["name", "name"],
   ["test-id", "data-testid"],
+  ["data-test", "data-test"],
 ] as const;
 /**
  * An ID React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`, a hydrated `:R1aH1:`, also
@@ -327,7 +328,7 @@ function locatorIndex(document: Document): LocatorIndex {
     const counts = index.get(key)!;
     counts.set(value, (counts.get(value) ?? 0) + 1);
   };
-  for (const element of document.querySelectorAll("[id], [name], [data-testid]"))
+  for (const element of document.querySelectorAll("[id], [name], [data-testid], [data-test]"))
     for (const [, attribute] of locators) {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);

@@ -11,7 +11,12 @@ import {
   linkText,
 } from "./text";
 
-const attributes = { id: "id", name: "name", "test-id": "data-testid" } as const;
+const attributes = {
+  id: "id",
+  name: "name",
+  "test-id": "data-testid",
+  "data-test": "data-test",
+} as const;
 /** Every element an `accessible-name` locator may name ({@link isNamedControl}). */
 export const namedControls = "button, input, a, [role]";
 
