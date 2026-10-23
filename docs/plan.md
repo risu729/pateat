@@ -2262,7 +2262,8 @@ the back/forward cache). A signature that finishes before the cancel arrives sti
 counts as a sign-in: the tab is recorded as signed in (so its next username-less request
 asks again), the login and the registration check are told of it and a chosen default is
 saved, while the reply goes to the replaced document's closed message channel, which
-Chrome drops.
+Chrome drops. The owner accepted this few-millisecond race on 2026-10-23
+([ADR 0007](adr/0007-existing-passkey-assertions.md#bridge-topology)).
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper and read the
 extension ID from stack traces; the relay posts only the outcome of a request to the
