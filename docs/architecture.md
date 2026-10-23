@@ -1411,16 +1411,16 @@ document the watch began in is not read again: a restarted worker that resumes a
 whose result settled as unknown in that document runs no check there, and the tab's next
 page or one after the watch's 10 minutes is handled as before (agent fix applying ADR
 0027, 2026-10-17; a bank's settled login in the owner's Chrome was read again in its
-submitted document after each worker restart). Leaving the
-origin without a confirmed sign-in ends it the same way where it stopped, not
-`left-origin`, so its first step showing again later in the tab is no logout either
-(2026-10-13). Newer settings end it
+submitted document after each worker restart). Leaving the origin without a confirmed
+sign-in ends it the same way where it stopped, not `left-origin`, so its first step
+showing again later in the tab is no logout either (2026-10-13). Newer settings end it
 `policy-changed` only when they no longer allow its account on the page; otherwise the
 watch takes over their revision, since it only reads, so another site's saved account
 choice does not end it. A login in a frame and the `passkey` route still end `challenge`
-at once. The attempt store is `pateat.login-attempts.v5` since the login's site time
-(2026-10-18); a previous store is left unread, as one record that no longer parses would
-stop the whole store from loading.
+at once. The attempt store is `pateat.login-attempts.v6` since attempts lost `fillOnly`
+([ADR 0062](adr/0062-log-in-again-after-a-logout.md), proposed; v5 came with the login's
+site time on 2026-10-18); a previous store is left unread, as one record that no longer
+parses would stop the whole store from loading.
 
 Chrome use coordination is an open integration gate. Expose a scoped status
 contract for a future trusted consumer, but do not assume Chrome use already
@@ -1795,7 +1795,7 @@ which its [login record](#login-records-on-the-service) also sends to the servic
   request that got no answer or a service deployed before it sent the header, only
   `roundTripMs` is known. A header duration that is not finite or is longer than a day
   is ignored.
-- A login attempt keeps `timing` in its record (`pateat.login-attempts.v5`): since when
+- A login attempt keeps `timing` in its record (`pateat.login-attempts.v6`): since when
   the extension saw the page that started it, or the sign-in entry pressed just before
   it, and the service, network, person and site time so far, with a running wait for the
   person or the site as a stamp. The time stored with the record outlives a worker
