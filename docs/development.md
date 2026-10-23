@@ -527,10 +527,11 @@ holds:
   vault could not be searched in full;
 - `defaultUnset` when the site's default counted as unset, so the chooser opened even
   for one match or the default, with none preselected: with `paused` while automatic
-  login of the site is paused, by a pause, an exclusion rule or a private window while
-  that setting is off ([ADR 0062](adr/0062-log-in-again-after-a-logout.md)), else
-  because the site asks every time after a one-time pick
-  ([ADR 0063](adr/0063-switch-accounts-from-the-popup.md)). Such a request that cannot
+  login of the site is paused, by a pause or an exclusion rule
+  ([ADR 0062](adr/0062-log-in-again-after-a-logout.md); a private window whose setting
+  is off does not count here), else because the site asks every time after a one-time
+  pick ([ADR 0063](adr/0063-switch-accounts-from-the-popup.md)) or the ADR 0062 guard
+  against repeated logins holds it. Such a request that cannot
   open the window, or finds no passkey to offer, is delegated with `paused` or
   `default-unset`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or

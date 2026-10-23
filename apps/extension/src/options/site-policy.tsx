@@ -17,6 +17,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { CircleCheck, Clock, Info, Pause, TriangleAlert, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as v from "valibot";
+import { pauseSite } from "../login/pause";
 import { Button } from "./button";
 import {
   Badge,
@@ -538,7 +539,7 @@ export function SitePolicy({
       })),
       { value: NO_DEFAULT, text: t("No default") },
     ];
-    const hostname = hostOf(origin);
+    const site = pauseSite(origin) ?? hostOf(origin);
     return (
       <SiteRow
         key={`origin ${origin}`}
@@ -570,15 +571,17 @@ export function SitePolicy({
             <Button
               type="button"
               variant="outline"
-              aria-label={t("Pause automatic login on {{origin}}, all schemes and ports", {
-                origin,
-              })}
+              aria-label={t(
+                "Pause automatic login on {{site}} and its subdomains, which includes {{origin}}",
+                { site, origin },
+              )}
               onClick={() => {
+                // As the popup pauses it: the registrable site with its subdomains (ADR 0062).
                 edit((settings) => {
                   settings.excludedSites = settings.excludedSites.filter(
-                    (entry) => entry.hostname !== hostname,
+                    (entry) => entry.hostname !== site,
                   );
-                  settings.excludedSites.push({ hostname, includeSubdomains: false });
+                  settings.excludedSites.push({ hostname: site, includeSubdomains: true });
                 });
                 originInput.current?.focus();
               }}

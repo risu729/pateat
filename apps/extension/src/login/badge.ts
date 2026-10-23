@@ -144,7 +144,14 @@ function resultTitle(result: BadgeResult, t: TFunction): string {
 }
 
 /** The tooltip of a tab whose login waits for an account choice (ADR 0021). */
-function choiceTitle({ count, ask, paused }: Choice, t: TFunction): string {
+function choiceTitle(
+  { count, ask, paused }: Choice,
+  pause: PauseState | undefined,
+  t: TFunction,
+): string {
+  // In a private window the pause is the private-window setting, not the site's (ADR 0062).
+  if (paused && pause && "private" in pause)
+    return t("Pateat: automatic login is off in private windows. Click to choose an account.");
   if (paused)
     return t("Pateat: automatic login is paused on this site. Click to choose an account.");
   return ask
@@ -157,7 +164,7 @@ function choiceTitle({ count, ask, paused }: Choice, t: TFunction): string {
           "stopped-login":
             "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
           "relogin-limit":
-            "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.",
+            "Pateat logged in to this site twice in 10 minutes. Click to choose an account.",
           "one-time-pick":
             "Pateat: you chose an account here without making it the default. Click to choose an account.",
         }[ask],
@@ -335,7 +342,11 @@ export function createLoginBadge(deps: {
   function wanted(tabId: number): Shown {
     const choice = choices.get(tabId);
     if (choice)
-      return { text: String(choice.count), ...STYLES.choice, title: choiceTitle(choice, t) };
+      return {
+        text: String(choice.count),
+        ...STYLES.choice,
+        title: choiceTitle(choice, pauses.get(tabId), t),
+      };
     if (spinning(tabId))
       return { text: BUSY_FRAMES[frame] ?? "", ...STYLES.busy, title: t("Pateat: asking the AI…") };
     // A waiting choice and a running model request show over a pause (ADR 0062).
@@ -347,11 +358,13 @@ export function createLoginBadge(deps: {
         title:
           "private" in paused
             ? t("Pateat: automatic login is off in private windows.")
-            : "until" in paused
-              ? t("Pateat: automatic login is paused on this site until {{time}}.", {
-                  time: localClock(paused.until),
-                })
-              : t("Pateat: automatic login is paused on this site until turned back on."),
+            : "unreadable" in paused
+              ? t("Pateat: the paused sites could not be read, so automatic login is paused.")
+              : "until" in paused
+                ? t("Pateat: automatic login is paused on this site until {{time}}.", {
+                    time: localClock(paused.until),
+                  })
+                : t("Pateat: automatic login is paused on this site until turned back on."),
       };
     const result = results.get(tabId);
     if (result && (result.until === undefined || result.until > now()))
@@ -564,7 +577,9 @@ export function createLoginBadge(deps: {
      * badge shows a gray `II` while it runs.
      */
     paused(tabId: number, pause: PauseState | undefined): void {
-      if (setPause(tabId, pause)) draw(tabId);
+      // A tab not drawn since the worker started may still show the `II` of a pause that
+      // ended while the worker was stopped, so it is drawn whatever changed.
+      if (setPause(tabId, pause) || !shown.has(tabId)) draw(tabId);
     },
     /**
      * A tooltip for a tab that shows no badge, such as why its login is held, as a catalog

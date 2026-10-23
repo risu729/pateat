@@ -599,7 +599,7 @@ test("pausing an origin keeps its default unused by itself under the rule until 
   const client = mockClient();
   const response = saved(1);
   response.snapshot.settings.siteDefaults.push({
-    origin: "https://bank.example",
+    origin: "https://www.bank.example",
     provider: "dummy",
     userId: "demo-personal-account",
     itemId: "primary",
@@ -608,26 +608,29 @@ test("pausing an origin keeps its default unused by itself under the rule until 
   await mount(client);
   await page
     .getByRole("button", {
-      name: "Pause automatic login on https://bank.example, all schemes and ports",
+      name: "Pause automatic login on bank.example and its subdomains, which includes https://www.bank.example",
     })
     .click();
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  // As the popup pauses it: the registrable site with its subdomains (ADR 0062).
   expect(client.saveSettings.mock.calls[0]?.[0].settings).toMatchObject({
-    excludedSites: [{ hostname: "bank.example", includeSubdomains: false }],
-    siteDefaults: [{ origin: "https://bank.example" }],
+    excludedSites: [{ hostname: "bank.example", includeSubdomains: true }],
+    siteDefaults: [{ origin: "https://www.bank.example" }],
   });
   await expect
-    .element(page.getByRole("combobox", { name: "Default account for https://bank.example" }))
+    .element(page.getByRole("combobox", { name: "Default account for https://www.bank.example" }))
     .not.toBeInTheDocument();
   await expect
     .element(control("site-list"))
     .toMatchTextContent(
-      "Default for https://bank.example kept; while paused it is only listed first in the popup",
+      "Default for https://www.bank.example kept; while paused it is only listed first in the popup",
     );
-  await page.getByRole("button", { name: "Resume bank.example", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Resume bank.example and subdomains", exact: true })
+    .click();
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
   await expect
-    .element(page.getByRole("combobox", { name: "Default account for https://bank.example" }))
+    .element(page.getByRole("combobox", { name: "Default account for https://www.bank.example" }))
     .toBeVisible();
 });
 
@@ -681,12 +684,12 @@ test("an origin with a trailing dot is excluded by its hostname without the dot"
   await mount(client);
   await page
     .getByRole("button", {
-      name: "Pause automatic login on https://bank.example., all schemes and ports",
+      name: "Pause automatic login on bank.example and its subdomains, which includes https://bank.example.",
     })
     .click();
   await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
   expect(client.saveSettings.mock.calls[0]?.[0].settings.excludedSites).toEqual([
-    { hostname: "bank.example", includeSubdomains: false },
+    { hostname: "bank.example", includeSubdomains: true },
   ]);
   await expect
     .element(control("site-list"))

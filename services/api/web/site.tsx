@@ -5,12 +5,9 @@ import { SiteBindings } from "./bindings";
 import { Button } from "./button";
 import { SiteRecipes } from "./recipes";
 import {
-  allowSite,
   defaultAccountLabel,
   exclusionLabel,
-  exclusionsCovering,
-  excludeSite,
-  siteHostname,
+  siteRules,
   useSettings,
   useSettingsEdit,
   type SettingsEdit,
@@ -35,7 +32,6 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
   const [notice, setNotice] = useState("");
   const reasonId = useId();
   const { host } = new URL(origin);
-  const hostname = siteHostname(origin);
 
   function change(next: SettingsEdit) {
     setNotice("");
@@ -43,11 +39,12 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
   }
 
   const current = settings.data?.settings ?? null;
-  const rules = exclusionsCovering(current, hostname);
-  // The switch pauses automatic login on this hostname until turned back on, or resumes it
-  // (ADR 0062); it adds or removes only the hostname's own rule, and a rule that also covers
-  // other sites is changed on the Sites list.
-  const broader = rules.find((rule) => rule.includeSubdomains);
+  // The switch pauses automatic login on the registrable site with its subdomains until
+  // turned back on, as the extension's popup does, or resumes it (ADR 0062); it adds or
+  // removes only the site's own rules, and a rule that also covers other sites is changed on
+  // the Sites list.
+  const { rules, shared, pause, resume } = siteRules(current, origin);
+  const broader = shared[0];
   const siteDefault = current?.siteDefaults.find((entry) => entry.origin === origin);
   const bindings = (current?.bindings ?? []).filter((entry) => entry.origin === origin);
 
@@ -75,13 +72,7 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
                 checked={rules.length === 0}
                 disabled={edit.isPending || broader !== undefined}
                 aria-describedby={broader ? reasonId : undefined}
-                onChange={(event) =>
-                  change(
-                    event.target.checked
-                      ? allowSite(hostname, `${hostname} resumed`)
-                      : excludeSite(hostname, false),
-                  )
-                }
+                onChange={(event) => change(event.target.checked ? resume : pause)}
                 className="relative h-5 w-9 flex-none cursor-pointer appearance-none rounded-full bg-border-strong transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-surface after:transition-[left] after:content-[''] checked:bg-accent checked:after:left-[18px] disabled:cursor-default disabled:opacity-50"
               />
               Automatic login on this site

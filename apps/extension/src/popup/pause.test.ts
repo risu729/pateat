@@ -40,6 +40,31 @@ describe("the page section on a paused site", () => {
     ).map(({ text }) => text);
     expect(lines).toContain("Not sent to the AI: automatic login is paused on this site.");
   });
+  it("says automatic login is off in private windows there, not that the site is paused", () => {
+    const en = i18n.getFixedT("en");
+    const texts = (fields: Partial<Status>) =>
+      pageStatusLines(status(fields), en, true).map(({ text }) => text);
+    expect(texts({ recipe: "page", page: { state: "denied", reason: "paused" } })).toContain(
+      "No login started: automatic login is off in private windows; choose an account to log in.",
+    );
+    expect(
+      texts({ page: { state: "denied", reason: "recipe-not-found", generationSkip: "paused" } }),
+    ).toContain("Not sent to the AI: automatic login is off in private windows.");
+    expect(texts({ recipe: "page", page: { notStarted: "paused" } })).toContain(
+      "No login started: automatic login is off in private windows; choose an account to log in.",
+    );
+    // Another reason reads as in a normal window.
+    expect(texts({ recipe: "page", page: { state: "denied", reason: "logged-in" } })).toContain(
+      "No login started: this site is already logged in.",
+    );
+    expect(
+      pageStatusLines(
+        status({ page: { generationSkip: "paused" } }),
+        i18n.getFixedT("ja"),
+        true,
+      ).map(({ text }) => text),
+    ).toContain("AI に送信しませんでした：プライベートウィンドウでは自動ログインはオフです。");
+  });
 });
 
 describe("pauseShown", () => {

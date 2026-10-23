@@ -48,7 +48,12 @@ export type PauseState =
    * The page is in a private window, where automatic login is off until the setting is
    * turned on (ADR 0062).
    */
-  | { readonly private: true };
+  | { readonly private: true }
+  /**
+   * The paused sites could not be read, so every site counts as paused until they can be
+   * (ADR 0062): failing safe, Pateat starts nothing by itself meanwhile.
+   */
+  | { readonly unreadable: true };
 
 /**
  * Whether an exclusion rule of the settings covers the page, which pauses automatic login
@@ -142,10 +147,10 @@ export function createLoginPauses(
     /**
      * When the pause covering a page ends, while it runs: the latest end among the sites of
      * `urls`, such as a frame's own URL and its tab's (a frame is paused when either is).
-     * A store that cannot be read holds no pause.
+     * Throws when the store cannot be read.
      */
     async until(urls: readonly (string | URL | undefined)[], incognito: boolean | undefined) {
-      await ready();
+      if (!(await ready())) throw new Error("The paused sites could not be read");
       const ends = urls.flatMap((url) =>
         kinds(incognito).flatMap((kind) => {
           const until = url === undefined ? undefined : untilFor(pauseSite(url), kind);
@@ -170,6 +175,17 @@ export function createLoginPauses(
         draft.set(key(site, incognito), { site, incognito, length, until: isoTime(until) }),
       );
       return until;
+    },
+    /**
+     * Ends every pause of the incognito windows, as when the last of them closed: the
+     * browser drops their session, so their pauses end with it (ADR 0062).
+     */
+    async clearIncognito(): Promise<void> {
+      if (!(await ready())) throw new Error("The paused sites could not be read");
+      if (![...pauses.values()].some((entry) => entry.incognito)) return;
+      await commit((draft) => {
+        for (const [entryKey, entry] of draft) if (entry.incognito) draft.delete(entryKey);
+      });
     },
     /**
      * Ends the pause of the site of `url`, of either window kind when `incognito` is not

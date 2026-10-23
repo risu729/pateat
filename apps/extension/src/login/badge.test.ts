@@ -468,6 +468,60 @@ describe("login badge", () => {
     expect(h.view()).toMatchObject(NONE);
   });
 
+  it("says automatic login is off in private windows over a private tab's choice (ADR 0062)", async () => {
+    const h = harness();
+    h.badge.paused(tabId, { private: true });
+    h.badge.choice(tabId, { count: 2, paused: true });
+    await h.flush();
+    expect(h.view()).toEqual({
+      text: "2",
+      ...CHOICE,
+      title: "Pateat: automatic login is off in private windows. Click to choose an account.",
+    });
+  });
+
+  it("says Pateat logged in twice when the guard against repeated logins asks (ADR 0062 C)", async () => {
+    const h = harness();
+    h.badge.choice(tabId, { count: 1, ask: "relogin-limit" });
+    await h.flush();
+    expect(h.view()).toMatchObject({
+      text: "1",
+      title: "Pateat logged in to this site twice in 10 minutes. Click to choose an account.",
+    });
+  });
+
+  it("shows II when the paused sites could not be read (ADR 0062)", async () => {
+    const h = harness();
+    h.badge.paused(tabId, { unreadable: true });
+    await h.flush();
+    expect(h.view()).toEqual({
+      text: PAUSED_TEXT,
+      color: "#6b7280",
+      textColor: "#ffffff",
+      title: "Pateat: the paused sites could not be read, so automatic login is paused.",
+    });
+  });
+
+  it("clears a pause's II left by a stopped worker, and ends a restored pause on time (ADR 0062)", async () => {
+    // The worker that set `II` stopped; Chrome still shows it on both tabs.
+    const h = harness();
+    await h.badge.restore();
+    const until = Date.now() + 10 * 60_000;
+    // The startup reads each tab's pause again: one ended meanwhile, one still runs.
+    h.badge.paused(8, undefined);
+    h.badge.paused(tabId, { until });
+    await h.flush();
+    expect(h.view(8)).toMatchObject(NONE);
+    expect(h.view()).toMatchObject({ text: PAUSED_TEXT });
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(h.view()).toMatchObject(NONE);
+    // Once drawn, an unchanged pause writes nothing again.
+    const writes = h.calls.length;
+    h.badge.paused(8, undefined);
+    await h.flush();
+    expect(h.calls).toHaveLength(writes);
+  });
+
   it("keeps the tab's badge through a revocation report (ADR 0058 A)", async () => {
     const h = harness();
     h.badge.observe(attempt({ outcome: "credential-rejected" }));

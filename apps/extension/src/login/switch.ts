@@ -182,6 +182,19 @@ export function createAccountPicks(now: () => number = Date.now) {
       ].slice(-MAX_ASKING_SITES);
       await save();
     },
+    /**
+     * Forgets the switch picks and asking sites of the incognito windows, as when the last of
+     * them closed and the browser dropped their session.
+     */
+    async forgetIncognito(): Promise<void> {
+      await loaded;
+      const kept = asking.filter((entry) => !entry.incognito);
+      const picks = [...switches.values()].filter((pick) => pick.incognito);
+      if (kept.length === asking.length && !picks.length) return;
+      asking = kept;
+      for (const pick of picks) switches.delete(pick.tabId);
+      await save();
+    },
     /** Ends the site's asking, as when a pick made its account the default. */
     async stopAsking(site: string, incognito: boolean): Promise<void> {
       await loaded;

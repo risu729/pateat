@@ -55,6 +55,8 @@ const NOT_STARTED: Record<string, string> = {
     "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
   "account-ambiguous": "several accounts match; choose one to log in",
   paused: "automatic login is paused on this site; choose an account to log in",
+  // In a private window whose automatic login is off (ADR 0062).
+  "paused-private": "automatic login is off in private windows; choose an account to log in",
   "origin-busy": "another tab's login to this site is running or did not succeed",
   "tab-busy": "another login runs in this tab",
   "attempt-limit": "Pateat already holds as many login records as it can",
@@ -77,6 +79,7 @@ const NOT_SENT: Record<string, string> = {
   "after-sign-in": "this page came right after a sign-in",
   "nothing-offered": "the page showed no sign-in form",
   paused: "automatic login is paused on this site",
+  "paused-private": "automatic login is off in private windows",
 };
 
 const plain = (table: Record<string, string>, code: string, t: TFunction) =>
@@ -310,8 +313,33 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
  * for it, then the tab's last login on the page. Codes without a plain sentence show as the
  * log names them; no value, recipe step or query ever shows.
  */
-export function pageStatusLines(status: Status, t: TFunction = i18n.t.bind(i18n)): StatusLine[] {
-  return [...recipeLines(status, t), ...loginLines(status, t)];
+export function pageStatusLines(
+  status: Status,
+  t: TFunction = i18n.t.bind(i18n),
+  inPrivate = false,
+): StatusLine[] {
+  const shown = inPrivate ? privateStatus(status) : status;
+  return [...recipeLines(shown, t), ...loginLines(shown, t)];
+}
+
+/**
+ * In a private window whose automatic login is off, a `paused` page is paused by that
+ * setting, not by a pause of the site (ADR 0062), so its lines say so.
+ */
+function privateStatus(status: Status): Status {
+  const swap = (code: string | undefined) => (code === "paused" ? "paused-private" : code);
+  const { page, refused } = status;
+  const swapped: Status = { ...status };
+  if (page) {
+    const next: NonNullable<Status["page"]> = { ...page };
+    for (const key of ["reason", "notStarted", "generationSkip"] as const) {
+      const code = swap(page[key]);
+      if (code !== undefined) next[key] = code;
+    }
+    swapped.page = next;
+  }
+  if (refused) swapped.refused = { ...refused, reason: swap(refused.reason) ?? refused.reason };
+  return swapped;
 }
 
 const ICONS = {
@@ -324,9 +352,12 @@ const ICONS = {
 
 export function PageStatusSection({
   status,
+  inPrivate = false,
   onOpenDiagnostics,
 }: {
   status: Status;
+  /** The tab is in a private window whose automatic login is off (ADR 0062). */
+  inPrivate?: boolean;
   onOpenDiagnostics: () => void;
 }) {
   const { t } = useTranslation(undefined, { i18n });
@@ -334,7 +365,7 @@ export function PageStatusSection({
     <section className="popup-section" aria-labelledby="popup-page-heading">
       <h2 id="popup-page-heading">{t("This page")}</h2>
       <ul id="popup-page-status" className="popup-lines" aria-live="polite">
-        {pageStatusLines(status, t).map((line) => {
+        {pageStatusLines(status, t, inPrivate).map((line) => {
           const Icon = ICONS[line.tone];
           return (
             <li

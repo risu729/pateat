@@ -66,6 +66,25 @@ describe("the popup's reason for asking (ADR 0021)", () => {
     expect(choiceReason(undefined, 3, en)).toBe("3 accounts match this page");
     expect(choiceReason(undefined, 1, en)).toBe("1 account matches this page");
     expect(choiceReason("rejected", 3, en, true)).toBe("Automatic login is paused on this site");
+    expect(choiceReason(undefined, 1, en, "private")).toBe(
+      "Automatic login is off in private windows",
+    );
+  });
+
+  it("points a private window's pick without a password to the page's passkey button only", () => {
+    expect(pickFailure("paused-no-password", "Example", false, en, true)).toBe(
+      "Automatic login is off in private windows, and Example has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when Example is this site's only passkey or its default.",
+    );
+    expect(pickFailure("paused-no-password", "Example", true, en, true)).toBe(
+      "Automatic login is off in private windows, and Example has no password, so Pateat did not log in. Example was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when Example is this site's only passkey or its default.",
+    );
+    for (const makeDefault of [false, true])
+      expect(pickFailure("paused-no-password", "Example", makeDefault, en, true)).not.toContain(
+        "Pateat's window",
+      );
+    expect(pickFailure("paused-no-password", "Example", false, ja, true)).toContain(
+      "プライベートウィンドウでは自動ログインはオフ",
+    );
   });
 
   it("says the same in Japanese, with the account name kept as written", () => {

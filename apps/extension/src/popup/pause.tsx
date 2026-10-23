@@ -127,12 +127,18 @@ export type SitePause =
  */
 export function PauseControl({
   pause,
+  incognito = false,
   busy,
   onPause,
   onResume,
   onOpenSettings,
 }: {
   pause: SitePause;
+  /**
+   * The tab is in a private window. Pausing until turned back on saves a rule to the synced
+   * settings, which pauses the site in normal windows too, so only a length is offered.
+   */
+  incognito?: boolean;
   busy: boolean;
   onPause: (length: PauseLength | "rule") => void;
   onResume: () => void;
@@ -148,20 +154,22 @@ export function PauseControl({
           {t("Pause automatic login")}
         </p>
         <div className="popup-pause-choices">
-          {PAUSE_CHOICES.map((choice) => (
-            <Button
-              key={choice.length}
-              id={`popup-pause-${choice.length}`}
-              type="button"
-              variant="outline"
-              aria-disabled={busy || undefined}
-              onClick={() => {
-                if (!busy) onPause(choice.length);
-              }}
-            >
-              {choice.label(t)}
-            </Button>
-          ))}
+          {PAUSE_CHOICES.filter((choice) => !incognito || choice.length !== "rule").map(
+            (choice) => (
+              <Button
+                key={choice.length}
+                id={`popup-pause-${choice.length}`}
+                type="button"
+                variant="outline"
+                aria-disabled={busy || undefined}
+                onClick={() => {
+                  if (!busy) onPause(choice.length);
+                }}
+              >
+                {choice.label(t)}
+              </Button>
+            ),
+          )}
         </div>
       </fieldset>
     );

@@ -285,7 +285,11 @@ describe("a document replaced while Pateat answers its request", () => {
     });
     expect(tab.chooser.choose).not.toHaveBeenCalled();
     expect(tab.answered).toHaveBeenCalledOnce();
-    expect(tab.answered).toHaveBeenCalledWith(7, origin, "example.com", candidate);
+    // Pateat signed it by itself, with no login and no choice (ADR 0062 C).
+    expect(tab.answered).toHaveBeenCalledWith(7, origin, "example.com", candidate, {
+      silent: true,
+      incognito: false,
+    });
     expect(tab.leave).toHaveBeenCalledTimes(2);
   });
 
@@ -423,7 +427,9 @@ describe("passkey runtime required mediation", () => {
     expect(result).toMatchObject({ kind: "assertion", assertion: { credentialId: "AQID" } });
     expect(backing.candidates).toHaveBeenCalledWith(origin, "example.com", expect.any(AbortSignal));
     expect(backing.sign).toHaveBeenCalledOnce();
-    expect(answered.mock.calls).toEqual([[7, origin, "example.com", candidate]]);
+    expect(answered.mock.calls).toEqual([
+      [7, origin, "example.com", candidate, { silent: true, incognito: false }],
+    ]);
     await vi.waitFor(() => expect(report).toHaveBeenCalledOnce());
     expect(report.mock.lastCall![0]).toMatchObject({
       outcome: "assertion",
@@ -610,7 +616,20 @@ describe("passkey runtime reports", () => {
     ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
     expect(answered).not.toHaveBeenCalled();
     expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
-    expect(answered.mock.calls).toEqual([[7, origin, "example.com", candidate]]);
+    expect(answered.mock.calls).toEqual([
+      [7, origin, "example.com", candidate, { silent: true, incognito: false }],
+    ]);
+    // A private window's request is told apart, for its own relogin count.
+    expect(await runtime.handle(get(), sender({ tab: { id: 7, incognito: true } }))).toMatchObject({
+      kind: "assertion",
+    });
+    expect(answered.mock.lastCall).toEqual([
+      7,
+      origin,
+      "example.com",
+      candidate,
+      { silent: true, incognito: true },
+    ]);
   });
 
   it("reports no request from an invalid sender or a cancellation", async () => {
@@ -682,16 +701,20 @@ describe("passkey chooser window", () => {
 
   it("does not save a one-time choice", async () => {
     const remember = vi.fn(async () => {});
+    const answered = vi.fn();
     const runtime = createPasskeyRuntime(several(), {
       extensionId,
       chooser: chooser(async () => ({ kind: "chosen", index: 0, makeDefault: false })),
       remember,
+      answered,
     });
     expect(await runtime.handle(get(), sender())).toMatchObject({
       assertion: { credentialId: "AQID" },
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(remember).not.toHaveBeenCalled();
+    // The person chose it, so it is no sign-in Pateat made by itself (ADR 0062 C).
+    expect(answered.mock.lastCall?.[4]).toEqual({ incognito: false });
   });
 
   it.each(["browser", "closed", "unavailable"] as const)(
@@ -1397,11 +1420,13 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
     );
     expect(events).toEqual(["hold", "answered", "leave"]);
     // The login's item signed it.
+    // A login's answer is not a sign-in Pateat made by itself.
     expect(answeredTab).toHaveBeenCalledWith(
       7,
       origin,
       "example.com",
       expect.objectContaining({ credentialId: "CCCC" }),
+      { incognito: false },
     );
     expect(report).toHaveBeenLastCalledWith(
       expect.objectContaining({ outcome: "assertion", mediation: "conditional" }),

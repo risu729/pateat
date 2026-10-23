@@ -337,16 +337,16 @@ test("says when a site has no binding or default account", async () => {
   await expect.element(page.getByText("No recipes", { exact: true })).toBeVisible();
 });
 
-test("turns Pateat off and on for the site's exact hostname", async () => {
+test("turns Pateat off and on for the registrable site with its subdomains, as the popup does", async () => {
   const client = mockClient({ version: 1, revision: 0, settings: null });
-  await mount(client, BANK_PAGE);
+  await mount(client, "/manage/sites/https/www.bank.example");
   const toggle = page.getByRole("switch", { name: "Automatic login on this site" });
   await expect.element(toggle).toBeChecked();
   await toggle.click();
   await expect.element(toggle).not.toBeChecked();
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     0,
-    settingsOf({ excludedSites: [{ hostname: "bank.example", includeSubdomains: false }] }),
+    settingsOf({ excludedSites: [{ hostname: "bank.example", includeSubdomains: true }] }),
   );
   await expect.element(page.getByRole("status")).toHaveTextContent("bank.example paused");
 
@@ -354,6 +354,30 @@ test("turns Pateat off and on for the site's exact hostname", async () => {
   await expect.element(toggle).toBeChecked();
   expect(client.saveSettings).toHaveBeenLastCalledWith(1, settingsOf());
   await expect.element(page.getByRole("status")).toHaveTextContent("bank.example resumed");
+});
+
+test("resumes every rule of the site that covers the page, and keeps other sites' rules", async () => {
+  const client = mockClient({
+    version: 1,
+    revision: 1,
+    settings: settingsOf({
+      excludedSites: [
+        { hostname: "www.bank.example", includeSubdomains: false },
+        { hostname: "bank.example", includeSubdomains: true },
+        { hostname: "shop.example", includeSubdomains: false },
+      ],
+    }),
+  });
+  await mount(client, "/manage/sites/https/www.bank.example");
+  const toggle = page.getByRole("switch", { name: "Automatic login on this site" });
+  await expect.element(toggle).not.toBeChecked();
+  await expect.element(toggle).toBeEnabled();
+  await toggle.click();
+  await expect.element(toggle).toBeChecked();
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    1,
+    settingsOf({ excludedSites: [{ hostname: "shop.example", includeSubdomains: false }] }),
+  );
 });
 
 test("leaves a rule that also covers other sites to the Sites list", async () => {
@@ -415,7 +439,7 @@ test("matches and writes a trailing-dot origin's hostname without the dot", asyn
   await toggle.click();
   await expect.element(toggle).not.toBeChecked();
   expect(client.saveSettings.mock.lastCall![1].excludedSites).toEqual([
-    { hostname: "bank.example", includeSubdomains: false },
+    { hostname: "bank.example", includeSubdomains: true },
   ]);
 
   await cleanup();

@@ -283,8 +283,8 @@ export const ja = {
     "Pateat：このサイトの自動ログインは一時停止中です。クリックしてアカウントを選んでください。",
   "Pateat: the site did not accept the last login in another tab. Click to choose an account.":
     "Pateat：別のタブでの前回のログインはサイトに受け付けられませんでした。クリックしてアカウントを選んでください。",
-  "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.":
-    "Pateat：このサイトには 10 分間に 2 回再ログインしました。クリックしてアカウントを選んでください。",
+  "Pateat logged in to this site twice in 10 minutes. Click to choose an account.":
+    "Pateat はこのサイトに 10 分間で 2 回ログインしました。クリックしてアカウントを選んでください。",
   "Pateat: you chose an account here without making it the default. Click to choose an account.":
     "Pateat：このサイトでは既定にせずにアカウントを選びました。クリックしてアカウントを選んでください。",
   "Pateat: automatic login is paused on this site until {{time}}.":
@@ -359,6 +359,17 @@ export const ja = {
     "会社や Google のログインなど、別のアカウントを通じてログインするサイトでは、そのアカウントからもログアウトされることがあります",
   "Pateat: automatic login is off in private windows.":
     "Pateat：プライベートウィンドウでは自動ログインはオフです。",
+  "Pateat: automatic login is off in private windows. Click to choose an account.":
+    "Pateat：プライベートウィンドウでは自動ログインはオフです。クリックしてアカウントを選んでください。",
+  "Pateat: the paused sites could not be read, so automatic login is paused.":
+    "Pateat：一時停止中のサイトを読み取れなかったため、自動ログインを一時停止しています。",
+  "automatic login is off in private windows; choose an account to log in":
+    "プライベートウィンドウでは自動ログインはオフです。ログインするにはアカウントを選んでください",
+  "automatic login is off in private windows": "プライベートウィンドウでは自動ログインはオフです",
+  "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when {{name}} is this site's only passkey or its default.":
+    "プライベートウィンドウでは自動ログインはオフで、{{name}} にはパスワードがないため、Pateat はログインしませんでした。パスキーでログインするには、ページのパスキーログインボタンを押してください。{{name}} がこのサイトの唯一のパスキーか既定のときは、Pateat がそこでログインします。",
+  "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when {{name}} is this site's only passkey or its default.":
+    "プライベートウィンドウでは自動ログインはオフで、{{name}} にはパスワードがないため、Pateat はログインしませんでした。{{name}} は既定にしていません。パスキーでログインするには、ページのパスキーログインボタンを押してください。{{name}} がこのサイトの唯一のパスキーか既定のときは、Pateat がそこでログインします。",
   "Pateat: automatic login is paused on this site until turned back on.":
     "Pateat：このサイトの自動ログインは再開するまで一時停止中です。",
   "Automatic login is paused on this site, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button and choose {{name}} in Pateat's window.":

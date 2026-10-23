@@ -141,6 +141,12 @@ that logs out right after a login, or two tabs of a site that allows one session
   next automatic login of the site does not start: its document is refused
   `relogin-limit` and asks, filling nothing. A popup pick or a switch's login logs in
   and is not counted.
+- A passkey sign-in Pateat answered by itself outside a login (one match or the site
+  default, with no chooser) counts as such a login, so a login page that calls
+  `navigator.credentials.get()` on load after each logout is held too. While the guard
+  holds the site, its default counts as unset for the page's own passkey request
+  ([ADR 0063](0063-switch-accounts-from-the-popup.md)): the chooser opens, or the
+  request is handed on where it cannot.
 - The count includes the first login: a login, a logout and a login again pass, and the
   next logout's login asks. The popup says Pateat logged in to the site twice in the
   last 10 minutes.
@@ -160,8 +166,9 @@ that logs out right after a login, or two tabs of a site that allows one session
   `chrome.storage.session` (site, incognito, length, end; at most 256 sites), separately
   for normal and incognito windows (the extension runs in spanning mode, so
   `chrome.storage.session` is shared while cookies are not). Nothing reaches the service
-  or other devices; closing the browser ends it. While it runs the popup shows "Paused
-  until 12:40" and "Resume".
+  or other devices; closing the browser ends it, and closing the last incognito window
+  ends the incognito ones. While it runs the popup shows "Paused until 12:40" and
+  "Resume". A pause store that cannot be read counts every site as paused.
 - "Until turned back on" is the site exclusion (`excludedSites`). The popup adds
   `{hostname: <registrable site>, includeSubdomains: true}`, replacing a rule of the
   same hostname, and its Resume removes the rules that cover the tab's hostname and lie
@@ -220,14 +227,26 @@ that logs out right after a login, or two tabs of a site that allows one session
   windows.
 - While it is off, every site in a private (incognito) window is paused as in D: nothing
   logs in, fills, presses an entry or is sent by itself, conditional passkey requests
-  are handed on, and a popup pick or the person's own passkey request still runs, the
-  latter through the chooser with the default treated as unset. The popup says
-  "Automatic login is off in private windows" with "Change in settings", which opens
-  that section, and offers no timed pause; the badge shows `II`. A tab whose window kind
-  is not known is not treated as private.
+  are handed on, and a popup pick still runs. The popup says "Automatic login is off in
+  private windows" with "Change in settings", which opens that section, and offers no
+  timed pause; the badge, the popup's reason and page lines say automatic login is off
+  in private windows rather than that the site is paused. A tab whose window kind is not
+  known is not treated as private.
+- The person's own modal or Immediate UI passkey request is answered as before this
+  ADR, not as D's paused request: one match or the site default signs, and several
+  matches are handed on, as the chooser cannot open in a private window (Immediate UI
+  stays handed on in incognito, `immediate-incognito`). This setting alone does not
+  treat the default as unset; a timed pause, a rule, the guard of C or "Ask every time"
+  (ADR 0063) still does. Coordinator's choice on 2026-10-23, since under D's rule every
+  such request in a private window would be handed on. A pick of an item with no
+  password (`paused-no-password`) points to the page's own passkey button, not to
+  Pateat's window.
 - Turned on, private windows log in as other windows do, with their own timed pauses
-  and repeat counts. Chrome's Immediate UI is still handed on in incognito
-  (`immediate-incognito`, ADR 0052).
+  and repeat counts. A pause until turned back on is a synced rule that pauses normal
+  windows too, so the popup offers only 10 minutes and 1 hour there. Chrome's Immediate
+  UI is still handed on in incognito (`immediate-incognito`, ADR 0052).
+- Closing the last incognito window clears the incognito timed pauses, repeat counts
+  and "Ask every time" picks.
 
 ## Considered alternatives
 

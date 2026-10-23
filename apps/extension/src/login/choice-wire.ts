@@ -32,9 +32,11 @@ export function choiceReason(
   ask: AskReason | undefined,
   matches: number,
   t: TFunction,
-  paused = false,
+  paused: boolean | "private" = false,
 ): string {
-  // A paused site asks with any matching account, also with one (ADR 0062).
+  // A paused site asks with any matching account, also with one (ADR 0062). In a private
+  // window the pause is the private-window setting.
+  if (paused === "private") return t("Automatic login is off in private windows");
   if (paused) return t("Automatic login is paused on this site");
   if (ask === undefined) return t("matchingAccounts", { count: matches });
   return t(
@@ -113,12 +115,14 @@ export const pickResponseSchema = v.variant("ok", [
  * The toolbar popup's message for a pick that started no login, in its language. A picked
  * account becomes the default only once its login succeeds (ADR 0021), so with
  * `makeDefault` it says that nothing was saved. Each case is one whole sentence to translate.
+ * `inPrivate` is a private window whose automatic login is off (ADR 0062).
  */
 export function pickFailure(
   reason: Extract<v.InferOutput<typeof pickResponseSchema>, { ok: false }>["reason"],
   name: string,
   makeDefault: boolean,
   t: TFunction,
+  inPrivate = false,
 ): string {
   if (reason === "document-gone")
     return makeDefault
@@ -135,6 +139,18 @@ export function pickFailure(
         )
       : t(
           "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 10 minutes, then choose again.",
+        );
+  // In a private window the page's own passkey request is answered as in a normal window
+  // with automatic login running, but Pateat's window cannot open there (ADR 0062 E).
+  if (reason === "paused-no-password" && inPrivate)
+    return makeDefault
+      ? t(
+          "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when {{name}} is this site's only passkey or its default.",
+          { name },
+        )
+      : t(
+          "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when {{name}} is this site's only passkey or its default.",
+          { name },
         );
   if (reason === "paused-no-password")
     return makeDefault

@@ -111,6 +111,10 @@ const fake = vi.hoisted(() => {
     removed: [] as ((tabId: number) => void)[],
     /** Every runtime's tab-replaced listener, as Chrome calls it for a discarded tab. */
     replaced: [] as ((added: number, removed: number) => void)[],
+    /** The open windows, by whether each is incognito. */
+    windows: [false] as boolean[],
+    /** Every runtime's window-closed listener. */
+    windowRemoved: [] as ((windowId: number) => void)[],
     /** The document's description of itself, by the page asked for. */
     extracted: {} as Record<string, unknown>,
     /**
@@ -342,6 +346,14 @@ const fake = vi.hoisted(() => {
       onReplaced: {
         addListener: (listener: (added: number, removed: number) => void) => {
           state.replaced.push(listener);
+        },
+      },
+    },
+    windows: {
+      getAll: async () => state.windows.map((incognito, id) => ({ id, incognito })),
+      onRemoved: {
+        addListener: (listener: (windowId: number) => void) => {
+          state.windowRemoved.push(listener);
         },
       },
     },
@@ -789,7 +801,7 @@ describe("production login document admission", () => {
     );
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "wrong-account", submissions: 0, retries: 0 },
       ]),
     );
@@ -810,7 +822,7 @@ describe("production login document admission", () => {
     h.fields.mockImplementation(async ({ fieldId }) =>
       fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
     );
-    const attempts = () => fake.state.storage["pateat.login-attempts.v6"];
+    const attempts = () => fake.state.storage["pateat.login-attempts.v5"];
     const types = () => fake.state.messages.map((entry) => entry.type);
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() => expect(types()).toContain("login.switch"));
@@ -847,7 +859,7 @@ describe("production login document admission", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "wrong-account", submissions: 0 },
       ]),
     );
@@ -862,7 +874,7 @@ describe("production login document admission", () => {
     const h = harness();
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "value-mismatch", submissions: 0, retries: 0 },
       ]),
     );
@@ -885,7 +897,7 @@ describe("production login document admission", () => {
   );
   describe("telling of a login that signed in (ADR 0007)", () => {
     const attempts = () =>
-      (fake.state.storage["pateat.login-attempts.v6"] ?? []) as { state: string }[];
+      (fake.state.storage["pateat.login-attempts.v5"] ?? []) as { state: string }[];
     it("tells once when a login reaches signed in, and not again on the tab's next page", async () => {
       const signedIn = vi.fn<(tabId: number, origin: string) => void>();
       const h = harness({}, { signedIn });
@@ -954,7 +966,7 @@ describe("production login document admission", () => {
     const h = harness();
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "fill-rejected", submissions: 0, retries: 0 },
       ]),
     );
@@ -1444,7 +1456,7 @@ describe("production login document admission", () => {
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "reconciling", stepIndex: 1 },
       ]),
     );
@@ -1459,7 +1471,7 @@ describe("production login document admission", () => {
     // The page it led to proves the sign-in.
     expect(await h.hello({ documentId: "next-document" }, false)).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "authenticated" },
       ]),
     );
@@ -1500,7 +1512,7 @@ describe("production login document admission", () => {
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "policy-changed", usedOperationIds: [] },
       ]),
     );
@@ -1535,7 +1547,7 @@ describe("production login document admission", () => {
     const h = harness({}, { report });
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         {
           state: "blocked",
           outcome: "retry-limit",
@@ -1571,7 +1583,7 @@ describe("production login document admission", () => {
     const h = harness();
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "authenticated", retries: 1 },
       ]),
     );
@@ -1585,7 +1597,7 @@ describe("production login document admission", () => {
     const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + offset);
     const set = fake.browser.storage.local.set;
     fake.browser.storage.local.set = async (values: Record<string, unknown>) => {
-      const [record] = (values["pateat.login-attempts.v6"] ?? []) as Record<string, unknown>[];
+      const [record] = (values["pateat.login-attempts.v5"] ?? []) as Record<string, unknown>[];
       if (offset === 0 && record?.["state"] === "executing" && record["mutationIntent"])
         offset = 16_000;
       await set(values);
@@ -1595,7 +1607,7 @@ describe("production login document admission", () => {
       const h = harness({}, { report });
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "authenticated", retries: 1, submissions: 1 },
         ]),
       );
@@ -1624,12 +1636,12 @@ describe("production login document admission", () => {
     const first = harness();
     expect(await first.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "retry-limit" },
       ]),
     );
-    const [record] = fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[];
-    fake.state.storage["pateat.login-attempts.v6"] = [
+    const [record] = fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[];
+    fake.state.storage["pateat.login-attempts.v5"] = [
       {
         ...record,
         state: "retryable",
@@ -1651,7 +1663,7 @@ describe("production login document admission", () => {
       const restarted = harness();
       expect(await restarted.hello({ documentId: "after-restart" })).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "authenticated", retries: 2 },
         ]),
       );
@@ -1688,7 +1700,7 @@ describe("production login document admission", () => {
       });
       expect(times!.totalMs).toBeLessThanOrEqual(Date.now() - before);
       // The record keeps its stamps, never a value's typing time.
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "authenticated", timing: { since: expect.any(Number), serviceMs: 0 } },
       ]);
     });
@@ -1713,10 +1725,10 @@ describe("production login document admission", () => {
         times!.totalMs,
       );
       // The record no longer waits for the site.
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "authenticated", timing: { pageMs: times!.pageMs } },
       ]);
-      expect(fake.state.storage["pateat.login-attempts.v6"]).not.toHaveProperty(
+      expect(fake.state.storage["pateat.login-attempts.v5"]).not.toHaveProperty(
         "0.timing.pageSince",
       );
     });
@@ -1757,15 +1769,15 @@ describe("production login document admission", () => {
       const first = harness();
       expect(await first.hello()).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "blocked", outcome: "retry-limit" },
         ]),
       );
-      const [record] = fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[];
+      const [record] = fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[];
       // The stopped worker had spent a minute on the login: 5 s on the service, of which
       // 0.8 s on the network, and 1 s waiting for the person.
       const since = Date.now() - 60_000;
-      fake.state.storage["pateat.login-attempts.v6"] = [
+      fake.state.storage["pateat.login-attempts.v5"] = [
         {
           ...record,
           state: "retryable",
@@ -1881,7 +1893,7 @@ describe("production login document admission", () => {
       const h = harness({}, { allowedOrigins: [], uris, signedIn });
       expect(await h.hello(framed("https://portal.example/account"))).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "authenticated" },
         ]),
       );
@@ -1924,7 +1936,7 @@ describe("production login document admission", () => {
       expect(answers).toContainEqual({ ok: true });
       expect(answers).toContainEqual({ ok: false, reason: "tab-busy" });
       await vi.waitFor(() => expect(executes()).toHaveLength(1));
-      expect(fake.state.storage["pateat.login-attempts.v6"]).toHaveLength(1);
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toHaveLength(1);
     });
     it("keeps one attempt per tab and lets only a new page end a frame's attempt", async () => {
       fake.state.onExecute = () => new Promise(() => undefined);
@@ -1993,7 +2005,7 @@ describe("production login document admission", () => {
       fake.state.tabUrls[1] = "https://login.example/signin";
       await h.hello({ documentId: "next-page" });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "blocked", outcome: "cancelled" },
         ]),
       );
@@ -2007,7 +2019,7 @@ describe("production login document admission", () => {
       return { frameId: 3, documentId: "frame-document", tab: { id: 1, url: top }, ...overrides };
     };
     const stored = () =>
-      fake.state.storage["pateat.login-attempts.v6"] as { state: string; outcome?: string }[];
+      fake.state.storage["pateat.login-attempts.v5"] as { state: string; outcome?: string }[];
     it("lets a new page's frame that announced first keep its document", async () => {
       fake.state.onExecute = () => new Promise(() => undefined);
       const h = harness();
@@ -2086,7 +2098,7 @@ describe("production login document admission", () => {
       account: { origin: string };
       document: { tabId: number; documentId: string };
     };
-    const stored = () => (fake.state.storage["pateat.login-attempts.v6"] ?? []) as Stored[];
+    const stored = () => (fake.state.storage["pateat.login-attempts.v5"] ?? []) as Stored[];
     const at = (from: string) => stored().find((entry) => entry.account.origin === from);
     /** Both origins have their own recipe, binding and saved default for the same item. */
     const twoSites = (live: Parameters<typeof harness>[1] = {}) => {
@@ -3354,7 +3366,7 @@ describe("production login document admission", () => {
         const query = fake.browser.tabs.query;
         fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
         try {
-          fake.state.storage["pateat.login-attempts.v6"] = [
+          fake.state.storage["pateat.login-attempts.v5"] = [
             {
               ...record!,
               state,
@@ -3442,7 +3454,7 @@ describe("production login document admission", () => {
         const query = fake.browser.tabs.query;
         fake.browser.tabs.query = async () => [{ id: 1 }] as never;
         try {
-          fake.state.storage["pateat.login-attempts.v6"] = [
+          fake.state.storage["pateat.login-attempts.v5"] = [
             {
               ...record!,
               state: "blocked",
@@ -3505,7 +3517,7 @@ describe("production login document admission", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v6"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           {
             ...record!,
             state: "blocked",
@@ -3565,7 +3577,7 @@ describe("production login document admission", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v6"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           {
             ...record!,
             state: "blocked",
@@ -3606,7 +3618,7 @@ describe("production login document admission", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v6"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           {
             ...record!,
             state: "blocked",
@@ -3645,7 +3657,7 @@ describe("production login document admission", () => {
         expect(at(origin)).toMatchObject({ id: record!.id, outcome: "challenge" });
         // A login that stopped before any submission is not the hold's case: a restarted
         // worker resumes it in its own page without this line.
-        fake.state.storage["pateat.login-attempts.v6"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           { ...stored()[0]!, submissions: 0, document: { ...record!.document } },
         ];
         const again = twoSites({ report });
@@ -3667,7 +3679,7 @@ describe("production login document admission", () => {
       try {
         // The login was stopped by a challenge 6 minutes ago and its tab was left open.
         const changedAt = Date.now() - 6 * 60_000;
-        fake.state.storage["pateat.login-attempts.v6"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           {
             ...record!,
             state: "blocked",
@@ -3704,7 +3716,7 @@ describe("production login document admission", () => {
         try {
           // The result stayed unknown 6 minutes ago and its tab was left open.
           const changedAt = Date.now() - 6 * 60_000;
-          fake.state.storage["pateat.login-attempts.v6"] = [
+          fake.state.storage["pateat.login-attempts.v5"] = [
             {
               ...record!,
               state: "reconciling",
@@ -3841,7 +3853,7 @@ describe("production login document admission", () => {
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "authenticated" }));
       const [record] = stored();
-      fake.state.storage["pateat.login-attempts.v6"] = [
+      fake.state.storage["pateat.login-attempts.v5"] = [
         record,
         { ...record, id: crypto.randomUUID(), document: { ...record!.document, documentId: "x" } },
       ];
@@ -4015,7 +4027,7 @@ describe("production login document admission", () => {
       expect(h.settings.settings.siteDefaults).toHaveLength(1);
       // Checked against the saved revision, it is not stopped as a policy change.
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "authenticated", document: { tabId: 1 } },
           { state: "authenticated", document: { tabId: 2 } },
         ]),
@@ -4348,7 +4360,7 @@ describe("production login document admission", () => {
       );
       fake.state.tabUrls[2] = `${second}/signin`;
       const attempts = () =>
-        (fake.state.storage["pateat.login-attempts.v6"] ?? []) as Record<string, unknown>[];
+        (fake.state.storage["pateat.login-attempts.v5"] ?? []) as Record<string, unknown>[];
       expect(await h.hello({ tab: { id: 2 }, url: `${second}/signin` })).toEqual({ ok: true });
       // The record stays until its tab closes; it must not hold the choice off for as long.
       await vi.waitFor(
@@ -4767,7 +4779,7 @@ describe("production login document admission", () => {
         };
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "blocked", outcome: "policy-changed" },
           ]),
         );
@@ -4776,12 +4788,12 @@ describe("production login document admission", () => {
         h.settings.revision += 1;
         const next = { documentId: "synthetic-next" };
         expect(await h.hello(next)).toEqual({ ok: false, reason: "account-ambiguous" });
-        expect(fake.state.storage["pateat.login-attempts.v6"]).toEqual([]);
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toEqual([]);
         expect(await ask(h)).toEqual({ ...offered, documentId: "synthetic-next" });
         fake.state.onReconnect = () => h.hello(next);
         expect(await pick(h, next)).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { account: { itemId: otherItemId }, document: { documentId: "synthetic-next" } },
           ]),
         );
@@ -5035,7 +5047,7 @@ describe("production login document admission", () => {
           expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
           await vi.waitFor(
             () =>
-              expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+              expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
                 { state: "authenticated" },
               ]),
             { timeout: 12_000 },
@@ -5126,7 +5138,7 @@ describe("production login document admission", () => {
         expect(await pick(h)).toEqual({ ok: true });
         await vi.waitFor(
           () =>
-            expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+            expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
               { state: "authenticated", unconfirmed: true },
             ]),
           { timeout: 12_000 },
@@ -5191,7 +5203,7 @@ describe("production login document admission", () => {
         fake.state.observed = ["missing", "unique"];
         expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "blocked", outcome: "credential-rejected" },
           ]),
         );
@@ -5199,7 +5211,7 @@ describe("production login document admission", () => {
         // The page announces again on the result, then once its form's first step shows.
         expect(await h.hello({}, false)).toMatchObject({ ok: false });
         expect(await h.hello()).toEqual({ ok: false, reason: "account-asked" });
-        expect(fake.state.storage["pateat.login-attempts.v6"]).toEqual([]);
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toEqual([]);
         expect(await ask(h)).toEqual(rejectedOffer);
         expect(fake.state.badges[1]).toEqual({ text: "2", title: rejectedTitle });
         // The other tab's popup chooses no account either.
@@ -5217,7 +5229,7 @@ describe("production login document admission", () => {
         fake.state.onReconnect = () => h.hello();
         expect(await pick(h, { itemId })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "authenticated", account: { itemId } },
           ]),
         );
@@ -5256,7 +5268,7 @@ describe("production login document admission", () => {
         };
         expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             {
               state: "blocked",
               outcome: "credential-rejected",
@@ -5272,7 +5284,7 @@ describe("production login document admission", () => {
           reason: "recipe-not-found",
           generate: true,
         });
-        expect(fake.state.storage["pateat.login-attempts.v6"]).toEqual([]);
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toEqual([]);
         // Once a recipe starts on that path, its form offers the accounts.
         const session = {
           ...recipe,
@@ -5296,7 +5308,7 @@ describe("production login document admission", () => {
         fake.state.observed = ["missing", "unique"];
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "blocked", outcome: "credential-rejected" },
           ]),
         );
@@ -5322,7 +5334,7 @@ describe("production login document admission", () => {
         expect(await h.hello(next)).toEqual({ ok: true });
         await vi.waitFor(() => expect(kinds()).toEqual(["fill"]));
         await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
-        expect(fake.state.storage["pateat.login-attempts.v6"]).toEqual([]);
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toEqual([]);
         expect(await ask(h)).toEqual({ ...rejectedOffer, documentId: "synthetic-next" });
         expect(fake.state.badges[1]).toEqual({ text: "2", title: rejectedTitle });
         expect(report).toHaveBeenCalledWith(
@@ -5369,7 +5381,7 @@ describe("production login document admission", () => {
         fake.state.observed = ["missing", "unique"];
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "blocked", outcome: "credential-rejected" },
           ]),
         );
@@ -5448,7 +5460,7 @@ describe("production login document admission", () => {
           ok: true,
         });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v6"]).toHaveLength(1),
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toHaveLength(1),
         );
         // The other tab stays open, so its record outlives this worker's start.
         const query = fake.browser.tabs.query;
@@ -5604,7 +5616,7 @@ describe("production login document admission", () => {
         const [{ waitedMs }] = fake.state.session["pateat.login-picks.v1"] as [
           { waitedMs: number },
         ];
-        expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { timing: { personMs: waitedMs } },
         ]);
         for (const listener of fake.state.removed) listener(1);
@@ -5644,7 +5656,7 @@ describe("production login document admission", () => {
         fake.state.tabUrls[1] = `${second}/signin`;
         expect(await h.hello({ url: `${second}/signin` })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "authenticated", account: { origin: second } },
           ]),
         );
@@ -5672,7 +5684,7 @@ describe("production login document admission", () => {
           fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
         );
         const stored = () =>
-          fake.state.storage["pateat.login-attempts.v6"] as { id: string; state: string }[];
+          fake.state.storage["pateat.login-attempts.v5"] as { id: string; state: string }[];
         const picks = () => fake.state.session["pateat.login-picks.v1"] as { attemptId?: string }[];
         expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
         fake.state.onReconnect = () => h.hello();
@@ -5699,7 +5711,7 @@ describe("production login document admission", () => {
               (entry) => (entry as unknown as { operation: { step: LoginStep } }).operation.step,
             );
         const attempts = () =>
-          (fake.state.storage["pateat.login-attempts.v6"] ?? []) as {
+          (fake.state.storage["pateat.login-attempts.v5"] ?? []) as {
             id: string;
             state: string;
             account: { itemId: string };
@@ -5858,7 +5870,7 @@ describe("production login document admission", () => {
         });
         describe("twice within 10 minutes (relogin-limit)", () => {
           const reloginTitle =
-            "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.";
+            "Pateat logged in to this site twice in 10 minutes. Click to choose an account.";
           const limited = {
             ok: true,
             origin,
@@ -5902,6 +5914,37 @@ describe("production login document admission", () => {
               origin,
               reason: "relogin-limit",
               candidates: 2,
+            });
+          });
+          it("counts passkey sign-ins Pateat answered by itself, then treats the default as unset", async () => {
+            const h = matched();
+            // An answer of a login or of the person's choice is not counted.
+            h.login.passkeyAnswered(1, origin, "login.example");
+            h.login.passkeyAnswered(1, origin, "login.example", undefined, { incognito: false });
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(relogins() ?? []).toEqual([]);
+            expect(await h.login.defaultUnset(origin, false)).toBe(false);
+            // The login page asks for a passkey on load after each logout, and Pateat
+            // answers it alone each time.
+            const silent = { silent: true, incognito: false } as const;
+            h.login.passkeyAnswered(1, origin, "login.example", undefined, silent);
+            h.login.passkeyAnswered(1, origin, "login.example", undefined, silent);
+            await vi.waitFor(() =>
+              expect(relogins()).toEqual([
+                {
+                  site: "login.example",
+                  incognito: false,
+                  at: [expect.any(Number), expect.any(Number)],
+                },
+              ]),
+            );
+            // The next request opens the chooser or is handed on, so the loop stops; the
+            // page's own login asks too. Incognito windows count apart.
+            expect(await h.login.defaultUnset(origin, false)).toBe(true);
+            expect(await h.login.defaultUnset(origin, true)).toBe(false);
+            expect(await h.hello({ documentId: "signed-out-again" })).toEqual({
+              ok: false,
+              reason: "relogin-limit",
             });
           });
           it("logs in with a pick in the popup, which is not counted", async () => {
@@ -6018,7 +6061,7 @@ describe("production login document admission", () => {
               (entry) => (entry as unknown as { operation: { step: LoginStep } }).operation.step,
             );
         const attempts = () =>
-          (fake.state.storage["pateat.login-attempts.v6"] ?? []) as {
+          (fake.state.storage["pateat.login-attempts.v5"] ?? []) as {
             state: string;
             account: { itemId: string };
             timing: { since: number; personMs: number };
@@ -6211,7 +6254,7 @@ describe("production login document admission", () => {
           await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
           const [done] = attempts();
           // As a worker that stopped after ending the fill, before forgetting it, leaves it.
-          fake.state.storage["pateat.login-attempts.v6"] = [
+          fake.state.storage["pateat.login-attempts.v5"] = [
             { ...done, fillOnly: true, state: "blocked", outcome: "cancelled" },
           ];
           rejected();
@@ -6526,7 +6569,7 @@ describe("production login document admission", () => {
       };
     }
     const uris = async () => ({ ok: true as const, data: uriMatch() });
-    const status = () => fake.state.storage["pateat.login-attempts.v6"];
+    const status = () => fake.state.storage["pateat.login-attempts.v5"];
 
     it("sends a matching sign-in page for generation and runs the returned recipe", async () => {
       fake.state.extracted = { login: loginPage };
@@ -7212,7 +7255,7 @@ describe("production login document admission", () => {
         cache(h, recipe);
         expect(await h.hello({ tab: { id: 2 }, documentId: "done" })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "authenticated" },
           ]),
         );
@@ -8601,15 +8644,15 @@ describe("production login document admission", () => {
           const login = harness();
           expect(await login.hello({ tab: { id: 2 }, documentId: "tab-2" })).toEqual({ ok: true });
           await vi.waitFor(() =>
-            expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+            expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
               { state: "authenticated", document: { tabId: 2 } },
             ]),
           );
-          const [record] = fake.state.storage["pateat.login-attempts.v6"] as Record<
+          const [record] = fake.state.storage["pateat.login-attempts.v5"] as Record<
             string,
             unknown
           >[];
-          fake.state.storage["pateat.login-attempts.v6"] = [
+          fake.state.storage["pateat.login-attempts.v5"] = [
             { ...record, changedAt: Date.now() - age },
           ];
           const query = fake.browser.tabs.query;
@@ -8799,6 +8842,7 @@ describe("production login document admission", () => {
               until: async () => pausedTill,
               pause: async () => pausedTill,
               resume: async () => false,
+              clearIncognito: async () => undefined,
             },
           });
           expect(await h.hello({}, false)).toMatchObject({ generate: true, entry: true });
@@ -9481,7 +9525,7 @@ describe("production login document admission", () => {
             },
           ]);
           // The press is no attempt: nothing is recorded, held or read from the vault.
-          expect(fake.state.storage["pateat.login-attempts.v6"] ?? []).toEqual([]);
+          expect(fake.state.storage["pateat.login-attempts.v5"] ?? []).toEqual([]);
           expect(h.fields).not.toHaveBeenCalled();
         });
 
@@ -9687,7 +9731,7 @@ describe("production login document admission", () => {
             fake.state.tabUrls[1] = signin;
             expect(await h.hello({ documentId: "login", url: signin })).toEqual({ ok: true });
             await vi.waitFor(() =>
-              expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+              expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
                 { state: "authenticated" },
               ]),
             );
@@ -12462,7 +12506,7 @@ describe("production login document admission", () => {
           });
           expect(answer).toEqual({ ok: true });
           await vi.waitFor(() =>
-            expect(fake.state.storage["pateat.login-attempts.v6"]).toMatchObject([
+            expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
               { state: "blocked", outcome: "retry-limit", retries: 2, submissions: 0 },
             ]),
           );
@@ -12746,7 +12790,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
   ]);
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -16254,7 +16298,7 @@ describe("password route variants (ADR 0027)", () => {
     ],
   });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   /** The targets each executed fill wrote. */
   const filled = () =>
     fake.state.messages
@@ -16906,7 +16950,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     { id: "c1", role: "link", target: target("help"), label: "Help" },
   ]);
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -17729,7 +17773,7 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
       maxSubmissions: 2,
     });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   /** The steps the document was asked to run, as `kind:element`. */
   const executed = () =>
     fake.state.messages
@@ -18732,7 +18776,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
   ]);
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -19074,7 +19118,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     const { set } = fake.browser.storage.local;
     // The record naming the continued revision cannot be stored.
     fake.browser.storage.local.set = async (values: Record<string, unknown>) => {
-      const records = values["pateat.login-attempts.v6"] as { recipeRevision?: number }[];
+      const records = values["pateat.login-attempts.v5"] as { recipeRevision?: number }[];
       if (records?.some((record) => record.recipeRevision === 2)) throw new Error("quota");
       return set(values);
     };
@@ -22551,7 +22595,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         const { watch: _watch, outcome: _outcome, ...record } = status()![0]!;
         expect(record).toMatchObject({ stepIndex: 1, stopAt: 1, submissions: 1 });
         // The worker stopped while the login stood at its stop.
-        fake.state.storage["pateat.login-attempts.v6"] = [{ ...record, state: "ready" }];
+        fake.state.storage["pateat.login-attempts.v5"] = [{ ...record, state: "ready" }];
         fake.state.messages = [];
         const url = `${origin}/password`;
         fake.state.tabUrls[1] = url;
@@ -22756,7 +22800,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
   const discoverable = () => vi.fn(async () => ({ passkey: true, discoverable: true }));
   const secondFactor = () => vi.fn(async () => ({ passkey: true, discoverable: false }));
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -23773,7 +23817,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v6"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           {
             ...record!,
             state: "blocked",
@@ -24639,7 +24683,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     maxSubmissions: 2,
   });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -25130,7 +25174,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     await until(() => status()?.[0]?.["state"] === "watching");
     const { watch: _watch, outcome: _outcome, ...record } = status()![0] as Record<string, unknown>;
     expect(record).toMatchObject({ stepIndex: 2, stopAt: 2, maxSubmissions: 2 });
-    fake.state.storage["pateat.login-attempts.v6"] = [
+    fake.state.storage["pateat.login-attempts.v5"] = [
       { ...record, state: "ready", submissions: 2 },
     ];
     fake.state.messages = [];
@@ -25945,7 +25989,7 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     slots: used.slots.map((slot) => ({ slot, field: slot as "username" | "password" })),
   });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v6"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -26498,7 +26542,7 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
     expect(refusals(reports)).toEqual([]);
     expect(executed()).toEqual([]);
     expect(h.fields).not.toHaveBeenCalled();
-    expect(fake.state.storage["pateat.login-attempts.v6"] ?? []).toEqual([]);
+    expect(fake.state.storage["pateat.login-attempts.v5"] ?? []).toEqual([]);
   });
 
   it("asks the page to announce again after a conflict whose pull brought a newer revision", async () => {
@@ -27081,7 +27125,7 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     fake.state.openTabs = undefined;
   });
   const stored = () =>
-    (fake.state.storage["pateat.login-attempts.v6"] ?? []) as Record<string, unknown>[];
+    (fake.state.storage["pateat.login-attempts.v5"] ?? []) as Record<string, unknown>[];
   const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
   /** A runtime whose reports and badge the test reads. */
   const paused = (
@@ -27328,6 +27372,7 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
         until: async () => pausedTill,
         pause: async () => pausedTill,
         resume: async () => false,
+        clearIncognito: async () => undefined,
       },
     });
     h.recipes.recipe.mockResolvedValue(twoPages);
@@ -27584,7 +27629,8 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
       await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
     ).toMatchObject({ ok: true, paused: true });
     // The page's own passkey requests: a conditional one goes to the browser, and the
-    // others treat the default as unset.
+    // person's own ones are answered as before the pause, as Pateat's chooser cannot open
+    // in a private window (ADR 0062 E).
     expect(
       await h.login.conditionalRequest({
         tabId: 2,
@@ -27594,7 +27640,7 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
         incognito: true,
       }),
     ).toEqual({ kind: "delegate", reason: "paused" });
-    expect(await h.login.defaultUnset(origin, true)).toBe("paused");
+    expect(await h.login.defaultUnset(origin, true)).toBe(false);
     expect(await h.login.defaultUnset(origin, false)).toBe(false);
     // The private window keeps no pause of a length; the popup reads the setting.
     expect(await status(h, 2)).not.toHaveProperty("pause");
@@ -27635,6 +27681,9 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     await vi.waitFor(() =>
       expect(fake.state.badges[2]).toEqual({ text: "II", title: PRIVATE_TITLE }),
     );
+    expect(await h.login.defaultUnset(origin, true)).toBe(false);
+    // A pause of the site in the private window still treats its default as unset.
+    await setPause(h, true, 2);
     expect(await h.login.defaultUnset(origin, true)).toBe("paused");
   });
 
@@ -27741,6 +27790,108 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     expect(await h.login.defaultUnset(origin, false)).toBe(false);
   });
 
+  it("counts a site as paused while the paused sites cannot be read (ADR 0062)", async () => {
+    const unreadable = async (): Promise<number | undefined> => {
+      throw new Error("Synthetic read failure");
+    };
+    const { h } = paused({
+      pauses: {
+        until: unreadable,
+        pause: unreadable,
+        resume: async () => false,
+        clearIncognito: async () => undefined,
+      },
+    });
+    fake.state.openTabs = [1];
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    expect(executes()).toEqual([]);
+    expect(await h.login.defaultUnset(origin, false)).toBe("paused");
+    expect(
+      await h.login.conditionalRequest({
+        tabId: 1,
+        origin,
+        documentId: "synthetic-document",
+        signal: new AbortController().signal,
+        incognito: false,
+      }),
+    ).toEqual({ kind: "delegate", reason: "paused" });
+    // The popup shows no end it does not know.
+    expect(await status(h)).not.toHaveProperty("pause");
+  });
+
+  it("leaves the other window kind's tabs of the site alone on a pause and a resume", async () => {
+    const { h } = paused();
+    fake.state.openTabs = [1, 2];
+    fake.state.incognito.add(2);
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    // The incognito tab's page of the site logs in, as its window is not paused.
+    expect(await h.hello({ tab: { id: 2 }, documentId: "incognito" })).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(stored()).toMatchObject([{ state: "authenticated", document: { tabId: 2 } }]),
+    );
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    expect(fake.state.badges[2]?.text ?? "").not.toBe("II");
+    // Resuming asks only the normal window's tab to announce again.
+    fake.state.reconnects = [];
+    expect(await setPause(h, false)).toEqual({ ok: true });
+    expect(fake.state.reconnects).toEqual([{ tabId: 1 }]);
+  });
+
+  it("forgets the private session's pauses, repeat counts and asks once its last window closes", async () => {
+    // The pauses' own timers must not end them while the test waits.
+    realTime();
+    fake.state.windows = [false, true];
+    try {
+      fake.state.session["pateat.login-ask-every-time.v1"] = [
+        { site: "login.example", incognito: true, defaults: "[]" },
+        { site: "login.example", incognito: false, defaults: "[]" },
+      ];
+      const { h } = paused();
+      const closed = fake.state.windowRemoved.at(-1)!;
+      fake.state.openTabs = [1, 2];
+      fake.state.incognito.add(2);
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      await setPause(h, true, 1);
+      await setPause(h, true, 2);
+      const silent = (incognito: boolean) =>
+        h.login.passkeyAnswered(incognito ? 2 : 1, origin, "login.example", undefined, {
+          silent: true,
+          incognito,
+        });
+      silent(true);
+      silent(false);
+      await vi.waitFor(() =>
+        expect(fake.state.session["pateat.login-relogins.v1"]).toHaveLength(2),
+      );
+      // A window closes while a private one is still open: nothing is forgotten.
+      closed(0);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(fake.state.session[PAUSES]).toHaveLength(2);
+      // The last private window closes.
+      fake.state.windows = [false];
+      closed(1);
+      await vi.waitFor(() =>
+        expect(fake.state.session[PAUSES]).toEqual([
+          expect.objectContaining({ site: "login.example", incognito: false }),
+        ]),
+      );
+      await vi.waitFor(() =>
+        expect(fake.state.session["pateat.login-ask-every-time.v1"]).toEqual([
+          { site: "login.example", incognito: false, defaults: "[]" },
+        ]),
+      );
+      await vi.waitFor(() =>
+        expect(fake.state.session["pateat.login-relogins.v1"]).toEqual([
+          expect.objectContaining({ site: "login.example", incognito: false }),
+        ]),
+      );
+      expect(await h.login.defaultUnset(origin, false)).toBe("paused");
+    } finally {
+      fake.state.windows = [false];
+    }
+  });
+
   it("hands on a conditional request whose site was paused while it was parked", async () => {
     let pausedTill: number | undefined;
     const { h } = paused({
@@ -27748,6 +27899,7 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
         until: async () => pausedTill,
         pause: async () => pausedTill,
         resume: async () => false,
+        clearIncognito: async () => undefined,
       },
     });
     // The pause starts after the request was first checked, before it waits.
@@ -27826,7 +27978,7 @@ describe("account switching from the popup (ADR 0063)", () => {
       await h.login.handle({ version: 1, type: "login.status.get", tabId: 1 }, popup),
     );
   const attempts = () =>
-    (fake.state.storage["pateat.login-attempts.v6"] ?? []) as {
+    (fake.state.storage["pateat.login-attempts.v5"] ?? []) as {
       account: { itemId: string };
       document: { tabId: number; documentId: string };
       state: string;
@@ -28156,6 +28308,7 @@ describe("account switching from the popup (ADR 0063)", () => {
           until: async () => (pausedNow ? Date.now() + 60 * 60_000 : undefined),
           pause: async () => Date.now() + 60 * 60_000,
           resume: async () => false,
+          clearIncognito: async () => undefined,
         },
       }),
       {},

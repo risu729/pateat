@@ -281,8 +281,8 @@ export const en = {
     "Pateat: automatic login is paused on this site. Click to choose an account.",
   "Pateat: the site did not accept the last login in another tab. Click to choose an account.":
     "Pateat: the site did not accept the last login in another tab. Click to choose an account.",
-  "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.":
-    "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.",
+  "Pateat logged in to this site twice in 10 minutes. Click to choose an account.":
+    "Pateat logged in to this site twice in 10 minutes. Click to choose an account.",
   "Pateat: you chose an account here without making it the default. Click to choose an account.":
     "Pateat: you chose an account here without making it the default. Click to choose an account.",
   "Pateat: automatic login is paused on this site until {{time}}.":
@@ -355,6 +355,17 @@ export const en = {
     "A site you log in to through another account, such as a company or Google sign-in, may log you out of that account too",
   "Pateat: automatic login is off in private windows.":
     "Pateat: automatic login is off in private windows.",
+  "Pateat: automatic login is off in private windows. Click to choose an account.":
+    "Pateat: automatic login is off in private windows. Click to choose an account.",
+  "Pateat: the paused sites could not be read, so automatic login is paused.":
+    "Pateat: the paused sites could not be read, so automatic login is paused.",
+  "automatic login is off in private windows; choose an account to log in":
+    "automatic login is off in private windows; choose an account to log in",
+  "automatic login is off in private windows": "automatic login is off in private windows",
+  "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when {{name}} is this site's only passkey or its default.":
+    "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when {{name}} is this site's only passkey or its default.",
+  "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when {{name}} is this site's only passkey or its default.":
+    "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when {{name}} is this site's only passkey or its default.",
   "Pateat: automatic login is paused on this site until turned back on.":
     "Pateat: automatic login is paused on this site until turned back on.",
   "Automatic login is paused on this site, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button and choose {{name}} in Pateat's window.":

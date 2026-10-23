@@ -6,6 +6,7 @@ import type { LoginReport } from "./runtime";
 const fake = vi.hoisted(() => {
   const state = {
     storage: {} as Record<string, unknown>,
+    session: {} as Record<string, unknown>,
     messages: [] as { type: string; values?: { slot: string; value: string }[] }[],
     /** The tab's page, and the path its observations report. */
     pageUrl: "http://127.0.0.1:3847/single",
@@ -32,6 +33,24 @@ const fake = vi.hoisted(() => {
         },
         remove: async (keys: string | string[]) => {
           for (const key of [keys].flat()) delete state.storage[key];
+        },
+      },
+      // The paused sites and other session state; a store that cannot be read counts every
+      // site as paused (ADR 0062).
+      session: {
+        setAccessLevel: async () => undefined,
+        get: async (keys: string | string[]) =>
+          Object.fromEntries(
+            [keys]
+              .flat()
+              .filter((key) => key in state.session)
+              .map((key) => [key, state.session[key]]),
+          ),
+        set: async (values: Record<string, unknown>) => {
+          Object.assign(state.session, structuredClone(values));
+        },
+        remove: async (keys: string | string[]) => {
+          for (const key of [keys].flat()) delete state.session[key];
         },
       },
     },
@@ -197,6 +216,7 @@ const executions = () => fake.state.messages.filter((message) => message.type ==
 describe("login runtime with a live vault field source", () => {
   beforeEach(() => {
     fake.state.storage = {};
+    fake.state.session = {};
     fake.state.messages = [];
     fake.state.pageUrl = fake.pageUrl;
     fake.state.observedPath = "/single";
@@ -494,6 +514,7 @@ describe("login runtime with a live vault field source", () => {
     const refused = vi.fn<(report: LoginReport) => void>();
     // A fresh worker with no saved attempt.
     fake.state.storage = {};
+    fake.state.session = {};
     await start(async () => "synthetic-secret", { state: "unavailable" }, refused);
     expect(refused).toHaveBeenCalledWith(
       expect.objectContaining({ type: "refused", origin, reason: "vault-unavailable" }),

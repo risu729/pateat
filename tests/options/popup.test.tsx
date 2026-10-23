@@ -724,8 +724,40 @@ test("a private window offers the pause once automatic login is on there (ADR 00
   settings.loginInPrivateWindows = true;
   const { client } = store(saved(0, settings));
   await mount(client, "https://bank.example/login", onPage({ recipe: "page" }), true);
-  await expect.element(page.getByRole("group", { name: "Pause automatic login" })).toBeVisible();
+  const row = page.getByRole("group", { name: "Pause automatic login" });
+  await expect.element(row).toBeVisible();
   expect(page.getByText("Automatic login is off in private windows").query()).toBeNull();
+  // A pause until turned back on is a synced rule that would pause normal windows too.
+  await expect.element(row.getByRole("button", { name: "10 minutes" })).toBeVisible();
+  await expect.element(row.getByRole("button", { name: "1 hour" })).toBeVisible();
+  expect(row.getByRole("button", { name: "Until turned back on" }).query()).toBeNull();
+});
+
+test("a private window's choice says automatic login is off there, and a passkey-only pick points to the page (ADR 0062)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page", page: { state: "denied", reason: "paused" } });
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "paused",
+    candidates: [{ connectionId: "demo-work", itemId: "primary" }],
+    paused: true,
+  });
+  await mount(client, "https://bank.example/", choices, true);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  expect(document.querySelector("#popup-choice-reason")?.textContent).toBe(
+    "Automatic login is off in private windows",
+  );
+  await expect
+    .poll(() => lineText("login"))
+    .toBe(
+      "No login started: automatic login is off in private windows; choose an account to log in.",
+    );
+  choices.pick.mockResolvedValueOnce({ ok: false, reason: "paused-no-password" });
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  const said = page.getByText(/^Automatic login is off in private windows, and .+ has no password/);
+  await expect.element(said).toBeVisible();
+  expect(said.element().textContent).not.toContain("Pateat's window");
 });
 
 test("settings that cannot be loaded change nothing", async () => {

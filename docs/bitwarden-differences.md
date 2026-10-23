@@ -280,7 +280,9 @@ Decided by the owner on 2026-10-23
   chooser with the site default treated as unset.
 - In a private window that Chrome lets the extension run in ("Allow in Incognito"),
   Pateat logs in by itself only once its own "Log in automatically in private windows"
-  is turned on; until then private windows behave as paused. Pateat has not checked
+  is turned on; until then private windows behave as paused, except that a passkey
+  request the person starts is answered as in a normal window, since Pateat's chooser
+  cannot open there. Pateat has not checked
   whether the official extension has such a setting.
 - The official extension does not log out of sites. Pateat's popup switch logs a site
   out, clicking a logout control the page names in plain words or one its model finds,

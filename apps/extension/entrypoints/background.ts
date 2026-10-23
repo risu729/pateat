@@ -390,7 +390,13 @@ export default defineBackground(() => {
       : undefined;
   // ADR 0022 and ADR 0007: a returned assertion may complete a login and is a sign-in. The
   // vault item that signed it lets a login whose tab moved to the page that asked complete.
-  const passkeyAnswered = (tabId: number, origin: string, rpId: string, signed: object) => {
+  const passkeyAnswered = (
+    tabId: number,
+    origin: string,
+    rpId: string,
+    signed: object,
+    facts?: { silent?: true; incognito: boolean },
+  ) => {
     noteSignIn(tabId, origin, rpId);
     login.passkeyAnswered(
       tabId,
@@ -402,6 +408,7 @@ export default defineBackground(() => {
         typeof signed.itemId === "string"
         ? { connectionId: signed.connectionId, itemId: signed.itemId }
         : undefined,
+      facts,
     );
   };
   const passkeys = passkeyProbe
@@ -415,7 +422,7 @@ export default defineBackground(() => {
         requested: login.passkeyRequested,
         answered: passkeyAnswered,
         // ADR 0063: a site that asks every time opens the chooser with no default; so does a
-        // paused site's own request (ADR 0062).
+        // paused site's own request, and one the relogin guard holds (ADR 0062).
         defaultUnset: login.defaultUnset,
         reverification: login.passkeyReverification,
         conditional: login.conditionalRequest,
@@ -437,7 +444,7 @@ export default defineBackground(() => {
         // ADR 0035: a re-verification after Pateat's login in the tab is handed on.
         reverification: login.passkeyReverification,
         // ADR 0063: a site that asks every time opens the chooser with no default; so does a
-        // paused site's own request (ADR 0062).
+        // paused site's own request, and one the relogin guard holds (ADR 0062).
         defaultUnset: login.defaultUnset,
         // ADR 0034: the page's own conditional request waits for the login of its page.
         conditional: login.conditionalRequest,

@@ -126,8 +126,8 @@ export const settingsEn = {
   "A default account takes effect at the next login":
     "A default account takes effect at the next login",
   "{{item}} ({{method}})": "{{item}} ({{method}})",
-  "Pause automatic login on {{origin}}, all schemes and ports":
-    "Pause automatic login on {{origin}}, all schemes and ports",
+  "Pause automatic login on {{site}} and its subdomains, which includes {{origin}}":
+    "Pause automatic login on {{site}} and its subdomains, which includes {{origin}}",
   Pause: "Pause",
   Paused: "Paused",
   "Default for {{origin}} kept; while paused it is only listed first in the popup":

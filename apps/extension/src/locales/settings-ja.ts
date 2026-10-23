@@ -132,8 +132,8 @@ export const settingsJa = {
   "A default account takes effect at the next login":
     "既定のアカウントは次回のログインから有効になります",
   "{{item}} ({{method}})": "{{item}}（{{method}}）",
-  "Pause automatic login on {{origin}}, all schemes and ports":
-    "{{origin}} の自動ログインをすべてのスキームとポートで一時停止",
+  "Pause automatic login on {{site}} and its subdomains, which includes {{origin}}":
+    "{{site}} とそのサブドメインの自動ログインを一時停止（{{origin}} を含む）",
   Pause: "一時停止",
   Paused: "一時停止中",
   "Default for {{origin}} kept; while paused it is only listed first in the popup":

@@ -59,6 +59,16 @@ export type PasskeyChoice =
   /** "Use the browser" was pressed, the window was closed, or it could not be shown. */
   | { readonly kind: "browser" | "closed" | "unavailable" };
 
+/** What a request did besides its answer, told once it was handed back. */
+type After<TCandidate> = {
+  /** The passkey chosen in the window, to save as the site default. */
+  remember?: TCandidate;
+  /** The passkey that signed the assertion. */
+  signed?: TCandidate;
+  /** Signed with no login of the tab and no choice in the window. */
+  silent?: true;
+};
+
 /** Opens Pateat's chooser window for one request (ADR 0021) and settles when it is answered. */
 export interface PasskeyChooser {
   choose(input: {
@@ -259,7 +269,17 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
      * passkey that signed it, so a login that then moves to that site's other origin can
      * complete (ADR 0022). Never changes the answer.
      */
-    answered?: (tabId: number, origin: string, rpId: string, signed: TCandidate) => void;
+    answered?: (
+      tabId: number,
+      origin: string,
+      rpId: string,
+      signed: TCandidate,
+      /**
+       * `silent` when Pateat signed by itself, with no login of the tab and no choice in the
+       * chooser window, which the relogin guard counts (ADR 0062); the tab's window kind.
+       */
+      facts?: { silent?: true; incognito: boolean },
+    ) => void;
     /**
      * Whether a request of the origin treats the site's saved default as unset: the person's
      * own request, of no running login, then opens the chooser with every passkey that fits
@@ -328,7 +348,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     origin: string,
     context: { documentId: string; tabId: number; incognito: boolean; active: boolean },
     detail: ReportDetail,
-    after: { remember?: TCandidate; signed?: TCandidate },
+    after: After<TCandidate>,
   ): Promise<RuntimeResult> {
     const { documentId } = context;
     const documentOperations = [...operations.values()].filter(
@@ -474,7 +494,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       let credential: TCandidate;
       let assertion: Signed["assertion"] | undefined;
       let makeDefault = false;
-      if (selection.kind === "credential") credential = selection.credential;
+      if (selection.kind === "credential") {
+        credential = selection.credential;
+        // Signed with no login of the tab and no choice: a sign-in Pateat made by itself.
+        if (!login) after.silent = true;
+      }
       // A login's item answers alone; otherwise the browser or Bitwarden does, so Pateat
       // never signs in as another account.
       else if (login && selection.kind === "delegate")
@@ -681,7 +705,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           // Never changes the answer.
         }
       const detail: ReportDetail = {};
-      const after: { remember?: TCandidate; signed?: TCandidate } = {};
+      const after: After<TCandidate> = {};
       const result = await get(
         command,
         origin,
@@ -697,7 +721,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       );
       if (result.kind === "assertion" && detail.rpId !== undefined && after.signed)
         try {
-          options.answered?.(sender.tab!.id!, origin, detail.rpId, after.signed);
+          options.answered?.(sender.tab!.id!, origin, detail.rpId, after.signed, {
+            ...(after.silent ? { silent: true } : {}),
+            incognito: sender.tab?.incognito === true,
+          });
         } catch {
           // Never changes the answer.
         }

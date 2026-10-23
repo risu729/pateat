@@ -225,4 +225,29 @@ describe("createLoginPauses", () => {
     expect(await pauses.resume("https://example.com/", undefined)).toBe(true);
     expect(await pauses.until(["https://example.com/"], true)).toBeUndefined();
   });
+  it("refuses to answer while the store cannot be read, so the caller counts it as paused", async () => {
+    const { store, box } = memory();
+    box.unreadable = 2;
+    const pauses = createLoginPauses(store, () => 0);
+    await expect(pauses.until(["https://example.com/"], false)).rejects.toThrow(
+      "The paused sites could not be read",
+    );
+    // Read again on the next check.
+    expect(await pauses.until(["https://example.com/"], false)).toBeUndefined();
+  });
+  it("forgets only the incognito pauses once the last incognito window closed", async () => {
+    const { store, box } = memory();
+    const pauses = createLoginPauses(store, () => 0);
+    await pauses.pause("https://example.com/", false, "1h");
+    await pauses.pause("https://example.com/", true, "1h");
+    await pauses.pause("https://other.example/", true, "10m");
+    await pauses.clearIncognito();
+    expect(box.value).toEqual([expect.objectContaining({ site: "example.com", incognito: false })]);
+    expect(await pauses.until(["https://example.com/"], true)).toBeUndefined();
+    expect(await pauses.until(["https://example.com/"], false)).toBe(PAUSE_MS);
+    // Nothing left to forget writes nothing.
+    const writes = box.writes;
+    await pauses.clearIncognito();
+    expect(box.writes).toBe(writes);
+  });
 });

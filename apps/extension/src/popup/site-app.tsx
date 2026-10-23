@@ -303,6 +303,9 @@ export function SiteApp({
   const origin = tab.data === undefined ? undefined : popupOrigin(tab.data?.url);
   const tabId = tab.data?.id;
   const saved = settings.data?.ok ? settings.data : undefined;
+  // In a private window automatic login is off unless turned on in the settings (ADR 0062).
+  const inPrivate =
+    saved !== undefined && privatePaused(saved.snapshot.settings, tab.data?.incognito);
   // A login refused because several accounts match, or on a paused site, waits for a pick
   // (ADR 0021, ADR 0062).
   const choice = useQuery({
@@ -442,7 +445,13 @@ export function SiteApp({
       // not to have become the default.
       say(
         (translate) =>
-          pickFailure(response.reason, selected.name, asDefault && !isDefault, translate),
+          pickFailure(
+            response.reason,
+            selected.name,
+            asDefault && !isDefault,
+            translate,
+            inPrivate,
+          ),
         "error",
       );
       await choice.refetch();
@@ -821,7 +830,6 @@ export function SiteApp({
     // Only a site Pateat runs on can be paused (ADR 0062). In a private window automatic
     // login is off until turned on in the settings, which wins over the rest; a rule pauses
     // the site until turned back on, and wins over a pause of a length.
-    const inPrivate = privatePaused(saved.snapshot.settings, tab.data?.incognito);
     const pause: SitePause = inPrivate
       ? { kind: "private" }
       : rules.shared.length
@@ -835,6 +843,7 @@ export function SiteApp({
       pauseControl = (
         <PauseControl
           pause={pause}
+          incognito={tab.data?.incognito === true}
           busy={busy}
           onPause={(length) => void setPause(length)}
           onResume={() => void setPause(undefined)}
@@ -844,7 +853,11 @@ export function SiteApp({
     body = (
       <>
         {status && (
-          <PageStatusSection status={status} onOpenDiagnostics={() => host.openDiagnostics()} />
+          <PageStatusSection
+            status={status}
+            inPrivate={inPrivate}
+            onOpenDiagnostics={() => host.openDiagnostics()}
+          />
         )}
         {choice.isPending && choice.isEnabled && (
           <p id="popup-choice-checking" className="popup-muted">
@@ -861,7 +874,12 @@ export function SiteApp({
             <div className="popup-section-head">
               <h2 id="popup-choice-heading">{t("Choose an account")}</h2>
               <p id="popup-choice-reason" className="popup-muted popup-reason">
-                {choiceReason(offered.ask, pickOptions.length, t, offered.paused === true)}
+                {choiceReason(
+                  offered.ask,
+                  pickOptions.length,
+                  t,
+                  offered.paused === true && (inPrivate ? "private" : true),
+                )}
               </p>
             </div>
             {offered.held && (

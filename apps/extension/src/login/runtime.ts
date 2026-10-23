@@ -221,7 +221,7 @@ import {
   type LogoutService,
 } from "./switch";
 
-const STORAGE_KEY = "pateat.login-attempts.v6";
+const STORAGE_KEY = "pateat.login-attempts.v5";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
 const PICKS_KEY = "session:pateat.login-picks.v1";
 const CHOICES_KEY = "session:pateat.login-choices.v1";
@@ -2085,14 +2085,15 @@ export function createLoginRuntime(
   const pauses = options.pauses ?? createLoginPauses(sessionValue(LOGIN_PAUSES_KEY));
   /**
    * When the pause the person set for a document's site ends, while it runs: a frame is
-   * paused when its own site or its tab's is (ADR 0062). A pause that cannot be read
-   * counts as none.
+   * paused when its own site or its tab's is (ADR 0062). `unreadable` when the paused
+   * sites cannot be read.
    */
   const pausedUntil = (live: {
     url: string;
     topUrl?: string | undefined;
     incognito?: boolean | undefined;
-  }) => pauses.until([live.url, live.topUrl], live.incognito).catch(() => undefined);
+  }): Promise<number | "unreadable" | undefined> =>
+    pauses.until([live.url, live.topUrl], live.incognito).catch(() => "unreadable" as const);
   /**
    * What of the saved settings pauses automatic login, read as document admission reads
    * them, before any recipe or vault access; undefined when they cannot be read, or without
@@ -2118,16 +2119,27 @@ export function createLoginRuntime(
    * What pauses automatic login of a document, if anything (ADR 0062): automatic login
    * being off in private windows, or an exclusion rule of the settings covering its site or
    * its tab's, both until changed in the settings, else a pause of a chosen length. Settings
-   * or pauses that cannot be read count as none.
+   * that cannot be read count as none; paused sites that cannot be read pause every site,
+   * failing safe. `private: false` leaves out automatic login being off in private windows,
+   * as for the person's own passkey requests there (ADR 0062 E).
    */
-  const pauseOf = async (live: {
-    url: string;
-    topUrl?: string | undefined;
-    incognito?: boolean | undefined;
-  }): Promise<PauseState | undefined> => {
+  const pauseOf = async (
+    live: {
+      url: string;
+      topUrl?: string | undefined;
+      incognito?: boolean | undefined;
+    },
+    kinds: { private?: false } = {},
+  ): Promise<PauseState | undefined> => {
     // Both are read at once, so the pause costs a request no more time than before.
     const [policy, until] = await Promise.all([pausingSettings(), pausedUntil(live)]);
-    return settingsPause(policy, live) ?? (until === undefined ? undefined : { until });
+    const ruled = settingsPause(
+      policy && kinds.private === false ? { ...policy, loginInPrivateWindows: true } : policy,
+      live,
+    );
+    if (ruled) return ruled;
+    if (until === "unreadable") return { unreadable: true };
+    return until === undefined ? undefined : { until };
   };
   /** Spins the tab's badge from a model request's `sent` until `stop`, once the request returns. */
   function spinning(tabId: number) {
@@ -2856,10 +2868,11 @@ export function createLoginRuntime(
     // The popup shows its page section only on HTTP(S) pages.
     if (page?.protocol !== "https:" && page?.protocol !== "http:")
       return { ok: false, reason: "no-page" };
-    const pausedTill = await pausedUntil({
+    const till = await pausedUntil({
       url: page.href,
       incognito: tab?.incognito ?? live?.incognito,
     });
+    const pausedTill = typeof till === "number" ? till : undefined;
     const pageOrigin = page.origin;
     const path = observedPath(page.pathname);
     const [starts, entries, routes] = await Promise.all([
@@ -3000,12 +3013,23 @@ export function createLoginRuntime(
    */
   async function pausedTabs(url: string, incognito: boolean): Promise<Set<number>> {
     const site = pauseSite(url);
+    const tabs = await browser.tabs.query({}).catch(() => []);
+    const kindOf = new Map(tabs.map((tab) => [tab.id, tab.incognito === true]));
     const ids = new Set((await siteTabs(url, incognito)).map((tab) => tab.id!));
+    // Only the documents and choices of tabs of that window kind: the other kind keeps its
+    // own pause. One whose kind is not known is left out.
+    const ofKind = (tabId: number, known: boolean | undefined) =>
+      (known ?? kindOf.get(tabId)) === incognito;
     for (const live of documents.values())
-      if (pauseSite(live.url) === site && (live.incognito ?? incognito) === incognito)
+      if (pauseSite(live.url) === site && ofKind(live.document.tabId, live.incognito))
         ids.add(live.document.tabId);
     for (const [tabId, waiting] of pending)
-      if (waiting.paused && pauseSite(waiting.document.origin) === site) ids.add(tabId);
+      if (
+        waiting.paused &&
+        pauseSite(waiting.document.origin) === site &&
+        ofKind(tabId, documents.get(frameKey(waiting.document))?.incognito)
+      )
+        ids.add(tabId);
     return ids;
   }
   /**
@@ -3128,6 +3152,9 @@ export function createLoginRuntime(
     if (picked.get(tabId)?.attemptId !== metadata.id) return;
     const tab = await browser.tabs.get(tabId).catch(() => undefined);
     const incognito = live?.incognito ?? tab?.incognito;
+    // A login whose window kind is not known ends no pause, since the other kind's pause is
+    // the person's own.
+    if (incognito === undefined) return;
     const urls = new Set(
       [metadata.account.origin, metadata.pageOrigin, live?.topUrl].filter(
         (value): value is string => value !== undefined,
@@ -3145,9 +3172,7 @@ export function createLoginRuntime(
         ...(incognito ? { incognito: true as const } : {}),
       });
       // eslint-disable-next-line no-await-in-loop
-      await Promise.all(
-        (incognito === undefined ? [false, true] : [incognito]).map((kind) => showPause(url, kind)),
-      );
+      await showPause(url, incognito);
     }
   }
   /**
@@ -3877,7 +3902,16 @@ export function createLoginRuntime(
   ): void {
     if (next.state !== "authenticated" || previous.state === "authenticated") return;
     if (picked.get(next.document.tabId)?.attemptId === next.id) return;
-    const site = siteOf(next.account.origin);
+    countSignIn(next.account.origin, incognito);
+  }
+  /**
+   * Counts a sign-in Pateat made by itself on the origin's registrable site towards the
+   * relogin guard (ADR 0062): a login that ended `authenticated`, or a passkey request it
+   * answered with no login and no choice, as a login page that asks on load after each
+   * logout.
+   */
+  function countSignIn(siteOrigin: string, incognito: boolean): void {
+    const site = siteOf(siteOrigin);
     if (site === undefined) return;
     const now = Date.now();
     const key = reloginKey(site, incognito);
@@ -11287,6 +11321,28 @@ export function createLoginRuntime(
     if (ended) reviewRequests();
   }
   browser.tabs.onRemoved.addListener((tabId) => forgetTab(tabId));
+  /**
+   * The last incognito window closed: the browser dropped that session, so what Pateat kept
+   * for it ends too (ADR 0062, ADR 0063): its pauses, its sites that ask every time, its
+   * switch picks and its relogin counts. A later incognito window starts afresh.
+   */
+  async function incognitoClosed(): Promise<void> {
+    const windows = await browser.windows.getAll().catch(() => undefined);
+    if (!windows || windows.some((window) => window.incognito)) return;
+    await sessionLoaded;
+    let changed = false;
+    for (const [key, entry] of relogins)
+      if (entry.incognito) {
+        relogins.delete(key);
+        changed = true;
+      }
+    if (changed) void quietly(saveSession);
+    await Promise.all([
+      pauses.clearIncognito().catch(() => undefined),
+      accountPicks.forgetIncognito().catch(() => undefined),
+    ]);
+  }
+  browser.windows?.onRemoved?.addListener(() => void incognitoClosed());
   // Chrome gives a tab a new ID when it discards it to save memory. It is the same tab to
   // the user: what the tab did moves to the new ID, and the gone page is forgotten as on
   // a close (ADR 0021). The event may be what starts the worker.
@@ -11509,7 +11565,11 @@ export function createLoginRuntime(
     siteOrigin: string,
     rpId: string,
     item?: { connectionId: string; itemId: string },
+    facts?: { silent?: true; incognito: boolean },
   ): void {
+    // A sign-in Pateat answered by itself outside a login counts as a relogin, so a page
+    // that asks for a passkey on load after each logout cannot loop (ADR 0062).
+    if (facts?.silent) void sessionLoaded.then(() => countSignIn(siteOrigin, facts.incognito));
     passkeyAnswers.set(`${tabId} ${siteOrigin}`, {
       at: Date.now(),
       rpId,
@@ -12759,13 +12819,18 @@ export function createLoginRuntime(
     /**
      * Whether a passkey request of the origin treats the saved default as unset (ADR 0063):
      * `paused` while automatic login of its site is paused in the window kind of its tab
-     * (ADR 0062), else true when its site asks every time after a pick that did not make its
-     * account the default. A pause that cannot be read counts as none.
+     * (ADR 0062), else true when Pateat logged in to its site twice in 10 minutes (the
+     * relogin guard) or its site asks every time after a pick that did not make its account
+     * the default. Automatic login being off in private windows does not count: the person's
+     * own request there is answered as in any window (ADR 0062 E).
      */
-    defaultUnset: async (pageOrigin: string, incognito: boolean): Promise<boolean | "paused"> =>
-      (await pauseOf({ url: pageOrigin, incognito })) !== undefined
-        ? "paused"
-        : asksEveryTime(pageOrigin, incognito),
+    defaultUnset: async (pageOrigin: string, incognito: boolean): Promise<boolean | "paused"> => {
+      if ((await pauseOf({ url: pageOrigin, incognito }, { private: false })) !== undefined)
+        return "paused";
+      await sessionLoaded;
+      if (reloginLimited(pageOrigin, incognito)) return true;
+      return asksEveryTime(pageOrigin, incognito);
+    },
     /** A tab's page changed: a page of a paused site shows `II` on its badge (ADR 0062). */
     tabLoaded: (tab: Browser.tabs.Tab) => showTabPause(tab).catch(() => undefined),
   };
