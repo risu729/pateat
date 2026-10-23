@@ -729,6 +729,13 @@ export async function startLoginFixture(
       // `?shown-late` shows the account only after a loading text changes for 1.6 s, as
       // Duolingo's remembered account shows after its password field (2026-10-23).
       const shownLate = fixtureUrl.searchParams.get("shown-late");
+      // `?switch-pointer` names the account a "Use another account" element with only a
+      // pointer cursor, inside the form after the password field, loads next (Duolingo,
+      // 2026-10-23); the recipe names no switch for it.
+      const switchPointer = fixtureUrl.searchParams.get("switch-pointer");
+      // `?switch-in-place` makes that element show the account in place instead, as a
+      // single-page app does.
+      const inPlace = fixtureUrl.searchParams.has("switch-in-place");
       // `?maxlength` limits the password input, such as below the synthetic password.
       const maxLength = fixtureUrl.searchParams.get("maxlength");
       // `?form` puts the login in a form: `same-origin` posts to this page with its submit
@@ -757,7 +764,7 @@ export async function startLoginFixture(
       response.end(
         html(
           `<h1>Synthetic single-page login</h1>${
-            shown !== null && masked.test(shown) ? `<p>Signed in as ${shown}</p>` : ""
+            shown !== null && masked.test(shown) ? `<p id="shown">Signed in as ${shown}</p>` : ""
           }${shownLate !== null && masked.test(shownLate) ? `<p id="account" data-shown="Signed in as ${shownLate}">Loading</p>` : ""}${
             // `switch` names the account the "Use another account" link shows next;
             // `switch-submit` makes it the submit button of its own form instead.
@@ -779,6 +786,10 @@ export async function startLoginFixture(
           }${
             maxLength !== null && /^\d{1,3}$/u.test(maxLength) ? ` maxlength="${maxLength}"` : ""
           }></label>${
+            switchPointer !== null && masked.test(switchPointer)
+              ? `<div id="use-another" data-test="use-another-account" style="cursor: pointer"${inPlace ? ` data-shown="Signed in as ${switchPointer}"` : ""} data-next="${path}?${new URLSearchParams({ shown: switchPointer, ...(form === null ? {} : { form }) }).toString().replace(/&/gu, "&amp;")}"><span>Use another account</span></div>`
+              : ""
+          }${
             // `?reject-fill=switch-form` keeps a second password field hidden until a fill.
             fixtureUrl.searchParams.get("reject-fill") === "switch-form"
               ? '<label>Security number<input id="security" type="password" hidden></label>'
@@ -813,6 +824,7 @@ export async function startLoginFixture(
                 "document.getElementById('password').addEventListener('change', (event) => { event.target.value = ''; document.getElementById('security').hidden = false; });",
             }[fixtureUrl.searchParams.get("reject-fill") ?? ""] ?? ""
           }
+          document.getElementById('use-another')?.addEventListener('click', (event) => { const { shown, next } = event.currentTarget.dataset; if (shown) { document.getElementById('shown').textContent = shown; event.currentTarget.remove(); } else location.assign(next); });
           ${
             shownLate !== null && masked.test(shownLate)
               ? `{ let ticks = 0; const loading = setInterval(() => { ticks += 1; document.getElementById('account').textContent = 'Loading' + '.'.repeat(ticks % 4); if (ticks === 8) { clearInterval(loading); document.getElementById('account').textContent = document.getElementById('account').dataset.shown; } }, 200); }`

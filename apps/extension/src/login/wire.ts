@@ -548,6 +548,11 @@ export const commandSchema = v.variant("type", [
     /** The recipe's account switch, clicked when the page shows another account. */
     accountSwitch: v.optional(loginTargetSchema),
     /**
+     * Without the recipe's switch: the page's own control for another account may be
+     * clicked when the page shows another account (ADR 0078).
+     */
+    otherSwitch: v.optional(v.literal(true)),
+    /**
      * With a chooser's click on its list (ADR 0028): the click goes to the element the
      * list's choice names, and only when that choice is `click`.
      */

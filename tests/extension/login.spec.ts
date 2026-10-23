@@ -1789,6 +1789,28 @@ test("a page showing another account is not filled, and its account switch is cl
       expect(await clicks(loop)).toBe(0);
       await loop.close();
       await expect.poll(status).not.toContain("wrong-account");
+      // Without the recipe's switch, the page's own control for another account is
+      // clicked: here an element with only a pointer cursor.
+      const pointer = await context.newPage();
+      await pointer.goto(`${fixture.origin}/delayed-result?shown=****9999&switch-pointer=****1234`);
+      await expect(pointer.locator("#authenticated")).toBeVisible({ timeout: 10_000 });
+      expect(new URL(pointer.url()).searchParams.get("shown")).toBe("****1234");
+      await pointer.close();
+      await expect.poll(status).not.toContain("authenticated");
+      // One that shows the other account in place, as a single-page app, continues there.
+      const inPlace = await context.newPage();
+      let inPlaceLoads = 0;
+      inPlace.on("load", () => {
+        inPlaceLoads += 1;
+      });
+      await inPlace.goto(
+        `${fixture.origin}/delayed-result?shown=****9999&switch-pointer=****1234&switch-in-place`,
+      );
+      await expect(inPlace.locator("#authenticated")).toBeVisible({ timeout: 10_000 });
+      await expect(inPlace.locator("#shown")).toHaveText("Signed in as ****1234");
+      expect(inPlaceLoads).toBe(1);
+      await inPlace.close();
+      await expect.poll(status).not.toContain("authenticated");
       // A switch that would submit a form is never clicked.
       const submit = await context.newPage();
       let submitLoads = 0;

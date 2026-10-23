@@ -63,7 +63,7 @@ import {
   fieldsMissDetail,
   presence,
 } from "../observation/extract";
-import { listChoice, listControls } from "../page/account-list";
+import { accountSwitchControls, listChoice, listControls } from "../page/account-list";
 import {
   listedAccounts,
   listsAccounts,
@@ -421,7 +421,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     | {
         operationId: string;
         element: HTMLElement;
-        target: LoginTarget;
+        /** Finds the switch again: the recipe's target, or the page's own controls. */
+        find: () => Element[];
         path: string;
         expiresAt: number;
       }
@@ -642,6 +643,22 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       addEventListener("popstate", pageChanged);
       navigation?.addEventListener("currententrychange", pageChanged);
     }
+  }
+  /**
+   * After an account switch this document may change in place, as a single-page app shows
+   * its form for another account (Duolingo, 2026-10-23): once it has settled, it is
+   * announced as a new page, so a recipe that starts there starts a new attempt and a page
+   * without one may be offered for generation once more (ADR 0078). A switch that loads a
+   * new document never gets here.
+   */
+  async function switchedInPlace(): Promise<void> {
+    await settled(document, accountQuietMs, Date.now() + accountWaitMs);
+    if (cancelled) return;
+    ended = false;
+    announced = false;
+    retries = 0;
+    offered = false;
+    void announce(false).catch(() => undefined);
   }
   /**
    * Checks again shortly when a start could not be confirmed for a passing reason. Each
@@ -1103,8 +1120,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         pending?.operationId === command.operationId &&
         Date.now() < pending.expiresAt &&
         pagePath() === pending.path &&
-        switchable(pending.element) &&
-        isOnly(findTargets(document, pending.target, { links: true }), pending.element);
+        isOnly(pending.find(), pending.element);
       if (!click) {
         respond({ ok: false });
         return false;
@@ -1113,7 +1129,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // `pointerdown` may already have switched.
       const pressing = () => !cancelled && pagePath() === pending.path;
       void pressElement(pending.element, pressing).then(
-        (pressed) => respond({ ok: pressed !== "missed" }),
+        (pressed) => {
+          respond({ ok: pressed !== "missed" });
+          if (pressed !== "missed") void switchedInPlace();
+        },
         () => respond({ ok: true }),
       );
       return true;
@@ -1643,16 +1662,24 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           command.account.username = "";
           if (other) {
             // The recipe's account switch is clicked once the background has recorded the
-            // switch, so a recipe that starts on the page it leads to can log in.
-            const found = command.accountSwitch
-              ? findTargets(document, command.accountSwitch, { links: true })
-              : [];
+            // switch, so a recipe that starts on the page it leads to can log in. Without
+            // one, the page's own control for another account is (ADR 0078).
+            const target = command.accountSwitch;
+            const find = target
+              ? () => {
+                  const named = findTargets(document, target, { links: true });
+                  return named.length === 1 && switchable(named[0]) ? named : [];
+                }
+              : command.otherSwitch
+                ? () => accountSwitchControls(document)
+                : undefined;
+            const found = find?.() ?? [];
             const element = found.length === 1 ? found[0] : undefined;
-            if (command.accountSwitch && switchable(element)) {
+            if (find && element instanceof HTMLElement) {
               pendingSwitch = {
                 operationId: operation.operationId,
                 element,
-                target: command.accountSwitch,
+                find,
                 path: pagePath(),
                 expiresAt: Date.now() + switchTimeoutMs,
               };

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   accountEntries,
+  accountSwitchControls,
   accountEntryMiss,
   accountNames,
   besideAccounts,
@@ -297,6 +298,42 @@ describe("besideAccounts", () => {
       document.body.innerHTML = `<div><span>taro</span>${control.repeat(4)}</div>`;
       expect(besideAccounts(document), control).toEqual([]);
     }
+  });
+});
+
+describe("accountSwitchControls", () => {
+  // Duolingo's remembered account (2026-10-23): a pointer-only element inside the password
+  // form, beside the shown address.
+  const remembered = `
+    <form><div><div><div>
+      <h1>Welcome Back!</h1><div>T</div><div>x@example.com</div>
+      <div data-test="use-another-account" style="cursor: pointer"><span>Use another account</span></div>
+    </div></div></div>
+    <input id="password" type="password" placeholder="Password"><button>Log in</button></form>`;
+
+  it("finds the page's one control for another account, also inside a form with a shown field", () => {
+    document.body.innerHTML = remembered;
+    expect(accountSwitchControls(document).map((element) => element.dataset["test"])).toEqual([
+      "use-another-account",
+    ]);
+    document.body.innerHTML = `<form><input type="password"><a href="/signin">別のアカウントでログイン</a></form>`;
+    expect(accountSwitchControls(document)).toHaveLength(1);
+  });
+
+  it("leaves out a submit button, page chrome, a long text and a text naming an account", () => {
+    for (const html of [
+      `<form><input type="password"><button>Use another account</button></form>`,
+      `<header><a href="/switch">Switch accounts</a></header><input type="password">`,
+      `<input type="password"><a href="/x">${"Use another account ".repeat(4)}</a>`,
+      `<input type="password"><button type="button">Not x@example.com? Use another account</button>`,
+      `<input type="password"><button type="button">Use another account 1234</button>`,
+      `<input type="password"><span>Use another account</span>`,
+    ]) {
+      document.body.innerHTML = html;
+      expect(accountSwitchControls(document), html).toEqual([]);
+    }
+    document.body.innerHTML = `<form><input type="password"><button type="button">Use another account</button></form>`;
+    expect(accountSwitchControls(document)).toHaveLength(1);
   });
 });
 

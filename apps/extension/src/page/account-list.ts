@@ -1,7 +1,14 @@
 import type { LoginTarget } from "@pateat/contracts";
 import { fits, shownAccounts } from "./accounts";
 import { findTargets } from "./targets";
-import { closestAcross, composedParent, containsAcross, queryAll, textWalker } from "./shadow";
+import {
+  closestAcross,
+  composedParent,
+  containsAcross,
+  formOf,
+  queryAll,
+  textWalker,
+} from "./shadow";
 import { collapseText, isButton, isScriptButton, renderedText, shown } from "./text";
 
 /** Roles that make an element a list entry (ADR 0028). */
@@ -543,6 +550,27 @@ export function otherAccountMiss(
     return entry ? "other-not-control" : "other-not-entry";
   }
   return labelled ? "other-label-only" : "no-other";
+}
+
+/**
+ * The page's controls that sign in with another account, as a sign-in page showing
+ * another account than the login's offers them: the innermost entry-like elements outside
+ * page chrome whose whole text, at most 64 characters, names another account by the words
+ * {@link otherAccountMiss} reads, and holds no email address, masked text or run of four or
+ * more digits. Unlike a list's control, one inside a form with a shown field counts: the
+ * remembered account's own password form holds it. A native button that would submit its
+ * form never counts.
+ */
+export function accountSwitchControls(document: Document): HTMLElement[] {
+  return entryControls(document).filter((element) => {
+    const text = listControlText(element).normalize("NFKC");
+    if (!text || text.length > otherTextLimit || !namesOtherAccount(text)) return false;
+    if (shownAccounts(text).some((shownAccount) => shownAccount.includes("@"))) return false;
+    if (/[*●•]|\p{N}{4}/u.test(text)) return false;
+    if (!isButton(element)) return true;
+    const submits = element.type === "submit" || element.type === "image";
+    return !(submits && formOf(element));
+  });
 }
 
 /** At most this many short texts are handed over as possible account names. */

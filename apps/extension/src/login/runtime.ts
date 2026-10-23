@@ -8868,11 +8868,10 @@ export function createLoginRuntime(
           ...(list ? { list } : {}),
           // One switch per tab: an attempt that follows a switch never clicks another.
           // A fill-only login after a logout never clicks, not even a switch (ADR 0021 D).
-          ...(expected &&
-          run.recipe.accountSwitch &&
-          !run.metadata.accountSwitched &&
-          !run.metadata.fillOnly
-            ? { accountSwitch: run.recipe.accountSwitch }
+          ...(expected && !run.metadata.accountSwitched && !run.metadata.fillOnly
+            ? run.recipe.accountSwitch
+              ? { accountSwitch: run.recipe.accountSwitch }
+              : { otherSwitch: true as const }
             : {}),
           // A `totp` handler's code fill watches for the page submitting the code itself; a
           // handler's without a button types the code as its submission (ADR 0027).
@@ -8950,7 +8949,6 @@ export function createLoginRuntime(
       ) {
         const switched =
           result.output.switchable === true &&
-          run.recipe.accountSwitch !== undefined &&
           !run.metadata.accountSwitched &&
           !run.metadata.fillOnly;
         await change(run, {
@@ -11064,8 +11062,9 @@ export function createLoginRuntime(
     const sameDocument = oldLive !== undefined && sameLoginDocument(oldLive.document, document);
     // A document may announce again when its form appears or its URL changes in place,
     // but never while it already carries an attempt, unless that login finished and the
-    // document now watches for a logout (ADR 0021 D), or the login is watched and its first
-    // step shows in the document (ADR 0027).
+    // document now watches for a logout (ADR 0021 D), the login is watched and its first
+    // step shows in the document (ADR 0027), or the login switched accounts and the
+    // document changed in place (ADR 0078).
     const carried = attempts.get(document.tabId);
     if (
       sameDocument &&
@@ -11074,6 +11073,8 @@ export function createLoginRuntime(
           !(
             document.frameId === 0 &&
             (finishedLogin(carried.metadata) ||
+              (carried.metadata.state === "blocked" &&
+                carried.metadata.outcome === "account-switched") ||
               (carried.metadata.watch !== undefined &&
                 start?.path === observedPath(new URL(url).pathname) &&
                 document.documentId !== carried.metadata.watch.documentId))
