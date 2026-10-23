@@ -50,6 +50,11 @@ Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md) (owner, 20
 implemented): a page whose recipe the chosen item cannot run is generated again, its
 recipe revoked first, though a recipe starts there.
 
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (owner,
+implemented): condition 1 reads "the site is not paused": a timed pause, an exclusion
+rule, or a private window while automatic login is off there keeps the page from being
+sent (`recipe.generate` skipped `paused`).
+
 Date: 2026-10-11
 
 ## Context

@@ -497,11 +497,13 @@ holds:
 - `origin`, `outcome` (`assertion`, `delegate`, `cancelled`, `not-allowed` when the
   chooser window was still open as the wait ran out, or `withheld` for a conditional
   request kept unanswered after a Pateat login of its page signed in, or after four
-  minutes of waiting for that login or for a pick after a logout) and the delegate
-  `reason`. A conditional request is handed on as `no-recipe` (no recipe for the site),
-  `no-login` (no login of its page started), `login-ended` (the login did not sign in)
-  or `no-pick` (the popup offered its page a choice of accounts outside a logout, with
-  an item that holds a passkey, and nothing was picked within four minutes)
+  minutes of waiting for that login or for a pick while its tab asks for an account) and
+  the delegate `reason`. A conditional request is handed on as `no-recipe` (no recipe
+  for the site), `no-login` (no login of its page started), `login-ended` (the login did
+  not sign in) or `no-pick` (the popup offered its page an ordinary choice of accounts,
+  outside an ask, with an item that holds a passkey, and nothing was picked within four
+  minutes), and at once as `paused` while automatic login of its site is paused
+  ([ADR 0062](adr/0062-log-in-again-after-a-logout.md))
   ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A request outside conditional
   mediation that names its credentials, in a tab whose Pateat login of the origin signed
   in with no logout detected since, is a re-verification while signed in and is handed
@@ -523,16 +525,17 @@ holds:
   `chooser-` plus that value; a choice that the settings no longer offer when it is
   looked up again delegates with `settings-changed`, or `vault-incomplete` when the
   vault could not be searched in full;
-- `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
-  again, or `logoutClicked` when instead a control that logs out was clicked on the RP
-  ID's site in the tab and still waits for the site's first step (at most 10 minutes,
-  while the tab stays on the site), or, after such a click was used, the tab keeps a
-  logout state for an origin of the site (ADR 0021 D). Such a request that cannot open
-  the window is delegated with `chooser-unavailable`;
+- `defaultUnset` when the site's default counted as unset, so the chooser opened even
+  for one match or the default, with none preselected: with `paused` while automatic
+  login of the site is paused, by a pause, an exclusion rule or a private window while
+  that setting is off ([ADR 0062](adr/0062-log-in-again-after-a-logout.md)), else
+  because the site asks every time after a one-time pick
+  ([ADR 0063](adr/0063-switch-accounts-from-the-popup.md)). Such a request that cannot
+  open the window, or finds no passkey to offer, is delegated with `paused` or
+  `default-unset`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
-  (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`
-  or `signing`);
+  (`login-wait`, `account-lookup`, `passkey-lookup`, `chooser` or `signing`);
 - `mediation`: the request's mediation when it names one (`optional`, `conditional`,
   `required`, `silent`, `immediate` or `other`), whatever the outcome;
 - `uiMode`: `immediate` for Chrome's Immediate UI, separately from mediation
@@ -586,10 +589,10 @@ The sign-ins the check reads are kept per tab in `chrome.storage.session`
   `not-signed-in` (no Pateat sign-in to that RP ID in the tab), `expired` (the latest
   one was more than five minutes ago), `not-listed` (no listed credential is a passkey
   Pateat could sign with there), `vault-incomplete` (none is, but a connection or item
-  could not be searched, as when the vault is locked), `not-configured` (the site is
-  excluded or the settings could not be read), `vault-unavailable` (the sign-in records
-  or the lookup failed) or `timeout` (the lookup took too long), `invalid-request`,
-  `invalid-origin`, `invalid-rp-id`, `rp-id-mismatch` or `busy`;
+  could not be searched, as when the vault is locked), `not-configured` (the hostname is
+  one Pateat does not run on, or the settings could not be read), `vault-unavailable`
+  (the sign-in records or the lookup failed) or `timeout` (the lookup took too long),
+  `invalid-request`, `invalid-origin`, `invalid-rp-id`, `rp-id-mismatch` or `busy`;
 - `rpId` once it is valid for the origin, and `excludeCredentials`: how many
   credentials the site listed;
 - `mediation`: `conditional` (Chrome's automatic passkey upgrade) or `other`, when the

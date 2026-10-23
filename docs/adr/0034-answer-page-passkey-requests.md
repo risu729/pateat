@@ -10,10 +10,11 @@ a recipe without a passkey button, and its fallback to the password) and
 [ADR 0025](0025-automatic-vault-sync.md) (a waiting conditional request does not hold
 the vault).
 
-Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (proposed,
-not accepted): rule 5's case after a logout is gone, since a logout is followed by an
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (accepted
+and implemented): rule 5's case after a logout is gone, since a logout is followed by an
 ordinary login; the remaining asks keep the request as before, and a conditional request
-on a paused site is handed on at once.
+on a paused site (a timed pause, an exclusion rule, or a private window while automatic
+login is off there) is handed on at once as `paused`.
 
 Amended on 2026-10-12 by the owner's choice at 17:56 UTC: while the tab asks for an
 account after a logout (ADR 0021 D), the asked document's request waits for the pick in

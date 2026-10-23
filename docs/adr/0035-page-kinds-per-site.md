@@ -19,6 +19,12 @@ revision are implemented ahead of delivery 1, and every row is kept one year; an
 ([below](#amendment-2026-10-18-login-results-on-the-service)): the first login result of
 each revision reaches the service.
 
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (owner,
+implemented): `excludedSites` pauses automatic login until the rule is removed. It still
+stops observation, generation and filling by Pateat itself, but a popup pick logs in and
+the person's own passkey request is answered through the chooser; no setting keeps a
+site's pages from the vault any more.
+
 Date: 2026-10-12
 
 ## Context

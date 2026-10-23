@@ -232,7 +232,7 @@ pinned at
 
 ## After a logout, pausing and switching accounts
 
-Proposed on 2026-10-23, not accepted
+Decided by the owner on 2026-10-23
 ([ADR 0062](adr/0062-log-in-again-after-a-logout.md),
 [ADR 0063](adr/0063-switch-accounts-from-the-popup.md)).
 
@@ -241,9 +241,18 @@ Proposed on 2026-10-23, not accepted
   ([Bitwarden help](https://bitwarden.com/help/auto-fill-browser/)). Pateat logs in
   again after a logout, unless the same site has logged in automatically twice in the
   last 10 minutes.
-- The official extension has no timed pause; its blocked domains stop autofill, passkey
-  prompts and save prompts until removed. Pateat's popup pauses a registrable site's
-  automatic login for one hour on the device, besides the synced "Pateat on this site"
-  exclusion.
+- The official extension's blocked domains turn autofill off on a site, and its excluded
+  domains stop it offering to save or use passkeys there, until removed
+  ([Bitwarden help](https://bitwarden.com/help/auto-fill-browser/#set-up-autofill)); it
+  has no timed pause. Pateat's popup pauses a registrable site's automatic login for 10
+  minutes or an hour on the device, or until turned back on, which is the synced site
+  exclusion. A paused or excluded site is not turned off: an account picked in the popup
+  still logs in, and a passkey request the person starts is answered through Pateat's
+  chooser with the site default treated as unset.
+- In a private window that Chrome lets the extension run in ("Allow in Incognito"),
+  Pateat logs in by itself only once its own "Log in automatically in private windows"
+  is turned on; until then private windows behave as paused. Pateat has not checked
+  whether the official extension has such a setting.
 - The official extension does not log out of sites. Pateat's popup switch logs a site
-  out with a control its model finds, then logs in with the picked item.
+  out, clicking a logout control the page names in plain words or one its model finds,
+  then logs in with the picked item.

@@ -18,8 +18,8 @@ only a password step after a logout),
 releases a watched login) and [ADR 0028](0028-account-chooser-login-pages.md) (its
 branches never start mid-way).
 
-Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (proposed,
-not accepted): a later step shown after a login in the tab starts an ordinary login, as
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (accepted and
+implemented): a later step shown after a login in the tab starts an ordinary login, as
 the first step does, instead of asking.
 
 Date: 2026-10-18
