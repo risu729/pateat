@@ -837,6 +837,39 @@ describe("production login document admission", () => {
       await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledTimes(2));
     });
 
+    it("asks again once the grant expires unused", async () => {
+      const askMasterPassword = vi.fn(async (_input: unknown) => "verified" as const);
+      const h = harness(listed, { reprompt: true, askMasterPassword });
+      // The document does not announce again in time, as a page still loading.
+      fake.state.onReconnect = async () => ({ ok: true });
+      await h.hello();
+      await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(61_000);
+      await h.hello();
+      await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledTimes(2));
+      expect(executed()).toEqual([]);
+    });
+
+    it("closes the window of a document another document replaced, which then asks", async () => {
+      realTime();
+      const signals: AbortSignal[] = [];
+      const askMasterPassword = vi.fn(
+        (input: { signal: AbortSignal }) =>
+          new Promise<"closed">((resolve) => {
+            signals.push(input.signal);
+            input.signal.addEventListener("abort", () => resolve("closed"));
+          }),
+      );
+      const h = harness(listed, { reprompt: true, askMasterPassword });
+      await h.hello();
+      await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledOnce());
+      await h.hello({ documentId: "second-document" });
+      await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledTimes(2));
+      expect(signals[0]!.aborted).toBe(true);
+      expect(signals[1]!.aborted).toBe(false);
+      expect(executed()).toEqual([]);
+    });
+
     it("asks again from the popup after the window was closed", async () => {
       realTime();
       const askMasterPassword = vi

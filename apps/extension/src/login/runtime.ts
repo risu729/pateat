@@ -2570,6 +2570,23 @@ export function createLoginRuntime(
   >();
   /** Windows asking, by tab and document, so a document announcing again opens no second. */
   const repromptAsking = new Map<string, AbortController>();
+  /**
+   * Ends the master password state of one document, or of every document of the tab: its
+   * window closes, so a document that replaced it can ask, and an unused grant goes.
+   */
+  function dropReprompt(tabId: number, documentId?: string): void {
+    const matches = (key: string) =>
+      documentId === undefined ? key.startsWith(`${tabId} `) : key === `${tabId} ${documentId}`;
+    for (const [key, controller] of repromptAsking)
+      if (matches(key)) {
+        repromptAsking.delete(key);
+        controller.abort();
+      }
+    for (const key of repromptGrants.keys()) if (matches(key)) repromptGrants.delete(key);
+    const waiting = repromptWaiting.get(tabId);
+    if (waiting && (documentId === undefined || waiting.document.documentId === documentId))
+      repromptWaiting.delete(tabId);
+  }
   const pending = new Map<number, PendingChoice>();
   /** By `recordKey`: tabs that logged out of an origin and have not picked an account yet. */
   const logouts = new Set<string>();
@@ -3266,8 +3283,10 @@ export function createLoginRuntime(
     }
     if (answer !== "verified") return { ok: false, reason: answer };
     const live = documents.get(frameKey(document));
-    if (live?.document.documentId !== document.documentId)
+    if (live?.document.documentId !== document.documentId || controller.signal.aborted)
       return { ok: false, reason: "document-gone" };
+    // The document may have started another login meanwhile, as after a pick in the popup.
+    if (live.reason !== "master-password-reprompt") return { ok: false, reason: "not-waiting" };
     repromptGrants.set(key, {
       connectionId: login.connectionId,
       itemId: login.itemId,
@@ -3306,6 +3325,9 @@ export function createLoginRuntime(
     );
     const item = connection?.items.find((entry) => entry.id === waiting.account.itemId);
     if (!connection || !item) return { ok: false, reason: "unavailable" };
+    // The site may have stopped asking since.
+    if (!itemAsksForMasterPassword(snapshot.snapshot.settings, item, live.url))
+      return { ok: false, reason: "not-waiting" };
     return askMasterPassword(waiting, connection, item);
   }
   /**
@@ -10533,6 +10555,7 @@ export function createLoginRuntime(
         ? { entryRefusals: oldLive.entryRefusals }
         : {}),
     };
+    if (oldLive && !sameDocument) dropReprompt(oldLive.document.tabId, oldLive.document.documentId);
     documents.set(key, live);
     // The tab's next page after a page Pateat does not fill (ADR 0035).
     const earlier = confirmVisits.get(document.tabId);
@@ -11907,6 +11930,8 @@ export function createLoginRuntime(
       // An item with Bitwarden's re-prompt starts a login on a site that honours it only
       // after its master password was typed for this document; until then the page is
       // neither filled nor pressed, and the chooser window asks (owner, 2026-10-23 12:46 UTC).
+      // Its username may already have been read to match the page's accounts, as Bitwarden
+      // shows usernames without asking.
       // The started login goes on across its pages, and answers the site's passkey request
       // with that item (ADR 0027), without asking again.
       const connection = snapshot.catalog.connections.find(
@@ -13196,6 +13221,7 @@ export function createLoginRuntime(
   function forgetTab(tabId: number): void {
     const visit = confirmVisits.get(tabId);
     if (visit) leaveConfirm(visit);
+    dropReprompt(tabId);
     passwordSubmits.delete(tabId);
     passwordFills.delete(tabId);
     afterSignIn.delete(tabId);
