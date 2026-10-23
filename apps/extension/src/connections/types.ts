@@ -37,12 +37,7 @@ export type SetupBegin =
       password: string;
       enabled: boolean;
     }
-  | {
-      kind: "existing";
-      connectionId: string;
-      password: string;
-      autoUnlock: "enable" | "preserve";
-    };
+  | { kind: "existing"; connectionId: string; password: string };
 export type SetupContinuation = {
   flowId: string;
   twoFactor?: { provider: 0 | 1; code: string };
@@ -50,6 +45,8 @@ export type SetupContinuation = {
 };
 export type SetupReply =
   | { ok: true; kind: "disabled"; connectionId: string }
+  | { ok: true; kind: "locked"; connectionId: string }
+  | { ok: true; kind: "unlocked"; connectionId: string }
   | { ok: true; kind: "forgotten"; connectionId: string }
   | { ok: true; kind: "deleted"; connectionId: string }
   | {
@@ -60,8 +57,10 @@ export type SetupReply =
         label: string;
         email: string;
         environment: BitwardenProfile["environment"];
+        /** Whether the key is on disk, so the vault unlocks by itself after a restart. */
         autoUnlock: "enabled" | "disabled" | "unknown";
-        state: "configured" | "ready" | "disabled" | "review-required" | "unavailable";
+        /** `locked`: unlock offline with the master password; `disabled`: logged out. */
+        state: "configured" | "ready" | "locked" | "disabled" | "review-required" | "unavailable";
         /** Sync sign-in, independent of offline unlock. Never contains a token. */
         providerSession: ProviderSessionState | "unavailable";
         snapshotId?: string;
@@ -77,7 +76,16 @@ export type SetupReply =
       snapshotId: string;
       policyReviewItemIds: string[];
     }
-  | { ok: true; kind: "mfa-required"; flowId: string; providers: (0 | 1)[] }
+  | {
+      ok: true;
+      kind: "mfa-required";
+      flowId: string;
+      providers: (0 | 1)[];
+      /** Local `Date.now()` at which the sign-in stops waiting for its code. */
+      expiresAt: number;
+      /** The server refused the code just sent; the sign-in still waits for another. */
+      invalidCode?: true;
+    }
   /** The server's answer to sending an email two-step code; the sign-in keeps waiting. */
   | {
       ok: true;
@@ -92,6 +100,8 @@ export type SetupReply =
       kind: "new-device-verification-required";
       flowId: string;
       invalidOtp: boolean;
+      /** Local `Date.now()` at which the sign-in stops waiting for its code. */
+      expiresAt: number;
     }
   | {
       ok: true;
@@ -138,6 +148,8 @@ export interface ConnectionPolicy {
     catalog: VaultCatalog["connections"][number];
     /** Items whose decrypted custom fields the crypto host found equal in both snapshots. */
     sameCustomFields?: string[];
+    /** Set for an automatic check (ADR 0025), which a later conflicting save names. */
+    automatic?: true;
   }): Promise<{ policyReviewItemIds: string[] }>;
 }
 export type ConnectionSetupDependencies = {
@@ -147,7 +159,15 @@ export type ConnectionSetupDependencies = {
   vaultFor(profile: BitwardenProfile): {
     manager: Pick<
       LocalVaultManager,
-      "accept" | "restore" | "disableAutoUnlock" | "status" | "dispose" | "remove"
+      | "accept"
+      | "restore"
+      | "disableAutoUnlock"
+      | "status"
+      | "dispose"
+      | "remove"
+      | "unlock"
+      | "lockVault"
+      | "keyFor"
     > & {
       lock?(): Promise<void>;
       catalog(

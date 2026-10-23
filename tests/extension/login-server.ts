@@ -131,7 +131,9 @@ export async function startLoginFixture(
       }, 1200);
       return;
     }
-    response.writeHead(200, {
+    // The `/sign-in?maintenance` page answers 503 (ADR 0041).
+    const maintenance = path === "/sign-in" && fixtureUrl.searchParams.has("maintenance");
+    response.writeHead(maintenance ? 503 : 200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     });
@@ -432,6 +434,98 @@ export async function startLoginFixture(
         });`,
         ),
       );
+    } else if (path === "/keypad" || path === "/keypad-position") {
+      // A read-only password input that takes its characters only from a software keyboard
+      // that opens when the input is pressed (ADR 0067). Its keys change order on
+      // load and after every press, show digits in full-width forms, and come as buttons,
+      // input buttons and links; an image key without `alt` shows no character to Pateat,
+      // though the page types `~` for it. Each press adds a mask character to the input and
+      // the character to the page's own value, and counts. Keys only count a press that
+      // comes with `pointerdown`, as a person's does. `?missing=X` leaves out the key for X,
+      // `?open=1` shows the keypad from the start, `?maxlength=N` limits the input,
+      // `?submit-at=N` submits the form by itself at the Nth character, replacing it,
+      // On `/keypad-position` the keypad has no `id`, so its recipe names it by its position
+      // from the input. `?keep-after=N` keeps every character after the Nth in its own value only, leaving
+      // the input unchanged, and `?reject=invalid` answers the login button by marking the input invalid, with no
+      // other sign. Typed input is ignored, and the page records any change to the input's
+      // value that it did not make itself.
+      const missing = fixtureUrl.searchParams.get("missing") ?? "";
+      const open = fixtureUrl.searchParams.has("open");
+      const maxLength = Number(fixtureUrl.searchParams.get("maxlength") ?? 0);
+      const submitAt = Number(fixtureUrl.searchParams.get("submit-at") ?? 0);
+      const keepAfter = Number(fixtureUrl.searchParams.get("keep-after") ?? 0);
+      const rejectInvalid = fixtureUrl.searchParams.get("reject") === "invalid";
+      const characters = [
+        ..."ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-!@",
+      ].filter((character) => character !== missing);
+      response.end(
+        html(
+          `<h1>Synthetic software keyboard</h1><form><label>Password<input id="password" type="password" readonly${maxLength ? ` maxlength="${maxLength}"` : ""}></label><div${path === "/keypad" ? ' id="keypad"' : ""}${open ? "" : " hidden"}><div class="keys"></div><button type="button" id="keypad-clear">Clear</button><button type="button" class="key" data-character="~"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="20" height="20"></button></div><button id="login" type="button">Log in</button></form>`,
+          `const characters = ${JSON.stringify(characters)};
+          const input = document.getElementById('password');
+          const keypad = document.querySelector('form > div');
+          const keys = keypad.querySelector('.keys');
+          let typed = '';
+          let armed = null;
+          const full = (character) => /[0-9]/.test(character) ? String.fromCharCode(character.charCodeAt(0) + 0xfee0) : character;
+          function render() {
+            const order = characters.slice();
+            for (let i = order.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [order[i], order[j]] = [order[j], order[i]];
+            }
+            keys.replaceChildren(...order.map((character, index) => {
+              let key;
+              if (/[0-9]/.test(character)) {
+                key = document.createElement('input');
+                key.type = 'button';
+                key.value = full(character);
+              } else if (index % 2) {
+                key = document.createElement('a');
+                key.href = '#';
+                key.textContent = character;
+              } else {
+                key = document.createElement('button');
+                key.type = 'button';
+                key.textContent = character;
+              }
+              key.dataset.character = character;
+              key.className = 'key';
+              return key;
+            }));
+          }
+          render();
+          sessionStorage.setItem('keypadPresses', '0');
+          sessionStorage.setItem('foreignWrites', '0');
+          input.addEventListener('click', () => { keypad.hidden = false; });
+          input.addEventListener('input', () => sessionStorage.setItem('foreignWrites', String(Number(sessionStorage.getItem('foreignWrites')) + 1)));
+          keypad.addEventListener('pointerdown', (event) => { armed = event.target.closest('.key'); });
+          keypad.addEventListener('click', (event) => {
+            event.preventDefault();
+            const key = event.target.closest('.key');
+            if (!key || key !== armed || !key.dataset.character) return;
+            armed = null;
+            typed += key.dataset.character;
+            if (!${keepAfter} || typed.length <= ${keepAfter}) input.value = '\u25cf'.repeat(typed.length);
+            sessionStorage.setItem('keypadPresses', String(Number(sessionStorage.getItem('keypadPresses')) + 1));
+            if (typed.length === ${submitAt}) {
+              submit();
+              document.querySelector('form').remove();
+              return;
+            }
+            render();
+          });
+          document.getElementById('keypad-clear').addEventListener('click', () => { typed = ''; input.value = ''; });
+          function submit() {
+            sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+            sessionStorage.setItem('passwordMatched', String(typed === ${JSON.stringify(password)}));
+            if (${rejectInvalid}) input.setAttribute('aria-invalid', 'true');
+            else document.body.insertAdjacentHTML('beforeend', typed === ${JSON.stringify(password)} ? '<p id="authenticated">Authenticated</p>' : '<p id="rejected">Credentials rejected</p>');
+            updateFixtureStatus();
+          }
+          document.getElementById('login').addEventListener('click', submit);`,
+        ),
+      );
     } else if (path === "/variants") {
       // Two identifier sets for one sign-in (ADR 0027): a contract number, or a branch and
       // account number, each with the password. The demo account maps only the second.
@@ -467,7 +561,7 @@ export async function startLoginFixture(
         });`,
         ),
       );
-    } else if (path === "/totp") {
+    } else if (path === "/totp" || path === "/totp-typed") {
       // Only the known flags go on, never the query as written.
       const flags = new URLSearchParams();
       for (const flag of ["wrong", "auto", "slow", "split"])
@@ -483,9 +577,18 @@ export async function startLoginFixture(
         ui === "flicker" ||
         ui === "partial" ||
         ui === "mutate" ||
-        ui === "seven"
+        ui === "seven" ||
+        ui === "drop"
       )
         flags.set("ui", ui);
+      // `/totp-typed` goes on to a code page without Verify that submits the code on its
+      // sixth digit, in six one-digit inputs as Slack's two-factor page does (#916), or in
+      // one input with `?single`; `ui=drop` keeps the digit 3 out of the input.
+      if (path === "/totp-typed") {
+        const typed = ["auto", "nobutton"];
+        if (!fixtureUrl.searchParams.has("single")) typed.push("split");
+        for (const flag of typed) flags.set(flag, "");
+      }
       const next = flags.size === 0 ? "/totp-code" : `/totp-code?${flags.toString()}`;
       // A password page followed by an authenticator app code page (ADR 0027). The query
       // goes on to the code page: `?split` asks for it in six one-digit inputs, the first of
@@ -523,10 +626,11 @@ export async function startLoginFixture(
       const spa = fixtureUrl.searchParams.get("spa");
       const ui = fixtureUrl.searchParams.get("ui");
       const split = fixtureUrl.searchParams.has("split");
+      const nobutton = fixtureUrl.searchParams.has("nobutton");
       const again = fixtureUrl.searchParams.has("wrong") ? "/totp-code?wrong" : "/totp-code";
       response.end(
         html(
-          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form">${split ? `<fieldset><legend>Authentication code</legend><input id="code" inputmode="numeric" maxlength="1" aria-label="Digit 1">${(ui === "seven" ? [2, 3, 4, 5, 6, 7] : [2, 3, 4, 5, 6]).map((digit) => `<input id="code-${digit}" inputmode="numeric" maxlength="1" aria-label="Digit ${digit}">`).join("")}</fieldset>` : '<label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}<button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button><p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
+          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form">${split ? `<fieldset><legend>Authentication code</legend><input id="code" inputmode="numeric" maxlength="1" aria-label="Digit 1">${(ui === "seven" ? [2, 3, 4, 5, 6, 7] : [2, 3, 4, 5, 6]).map((digit) => `<input id="code-${digit}" inputmode="numeric" maxlength="1" aria-label="Digit ${digit}">`).join("")}</fieldset>` : '<label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}${nobutton ? "" : `<button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button>`}<p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
           `const digits = [...document.querySelectorAll('#code-form input')];
           const codeValue = () => digits.map((digit) => digit.value).join('');
           function count(name) {
@@ -543,7 +647,7 @@ export async function startLoginFixture(
                     spa === "replace"
                       ? `document.getElementById('code-form').innerHTML = '<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" disabled><button id="verify" type="button" disabled>Verify</button><p>Verifying…</p>';`
                       : `document.getElementById('code-status').textContent = 'Verifying…';
-                        document.getElementById('verify').disabled = true;${spa === "clear" ? " for (const digit of digits) digit.value = '';" : ""}`
+                        document.getElementById('verify')?.setAttribute('disabled', '');${spa === "clear" ? " for (const digit of digits) digit.value = '';" : ""}`
                   }
                 setTimeout(() => {
                   history.pushState({}, '', '/authenticated');
@@ -588,7 +692,8 @@ export async function startLoginFixture(
                 : ""
             }
           });
-          wire(document.getElementById('verify'));`,
+          ${ui === "drop" ? "digits[0].addEventListener('keydown', (event) => { if (event.key === '3') event.preventDefault(); });" : ""}
+          ${nobutton ? "" : "wire(document.getElementById('verify'));"}`,
         ),
       );
     } else if (path === "/password") {
@@ -621,6 +726,9 @@ export async function startLoginFixture(
       const shown = fixtureUrl.searchParams.get("shown");
       const switchTo = fixtureUrl.searchParams.get("switch");
       const masked = /^[A-Za-z0-9@.*]+$/u;
+      // `?shown-late` shows the account only after a loading text changes for 1.6 s, as
+      // Duolingo's remembered account shows after its password field (2026-10-23).
+      const shownLate = fixtureUrl.searchParams.get("shown-late");
       // `?maxlength` limits the password input, such as below the synthetic password.
       const maxLength = fixtureUrl.searchParams.get("maxlength");
       // `?form` puts the login in a form: `same-origin` posts to this page with its submit
@@ -650,7 +758,7 @@ export async function startLoginFixture(
         html(
           `<h1>Synthetic single-page login</h1>${
             shown !== null && masked.test(shown) ? `<p>Signed in as ${shown}</p>` : ""
-          }${
+          }${shownLate !== null && masked.test(shownLate) ? `<p id="account" data-shown="Signed in as ${shownLate}">Loading</p>` : ""}${
             // `switch` names the account the "Use another account" link shows next;
             // `switch-submit` makes it the submit button of its own form instead.
             switchTo === null || !masked.test(switchTo)
@@ -704,6 +812,11 @@ export async function startLoginFixture(
               "switch-form":
                 "document.getElementById('password').addEventListener('change', (event) => { event.target.value = ''; document.getElementById('security').hidden = false; });",
             }[fixtureUrl.searchParams.get("reject-fill") ?? ""] ?? ""
+          }
+          ${
+            shownLate !== null && masked.test(shownLate)
+              ? `{ let ticks = 0; const loading = setInterval(() => { ticks += 1; document.getElementById('account').textContent = 'Loading' + '.'.repeat(ticks % 4); if (ticks === 8) { clearInterval(loading); document.getElementById('account').textContent = document.getElementById('account').dataset.shown; } }, 200); }`
+              : ""
           }
           ${form === null || form === "script" ? "" : "document.getElementById('login').form?.addEventListener('submit', (event) => event.preventDefault());"}
           document.getElementById('login').addEventListener('click', () => {
@@ -873,12 +986,29 @@ export async function startLoginFixture(
       // component's open shadow root and the button in another's closed one, as Reddit's
       // sign-in components do (ADR 0070).
       // `?marker=link` makes /account show an account link without an id instead of a
-      // sign-out button, as ポイントインカム's header.
+      // sign-out button, as ポイントインカム's header. `?optional` signs in to /checkup, an
+      // optional page that can be put off (ADR 0065).
+      // `?redesign` gives the form other element IDs, as a site's new login page does, and
+      // `?maintenance` answers 503 with a page whose only input is no login field (ADR 0041).
       const variant = fixtureUrl.searchParams.get("button");
-      const account =
-        fixtureUrl.searchParams.get("marker") === "link" ? "/account?marker=link" : "/account";
-      const button =
-        variant === "anchor"
+      const account = fixtureUrl.searchParams.has("optional")
+        ? "/checkup"
+        : fixtureUrl.searchParams.get("marker") === "link"
+          ? "/account?marker=link"
+          : "/account";
+      const redesign = fixtureUrl.searchParams.has("redesign");
+      const field = redesign ? "passcode" : "password";
+      if (maintenance) {
+        response.end(
+          html(
+            '<h1>Synthetic maintenance</h1><p>Back soon.</p><label>Admin key<input id="admin-key" type="password"></label>',
+          ),
+        );
+        return;
+      }
+      const button = redesign
+        ? '<button id="continue" type="button">Log in</button>'
+        : variant === "anchor"
           ? '<a id="login" onclick="return false">Log in</a>'
           : variant === "script-link"
             ? '<a href="javascript:;" onclick="return false"><span>Log in</span></a>'
@@ -890,7 +1020,7 @@ export async function startLoginFixture(
         html(
           shadow
             ? "<h1>Synthetic sign-in</h1><form><x-password></x-password><x-login></x-login></form>"
-            : `<h1>Synthetic sign-in</h1><form${variant === "script-url" ? ' method="post"' : ""}><label>Password<input id="password" type="password"></label>${button}</form>`,
+            : `<h1>Synthetic sign-in</h1><form${variant === "script-url" ? ' method="post"' : ""}><label>Password<input id="${field}" type="password"></label>${button}</form>`,
           shadow
             ? `const passwordRoot = document.querySelector('x-password').attachShadow({mode: 'open'});
           passwordRoot.innerHTML = '<label>Password<input id="password" type="password"></label>';
@@ -915,12 +1045,30 @@ export async function startLoginFixture(
           form.action = '/sign-in-submit?' + new URLSearchParams({runId: query.get('runId') || '', marker: query.get('marker') || ''});
           form.submit();
         }`
-              : `document.querySelector('#login, form a').addEventListener('click', () => {
+              : `document.querySelector('form button, form a').addEventListener('click', () => {
+          const shown = document.getElementById(${JSON.stringify(field)}).value;
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
-          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          sessionStorage.setItem('passwordMatched', String(shown === ${JSON.stringify(password)}));
           const runId = new URLSearchParams(location.search).get('runId');
-          if (runId) void fetch('/effect/' + encodeURIComponent(runId), {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});
+          if (runId) void fetch('/effect/' + encodeURIComponent(runId), {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:shown})});
           location.href = ${JSON.stringify(account)};
+        });`,
+        ),
+      );
+    } else if (path === "/checkup") {
+      // An optional page after the sign-in, as a periodic prompt to verify two-factor
+      // settings (ADR 0065): each button is counted, and "Remind me later" opens /account.
+      response.end(
+        html(
+          "<h1>Synthetic checkup</h1>",
+          `document.body.insertAdjacentHTML('afterbegin', sessionStorage.getItem('passwordMatched') === 'true'
+          ? '<h2 id="optional-page">Verify your two-factor authentication settings</h2><button id="verify-now" type="button">Verify now</button><button id="remind-later" type="button">Remind me later</button>'
+          : '<h2 id="rejected">Credentials rejected</h2>');
+        const count = (key) => sessionStorage.setItem(key, String(Number(sessionStorage.getItem(key) || 0) + 1));
+        document.getElementById('verify-now')?.addEventListener('click', () => count('verifyClicks'));
+        document.getElementById('remind-later')?.addEventListener('click', () => {
+          count('laterClicks');
+          location.href = '/account';
         });`,
         ),
       );
@@ -937,10 +1085,32 @@ export async function startLoginFixture(
           : '<h2 id="rejected">Credentials rejected</h2>');`,
         ),
       );
+    } else if (path === "/confirm-transfer") {
+      // A transfer confirmed with the account's password in a form that shows its amount,
+      // the page a recipe generated as `confirm` starts on (ADR 0035). Its form goes to the
+      // account result page.
+      response.end(
+        html(
+          '<h1>Synthetic transfer confirmation</h1><form id="transfer" action="/authenticated"><p>Total ¥1,200</p><label>Password<input id="confirm-password" type="password"></label><button id="confirm">Confirm</button></form>',
+        ),
+      );
     } else if (path === "/ambiguous") {
       response.end(
         html(
           '<h1>Synthetic ambiguous login</h1><input name="password" type="password"><input name="password" type="password"><button id="login" type="button">Log in</button>',
+        ),
+      );
+    } else if (path === "/shared-input") {
+      // One input that both of the recipe's locators name (its ID and its name): filling
+      // both slots would leave only the second value in it, which the page rejects.
+      response.end(
+        html(
+          '<h1>Synthetic shared input</h1><main id="app"><form><label>Password<input id="account" name="password" type="password"></label><button id="login" type="button">Log in</button></form></main>',
+          `document.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          document.getElementById('app').innerHTML = '<p id="rejected">Wrong account or password</p>';
+          updateFixtureStatus();
+        });`,
         ),
       );
     } else if (path === "/authenticated") {

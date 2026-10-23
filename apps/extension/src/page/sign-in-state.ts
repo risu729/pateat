@@ -1,4 +1,6 @@
+import { latinWord } from "./account-list";
 import { visible } from "./code-submission";
+import { findKeypad, keypadField } from "./keypad";
 import { autocompleteTokens } from "./targets";
 import { collapseText, readBehindModal, renderedText } from "./text";
 import { composedParent, containsAcross, controlsOf, formOf, queryAll } from "./shadow";
@@ -14,6 +16,11 @@ export interface SubmittedPage {
   /** Those of `fields` already marked invalid. */
   readonly invalid: ReadonlySet<HTMLInputElement>;
   readonly alerts: ReadonlySet<string>;
+  /**
+   * Those of `fields` entered on the page's software keyboard, which stay read-only
+   * (ADR 0067).
+   */
+  readonly keyed: ReadonlySet<HTMLInputElement>;
 }
 
 /** The page signs the content script can read (ADR 0029). */
@@ -65,6 +72,12 @@ const landmarkReadLimit = 4000;
 /** Shorter usernames match too much unrelated text; the observation's hiding uses it too. */
 export const minUsernameLength = 3;
 /**
+ * Digits an all-digit username, such as a member number, needs to show beside kana or
+ * kanji (`会員番号12345678さん`); a shorter number there may be a date or a count, as in
+ * `2026年10月` or `残り123件` (owner, 2026-10-23).
+ */
+const memberNumberMinDigits = 8;
+/**
  * Frames of the CAPTCHA services, by host and path: reCAPTCHA (`google.com/recaptcha/`,
  * `recaptcha.net/recaptcha/`), hCaptcha and Cloudflare Turnstile.
  */
@@ -85,6 +98,12 @@ function writableInput(element: Element): element is HTMLInputElement {
     !element.readOnly
   );
 }
+/**
+ * A sign-in input that still counts: shown, enabled and writable, or read-only when it is
+ * one of `keyed`, entered on the page's software keyboard (ADR 0067).
+ */
+const signInInput = (input: HTMLInputElement, keyed: ReadonlySet<HTMLInputElement>) =>
+  keyed.has(input) ? visible(input) && !input.disabled : writableInput(input);
 const ariaInvalid = (input: HTMLInputElement) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
@@ -251,29 +270,39 @@ function alertMiss(document: Document, fields: readonly HTMLInputElement[]): Ale
 
 /**
  * The marks and alerts the page shows now, taken just before an effect step with its
- * sign-in inputs.
+ * sign-in inputs, of which `keyed` were entered on the page's software keyboard.
  */
 export function submittedPage(
   document: Document,
   fields: readonly HTMLInputElement[],
+  keyed: ReadonlySet<HTMLInputElement> = new Set(),
 ): SubmittedPage {
   return {
     fields,
     invalid: new Set(fields.filter(ariaInvalid)),
     alerts: alertTexts(document, fields),
+    keyed,
   };
 }
 
 /**
  * S2: a shown password input, except one for a new password and those of a form with two
  * or more shown password inputs (a password change or a registration), where the current
- * password must never go. Inputs outside any form count as one form.
+ * password must never go. Inputs outside any form count as one form. A read-only password
+ * input counts when it is entered on the page's software keyboard (`keypadField`,
+ * ADR 0067), as a PIN page shown again after a wrong PIN.
  */
 function showsPassword(document: Document): boolean {
+  // The keypad is looked for once, and only for a read-only password input.
+  let keypad: { container: Element | undefined } | undefined;
+  const keyed = (input: HTMLInputElement) => {
+    keypad ??= { container: findKeypad(document) };
+    return visible(input) && keypadField(input, keypad.container);
+  };
   const passwords = queryAll<HTMLInputElement>(document, "input").filter(
     (input) =>
       (input.type === "password" || autocompleteTokens(input).includes("current-password")) &&
-      writableInput(input),
+      (writableInput(input) || keyed(input)),
   );
   return passwords.some(
     (input) =>
@@ -328,7 +357,10 @@ export function showsCaptcha(document: Document): boolean {
 
 /**
  * E2: the username, ignoring case, as a whole word of the header or navigation text,
- * read behind an open modal dialog too, as the signed-in page's description is.
+ * read behind an open modal dialog too, as the signed-in page's description is. As in
+ * ADR 0028, a username with a Latin letter whose edge is a Latin letter or digit may
+ * touch a letter of another script, such as kana or kanji, there (`taro_yさん`). An all-digit one may touch kana or kanji only
+ * with {@link memberNumberMinDigits} digits or more, and no other letter.
  */
 function showsUsername(document: Document, username: string): boolean {
   // Page text is read without format characters, so the username is compared without them.
@@ -343,13 +375,26 @@ function showsUsername(document: Document, username: string): boolean {
       (landmark) => renderedText(landmark, landmarkReadLimit, { everyElement: true }) ?? "",
     ),
   );
+  // `risu` is not shown by `risu729` nor by `x.risu@example.com`.
+  // An all-digit username, such as a member number, keeps the strict rule (`2026年`)
+  // unless it is long enough to be a member number.
+  const latin = /\p{Script=Latin}/u.test(name);
+  const blockedBefore =
+    latin && latinWord.test(name[0]!) ? /[\p{Script=Latin}\p{N}_.@-]/u : /[\p{L}\p{N}_.@-]/u;
+  const blockedAfter =
+    latin && latinWord.test(name.at(-1)!) ? /[\p{Script=Latin}\p{N}_@-]/u : /[\p{L}\p{N}_@-]/u;
+  const memberNumber =
+    /^\p{Decimal_Number}+$/u.test(name) && [...name].length >= memberNumberMinDigits;
+  // Script extensions also cover ー and 〆, which `メンバー` and `〆切` use.
+  const kanaOrKanji = /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}]/u;
+  const blocks = (blocked: RegExp, edge: string) =>
+    blocked.test(edge) && !(memberNumber && kanaOrKanji.test(edge));
   return texts.some((raw) => {
     const text = raw.normalize("NFKC").toLowerCase();
     for (let at = text.indexOf(name); at >= 0; at = text.indexOf(name, at + 1)) {
       const before = text.slice(0, at).at(-1) ?? " ";
       const after = text[at + name.length] ?? " ";
-      // `risu` is not shown by `risu729` nor by `x.risu@example.com`.
-      if (!/[\p{L}\p{N}_.@-]/u.test(before) && !/[\p{L}\p{N}_@-]/u.test(after)) return true;
+      if (!blocks(blockedBefore, before) && !blocks(blockedAfter, after)) return true;
     }
     return false;
   });
@@ -360,24 +405,33 @@ function showsUsername(document: Document, username: string): boolean {
  * document showed at the effect step, when the step ran in it. `reshown` are the recipe's
  * sign-in inputs a new document after the submission shows, when the sign-in form came
  * back in one: with no earlier reading to compare with, any mark on them and any text of
- * an alert next to them count (owner, 2026-10-12 22:03 UTC). Without either, F1 and F2
- * are not read.
+ * an alert next to them count (owner, 2026-10-12 22:03 UTC); `keyed` are those of them
+ * entered on the page's software keyboard. Without either, F1 and F2 are not read.
  */
 export function pageSigns(
   document: Document,
   {
     submitted,
     reshown,
+    keyed = new Set(),
     username,
-  }: { submitted?: SubmittedPage; reshown?: readonly HTMLInputElement[]; username?: string } = {},
+  }: {
+    submitted?: SubmittedPage;
+    reshown?: readonly HTMLInputElement[];
+    keyed?: ReadonlySet<HTMLInputElement>;
+    username?: string;
+  } = {},
 ): PageSigns {
   // A sign-in input of the step newly marked invalid, or of the re-shown form marked so.
   const invalid =
     reshown !== undefined
-      ? reshown.some((input) => ariaInvalid(input) && writableInput(input))
+      ? reshown.some((input) => ariaInvalid(input) && signInInput(input, keyed))
       : submitted !== undefined &&
         submitted.fields.some(
-          (input) => ariaInvalid(input) && !submitted.invalid.has(input) && writableInput(input),
+          (input) =>
+            ariaInvalid(input) &&
+            !submitted.invalid.has(input) &&
+            signInInput(input, submitted.keyed),
         );
   const alert =
     reshown !== undefined

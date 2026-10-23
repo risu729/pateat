@@ -14,7 +14,15 @@ import {
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Ban, CircleCheck, Clock, Info, TriangleAlert, type LucideIcon } from "lucide-react";
+import {
+  Ban,
+  CircleCheck,
+  Clock,
+  Info,
+  LockKeyhole,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as v from "valibot";
 import { Button } from "./button";
@@ -31,26 +39,32 @@ import {
 } from "./ui";
 
 type ExcludedSite = LocalSettings["excludedSites"][number];
+/**
+ * An HTTP(S) origin with nothing after the host and port, as its canonical `URL.origin`:
+ * the scheme and host in lowercase, a Unicode host in punycode, and no default port.
+ */
 const originSchema = v.pipe(
   v.string(),
+  v.trim(),
   v.check((value) => {
-    const origin = value.trim();
-    const url = parseSiteUrl(origin);
-    return Boolean(url && url.origin === origin && normalizeHostname(url.hostname));
-  }, "Enter an exact HTTP(S) origin without a path or trailing slash."),
+    const url = parseSiteUrl(value);
+    const rest = value.slice(value.indexOf("//") + 2);
+    return Boolean(url && !/[/?#]/.test(rest) && normalizeHostname(url.hostname));
+  }, "Enter an origin such as https://bank.example, without a path or trailing slash."),
+  v.transform((value) => new URL(value).origin),
 );
 
 function unavailableReason(reason: string): string {
   const descriptions: Record<string, string> = {
     "invalid-url": "The destination is invalid.",
     "site-excluded": "This site is excluded.",
-    "default-not-set": "No default account is configured.",
+    "default-not-set": "No default account is set.",
     "item-origin-mismatch": "This account does not match the exact origin.",
     "connection-missing": "The vault connection is unavailable.",
     "account-ambiguous": "This vault account is connected more than once.",
     "vault-unavailable": "The vault is locked or unavailable.",
-    "connection-disabled": "The vault connection is disabled.",
-    "item-missing": "The account is unavailable.",
+    "connection-disabled": "The vault connection is turned off.",
+    "item-missing": "This account is no longer in its vault.",
     "item-excluded": "This account is excluded.",
     "item-not-selected": "This account is outside the selected groups and items.",
     "fields-excluded": "All fields in this account are excluded.",
@@ -250,11 +264,13 @@ function SiteRow({
 
 /** The default account control of an origin row: its select and an explicit Save. */
 function DefaultAccountEditor({
+  idPrefix,
   origin,
   options,
   current,
   save,
 }: {
+  idPrefix: string;
   origin: string;
   options: { value: string; text: string }[];
   current: string;
@@ -266,7 +282,7 @@ function DefaultAccountEditor({
   // A choice the list no longer offers falls back to the saved value.
   const shown =
     choice !== undefined && options.some((entry) => entry.value === choice) ? choice : current;
-  const errorId = `site-default-error-${origin}`;
+  const errorId = `${idPrefix}site-default-error-${origin}`;
   return (
     <>
       <label className="contents">
@@ -310,11 +326,13 @@ function DefaultAccountEditor({
 }
 
 export function SitePolicy({
+  idPrefix = "",
   draft,
   catalog,
   edit,
   findSiteAccounts,
 }: {
+  idPrefix?: string;
   draft: LocalSettings;
   catalog: VaultCatalog;
   edit: (update: (value: LocalSettings) => void) => boolean;
@@ -323,7 +341,9 @@ export function SitePolicy({
 }) {
   const { t } = useTranslation(undefined, { i18n });
   const originInput = useRef<HTMLInputElement>(null);
+  const accountSelect = useRef<HTMLSelectElement>(null);
   const [siteError, setSiteError] = useState("");
+  const [accountError, setAccountError] = useState("");
   const [showAllAccounts, setShowAllAccounts] = useState(false);
   const siteForm = useForm({
     defaultValues: { origin: "", account: "", includeSubdomains: false },
@@ -334,10 +354,11 @@ export function SitePolicy({
         return;
       }
       if (accountsPending) {
-        setSiteError(WAIT_FOR_ACCOUNTS);
+        setSiteError("");
+        setAccountError(WAIT_FOR_ACCOUNTS);
         return;
       }
-      const origin = validated.output.trim();
+      const origin = validated.output;
       // Only an item listed for the origin entered can be chosen.
       const selected =
         found?.origin === origin
@@ -345,20 +366,29 @@ export function SitePolicy({
           : undefined;
       const next = defaultFor(origin, selected, catalog);
       if (!next.ok) {
-        fail(next.message);
+        // The origin is valid; the error belongs to the account select.
+        setSiteError("");
+        setAccountError(next.message);
+        const select = accountSelect.current;
+        if (select && !select.disabled) select.focus();
+        else originInput.current?.focus();
         return;
       }
       if (!edit((settings) => replaceDefault(settings, origin, next.value))) return;
       siteForm.setFieldValue("origin", "");
+      siteForm.setFieldValue("account", "");
       setSiteError("");
+      setAccountError("");
       originInput.current?.focus();
     },
   });
   function fail(message: string) {
     setSiteError(message);
+    setAccountError("");
     originInput.current?.focus();
   }
-  function excludeEntered() {
+  /** Adds the entered site, with its subdomains if checked, to a site list. */
+  function addEntered(list: "excludedSites" | "repromptSites") {
     const entered = siteForm.state.values.origin.trim();
     const hostname = v.is(originSchema, entered)
       ? normalizeHostname(new URL(entered).hostname)
@@ -369,19 +399,19 @@ export function SitePolicy({
     }
     const includeSubdomains = siteForm.state.values.includeSubdomains;
     const added = edit((settings) => {
-      settings.excludedSites = settings.excludedSites.filter(
-        (entry) => entry.hostname !== hostname,
-      );
-      settings.excludedSites.push({ hostname, includeSubdomains });
+      settings[list] = settings[list].filter((entry) => entry.hostname !== hostname);
+      settings[list].push({ hostname, includeSubdomains });
     });
     if (!added) return;
     siteForm.reset();
     setSiteError("");
+    setAccountError("");
     originInput.current?.focus();
   }
 
   const enteredOrigin = useSelector(siteForm.store, (state) => state.values.origin.trim());
-  const accountOrigin = v.is(originSchema, enteredOrigin) ? enteredOrigin : undefined;
+  const parsedOrigin = v.safeParse(originSchema, enteredOrigin);
+  const accountOrigin = parsedOrigin.success ? parsedOrigin.output : undefined;
   // Each search queries every live vault, so wait until typing pauses.
   const [queriedOrigin, setQueriedOrigin] = useState<string>();
   useEffect(() => {
@@ -423,7 +453,7 @@ export function SitePolicy({
   const accountsPending =
     accountOrigin !== undefined && (queriedOrigin !== accountOrigin || accounts.isPending);
   // The wait message no longer applies once the accounts are listed.
-  const siteMessage = siteError === WAIT_FOR_ACCOUNTS && !accountsPending ? "" : siteError;
+  const accountMessage = accountError === WAIT_FOR_ACCOUNTS && !accountsPending ? "" : accountError;
   const found =
     !accountsPending && accounts.data?.ok && accounts.data.origin === accountOrigin
       ? accounts.data
@@ -477,7 +507,7 @@ export function SitePolicy({
       line = {
         tone: "ok",
         icon: CircleCheck,
-        text: t("Matches this origin by {{method}}; checked again on each login", {
+        text: t("Matches this origin by {{method}}. It is checked again at each login.", {
           method: t(matchedBy({ uri: match.uri, passkey: match.passkey })),
         }),
       };
@@ -486,7 +516,7 @@ export function SitePolicy({
         tone: "warn",
         icon: TriangleAlert,
         text: t(
-          "No URI rule or passkey of this item matches this origin; a URI rule on a longer path is checked on each login",
+          "No URI rule or passkey of this item matches this origin. A URI rule on a longer path is checked at each login.",
         ),
       };
     else
@@ -494,7 +524,7 @@ export function SitePolicy({
         tone: "idle",
         icon: Info,
         text: t(
-          "Whether it matches the page is checked against the vault's URI rules or passkeys on each login",
+          "Whether it matches a page is checked against its URI rules or passkeys at each login.",
         ),
       };
     const unavailable = !resolved.ok && (!liveItem || resolved.reason !== "item-origin-mismatch");
@@ -532,6 +562,7 @@ export function SitePolicy({
         controls={
           <>
             <DefaultAccountEditor
+              idPrefix={idPrefix}
               origin={origin}
               options={options}
               current={current}
@@ -598,9 +629,12 @@ export function SitePolicy({
                 {
                   tone: "idle",
                   icon: Info,
-                  text: t("Default for {{origin}} kept, unused while excluded", {
-                    origin: entry.origin,
-                  }),
+                  text: t(
+                    "The default for {{origin}} is kept but not used while the site is excluded.",
+                    {
+                      origin: entry.origin,
+                    },
+                  ),
                 },
               ]}
             />
@@ -638,12 +672,50 @@ export function SitePolicy({
     );
   }
 
+  /** A site that asks for the master password before a re-prompt item is used. */
+  function repromptRow(rule: ExcludedSite) {
+    const name = ruleName(rule);
+    return (
+      <SiteRow
+        key={`reprompt ${rule.hostname}`}
+        title={name}
+        badges={
+          <Badge muted icon={LockKeyhole}>
+            {t("Asks for the master password")}
+          </Badge>
+        }
+        controls={
+          <Button
+            type="button"
+            variant="outline"
+            aria-label={t("Stop asking for the master password on {{name}}", { name })}
+            onClick={() => {
+              edit((settings) => {
+                settings.repromptSites = settings.repromptSites.filter(
+                  (entry) => entry.hostname !== rule.hostname,
+                );
+              });
+              originInput.current?.focus();
+            }}
+          >
+            {t("Stop asking")}
+          </Button>
+        }
+      />
+    );
+  }
+
   // Rules and origins together, by hostname; a rule comes before the origins on its host.
   const rows = [
     ...draft.excludedSites.map((rule) => ({
       hostname: rule.hostname,
       order: `0 ${rule.hostname}`,
       row: () => ruleRow(rule),
+    })),
+    ...draft.repromptSites.map((rule) => ({
+      hostname: rule.hostname,
+      order: `2 ${rule.hostname}`,
+      row: () => repromptRow(rule),
     })),
     ...draft.siteDefaults
       .filter((entry) => !isSiteExcluded(draft, entry.origin))
@@ -658,8 +730,8 @@ export function SitePolicy({
   );
 
   return (
-    <Panel id="sites" headingId="sites-heading" title={t("Sites")}>
-      <RowList id="site-list">{rows.map((entry) => entry.row())}</RowList>
+    <Panel id={`${idPrefix}sites`} headingId={`${idPrefix}sites-heading`} title={t("Sites")}>
+      <RowList id={`${idPrefix}site-list`}>{rows.map((entry) => entry.row())}</RowList>
       {!rows.length && (
         <StatusLines
           muted
@@ -681,18 +753,19 @@ export function SitePolicy({
                 {t("Origin")}
                 <input
                   ref={originInput}
-                  id="site-origin"
+                  id={`${idPrefix}site-origin`}
                   className={controlClass}
                   type="text"
                   placeholder="https://bank.example"
                   autoComplete="off"
-                  aria-describedby={siteMessage ? "site-error" : undefined}
-                  aria-invalid={Boolean(siteMessage)}
+                  aria-describedby={siteError ? `${idPrefix}site-error` : undefined}
+                  aria-invalid={Boolean(siteError)}
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => {
                     field.handleChange(event.target.value);
                     setSiteError("");
+                    setAccountError("");
                   }}
                 />
               </label>
@@ -704,13 +777,22 @@ export function SitePolicy({
                 <label className={fieldClass}>
                   {t("Default account")}
                   <select
-                    id="default-account"
+                    ref={accountSelect}
+                    id={`${idPrefix}default-account`}
                     className={controlClass}
-                    aria-describedby="default-account-note"
+                    aria-describedby={
+                      accountMessage
+                        ? `${idPrefix}default-account-error ${idPrefix}default-account-note`
+                        : `${idPrefix}default-account-note`
+                    }
+                    aria-invalid={Boolean(accountMessage)}
                     disabled={!accountOptions.length}
                     value={shownAccount}
                     onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
+                    onChange={(event) => {
+                      field.handleChange(event.target.value);
+                      setAccountError("");
+                    }}
                   >
                     {catalog.connections.map((connection) => {
                       const options = accountOptions.filter(
@@ -732,7 +814,7 @@ export function SitePolicy({
                   </select>
                 </label>
                 <p
-                  id="default-account-note"
+                  id={`${idPrefix}default-account-note`}
                   className="m-0 text-[0.8125rem] leading-5 text-ink-muted"
                   aria-live="polite"
                 >
@@ -745,10 +827,13 @@ export function SitePolicy({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <label className={checkClass}>
             <input
-              id="default-account-all"
+              id={`${idPrefix}default-account-all`}
               type="checkbox"
               checked={showAllAccounts}
-              onChange={(event) => setShowAllAccounts(event.target.checked)}
+              onChange={(event) => {
+                setShowAllAccounts(event.target.checked);
+                setAccountError("");
+              }}
             />
             {t("Also list items that do not match")}
           </label>
@@ -756,39 +841,65 @@ export function SitePolicy({
             {(field) => (
               <label className={checkClass}>
                 <input
-                  id="site-subdomains"
+                  id={`${idPrefix}site-subdomains`}
                   type="checkbox"
                   checked={field.state.value}
                   onChange={(event) => field.handleChange(event.target.checked)}
                 />
-                {t("Exclude subdomains too")}
+                {t("Include subdomains")}
               </label>
             )}
           </siteForm.Field>
         </div>
-        {siteMessage && (
-          <p id="site-error" className="validation-error m-0" role="alert">
-            {t(siteMessage)}
+        {siteError && (
+          <p id={`${idPrefix}site-error`} className="validation-error m-0" role="alert">
+            {t(siteError)}
+          </p>
+        )}
+        {accountMessage && (
+          <p id={`${idPrefix}default-account-error`} className="validation-error m-0" role="alert">
+            {t(accountMessage)}
           </p>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button id="add-default" type="submit">
+          <Button id={`${idPrefix}add-default`} type="submit">
             {t("Save default")}
           </Button>
-          <Button id="add-site" type="button" variant="outline" onClick={excludeEntered}>
+          <Button
+            id={`${idPrefix}add-site`}
+            type="button"
+            variant="outline"
+            onClick={() => addEntered("excludedSites")}
+          >
             <Ban aria-hidden size={16} strokeWidth={2} />
             {t("Exclude site")}
+          </Button>
+          <Button
+            id={`${idPrefix}add-reprompt-site`}
+            type="button"
+            variant="outline"
+            onClick={() => addEntered("repromptSites")}
+          >
+            <LockKeyhole aria-hidden size={16} strokeWidth={2} />
+            {t("Ask for the master password")}
           </Button>
         </div>
       </form>
       <StatusLines
         muted
         lines={[
-          { tone: "idle", icon: Ban, text: t("Excluding a site covers every scheme and port") },
+          { tone: "idle", icon: Ban, text: t("Excluding a site covers every scheme and port.") },
+          {
+            tone: "idle",
+            icon: LockKeyhole,
+            text: t(
+              "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.",
+            ),
+          },
           {
             tone: "idle",
             icon: Clock,
-            text: t("A default account takes effect at the next login"),
+            text: t("A default account takes effect at the next login."),
           },
         ]}
       />

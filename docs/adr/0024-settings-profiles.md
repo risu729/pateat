@@ -5,7 +5,8 @@ Status: accepted by the owner on 2026-10-11 (12:15 UTC). Extends
 [ADR 0023](0023-synced-vault-policy.md). Only the data split below applies now; profiles
 themselves are later work. Amended on 2026-10-12 by
 [ADR 0035](0035-page-kinds-per-site.md) (not implemented): `pagePermissionDefaults` and
-`sitePagePermissions` are profile parts.
+`sitePagePermissions` are profile parts. Amended on 2026-10-23: profiles are built for
+the parts that exist; see the amendment at the end.
 
 Date: 2026-10-11
 
@@ -29,6 +30,7 @@ are assigned now so that profiles can be added without moving data again:
 | Data                                                       | Belongs to        |
 | ---------------------------------------------------------- | ----------------- |
 | `excludedSites`                                            | profile           |
+| `repromptSites` (2026-10-23)                               | profile           |
 | `siteDefaults`                                             | profile           |
 | `accountPolicies`, including `enabled` (ADR 0023)          | profile           |
 | `itemPolicies` (ADR 0023)                                  | profile           |
@@ -72,3 +74,13 @@ are assigned now so that profiles can be added without moving data again:
 - ADR 0023's lists and `customFieldReviews` are profile data from the start.
 - Adding profiles later needs a migration of the service tables and a pairing choice,
   but no change to the settings document's entries.
+
+## Amendment, 2026-10-23
+
+Profiles are built for `excludedSites` and `siteDefaults`, with `bindings` shared, as
+"Later: adding profiles" describes; [ADR 0076](0076-settings-profiles-delivered.md)
+records how, and the owner's choices made while building them. Two points differ from
+the text above: a pairing must choose a profile even when the owner has only one, and
+`devices.profile_id` refers to profiles that are deleted softly. ADR 0023's lists and
+ADR 0035's page permissions are still to be built; they become profile parts when they
+are.

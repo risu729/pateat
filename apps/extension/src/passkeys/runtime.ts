@@ -52,6 +52,11 @@ export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCand
     clientDataHash: Uint8Array<ArrayBuffer>,
     signal: AbortSignal,
   ): Promise<Uint8Array>;
+  /**
+   * Whether a master password is right for the candidate's account, before a `reprompt`
+   * candidate signs; throws when the vault cannot tell. Without it such a candidate never signs.
+   */
+  verifyMasterPassword?(candidate: TCandidate, password: string): Promise<boolean>;
 }
 
 /** What the user did in the chooser window, by position in the offered list. */
@@ -66,8 +71,18 @@ export interface PasskeyChooser {
     readonly tabId: number;
     readonly origin: string;
     readonly rpId: string;
-    /** The site default, if offered, comes first and is `preferred`. */
-    readonly entries: readonly (PasskeyDisplay & { readonly preferred?: boolean })[];
+    /**
+     * The site default, if offered, comes first and is `preferred`. A `reprompt` entry is
+     * chosen only after `verify` accepts the master password typed for it.
+     */
+    readonly entries: readonly (PasskeyDisplay & {
+      readonly preferred?: boolean;
+      readonly reprompt?: boolean;
+    })[];
+    /** Whether a master password typed for the entry at `index` is right; throws if unknown. */
+    readonly verify?: (index: number, password: string) => Promise<boolean>;
+    /** The window asks the master password for a password login's one entry (ADR 0021). */
+    readonly purpose?: "login";
     /** The origin has a site default; making another passkey default replaces it. */
     readonly replacesDefault: boolean;
     /** Pateat signed for this RP ID in this tab before, so this may follow a logout. */
@@ -467,17 +482,26 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       let credential: TCandidate;
       let assertion: Signed["assertion"] | undefined;
       let makeDefault = false;
-      if (selection.kind === "credential" && !again) credential = selection.credential;
+      // One passkey whose item has Bitwarden's re-prompt, on a site that honours it, signs only
+      // after its master password is typed in the chooser window (owner, 2026-10-23 12:46 UTC).
+      // A running login's item was asked for when that login started.
+      const reprompt =
+        !login && !again && selection.kind === "credential" && selection.credential.reprompt;
+      if (selection.kind === "credential" && !again && !reprompt) credential = selection.credential;
       // A login's item answers alone; otherwise the browser or Bitwarden does, so Pateat
       // never signs in as another account.
       else if (login && selection.kind === "delegate")
         return { kind: "delegate", reason: `login-item-${selection.reason}` };
       else {
         // Only passkeys Pateat can sign with are offered, the site default first. Without
-        // `again`, fewer than two is not a choice.
-        const offered = accepted
-          .filter((entry) => entry.counter === 0)
-          .sort((a, b) => Number(b.preferred === true) - Number(a.preferred === true));
+        // `again`, fewer than two is not a choice, unless the one asks for the master password.
+        const offered =
+          reprompt && selection.kind === "credential"
+            ? [selection.credential]
+            : accepted
+                .filter((entry) => entry.counter === 0)
+                .sort((a, b) => Number(b.preferred === true) - Number(a.preferred === true));
+        const asksPassword = offered.some((entry) => entry.reprompt === true);
         if (
           selection.kind === "delegate" &&
           (again
@@ -486,7 +510,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         )
           return selection;
         // An unsearched item might hold the passkey the person signed out to switch to.
-        if (!candidates.complete) return { kind: "delegate", reason: "vault-incomplete" };
+        if (!candidates.complete && !reprompt)
+          return { kind: "delegate", reason: "vault-incomplete" };
+        const verifier = source.verifyMasterPassword?.bind(source);
         const remaining = received + chooserWaitMs(admission.request.timeoutMs) - Date.now();
         if (
           !options.chooser ||
@@ -495,12 +521,17 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           // A background tab or a prerendered page never pulls a window to the front.
           !message.focused ||
           !context.active ||
-          remaining < CHOOSER_MIN_REMAINING_MS
+          remaining < CHOOSER_MIN_REMAINING_MS ||
+          (asksPassword && !verifier)
         )
           // After a logout Pateat never signs unasked; the browser can still offer a choice.
           return {
             kind: "delegate",
-            reason: again ? "chooser-unavailable" : "ambiguous-credential",
+            reason: reprompt
+              ? "master-password-reprompt"
+              : again
+                ? "chooser-unavailable"
+                : "ambiguous-credential",
           };
         // The window waits for a person, so the lookup budget no longer applies.
         clearTimeout(timer);
@@ -516,7 +547,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
             entries: offered.map((entry, index) => ({
               ...(entry.display ?? { item: `Passkey ${index + 1}` }),
               ...(entry.preferred === true ? { preferred: true } : {}),
+              ...(entry.reprompt === true ? { reprompt: true } : {}),
             })),
+            // Not aborted with the request: a check cut off mid-way would lock the vault.
+            ...(asksPassword && verifier
+              ? { verify: (index: number, password: string) => verifier(offered[index]!, password) }
+              : {}),
             replacesDefault:
               candidates.siteDefault !== undefined && candidates.siteDefault !== "unset",
             again,

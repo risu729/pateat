@@ -1,13 +1,15 @@
 import {
-  chooserBranchSchema,
   customSlotIdSchema,
-  isLoginRouteRecipe,
+  parseRecipeBranch,
+  loginRouteSchema,
+  recipeBranchSchema,
+  storedLayoutRecipe,
   PAGE_SAMPLE_INTERVAL_MS,
   storedRecipeSlots,
   slotsForPage,
+  recipeLayoutKeySchema,
   syncRecipeIdSchema,
   vaultFieldReferenceSchema,
-  type ChooserBranch,
   type EntryGenerationRequest,
   type EntryGenerationResult,
   type GenerationOutputRejection,
@@ -17,6 +19,7 @@ import {
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
+  type SemanticSlot,
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type {
@@ -25,7 +28,7 @@ import type {
   GenerationOutcome,
   LoginGeneration,
   PageSampleOutcome,
-  RecipeReplaceOutcome,
+  RecipeRepairClaim,
 } from "../login/runtime";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transport";
@@ -52,6 +55,14 @@ const failedBeforeModel = new Set<string>([
 
 /** The recipe revision a page continues after its final `advance` step (ADR 0018). */
 type GenerationBase = NonNullable<RecipeGenerationRequest["base"]>;
+/** The layout key a branch name holds (ADR 0060), if any. */
+const layoutOf = (branch: string | undefined) =>
+  branch === undefined ? undefined : parseRecipeBranch(branch)?.layout;
+/** Whether a branch name names a chooser's branch (ADR 0028). */
+const chooserBranchOf = (branch: string | undefined) =>
+  branch !== undefined && parseRecipeBranch(branch)?.branch !== undefined;
+/** The recipe revision a stale start page repairs (ADR 0041). */
+type GenerationRepair = NonNullable<RecipeGenerationRequest["repair"]>;
 /**
  * Each origin and path claimed for generation: `sending` while its request is in flight,
  * `sent` once an answer showed the request reached the model (ADR 0016). A page that
@@ -72,8 +83,24 @@ const attemptsSchema = v.strictObject({
             revision: v.pipe(v.number(), v.integer(), v.minValue(1)),
           }),
         ),
-        /** For a chooser's page (ADR 0028): the branch it continues. */
-        branch: v.optional(chooserBranchSchema),
+        /**
+         * The layout it continues (ADR 0060), and for a chooser's page (ADR 0028) the branch,
+         * as `recipeBranch` names them.
+         */
+        branch: v.optional(recipeBranchSchema),
+        /**
+         * For a stale recipe's page (ADR 0041): the revision it repairs, so the
+         * claim of the page's first generation does not hold its repair.
+         */
+        repair: v.optional(
+          v.strictObject({
+            recipeId: syncRecipeIdSchema,
+            revision: v.pipe(v.number(), v.integer(), v.minValue(1)),
+            /** For a later step's page: the layout and the step that did not show. */
+            layout: v.optional(recipeLayoutKeySchema),
+            step: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
+          }),
+        ),
         at: v.pipe(v.number(), v.integer(), v.minValue(0)),
       }),
     ),
@@ -136,7 +163,7 @@ const samplesSchema = v.strictObject({
         service: v.pipe(v.string(), v.maxLength(2048)),
         deviceId: v.pipe(v.string(), v.maxLength(200)),
         recipeId: syncRecipeIdSchema,
-        branch: v.optional(chooserBranchSchema),
+        branch: v.optional(recipeBranchSchema),
         at: v.pipe(v.number(), v.integer(), v.minValue(0)),
       }),
     ),
@@ -151,18 +178,20 @@ export interface PageSampleStorage {
 }
 
 /**
- * A recipe this device revoked because the chosen item could not run it (ADR 0058 A) is not
- * revoked again by it for this long: the bound on a recipe generated again that the item
- * still cannot run, since each tombstone lets the page be generated once more.
+ * A recipe whose repair this device sent because the chosen item could not run it (ADR 0058
+ * A, amended by ADR 0041) is not sent again by it for the same missing route for this long:
+ * the bound on a repair that still leaves the item without a route (owner, 2026-10-23
+ * 12:54 UTC: 3 days).
  */
-export const RECIPE_REPLACE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
+export const RECIPE_REPLACE_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
 /** Revoked recipes remembered at once; the oldest go first. */
 export const MAX_RECIPE_REPLACEMENTS = 200;
 /**
- * When this device last revoked each recipe so its page is generated again (ADR 0058 A),
- * per service and device as the slot maps are, by recipe ID, which a recipe generated again
- * keeps. Recorded before the request leaves, so a request lost with its worker is not sent
- * again within `RECIPE_REPLACE_INTERVAL_MS` either.
+ * When this device last sent each such recipe's repair (ADR 0058 A, amended by ADR 0041),
+ * per service and device as the slot maps are, by recipe ID and the route the item lacked
+ * (owner, 2026-10-23 12:53 UTC), so a recipe has at most one claim per route. Recorded
+ * before the request leaves, so a request lost with its worker is not sent again within
+ * `RECIPE_REPLACE_INTERVAL_MS` either.
  */
 const replacementsSchema = v.strictObject({
   version: v.literal(1),
@@ -172,6 +201,7 @@ const replacementsSchema = v.strictObject({
         service: v.pipe(v.string(), v.maxLength(2048)),
         deviceId: v.pipe(v.string(), v.maxLength(200)),
         recipeId: syncRecipeIdSchema,
+        route: loginRouteSchema,
         at: v.pipe(v.number(), v.integer(), v.minValue(0)),
       }),
     ),
@@ -250,6 +280,10 @@ function notRecipe(
       reason: answer.kind === "failed" ? answer.error : "device-rejected",
       ...freed,
     };
+  // Only a request with `deviceModel` is answered with a model call, which the device makes
+  // before the answer comes here (ADR 0040).
+  if (result.status === "model-call")
+    return { outcome: "failed", reason: "unexpected-response", retry: true };
   if (result.status === "abstained") return { outcome: "abstained", reason: result.reason };
   if (result.status === "failed")
     return result.rejection
@@ -270,15 +304,15 @@ function notRecipe(
 export function createLoginGeneration(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
   transport: Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "judgeCompletion"> &
-    Partial<Pick<ServiceTransport, "samplePage" | "revokeRecipe">>;
+    Partial<Pick<ServiceTransport, "samplePage">>;
   storage: GenerationAttemptStorage;
   /** Generated slot maps, written before a generated recipe is reported. */
   slotStorage: GeneratedSlotStorage;
   /** Signed-in page samples sent (ADR 0029); without it and `samplePage`, none is sent. */
   sampleStorage?: PageSampleStorage;
   /**
-   * Recipes revoked so their pages are generated again (ADR 0058 A); without it and
-   * `revokeRecipe`, none is revoked.
+   * Repairs claimed for recipes the chosen item cannot run (ADR 0058 A, amended by ADR
+   * 0041); without it, none is claimed.
    */
   replaceStorage?: RecipeReplacementStorage;
   /** A full sync of recipes and settings; resolves once the recipe cache holds them. */
@@ -390,13 +424,23 @@ export function createLoginGeneration(options: {
     return next.catch(() => false);
   }
   const same =
-    (origin: string, path: string, base?: GenerationBase, branch?: ChooserBranch) =>
+    (
+      origin: string,
+      path: string,
+      base?: GenerationBase,
+      branch?: string,
+      repair?: GenerationRepair,
+    ) =>
     (entry: GenerationAttempts["attempts"][number]) =>
       entry.origin === origin &&
       entry.path === path &&
       entry.base?.recipeId === base?.recipeId &&
       entry.base?.revision === base?.revision &&
-      entry.branch === branch;
+      entry.branch === branch &&
+      entry.repair?.recipeId === repair?.recipeId &&
+      entry.repair?.revision === repair?.revision &&
+      entry.repair?.layout === repair?.layout &&
+      entry.repair?.step === repair?.step;
 
   /** This device's samples of the last `PAGE_SAMPLE_INTERVAL_MS`; unreadable ones count as none. */
   async function recentSamples(): Promise<PageSamples["samples"]> {
@@ -407,7 +451,7 @@ export function createLoginGeneration(options: {
       : [];
   }
   const sameSample =
-    (connection: ServiceConnection, recipeId: string, branch: ChooserBranch | undefined) =>
+    (connection: ServiceConnection, recipeId: string, branch: string | undefined) =>
     (entry: PageSamples["samples"][number]) =>
       entry.service === connection.origin &&
       entry.deviceId === connection.deviceId &&
@@ -421,7 +465,7 @@ export function createLoginGeneration(options: {
   function claimSample(
     connection: ServiceConnection,
     recipeId: string,
-    branch: ChooserBranch | undefined,
+    branch: string | undefined,
   ): Promise<"claimed" | "recent" | "unavailable"> {
     const next = sampleQueue.then(async () => {
       const samples = await recentSamples();
@@ -446,15 +490,16 @@ export function createLoginGeneration(options: {
   }
 
   /**
-   * Records a revocation of the recipe now, unless one is recorded within the interval:
+   * Records a repair of the recipe now, unless one is recorded within the interval:
    * `claimed` with the time once it is written, `recent` for one already there,
-   * `unavailable` when storage cannot be read or written, so a recipe is never revoked
+   * `unavailable` when storage cannot be read or written, so a repair is never sent
    * unrecorded. Stored entries that do not parse count as none.
    */
   function claimReplace(
     store: RecipeReplacementStorage,
     connection: ServiceConnection,
     recipeId: string,
+    route: LoginRoute,
   ): Promise<{ claimed: number } | "recent" | "unavailable"> {
     const next = replaceQueue.then(async () => {
       const parsed = v.safeParse(replacementsSchema, await store.read());
@@ -467,7 +512,8 @@ export function createLoginGeneration(options: {
           (entry) =>
             entry.service === connection.origin &&
             entry.deviceId === connection.deviceId &&
-            entry.recipeId === recipeId,
+            entry.recipeId === recipeId &&
+            entry.route === route,
         )
       )
         return "recent" as const;
@@ -475,7 +521,7 @@ export function createLoginGeneration(options: {
         version: 1,
         replacements: [
           ...replacements,
-          { service: connection.origin, deviceId: connection.deviceId, recipeId, at },
+          { service: connection.origin, deviceId: connection.deviceId, recipeId, route, at },
         ].slice(-MAX_RECIPE_REPLACEMENTS),
       });
       return { claimed: at };
@@ -485,12 +531,13 @@ export function createLoginGeneration(options: {
   }
   /**
    * Drops this request's own claim, for a request that did not reach the service or that it
-   * refused before writing: the next visit may revoke the recipe again.
+   * refused before writing: the next visit may send it again.
    */
   function releaseReplace(
     store: RecipeReplacementStorage,
     connection: ServiceConnection,
     recipeId: string,
+    route: LoginRoute,
     claimedAt: number,
   ): Promise<unknown> {
     const next = replaceQueue.then(async () => {
@@ -503,6 +550,7 @@ export function createLoginGeneration(options: {
             entry.service !== connection.origin ||
             entry.deviceId !== connection.deviceId ||
             entry.recipeId !== recipeId ||
+            entry.route !== route ||
             entry.at !== claimedAt,
         ),
       });
@@ -529,7 +577,8 @@ export function createLoginGeneration(options: {
   async function claimed<Result extends { status: string; error?: string }>(
     page: { origin: string; path: string },
     base: GenerationBase | undefined,
-    branch: ChooserBranch | undefined,
+    branch: string | undefined,
+    repair: GenerationRepair | undefined,
     sent: (() => void) | undefined,
     call: (connection: ServiceConnection) => Promise<InferenceResult<Result>>,
   ): Promise<
@@ -543,7 +592,7 @@ export function createLoginGeneration(options: {
     let held: GenerationHold | undefined;
     const claimedAt = now();
     const stored = await remember((attempts) => {
-      held = attempts.find(same(origin, path, base, branch))?.state;
+      held = attempts.find(same(origin, path, base, branch, repair))?.state;
       return held
         ? attempts
         : [
@@ -553,6 +602,7 @@ export function createLoginGeneration(options: {
               path,
               ...(base ? { base } : {}),
               ...(branch ? { branch } : {}),
+              ...(repair ? { repair } : {}),
               state: "sending",
               at: claimedAt,
             },
@@ -573,7 +623,7 @@ export function createLoginGeneration(options: {
       const at = now();
       return remember((attempts) =>
         attempts.flatMap((entry) =>
-          !same(origin, path, base, branch)(entry) ||
+          !same(origin, path, base, branch, repair)(entry) ||
           entry.state !== "sending" ||
           entry.at !== claimedAt
             ? [entry]
@@ -603,7 +653,7 @@ export function createLoginGeneration(options: {
     origin: string,
     path: string,
     base?: GenerationBase,
-    branch?: ChooserBranch,
+    branch?: string,
   ): Promise<true | GenerationHold> {
     if (!(await connected())) return "not-connected";
     await queue;
@@ -611,66 +661,50 @@ export function createLoginGeneration(options: {
     return attempts.find(same(origin, path, base, branch))?.state ?? true;
   }
   /**
-   * Revokes a recipe the chosen item cannot run, so its page is generated again (ADR 0058
-   * A). Only a page that may be sent now, and once per recipe ID in 30 days; the claim is
-   * kept once the service answered the write, and dropped when the request did not reach
-   * it, was rate limited, the device was rejected or the head had a newer active revision.
-   * A revoked or conflicting head pulls recipes only, so the cache drops the copy without a
-   * settings write that would stop another tab's login.
+   * Claims a repair of a recipe the chosen item cannot run (ADR 0058 A, amended by ADR 0041):
+   * once per recipe ID and missing route in 3 days for this service and device, recorded
+   * before the request leaves. `release` drops the claim, for a request that never reached
+   * the model.
    */
-  async function replace(
+  async function claimRepair(
     store: RecipeReplacementStorage,
-    revoke: NonNullable<ServiceTransport["revokeRecipe"]>,
-    recipe: { recipeId: string; revision: number; origin: string; path: string },
-  ): Promise<RecipeReplaceOutcome> {
+    recipeId: string,
+    route: LoginRoute,
+  ): Promise<RecipeRepairClaim> {
     const connection = await connected();
     if (!connection) return { outcome: "not-due", reason: "not-connected" };
-    const hold = await available(recipe.origin, recipe.path);
-    if (hold !== true) return { outcome: "not-due", reason: hold };
-    const claim = await claimReplace(store, connection, recipe.recipeId);
+    const claim = await claimReplace(store, connection, recipeId, route);
     if (claim === "recent") return { outcome: "not-due" };
     if (claim === "unavailable") return { outcome: "not-sent", reason: "storage-unavailable" };
-    const answer = await Promise.resolve()
-      .then(() =>
-        revoke(connection.origin, connection.credential, recipe.recipeId, recipe.revision),
-      )
-      .catch(() => undefined);
-    const timed = answer ? timingOf(answer) : {};
-    if (answer?.kind === "revoked" || answer?.kind === "conflict") {
-      // A newer active head, as after another device learned a handler, revoked nothing:
-      // its claim goes, so the next plan on that head may revoke it.
-      if (answer.kind === "conflict" && answer.current?.state === "active")
-        await releaseReplace(store, connection, recipe.recipeId, claim.claimed);
-      await refresh().catch(() => undefined);
-      return { outcome: answer.kind, ...timed };
-    }
-    const reason = !answer
-      ? "error"
-      : answer.kind === "rejected"
-        ? "device-rejected"
-        : answer.error;
-    // An unexpected answer may follow a write the service made, so its claim stays.
-    if (reason !== "unexpected-response")
-      await releaseReplace(store, connection, recipe.recipeId, claim.claimed);
-    return { outcome: "failed", reason, ...timed };
+    return {
+      outcome: "claimed",
+      release: async () => {
+        await releaseReplace(store, connection, recipeId, route, claim.claimed);
+      },
+    };
   }
 
   return {
     available,
-    ...(transport.revokeRecipe && replaceStorage
+    ...(replaceStorage
       ? {
-          replace: (recipe: { recipeId: string; revision: number; origin: string; path: string }) =>
-            replace(replaceStorage, (...request) => transport.revokeRecipe!(...request), recipe),
+          claimRepair: (recipeId: string, route: LoginRoute) =>
+            claimRepair(replaceStorage, recipeId, route),
         }
       : {}),
+    async pullRecipes() {
+      await refresh();
+    },
     async generate(input: RecipeGenerationRequest, sent): Promise<GenerationOutcome> {
       // `totp` is offered only for a page with a code field, so the slots never tell the
       // model whether an account has TOTP (ADR 0027).
       const slots = slotsForPage(input.observation, input.slots);
-      if (!slots.length && !input.passkeyOnly) return { outcome: "skipped", reason: "no-slots" };
+      // A passkey-only page and a list of accounts (ADR 0028) are sent without slots.
+      if (!slots.length && !input.passkeyOnly && input.observation.accounts === undefined)
+        return { outcome: "skipped", reason: "no-slots" };
       const request = { ...input, slots };
-      const { base, branch } = request;
-      const claim = await claimed(request.observation, base, branch, sent, (connection) =>
+      const { base, branch, repair } = request;
+      const claim = await claimed(request.observation, base, branch, repair, sent, (connection) =>
         transport.generateRecipe(connection.origin, connection.credential, request),
       );
       if ("outcome" in claim) return claim;
@@ -682,12 +716,11 @@ export function createLoginGeneration(options: {
       // the custom slots from it until a binding is saved (ADR 0027).
       const { customSlots, change } = answer.result;
       // A chooser recipe (ADR 0028) answers a list of accounts or a branch's page, and
-      // only those.
-      if (
-        request.observation.accounts !== undefined || request.branch !== undefined
-          ? !("chooser" in change.recipe)
-          : !isLoginRouteRecipe(change.recipe)
-      )
+      // only those. The login runs the layout its page continues, or the newest one, which
+      // a first page creates (ADR 0060).
+      const chooserPage = request.observation.accounts !== undefined || chooserBranchOf(branch);
+      const recipe = storedLayoutRecipe(change.recipe, layoutOf(branch));
+      if (!recipe || chooserPage !== "chooser" in recipe)
         return { outcome: "unavailable", reason: "recipe-conflict", ...timed };
       const fields = customSlots && slotFieldsOf(request, customSlots);
       if (fields)
@@ -698,19 +731,26 @@ export function createLoginGeneration(options: {
             recipeId: change.recipeId,
             slots: fields,
           },
-          // A continuation answers with only its own page's slots (ADR 0027).
-          request.base?.recipeId === change.recipeId && change.revision > 1
+          // A continuation answers with only its own page's slots (ADR 0027), and a repair
+          // with only its new layout's, beside the layouts it keeps (ADR 0041).
+          (request.base ?? request.repair)?.recipeId === change.recipeId && change.revision > 1
             ? storedRecipeSlots(change.recipe)
             : undefined,
         );
       // A continuation's login takes the recipe over at once; a full sync could apply a
       // settings change that stops it (ADR 0018, ADR 0027). Settings follow at the next one.
       await (base ? refresh() : sync()).catch(() => undefined);
-      return { outcome: "recipe", recipe: change.recipe, ...timed };
+      return { outcome: "recipe", recipe, ...timed };
     },
     async generateEntry(request: EntryGenerationRequest, sent): Promise<EntryGenerationOutcome> {
-      const claim = await claimed(request.observation, undefined, undefined, sent, (connection) =>
-        transport.generateEntry(connection.origin, connection.credential, request),
+      // An entry's repair is claimed apart from the page's first generation (ADR 0041).
+      const claim = await claimed(
+        request.observation,
+        undefined,
+        undefined,
+        request.repair,
+        sent,
+        (connection) => transport.generateEntry(connection.origin, connection.credential, request),
       );
       if ("outcome" in claim) return claim;
       const { answer } = claim;
@@ -737,6 +777,8 @@ export function createLoginGeneration(options: {
       const connection = await connected();
       if (!connection) return { outcome: "not-due", reason: "not-connected" };
       const { recipeId, branch } = sample;
+      // The service files a sample under the layout the login ran (ADR 0060).
+      if (!v.is(recipeBranchSchema, branch)) return { outcome: "not-due", reason: "no-layout" };
       await sampleQueue;
       const due = await recentSamples().then(
         (samples) => !samples.some(sameSample(connection, recipeId, branch)),
@@ -760,8 +802,10 @@ export function createLoginGeneration(options: {
           version: 1,
           revision: sample.revision,
           route: sample.route,
-          ...(branch ? { branch } : {}),
+          branch,
           observation: described.observation,
+          // The account's slots, as the judge request carries them (owner 2026-10-23).
+          slots: slotsForPage(described.observation, described.slots),
         },
       );
       if (answer.kind === "rejected") return { outcome: "failed", reason: "device-rejected" };
@@ -774,12 +818,16 @@ export function createLoginGeneration(options: {
       route: LoginRoute,
       observation: LoginObservation,
       sent?: () => void,
-      branch?: ChooserBranch,
+      branch?: string,
       partial?: true,
       stop?: true,
+      slots: readonly SemanticSlot[] = [],
+      beside?: true,
     ) {
       const connection = await connected();
       if (!connection) return { verdict: "retry", reason: "not-connected" };
+      // The service judges the route of the layout the login ran (ADR 0060).
+      if (!v.is(recipeBranchSchema, branch)) return { verdict: "unclear", reason: "no-layout" };
       sent?.();
       const answer = await transport.judgeCompletion(
         connection.origin,
@@ -789,10 +837,13 @@ export function createLoginGeneration(options: {
           version: 1,
           revision,
           route,
-          ...(branch ? { branch } : {}),
+          branch,
           observation,
+          // As for generation, `totp` only on a page with a code field (ADR 0027).
+          slots: slotsForPage(observation, slots),
           ...(partial ? { partial } : {}),
           ...(stop ? { stop } : {}),
+          ...(beside ? { beside } : {}),
         },
       );
       const result: RecipeCompletionResult | undefined =
@@ -801,16 +852,26 @@ export function createLoginGeneration(options: {
       // Later runs use the learned completion; this attempt settles without waiting.
       if (result?.status === "signed-in") void refresh().catch(() => undefined);
       // The login continues with the returned recipe; the cache catches up behind it (ADR 0027).
+      // The secret questions the judge paired with the account's slots go with it, for the
+      // owner to confirm (ADR 0061).
       if (result?.status === "challenge" && result.change) {
         void refresh().catch(() => undefined);
         // A chooser login's (ADR 0028) is the whole chooser; an entry recipe is never one.
-        if (branch ? "chooser" in result.change.recipe : isLoginRouteRecipe(result.change.recipe))
-          return { verdict: "challenge", recipe: result.change.recipe, ...timed };
+        // Either is the judged layout (ADR 0060).
+        const recipe = storedLayoutRecipe(result.change.recipe, layoutOf(branch));
+        if (recipe && chooserBranchOf(branch) === "chooser" in recipe)
+          return {
+            verdict: "challenge",
+            recipe,
+            ...(result.questions ? { questions: result.questions } : {}),
+            ...timed,
+          };
       }
       if (
         result?.status === "signed-in" ||
         result?.status === "rejected" ||
-        result?.status === "challenge"
+        result?.status === "challenge" ||
+        result?.status === "optional"
       )
         return { verdict: result.status, ...timed };
       // For the local log: the transport's, the service's or the model call's code.

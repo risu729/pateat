@@ -616,10 +616,20 @@ Forget sync sign-in removes it locally without a server logout. Forget cancels a
 Sync but is refused while a password sign-in is in progress. Offline local-vault
 restoration is independent of that provider session.
 
-Each connection is a row with one main action, Sync, or Sign in again while syncing
-needs a sign-in first (the vault is locked, setup is incomplete, automatic unlock is
-off or the sync sign-in is missing). The other of the two, Disable automatic unlock,
-Forget sync sign-in and Delete connection are in the row's menu.
+Each connection is a row with one main action: Unlock while the vault is locked, else
+Sync, or Sign in again while syncing needs a sign-in first (setup is incomplete, the
+connection is logged out or the sync sign-in is missing). Unlock opens the master
+password form in the row and unlocks offline
+([ADR 0075](adr/0075-vault-lock-and-timeout.md)). The other of the two, Lock, Log out,
+Forget sync sign-in and Delete connection are in the row's menu. Log out removes the
+unlock key and the sync sign-in and keeps the encrypted cache, as Turn off automatic
+unlock did.
+
+The **Vault timeout** section sets when every vault on this device locks or logs out:
+after 1, 5, 15 or 30 minutes or 1 or 4 hours without use, a custom number of minutes,
+On system idle, On system lock, On browser restart, or Never (the default). Use is a
+field filled, a passkey signed, an unlock or a sign-in. Only Never keeps the unlock key
+on disk; any other choice keeps it in memory, so a browser restart locks too.
 
 Delete connection, confirmed in the row, removes one connection from this
 device: its sync sign-in, its local vault record with the retained unlock key (after
@@ -631,8 +641,8 @@ Saved settings, recipes and their field-policy entries are not modified; anythin
 referred to the deleted connection resolves as an unavailable connection. This is how
 a connection left over by a failed first sign-in is removed.
 
-The add form's **Use this connection** choice becomes the **Use this vault** switch
-in the connection's row when the connection is added, before its first sign-in. If
+The add form's **Use this vault** choice becomes the same switch in the connection's
+row when the connection is added, before its first sign-in. If
 that sign-in does not finish, **Sign in again** completes the setup and keeps the
 choice. Sign-ins never change the entry; the policy is edited on the settings page.
 Like other saved settings, the entry stays after Delete connection.
@@ -653,18 +663,11 @@ the page first reads its connections (owner decision, 2026-10-19): stopping that
 says "Loading stopped.", reads the connections again and leaves the saved settings
 draft as it is, since nothing was written.
 
-Sign in again on a connection that never unlocked (automatic unlock "unknown" and a
-readable local record) starts with **Enable automatic unlock on this device**
-checked: the vault cannot be accepted without it, and the add that registered the
-connection asked for it. An unreadable record starts unchecked, since it may hide a
-choice to keep automatic unlock off.
-
-Connecting retains the local unlock key and encrypted cache. Disabling automatic
-unlock removes the retained key; signing in again does not implicitly re-enable
-it, though the box starts checked for a connection that never unlocked. A
+Connecting and every password sign-in unlock the vault and keep its unlock key where
+the vault timeout says. Log out removes the key; only a sign-in brings it back. A
 cancellation or timeout during the durable write can leave an accepted record even
-when setup reports an uncertain result. Reload connection status;
-explicitly disable automatic unlock if that retained key should be removed.
+when setup reports an uncertain result. Reload connection status; Lock or Log out if
+that key should be removed.
 Compensation removes only a positively identified first-enrollment candidate,
 never an unknown or newer record. Connection status and policy metadata contain
 no field values. A changed
@@ -716,8 +719,15 @@ this rule; compatibility from then on needs its own decision.
 
 One exception, chosen by the owner on 2026-10-12 at 18:07 UTC: D1 migration 0013
 rewrites each stored recipe's `completion` into the list of signed-in markers of
-[ADR 0029](adr/0029-local-sign-in-state.md), so the owner's recipes keep working
-without being generated again.
+[ADR 0029](adr/0029-local-sign-in-state.md), so the owner's recipes keep working without
+being generated again.
+
+A second exception, for every stored recipe (owner request, 2026-10-23 11:41 UTC; see
+[ADR 0060](adr/0060-recipe-layouts.md#changing-the-recipe-schema-later)): a later recipe
+schema change backfills them from the logs without opening login pages where possible.
+A change that needs no new model output rewrites them in a migration; one that needs new
+model output is rebuilt from the request log's observations by a separate tool; a recipe
+that cannot be rebuilt is discarded and generated again on the next visit.
 
 ## Platform features
 
@@ -996,9 +1006,14 @@ saved as soon as it is made; there is no separate save button (owner decision,
 run one at a time, and an edit made while one runs is saved on top of its result. Each
 saved change applies at once, so it also cancels logins and passkey requests started
 under the previous settings. Queries never refetch on focus/reconnect and neither reads
-nor saves automatically retry: after an invalid draft the next change saves again, and
-after a blocking failure later edits stay in the unsaved draft. Only an explicit
-successful reload replaces edits after a failed save or revision conflict. A failed or
+nor saves automatically retry, apart from the one conflict retry below: after an invalid
+draft the next change saves again, and after a blocking failure later edits stay in the
+unsaved draft. Only an explicit successful reload replaces edits after a failed save or
+revision conflict. The one exception is a conflict that only background work caused,
+such as an automatic vault sync: the page applies its unsaved edits to the newest
+revision and saves once more. Otherwise the conflict's status line names what wrote the
+newer revisions
+([ADR 0025](adr/0025-automatic-vault-sync.md#settings-saves-after-a-sync)). A failed or
 ambiguous save retains the draft, and an unknown outcome blocks saving until reload. The
 background worker remains the settings authority and validates both messages and
 senders; the UI migration does not change storage permissions. Component tests use a

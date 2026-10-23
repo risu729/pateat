@@ -23,7 +23,13 @@ import {
   v1PrivateKey,
   v1WrappedUserKey,
 } from "./__fixtures__/crypto";
-import { rfcTotpSecrets } from "./__fixtures__/totp";
+import {
+  bitwardenTotpTime,
+  rfcTotpAnswers,
+  rfcTotpSecrets,
+  steamTotpSecret,
+} from "./__fixtures__/totp";
+import { generateLocalTotp } from "./totp";
 
 function snapshot(item: unknown = localLoginView(), snapshotId = fieldSnapshotId) {
   const created = createLocalFieldSnapshot({
@@ -561,6 +567,235 @@ describe("local OTP field resolution", () => {
       }),
     ).toEqual({ ok: false, error: { code: "field-denied" } });
     expect(clockCalls).toBe(0);
+  });
+});
+
+describe("TOTP codes from custom fields (code grant)", () => {
+  const sha1 = rfcTotpSecrets.SHA1;
+  const uri = `otpauth://totp/Synthetic?secret=${sha1}&digits=8`;
+  const steam = `steam://${steamTotpSecret}`;
+  const hotp = `otpauth://hotp/Synthetic?secret=${sha1}&counter=1`;
+  const seeds = [sha1, uri, steam, hotp, "not a base32 seed!"];
+  // Ordinals: 0 text base32, 1 hidden base32, 2 text URI, 3 hidden URI, 4 text steam,
+  // 5 hidden HOTP, 6 text invalid, 7 text empty, 8 hidden null, 9 Boolean, 10 Linked password.
+  function codeItem() {
+    return {
+      ...localLoginView(),
+      login: { username: "00001234", password: "Synthetic-password", totp: sha1 },
+      fields: [
+        { name: "seed", value: sha1, type: 0, linkedId: null },
+        { name: "seed", value: sha1, type: 1, linkedId: null },
+        { name: "uri", value: uri, type: 0, linkedId: null },
+        { name: "uri", value: uri, type: 1, linkedId: null },
+        { name: "steam", value: steam, type: 0, linkedId: null },
+        { name: "hotp", value: hotp, type: 1, linkedId: null },
+        { name: "invalid", value: "not a base32 seed!", type: 0, linkedId: null },
+        { name: "empty", value: "", type: 0, linkedId: null },
+        { name: "null", value: null, type: 1, linkedId: null },
+        { name: "check", value: "true", type: 2, linkedId: null },
+        { name: "link", value: sha1, type: 3, linkedId: 101 },
+      ],
+    };
+  }
+  const at = (nowMs: number) => () => nowMs;
+  const codeGrant = (nowMs: number, ...allowedFieldIds: string[]) => ({
+    allowedFieldIds,
+    nowMs: at(nowMs),
+    code: true as const,
+  });
+  const expectNoSeed = (result: unknown) => {
+    const json = JSON.stringify(result);
+    for (const seed of seeds) expect(json).not.toContain(seed);
+    expect(json).not.toContain(steamTotpSecret);
+  };
+
+  it.each([
+    ["Text", 0],
+    ["Hidden", 1],
+  ])("generates a code from a base32 seed in a %s custom field", (_kind, ordinal) => {
+    const active = snapshot(codeItem());
+    const id = customFieldId(ordinal);
+    const result = active.resolve(fieldRef(id), codeGrant(59_000, id));
+    expect(result).toEqual({
+      ok: true,
+      data: { kind: "otp", value: "287082", period: 30, validUntilMs: 60_000 },
+    });
+    expect(result).toEqual(generateLocalTotp(sha1, { nowMs: at(59_000) }));
+    expectNoSeed(result);
+  });
+
+  it.each([
+    ["Text", 2],
+    ["Hidden", 3],
+  ])("generates a code from an otpauth URI in a %s custom field", (_kind, ordinal) => {
+    const active = snapshot(codeItem());
+    const id = customFieldId(ordinal);
+    for (const { seconds, SHA1 } of rfcTotpAnswers) {
+      const nowMs = seconds * 1000;
+      const result = active.resolve(fieldRef(id), codeGrant(nowMs, id));
+      expect(result).toMatchObject({ ok: true, data: { kind: "otp", value: SHA1, period: 30 } });
+      expect(result).toEqual(generateLocalTotp(uri, { nowMs: at(nowMs) }));
+      expectNoSeed(result);
+    }
+  });
+
+  it("generates a Steam code from a steam:// seed in a custom field", () => {
+    const active = snapshot(codeItem());
+    const id = customFieldId(4);
+    const result = active.resolve(fieldRef(id), codeGrant(bitwardenTotpTime, id));
+    expect(result).toMatchObject({ ok: true, data: { kind: "otp", value: "7W6CJ", period: 30 } });
+    expect(result).toEqual(generateLocalTotp(steam, { nowMs: at(bitwardenTotpTime) }));
+    expectNoSeed(result);
+  });
+
+  it("generates a TOTP code from an otpauth://hotp/ URI, as the official SDK does", () => {
+    const active = snapshot(codeItem());
+    const id = customFieldId(5);
+    const result = active.resolve(fieldRef(id), codeGrant(59_000, id));
+    expect(result).toEqual(generateLocalTotp(hotp, { nowMs: at(59_000) }));
+    expect(result).toMatchObject({ ok: true, data: { kind: "otp", value: "287082" } });
+    expectNoSeed(result);
+  });
+
+  it("generates the code from the trimmed value of a field with whitespace around the key", () => {
+    const padded = `  ${uri}\n`;
+    const active = snapshot({
+      ...codeItem(),
+      fields: [{ name: "padded", value: padded, type: 1, linkedId: null }],
+    });
+    const id = customFieldId(0);
+    expect(active.list().find((field) => field.ref.fieldId === id)?.totpSeed).toBe(true);
+    const result = active.resolve(fieldRef(id), codeGrant(59_000, id));
+    expect(result).toEqual(generateLocalTotp(uri, { nowMs: at(59_000) }));
+    expectNoSeed(result);
+  });
+
+  it.each([
+    // The generator would read this value; the key shape check refuses it first.
+    [6, "invalid-totp"],
+    [7, "field-missing"],
+    [8, "field-missing"],
+    [9, "unsupported-field"],
+    [10, "unsupported-field"],
+  ])("refuses custom field %d for a code with %s", (ordinal, code) => {
+    const active = snapshot(codeItem());
+    const id = customFieldId(ordinal);
+    // A linked field's source permission must not turn it into a code either.
+    const result = active.resolve(fieldRef(id), codeGrant(59_000, id, "login.password"));
+    expect(result).toEqual({ ok: false, error: { code } });
+    expectNoSeed(result);
+  });
+
+  it.each(["login.username", "login.password", "notes", "login.totp"])(
+    "refuses built-in %s for a code",
+    (id) => {
+      const active = snapshot(codeItem());
+      const result = active.resolve(fieldRef(id), codeGrant(59_000, id));
+      expect(result).toEqual({ ok: false, error: { code: "unsupported-field" } });
+      expectNoSeed(result);
+    },
+  );
+
+  it("refuses a code from a field the account excludes before reading the clock", () => {
+    const active = snapshot(codeItem());
+    let clockCalls = 0;
+    const result = active.resolve(fieldRef(customFieldId(0)), {
+      allowedFieldIds: [customFieldId(1), "login.totp-code"],
+      nowMs: () => {
+        clockCalls++;
+        return 59_000;
+      },
+      code: true,
+    });
+    expect(result).toEqual({ ok: false, error: { code: "field-denied" } });
+    expect(clockCalls).toBe(0);
+  });
+
+  it("refuses a code from a stale custom reference", () => {
+    const active = snapshot(codeItem());
+    const id = customFieldId(999);
+    expect(active.resolve(fieldRef(id), codeGrant(59_000, id))).toEqual({
+      ok: false,
+      error: { code: "stale-field-reference" },
+    });
+  });
+
+  it.each([false, 1, "true", null, {}])("rejects a code grant of %j", (code) => {
+    const active = snapshot(codeItem());
+    const id = customFieldId(0);
+    const result = active.resolve(fieldRef(id), {
+      allowedFieldIds: [id],
+      nowMs: at(59_000),
+      code,
+    } as never);
+    expect(result).toEqual({ ok: false, error: { code: "invalid-field-input" } });
+    expectNoSeed(result);
+  });
+
+  it.each([0, 1, 2, 3, 4, 5])(
+    "never returns custom field %d's key as text without a code grant",
+    (ordinal) => {
+      const active = snapshot(codeItem());
+      const id = customFieldId(ordinal);
+      const result = active.resolve(fieldRef(id), allow(id));
+      expect(result).toEqual({ ok: false, error: { code: "unsupported-field" } });
+      expectNoSeed(result);
+    },
+  );
+
+  it("still returns the text of a custom field not shaped like a key", () => {
+    const active = snapshot(codeItem());
+    const id = customFieldId(6);
+    expect(active.resolve(fieldRef(id), allow(id))).toEqual(text("not a base32 seed!"));
+  });
+
+  it("flags only Text and Hidden custom fields shaped like a TOTP key, and no value", () => {
+    const active = snapshot(codeItem());
+    const flagged = active
+      .list()
+      .filter((field) => field.totpSeed)
+      .map((field) => field.ref.fieldId);
+    expect(flagged).toEqual([0, 1, 2, 3, 4, 5].map((ordinal) => customFieldId(ordinal)));
+    expectNoSeed(active.list());
+    // The built-in TOTP field and the Linked field holding a key are never flagged.
+    expect(
+      active.list().find((field) => field.ref.fieldId === "login.totp-code")?.totpSeed,
+    ).toBeUndefined();
+    expect(
+      active.list().find((field) => field.ref.fieldId === customFieldId(10))?.totpSeed,
+    ).toBeUndefined();
+  });
+
+  it("generates the same built-in code with and without a code grant", () => {
+    const active = snapshot(codeItem());
+    const plain = active.resolve(fieldRef("login.totp-code"), {
+      allowedFieldIds: ["login.totp-code"],
+      nowMs: at(59_000),
+    });
+    expect(plain).toEqual({
+      ok: true,
+      data: { kind: "otp", value: "287082", period: 30, validUntilMs: 60_000 },
+    });
+    expect(
+      active.resolve(fieldRef("login.totp-code"), codeGrant(59_000, "login.totp-code")),
+    ).toEqual(plain);
+    expectNoSeed(plain);
+  });
+
+  it("withholds a custom field's code if the snapshot is disposed while sampling time", () => {
+    const active = snapshot(codeItem());
+    const id = customFieldId(0);
+    expect(
+      active.resolve(fieldRef(id), {
+        allowedFieldIds: [id],
+        nowMs: () => {
+          active.dispose();
+          return 59_000;
+        },
+        code: true,
+      }),
+    ).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    expect(active.list()).toEqual([]);
   });
 });
 

@@ -247,6 +247,16 @@ of 500 rows answered without a model call, since the 30-day rule bounds them, an
 owner dashboard leaves them out, as neither requests nor failures (agent's choices, not
 confirmed by the owner).
 
+## Amendment 2026-10-23: calls a device made with its own key
+
+By the owner's card of 12:58 UTC ([ADR 0040](0040-running-without-the-service.md)),
+a call a paired device made with its own Anthropic API key is logged like the service's
+own, with the new column `source` set to `device` (`service` for every other row,
+earlier rows included). Its cost is estimated from the reported tokens at the published
+rates, and `token_ms` and `model_ms` are null, since the service did not wait for the
+call. Such rows count toward neither the service's daily and monthly spend stops nor
+the automatic stop of fast mode. A device that is not paired logs nothing.
+
 ## Consequences
 
 The service holds which sites a user signs in to and their page labels and field

@@ -28,6 +28,9 @@ export function inputValueMismatch(
 const alertSelector = '[role="alert"], [aria-live="assertive"]';
 const statusSelector = '[role="status"], [aria-live="polite"]';
 
+/** An input a fill typed into, or a select a split date's part chose an option in (ADR 0061). */
+export type FilledControl = HTMLInputElement | HTMLSelectElement;
+
 /** What the page showed before a fill, to compare with once its handlers ran. */
 export interface FillBaseline {
   readonly texts: ReadonlySet<string>;
@@ -47,11 +50,11 @@ const validityFlags = [
   "valueMissing",
 ] as const satisfies readonly (keyof ValidityState)[];
 
-const ariaInvalid = (input: HTMLInputElement) =>
+const ariaInvalid = (input: FilledControl) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
 function feedbackTexts(
-  inputs: readonly HTMLInputElement[],
+  inputs: readonly FilledControl[],
   regions: "all" | "alert" = "all",
 ): Set<string> {
   const root = inputs[0]?.ownerDocument ?? document;
@@ -85,7 +88,7 @@ function feedbackTexts(
   return texts;
 }
 
-export function fillBaseline(inputs: readonly HTMLInputElement[]): FillBaseline {
+export function fillBaseline(inputs: readonly FilledControl[]): FillBaseline {
   return {
     texts: feedbackTexts(inputs),
     inputs: inputs.map((input) => ({
@@ -106,7 +109,7 @@ export function fillBaseline(inputs: readonly HTMLInputElement[]): FillBaseline 
  * submission.
  */
 export function rejectsFill(
-  inputs: readonly HTMLInputElement[],
+  inputs: readonly FilledControl[],
   before: FillBaseline,
   { statuses = true }: { statuses?: boolean } = {},
 ): boolean {

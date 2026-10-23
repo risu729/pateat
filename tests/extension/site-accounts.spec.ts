@@ -54,7 +54,9 @@ for (const [variant, matched] of [
       await expect(options.locator("#default-account")).toBeDisabled();
 
       await options.locator("#site-origin").fill(site);
-      await expect(options.locator("#default-account-note")).toContainText("1 matching item");
+      await expect(options.locator("#default-account-note")).toContainText(
+        "1 item matches this origin.",
+      );
       // The matched item shows its login username, decrypted only for this answer.
       expect(await accountOptions(options)).toEqual([
         [value, `My test login · test_username (${matched})`],
@@ -66,7 +68,7 @@ for (const [variant, matched] of [
         options.getByRole("combobox", { name: `Default account for ${site}`, exact: true }),
       ).toContainText(`My test login · test_username`);
       await expect(options.locator("#site-list")).toContainText(
-        `Matches this origin by ${matched}; checked again on each login`,
+        `Matches this origin by ${matched}. It is checked again at each login.`,
       );
       // The same item saved for an origin it does not match gets no username.
       await options.locator("#site-origin").fill("https://other.example");

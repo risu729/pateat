@@ -597,9 +597,6 @@ describe("recipe generation role", () => {
       await generate({ ...request, observation: { ...page.observation, complete: false } }),
     ).toMatchObject({ status: "failed", error: "incomplete-observation", calls: 0 });
     expect(await generate({ ...request, slots: [] })).toMatchObject({ error: "invalid-request" });
-    expect(await generate({ ...request, repair: { reason: "unknown" } })).toMatchObject({
-      error: "invalid-request",
-    });
     const small = createRecipeGenerator({
       model,
       limits: { ...limits, maxInputBytes: 1_024 },
@@ -611,22 +608,6 @@ describe("recipe generation role", () => {
       calls: 0,
     });
     expect(model.doGenerateCalls).toHaveLength(0);
-  });
-
-  it("includes locator-only previous steps for a repair request", async () => {
-    const { model, generate } = generatorReturning(plan([["email", "email"]]));
-    const repair = {
-      reason: "structural-mismatch",
-      previousSteps: [
-        {
-          kind: "fill",
-          path: "/login",
-          fields: [{ slot: "email", target: { by: "name", value: "mail" } }],
-        },
-      ],
-    };
-    expect(await generate({ ...request, repair })).toMatchObject({ status: "ok" });
-    expect(generationRequest(model.doGenerateCalls[0]!)).toMatchObject({ task: "repair", repair });
   });
 
   it("refuses model identifiers that would resolve through a global default provider", () => {
@@ -799,8 +780,12 @@ describe("account lists (ADR 0028)", () => {
   };
   const answer = (controls: Record<string, string>) =>
     JSON.stringify({ result: { decision: "account-list", ...controls } });
-  const run = (observation: unknown, text: string) =>
-    generatorReturning(text).generate({ observation, slots: page.slots });
+  // A list is sent without slots (owner 2026-10-23 11:48 UTC); a form with its own.
+  const run = (observation: object, text: string) =>
+    generatorReturning(text).generate({
+      observation,
+      slots: "accounts" in observation ? [] : page.slots,
+    });
 
   it("sends the list line only for a list of accounts", async () => {
     const system = (model: ReturnType<typeof generatorReturning>["model"]) =>
@@ -808,11 +793,27 @@ describe("account lists (ADR 0028)", () => {
         (message) => message.content,
       );
     const listed = generatorReturning(answer({}));
-    await listed.generate({ observation: list, slots: page.slots });
+    await listed.generate({ observation: list, slots: [] });
     expect(system(listed.model)).toEqual([accountListGenerationInstructions]);
     const form = generatorReturning(plan([["email", "email"]]));
     await form.generate(request);
     expect(system(form.model)).toEqual([generationInstructions]);
+  });
+
+  it("refuses a list sent with slots before any call (owner 2026-10-23 11:48 UTC)", async () => {
+    const listed = generatorReturning(answer({}));
+    expect(await listed.generate({ observation: list, slots: page.slots })).toMatchObject({
+      status: "failed",
+      error: "invalid-request",
+      calls: 0,
+    });
+    expect(listed.model.doGenerateCalls).toHaveLength(0);
+    // The prompt holds the list with no slots.
+    await listed.generate({ observation: list, slots: [] });
+    const prompt = listed.model.doGenerateCalls[0]!.prompt.find(
+      (message) => message.role === "user",
+    );
+    expect(JSON.stringify(prompt)).toContain(String.raw`\"slots\":[]`);
   });
 
   it("answers the list's other and continue controls by their locators", async () => {
@@ -830,7 +831,7 @@ describe("account lists (ADR 0028)", () => {
   });
 
   it("refuses a list answer that cannot be clicked safely, keeping only references", async () => {
-    const refused = async (observation: unknown, text: string, detail: string) =>
+    const refused = async (observation: object, text: string, detail: string) =>
       expect(await run(observation, text)).toMatchObject({
         status: "failed",
         error: "invalid-output",
@@ -910,6 +911,8 @@ describe("account lists (ADR 0028)", () => {
       `${generationInstructions} ${accountListInstruction}`,
     );
     expect(accountListInstruction).toContain("answer account-list");
+    // The slot mapping of the generation role's instructions does not apply to a list.
+    expect(accountListInstruction).toContain("has no slots");
     expect(accountListInstruction).toContain("Never choose an account.");
     expect(generationInstructions).not.toContain("account-list");
   });

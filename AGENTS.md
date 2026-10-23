@@ -2,7 +2,9 @@
 
 - Use English consistently for repository documentation, code comments, commit
   messages, and pull request titles and descriptions. Use English for issue text
-  and other repository prose too.
+  and other repository prose too. The exception is a Japanese translation of a
+  user-facing page, such as [README.ja.md](README.ja.md): a PR that changes the English
+  page changes its translation too.
 - Read [docs/README.md](docs/README.md) and the relevant design before editing.
 - Keep current behavior, proposed work, and dated evidence distinct. Update the
   owning document in the same PR; record material decisions in an ADR.
@@ -68,7 +70,9 @@
   suite in its own jobs with `PATEAT_SKIP_E2E`
   ([CI](docs/delivery.md#current-foundation-workflows)) is not a skip.
 - An agent that acts on GitHub as the owner's account never pushes to, closes or
-  reopens a PR it did not open.
+  reopens a PR it did not open, except that it closes a PR its own merged PR
+  superseded, after commenting there with a link to that PR (owner, 2026-10-23 12:18
+  UTC).
 - Write every PR, issue, commit, workflow run and URL you mention in PR and issue text
   and in messages to the owner as a Markdown link, never a bare `#123`, SHA or URL.
 

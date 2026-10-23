@@ -5,7 +5,6 @@ import {
   claudeGeneration,
   claudeModelRates,
   claudeRefusalCategory,
-  claudeRefusalFallback,
   claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
@@ -129,6 +128,33 @@ describe("Claude generation adapter", () => {
     }
   });
 
+  it("runs beforeRequest just before a request is sent, never for one refused locally", async () => {
+    const { sent, fetch } = fakeClaude({ text: groundTruth() });
+    const order: string[] = [];
+    const model = createClaudeGenerationModel({
+      apiKey: syntheticKey,
+      fetch: (async (input, init) => {
+        order.push("sent");
+        return fetch(input, init);
+      }) as typeof globalThis.fetch,
+      beforeRequest: async () => {
+        order.push("before");
+      },
+    });
+    const request = { observation: page.observation, slots: page.slots };
+    const small = createRecipeGenerator({
+      model,
+      limits: { ...limits, maxInputBytes: 1_024 },
+      maxOutputTokens: 4_096,
+    });
+    expect(await small(request)).toMatchObject({ status: "failed", error: "input-too-large" });
+    expect(order).toEqual([]);
+    const generate = createRecipeGenerator({ model, limits, maxOutputTokens: 4_096 });
+    expect((await generate(request)).status).toBe("ok");
+    expect(order).toEqual(["before", "sent"]);
+    expect(sent).toHaveLength(1);
+  });
+
   it("tells the model whose credentials these are and that values stay local", async () => {
     const { sent, fetch } = fakeClaude({ text: groundTruth() });
     const generate = createRecipeGenerator({
@@ -194,7 +220,7 @@ describe("Claude generation adapter", () => {
 
   it("prices the service's models from the committed pricing page", () => {
     expect(claudeGeneration.rates).toEqual({ input: 4, output: 20 });
-    expect(claudeRefusalFallback.rates).toEqual({ input: 2, output: 10 });
+    expect(claudeModelRates("claude-sonnet-5-5")).toEqual({ input: 2, output: 10 });
     expect(claudeModelRates("claude-opus-5-5", "fast")).toEqual({ input: 8, output: 40 });
     expect(claudeModelRates("claude-sonnet-5-5", "fast")).toBeUndefined();
     expect(claudeModelRates("claude-opus-9")).toBeUndefined();

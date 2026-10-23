@@ -32,6 +32,8 @@ function ended(overrides: Overrides = {}): LoginReport {
     origin: "https://bank.example",
     recipeId: "gen-0123",
     recipeRevision: 3,
+    // The layout the login ran (ADR 0060).
+    branch: "1000",
     route: "password",
     variant: 0,
     state: "authenticated",
@@ -52,6 +54,7 @@ describe("loginRecordOf", () => {
       record: {
         version: 1,
         revision: 3,
+        branch: "1000",
         outcome: "authenticated",
         extensionBuild: BUILD,
         totalMs: 9_000,
@@ -70,13 +73,13 @@ describe("loginRecordOf", () => {
           state: "blocked",
           outcome: "structural-mismatch",
           cause: "target-missing",
-          branch: "other",
+          branch: "1000:other",
         }),
         "development",
       ),
     ).toMatchObject({
       record: {
-        branch: "other",
+        branch: "1000:other",
         outcome: "structural-mismatch",
         cause: "target-missing",
         extensionBuild: "development",
@@ -148,20 +151,28 @@ describe("createLoginRecords", () => {
     ]);
     expect(reportLogin.mock.calls.map((call) => call[3].totalMs)).toEqual([9_000, 3_000]);
     expect(logged).toEqual([
-      { recipeId: "gen-0123", revision: 3, result: "kept" },
-      { recipeId: "gen-0123", revision: 3, result: "kept" },
+      { recipeId: "gen-0123", revision: 3, branch: "1000", result: "kept" },
+      { recipeId: "gen-0123", revision: 3, branch: "1000", result: "kept" },
     ]);
+  });
+
+  it("sends no record of a login without a layout (ADR 0060)", () => {
+    // The service files each record under the layout the login ran.
+    expect(loginRecordOf(ended({ branch: undefined }), BUILD)).toBeUndefined();
   });
 
   it("names a record the contract refuses instead of sending it", () => {
     // A build the contract does not accept, or a time over its day.
     expect(loginRecordOf(ended(), "Release 1")).toEqual({
       recipeId: "gen-0123",
-      invalid: { revision: 3 },
+      invalid: { revision: 3, branch: "1000" },
     });
     expect(
-      loginRecordOf(ended({ branch: "other", times: { ...TIMES, totalMs: 86_400_001 } }), BUILD),
-    ).toEqual({ recipeId: "gen-0123", invalid: { revision: 3, branch: "other" } });
+      loginRecordOf(
+        ended({ branch: "1000:other", times: { ...TIMES, totalMs: 86_400_001 } }),
+        BUILD,
+      ),
+    ).toEqual({ recipeId: "gen-0123", invalid: { revision: 3, branch: "1000:other" } });
   });
 
   it("logs a record the contract refuses as failed:invalid-record without sending it", async () => {
@@ -176,7 +187,7 @@ describe("createLoginRecords", () => {
     records.observe(ended());
     await vi.waitFor(() =>
       expect(logged).toEqual([
-        { recipeId: "gen-0123", revision: 3, result: "failed:invalid-record" },
+        { recipeId: "gen-0123", revision: 3, branch: "1000", result: "failed:invalid-record" },
       ]),
     );
     expect(reportLogin).not.toHaveBeenCalled();
@@ -196,12 +207,12 @@ describe("createLoginRecords", () => {
     const { records, reportLogin, logged } = setup({
       answer: async () => ({ kind: "failed", error: "unreachable" }),
     });
-    records.observe(ended({ branch: "other" }));
+    records.observe(ended({ branch: "1000:other" }));
     await vi.waitFor(() => expect(logged).toHaveLength(1));
     expect(logged[0]).toEqual({
       recipeId: "gen-0123",
       revision: 3,
-      branch: "other",
+      branch: "1000:other",
       result: "failed:unreachable",
     });
     await new Promise((resolve) => setTimeout(resolve, 10));

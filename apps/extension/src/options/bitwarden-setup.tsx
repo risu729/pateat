@@ -17,6 +17,7 @@ import {
   Globe,
   Info,
   Lock,
+  LockOpen,
   LogIn,
   LogOut,
   Pause,
@@ -25,13 +26,14 @@ import {
   Trash2,
   TriangleAlert,
 } from "lucide-react";
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode, type RefObject } from "react";
 import * as v from "valibot";
 import type { SetupBegin, SetupReply } from "../connections/types";
 import { providerPermissionOrigins } from "../connections/permissions";
-import { localSyncTime } from "../time";
+import { localClockTime, localSyncTime } from "../time";
 import { Button } from "./button";
 import type { ConnectionClient } from "./connection-client";
+import { UnlockForm, type UnlockResult } from "./unlock-form";
 import {
   checkClass,
   controlClass,
@@ -51,6 +53,11 @@ type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verifi
 type EmailCode = "sending" | Extract<SetupReply, { kind: "email-code" }>["result"];
 /** Below Chrome's 30-second idle limit for an extension service worker. */
 const KEEP_ALIVE_MS = 20_000;
+/**
+ * The official browser extension's `ACCOUNT_LIMIT`. Pateat does not cap connections but
+ * warns past it, since each unlocked vault keeps its own Worker in memory.
+ */
+const BITWARDEN_ACCOUNT_LIMIT = 5;
 const emailCodeLines: Record<EmailCode, { tone: Tone; text: string }> = {
   sending: { tone: "idle", text: "Asking the server to email a verification code…" },
   sent: {
@@ -74,41 +81,66 @@ function normalEmail(email: string) {
   return email.trim().toLowerCase();
 }
 type Message = string | ((translate: TFunction) => string);
+/**
+ * Why a sign-in that waited for its code until `expiresAt` ended at `endedAt`: its 5 minutes
+ * passed, or before that the worker holding it stopped (Chrome restarted or updated it). The
+ * panel status says what happened; the sign-in form, where the password goes, says why.
+ */
+function endedText(expiresAt: number, endedAt: number): { status: string; reason: Message } {
+  return endedAt < expiresAt
+    ? {
+        status: "The sign-in ended before the code was entered.",
+        reason: (translate) =>
+          translate(
+            "The sign-in ended early, by {{time}}, before its 5 minutes. This usually means Chrome stopped Pateat's background. Enter the master password to start again.",
+            { time: localClockTime(endedAt, formatLocale()) },
+          ),
+      }
+    : {
+        status: "The sign-in timed out waiting for the code.",
+        reason: (translate) =>
+          translate(
+            "The sign-in timed out at {{time}}: no code was entered within 5 minutes. Enter the master password to start again.",
+            { time: localClockTime(expiresAt, formatLocale()) },
+          ),
+      };
+}
 const deleteDialog = AlertDialog.createHandle<Connection>();
 function errorMessage(code: string, check?: string): Message {
   if (code === "account-mismatch")
     return (translate) =>
       translate(
-        "The provider's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.",
+        "Bitwarden's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.",
         { check: check ? translate(" (check: {{check}})", { check }) : "" },
       );
   const messages: Record<string, string> = {
     "provider-permission-required":
-      "Provider access was not granted. Use the connection button to grant access.",
+      "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.",
     "setup-reauthentication-required":
       "Sign in again to sync. The saved local vault can still unlock independently.",
     "auto-unlock-disabled":
-      "Automatic unlock is off for this connection, and Sync needs it. Sign in again and check Enable automatic unlock on this device to restore it.",
+      "This connection is logged out on this device. Sign in again to use and sync it.",
+    "vault-locked": "The vault is locked. Unlock it with the master password first.",
     "crypto-locked": "The vault is locked. Refresh to check recovery options.",
     "resource-limit":
       "The operation reached a resource limit. Refresh to check the current vault status before trying again.",
     "cache-quota-exceeded":
-      "The vault exceeds the local cache limit. Refresh to check the current vault status.",
+      "The vault is larger than Pateat's local copy can hold. Refresh to check the current vault status.",
     "storage-uncertain":
-      "The cache update could not be confirmed. Refresh and reload saved settings before using this vault.",
+      "Pateat could not confirm that the local vault copy was updated. Refresh and reload saved settings before using this vault.",
     "setup-expired": "This verification session expired. Start sign-in again.",
     "unsupported-crypto": "This account uses an unsupported vault format. Setup is incomplete.",
-    "invalid-response": "The provider response could not be accepted. Setup is incomplete.",
+    "invalid-response": "Bitwarden's answer could not be accepted. Setup is incomplete.",
     "authentication-rejected":
-      "The provider rejected this sign-in. Review the account and password before starting again.",
-    "authentication-expired": "The provider session expired. Sign in again to sync.",
+      "Bitwarden did not accept this sign-in. Check the email and master password, then try again.",
+    "authentication-expired": "The Bitwarden sign-in expired. Sign in again to sync.",
     "revision-conflict":
-      "Saved settings changed. Reload saved settings and review the current field list before trying again.",
+      "The saved settings changed. Reload saved settings and review the current fields, then try again.",
   };
   return Object.hasOwn(messages, code)
     ? messages[code]!
     : (translate) =>
-        translate("Connection operation unavailable ({{code}}). Refresh before trying again.", {
+        translate("The connection could not do this ({{code}}). Refresh, then try again.", {
           code,
         });
 }
@@ -125,7 +157,7 @@ function statusLines(connection: Connection, t: TFunction, language: string): Li
       lines.push({
         tone: "warn",
         icon: TriangleAlert,
-        text: t("Some items need their field settings reviewed before use"),
+        text: t("Some items need their field settings reviewed before use."),
       });
       break;
     case "configured":
@@ -138,8 +170,15 @@ function statusLines(connection: Connection, t: TFunction, language: string): Li
     case "unavailable":
       lines.push({ tone: "err", icon: CircleX, text: t("Vault unavailable") });
       break;
+    case "locked":
+      lines.push({
+        tone: "warn",
+        icon: Lock,
+        text: t("Vault locked"),
+      });
+      break;
     case "disabled":
-      // The automatic-unlock line below says it.
+      lines.push({ tone: "idle", icon: LogOut, text: t("Logged out on this device") });
       break;
   }
   switch (connection.providerSession) {
@@ -173,10 +212,12 @@ function statusLines(connection: Connection, t: TFunction, language: string): Li
       }),
     });
   }
+  // A locked or logged-out vault has no unlock to describe.
+  if (connection.state === "locked" || connection.state === "disabled") return lines;
   if (connection.autoUnlock === "enabled")
     lines.push({ tone: "ok", icon: CircleCheck, text: t("Automatic unlock on") });
   else if (connection.autoUnlock === "disabled")
-    lines.push({ tone: "idle", icon: Pause, text: t("Automatic unlock off") });
+    lines.push({ tone: "idle", icon: Clock, text: t("Locks at the vault timeout") });
   else lines.push({ tone: "idle", icon: Info, text: t("Automatic unlock unknown") });
   return lines;
 }
@@ -251,6 +292,7 @@ export function BitwardenSetup({
   onCatalogChanged,
   acceptedSettings,
   reviewBlocked = true,
+  unsavedChanges = false,
   renderAccess,
   renderOthers,
 }: {
@@ -258,6 +300,8 @@ export function BitwardenSetup({
   onCatalogChanged: () => void;
   acceptedSettings?: Extract<SettingsResponse, { ok: true }> | undefined;
   reviewBlocked?: boolean;
+  /** The settings page has unsaved changes, which reloading saved settings would drop. */
+  unsavedChanges?: boolean;
   /** Which items Pateat may use from a connection, shown in its row. */
   renderAccess?: (connectionId: string) => ReactNode;
   /** What goes under the rows, given the listed connections once their status was read. */
@@ -272,24 +316,36 @@ export function BitwardenSetup({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [enabled, setEnabled] = useState(true);
-  const [enableUnlock, setEnableUnlock] = useState(false);
+  // The connection whose unlock form is open in its row.
+  const [unlocking, setUnlocking] = useState<string>();
   const [challenge, setChallenge] = useState<Challenge>();
   const menuTriggers = useRef(new Map<string, HTMLButtonElement>());
   const keepConnectionButton = useRef<HTMLButtonElement>(null);
   // Unset until toggled: the form starts open only while there is no connection.
   const [addOpen, setAddOpen] = useState<boolean>();
-  const focusPassword = useRef(false);
+  // A control to focus once it is shown and enabled, such as a field in a form just opened.
+  const focusNext = useRef<RefObject<HTMLElement | null>>(undefined);
+  const shownChallenge = useRef<Challenge>(undefined);
+  const deleting = useRef(false);
+  const wasBusy = useRef(false);
+  // A cancel ended the person's action, even when no operation was running.
+  const cancelled = useRef(false);
   const [provider, setProvider] = useState<0 | 1>(0);
   const [emailCode, setEmailCode] = useState<EmailCode>();
   // The sign-in whose email code was already asked for once without a click.
   const emailFlow = useRef<string>(undefined);
-  // Disabling the form for a send drops focus from the method select; return it to the code.
-  const focusCode = useRef(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(true);
   const [statusKnown, setStatusKnown] = useState(false);
   const [message, setMessage] = useState<Message>("Loading Bitwarden connections…");
   const say = (next: Message) => setMessage(() => next);
+  // When the shown challenge stops waiting; a reply handler may see an older render's state.
+  const deadline = useRef<{ flowId: string; expiresAt: number }>(undefined);
+  // Why the last sign-in ended while it waited for its code, shown in the sign-in form.
+  const [ended, setEndedState] = useState<Message>();
+  const setEnded = (next: Message | undefined) => setEndedState(() => next);
+  // The server refused the last code; the code screen says so until the next answer.
+  const [refused, setRefused] = useState(false);
   const operation = useRef(false);
   const generation = useRef(0);
   // The page's first connection read is running.
@@ -302,6 +358,8 @@ export function BitwardenSetup({
   draft.current = { name, email };
   const passwordInput = useRef<HTMLInputElement>(null);
   const codeInput = useRef<HTMLInputElement>(null);
+  const regionSelect = useRef<HTMLSelectElement>(null);
+  const statusOutput = useRef<HTMLOutputElement>(null);
   const catalogChanged = useRef(onCatalogChanged);
   catalogChanged.current = onCatalogChanged;
   function clearSecrets() {
@@ -357,7 +415,7 @@ export function BitwardenSetup({
       })
       .catch(() => {
         if (epoch === generation.current)
-          say("Unable to read connection status. Refresh to retry.");
+          say("Pateat could not read the connection status. Refresh to try again.");
       })
       .finally(() => {
         if (epoch === generation.current) {
@@ -379,9 +437,30 @@ export function BitwardenSetup({
   /** `endsAdd`: the reply answers this page's add, so its read is the add's last chance. */
   async function receive(result: SetupReply, epoch: number, endsAdd = false) {
     if (epoch !== generation.current) return;
+    const expiresAt = deadline.current?.expiresAt;
+    deadline.current = undefined;
     if (!result.ok) {
       setChallenge(undefined);
-      say(errorMessage(result.error.code, result.error.check));
+      const now = Date.now();
+      if (expiresAt !== undefined && result.error.code === "setup-expired") {
+        const text = endedText(expiresAt, now);
+        setEnded(text.reason);
+        say(text.status);
+      } else if (expiresAt !== undefined && result.error.code === "cancelled" && now >= expiresAt) {
+        // The end stopped the work after a code, which may have been accepted: the vault
+        // download and unlock still count against the 5 minutes.
+        setEnded(
+          "The sign-in reached its 5-minute end before it finished. Enter the master password to start again.",
+        );
+        say(
+          "The sign-in reached its 5-minute end before it finished. Enter the master password to start again.",
+        );
+      } else {
+        const text = errorMessage(result.error.code, result.error.check);
+        say(text);
+        // Any other end of a waiting sign-in is said where the password goes too.
+        if (expiresAt !== undefined) setEnded(text);
+      }
       // A resolved error may follow a durable cache/configuration change.
       // Preserve the draft and require a fresh catalog before another settings save.
       onCatalogChanged();
@@ -390,17 +469,20 @@ export function BitwardenSetup({
     }
     if (result.kind === "mfa-required" || result.kind === "new-device-verification-required") {
       setChallenge(result);
-      if (result.kind === "mfa-required") {
+      deadline.current = { flowId: result.flowId, expiresAt: result.expiresAt };
+      setEnded(undefined);
+      const again = result.kind === "mfa-required" ? !!result.invalidCode : result.invalidOtp;
+      setRefused(again);
+      if (again) {
+        // The same sign-in waits for another code: the method and the sent email stay.
+        focusNext.current = codeInput;
+        say("The code was not accepted.");
+      } else if (result.kind === "mfa-required") {
         // Ascending IDs put the authenticator before email, as the official clients rank them.
         setProvider(result.providers[0] ?? 0);
         setEmailCode(undefined);
         say("Enter a two-step verification code.");
-      } else
-        say(
-          result.invalidOtp
-            ? "The new-device code was rejected. Enter a new code manually."
-            : "Enter the new-device verification code from your email.",
-        );
+      } else say("Enter the new-device verification code from your email.");
       // Adding a connection already saved its policy entry, so the settings draft reloads.
       onCatalogChanged();
       return;
@@ -414,16 +496,19 @@ export function BitwardenSetup({
                 "Vault accepted. {{count}} item needs its field settings reviewed before use.",
                 { count: result.policyReviewItemIds.length },
               )
-          : "Vault verified and local cache accepted. Check automatic-unlock status below.",
+          : "Vault verified, unlocked and copied to this device.",
       );
       setExisting(undefined);
       catalogChanged.current();
       await readConnections(epoch, endsAdd);
     } else if (result.kind === "interaction-required") {
       say((translate) =>
-        translate("Setup is incomplete: {{reason}}. This interaction is not supported here.", {
-          reason: result.reason,
-        }),
+        translate(
+          "Setup is incomplete: Bitwarden asks for a step Pateat does not support ({{reason}}).",
+          {
+            reason: result.reason,
+          },
+        ),
       );
       await rereadConnections(epoch, endsAdd, endsAdd);
     } else if (result.kind === "cancelled") {
@@ -437,14 +522,23 @@ export function BitwardenSetup({
       await readConnections(epoch);
     } else if (result.kind === "deleted") {
       say(
-        "Connection deleted from this device, with its local vault cache, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
+        "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
       );
       const deleted = result.connectionId;
       setExisting((previous) => (previous?.connectionId === deleted ? undefined : previous));
       catalogChanged.current();
       await readConnections(epoch);
     } else if (result.kind === "disabled") {
-      say("Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.");
+      say("Logged out on this device. Sign in again to use this vault.");
+      catalogChanged.current();
+      await readConnections(epoch);
+    } else if (result.kind === "locked") {
+      say("Vault locked. Unlock it with the master password; the sync sign-in stays.");
+      catalogChanged.current();
+      await readConnections(epoch);
+    } else if (result.kind === "unlocked") {
+      say("Vault unlocked.");
+      setUnlocking(undefined);
       catalogChanged.current();
       await readConnections(epoch);
     }
@@ -458,10 +552,9 @@ export function BitwardenSetup({
     void action(epoch)
       .catch(() => {
         if (epoch !== generation.current) return;
+        deadline.current = undefined;
         setChallenge(undefined);
-        say(
-          "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.",
-        );
+        say("Pateat could not confirm the result. Refresh, then reload saved settings.");
         catalogChanged.current();
       })
       .finally(() => {
@@ -475,22 +568,17 @@ export function BitwardenSetup({
     const environment: BitwardenProfile["environment"] =
       existing?.environment ??
       (region === "self-hosted"
-        ? { kind: "self-hosted", baseUrl }
+        ? { kind: "self-hosted", baseUrl: baseUrl.trim() }
         : { kind: "cloud", region: region === "eu" ? "eu" : "us" });
     const profile = normalizeBitwardenProfile({ connectionId: "setup-preview", environment });
     if (!profile.ok || (!existing && (!name.trim() || !v.is(bitwardenEmail, email))) || !password) {
       say(
-        "Enter a connection name, valid email and master password. Self-hosted addresses must be HTTPS roots, or HTTP on localhost or 127.0.0.1, without a path, credentials, query or fragment.",
+        "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, or HTTP on localhost or 127.0.0.1, with no path, credentials, query or fragment.",
       );
       return;
     }
     const input: SetupBegin = existing
-      ? {
-          kind: "existing",
-          connectionId: existing.connectionId,
-          password,
-          autoUnlock: enableUnlock ? "enable" : "preserve",
-        }
+      ? { kind: "existing", connectionId: existing.connectionId, password }
       : {
           kind: "new",
           environment: profile.data.environment,
@@ -500,12 +588,13 @@ export function BitwardenSetup({
           enabled,
         };
     clearSecrets();
-    say("Requesting provider access and connecting…");
+    setEnded(undefined);
+    say("Asking Chrome for access to the Bitwarden server, then connecting…");
     start(async (epoch) => {
       const granted = await client.requestProviderPermission(profile.data.environment);
       if (epoch !== generation.current) return;
       if (!granted) {
-        say("Provider access was not granted. No sign-in request was sent.");
+        say("Chrome did not grant access to the Bitwarden server, so nothing was sent.");
         return;
       }
       // A sign-in again leaves an add still pending after a stop in place.
@@ -520,11 +609,13 @@ export function BitwardenSetup({
     });
   }
   function continueSetup() {
-    if (!challenge || !code || operation.current) return;
+    // As the official clients, only the ends are trimmed, so a pasted code keeps its digits.
+    const value = code.trim();
+    if (!challenge || !value || operation.current) return;
     const input =
       challenge.kind === "mfa-required"
-        ? { flowId: challenge.flowId, twoFactor: { provider, code } }
-        : { flowId: challenge.flowId, newDeviceOtp: code };
+        ? { flowId: challenge.flowId, twoFactor: { provider, code: value } }
+        : { flowId: challenge.flowId, newDeviceOtp: value };
     clearSecrets();
     start(async (epoch) => {
       await receive(await client.continue(input), epoch, adding.current);
@@ -532,8 +623,12 @@ export function BitwardenSetup({
   }
   function sendEmailCode(flowId: string) {
     if (operation.current) return;
+    // A new code is on its way; the refused one no longer matters.
+    setRefused(false);
     setEmailCode("sending");
-    focusCode.current = true;
+    // Disabling the form for a send drops focus from the method select or Resend code;
+    // return it to the code.
+    focusNext.current = codeInput;
     start(async (epoch) => {
       const result = await client.sendEmailCode(flowId);
       if (epoch !== generation.current) return;
@@ -557,7 +652,9 @@ export function BitwardenSetup({
   // The waiting sign-in, password included, lives only in the service worker, which Chrome
   // stops after 30 seconds without an event while the person fetches a code. A message on
   // the Port restarts that count, so the page sends one as soon as a challenge shows and
-  // every 20 seconds after, until the challenge's own 5 minutes end it.
+  // every 20 seconds after, until the challenge's own 5 minutes end it. A tab Chrome froze
+  // or slowed, or a computer that slept, hears late, so the page also asks as the 5 minutes
+  // end and as it shows again, and says at once that the sign-in ended.
   const beat = useEffectEvent(async (flowId: string) => {
     // An operation started after this beat moves the epoch on and answers for the flow.
     const epoch = generation.current;
@@ -571,23 +668,32 @@ export function BitwardenSetup({
     // Only an ended flow ends the challenge; a running request answers for the flow
     // itself, and a busy worker's refusal leaves it waiting.
     if (result.ok || result.error.code !== "setup-expired" || operation.current) return;
+    // Several heartbeats can find the end at once, as when a frozen tab shows again; only
+    // the first ends the challenge it was sent for.
+    if (deadline.current?.flowId !== flowId) return;
     await receive(result, epoch, adding.current);
   });
   useEffect(() => {
     if (!challenge) return;
-    const { flowId } = challenge;
+    const { flowId, expiresAt } = challenge;
     void beat(flowId);
     const timer = setInterval(() => void beat(flowId), KEEP_ALIVE_MS);
-    return () => clearInterval(timer);
+    const end = setTimeout(() => void beat(flowId), Math.max(0, expiresAt - Date.now()));
+    const shown = () => {
+      if (document.visibilityState === "visible") void beat(flowId);
+    };
+    document.addEventListener("visibilitychange", shown);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(end);
+      document.removeEventListener("visibilitychange", shown);
+    };
   }, [challenge]);
-  useEffect(() => {
-    if (!focusCode.current || busy) return;
-    focusCode.current = false;
-    codeInput.current?.focus();
-  });
-  function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
+  function cancel(stopped = "Setup stopped. Refresh to see the current state.") {
+    cancelled.current = true;
     clearSecrets();
     setExisting(undefined);
+    setEnded(undefined);
     // With nothing running, a pending re-read from an earlier stop must still land.
     if (!operation.current && !challenge) {
       say("Setup cancelled.");
@@ -595,6 +701,7 @@ export function BitwardenSetup({
     }
     const epoch = ++generation.current;
     operation.current = false;
+    deadline.current = undefined;
     setChallenge(undefined);
     setBusy(false);
     client.close();
@@ -610,7 +717,7 @@ export function BitwardenSetup({
         })
         .catch(() => {
           if (epoch === generation.current)
-            say("Unable to read connection status. Refresh to retry.");
+            say("Pateat could not read the connection status. Refresh to try again.");
         })
         .finally(() => {
           // As after the first read: other settings show even when the status is unreadable.
@@ -630,40 +737,90 @@ export function BitwardenSetup({
       const granted = await client.requestProviderPermission(connection.environment);
       if (epoch !== generation.current) return;
       if (!granted) {
-        say("Provider access was not granted. No sync request was sent.");
+        say("Chrome did not grant access to the Bitwarden server, so nothing was synced.");
         return;
       }
       await receive(await client.sync(connection.connectionId), epoch);
     });
   }
   function signInAgain(connection: Connection, explain = true) {
-    // A connection that never unlocked has no automatic unlock to keep, and accepting its vault
-    // without enabling it is refused, so finishing its setup enables it as adding would have.
-    // "unknown" with an unreadable record may hide a choice to keep it off, so that stays unchecked.
+    // A connection that never unlocked has no record yet; its first sign-in finishes the setup.
     const unfinished = connection.autoUnlock === "unknown" && connection.state !== "unavailable";
     clearSecrets();
     setExisting(connection);
-    setEnableUnlock(unfinished);
+    setUnlocking(undefined);
+    if (explain) setEnded(undefined);
     setAddOpen(true);
-    focusPassword.current = true;
+    focusNext.current = passwordInput;
     if (!explain) return;
     say(
       unfinished
-        ? "Enter the master password to finish setting up this connection. Automatic unlock is enabled, as when adding it."
-        : "Enter the master password to sign in again. Automatic unlock stays unchanged unless explicitly enabled.",
+        ? "Enter the master password to finish setting up this connection."
+        : "Enter the master password to sign in again.",
     );
   }
-  // The sign-in form may only now be open, or still disabled by the operation that opened it;
-  // focus its password once it is shown and enabled.
+  /** Unlocks a locked vault offline; the form shows a wrong password itself. */
+  function unlockConnection(connection: Connection, masterPassword: string): Promise<UnlockResult> {
+    return new Promise((resolve) => {
+      if (operation.current) {
+        resolve({ ok: false, error: "unavailable" });
+        return;
+      }
+      say((translate) => translate("Unlocking {{name}}…", { name: connection.label }));
+      let answer: UnlockResult = { ok: false, error: "unavailable" };
+      start(async (epoch) => {
+        try {
+          const result = await client.unlock(connection.connectionId, masterPassword);
+          if (!result.ok && result.error.code === "crypto-failed") {
+            answer = { ok: false, error: "wrong-password" };
+            if (epoch === generation.current) say("Invalid master password.");
+            return;
+          }
+          if (result.ok) answer = { ok: true };
+          await receive(result, epoch);
+        } finally {
+          resolve(answer);
+        }
+      });
+    });
+  }
   useEffect(() => {
-    if (!focusPassword.current || busy) return;
-    focusPassword.current = false;
-    passwordInput.current?.focus();
+    // The first load is not the person's operation and must not take focus.
+    const finished = (wasBusy.current && !busy) || cancelled.current;
+    wasBusy.current = busy && statusKnown;
+    cancelled.current = false;
+    const focused = document.activeElement;
+    // Focus the person moved out of the panel, such as into another settings field while
+    // a sign-in ran, stays there.
+    const lost = !focused || focused === document.body || focused.matches(":disabled");
+    if (challenge !== shownChallenge.current) {
+      shownChallenge.current = challenge;
+      // A new or repeated challenge asks for a code. When it ends, its removed controls
+      // leave focus on the page; the status then says how it ended, unless the end opened
+      // another control to fill, such as the master password to finish a first sign-in.
+      if (challenge) focusNext.current = codeInput;
+      else if (focusNext.current === codeInput) focusNext.current = undefined;
+      if (!challenge && !focusNext.current && (!focused || focused === document.body))
+        statusOutput.current?.focus({ preventScroll: true });
+    }
+    // The control may only now be shown, or still disabled while an operation finishes. An
+    // operation started in this render, such as the email send choosing email starts, has
+    // not disabled it yet.
+    const target = focusNext.current?.current;
+    if (target?.isConnected && !target.matches(":disabled") && !operation.current) {
+      focusNext.current = undefined;
+      if (lost || focused.closest("#bitwarden")) target.focus();
+      return;
+    }
+    // A control the result removed or disabled, such as Cancel setup with nothing left to
+    // cancel, leaves focus on the page; the status says what happened.
+    if (finished && !focusNext.current && lost)
+      statusOutput.current?.focus({ preventScroll: true });
   });
   const previewEnvironment: BitwardenProfile["environment"] =
     existing?.environment ??
     (region === "self-hosted"
-      ? { kind: "self-hosted", baseUrl }
+      ? { kind: "self-hosted", baseUrl: baseUrl.trim() }
       : { kind: "cloud", region: region === "eu" ? "eu" : "us" });
   const origins = providerPermissionOrigins(previewEnvironment);
   const formOpen = addOpen ?? !connections.length;
@@ -685,7 +842,7 @@ export function BitwardenSetup({
             <Button
               type="button"
               variant="outline"
-              onClick={() => cancel("Stopped. Refresh to confirm the latest state.")}
+              onClick={() => cancel("Stopped. Refresh to see the current state.")}
             >
               {t("Cancel")}
             </Button>
@@ -696,6 +853,7 @@ export function BitwardenSetup({
             variant="ghost"
             aria-label={t("Refresh connections")}
             disabled={busy || !!challenge}
+            focusableWhenDisabled={busy}
             onClick={() =>
               start(async (epoch) => {
                 await readConnections(epoch);
@@ -711,6 +869,8 @@ export function BitwardenSetup({
     >
       <output
         id="bitwarden-setup-status"
+        ref={statusOutput}
+        tabIndex={-1}
         className="settings-status block text-sm leading-5"
         aria-live="polite"
         aria-atomic="true"
@@ -720,6 +880,7 @@ export function BitwardenSetup({
       <RowList id="bitwarden-connections">
         {connections.map((connection) => {
           const signInFirst = needsSignIn(connection);
+          const locked = connection.state === "locked";
           const blocked = busy || !!challenge;
           return (
             <Row
@@ -739,25 +900,48 @@ export function BitwardenSetup({
               }
               actions={
                 <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={blocked}
-                    aria-label={t("{{name}}: {{action}}", {
-                      name: connection.label,
-                      action: t(signInFirst ? "Sign in again" : "Sync"),
-                    })}
-                    onClick={() =>
-                      signInFirst ? signInAgain(connection) : syncConnection(connection)
-                    }
-                  >
-                    {signInFirst ? (
-                      <LogIn aria-hidden size={16} strokeWidth={2} />
-                    ) : (
-                      <RefreshCw aria-hidden size={16} strokeWidth={2} />
-                    )}
-                    {t(signInFirst ? "Sign in again" : "Sync")}
-                  </Button>
+                  {locked ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={blocked}
+                      focusableWhenDisabled={busy}
+                      aria-expanded={unlocking === connection.connectionId}
+                      aria-label={t("{{name}}: {{action}}", {
+                        name: connection.label,
+                        action: t("Unlock"),
+                      })}
+                      onClick={() =>
+                        setUnlocking((open) =>
+                          open === connection.connectionId ? undefined : connection.connectionId,
+                        )
+                      }
+                    >
+                      <LockOpen aria-hidden size={16} strokeWidth={2} />
+                      {t("Unlock")}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={blocked}
+                      focusableWhenDisabled={busy}
+                      aria-label={t("{{name}}: {{action}}", {
+                        name: connection.label,
+                        action: t(signInFirst ? "Sign in again" : "Sync"),
+                      })}
+                      onClick={() =>
+                        signInFirst ? signInAgain(connection) : syncConnection(connection)
+                      }
+                    >
+                      {signInFirst ? (
+                        <LogIn aria-hidden size={16} strokeWidth={2} />
+                      ) : (
+                        <RefreshCw aria-hidden size={16} strokeWidth={2} />
+                      )}
+                      {t(signInFirst ? "Sign in again" : "Sync")}
+                    </Button>
+                  )}
                   <Menu.Root>
                     <Menu.Trigger
                       ref={(element: HTMLButtonElement | null) => {
@@ -794,12 +978,29 @@ export function BitwardenSetup({
                           )}
                           <Menu.Item
                             className={menuItemClass}
-                            aria-label={t("{{name}}: Disable automatic unlock", {
-                              name: connection.label,
-                            })}
-                            disabled={connection.autoUnlock === "disabled"}
+                            aria-label={t("{{name}}: Lock", { name: connection.label })}
+                            disabled={
+                              locked ||
+                              connection.state === "disabled" ||
+                              connection.autoUnlock === "unknown"
+                            }
                             onClick={() =>
                               start(async (epoch) => {
+                                setUnlocking(undefined);
+                                await receive(await client.lock(connection.connectionId), epoch);
+                              })
+                            }
+                          >
+                            <Lock aria-hidden size={16} strokeWidth={2} />
+                            {t("Lock")}
+                          </Menu.Item>
+                          <Menu.Item
+                            className={menuItemClass}
+                            aria-label={t("{{name}}: Log out", { name: connection.label })}
+                            disabled={connection.state === "disabled"}
+                            onClick={() =>
+                              start(async (epoch) => {
+                                setUnlocking(undefined);
                                 await receive(
                                   await client.disableAutoUnlock(connection.connectionId),
                                   epoch,
@@ -807,8 +1008,8 @@ export function BitwardenSetup({
                               })
                             }
                           >
-                            <Pause aria-hidden size={16} strokeWidth={2} />
-                            {t("Disable automatic unlock")}
+                            <LogOut aria-hidden size={16} strokeWidth={2} />
+                            {t("Log out")}
                           </Menu.Item>
                           <Menu.Item
                             className={menuItemClass}
@@ -845,11 +1046,36 @@ export function BitwardenSetup({
                 </>
               }
             >
+              {locked && unlocking === connection.connectionId && (
+                <div className="basis-full">
+                  <UnlockForm
+                    // The form opens because the person pressed Unlock to type into it.
+                    // oxlint-disable-next-line jsx-a11y/no-autofocus
+                    autoFocus
+                    disabled={blocked}
+                    accountLabel={connection.email}
+                    onSubmit={(value) => unlockConnection(connection, value)}
+                  />
+                </div>
+              )}
               {renderAccess?.(connection.connectionId)}
             </Row>
           );
         })}
       </RowList>
+      {connections.length > BITWARDEN_ACCOUNT_LIMIT && (
+        <StatusLines
+          lines={[
+            {
+              tone: "warn",
+              icon: TriangleAlert,
+              text: t(
+                "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.",
+              ),
+            },
+          ]}
+        />
+      )}
       <AlertDialog.Root
         handle={deleteDialog}
         onOpenChange={(open, details) => {
@@ -865,14 +1091,21 @@ export function BitwardenSetup({
             <AlertDialog.Popup
               className="fixed top-1/2 left-1/2 max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-surface p-6 text-ink shadow-[var(--shadow-menu)] outline-none transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0"
               initialFocus={keepConnectionButton}
-              finalFocus={() => (payload && menuTriggers.current.get(payload.connectionId)) ?? true}
+              finalFocus={() => {
+                // Deleting removes the row's menu; the status reports the outcome either way.
+                if (deleting.current) {
+                  deleting.current = false;
+                  return statusOutput.current ?? true;
+                }
+                return (payload && menuTriggers.current.get(payload.connectionId)) ?? true;
+              }}
             >
               <AlertDialog.Title className="m-0 text-lg font-semibold wrap-anywhere">
                 {t("Delete {{name}}?", { name: payload?.label })}
               </AlertDialog.Title>
               <AlertDialog.Description className="my-4 text-sm leading-6">
                 {t(
-                  "This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+                  "This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
                 )}
               </AlertDialog.Description>
               <div className="flex flex-wrap justify-end gap-2">
@@ -891,6 +1124,7 @@ export function BitwardenSetup({
                   onClick={() => {
                     // Close retains these buttons during its exit animation.
                     if (!deleteDialog.isOpen || !payload) return;
+                    deleting.current = true;
                     start(async (epoch) => {
                       await receive(await client.deleteConnection(payload.connectionId), epoch);
                     });
@@ -931,7 +1165,9 @@ export function BitwardenSetup({
                         tone: "warn" as const,
                         icon: TriangleAlert,
                         text: t(
-                          "Reload saved settings to review the current field list. Your unsaved policy draft is preserved until you choose Reload.",
+                          unsavedChanges
+                            ? "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload."
+                            : "Reload saved settings to review the current fields.",
                         ),
                       },
                     ]
@@ -967,6 +1203,40 @@ export function BitwardenSetup({
         <div className={groupClass}>
           <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0" disabled={busy}>
             <legend className="mb-3 p-0 font-semibold">{t("Manual verification")}</legend>
+            <StatusLines
+              id="bitwarden-code-deadline"
+              muted
+              lines={[
+                ...(refused
+                  ? [
+                      {
+                        tone: "warn" as const,
+                        icon: TriangleAlert,
+                        text:
+                          challenge.kind === "mfa-required" && provider === 0
+                            ? t(
+                                "The code was not accepted: it is wrong or no longer valid. Enter the current code from the authenticator app.",
+                              )
+                            : challenge.kind === "mfa-required"
+                              ? t(
+                                  "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email, or Resend code.",
+                                )
+                              : t(
+                                  "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email.",
+                                ),
+                      },
+                    ]
+                  : []),
+                {
+                  tone: "idle",
+                  icon: Clock,
+                  text: t(
+                    "Enter the code by {{time}}. After that the sign-in ends and needs the master password again.",
+                    { time: localClockTime(challenge.expiresAt, formatLocale()) },
+                  ),
+                },
+              ]}
+            />
             {challenge.kind === "mfa-required" ? (
               <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
                 <label className={fieldClass}>
@@ -990,6 +1260,7 @@ export function BitwardenSetup({
                     id="bitwarden-code"
                     ref={codeInput}
                     className={controlClass}
+                    aria-describedby="bitwarden-code-deadline"
                     type="password"
                     autoComplete="off"
                     maxLength={1024}
@@ -1005,6 +1276,7 @@ export function BitwardenSetup({
                   id="bitwarden-new-device-otp"
                   ref={codeInput}
                   className={controlClass}
+                  aria-describedby="bitwarden-code-deadline"
                   type="password"
                   autoComplete="off"
                   maxLength={1024}
@@ -1047,8 +1319,11 @@ export function BitwardenSetup({
             <Button
               id="bitwarden-continue"
               type="button"
+              focusableWhenDisabled={busy}
               disabled={
-                busy || !code || (challenge.kind === "mfa-required" && !challenge.providers.length)
+                busy ||
+                !code.trim() ||
+                (challenge.kind === "mfa-required" && !challenge.providers.length)
               }
               onClick={continueSetup}
             >
@@ -1078,6 +1353,18 @@ export function BitwardenSetup({
                 ? t("Sign in to {{name}} again", { name: existing.label })
                 : t("Add a connection")}
             </legend>
+            {ended && (
+              <StatusLines
+                id="bitwarden-sign-in-ended"
+                lines={[
+                  {
+                    tone: "warn",
+                    icon: TriangleAlert,
+                    text: typeof ended === "function" ? ended(t) : t(ended),
+                  },
+                ]}
+              />
+            )}
             <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
               {!existing && (
                 <>
@@ -1085,6 +1372,7 @@ export function BitwardenSetup({
                     {t("Server")}
                     <select
                       id="bitwarden-region"
+                      ref={regionSelect}
                       className={controlClass}
                       value={region}
                       onChange={(event) => setRegion(event.target.value)}
@@ -1146,6 +1434,7 @@ export function BitwardenSetup({
                   id="bitwarden-password"
                   ref={passwordInput}
                   className={controlClass}
+                  aria-describedby={ended ? "bitwarden-sign-in-ended" : undefined}
                   type="password"
                   autoComplete="off"
                   value={password}
@@ -1153,17 +1442,7 @@ export function BitwardenSetup({
                 />
               </label>
             </div>
-            {existing ? (
-              <label className={checkClass}>
-                <input
-                  id="bitwarden-enable-auto-unlock"
-                  type="checkbox"
-                  checked={enableUnlock}
-                  onChange={(event) => setEnableUnlock(event.target.checked)}
-                />
-                {t("Enable automatic unlock on this device")}
-              </label>
-            ) : (
+            {!existing && (
               <label className={checkClass}>
                 <input
                   id="bitwarden-enabled"
@@ -1171,24 +1450,36 @@ export function BitwardenSetup({
                   checked={enabled}
                   onChange={(event) => setEnabled(event.target.checked)}
                 />
-                {t("Use this connection")}
+                {t("Use this vault")}
               </label>
             )}
             <StatusLines
               muted
               lines={[
+                // Past the limit, the same warning already stands under the list.
+                ...(!existing && connections.length === BITWARDEN_ACCOUNT_LIMIT
+                  ? [
+                      {
+                        tone: "warn" as const,
+                        icon: TriangleAlert,
+                        text: t(
+                          "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.",
+                        ),
+                      },
+                    ]
+                  : []),
                 {
                   tone: "idle",
                   icon: Lock,
                   text: t(
-                    "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.",
+                    "The master password and verification codes are not saved. An encrypted vault copy and a sync sign-in stay on this device, and its unlock key too while the vault timeout is Never.",
                   ),
                 },
                 origins.ok
                   ? {
                       tone: "idle",
                       icon: Globe,
-                      text: t("Chrome asks for access to {{hosts}}", {
+                      text: t("Chrome asks for access to {{hosts}}.", {
                         hosts: listHosts(origins.data, formatLocale()),
                       }),
                     }
@@ -1201,7 +1492,13 @@ export function BitwardenSetup({
             />
           </fieldset>
           <div className="flex flex-wrap gap-2">
-            <Button id="bitwarden-connect" type="button" disabled={busy} onClick={connect}>
+            <Button
+              id="bitwarden-connect"
+              type="button"
+              disabled={busy}
+              focusableWhenDisabled={busy}
+              onClick={connect}
+            >
               {t(existing ? "Sign in and sync" : "Connect Bitwarden")}
             </Button>
             {existing && (
@@ -1213,6 +1510,9 @@ export function BitwardenSetup({
                 onClick={() => {
                   clearSecrets();
                   setExisting(undefined);
+                  setEnded(undefined);
+                  // This button leaves with the sign-in form; continue in the new one.
+                  focusNext.current = regionSelect;
                 }}
               >
                 {t("Add another connection")}
@@ -1249,6 +1549,9 @@ function needsSignIn(connection: Connection): boolean {
     connection.state === "configured" ||
     connection.state === "unavailable" ||
     connection.state === "disabled" ||
-    (connection.providerSession !== "active" && connection.providerSession !== "refresh-required")
+    // A locked vault unlocks offline first; its sync sign-in waits for that.
+    (connection.state !== "locked" &&
+      connection.providerSession !== "active" &&
+      connection.providerSession !== "refresh-required")
   );
 }

@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
+  asksForMasterPassword,
   createDefaultSettings,
+  detailLinkSchema,
+  detailSourceFieldSchema,
   DUMMY_VAULT_CATALOG,
   getItemEligibility,
   isSiteExcluded,
+  itemAsksForMasterPassword,
   normalizeHostname,
   parseLocalSettings,
   parseSettingsResponse,
   parseSiteUrl,
   resolveSiteAccount,
+  SETTINGS_CHANGE_HISTORY,
   siteDefaultConnection,
   vaultCatalogSchema,
+  type SettingsSnapshot,
 } from "./settings";
 import { createSettingsStore, type SettingsStorage } from "./settings-store";
 
@@ -47,6 +53,42 @@ describe("host policy and URL validation", () => {
     expect(isSiteExcluded(settings, "https://a.auth.bank.example")).toBe(true);
     expect(isSiteExcluded(settings, "https://notbank.example")).toBe(false);
     expect(isSiteExcluded(settings, "https://bank.example.evil.test")).toBe(false);
+  });
+
+  it("asks for the master password only for a re-prompt item on a listed site", () => {
+    const settings = createDefaultSettings();
+    expect(settings.repromptSites).toEqual([]);
+    settings.repromptSites.push({ hostname: "bank.example", includeSubdomains: false });
+    expect(asksForMasterPassword(settings, "https://bank.example/login")).toBe(true);
+    expect(asksForMasterPassword(settings, "http://bank.example:8080")).toBe(true);
+    expect(asksForMasterPassword(settings, "https://auth.bank.example")).toBe(false);
+    expect(asksForMasterPassword(settings, "https://bank.example.evil.test")).toBe(false);
+    settings.repromptSites[0]!.includeSubdomains = true;
+    expect(asksForMasterPassword(settings, "https://a.auth.bank.example")).toBe(true);
+    // A doubt never skips the question.
+    expect(asksForMasterPassword(settings, "https:///bank.example")).toBe(true);
+    const url = "https://bank.example/login";
+    expect(itemAsksForMasterPassword(settings, { reprompt: true }, url)).toBe(true);
+    expect(itemAsksForMasterPassword(settings, {}, url)).toBe(false);
+    expect(itemAsksForMasterPassword(settings, undefined, url)).toBe(false);
+    expect(itemAsksForMasterPassword(settings, { reprompt: true }, "https://other.example")).toBe(
+      false,
+    );
+  });
+
+  it("reads settings saved before the master password sites existed as listing none", () => {
+    const { repromptSites, ...saved } = createDefaultSettings();
+    expect(repromptSites).toEqual([]);
+    expect(parseLocalSettings(saved).repromptSites).toEqual([]);
+    expect(() =>
+      parseLocalSettings({
+        ...saved,
+        repromptSites: [
+          { hostname: "bank.example", includeSubdomains: false },
+          { hostname: "bank.example", includeSubdomains: true },
+        ],
+      }),
+    ).toThrow();
   });
 
   it("fails closed on invalid and non-web destinations", () => {
@@ -364,6 +406,95 @@ describe("strict settings schema", () => {
   });
 });
 
+describe("personal-detail links (ADR 0061)", () => {
+  const link = {
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-personal-account",
+    itemId: "primary",
+    detail: "birth-date",
+    source: { itemId: "identity", field: { custom: "生年月日" } },
+  };
+  const withLinks = (detailLinks: unknown[]) => ({ ...createDefaultSettings(), detailLinks });
+
+  it("keeps links to an identity's phone, a card's fields and custom fields by name", () => {
+    const links = [
+      link,
+      { ...link, detail: "phone-last-4", source: { itemId: "identity", field: "identity.phone" } },
+      { ...link, detail: "card-last-4", source: { itemId: "card", field: "card.number" } },
+      { ...link, detail: "card-code", source: { itemId: "card", field: "card.code" } },
+      // The same detail of another login item, or of the same item on another site.
+      { ...link, itemId: "secondary" },
+      { ...link, origin: "https://shop.example" },
+      {
+        ...link,
+        userId: "demo-family-account",
+        source: { itemId: "identity", field: { custom: "Birthday", position: 2, count: 2 } },
+      },
+    ];
+    expect(parseLocalSettings(withLinks(links)).detailLinks).toEqual(links);
+    // Settings saved before links existed have none.
+    expect(parseLocalSettings(createDefaultSettings())).not.toHaveProperty("detailLinks");
+  });
+
+  it("rejects two links for one login item, site and detail", () => {
+    expect(() =>
+      parseLocalSettings(
+        withLinks([link, { ...link, source: { itemId: "other", field: { custom: "DOB" } } }]),
+      ),
+    ).toThrow();
+  });
+
+  it.each([
+    ["an item name", { ...link, itemName: "Synthetic identity" }],
+    ["a value", { ...link, value: "1990-04-01" }],
+    ["a source item name", { ...link, source: { ...link.source, itemName: "Me" } }],
+    ["an unknown detail", { ...link, detail: "passport-number" }],
+    ["a page URL as the site", { ...link, origin: "https://bank.example/signin" }],
+    ["a login field as the source", { ...link, source: { itemId: "identity", field: "password" } }],
+    [
+      "an unknown built-in field",
+      { ...link, source: { itemId: "identity", field: "identity.ssn" } },
+    ],
+    ["no source item", { ...link, source: { field: "identity.phone" } }],
+  ])("rejects a link with %s", (_label, malformed) => {
+    expect(() => parseLocalSettings(withLinks([malformed]))).toThrow();
+    expect(v.is(detailLinkSchema, malformed)).toBe(false);
+  });
+
+  it("rejects more than 1000 links", () => {
+    const links = Array.from({ length: 1001 }, (_, index) => ({
+      ...link,
+      itemId: `item-${index}`,
+    }));
+    expect(() => parseLocalSettings(withLinks(links))).toThrow();
+    expect(parseLocalSettings(withLinks(links.slice(0, 1000))).detailLinks).toHaveLength(1000);
+  });
+
+  it("names a source field as a built-in detail field or a custom reference", () => {
+    for (const field of [
+      "identity.phone",
+      "card.number",
+      "card.code",
+      { custom: "生年月日" },
+      { custom: "Birthday", position: 1, count: 2 },
+    ])
+      expect(v.is(detailSourceFieldSchema, field)).toBe(true);
+    for (const field of [
+      "username",
+      "password",
+      "totp",
+      "login.password",
+      "identity.email",
+      { custom: "" },
+      { custom: "Birthday", position: 1 },
+      { custom: "Birthday", position: 3, count: 2 },
+      { custom: "Birthday", value: "1990-04-01" },
+    ])
+      expect(v.is(detailSourceFieldSchema, field)).toBe(false);
+  });
+});
+
 function memoryStorage(initial?: unknown) {
   let value = initial;
   const writes: unknown[] = [];
@@ -511,6 +642,142 @@ describe("serialized persistent settings store", () => {
     settings.connections[0]!.enabled = false;
     settings.siteDefaults[0]!.itemId = "secondary";
     expect(await pending).toMatchObject({ ok: true, snapshot: { settings: withDefault() } });
+  });
+});
+
+describe("settings change causes (ADR 0025)", () => {
+  const same = (snapshot: SettingsSnapshot) => snapshot;
+
+  it("records a save as settings-save", async () => {
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    expect(await store.handle(save(0))).toMatchObject({
+      ok: true,
+      snapshot: { revision: 1, changes: [{ revision: 1, cause: "settings-save" }] },
+    });
+    expect(memory.value).toMatchObject({ changes: [{ revision: 1, cause: "settings-save" }] });
+  });
+
+  it("records an update's cause, which a mutation cannot drop or rewrite", async () => {
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    await store.update(undefined, "vault-added", same);
+    const dropped = await store.update(undefined, "vault-sync", (snapshot) => {
+      const { changes: _changes, ...rest } = snapshot;
+      return rest;
+    });
+    expect(dropped.changes).toEqual([
+      { revision: 1, cause: "vault-added" },
+      { revision: 2, cause: "vault-sync" },
+    ]);
+    const rewritten = await store.update(undefined, "field-review", (snapshot) => ({
+      ...snapshot,
+      changes: [{ revision: 2, cause: "settings-save" }],
+    }));
+    expect(rewritten.changes).toEqual([
+      { revision: 1, cause: "vault-added" },
+      { revision: 2, cause: "vault-sync" },
+      { revision: 3, cause: "field-review" },
+    ]);
+    expect(memory.value).toMatchObject({ revision: 3, changes: rewritten.changes });
+  });
+
+  it("keeps only the newest causes", async () => {
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    await store.update(undefined, "vault-added", same);
+    for (let index = 0; index < SETTINGS_CHANGE_HISTORY; index++)
+      // oxlint-disable-next-line no-await-in-loop -- each update advances one revision
+      await store.update(undefined, "automatic-vault-sync", same);
+    const snapshot = await store.read();
+    expect(snapshot.revision).toBe(SETTINGS_CHANGE_HISTORY + 1);
+    expect(snapshot.changes).toHaveLength(SETTINGS_CHANGE_HISTORY);
+    expect(snapshot.changes![0]).toEqual({ revision: 2, cause: "automatic-vault-sync" });
+    expect(snapshot.changes!.at(-1)).toEqual({
+      revision: SETTINGS_CHANGE_HISTORY + 1,
+      cause: "automatic-vault-sync",
+    });
+    // The history covers every revision after 1, but not revision 1 itself.
+    expect(await store.handle(save(1))).toMatchObject({
+      ok: false,
+      error: { code: "revision-conflict", causes: ["automatic-vault-sync"] },
+    });
+    expect(parseSettingsResponse(await store.handle(save(0)))).toMatchObject({
+      ok: false,
+      error: { code: "revision-conflict", causes: ["unknown", "automatic-vault-sync"] },
+    });
+  });
+
+  it("names an automatic vault sync to a stale save", async () => {
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    await store.handle(save(0));
+    await store.update(undefined, "automatic-vault-sync", same);
+    const response = await store.handle(save(1));
+    expect(parseSettingsResponse(response)).toEqual({
+      version: 1,
+      ok: false,
+      error: {
+        code: "revision-conflict",
+        message: expect.any(String),
+        causes: ["automatic-vault-sync"],
+      },
+    });
+    expect(memory.writes).toHaveLength(2);
+  });
+
+  it("returns each cause once, oldest first", async () => {
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    await store.handle(save(0));
+    await store.update(undefined, "automatic-vault-sync", same);
+    await store.update(undefined, "service-sync", same);
+    await store.update(undefined, "automatic-vault-sync", same);
+    await store.update(undefined, "account-choice", same);
+    expect(await store.handle(save(1))).toMatchObject({
+      error: {
+        code: "revision-conflict",
+        causes: ["automatic-vault-sync", "service-sync", "account-choice"],
+      },
+    });
+    expect(await store.handle(save(0))).toMatchObject({
+      error: {
+        code: "revision-conflict",
+        causes: ["settings-save", "automatic-vault-sync", "service-sync", "account-choice"],
+      },
+    });
+    expect(await store.handle(save(3))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["automatic-vault-sync", "account-choice"] },
+    });
+  });
+
+  it("returns unknown for revisions without a recorded cause", async () => {
+    const memory = memoryStorage({ version: 1, revision: 4, settings: withDefault() });
+    const store = createSettingsStore(memory.storage);
+    expect(await store.handle(save(2))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["unknown"] },
+    });
+    await store.update(undefined, "vault-sync", same);
+    expect(await store.handle(save(2))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["unknown", "vault-sync"] },
+    });
+    expect(await store.handle(save(4))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["vault-sync"] },
+    });
+  });
+
+  it("returns unknown when the store is behind the expected revision", async () => {
+    const empty = createSettingsStore(memoryStorage().storage);
+    expect(await empty.handle(save(3))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["unknown"] },
+    });
+    const memory = memoryStorage();
+    const store = createSettingsStore(memory.storage);
+    await store.handle(save(0));
+    await store.update(undefined, "vault-added", same);
+    expect(await store.handle(save(5))).toMatchObject({
+      error: { code: "revision-conflict", causes: ["unknown"] },
+    });
   });
 });
 

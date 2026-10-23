@@ -84,7 +84,7 @@ function documentUrl(control: Element): string {
  * `formAction` reads the document's URL when the attribute is missing.
  */
 function destination(
-  control: HTMLButtonElement | HTMLInputElement,
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
   form: HTMLFormElement,
   submitter: boolean,
 ): URL | undefined {
@@ -111,7 +111,7 @@ function destination(
  * background answers for every one off the origin, not only the first.
  */
 export function formDestinations(
-  control: HTMLButtonElement | HTMLInputElement,
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
   action: "fill" | "click",
 ): FormDestination[] {
   const forms = formsAround(control);
@@ -127,7 +127,7 @@ export function formDestinations(
  * `other-origin`, else `allowed`.
  */
 export function formDestination(
-  control: HTMLButtonElement | HTMLInputElement,
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
   action: "fill" | "click",
 ): FormDestination {
   const all = formDestinations(control, action);
@@ -141,7 +141,9 @@ export function formDestination(
  * `control`'s form ({@link formOf}) and each further `<form>` around the hosts of the shadow
  * trees that hold it, innermost first.
  */
-function formsAround(control: HTMLButtonElement | HTMLInputElement): HTMLFormElement[] {
+function formsAround(
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
+): HTMLFormElement[] {
   const forms: HTMLFormElement[] = [];
   const own = formOf(control);
   if (own) forms.push(own);
@@ -154,7 +156,7 @@ function formsAround(control: HTMLButtonElement | HTMLInputElement): HTMLFormEle
 
 /** Where a submission of `form` sends `control`'s value ({@link formDestinations}). */
 function submission(
-  control: HTMLButtonElement | HTMLInputElement,
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
   form: HTMLFormElement,
   action: "fill" | "click",
   origin: string,
@@ -175,7 +177,7 @@ function submission(
  * destination is not `allowed` ({@link formDestination}).
  */
 export function formRefusal(
-  control: HTMLButtonElement | HTMLInputElement,
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
   action: "fill" | "click",
 ): FormRefusal | undefined {
   return formDestination(control, action).kind === "allowed" ? undefined : "form-off-origin";

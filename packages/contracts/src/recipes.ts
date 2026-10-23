@@ -1,7 +1,23 @@
 import * as v from "valibot";
-import { isLoginRouteRecipe, runsLogin, type LoginRecipe, type StoredLoginRecipe } from "./login";
+import {
+  isLoginRecipeDocument,
+  newestLayout,
+  passwordVariants,
+  recipeLayouts,
+  routeSteps,
+  runsLogin,
+  sameLoginTarget,
+  type LoginRecipe,
+  type LoginStep,
+  type LoginTarget,
+  type LoginRecipeDocument,
+  type RecipeLanguage,
+  type StoredLoginRecipe,
+} from "./login";
+import type { LoginObservation } from "./observation";
 import {
   savedLoginBindingSchema,
+  type DetailLink,
   type LocalSettings,
   type SavedLoginBinding,
   type VaultFieldReference,
@@ -11,29 +27,185 @@ import {
 // bindings come from the service cache; these functions only read them.
 
 /**
- * Every recipe with a login route for one exact origin that may start a login, in cache
- * order. An entry recipe (ADR 0031) or a chooser recipe (ADR 0028) is left out: nothing
- * starts either yet, and neither starts or resumes a login. So is a route recipe generated
- * as `confirm` or `unclear` (ADR 0035).
+ * Every login recipe for one exact origin with a layout that may start a login, in cache
+ * order. An entry recipe (ADR 0031) or a chooser recipe (ADR 0028) is left out: neither is
+ * a login recipe with layouts. So is a recipe whose every layout was generated as `confirm`
+ * or `unclear` (ADR 0035).
  */
 export function loginRecipesForOrigin(
   recipes: readonly StoredLoginRecipe[],
   origin: string,
-): LoginRecipe[] {
+): LoginRecipeDocument[] {
   return recipes.filter(
-    (recipe): recipe is LoginRecipe =>
-      isLoginRouteRecipe(recipe) && recipe.origin === origin && runsLogin(recipe),
+    (recipe): recipe is LoginRecipeDocument =>
+      isLoginRecipeDocument(recipe) &&
+      recipe.origin === origin &&
+      recipe.layouts.some((layout) => runsLogin(layout)),
   );
 }
 
+/** One layout a new login may run (ADR 0060), with what the choice between layouts reads. */
+export type LayoutCandidate<Recipe> = {
+  recipe: Recipe;
+  language?: RecipeLanguage | undefined;
+  createdAt: number;
+};
+
+/**
+ * Each layout of a stored login recipe that may start a login as a candidate, in stored
+ * order: a layout generated as `confirm` or `unclear` never runs (ADR 0035).
+ */
+export function loginLayoutCandidates(recipe: LoginRecipeDocument): LayoutCandidate<LoginRecipe>[] {
+  return recipeLayouts(recipe).flatMap((projected, index) =>
+    runsLogin(projected)
+      ? [
+          {
+            recipe: projected,
+            ...(recipe.layouts[index]!.language
+              ? { language: recipe.layouts[index]!.language }
+              : {}),
+            createdAt: recipe.layouts[index]!.createdAt,
+          },
+        ]
+      : [],
+  );
+}
+
+/** The elements a step needs to show; a step that waits for an element to go names none. */
+const shownTargets = (step: LoginStep): LoginTarget[] =>
+  step.kind === "fill"
+    ? step.fields.map((field) => field.target)
+    : step.kind === "click" || step.present
+      ? [step.target]
+      : [];
+
+/** The passkey route's steps and each password variant's, in that order. */
+const startRoutes = (recipe: LoginRecipe): LoginStep[][] => [
+  ...(recipe.passkey ? [routeSteps(recipe, { route: "passkey" })] : []),
+  ...passwordVariants(recipe).map((variant) => variant.steps),
+];
+
+/**
+ * The elements a layout's start page shows (ADR 0060): those of every route's and
+ * variant's steps on the recipe's start path, each once, the passkey button first; a
+ * `passkey` route without a button names the first step's element. A new
+ * login counts which of them show and which are missing to tell layouts of one start path
+ * apart.
+ */
+export function layoutStartTargets(recipe: LoginRecipe): LoginTarget[] {
+  const start = recipe.steps[0]!.path;
+  const targets = startRoutes(recipe)
+    .flat()
+    .filter((step) => step.path === start)
+    .flatMap(shownTargets);
+  return targets.filter(
+    (target, index) => targets.findIndex((other) => sameLoginTarget(other, target)) === index,
+  );
+}
+
+/**
+ * The elements of each route's and variant's first step (ADR 0060), when it is on the
+ * start path: a layout whose page shows every element of one of them can start a login.
+ * A first step that waits for an element to go names none, so it shows no start.
+ */
+export function layoutFirstSteps(recipe: LoginRecipe): LoginTarget[][] {
+  const start = recipe.steps[0]!.path;
+  return startRoutes(recipe).flatMap((steps) =>
+    steps[0]?.path === start ? [shownTargets(steps[0])] : [],
+  );
+}
+
+/**
+ * What a page shows of one layout (ADR 0060): whether every element of one of its first
+ * steps shows (`starts`), and how many of its start-page elements show and are missing.
+ */
+export type LayoutShown = { starts: boolean; shown: number; missing: number };
+
+/**
+ * `LayoutShown` for one layout from what the page shows of each element: `true` shown,
+ * `false` missing, `undefined` not asked, which counts as neither.
+ */
+export function layoutShown(
+  firstSteps: readonly (readonly LoginTarget[])[],
+  targets: readonly LoginTarget[],
+  shows: (target: LoginTarget) => boolean | undefined,
+): LayoutShown {
+  const states = targets.map(shows);
+  return {
+    starts: firstSteps.some(
+      (step) => step.length > 0 && step.every((target) => shows(target) === true),
+    ),
+    shown: states.filter((state) => state === true).length,
+    missing: states.filter((state) => state === false).length,
+  };
+}
+
+/** Negative when `left` fits the page better: one that starts, then fewer missing, then more shown. */
+const compareShown = (left: LayoutShown, right: LayoutShown) =>
+  Number(right.starts) - Number(left.starts) ||
+  left.missing - right.missing ||
+  right.shown - left.shown;
+
+/**
+ * The layouts a new login may run, best first (ADR 0060): only those that fit the page
+ * best (`shown`, one entry per candidate): a layout one of whose first steps shows whole,
+ * then the fewest missing start-page elements, then the most shown. Among those, a layout
+ * of the page's language comes before the others, then the newest first. The caller takes
+ * the first whose plan for the account passes, which puts the plan between the elements
+ * and the language; when none passes, the first one's refusal stands. A `mixed` or unknown
+ * page language prefers none.
+ */
+export function rankLayouts<Recipe>(
+  candidates: readonly LayoutCandidate<Recipe>[],
+  shown: readonly LayoutShown[],
+  language?: LoginObservation["language"],
+): LayoutCandidate<Recipe>[] {
+  const none: LayoutShown = { starts: false, shown: 0, missing: 0 };
+  const of = (index: number) => shown[index] ?? none;
+  const best = candidates
+    .map((_, index) => of(index))
+    .reduce<LayoutShown | undefined>(
+      (top, entry) => (!top || compareShown(entry, top) < 0 ? entry : top),
+      undefined,
+    );
+  const speaks = (candidate: LayoutCandidate<Recipe>) =>
+    language !== undefined && language !== "mixed" && candidate.language === language ? 1 : 0;
+  return candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .filter(({ index }) => best !== undefined && compareShown(of(index), best) === 0)
+    .sort(
+      (left, right) =>
+        speaks(right.candidate) - speaks(left.candidate) ||
+        right.candidate.createdAt - left.candidate.createdAt ||
+        right.index - left.index,
+    )
+    .map(({ candidate }) => candidate);
+}
+
+/**
+ * Whether the page's language can change `rankLayouts`'s order: the best-fitting layouts
+ * are of more than one language. Only then is the page's language read.
+ */
+export function languageDecides<Recipe>(ranked: readonly LayoutCandidate<Recipe>[]): boolean {
+  return new Set(ranked.map((candidate) => candidate.language)).size > 1;
+}
+
 export type LoginRecipeSelection =
-  | { ok: true; recipe: LoginRecipe; stepIndex: number }
+  | {
+      ok: true;
+      /** The newest layout, which a login takes when nothing tells the layouts apart. */
+      recipe: LoginRecipe;
+      /** Every layout of the recipe, for the choice of ADR 0060. */
+      layouts: LayoutCandidate<LoginRecipe>[];
+      stepIndex: number;
+    }
   | { ok: false; reason: "recipe-not-found" | "recipe-ambiguous" };
 
 /**
  * Chooses the recipe and step a new attempt starts on. For now only a recipe's first
  * step can start an attempt, and two recipes starting on one page refuse rather than
- * guess. On-screen step detection can replace this without changing stored data.
+ * guess. The layouts of the one recipe that starts there are all offered (ADR 0060); the
+ * runtime chooses between them from what the page shows.
  */
 export function selectLoginRecipe(
   recipes: readonly StoredLoginRecipe[],
@@ -41,11 +213,13 @@ export function selectLoginRecipe(
   path: string,
 ): LoginRecipeSelection {
   const starting = loginRecipesForOrigin(recipes, origin).filter(
-    (recipe) => recipe.steps[0]?.path === path,
+    (recipe) => recipe.layouts[0]?.steps[0]?.path === path,
   );
   if (starting.length > 1) return { ok: false, reason: "recipe-ambiguous" };
   const [recipe] = starting;
-  return recipe ? { ok: true, recipe, stepIndex: 0 } : { ok: false, reason: "recipe-not-found" };
+  if (!recipe) return { ok: false, reason: "recipe-not-found" };
+  const layouts = loginLayoutCandidates(recipe);
+  return { ok: true, recipe: newestLayout(layouts)!.recipe, layouts, stepIndex: 0 };
 }
 
 /** The synced binding of one recipe for one vault item, if any. */
@@ -67,9 +241,16 @@ export function findLoginBinding(
 /**
  * One field of a live item, in the item's own field order. `name` is the field's raw
  * vault name: a custom field without a name (or with an empty one) has `null`, never a
- * display fallback such as "Custom field 2", so it can never be bound by name.
+ * display fallback such as "Custom field 2", so it can never be bound by name. `empty` and
+ * `totpSeed` are the catalog's value-free flags, which only the `totp` slot's automatic
+ * reference reads (`totpFieldReference`).
  */
-export type LocalItemField = { id: string; name: string | null };
+export type LocalItemField = {
+  id: string;
+  name: string | null;
+  empty?: true | undefined;
+  totpSeed?: true | undefined;
+};
 type FieldRefusal = "field-missing" | "field-ambiguous" | "field-count-changed";
 export type BindingFieldResolution =
   | { ok: true; slots: { slot: string; fieldId: string }[] }
@@ -118,6 +299,21 @@ function resolveField(
 }
 
 /**
+ * The current field ID of a linked detail's source field on one live item (ADR 0061): an
+ * identity's or card's built-in field as it is, or a custom field as a binding reference
+ * resolves. Undefined when the item lacks it, or several fields share its name.
+ */
+export function resolveDetailSourceField(
+  field: DetailLink["source"]["field"],
+  fields: readonly LocalItemField[],
+): string | undefined {
+  if (typeof field === "string")
+    return fields.some((entry) => entry.id === field) ? field : undefined;
+  const resolved = resolveField(field, fields);
+  return "fieldId" in resolved ? resolved.fieldId : undefined;
+}
+
+/**
  * Resolves the binding's entries for `slots`, the slots of the route a login takes (ADR
  * 0027), against one live item, or refuses on the first slot that cannot be resolved
  * exactly. The binding must hold every one of `slots`; entries for other slots, such as
@@ -161,11 +357,51 @@ export function customFieldReference(
 const builtinSlots = new Set<string>(["username", "password", "totp"]);
 
 /**
+ * The field the `totp` slot reads when no saved entry names one (ADR 0027, owner
+ * 2026-10-23): the item's built-in TOTP field when it holds a value (not flagged
+ * `empty`); otherwise its one named custom field the catalog flags as holding a TOTP key
+ * (`totpSeed`, set only on Text and Hidden fields), by its reference; otherwise the
+ * built-in field. Several flagged fields leave the built-in field, which then holds no
+ * value.
+ */
+export function totpFieldReference(fields: readonly LocalItemField[]): VaultFieldReference {
+  const builtin = fields.find((field) => field.id === builtinFieldIds.totp);
+  if (builtin && builtin.empty !== true) return "totp";
+  const seeds = fields.filter((field) => field.totpSeed === true && customFieldId.test(field.id));
+  const reference = seeds.length === 1 ? customFieldReference(fields, seeds[0]!.id) : undefined;
+  return reference ?? "totp";
+}
+
+/**
+ * Whether binding `slot` to `field` breaks the TOTP key rule (ADR 0027, owner
+ * 2026-10-23): a slot other than `totp` on a custom field the catalog flags as holding a
+ * TOTP key (`totpSeed`), whose value is never filled as text, or the `totp` slot on a
+ * custom field without that flag, which holds no key to make a code from. A login refuses
+ * such a binding before any step (`totp-field-mismatch`), and a template that would build
+ * one is skipped.
+ */
+export function totpFieldMismatch(slot: string, field: LocalItemField | undefined): boolean {
+  if (!field) return false;
+  return slot === "totp"
+    ? customFieldId.test(field.id) && field.totpSeed !== true
+    : field.totpSeed === true;
+}
+
+/** The reference a built-in slot reads by default: `totp` by `totpFieldReference`. */
+function builtinReference(
+  slot: "username" | "password" | "totp",
+  fields: readonly LocalItemField[],
+): VaultFieldReference {
+  return slot === "totp" ? totpFieldReference(fields) : slot;
+}
+
+/**
  * The binding an automatic account choice uses before AI generation maps slots (ADR
- * 0013): each of `slots`, the slots of the route a login takes, named `username`,
- * `password` or `totp` reads the item's built-in field of that name. Slots with any other
- * name have no automatic binding, and neither has a recipe whose origin or IDs do not fit
- * the binding schema.
+ * 0013): each of `slots`, the slots of the route a login takes, named `username` or
+ * `password` reads the item's built-in field of that name, and `totp` the field
+ * `totpFieldReference` picks from `fields`, the item's full field list (the built-in field
+ * without it). Slots with any other name have no automatic binding, and neither has a
+ * recipe whose origin or IDs do not fit the binding schema.
  */
 export function defaultLoginBinding(
   slots: readonly string[],
@@ -178,6 +414,7 @@ export function defaultLoginBinding(
     /** The chosen vault connection's label. */
     accountName?: string;
   },
+  fields: readonly LocalItemField[] = [],
 ): SavedLoginBinding | undefined {
   if (!slots.every((slot) => builtinSlots.has(slot))) return undefined;
   const { accountName, ...owner } = account;
@@ -186,7 +423,10 @@ export function defaultLoginBinding(
     origin: recipe.origin,
     ...owner,
     ...loginDisplayNames(account.itemId, account.itemName, accountName),
-    slots: slots.map((slot) => ({ slot, field: slot })),
+    slots: slots.map((slot) => ({
+      slot,
+      field: builtinReference(slot as "username" | "password" | "totp", fields),
+    })),
   });
   return binding.success ? binding.output : undefined;
 }
@@ -211,8 +451,8 @@ export type LoginBindingTemplate = readonly { slot: string; field: VaultFieldRef
 
 /**
  * Builds an item's binding from templates when it has none saved (ADR 0027): each slot
- * named `username`, `password` or `totp` reads the item's built-in field of that name,
- * and every other slot takes the template's reference to a custom field by name. The
+ * named `username`, `password` or `totp` reads the item's field as `defaultLoginBinding`
+ * picks it, and every other slot takes the template's reference to a custom field by name. The
  * templates are tried in order, and the first one whose references all resolve on this
  * item wins. Without one, the answer is the first resolution refusal, or
  * `binding-not-found` when no template covers every slot. `slots` is the slot list the
@@ -251,8 +491,9 @@ export function templateLoginBinding(
 
 /**
  * The template loop of `templateLoginBinding`: each of `slots` named `username`,
- * `password` or `totp` reads the item's built-in field of that name, and every other slot
- * takes the template's reference. The first template whose references all resolve on the
+ * `password` or `totp` reads the item's field as `defaultLoginBinding` picks it, and every
+ * other slot takes the template's reference. A template whose binding `totpFieldMismatch`
+ * refuses is skipped. The first template whose references all resolve on the
  * item and that `build` accepts wins; without one, the first resolution refusal, or
  * `binding-not-found` when no template covers every slot.
  */
@@ -270,19 +511,35 @@ function fromTemplates<T>(
     const references = slots.map((slot) => ({
       slot,
       field: builtinSlots.has(slot)
-        ? (slot as "username" | "password" | "totp")
+        ? builtinReference(slot as "username" | "password" | "totp", fields)
         : template.find((entry) => entry.slot === slot)?.field,
     }));
     if (references.some((entry) => entry.field === undefined)) continue;
     const bound = references as { slot: string; field: VaultFieldReference }[];
-    const failed = bound.flatMap((entry) => {
-      const resolved = resolveField(entry.field, fields);
-      return "reason" in resolved ? [{ slot: entry.slot, reason: resolved.reason }] : [];
-    })[0];
+    const resolutions = bound.map((entry) => ({
+      slot: entry.slot,
+      resolved: resolveField(entry.field, fields),
+    }));
+    const failed = resolutions.flatMap(({ slot, resolved }) =>
+      "reason" in resolved ? [{ slot, reason: resolved.reason }] : [],
+    )[0];
     if (failed) {
       refusal ??= { ok: false, ...failed };
       continue;
     }
+    // A template that would fill a TOTP key as text, or make a code from a field holding
+    // none, is passed over for the next one.
+    if (
+      resolutions.some(
+        ({ slot, resolved }) =>
+          "fieldId" in resolved &&
+          totpFieldMismatch(
+            slot,
+            fields.find((field) => field.id === resolved.fieldId),
+          ),
+      )
+    )
+      continue;
     const value = build(bound);
     if (value !== undefined) return { ok: true, value };
   }
@@ -300,14 +557,15 @@ export function bindingGaps(
 /**
  * A saved binding with its gaps, the slots of `slots` it holds no entry for, filled as for
  * an item without a saved binding (ADR 0027, amended 2026-10-19): a gap named `username`,
- * `password` or `totp` reads the item's built-in field of that name, and the other gaps
+ * `password` or `totp` reads the item's field as `defaultLoginBinding` picks it, and the
+ * other gaps
  * take a template's references by name, the first template whose references for every
  * such gap resolve on the item winning. `templates` are those `templateLoginBinding` would
  * get: the recipe's other saved bindings of the origin, then the generated slot map. The
  * saved entries are kept as they are and in their order, and the filled ones follow in
  * `slots` order; `widened` says whether any was added. A gap named `username`, `password`
- * or `totp` whose built-in field the saved binding already names directly under another
- * slot refuses `binding-slots-mismatch`; a custom field linked to that built-in field is
+ * or `totp` whose field the saved binding already names directly under another slot
+ * refuses `binding-slots-mismatch`; a custom field linked to that built-in field is
  * not detected. A gap left unfilled refuses `binding-slots-mismatch` too, as a saved
  * binding that lacks a slot did before; a template
  * reference that does not resolve on the item refuses with its field's reason when no
@@ -326,7 +584,13 @@ export function fillLoginBinding(
   if (gaps.length === 0) return { ok: true, binding: saved, widened: false };
   // A built-in gap whose field the binding already names directly under another slot would
   // type that value twice. Only direct references are compared.
-  if (gaps.some((slot) => saved.slots.some((entry) => entry.field === slot)))
+  const named = (slot: string) => {
+    const reference = JSON.stringify(
+      builtinReference(slot as "username" | "password" | "totp", fields),
+    );
+    return saved.slots.some((entry) => JSON.stringify(entry.field) === reference);
+  };
+  if (gaps.some((slot) => builtinSlots.has(slot) && named(slot)))
     return { ok: false, reason: "binding-slots-mismatch" };
   // Built-in gaps alone need no template.
   const sources = gaps.every((slot) => builtinSlots.has(slot)) ? [[]] : templates;

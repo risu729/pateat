@@ -126,6 +126,10 @@ What the owner has not decided (see Status) is assumed.
   form are left out as above. No element records which extension made it, and skipping a
   root that loads a `chrome-extension://` URL would also skip a site's own field that a
   password manager decorated with its icon, so no root is skipped (owner, 2026-10-23).
+- A page's software keyboard (ADR 0067) is still looked for in the document's own tree
+  only, as its locator by position walks the document's elements; a keypad drawn in a
+  shadow tree is not found, and its field is described as any read-only field is. No
+  such page has been seen.
 - Frames stay separate documents, each with its own content script, as before.
 
 ## Alternatives

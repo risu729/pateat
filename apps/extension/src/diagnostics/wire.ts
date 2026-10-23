@@ -1,6 +1,7 @@
 // The diagnostics page receives this summary from the service worker (ADR 0019). It holds
 // versions, states, counts and reason codes only: no value, name, email, URL or host.
 import * as v from "valibot";
+import { vaultTimeoutSchema } from "../vault/timeout";
 
 export const DIAGNOSTICS_STATUS_REQUEST = { version: 1, type: "diagnostics.status" } as const;
 /** The page's only requests: read the summary, export or clear the logs, or enable debug logs. */
@@ -36,7 +37,14 @@ const connectionSchema = v.strictObject({
   /** An HMAC pseudonym of the connection ID, such as `bitwarden:5c1e9a`. */
   id: v.pipe(v.string(), v.regex(/^bitwarden:[0-9a-f]{6}$/u)),
   environment: v.picklist(["cloud-us", "cloud-eu", "self-hosted"]),
-  state: v.picklist(["configured", "ready", "disabled", "review-required", "unavailable"]),
+  state: v.picklist([
+    "configured",
+    "ready",
+    "locked",
+    "disabled",
+    "review-required",
+    "unavailable",
+  ]),
   autoUnlock: v.picklist(["enabled", "disabled", "unknown"]),
   providerSession: v.picklist([
     "none",
@@ -146,24 +154,27 @@ const serviceSchema = v.strictObject({
   device: v.optional(deviceSchema),
 });
 
+/** Counts by reason code, at most `RECENT_DELEGATION_REASONS` of them. */
+const reasonCounts = v.pipe(
+  v.array(
+    v.strictObject({
+      reason: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9.:-]{0,63}$/u)),
+      count,
+    }),
+  ),
+  v.maxLength(32),
+);
 /**
  * `recentLog` in `log.ts`: lines of at most `RECENT_LINE_LENGTH`, `RECENT_PROBLEMS` lines,
- * `RECENT_DELEGATION_REASONS` reasons, and its revision and code checks.
+ * `RECENT_DELEGATION_REASONS` reasons per count, and its revision and code checks.
  */
 export const recentLogSchema = v.strictObject({
   problems: v.pipe(v.array(v.pipe(v.string(), v.maxLength(2048))), v.maxLength(10)),
   updated: v.optional(
     v.strictObject({ time, from: v.pipe(v.string(), v.regex(/^[0-9A-Za-z._-]{1,64}$/u)) }),
   ),
-  passkeyDelegations: v.pipe(
-    v.array(
-      v.strictObject({
-        reason: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9.:-]{0,63}$/u)),
-        count,
-      }),
-    ),
-    v.maxLength(32),
-  ),
+  passkeyDelegations: reasonCounts,
+  unsentVerifications: reasonCounts,
 });
 
 export const diagnosticsStatusSchema = v.strictObject({
@@ -184,6 +195,8 @@ export const diagnosticsStatusSchema = v.strictObject({
     otherOrigins: count,
   }),
   actionIcon: v.picklist(["unlocked", "locked"]),
+  /** This device's vault timeout (ADR 0075); absent when it could not be read. */
+  vaultTimeout: v.optional(vaultTimeoutSchema),
   cryptoHost: v.strictObject({ ready: v.boolean(), sessions: count }),
   connections: v.pipe(v.array(connectionSchema), v.maxLength(64)),
   service: serviceSchema,

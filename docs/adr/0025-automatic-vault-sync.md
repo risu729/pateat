@@ -6,10 +6,15 @@ explicit Sync action. The check after a page with a recipe finds no matching ite
 the custom-field comparison that keeps unchanged protected items usable, both listed as
 later work at acceptance, are implemented as
 [After no item matches](#after-no-item-matches) and
-[Protected items after a sync](#protected-items-after-a-sync) describe.
-Amended on 2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a
-conditional passkey request waiting for a login is not a request being handled; the
-hold covers it only while it reads the vault and signs.
+[Protected items after a sync](#protected-items-after-a-sync) describe. The settings
+page's reason for a save that met a revision conflict, also later work at acceptance, is
+implemented as [Settings saves after a sync](#settings-saves-after-a-sync) describes;
+the owner chose on 2026-10-23 that a conflict only background work caused is retried
+once by itself, and the other details were chosen by an agent. Amended on 2026-10-12 by
+[ADR 0034](0034-answer-page-passkey-requests.md): a conditional passkey request waiting
+for a login is not a request being handled; the hold covers it only while it reads the
+vault and signs. Amended on 2026-10-23 by
+[ADR 0075](0075-vault-lock-and-timeout.md): a locked vault is not synced.
 
 Date: 2026-10-11
 
@@ -171,6 +176,51 @@ The comparison counts only when it was made against the snapshot being replaced,
 digest request that may have ended the old session also drops it from the manager. A
 device without the old snapshot open still relies on review.
 
+### Settings saves after a sync
+
+Adopting a synced snapshot writes the field policy and so a new settings revision, and
+the settings page learns of it only when it saves: the page expects the revision it
+loaded, and the save fails as a revision conflict. The page used to say "Settings
+changed in another window" whatever wrote the revision. Each settings revision now
+records its cause in the snapshot's `changes` list, which keeps the latest 16 revisions
+and no setting value:
+
+| Cause | Written by |
+| --- | --- |
+| `settings-save` | A save from a settings page or the toolbar popup |
+| `vault-added` | A new connection's policy entry |
+| `vault-sync` | A snapshot adopted after a password sign-in or **Sync** |
+| `automatic-vault-sync` | A snapshot adopted by an automatic check |
+| `field-review` | A custom-field review ([ADR 0023](0023-synced-vault-policy.md)) |
+| `service-sync` | Settings merged from the Pateat service |
+| `account-choice` | An account used on a site, from a login or a passkey request, saved for that site ([ADR 0021](0021-account-choice-outside-settings.md)) |
+| `detail-link` | A vault field linked to, or unlinked from, a personal detail on a site ([ADR 0061](0061-personal-details-during-a-login.md)) |
+
+The store writes the entry itself, so a background mutation cannot drop or rewrite it. A
+`revision-conflict` answer lists the distinct causes of the revisions after the expected
+one, oldest first, with `unknown` first when some of them are older than the list keeps
+or the store is behind the expected revision.
+
+When every listed cause is a background one, anything but `settings-save` and `unknown`,
+the owner did nothing to cause the conflict, so the settings page retries by itself: it
+reads the newest revision, applies the draft's unsaved edits to it in order, and saves
+once more against that revision. The edits are the page's own changes, such as an added
+site or a vault's item selection, so they replay on top of what the background wrote.
+Every write still goes through the store's revision check. A login's saved account
+choice, a personal detail's link saved or removed after a login (`detail-link`) and a
+custom-field review count as background work too: the owner made them
+elsewhere, and the replayed edits change only what the page itself edited. Before
+replaying, the page checks the newest revision's own causes, so a save from another page
+after the conflict also stops the retry. The page shows the reason only when the retry
+also conflicts, when another settings page or the toolbar popup saved, when a cause is
+unrecorded, or when the newest revision cannot be read; a vault catalog change during
+the retry shows the catalog message instead. It names each cause in its status line, as
+in "Saved settings changed before this save: a Bitwarden vault was synced
+automatically.", keeps the draft and asks for a reload. The owner rejected two other
+options: always asking for a reload, which is noise when the owner did nothing wrong,
+and reloading by itself, which discards the draft. The toolbar popup already reloads
+after a conflict and is unchanged.
+
 ### Differences from the official extension
 
 | Topic | Official extension | Pateat |
@@ -194,12 +244,17 @@ about one token renewal; `/sync` only when the vault changed. Bitwarden cloud al
 so even five connections stay far below it. Self-hosted and Vaultwarden limits depend
 on the installation.
 
+## Locked vaults
+
+A vault that is locked ([ADR 0075](0075-vault-lock-and-timeout.md), 2026-10-23) is
+skipped: verifying what a sync downloads needs its key. The next automatic sync after an
+unlock fetches it.
+
 ## Later work
 
 - Record the evidence of items found equal as reviewed in the synced record of
   [ADR 0023](0023-synced-vault-policy.md), once that record is implemented.
-- Show items awaiting review on the toolbar icon, and tell the settings page why its
-  save met a revision conflict after an automatic sync.
+- Show items awaiting review on the toolbar icon.
 
 ## Alternatives and consequences
 

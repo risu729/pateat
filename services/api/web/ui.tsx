@@ -36,6 +36,7 @@ export function RowIcon({ children }: { children: ReactNode }) {
 
 const BADGE_TONES = {
   accent: "bg-accent-tint text-accent-ink",
+  danger: "bg-danger-tint text-danger",
   muted: "border border-border bg-surface-sunken text-ink-muted",
   warning: "bg-warning-tint text-warning",
 } as const;

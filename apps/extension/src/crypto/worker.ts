@@ -7,7 +7,6 @@ import {
   createLocalFieldSnapshot,
   derivePasswordAuthentication,
   type LocalCryptoSession,
-  type LocalFieldSnapshot,
   type PreparedBitwardenAccount,
   type LocalVaultMetadata,
   vaultDisplayLabel,
@@ -44,9 +43,10 @@ let owned:
       ref: HostSessionRef;
       session: LocalCryptoSession;
       ciphers: Map<string, unknown>;
-      fields: Map<string, LocalFieldSnapshot>;
       verified: boolean;
       metadataContext: PreparedBitwardenAccount["encryptedMetadata"];
+      /** The account's encrypted master-password unlock data, for re-prompt checks. */
+      masterPasswordUnlock: PreparedBitwardenAccount["masterPasswordUnlock"];
       catalog?: LocalVaultMetadata;
       uriContext?: BitwardenUriMatchContext;
       /**
@@ -151,9 +151,9 @@ async function execute(command: HostCommand) {
       ref,
       session: session.data,
       ciphers,
-      fields: new Map(),
       verified: false,
       metadataContext: prepared.encryptedMetadata,
+      masterPasswordUnlock: prepared.masterPasswordUnlock,
       ...(uriContext ? { uriContext } : {}),
       loginUris: new Map(),
     };
@@ -203,12 +203,17 @@ async function execute(command: HostCommand) {
           id: String(checked.data.id),
           label: vaultDisplayLabel(checked.data.name, String(checked.data.id)),
           type: checked.data.type as 1 | 2 | 3 | 4,
+          ...(checked.data.deletedDate || checked.data.archivedDate
+            ? { inactive: true as const }
+            : {}),
           groupIds: [
             ...new Set([
               ...(checked.data.folderId ? [String(checked.data.folderId)] : []),
               ...checked.data.collectionIds.map(String),
             ]),
           ],
+          // Bitwarden's master password re-prompt; a site's settings decide whether it is asked.
+          ...(checked.data.reprompt === 1 ? { reprompt: true as const } : {}),
           fields: snapshot.data.list().map((field) => ({
             id: field.ref.fieldId,
             label: vaultDisplayLabel(field.label, field.ref.fieldId),
@@ -216,6 +221,7 @@ async function execute(command: HostCommand) {
             kind: field.kind,
             ...(field.linkedFieldId ? { linkedFieldId: field.linkedFieldId } : {}),
             ...(field.empty ? { empty: true as const } : {}),
+            ...(field.totpSeed ? { totpSeed: true as const } : {}),
           })),
         });
       } finally {
@@ -239,6 +245,11 @@ async function execute(command: HostCommand) {
     if (!owned.verified) return fail("invalid-request");
     return owned.session.exportUnlockMaterial();
   }
+  if (op.kind === "verify-password")
+    return owned.session.verifyMasterPassword({
+      password: op.password,
+      masterPasswordUnlock: owned.masterPasswordUnlock,
+    });
   if (op.kind === "catalog")
     return owned.verified && owned.catalog
       ? { ok: true as const, data: owned.catalog }
@@ -345,38 +356,32 @@ async function execute(command: HostCommand) {
   if (!cipher) return fail("field-missing");
   if (op.kind === "decrypt")
     return owned.session.decryptCipher({ connectionId: command.connectionId, cipher });
-  let snapshot = owned.fields.get(itemId);
-  if (!snapshot) {
-    if (owned.fields.size >= 128) {
-      const [oldestItemId, oldestSnapshot] = owned.fields.entries().next().value!;
-      owned.fields.delete(oldestItemId);
-      oldestSnapshot.dispose();
-    }
-    const decrypted = await owned.session.decryptCipher({
-      connectionId: command.connectionId,
-      cipher,
-    });
-    if (!decrypted.ok) return decrypted;
-    const created = createLocalFieldSnapshot({
-      connectionId: command.connectionId,
-      userId: owned.ref.userId,
-      snapshotId: owned.ref.snapshotId,
-      item: decrypted.data,
-    });
-    if (!created.ok) return created;
-    snapshot = created.data;
-    owned.fields.set(itemId, snapshot);
-  } else {
-    // Map insertion order tracks recency for both field listing and resolution.
-    owned.fields.delete(itemId);
-    owned.fields.set(itemId, snapshot);
-  }
-  if (op.kind === "list") return { ok: true as const, data: snapshot.list() };
-  if (op.kind !== "resolve") return fail("invalid-request");
-  return snapshot.resolve(op.ref, {
-    allowedFieldIds: op.allowedFieldIds,
-    ...(op.nowMs === undefined ? {} : { nowMs: () => op.nowMs! }),
+  if (op.kind !== "list" && op.kind !== "resolve") return fail("invalid-request");
+  // No decrypted item outlives the request that reads it: each request decrypts its own
+  // copy and disposes it before replying, so only the listing or the one value asked for
+  // leaves this function.
+  const decrypted = await owned.session.decryptCipher({
+    connectionId: command.connectionId,
+    cipher,
   });
+  if (!decrypted.ok) return decrypted;
+  const snapshot = createLocalFieldSnapshot({
+    connectionId: command.connectionId,
+    userId: owned.ref.userId,
+    snapshotId: owned.ref.snapshotId,
+    item: decrypted.data,
+  });
+  if (!snapshot.ok) return snapshot;
+  try {
+    if (op.kind !== "resolve") return { ok: true as const, data: snapshot.data.list() };
+    return snapshot.data.resolve(op.ref, {
+      allowedFieldIds: op.allowedFieldIds,
+      ...(op.nowMs === undefined ? {} : { nowMs: () => op.nowMs! }),
+      ...(op.code ? { code: true as const } : {}),
+    });
+  } finally {
+    snapshot.data.dispose();
+  }
 }
 self.onmessage = (event: MessageEvent<unknown>) => {
   const parsed = v.safeParse(commandSchema, event.data);

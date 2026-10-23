@@ -38,6 +38,26 @@ export const ownerIdentities = sqliteTable(
   ],
 );
 
+/** Settings profiles: policy documents scoped by owner and profile (ADR 0024). */
+export const profiles = sqliteTable(
+  "profiles",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    id: text("id").notNull(),
+    name: text("name").notNull(),
+    /** The profile's own parts; null until a device or the owner first writes them. */
+    document: text("document", { mode: "json" }),
+    /**
+     * Set when the owner deleted the profile. The row stays, since revoked devices keep
+     * naming it; lists and writes skip it (ADR 0076).
+     */
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => [primaryKey({ columns: [table.ownerId, table.id] })],
+);
+
 /** Only a SHA-256 digest of each high-entropy device credential is stored. */
 export const devices = sqliteTable(
   "devices",
@@ -46,6 +66,7 @@ export const devices = sqliteTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => owners.id),
+    profileId: text("profile_id").notNull(),
     tokenHash: text("token_hash").notNull(),
     label: text("label").notNull().default(""),
     createdAt: integer("created_at").notNull(),
@@ -58,6 +79,10 @@ export const devices = sqliteTable(
     revokedAt: integer("revoked_at"),
   },
   (table) => [
+    foreignKey({
+      columns: [table.ownerId, table.profileId],
+      foreignColumns: [profiles.ownerId, profiles.id],
+    }),
     uniqueIndex("devices_token_hash_unique").on(table.tokenHash),
     index("devices_owner_idx").on(table.ownerId),
   ],
@@ -120,8 +145,9 @@ export const recipeRevisions = sqliteTable(
     document: text("document", { mode: "json" }),
     createdAt: integer("created_at").notNull(),
     /**
-     * Null when the owner web UI or the service wrote the revision, such as a revocation
-     * of an unused recipe (ADR 0058).
+     * The device that wrote the revision or whose generation or judgement request did. Null
+     * when the owner web UI or the service's own checks wrote it, such as a revocation of an
+     * unused recipe (ADR 0058) or the removal of an idle layout (ADR 0060).
      */
     createdByDeviceId: text("created_by_device_id").references(() => devices.id),
   },
@@ -134,6 +160,111 @@ export const recipeRevisions = sqliteTable(
     check(
       "recipe_revisions_document_check",
       sql`(${table.state} = 'active' AND ${table.document} IS NOT NULL) OR (${table.state} = 'revoked' AND ${table.document} IS NULL)`,
+    ),
+  ],
+);
+
+/**
+ * When each layout of an active recipe was last used (ADR 0060): by a login that reported
+ * starting or ending on it, or a write of the layout that a login's page caused. A layout
+ * without a row counts as used when it was created. A layout unused for
+ * `RECIPE_IDLE_LIMIT_MS` is removed from its recipe while another one is used; the recipe
+ * itself is revoked by its own `lastUsedAt` (ADR 0058). Rows of layouts a write removes go
+ * with that write.
+ */
+export const recipeLayoutUses = sqliteTable(
+  "recipe_layout_uses",
+  {
+    ownerId: text("owner_id").notNull(),
+    recipeId: text("recipe_id").notNull(),
+    /** The layout's key (`recipeLayoutKeySchema`). */
+    layout: text("layout").notNull(),
+    lastUsedAt: integer("last_used_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ownerId, table.recipeId, table.layout] }),
+    foreignKey({
+      columns: [table.ownerId, table.recipeId],
+      foreignColumns: [recipeHeads.ownerId, recipeHeads.recipeId],
+    }),
+  ],
+);
+
+/** How a recipe unit got its current content (ADR 0060, generation provenance). */
+export const recipeUnitOrigins = ["generated", "judged", "device"] as const;
+export type RecipeUnitOrigin = (typeof recipeUnitOrigins)[number];
+/**
+ * Which call made each part ("unit") of an active recipe and when (ADR 0060): the service's
+ * own record, never synced to devices and never in the recipe document. A unit is a page of
+ * a layout's route (`page:<n>`), a handler (`handler:<i>`), a signed-in marker
+ * (`marker:<i>`), a chooser layout's list buttons (`list`) or an entry recipe (`entry`); a
+ * chooser branch's units start with `account/` or `other/` (`src/recipe-units.ts`). Rows are
+ * written in the batch of the recipe write that adds the unit and only when that write
+ * wins; rows of layouts a write drops go with that write, and every row of the recipe with
+ * its revocation. The request log's delete-all clears `device_id` and `log_id`.
+ */
+export const recipeUnitSources = sqliteTable(
+  "recipe_unit_sources",
+  {
+    ownerId: text("owner_id").notNull(),
+    recipeId: text("recipe_id").notNull(),
+    /** The layout's key (`recipeLayoutKeySchema`); null for an entry recipe, which has none. */
+    layout: text("layout"),
+    /** The unit's ID within its layout (`src/recipe-units.ts`). */
+    unit: text("unit").notNull(),
+    /** 32 hex digits of the SHA-256 of the unit's content as written (`documentUnits`). */
+    digest: text("digest").notNull(),
+    /** The recipe revision whose write recorded the unit. */
+    revision: integer("revision").notNull(),
+    /**
+     * `generated` for a page the generation role answered, `judged` for a handler or marker
+     * the judge answered, `device` for a unit a device's own document added or changed.
+     */
+    origin: text("origin", { enum: recipeUnitOrigins }).notNull(),
+    /** The model that answered (`ServedModel`); null for a `device` unit. */
+    provider: text("provider"),
+    model: text("model"),
+    effort: text("effort"),
+    speed: text("speed", { enum: ["standard", "fast"] }),
+    /** The role's prompt version the call was made with; null for a `device` unit. */
+    promptVersion: text("prompt_version"),
+    /** The service commit that wrote the unit (`PATEAT_BUILD_REVISION`). */
+    build: text("build").notNull(),
+    /**
+     * The device the recipe revision records as its writer: the one whose request generated
+     * or judged the unit, or that wrote the document. Null after the request log's
+     * delete-all.
+     */
+    deviceId: text("device_id").references(() => devices.id),
+    /**
+     * The request log row of the call (`inference_log.id`), not a foreign key: the log is
+     * kept one year and its rows may be deleted before the unit's. Null after the request
+     * log's delete-all.
+     */
+    logId: text("log_id"),
+    /** When the winning recipe write recorded the unit, not when its call started. */
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("recipe_unit_sources_unit_unique").on(
+      table.ownerId,
+      table.recipeId,
+      table.layout,
+      table.unit,
+    ),
+    // SQLite counts null layouts as distinct, so an entry recipe's unit has its own index.
+    uniqueIndex("recipe_unit_sources_entry_unique")
+      .on(table.ownerId, table.recipeId, table.unit)
+      .where(sql`${table.layout} IS NULL`),
+    // `/manage` reads the owner's first pages and lists alone.
+    index("recipe_unit_sources_owner_unit").on(table.ownerId, table.unit),
+    foreignKey({
+      columns: [table.ownerId, table.recipeId],
+      foreignColumns: [recipeHeads.ownerId, recipeHeads.recipeId],
+    }),
+    check(
+      "recipe_unit_sources_origin_check",
+      sql`${table.origin} IN ('generated', 'judged', 'device')`,
     ),
   ],
 );
@@ -182,7 +313,21 @@ export const inferenceLog = sqliteTable(
     role: text("role", { enum: ["generate", "judge"] }).notNull(),
     /** Null for a request answered without a model call. */
     provider: text("provider"),
+    /**
+     * Whose key made the call (ADR 0040): `service` for the owner's credential on the
+     * service, `device` for a paired device's own key, whose calls the spend stops and the
+     * fast-mode check never count. `service` also for a request answered without a call.
+     */
+    source: text("source", { enum: ["service", "device"] })
+      .notNull()
+      .default("service"),
     modelId: text("model_id"),
+    /**
+     * The effort and speed the call asked for (the owner's model configuration); null for
+     * a request answered without a model call and on rows logged before they were recorded.
+     */
+    effort: text("effort"),
+    speed: text("speed", { enum: ["standard", "fast"] }),
     /**
      * The role's prompt version: 12 hex digits of the SHA-256 of its instructions and
      * response format (`promptVersion`). Rows logged before it was recorded have none.
@@ -194,7 +339,8 @@ export const inferenceLog = sqliteTable(
     /**
      * The validated result (a plan, a judgement or an abstention reason); for
      * `invalid-output`, the check that refused the output and the refused plan reduced to
-     * references (`{ rejection, output? }`); otherwise null.
+     * references (`{ rejection, output? }`); for `refused`, the provider's refusal
+     * category code when it reported one (`{ refusalCategory }`); otherwise null.
      */
     result: text("result", { mode: "json" }),
     /**
@@ -213,8 +359,19 @@ export const inferenceLog = sqliteTable(
     outcome: text("outcome").notNull(),
     /** The generated recipe the call is for: the one it starts or continues, or judges. */
     recipeId: text("recipe_id"),
-    /** The chooser branch (ADR 0028), or empty for any other page. */
+    /**
+     * The recipe layout (ADR 0060) and chooser branch (ADR 0028) as `recipeBranchSchema`
+     * names them, or empty for a recipe's first page.
+     */
     branch: text("branch"),
+    /**
+     * The recipe layout (ADR 0060) the row is for: the one a continuation, judgement or
+     * signed-in page sample names in `branch`, or, for a recipe's first page sent to the
+     * model (a list of accounts included), the key of the layout its answer creates, which
+     * exists once `revision` is set. Null for an entry page and for a first page answered
+     * without a call.
+     */
+    layout: text("layout"),
     /**
      * The recipe's head revision when the call was made: 0 when it had none, the
      * tombstone's for a revoked recipe generated again, the judged one for the judge. A
@@ -261,8 +418,9 @@ export const inferenceLog = sqliteTable(
     /**
      * Milliseconds from the Worker receiving the request to just before the model call:
      * device authentication, the request limit, the route's own reads, the owner's lock,
-     * the gate and spend checks, the credential with its token exchange, and the spend
-     * reservation.
+     * the gate and spend checks, the model configuration and the credential with its token
+     * exchange. A later call of the same request (a fallback after a refusal, or the
+     * standard speed after fast mode failed) includes the calls before it.
      */
     preModelMs: integer("pre_model_ms"),
     /**
@@ -304,7 +462,10 @@ export const loginOutcomes = sqliteTable(
       .notNull()
       .references(() => owners.id),
     recipeId: text("recipe_id").notNull(),
-    /** The chooser branch the login took (ADR 0028), or empty for any other recipe. */
+    /**
+     * The layout the login ran (ADR 0060) and the chooser branch it took (ADR 0028), as
+     * `recipeBranchSchema` names them; empty only in rows written before layouts.
+     */
     branch: text("branch").notNull().default(""),
     revision: integer("revision").notNull(),
     /** A `loginOutcomeSchema` code. */
@@ -335,7 +496,10 @@ export const loginTimings = sqliteTable(
       .notNull()
       .references(() => owners.id),
     recipeId: text("recipe_id").notNull(),
-    /** The chooser branch the login took (ADR 0028), or empty for any other recipe. */
+    /**
+     * The layout the login ran (ADR 0060) and the chooser branch it took (ADR 0028), as
+     * `recipeBranchSchema` names them; empty only in rows written before layouts.
+     */
     branch: text("branch").notNull().default(""),
     revision: integer("revision").notNull(),
     /** The recipe's origin, from the reported revision or else its newest kept one. */
@@ -364,6 +528,44 @@ export const loginTimings = sqliteTable(
   (table) => [
     index("login_timings_owner_created").on(table.ownerId, table.createdAt),
     index("login_timings_created").on(table.createdAt),
+  ],
+);
+
+/**
+ * The `warn` and `error` lines of devices' local logs, and the `info` lines that say why
+ * Pateat did nothing (ADR 0066), as the extension let them leave: the event, its level,
+ * the device's time and its allowlisted fields as JSON, such as `origin`, `recipe`,
+ * `outcome` and `cause`. One row per line; a device's retry repeats its log ID and `seq`
+ * and changes nothing. Kept a year, and deleted with the request log.
+ */
+export const problemLog = sqliteTable(
+  "problem_log",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    deviceId: text("device_id")
+      .notNull()
+      .references(() => devices.id),
+    /** The device log's random ID; a log made again on the device has another. */
+    logId: text("log_id").notNull(),
+    /** The local log's own key in that log. */
+    seq: integer("seq").notNull(),
+    /** The extension commit that wrote the line, or `development`. */
+    extensionBuild: text("extension_build").notNull(),
+    level: text("level", { enum: ["info", "warn", "error"] }).notNull(),
+    /** A local log event name, such as `login.attempt`. */
+    event: text("event").notNull(),
+    /** The line's fields as a JSON object of strings, integers and booleans. */
+    fields: text("fields").notNull(),
+    /** When the device wrote the line, by its clock. */
+    loggedAt: integer("logged_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deviceId, table.logId, table.seq] }),
+    index("problem_log_owner_created").on(table.ownerId, table.createdAt),
+    index("problem_log_created").on(table.createdAt),
   ],
 );
 
@@ -398,7 +600,10 @@ export const generationAttempts = sqliteTable(
       .references(() => owners.id),
     /** The generated recipe the page starts or continues; one origin can hold several. */
     recipeId: text("recipe_id").notNull(),
-    /** The chooser branch the page continues (ADR 0028), or empty for any other page. */
+    /**
+     * The layout (ADR 0060) and chooser branch (ADR 0028) the page continues, as
+     * `recipeBranchSchema` names them, or empty for a recipe's first page.
+     */
     branch: text("branch").notNull().default(""),
     origin: text("origin").notNull(),
     path: text("path").notNull(),
@@ -413,14 +618,36 @@ export const generationAttempts = sqliteTable(
 );
 
 /**
+ * The last repair call per generated recipe and device (ADR 0041): a device asks
+ * to repair a recipe whose start page no longer matches at most once a UTC day, whatever
+ * came of the call.
+ */
+export const recipeRepairs = sqliteTable(
+  "recipe_repairs",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    recipeId: text("recipe_id").notNull(),
+    deviceId: text("device_id").notNull(),
+    /** The revision the call was to repair. */
+    revision: integer("revision").notNull(),
+    repairedAt: integer("repaired_at").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.ownerId, table.recipeId, table.deviceId] })],
+);
+
+/**
  * What the judge answered for a page; `unclear` when the model abstained (ADR 0029), and
  * `partial` when it abstained on a description that left out a disabled field, so the
- * path is judged again once it is described in full.
+ * path is judged again once it is described in full; `optional` for a page after the
+ * sign-in that the person may put off (ADR 0065).
  */
 export const pageJudgementVerdicts = [
   "signed-in",
   "challenge",
   "rejected",
+  "optional",
   "unclear",
   "partial",
 ] as const;
@@ -436,7 +663,10 @@ export const pageJudgements = sqliteTable(
       .notNull()
       .references(() => owners.id),
     recipeId: text("recipe_id").notNull(),
-    /** The chooser branch whose route was judged (ADR 0028), or empty for a route recipe. */
+    /**
+     * The layout (ADR 0060) and chooser branch (ADR 0028) whose route was judged, as
+     * `recipeBranchSchema` names them.
+     */
     branch: text("branch").notNull().default(""),
     revision: integer("revision").notNull(),
     /**
@@ -473,6 +703,18 @@ export const pageJudgements = sqliteTable(
     index("page_judgements_day").on(table.ownerId, table.recipeId, table.judgedAt),
   ],
 );
+
+/**
+ * The owner's model configuration (`modelConfigSchema`), edited only in the web UI: devices
+ * never read or write it. No row means the defaults (`DEFAULT_MODEL_CONFIG`).
+ */
+export const inferenceModelConfigs = sqliteTable("inference_model_configs", {
+  ownerId: text("owner_id")
+    .primaryKey()
+    .references(() => owners.id),
+  document: text("document", { mode: "json" }).notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
 
 /** One model call at a time per owner; a lock past `expiresAt` is abandoned. */
 export const inferenceLocks = sqliteTable("inference_locks", {

@@ -81,14 +81,35 @@ export function showsOtherAccount(
   username: string,
   { masked }: { masked: boolean },
 ): boolean {
-  const name = username
+  const name = accountName(username);
+  const comparable = comparableAccounts(shown, username, { masked });
+  return (
+    comparable !== undefined &&
+    comparable.length > 0 &&
+    !comparable.some((entry) => fits(entry, name))
+  );
+}
+
+/**
+ * The identifiers in `shown` that `showsOtherAccount` compares with `username`, or
+ * `undefined` when a username of its kind is never compared.
+ */
+export function comparableAccounts(
+  shown: readonly string[],
+  username: string,
+  { masked }: { masked: boolean },
+): string[] | undefined {
+  const name = accountName(username);
+  const email = name.includes("@");
+  if (!email && !(masked && /^\d+$/u.test(name.replace(/[\s-]/gu, "")))) return undefined;
+  return shown.filter((entry) => entry.includes("@") === email);
+}
+
+function accountName(username: string): string {
+  return username
     .replace(/\p{Cf}+/gu, "")
     .normalize("NFKC")
     .trim();
-  const email = name.includes("@");
-  if (!email && !(masked && /^\d+$/u.test(name.replace(/[\s-]/gu, "")))) return false;
-  const comparable = shown.filter((entry) => entry.includes("@") === email);
-  return comparable.length > 0 && !comparable.some((entry) => fits(entry, name));
 }
 
 /**
