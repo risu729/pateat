@@ -143,17 +143,20 @@ describe("extractLoginObservation", () => {
         summary(observe()).map((entry) => entry.target.value),
         style,
       ).toEqual(["u", "p", "go"]);
+      // The page after a sign-in still reads such a field, which may be a code field
+      // waiting for a timer: the disabled password pair still makes it incomplete.
       page(`<button id="logout">Sign out</button>${form(decoys(style))}`);
       const signedIn = extractSignedInObservation();
       expect(signedIn.ok && [signedIn.observation.complete, signedIn.gap], style).toEqual([
-        true,
-        undefined,
+        false,
+        "unfillable-field",
       ]);
     }
-    // Faint alone, or disabled alone, still cannot be filled.
+    // Faint alone, disabled alone, or faint and read-only, still cannot be filled.
     for (const extra of [
       `<input id="pin" style="opacity:0">`,
       `<input id="pin" type="password" disabled>`,
+      `<input id="pin" style="opacity:0" readonly>`,
     ]) {
       page(form(extra));
       const result = extractLoginObservation();
