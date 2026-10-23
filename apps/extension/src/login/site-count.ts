@@ -193,6 +193,29 @@ export function createCountScope(
   };
 }
 
+/**
+ * Settings whose trusted updates, such as an account choice a login saves (ADR 0022) or a
+ * remembered passkey default, call `saved` once written, so the badge recounts after them
+ * as after an options-page save.
+ */
+export function recountingSettings<
+  T extends {
+    update(
+      expectedRevision: number | undefined,
+      mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+    ): Promise<SettingsSnapshot>;
+  },
+>(settings: T, saved: () => void): T {
+  return {
+    ...settings,
+    update: (expectedRevision, mutate) =>
+      settings.update(expectedRevision, mutate).then((snapshot) => {
+        saved();
+        return snapshot;
+      }),
+  };
+}
+
 /** Whether every live connection of the scope is open, so a count can run. */
 export function countable(scope: Extract<CountScope, { key: string }>): boolean {
   return scope.sources.every((source) => "fixed" in source || source.open);
@@ -470,15 +493,18 @@ export function createSiteCounter(deps: {
           }),
     });
   }
-  /** Tries every stopped count again now, as when a login ended. */
+  /**
+   * Tries every stopped count again now, as when a login ended; the waits go on from where
+   * they were, so frequent announcements do not keep them short.
+   */
   function retryStopped(): void {
-    for (const [origin, { timer }] of retries) {
+    for (const [origin, { attempt, timer }] of retries) {
       clearTimeout(timer);
       if (!showing(origin)) {
         retries.delete(origin);
         continue;
       }
-      retries.set(origin, { attempt: 0 });
+      retries.set(origin, { attempt });
       enqueue(origin);
     }
   }

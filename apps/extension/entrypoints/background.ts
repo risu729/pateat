@@ -29,6 +29,7 @@ import {
   countedOrigin,
   createCountScope,
   createSiteCounter,
+  recountingSettings,
   SITE_COUNT_KEY,
 } from "../src/login/site-count";
 import {
@@ -105,6 +106,8 @@ export default defineBackground(() => {
       void siteCounter.refresh();
       diagnosticsLog.vaultStateMayChange();
     },
+    // A sync or a restore serves its snapshot only after the record write notified.
+    onVaultOpened: () => void siteCounter.refresh(),
     onSync: diagnosticsLog.vaultSync,
     onRefresh: diagnosticsLog.vaultRefresh,
   });
@@ -224,15 +227,12 @@ export default defineBackground(() => {
   });
   // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
   recipeSync.refreshIfStale();
-  // A saved account choice is uploaded at once instead of waiting for the next sync.
-  const loginSettings: typeof settings = {
-    ...settings,
-    update: (expectedRevision, mutate) =>
-      settings.update(expectedRevision, mutate).then((snapshot) => {
-        void recipeSync.sync();
-        return snapshot;
-      }),
-  };
+  // A saved account choice or passkey default is uploaded at once instead of waiting for
+  // the next sync, and the site count badge recounts for it.
+  const loginSettings: typeof settings = recountingSettings(settings, () => {
+    void recipeSync.sync();
+    void siteCounter.refresh();
+  });
   // A model call can outlast the worker's 30-second idle timeout; an extension API call
   // resets it, so the answer is not lost with a stopped worker.
   const keepAlive = <T>(work: Promise<T>): Promise<T> => {

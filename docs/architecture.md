@@ -1545,13 +1545,14 @@ next one; a stopped count is tried again after 1 to 32 seconds, after the next h
 announcement, or when a login ends. A count runs on a cache miss once the runtime has
 handled the tab's top-frame announcement, or 5 seconds after a finished load the page
 never announced; worker starts, tab activation and finished loads only show a cached
-count, and a saved or synced settings change or a vault record write shows again what
-the cache has for the new settings, which clears a count of the old ones, and counts the
-misses of tabs whose page announced. Counts are cached per origin, numbers only, keyed
-by the settings revision and each enabled connection's accepted snapshot, at most 200
-origins, in memory and in `chrome.storage.session` (`pateat.site-count.v1`); of each
-open snapshot's catalog only the item, group and field IDs that eligibility reads are
-kept in memory, until that vault is no longer open on it.
+count, and a saved or synced settings change, an account choice or passkey default a
+login saves, a vault record write, or a vault serving a new snapshot after a sync or a
+restore shows again what the cache has for the new settings, which clears a count of the
+old ones, and counts the misses of tabs whose page announced. Counts are cached per
+origin, numbers only, keyed by the settings revision and each enabled connection's
+accepted snapshot, at most 200 origins, in memory and in `chrome.storage.session`
+(`pateat.site-count.v1`); of each open snapshot's catalog only the item, group and field
+IDs that eligibility reads are kept in memory, until that vault is no longer open on it.
 
 The service's pages use the same unlocked logo as their favicon (owner request,
 2026-10-12). The owner web UI links the SVG, which Vite emits under `/manage/assets/`

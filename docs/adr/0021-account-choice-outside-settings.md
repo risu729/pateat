@@ -592,19 +592,21 @@ decision left open; they are implementation choices, not owner decisions:
   A vault not opened since Pateat restarted shows a count cached for the same settings
   revision and accepted snapshot, as the official extension shows its count whenever
   the vault is unlocked, and not checked only on a miss.
-- A saved or synced settings change and each vault record write show again what the
-  cache has for every counted tab, from one read of the settings and records, so a count
-  of the previous settings stops showing, and count each miss of a tab whose page has
-  announced or whose 5 seconds passed. The decision limits only worker starts, tab
-  activation and finished loads to the cache. A worker start reads them once for all
-  open tabs, and takes a tab that had finished loading as announced.
+- A saved or synced settings change, an account choice or passkey default a login saves,
+  each vault record write, and a vault serving a new snapshot after a sync's accept or a
+  restore (which happens after the record write notified) show again what the cache has
+  for every counted tab, from one read of the settings and records, so a count of the
+  previous settings stops showing, and count each miss of a tab whose page has announced
+  or whose 5 seconds passed. The decision limits only worker starts, tab activation and
+  finished loads to the cache. A worker start reads them once for all open tabs, and
+  takes a tab that had finished loading as announced.
 - A count stopped for a login or an admission (of any frame, in any tab) shows no number
   and a not-checked title that starts
   `Pateat: a login or a page check was using the vault` and ends `were not counted yet.`
   It is tried again after 1, 2, 4, 8, 16 and 32 seconds, then no more on its own; after
   any top frame's handled announcement; and when a login signs in, is blocked, settles
-  as unknown or is only watched. The vault-replacement hold covers only the count's
-  jobs, not the final read of what applies now.
+  as unknown or is only watched; those do not restart the waits. The vault-replacement
+  hold covers only the count's jobs, not the final read of what applies now.
 - A count that finishes after the settings or a vault changed is cached under the key
   it was made for, and the tabs show what applies now instead. An announcement whose
   origin is no longer the tab's does not count.

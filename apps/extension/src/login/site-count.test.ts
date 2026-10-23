@@ -11,6 +11,7 @@ import {
   countedOrigin,
   createCountScope,
   createSiteCounter,
+  recountingSettings,
   type CountScope,
   type CountSource,
   type CountStep,
@@ -456,7 +457,7 @@ describe("createSiteCounter", () => {
     let snapshot = settings();
     let source: CountSource =
       options.open === false ? { connectionId, snapshotId } : live({ uris: ["a"] });
-    let unchecked: "locked" | undefined;
+    let unchecked: "locked" | "updating" | undefined;
     const shown = new Map<number, SiteCountState | undefined>();
     const history: [number, SiteCountState | undefined][] = [];
     const events: string[] = [];
@@ -495,6 +496,7 @@ describe("createSiteCounter", () => {
       setSettings: (next: SettingsSnapshot) => (snapshot = next),
       setSource: (next: CountSource) => (source = next),
       lock: () => (unchecked = "locked"),
+      setUnchecked: (next: typeof unchecked) => (unchecked = next),
       scopes: () => scopes,
     };
   }
@@ -599,6 +601,49 @@ describe("createSiteCounter", () => {
     await h.counter.refresh();
     expect(h.shown.get(1)).toEqual({ kind: "unchecked", reason: "locked" });
     expect(h.step).not.toHaveBeenCalled();
+  });
+
+  it("counts once a synced or restored vault serves its snapshot", async () => {
+    const h = harness();
+    await h.counter.announced(1, `${origin}/`);
+    await h.counter.idle();
+    // The record write notifies while the old snapshot is still open.
+    h.setSettings(settings({ excludedItemIds: ["a"] }, {}, 2));
+    h.setUnchecked("updating");
+    await h.counter.refresh();
+    await h.counter.idle();
+    expect(h.shown.get(1)).toEqual({ kind: "unchecked", reason: "updating" });
+    // The vault's opened notice refreshes again.
+    h.setUnchecked(undefined);
+    await h.counter.refresh();
+    await h.counter.idle();
+    expect(h.shown.get(1)).toEqual({
+      kind: "count",
+      count: { usable: 0, matching: 1, unevaluated: 0, excluded: "items" },
+    });
+  });
+
+  it("recounts after a trusted settings update such as a saved account choice", async () => {
+    const saved = vi.fn();
+    const snapshot = settings({}, {}, 2);
+    const base = {
+      read: async () => snapshot,
+      update: vi.fn(
+        async (
+          _revision: number | undefined,
+          _mutate: (current: SettingsSnapshot) => SettingsSnapshot,
+        ) => snapshot,
+      ),
+    };
+    const wrapped = recountingSettings(base, saved);
+    expect(await wrapped.read()).toBe(snapshot);
+    await expect(wrapped.update(1, (current) => current)).resolves.toBe(snapshot);
+    expect(base.update).toHaveBeenCalledWith(1, expect.any(Function));
+    expect(saved).toHaveBeenCalledTimes(1);
+    // A refused update is no save.
+    base.update.mockRejectedValueOnce(new Error("revision"));
+    await expect(wrapped.update(1, (current) => current)).rejects.toThrow("revision");
+    expect(saved).toHaveBeenCalledTimes(1);
   });
 
   it("shows a stored count after a restart even before the vault opens", async () => {
