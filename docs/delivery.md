@@ -288,6 +288,38 @@ unsigned commits"). Implementation is not deferred to later or follow-up work un
 is very large (owner, 2026-10-19 21:00 UTC:
 「実装を後回しにするのは基本的によほど大きくない限りやめて」).
 
+### Issue labels
+
+Every issue gets one `type:` label and, where it applies, one `area:` label. Labels were
+set up on the owner's request (2026-10-23 21:34 UTC), replacing GitHub's defaults.
+
+| Label | Use |
+| --- | --- |
+| `type: bug` | Pateat does something wrong, or nothing where it should act |
+| `type: feature` | New behaviour or a change to how Pateat works |
+| `type: refactor` | Code change with no change in behaviour |
+| `type: docs` | Documentation only |
+| `type: task` | Maintenance or tracking work that is none of the above |
+| `area: extension` | `apps/extension`: content scripts, worker, popup, options |
+| `area: service` | `services/api` and `packages/inference`: API, `/manage`, recipe generation |
+| `area: ci` | GitHub Actions, build and release |
+| `security` | Affects how credentials or vault data are protected |
+| `accessibility` | Barrier affecting people with disabilities |
+| `status: needs real chrome` | Waiting for a check in the owner's real Chrome |
+| `status: needs log` | Waiting for the diagnostics log of the failed attempt |
+| `status: needs decision` | Waiting for the owner's decision |
+| `resolution: not reproducible` | Closed: a check on a later build did not show the problem |
+| `resolution: duplicate` | Closed: the same problem is tracked in another issue |
+| `resolution: by design` | Closed: the behaviour is intended |
+| `resolution: won't fix` | Closed: the owner decided not to change it |
+
+Remove a `status:` label once its wait ends. Close an issue as not reproducible only
+after a recorded check failed to show the problem: add `resolution: not reproducible`,
+close it as "not planned", and comment with the build (commit link), where it was
+checked (real Chrome or cloud Chromium) and what was seen. An issue that only waits for
+a log keeps `status: needs log` and stays open. `dependencies` and the package-manager
+labels (`bun`, `mise`, `github-actions`, ...) are added by Renovate.
+
 ## Complete-service CI requirements
 
 - Trigger on every PR and main push; no top-level path filter may leave the
