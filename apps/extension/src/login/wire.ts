@@ -21,8 +21,16 @@ export const loginSecretKinds = [
   "detail",
   "answer",
 ] as const;
-/** A custom field's name that a secret question's answer is filled under (ADR 0061). */
-const questionSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
+/**
+ * What a secret question's answer is filled under (ADR 0061): its custom field's name and,
+ * as an alternative, the question the owner confirmed for that field, either of which the
+ * page must show beside the input.
+ */
+const questionSchema = v.pipe(
+  v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(200))),
+  v.minLength(1),
+  v.maxLength(2),
+);
 export type LoginSecretKind = (typeof loginSecretKinds)[number];
 const path = v.pipe(v.string(), v.minLength(1), v.maxLength(300));
 /** One target's state: no element, exactly one usable element, several, or one unusable. */
@@ -406,7 +414,8 @@ export const commandSchema = v.variant("type", [
           secret: v.optional(v.picklist(loginSecretKinds)),
           /**
            * A secret question's answer goes in only while the input's question is still
-           * this field name (ADR 0061), checked just before it is typed.
+           * this field's name or its confirmed question (ADR 0061), checked just before it
+           * is typed.
            */
           question: v.optional(questionSchema),
         }),
@@ -475,8 +484,9 @@ export const commandSchema = v.variant("type", [
     question: v.optional(questionSchema),
   }),
   /**
-   * Which of the login item's custom field names is the secret question shown beside
-   * `target` (ADR 0061); page text never leaves the document.
+   * Which of the login item's custom field names, each with its confirmed question as an
+   * alternative when it has one, is the secret question shown beside `target` (ADR 0061);
+   * page text never leaves the document.
    */
   v.strictObject({
     version: v.literal(1),

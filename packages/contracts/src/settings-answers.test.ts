@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
-import { createDefaultSettings, localSettingsSchema, type DetailLink } from "./settings";
+import {
+  createDefaultSettings,
+  localSettingsSchema,
+  questionText,
+  type DetailLink,
+} from "./settings";
 
 // One link per site, login item and detail, except a secret question's answer, which has
 // one per question field (ADR 0061). Synthetic references only.
@@ -27,5 +32,38 @@ describe("detail links for answers and member IDs", () => {
       false,
     );
     expect(valid([link("member-id", "Member ID"), link("secret-answer", "Member ID")])).toBe(true);
+  });
+
+  it("stores a confirmed question with an answer link only, normalized and once per item", () => {
+    const asked = (custom: string, question: string): DetailLink => ({
+      ...link("secret-answer", custom),
+      question,
+    });
+    expect(valid([asked("お母さんの旧姓", "母親の旧姓は")])).toBe(true);
+    // Two questions for one field are still one link per field.
+    expect(
+      valid([asked("お母さんの旧姓", "母親の旧姓は"), asked("お母さんの旧姓", "母の旧姓")]),
+    ).toBe(false);
+    // One question kept for two fields would match both on the page.
+    expect(
+      valid([asked("お母さんの旧姓", "母親の旧姓は"), asked("母の旧姓", "母親の旧姓は")]),
+    ).toBe(false);
+    expect(
+      valid([
+        asked("お母さんの旧姓", "母親の旧姓は"),
+        { ...asked("母の旧姓", "母親の旧姓は"), itemId: "other" },
+      ]),
+    ).toBe(true);
+    // Stored as compared: NFKC, without case, a trailing question mark removed.
+    expect(valid([asked("First pet", "Name of your first pet?")])).toBe(false);
+    expect(valid([asked("First pet", "name of your first pet")])).toBe(true);
+    expect(valid([asked("First pet", "pet")])).toBe(false);
+    expect(valid([asked("First pet", "x".repeat(201))])).toBe(false);
+    expect(valid([{ ...link("member-id", "Member ID"), question: "member number" }])).toBe(false);
+  });
+
+  it("compares questions after NFKC, without case and trailing marks", () => {
+    expect(questionText("  Mother\u2019s  maiden NAME？ ")).toBe("mother's maiden name");
+    expect(questionText("母親の旧姓は：")).toBe("母親の旧姓は");
   });
 });

@@ -12,6 +12,7 @@ import {
   recipePageSampleRequestSchema,
   recipeGenerationResultSchema,
 } from "./generation";
+import { builtInLoginSlots, customFieldSlotDescriptions } from "./observation";
 
 // Synthetic pages and recipes only.
 
@@ -94,7 +95,7 @@ describe("recipe generation contracts", () => {
         customSlots,
       }),
     ).toBe(false);
-    const judged = { version: 1, revision: 2, route: "password", observation };
+    const judged = { version: 1, revision: 2, route: "password", observation, slots: [] };
     expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "account" })).toBe(true);
     expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "list" })).toBe(false);
   });
@@ -457,6 +458,7 @@ describe("page judgement contracts (ADR 0027)", () => {
         revision: 2,
         route: "password",
         observation,
+        slots: [],
       }).route,
     ).toBe("password");
     expect(
@@ -465,23 +467,30 @@ describe("page judgement contracts (ADR 0027)", () => {
         revision: 2,
         route: "passkey",
         observation,
+        slots: [],
       }).route,
     ).toBe("passkey");
     for (const route of ["sso", ""])
       expect(
-        v.is(recipeCompletionRequestSchema, { version: 1, revision: 2, route, observation }),
+        v.is(recipeCompletionRequestSchema, {
+          version: 1,
+          revision: 2,
+          route,
+          observation,
+          slots: [],
+        }),
       ).toBe(false);
   });
 
   it("marks a description that left out a disabled field only as true (ADR 0029)", () => {
-    const request = { version: 1, revision: 2, route: "password", observation };
+    const request = { version: 1, revision: 2, route: "password", observation, slots: [] };
     expect(v.is(recipeCompletionRequestSchema, { ...request, partial: true })).toBe(true);
     for (const partial of [false, "true"])
       expect(v.is(recipeCompletionRequestSchema, { ...request, partial })).toBe(false);
   });
 
   it("marks a page at a stop before a missing password only as true (ADR 0036)", () => {
-    const request = { version: 1, revision: 2, route: "password", observation };
+    const request = { version: 1, revision: 2, route: "password", observation, slots: [] };
     expect(v.is(recipeCompletionRequestSchema, { ...request, stop: true })).toBe(true);
     for (const stop of [false, "true"])
       expect(v.is(recipeCompletionRequestSchema, { ...request, stop })).toBe(false);
@@ -490,6 +499,60 @@ describe("page judgement contracts (ADR 0027)", () => {
       false,
     );
     expect(v.is(recipeCompletionRequestSchema, { ...request, branch: "account", stop: true })).toBe(
+      false,
+    );
+  });
+
+  it("carries the account's slots as a generation request does (owner 2026-10-23)", () => {
+    const request = { version: 1, revision: 2, route: "password", observation };
+    const accountSlots = [
+      builtInLoginSlots.username,
+      {
+        id: "custom-1",
+        kind: "hidden",
+        description: customFieldSlotDescriptions.hidden,
+        fieldName: "お母さんの旧姓",
+      },
+    ];
+    expect(v.is(recipeCompletionRequestSchema, { ...request, slots: accountSlots })).toBe(true);
+    // Required, as for generation; a Hidden field never carries a shape.
+    expect(v.is(recipeCompletionRequestSchema, request)).toBe(false);
+    expect(
+      v.is(recipeCompletionRequestSchema, {
+        ...request,
+        slots: [
+          { ...accountSlots[1], valueShape: { length: 6, classes: ["other"], email: false } },
+        ],
+      }),
+    ).toBe(false);
+    // Never a value or a binding.
+    expect(
+      v.is(recipeCompletionRequestSchema, {
+        ...request,
+        slots: [{ ...accountSlots[1], value: "x" }],
+      }),
+    ).toBe(false);
+  });
+
+  it("answers a challenge with secret questions paired for this account only", () => {
+    const questions = [
+      { field: { by: "name", value: "answer" }, slot: "custom-1", shown: "母親の旧姓は？" },
+    ];
+    expect(
+      v.is(recipeCompletionResultSchema, { version: 1, status: "challenge", change, questions }),
+    ).toBe(true);
+    for (const bad of [
+      [],
+      [{ ...questions[0], shown: "" }],
+      [{ ...questions[0], shown: "x".repeat(201) }],
+      [{ ...questions[0], field: { by: "text", value: "Answer" } }],
+      [{ ...questions[0], slot: "custom 1" }],
+      [{ ...questions[0], answer: "x" }],
+    ])
+      expect(
+        v.is(recipeCompletionResultSchema, { version: 1, status: "challenge", questions: bad }),
+      ).toBe(false);
+    expect(v.is(recipeCompletionResultSchema, { version: 1, status: "signed-in", questions })).toBe(
       false,
     );
   });

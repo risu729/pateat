@@ -787,7 +787,7 @@ export async function judgeCompletion(
 ): Promise<RecipeCompletionResult | undefined | null> {
   const head = await readHead(env.DB, scope.ownerId, recipeId);
   if (!head) return undefined;
-  const { observation, route, branch, partial } = request;
+  const { observation, route, branch, partial, slots } = request;
   // A page at a `password` login's stop before its item's missing password (ADR 0036, owner
   // 2026-10-13 05:39 UTC): judged though it shows the route's password field, for a
   // `passkey` handler only.
@@ -814,6 +814,8 @@ export async function judgeCompletion(
         recipeId,
         route,
         ...(loginPaths ? { loginPaths } : {}),
+        // The account's slots, logged as a generation request's are (owner 2026-10-23).
+        slots,
         observation,
         ...(stop ? { stop } : {}),
       },
@@ -978,6 +980,7 @@ export async function judgeCompletion(
       createCompletionJudge({ model, ...roleConfig })({
         observation,
         loginPaths,
+        slots,
         ...(stop ? { stop } : {}),
       }),
     logValue: (judgement) => judgement,
@@ -1067,8 +1070,16 @@ export async function judgeCompletion(
       for (const reason of judgement.detailsDropped ?? [])
         handlers.push({ kind: "detail", kept: false, reason });
     if (handlers.length) console.info("Judged page handlers", { recipeId, handlers });
+    // The secret questions the judge paired with this account's slots (ADR 0061) answer
+    // this request only: the recipe, shared by every account, never holds a field's name.
+    // Only a `detail` handler kept for the page pairs anything; a stop keeps none.
+    const questions =
+      judgement.questions?.length &&
+      handlers.some((handler) => handler.kind === "detail" && handler.kept)
+        ? { questions: judgement.questions }
+        : {};
     const withHandlers = changed && stored(head.recipe, branch, changed);
-    if (!withHandlers) return { version: 1, status: "challenge" };
+    if (!withHandlers) return { version: 1, status: "challenge", ...questions };
     const written = await writeRecipe(
       env.DB,
       scope.ownerId,
@@ -1082,7 +1093,7 @@ export async function judgeCompletion(
     if (!written.ok && written.limited)
       console.warn("Judged page handlers refused by the recipe limit", { recipeId });
     const change = written.ok ? answerable(written.change) : undefined;
-    return { version: 1, status: "challenge", ...(change ? { change } : {}) };
+    return { version: 1, status: "challenge", ...(change ? { change } : {}), ...questions };
   }
   // A later signed-in page adds its marker, up to four (ADR 0029). A recipe that has a
   // marker already is signed in whether or not this one can be added, as with four, a

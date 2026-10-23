@@ -17,6 +17,7 @@ import {
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
+  type SemanticSlot,
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type {
@@ -777,6 +778,7 @@ export function createLoginGeneration(options: {
       branch?: ChooserBranch,
       partial?: true,
       stop?: true,
+      slots: readonly SemanticSlot[] = [],
     ) {
       const connection = await connected();
       if (!connection) return { verdict: "retry", reason: "not-connected" };
@@ -791,6 +793,8 @@ export function createLoginGeneration(options: {
           route,
           ...(branch ? { branch } : {}),
           observation,
+          // As for generation, `totp` only on a page with a code field (ADR 0027).
+          slots: slotsForPage(observation, slots),
           ...(partial ? { partial } : {}),
           ...(stop ? { stop } : {}),
         },
@@ -801,11 +805,18 @@ export function createLoginGeneration(options: {
       // Later runs use the learned completion; this attempt settles without waiting.
       if (result?.status === "signed-in") void refresh().catch(() => undefined);
       // The login continues with the returned recipe; the cache catches up behind it (ADR 0027).
+      // The secret questions the judge paired with the account's slots go with it, for the
+      // owner to confirm (ADR 0061).
       if (result?.status === "challenge" && result.change) {
         void refresh().catch(() => undefined);
         // A chooser login's (ADR 0028) is the whole chooser; an entry recipe is never one.
         if (branch ? "chooser" in result.change.recipe : isLoginRouteRecipe(result.change.recipe))
-          return { verdict: "challenge", recipe: result.change.recipe, ...timed };
+          return {
+            verdict: "challenge",
+            recipe: result.change.recipe,
+            ...(result.questions ? { questions: result.questions } : {}),
+            ...timed,
+          };
       }
       if (
         result?.status === "signed-in" ||

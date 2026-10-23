@@ -505,6 +505,7 @@ describe("recipe generation", () => {
           revision: 2,
           route: "password",
           observation,
+          slots: [],
         }),
       ),
     ).toEqual({ kind: "result", result: { version: 1, status: "unclear" } });
@@ -1009,6 +1010,7 @@ describe("service timing", () => {
         revision: 1,
         route: "password",
         observation: request.observation,
+        slots: [],
       }),
     ).toEqual({ kind: "rejected", timing: { roundTripMs: 250, serverMs: 20, networkMs: 230 } });
     const unreachable = vi.fn<typeof globalThis.fetch>(async () => {

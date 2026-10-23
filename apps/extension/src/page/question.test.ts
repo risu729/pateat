@@ -58,6 +58,24 @@ describe("askedQuestion", () => {
     expect(askedQuestion(answer, ["回答"])).toBeUndefined();
   });
 
+  it("matches a field by the question the owner confirmed for it, literally", () => {
+    const answer = input(
+      `<form><p>秘密の質問：母親の旧姓は？</p><input id="answer" type="text"><button>次へ</button></form>`,
+    );
+    // The field's name is not shown; the question stored with its link is.
+    expect(askedQuestion(answer, [["お母さんの旧姓", "母親の旧姓は"]])).toBe(0);
+    expect(askedQuestion(answer, ["好きな食べ物は？", ["お母さんの旧姓", "母親の旧姓は"]])).toBe(1);
+    // Nothing fuzzy: a question worded otherwise matches no stored one.
+    expect(askedQuestion(answer, [["お母さんの旧姓", "母の旧姓は"]])).toBeUndefined();
+    // Two entries that both match at the same length tie.
+    expect(
+      askedQuestion(answer, [
+        ["お母さんの旧姓", "母親の旧姓は"],
+        ["旧姓", "母親の旧姓は"],
+      ]),
+    ).toBeUndefined();
+  });
+
   it("ignores text that is not shown", () => {
     const answer = input(
       `<form><p hidden>母親の旧姓は？</p><p>好きな色は？</p><input id="answer"></form>`,

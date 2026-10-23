@@ -14,6 +14,7 @@ import {
   type LoginEntryRecipe,
   type LoginRecipe,
   type LoginStep,
+  type LoginFieldTarget,
   type LoginTarget,
 } from "@pateat/contracts";
 import type { UriCandidates } from "../crypto/wire";
@@ -139,6 +140,12 @@ const fake = vi.hoisted(() => {
     },
     /** Runs when the document presses its sign-in entry. */
     onPress: undefined as undefined | (() => void),
+    /**
+     * The secret question the page shows beside an answer input (ADR 0061), compared with
+     * the names a `login.detail.question` sends as the content script does: the entry with
+     * an alternative contained in it, after the same normalization. None when unset.
+     */
+    question: undefined as string | undefined,
   };
   const browser = {
     runtime: {
@@ -255,6 +262,15 @@ const fake = vi.hoisted(() => {
                 }
               : {}),
           };
+        if (message["type"] === "login.detail.question") {
+          const shown = state.question;
+          if (shown === undefined) return { ok: true };
+          const normalized = (text: string) => text.normalize("NFKC").replace(/[?:]+$/u, "");
+          const index = (message["names"] as string[][]).findIndex((names) =>
+            names.some((name) => normalized(shown).includes(normalized(name))),
+          );
+          return index < 0 ? { ok: true } : { ok: true, index };
+        }
         if (message["type"] === "login.switch") return state.switchReply;
         if (message["type"] === "login.choose") return state.chosen;
         if (message["type"] === "login.entry.hosts") return state.entry.hosts;
@@ -10048,6 +10064,10 @@ describe("production login document admission", () => {
         "password",
         homePage.observation,
         expect.any(Function),
+        undefined,
+        undefined,
+        undefined,
+        expect.any(Array),
       );
       // The automatic choice is saved with its built-in binding once signed in.
       await vi.waitFor(() => expect(h.store.update).toHaveBeenCalled());
@@ -10296,6 +10316,10 @@ describe("production login document admission", () => {
         "password",
         accountHome.observation,
         expect.any(Function),
+        undefined,
+        undefined,
+        undefined,
+        expect.any(Array),
       );
     }, 10_000);
 
@@ -10532,8 +10556,15 @@ describe("production login document admission", () => {
           ]);
           expect(judges()[0]).not.toHaveProperty("disabledLeftOut");
           expect(judges()[0]).not.toHaveProperty("notCompleted");
-          // A description that left nothing out is sent without the mark.
-          expect(service.judge.mock.calls[0]).toHaveLength(5);
+          // A description that left nothing out is sent without the mark; the account's
+          // slots come last (owner 2026-10-23).
+          expect(service.judge.mock.calls[0]).toHaveLength(9);
+          expect(service.judge.mock.calls[0]!.slice(5, 8)).toEqual([
+            undefined,
+            undefined,
+            undefined,
+          ]);
+          expect(service.judge.mock.calls[0]![8]).toEqual(expect.any(Array));
         },
         12_000,
       );
@@ -10556,7 +10587,12 @@ describe("production login document admission", () => {
         );
         // The description goes as it is, and the request says a field was left out.
         expect(service.judge.mock.calls[0]![3]).toEqual(homePage.observation);
-        expect(service.judge.mock.calls[0]!.slice(5)).toEqual([undefined, true]);
+        expect(service.judge.mock.calls[0]!.slice(5)).toEqual([
+          undefined,
+          true,
+          undefined,
+          expect.any(Array),
+        ]);
         expect(
           report.mock.calls.flatMap(([value]) => (value.type === "judge" ? [value] : [])),
         ).toEqual([
@@ -12149,6 +12185,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     fake.state.gone = new Set();
     fake.state.extracted = {};
     fake.state.signs = undefined;
+    fake.state.question = undefined;
   });
 
   const securityKey = { by: "text" as const, value: "Use security key" };
@@ -12609,6 +12646,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         "password",
         homePage.observation,
         expect.any(Function),
+        undefined,
+        undefined,
+        undefined,
+        expect.any(Array),
       );
       expect(clicks("Use security key")).toBe(1);
     });
@@ -13002,6 +13043,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         "password",
         elsewhere.observation,
         expect.any(Function),
+        undefined,
+        undefined,
+        undefined,
+        expect.any(Array),
       );
       expect(executed()).toHaveLength(1);
     });
@@ -13069,6 +13114,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         "password",
         welcome.observation,
         expect.any(Function),
+        undefined,
+        undefined,
+        undefined,
+        expect.any(Array),
       );
     });
 
@@ -14619,6 +14668,289 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       },
       10_000,
     );
+  });
+
+  // Owner, 2026-10-23: the judge gets the account's slots, and pairs a secret question with
+  // a field named otherwise, which the owner confirms once in the popup (ADR 0061).
+  describe("the account's slots for the judge and a paired secret question", () => {
+    const answerHandler = {
+      kind: "detail" as const,
+      path: "/question",
+      fields: [{ detail: "secret-answer" as const, target: target("answer") }],
+      target: target("next"),
+    };
+    const asked = parseLoginRecipe({
+      ...unlearned,
+      revision: 2,
+      completion: home,
+      handlers: [answerHandler],
+    });
+    const questionPage = observation("/question", [
+      { id: "c1", role: "text", target: target("answer"), description: "母親の旧姓は？" },
+      { id: "c2", role: "button", target: target("next"), label: "Next" },
+    ]);
+    const toQuestion = { path: "/question", present: ["answer", "next"], extracted: questionPage };
+    const answerField = `custom.${snapshotId}.0`;
+    const popup = {
+      id: "synthetic-extension",
+      url: "chrome-extension://synthetic-extension/popup.html",
+    } as never;
+    const noPasskey = vi.fn(async () => ({ passkey: false, discoverable: false }));
+    const pairing = {
+      field: target("answer"),
+      slot: "custom-1",
+      shown: "母親の旧姓は？",
+    };
+    const answerFills = () =>
+      fake.state.messages.filter(
+        (entry) =>
+          (entry.type === "login.execute" &&
+            entry.values?.some((value) => value.slot === "detail")) ||
+          entry.type === "login.detail.fill",
+      );
+    /**
+     * The password page's click loads the question page in a new document, `documentId`;
+     * `pages` are the clicks after it, as `onClick` takes them.
+     */
+    function clickToQuestion(
+      started: () => ReturnType<typeof harness>,
+      documentId: string,
+      pages: Parameters<typeof onClick>[0] = {},
+    ) {
+      onClick({ login: toQuestion, ...pages });
+      const click = fake.state.onExecute!;
+      fake.state.onExecute = async (message, tabId) => {
+        await click(message, tabId);
+        if (fake.state.observedPath !== "/question" || fake.state.pageUrl.endsWith("/question"))
+          return;
+        // The password page's document is gone.
+        const { operation } = message as { operation: { document: { documentId: string } } };
+        fake.state.gone.add(operation.document.documentId);
+        fake.state.pageUrl = `${origin}/question`;
+        setTimeout(() => void started().hello({ documentId }, false), 0);
+      };
+    }
+    /**
+     * A login whose password page leads to a secret question the judge answers `challenge`
+     * with the answer handler and `questions`; the account's answer field is named
+     * otherwise.
+     */
+    async function stoppedAtQuestion(
+      questions: { field: LoginFieldTarget; slot: string; shown: string }[] | undefined,
+      custom: CustomField[] = [{ name: "お母さんの旧姓", kind: "hidden" }],
+    ) {
+      vi.useFakeTimers();
+      fake.state.question = "秘密の質問：母親の旧姓は？";
+      clickToQuestion(() => h, "question-document");
+      const answers: Awaited<ReturnType<LoginGeneration["judge"]>>[] = [
+        { verdict: "challenge", recipe: asked, ...(questions ? { questions } : {}) },
+      ];
+      const service = generation(async () => answers.shift() ?? { verdict: "signed-in" });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(
+        {},
+        { passkeys: noPasskey, generation: service, report, username: true, custom },
+      );
+      h.recipes.recipe.mockResolvedValue(plain);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching", "challenge"), 10_000);
+      return { h, service, report };
+    }
+    const detailOf = (h: ReturnType<typeof harness>) =>
+      h.login.handle({ version: 1, type: "login.detail.get", tabId: 1 }, popup);
+    const fill = (h: ReturnType<typeof harness>) =>
+      h.login.handle(
+        {
+          version: 1,
+          type: "login.detail.fill",
+          tabId: 1,
+          documentId: "question-document",
+          detail: "secret-answer",
+          connectionId,
+          itemId,
+          fieldId: answerField,
+        },
+        popup,
+      );
+
+    it("sends the account's slots with the judged page, never a value", async () => {
+      const { service } = await stoppedAtQuestion(undefined, [
+        { name: "会員番号", kind: "text" },
+        { name: "お母さんの旧姓", kind: "hidden" },
+      ]);
+      const slots = service.judge.mock.calls[0]![8];
+      expect(slots).toEqual([
+        expect.objectContaining({ id: "username", kind: "identifier" }),
+        expect.objectContaining({ id: "password", kind: "secret" }),
+        {
+          id: "custom-1",
+          kind: "identifier",
+          description: "value of the user's vault field named in fieldName",
+          fieldName: "会員番号",
+          // The Text field's shape, read locally from the synthetic value.
+          valueShape: expect.objectContaining({ length: "synthetic-secret".length }),
+        },
+        {
+          id: "custom-2",
+          kind: "hidden",
+          description:
+            "concealed value of the user's vault field named in fieldName, such as a PIN",
+          fieldName: "お母さんの旧姓",
+        },
+      ]);
+      // A Hidden field is never shaped, and no value, item name or binding is sent.
+      expect(JSON.stringify(service.judge.mock.calls)).not.toContain("synthetic-secret");
+      expect(JSON.stringify(service.judge.mock.calls)).not.toContain("Synthetic item");
+      expect(JSON.stringify(service.judge.mock.calls)).not.toContain(itemId);
+    });
+
+    it("proposes the paired field for the question, and fills nothing before the owner confirms", async () => {
+      const { h, report } = await stoppedAtQuestion([pairing]);
+      // The login stops at the handler as one with no link.
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "handler", kind: "detail", outcome: "detail-unlinked" }),
+      );
+      expect(answerFills()).toEqual([]);
+      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).not.toContain(answerField);
+      expect(await detailOf(h)).toEqual({
+        ok: true,
+        origin,
+        offer: {
+          documentId: "question-document",
+          details: [
+            {
+              detail: "secret-answer",
+              candidates: [
+                {
+                  connectionId,
+                  itemId,
+                  fieldId: answerField,
+                  itemLabel: "Synthetic item",
+                  fieldLabel: "お母さんの旧姓",
+                },
+              ],
+              question: "母親の旧姓は",
+            },
+          ],
+        },
+        links: [],
+      });
+      // The pairing is kept for the tab only: in session, never in the settings.
+      expect(JSON.stringify(fake.state.session)).toContain("母親の旧姓は");
+      expect(h.settings.settings.detailLinks).toBeUndefined();
+    });
+
+    it("proposes nothing once the page no longer shows the paired question as it was", async () => {
+      const { h } = await stoppedAtQuestion([pairing]);
+      fake.state.question = "秘密の質問：母の旧姓は？";
+      expect(await detailOf(h)).toEqual({ ok: true, origin, links: [] });
+      expect(await fill(h)).toEqual({ ok: false, reason: "not-a-candidate" });
+      expect(answerFills()).toEqual([]);
+    });
+
+    it("keeps a pairing with a slot sent for no field, or a question too short, out", async () => {
+      const { h } = await stoppedAtQuestion([
+        { ...pairing, slot: "password" },
+        { ...pairing, field: target("other"), shown: "旧姓?" },
+      ]);
+      expect(await detailOf(h)).toEqual({ ok: true, origin, links: [] });
+    });
+
+    it("stores the confirmed question with the link once signed in, and later logins match it literally", async () => {
+      const { h, service } = await stoppedAtQuestion([pairing]);
+      expect(await fill(h)).toEqual({ ok: true });
+      // The fill goes under the field's name or the confirmed question, beside the input.
+      expect(answerFills()).toEqual([
+        expect.objectContaining({
+          type: "login.detail.fill",
+          target: target("answer"),
+          secret: "answer",
+          question: ["お母さんの旧姓", "母親の旧姓は"],
+        }),
+      ]);
+      expect(h.settings.settings.detailLinks).toBeUndefined();
+      // The person submits and the site signs in.
+      fake.state.pageUrl = `${origin}/home`;
+      fake.state.observedPath = "/home";
+      fake.state.present = new Set(["logout"]);
+      fake.state.extracted = { "signed-in": homePage };
+      await h.hello({ documentId: "document-home" }, false);
+      await until(settled("authenticated"), 60_000);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() =>
+        expect(h.settings.settings.detailLinks).toEqual([
+          {
+            origin,
+            provider: "bitwarden",
+            userId,
+            itemId,
+            detail: "secret-answer",
+            source: { itemId, field: { custom: "お母さんの旧姓" } },
+            question: "母親の旧姓は",
+          },
+        ]),
+      );
+
+      // A later login of the account, on another day's worker, answers the question from
+      // the link, with no model: the account's handler is kept, the session is not.
+      for (const listener of fake.state.removed.splice(0)) listener(1);
+      fake.state.session = {};
+
+      fake.state.messages = [];
+      fake.state.pageUrl = `${origin}/signin`;
+      fake.state.observedPath = "/signin";
+      fake.state.present = new Set(["password", "login"]);
+      clickToQuestion(() => again, "second-question", {
+        next: { path: "/home", present: ["logout"], extracted: homePage },
+      });
+      const again = harness(
+        { detailLinks: h.settings.settings.detailLinks! },
+        {
+          passkeys: noPasskey,
+          generation: service,
+          username: true,
+          custom: [{ name: "お母さんの旧姓", kind: "hidden" }],
+        },
+      );
+      again.recipes.recipe.mockResolvedValue(asked);
+      expect(await again.hello({ documentId: "second-login" })).toEqual({ ok: true });
+      await until(settled("authenticated"), 60_000);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(again.fields.mock.calls.map(([request]) => request.fieldId)).toContain(answerField);
+      const typed = fake.state.messages.find(
+        (entry) =>
+          entry.type === "login.execute" && entry.values?.some((value) => value.slot === "detail"),
+      ) as unknown as { values: { slot: string; secret?: string; question?: string[] }[] };
+      expect(typed.values).toEqual([
+        expect.objectContaining({
+          slot: "detail",
+          secret: "answer",
+          question: ["お母さんの旧姓", "母親の旧姓は"],
+        }),
+      ]);
+      // The page was asked with both, as alternatives of one link.
+      expect(fake.state.messages).toContainEqual(
+        expect.objectContaining({
+          type: "login.detail.question",
+          names: [["お母さんの旧姓", "母親の旧姓は"]],
+        }),
+      );
+    });
+
+    it("still offers a field named as the question with no pairing and no question stored", async () => {
+      const { h } = await stoppedAtQuestion(undefined, [
+        { name: "母親の旧姓は？", kind: "hidden" },
+      ]);
+      const answer = await detailOf(h);
+      expect(answer).toMatchObject({
+        offer: { details: [{ detail: "secret-answer", candidates: [{ fieldId: answerField }] }] },
+      });
+      expect(JSON.stringify(answer)).not.toContain('"question"');
+      expect(await fill(h)).toEqual({ ok: true });
+      expect(answerFills()).toEqual([
+        expect.objectContaining({ type: "login.detail.fill", question: ["母親の旧姓は？"] }),
+      ]);
+    });
   });
 
   describe("generation slots", () => {
@@ -16450,6 +16782,10 @@ describe("the start page's passkey route (ADR 0027)", () => {
       "passkey",
       homePage.observation,
       expect.any(Function),
+      undefined,
+      undefined,
+      undefined,
+      expect.any(Array),
     );
     // The button is no input: only the form's fields need one (ADR 0029 S1).
     const read = fake.state.messages
@@ -16559,7 +16895,14 @@ describe("the start page's passkey route (ADR 0027)", () => {
     const { h } = start(routed, service ? { generation: service } : {});
     expect(await h.hello()).toEqual({ ok: true });
     await until(settled("blocked", "challenge"), 20_000);
-    if (service) expect(service.judge).toHaveBeenCalledTimes(1);
+    if (service) {
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      // The account's slots go with the page, but the route reads no vault value for their
+      // shapes (owner 2026-10-23, ADR 0027).
+      const slots = service.judge.mock.calls[0]![8];
+      expect(slots).toContainEqual(expect.objectContaining({ fieldName: "Branch" }));
+      expect(JSON.stringify(slots)).not.toContain("valueShape");
+    }
     expect(status()![0]).toMatchObject({ route: "passkey" });
     expect(status()![0]!["settled"]).toBeUndefined();
     expect(fills()).toBe(0);
@@ -19680,6 +20023,10 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         "password",
         page.observation,
         expect.any(Function),
+        undefined,
+        undefined,
+        undefined,
+        expect.any(Array),
       );
       expect(status()![0]!["continuation"]).toBeUndefined();
     });
@@ -22476,6 +22823,10 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       "password",
       homePage.observation,
       expect.any(Function),
+      undefined,
+      undefined,
+      undefined,
+      expect.any(Array),
     );
     expect(executed()).toEqual([]);
   });

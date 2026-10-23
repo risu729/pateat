@@ -1,30 +1,16 @@
+import { QUESTION_MIN_LENGTH, questionText } from "@pateat/contracts";
 import { renderedText } from "./text";
 
 // The secret question a page asks beside an answer input (ADR 0061), matched against the
-// names of the login item's custom fields, which people name after their questions. Page
-// text never leaves the content script: the worker sends the names, the document answers
-// which one its question is.
+// names of the login item's custom fields, which people name after their questions, and
+// against the questions the owner confirmed for fields named otherwise. Page text never
+// leaves the content script: the worker sends the names, the document answers which one
+// its question is.
+
+export { questionText };
 
 /** The most text read around an input when looking for its question. */
 const QUESTION_TEXT_LIMIT = 4000;
-/** The shortest custom field name that may stand for a question. */
-const QUESTION_MIN_LENGTH = 4;
-
-/**
- * A question or a field name as both are compared: NFKC, without case, with curly
- * apostrophes (U+2018, U+2019) made straight, white space collapsed, and a trailing `?`,
- * `:` or their full-width forms removed (NFKC already folds those).
- */
-export function questionText(raw: string): string {
-  return raw
-    .normalize("NFKC")
-    .toLowerCase()
-    .replaceAll(/[\u2018\u2019]/gu, "'")
-    .replaceAll(/\s+/gu, " ")
-    .trim()
-    .replace(/[?:]+$/u, "")
-    .trim();
-}
 
 /**
  * The part of the page that asks for `input`: its nearest ancestor that holds no other
@@ -50,27 +36,36 @@ function questionRegion(input: HTMLInputElement): Element {
 }
 
 /**
- * Which of `names` is the question shown for `input`: the longest whose text appears in
- * the rendered text of the input's region, or undefined when none does or two of that
- * length do.
+ * Which of `names` is the question shown for `input`. Each entry is a field's name or,
+ * as alternatives, its name and the question stored for it; an entry counts by its
+ * longest alternative of at least 4 characters whose text appears in the rendered text
+ * of the input's region. The entry that counts longest wins; undefined when none
+ * appears or two entries tie.
  */
 export function askedQuestion(
   input: HTMLInputElement,
-  names: readonly string[],
+  names: readonly (string | readonly string[])[],
 ): number | undefined {
   const text = renderedText(questionRegion(input), QUESTION_TEXT_LIMIT);
   if (text === undefined) return undefined;
   const shown = questionText(text);
   let best: number | undefined;
+  let bestLength = -1;
   let tie = false;
-  names.forEach((name, index) => {
-    const wanted = questionText(name);
-    if (wanted.length < QUESTION_MIN_LENGTH || !shown.includes(wanted)) return;
-    const length = best === undefined ? -1 : questionText(names[best]!).length;
-    if (wanted.length > length) {
+  names.forEach((entry, index) => {
+    const length = Math.max(
+      -1,
+      ...(typeof entry === "string" ? [entry] : entry)
+        .map(questionText)
+        .filter((wanted) => wanted.length >= QUESTION_MIN_LENGTH && shown.includes(wanted))
+        .map((wanted) => wanted.length),
+    );
+    if (length < 0) return;
+    if (length > bestLength) {
       best = index;
+      bestLength = length;
       tie = false;
-    } else if (wanted.length === length) tie = true;
+    } else if (length === bestLength) tie = true;
   });
   return tie ? undefined : best;
 }

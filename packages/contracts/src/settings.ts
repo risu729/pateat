@@ -158,6 +158,45 @@ export const detailSourceFieldSchema = v.union([
   vaultFieldReferenceSchema.options[1],
 ]);
 /**
+ * A secret question or a field name as they are compared (ADR 0061): NFKC, without case,
+ * with curly apostrophes (U+2018, U+2019) made straight, white space collapsed, and a
+ * trailing `?`, `:` or their full-width forms removed (NFKC already folds those).
+ */
+export function questionText(raw: string): string {
+  return raw
+    .normalize("NFKC")
+    .toLowerCase()
+    .replaceAll(/[\u2018\u2019]/gu, "'")
+    .replaceAll(/\s+/gu, " ")
+    .trim()
+    .replace(/[?:]+$/u, "")
+    .trim();
+}
+/** The shortest question or field name that may stand for a secret question (ADR 0061). */
+export const QUESTION_MIN_LENGTH = 4;
+/** The longest one sent to a page or stored with a link (ADR 0061). */
+export const QUESTION_MAX_LENGTH = 200;
+/**
+ * A secret question as the judge copies it from the page (ADR 0061): untrusted page text,
+ * bounded as observed text is but up to the stored question's length.
+ */
+export const shownQuestionSchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(QUESTION_MAX_LENGTH),
+  v.regex(/^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u),
+);
+/**
+ * A secret question as a link stores it (ADR 0061): already in its compared form, so a
+ * later login matches it literally, as it matches a field's name.
+ */
+export const storedQuestionSchema = v.pipe(
+  v.string(),
+  v.minLength(QUESTION_MIN_LENGTH),
+  v.maxLength(QUESTION_MAX_LENGTH),
+  v.check((question) => questionText(question) === question, "Store a question normalized"),
+);
+/**
  * The vault item and field a login item's site reads a personal detail from (ADR 0061),
  * confirmed by the owner in the popup. References only: no item name, which for a card
  * often carries its last digits, and never a value.
@@ -170,6 +209,12 @@ export const detailLinkSchema = v.strictObject({
   itemId: identifier,
   detail: loginDetailSchema,
   source: v.strictObject({ itemId: identifier, field: detailSourceFieldSchema }),
+  /**
+   * Only for a secret question's answer: the question the page showed when the owner
+   * confirmed, in the popup, the AI's pairing of it with this field, whose name differs.
+   * A later login matches it literally, beside the field's name.
+   */
+  question: v.optional(storedQuestionSchema),
 });
 
 /** The saved account for one origin, named by provider account and item (ADR 0013). */
@@ -253,6 +298,28 @@ export const localSettingsSchema = v.pipe(
             ).size === links.length,
           "Duplicate detail links",
         ),
+        v.check(
+          (links) => links.every((link) => !link.question || link.detail === "secret-answer"),
+          "Only a secret question's answer stores its question",
+        ),
+        // A stored question belongs to one of the login item's answers, so a page that
+        // shows it never matches two of them.
+        v.check((links) => {
+          const questions = links.flatMap((link) =>
+            link.question === undefined
+              ? []
+              : [
+                  JSON.stringify([
+                    link.origin,
+                    link.provider,
+                    link.userId,
+                    link.itemId,
+                    link.question,
+                  ]),
+                ],
+          );
+          return new Set(questions).size === questions.length;
+        }, "Duplicate detail questions"),
       ),
     ),
     /** Synced account bindings (ADR 0013). */

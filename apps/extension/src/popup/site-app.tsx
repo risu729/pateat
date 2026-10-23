@@ -352,7 +352,7 @@ function DetailSection({
 }) {
   return (
     <>
-      {offer?.details.map(({ detail, format, candidates, preselect }) => {
+      {offer?.details.map(({ detail, format, candidates, preselect, question }) => {
         const picked = picks[detail];
         // A detail whose candidates are no guess starts with none selected.
         const shown =
@@ -361,8 +361,19 @@ function DetailSection({
         return (
           <fieldset key={detail} className="popup-fieldset popup-detail">
             <legend id={`popup-detail-${detail}`} className="popup-detail-ask">
-              {`This page asks for ${detailName(detail, format)}.`}
+              {question
+                ? `This page asks \u201C${question}\u201D.`
+                : `This page asks for ${detailName(detail, format)}.`}
             </legend>
+            {question && (
+              // The AI's pairing of the question with a field named otherwise is only a
+              // proposal: Fill confirms it (ADR 0061).
+              <p id={`popup-detail-paired-${detail}`} className="popup-choice-sub">
+                {
+                  "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows."
+                }
+              </p>
+            )}
             <DetailChoices
               detail={detail}
               candidates={candidates}
@@ -378,7 +389,11 @@ function DetailSection({
               // focused control that becomes disabled.
               disabled={busy || !shown}
               focusableWhenDisabled
-              aria-describedby={`popup-detail-${detail}`}
+              aria-describedby={
+                question
+                  ? `popup-detail-${detail} popup-detail-paired-${detail}`
+                  : `popup-detail-${detail}`
+              }
               onClick={() => shown && onFill(detail, shown)}
             >
               <TextCursorInput size={16} strokeWidth={2} aria-hidden="true" />

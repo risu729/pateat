@@ -572,7 +572,7 @@ describe("recipe generation requests", () => {
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, route: "password", observation: home },
+      { version: 1, revision: 1, route: "password", observation: home, slots: [] },
     );
     await vi.waitFor(() => expect(h.refresh).toHaveBeenCalledTimes(1));
     h.transport.judgeCompletion.mockResolvedValueOnce({
@@ -613,7 +613,7 @@ describe("recipe generation requests", () => {
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, route: "password", observation: home, partial: true },
+      { version: 1, revision: 1, route: "password", observation: home, slots: [], partial: true },
     );
     // A page at a login's stop before its item's missing password says so (ADR 0036).
     h.transport.judgeCompletion.mockResolvedValueOnce({
@@ -634,7 +634,7 @@ describe("recipe generation requests", () => {
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, route: "password", observation: home, stop: true },
+      { version: 1, revision: 1, route: "password", observation: home, slots: [], stop: true },
     );
   });
 
@@ -808,7 +808,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, route: "password", observation: webauthn },
+      { version: 1, revision: 1, route: "password", observation: webauthn, slots: [] },
     );
     // A failed refresh still hands the recipe over; the login checks it before use.
     h.refresh.mockRejectedValueOnce(new Error("offline"));
@@ -820,6 +820,88 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       verdict: "challenge",
       recipe: handled.recipe,
     });
+  });
+
+  // Owner, 2026-10-23: the same information goes to every model call unless there is a
+  // sound reason, so the judge gets the account's slots as generation does.
+  it("sends the account's slots, the TOTP slot only with a code field, and hands the pairings over", async () => {
+    const h = setup();
+    const slots = [
+      { id: "username", kind: "identifier" as const, description: "account username" },
+      { id: "totp", kind: "one-time-code" as const, description: "one-time authentication code" },
+      {
+        id: "custom-1",
+        kind: "hidden" as const,
+        description: "concealed value of the user's vault field named in fieldName, such as a PIN",
+        fieldName: "お母さんの旧姓",
+      },
+    ];
+    const questions = [
+      { field: { by: "id" as const, value: "answer" }, slot: "custom-1", shown: "母親の旧姓は？" },
+    ];
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "challenge", change: handled, questions },
+    });
+    expect(
+      await h.generation.judge(
+        recipeChange.recipeId,
+        1,
+        "password",
+        webauthn,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        slots,
+      ),
+    ).toEqual({ verdict: "challenge", recipe: handled.recipe, questions });
+    // The page shows no code field, so `totp` stays out (ADR 0027).
+    expect(h.transport.judgeCompletion).toHaveBeenLastCalledWith(
+      connection.origin,
+      connection.credential,
+      recipeChange.recipeId,
+      {
+        version: 1,
+        revision: 1,
+        route: "password",
+        observation: webauthn,
+        slots: [slots[0], slots[2]],
+      },
+    );
+    const coded = {
+      ...webauthn,
+      candidates: [
+        ...webauthn.candidates,
+        {
+          id: "code",
+          role: "text" as const,
+          target: { by: "id" as const, value: "code" },
+          autocomplete: "one-time-code" as const,
+        },
+      ],
+    };
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "unclear" },
+    });
+    await h.generation.judge(
+      recipeChange.recipeId,
+      1,
+      "password",
+      coded,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      slots,
+    );
+    expect(h.transport.judgeCompletion).toHaveBeenLastCalledWith(
+      connection.origin,
+      connection.credential,
+      recipeChange.recipeId,
+      expect.objectContaining({ slots }),
+    );
   });
 
   it("judges a chooser login's page on its branch and hands the chooser over (ADR 0028)", async () => {
@@ -852,7 +934,14 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       connection.origin,
       connection.credential,
       recipeChange.recipeId,
-      { version: 1, revision: 1, route: "password", branch: "account", observation: webauthn },
+      {
+        version: 1,
+        revision: 1,
+        route: "password",
+        branch: "account",
+        observation: webauthn,
+        slots: [],
+      },
     );
     // A route login never takes a chooser over.
     h.transport.judgeCompletion.mockResolvedValueOnce({
