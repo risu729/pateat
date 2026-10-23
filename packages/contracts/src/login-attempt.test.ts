@@ -4526,19 +4526,67 @@ describe("a login that switches layouts where they part (ADR 0060)", () => {
       layout: "2000",
       maxSubmissions: 1,
     });
-    const top = { ...document, frameId: 0 };
+    // The same attempt in a top document, as a stop needs one.
+    const top = parseAttemptMetadata({ ...before, document: { ...document, frameId: 0 } });
+    const topPage = { ...passwordPage, frameId: 0 };
+    expect(transitionLoginAttempt(top, layout({ document: topPage }))).toMatchObject({
+      layout: "2000",
+    });
     for (const attempt of [
-      parseAttemptMetadata({ ...before, layout: undefined }),
-      parseAttemptMetadata({ ...before, variant: 1 }),
-      parseAttemptMetadata({ ...before, route: "passkey" }),
-      parseAttemptMetadata({ ...before, handlers: [{ index: 0, start: 2 }] }),
-      parseAttemptMetadata({ ...before, chooser: { click: "entry" } }),
-      parseAttemptMetadata({ ...before, fillOnly: true }),
-      parseAttemptMetadata({ ...before, document: top, stopAt: 2 }),
+      parseAttemptMetadata({ ...top, layout: undefined }),
+      parseAttemptMetadata({ ...top, variant: 1 }),
+      parseAttemptMetadata({ ...top, route: "passkey" }),
+      parseAttemptMetadata({ ...top, handlers: [{ index: 0, start: 2 }] }),
+      parseAttemptMetadata({ ...top, chooser: { click: "entry" } }),
+      parseAttemptMetadata({ ...top, fillOnly: true }),
+      parseAttemptMetadata({ ...top, stopAt: 2 }),
+      parseAttemptMetadata({ ...top, mutationIntent: undefined }),
     ])
-      expect(
-        transitionLoginAttempt(attempt, layout({ document: { ...passwordPage, frameId: 0 } })),
-      ).toEqual(attempt);
+      expect(transitionLoginAttempt(attempt, layout({ document: topPage }))).toEqual(attempt);
+    // Nor does a budget smaller than what the login spent.
+    const twice = parseAttemptMetadata({ ...top, submissions: 2 });
+    expect(transitionLoginAttempt(twice, layout({ document: topPage, maxSubmissions: 1 }))).toEqual(
+      twice,
+    );
+  });
+
+  it("goes past its own last step only after an advance", () => {
+    // The email page's Next was the login's last step: the other layout holds the next page.
+    const emailOnly = { ...first, steps: first.steps.slice(0, 2), slots: ["username"] };
+    const advancedOnly = advanced(emailOnly);
+    expect(advancedOnly).toMatchObject({ stepIndex: 1, stepCount: 2 });
+    expect(transitionLoginAttempt(advancedOnly, layout())).toMatchObject({
+      layout: "2000",
+      stepIndex: 2,
+    });
+    // After a submission that ended the login's own steps, it does not go on.
+    let submitted = transitionLoginAttempt(readyToClick(), {
+      type: "PREPARE",
+      operationId: "click-one",
+      kind: "click",
+    });
+    submitted = transitionLoginAttempt(submitted, {
+      type: "SUBMIT_INTENT",
+      operationId: "click-one",
+    });
+    submitted = transitionLoginAttempt(parseAttemptMetadata({ ...submitted, layout: "1000" }), {
+      type: "SUBMITTED",
+      operationId: "click-one",
+    });
+    expect(submitted).toMatchObject({ state: "awaiting-result", stepIndex: 1, stepCount: 2 });
+    expect(transitionLoginAttempt(submitted, layout({ document }))).toEqual(submitted);
+  });
+
+  it("does not switch while a step must be tried again", () => {
+    const at = parseAttemptMetadata({
+      ...transitionLoginAttempt(advanced(), {
+        type: "OBSERVED",
+        result: "continue",
+        document: passwordPage,
+      }),
+      retryRequired: true,
+    });
+    expect(transitionLoginAttempt(at, layout())).toEqual(at);
   });
 
   it("refuses a switch while a step that cannot advance is in flight", () => {

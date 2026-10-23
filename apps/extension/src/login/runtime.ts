@@ -41,6 +41,7 @@ import {
   layoutShown,
   rankLayouts,
   layoutStartTargets,
+  MAX_ATTEMPT_SUBMISSIONS,
   recipeBranch,
   recipeHasRoute,
   recipeStartSteps,
@@ -6728,8 +6729,11 @@ export function createLoginRuntime(
       const step = attemptPlan(sibling, metadata)![at]!.step;
       let shows: boolean;
       if (!inFlight) {
-        // As the step would wait for its elements before it runs.
-        const waited = await waitFor(run, loginReadiness(step), 1);
+        // As the step would wait for its elements before it runs; a step that needs none
+        // shows nothing of the layout.
+        const readiness = loginReadiness(step);
+        if (!readiness.targets.length) continue;
+        const waited = await waitFor(run, readiness, 1);
         if (!current(run) || waited === "gone") return false;
         shows = waited === "ready";
       } else {
@@ -6781,12 +6785,20 @@ export function createLoginRuntime(
         layout: sibling.layout!,
         recipeRevision: sibling.revision,
         steps: attemptPlan(sibling, metadata)!.length,
-        maxSubmissions: sibling.maxSubmissions,
+        // What the login holds beyond its recipe's budget, as the submissions a passkey
+        // answer spent before it fell back to the password (ADR 0034), stays with it.
+        maxSubmissions: Math.min(
+          MAX_ATTEMPT_SUBMISSIONS,
+          sibling.maxSubmissions + Math.max(0, metadata.maxSubmissions - run.recipe.maxSubmissions),
+        ),
         document: run.live.document,
       };
       if (transitionLoginAttempt(metadata, event).layout !== sibling.layout) continue;
       // The recipe is replaced before the record that names its layout is written.
       run.recipe = sibling;
+      // The account's choice is saved for the layout the login signs in on.
+      if (plan.choice) run.choice = plan.choice;
+      else delete run.choice;
       delete run.inPlace;
       delete run.siblingsInPlace;
       delete run.qualified;

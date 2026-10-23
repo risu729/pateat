@@ -114,18 +114,22 @@ accounts in another language fails the same way.
   repair could follow such a change, not confirmed by the owner). A sibling of the
   running layout is another `sign-in` layout of the recipe, of the same or a newer
   revision, whose plan steps before that step equal the login's and whose step there
-  differs. When the login's own step does not show and a sibling's does, the login runs
-  that sibling from there on (attempt event `LAYOUT`): after an effect step that may
-  have advanced, the step after it, confirmed as the login's own next step would be (on
-  its path, or on the advance's own path only by elements that were not usable just
-  before the advance, which the document measures for each sibling as it does for the
-  login's own next step, [ADR 0013](0013-service-held-recipes-and-settings.md)); with
-  nothing in flight, the step at hand once its own wait ran out and the sibling's step
-  is ready. The account's plan must pass on the sibling as at a start, and the newest
-  sibling that fits wins. The attempt then records the sibling's key, step count and
-  submission budget, a resumed login loads it, and its login record names it.
-  Only a `password` login on its recipe's own steps (variant 0) switches, with no
-  handler entered, no stop ([ADR 0036](0036-passkey-after-the-identifier.md)), no
+  differs, or exists where the login's own steps ended with an advance. When the login's
+  own step does not show and a sibling's does, the login runs that sibling from there on
+  (attempt event `LAYOUT`): after an effect step that may have advanced (never after a
+  submission that ended the login's own steps), the step after it, confirmed as the
+  login's own next step would be (on its path, or on the advance's own path only by
+  elements that were not usable just before the advance, which the document measures for
+  each sibling as it does for the login's own next step,
+  [ADR 0013](0013-service-held-recipes-and-settings.md)); with nothing in flight, as
+  when a step's own wait ran out or a new document resumes the login, the step at hand
+  once it is ready, and only if it needs an element of the page. The account's plan on
+  the sibling's route must pass, as a running login's does, and the newest sibling that
+  fits wins. The attempt then records the sibling's key and step count, and its
+  submission budget plus what the login held beyond its own recipe's (as after a passkey
+  answer fell back to the password); a resumed login loads it, and its login record
+  names it. Only a `password` login on its recipe's own steps (variant 0) switches, with
+  no handler entered, no stop ([ADR 0036](0036-passkey-after-the-identifier.md)), no
   chooser and not only filling. When no sibling's step shows, the login goes on as
   before: its page is continued, judged or settled as unknown. The log names both
   layouts (`login.attempt` with `layout` and `layoutFrom`).

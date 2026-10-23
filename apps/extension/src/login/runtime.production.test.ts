@@ -28673,6 +28673,42 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
         expect(status()![0]).toMatchObject({ layout: "2000" });
       });
 
+      it("does not switch to a step that needs no element of the page", async () => {
+        // The original layout waits for a banner to go before its button; nothing on the page
+        // shows that it is the original's.
+        const waiting = parseLoginRecipe({
+          ...original,
+          steps: [
+            ...original.steps.slice(0, 3),
+            {
+              kind: "wait",
+              path: "/signin/pwd",
+              target: target("banner"),
+              present: false,
+              timeoutMs: 1000,
+            },
+            original.steps[3]!,
+          ],
+        });
+        const continued = parseLoginRecipe({
+          ...original,
+          layout: "2000",
+          steps: [
+            ...original.steps.slice(0, 3),
+            { kind: "click", path: "/signin/pwd", target: target("continue"), purpose: "submit" },
+          ],
+        });
+        const { h, reports } = onEmail([waiting, continued], ["password"]);
+        expect(await h.hello()).toEqual({ ok: true });
+        // The button never shows, so the step fails as before, after its retries.
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "blocked", outcome: "retry-limit" }]),
+        );
+        expect(executed()).toEqual(["fill:email", "click:next", "fill:password"]);
+        expect(switches(reports)).toEqual([]);
+        expect(status()![0]).toMatchObject({ layout: "2000" });
+      });
+
       it("switches at a step it waits for when only the other layout's shows", async () => {
         // The layouts part at the password page's button: the newer one presses Continue.
         const continued = parseLoginRecipe({

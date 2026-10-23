@@ -59,7 +59,7 @@ export const attemptTimingSchema = v.strictObject({
 export type AttemptTiming = v.InferOutput<typeof attemptTimingSchema>;
 /** Steps and effects an attempt may hold: its route's, plus those of handlers it entered. */
 const MAX_ATTEMPT_STEPS = 40;
-const MAX_ATTEMPT_SUBMISSIONS = 12;
+export const MAX_ATTEMPT_SUBMISSIONS = 12;
 const MAX_ENTERED_HANDLERS = 4;
 /** Pages the model may judge after one effect step (ADR 0027). */
 export const MAX_JUDGED_PAGES = 2;
@@ -1215,6 +1215,9 @@ function createLoginAttemptMachine() {
             : context.retryRequired !== true) &&
           at >= 1 &&
           at < event.steps &&
+          // Past the login's own last step only after an advance, whose next page the
+          // layout already holds; never after a submission that ended the login's plan.
+          (at < context.stepCount || context.operationEffect === "advance") &&
           context.submissions <= event.maxSubmissions &&
           sameScope(context.document, event.document)
         );
