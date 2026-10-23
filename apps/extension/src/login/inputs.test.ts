@@ -117,7 +117,8 @@ describe("personal-detail input rule (ADR 0061)", () => {
     ["detail", input({ type: "email" }), false],
     ["detail", input({ type: "search" }), false],
     ["card-code", password, true],
-    ["card-code", declared, true],
+    // A text input marked as the account's password is a sign-in field, which no detail fills.
+    ["card-code", declared, false],
     ["card-code", input({ maxLength: 3 }), true],
     ["card-code", input({ maxLength: 4 }), true],
     ["card-code", input({ inputMode: "numeric", maxLength: 4 }), true],
