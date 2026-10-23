@@ -53,10 +53,15 @@ Before this ADR (read from the code on 2026-10-23):
    input mode is `search`, or whose label or placeholder says search, with no
    `autocomplete` other than `off`): a page that only offers something has buttons and
    links, and a field on it may be a step of the sign-in. The description has no role
-   for a radio button, a select or a text area, so the extension says when it left out
-   a shown one outside a search form or landmark (`inputLeftOut`), as in "send the code
-   to (•) SMS ( ) Email [Send]". The extension completes on it only when all of these
-   hold, and otherwise ends the login `challenge`, except as the first says:
+   for a radio button, a select or a text area, so the extension says when the page
+   shows one, or an ARIA radio, radio group, combo box, list box or text box, that is no
+   part of a site search (`inputLeftOut`), as in "send the code to [SMS] [Email]
+   [Continue]". A disabled one counts, and so does a transparent, tiny or unrendered one
+   under a label or container that shows, as a styled radio under its label "card". One
+   in a search landmark, a search box itself, or a select or combo box of a small search
+   form (at most four controls, every typed input a search box) does not. The extension
+   completes on it only when all of these hold, and otherwise ends the login
+   `challenge`, except as the first says:
    - this attempt already sent the account's credential: its latest effect step
      submitted after a route step that typed the password or a second factor's handler
      (a handler missing from the recipe does not count).
@@ -66,9 +71,10 @@ Before this ADR (read from the code on 2026-10-23):
      settles as an undecided page does without completing (`unknown-submit`);
    - the page confirmed no sign and no evidence before the request (S1 to S5, E1 to E3:
      the `judge` reading), the loaded document still shows none after the answer, on the
-     same path, and the description left out no disabled field and no radio button,
-     select or text area. The same-path check is for `optional` only: an undecided page
-     keeps ADR 0029's rule, as on a single-page app that routes on while it is judged;
+     same path, the description left out no disabled field, and the page shows no such
+     radio button, select, text area or widget. The same-path check is for `optional`
+     only: an undecided page keeps ADR 0029's rule, as on a single-page app that routes
+     on while it is judged;
    - the login is not stopped before its item's missing password
      ([ADR 0036](0036-passkey-after-the-identifier.md)): such a login goes on to its
      stop as after an undecided answer, since only `signed-in` proves the stop's page.
@@ -114,7 +120,10 @@ Before this ADR (read from the code on 2026-10-23):
   and no `optional` on any challenge page, including four challenge pages with no field
   (a "Send code" button, a number to match on a phone, a recovery address to confirm,
   a choice of passkey or password before the sign-in). The one miss was a timeout on
-  `en-method-chooser`, as in earlier runs.
+  `en-method-chooser`, as in earlier runs. After main changed the prompt's sentence on
+  code pages ([#985](https://github.com/risu729/pateat/pull/985)), the 15 optional,
+  offer and new challenge cases were run again on the merged prompt: 15 of 15 correct,
+  about $0.16.
 - A model error the other way (`challenge` for an optional page) keeps today's yellow
   "!" and watched login, as does an optional page with a field, such as a phone number
   to add, or with a radio button, select or text area, such as a language picker.

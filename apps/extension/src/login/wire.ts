@@ -701,8 +701,8 @@ export const extractResultSchema = v.variant("ok", [
      */
     disabledLeftOut: v.optional(v.literal(true)),
     /**
-     * It left out a shown radio button, select or text area outside a search form: an
-     * `optional` answer does not complete the page (ADR 0065).
+     * The page shows a radio button, select or text area, or an ARIA widget for one, that
+     * is no part of a site search: an `optional` answer does not complete it (ADR 0065).
      */
     inputLeftOut: v.optional(v.literal(true)),
   }),

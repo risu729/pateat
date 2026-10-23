@@ -3437,30 +3437,59 @@ describe("extractSignedInObservation", () => {
     expect(gap()).toEqual([true, undefined]);
   });
 
-  it("says when a signed-in page leaves out a radio button, select or text area (ADR 0065)", () => {
-    for (const control of [
-      `<label><input type="radio" name="via" value="sms"> Text message</label>`,
-      `<select id="via"><option>Text message</option><option>Email</option></select>`,
-      `<textarea id="answer"></textarea>`,
-    ]) {
-      page(`<button id="logout">Sign out</button><form>${control}<button>Send</button></form>`);
+  it("says when a signed-in page shows a choice or answer it leaves out (ADR 0065)", () => {
+    const flagged = (markup: string) => {
+      page(`<button id="logout">Sign out</button>${markup}`);
       const result = extractSignedInObservation();
-      expect(result, control).toMatchObject({
-        ok: true,
-        observation: { complete: true },
-        inputLeftOut: true,
-      });
-    }
-    // One in a search form or landmark, or a hidden one, says nothing.
+      expect(result, markup).toMatchObject({ ok: true, observation: { complete: true } });
+      return (result as { inputLeftOut?: true }).inputLeftOut === true;
+    };
+    // "Send the code to: [SMS] [Email] [Continue]", however the choice is built.
+    const card = (input: string) =>
+      `<form><label class="card">${input.replace("$", "sms")} Text message</label>` +
+      `<label class="card">${input.replace("$", "email")} Email</label>` +
+      `<button id="continue">Continue</button></form>`;
+    for (const markup of [
+      card(`<input type="radio" name="via" value="$">`),
+      // A styled radio: transparent, tiny or not rendered under its label "card".
+      card(`<input type="radio" name="via" value="$" style="opacity: 0; position: absolute">`),
+      card(`<input type="radio" name="via" value="$" style="width: 1px; height: 1px">`),
+      card(`<input type="radio" name="via" value="$" style="display: none">`),
+      card(`<input type="radio" name="via" value="$" disabled>`),
+      // ARIA radios, and other ARIA widgets.
+      `<div role="radiogroup" aria-label="Send the code to">` +
+        `<div role="radio" aria-checked="true" tabindex="0">Text message</div>` +
+        `<div role="radio" aria-checked="false" tabindex="-1">Email</div></div>` +
+        `<button id="continue">Continue</button>`,
+      `<div role="combobox" aria-label="Method" tabindex="0">Text message</div>`,
+      `<ul role="listbox" aria-label="Method"><li role="option">Text message</li></ul>`,
+      `<div role="textbox" contenteditable="true" aria-label="Answer"></div>`,
+      // Selects and text areas, disabled ones too.
+      `<form><select id="via"><option>Text message</option><option>Email</option></select></form>`,
+      `<form><select id="via" disabled><option>Text message</option></select></form>`,
+      `<textarea id="answer"></textarea>`,
+      `<textarea id="answer" disabled></textarea>`,
+      // A site search box in the same form exempts only itself.
+      `<form><input type="search" id="q" aria-label="Search">` +
+        `<label><input type="radio" name="via" value="sms"> Text message</label>` +
+        `<label><input type="radio" name="via" value="email"> Email</label>` +
+        `<button id="continue">Continue</button></form>`,
+      `<form><input type="search" id="q"><input id="email" type="email">` +
+        `<select id="via"><option>Text message</option></select><button id="go">Go</button></form>`,
+    ])
+      expect(flagged(markup), markup).toBe(true);
+    // Part of a site search, or hidden with its container, says nothing.
     for (const markup of [
       `<form role="search"><select id="in"><option>All</option></select></form>`,
       `<search><select id="in"><option>All</option></select></search>`,
-      `<form><input type="search" id="q"><select id="in"><option>All</option></select></form>`,
-      `<select id="in" hidden><option>All</option></select>`,
-    ]) {
-      page(`<button id="logout">Sign out</button>${markup}`);
-      expect(extractSignedInObservation(), markup).not.toHaveProperty("inputLeftOut");
-    }
+      `<nav role="search"><input role="combobox" aria-label="Search"></nav>`,
+      `<form><input type="search" id="q"><select id="in"><option>All</option></select>` +
+        `<button id="go">Go</button></form>`,
+      `<input id="q" role="combobox" placeholder="Search the docs">`,
+      `<div hidden><select id="in"><option>All</option></select></div>`,
+      `<div style="display: none"><label><input type="radio" name="via"> Email</label></div>`,
+    ])
+      expect(flagged(markup), markup).toBe(false);
   });
 
   it("reports a still-visible sign-in field so the service can refuse the page", () => {
