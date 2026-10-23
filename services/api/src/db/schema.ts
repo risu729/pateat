@@ -233,6 +233,21 @@ export const inferenceLog = sqliteTable(
      * a page sent with a base (a later page, a chooser branch's pages included).
      */
     recipePage: text("recipe_page", { enum: inferenceLogRecipePages }),
+    /**
+     * For generation: the device's hint that the page showed the user signed in (ADR 0035),
+     * sent with a recipe's first page that lists no accounts; null for any other request.
+     */
+    signedIn: integer("signed_in", { mode: "boolean" }),
+    /**
+     * For generation: the page's kind the model's plan answered (ADR 0035), also for a plan
+     * the local checks refused; null when the answer was no plan.
+     */
+    pageKind: text("page_kind", { enum: ["sign-in", "confirm", "unclear"] }),
+    /**
+     * For generation: whether the model's plan answered that submitting the page cannot be
+     * undone (ADR 0035), kept for evaluation only and never on a recipe; null as `pageKind`.
+     */
+    irreversible: text("irreversible", { enum: ["yes", "no", "unclear"] }),
     /** The service commit that made the call (`PATEAT_BUILD_REVISION`). */
     build: text("build"),
     /**

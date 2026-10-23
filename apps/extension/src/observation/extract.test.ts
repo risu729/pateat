@@ -125,6 +125,48 @@ describe("extractLoginObservation", () => {
     expect(result.ok && result.observation.language).toBe("en");
   });
 
+  it("leaves out a field both faint and disabled, which takes no input", () => {
+    // SBI新生銀行's login form (2026-10-23): a disabled text and password pair at opacity
+    // 0, 12 pixels square, before the real fields.
+    const decoys = (style: string) =>
+      `<input name="dummy_text" disabled style="${style}">` +
+      `<input name="dummy_password" type="password" disabled style="${style}">`;
+    const form = (extra: string) =>
+      `<form id="f">${extra}<input id="u"><input id="p" type="password"><button id="go">Log in</button></form>`;
+    for (const style of [
+      "position:absolute;width:12px;height:12px;opacity:0",
+      "width:1px;height:1px;padding:0;border:0",
+    ]) {
+      page(form(decoys(style)));
+      expect(observe().complete, style).toBe(true);
+      expect(
+        summary(observe()).map((entry) => entry.target.value),
+        style,
+      ).toEqual(["u", "p", "go"]);
+      // The page after a sign-in still reads such a field, which may be a code field
+      // waiting for a timer: the disabled password pair still makes it incomplete.
+      page(`<button id="logout">Sign out</button>${form(decoys(style))}`);
+      const signedIn = extractSignedInObservation();
+      expect(signedIn.ok && [signedIn.observation.complete, signedIn.gap], style).toEqual([
+        false,
+        "unfillable-field",
+      ]);
+    }
+    // Faint alone, disabled alone, or faint and read-only, still cannot be filled.
+    for (const extra of [
+      `<input id="pin" style="opacity:0">`,
+      `<input id="pin" type="password" disabled>`,
+      `<input id="pin" style="opacity:0" readonly>`,
+    ]) {
+      page(form(extra));
+      const result = extractLoginObservation();
+      expect(result.ok && [result.observation.complete, result.gap], extra).toEqual([
+        false,
+        "unfillable-field",
+      ]);
+    }
+  });
+
   it("skips hidden, off-page, disabled and read-only fields but keeps disabled buttons", () => {
     page(
       `<form id="f">
@@ -1065,9 +1107,40 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(true);
     expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["u", "go"]);
     page(
-      `<form id="f"><input id="u"><input type="checkbox"><button id="go">Log in</button></form>`,
+      `<form id="f"><input id="u"><input type="checkbox" required><button id="go">Log in</button></form>`,
     );
     expect(observe().complete).toBe(false);
+  });
+
+  it("leaves out a checkbox it cannot locate unless the page requires it (Stripe, 2026-10-23)", () => {
+    // Stripe's and 1Password's "Remember me" carry only a per-load React ID and are named
+    // by `aria-labelledby`; a checkbox is never checked by a recipe, only context.
+    const form = (checkbox: string) =>
+      `<form id="f"><input id="u" type="email"><input id="p" type="password">
+        <input type="checkbox" id="react-aria1-:r9:" aria-labelledby="remember" ${checkbox}>
+        <span id="remember">Remember me</span><button id="go">Log in</button></form>`;
+    page(form(""));
+    let observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "go",
+    ]);
+    for (const required of ["required", `aria-required="true"`]) {
+      page(form(required));
+      observation = observe();
+      expect(observation.complete, required).toBe(false);
+    }
+    // A located checkbox stays as context.
+    page(
+      `<form id="f"><input id="u"><input type="checkbox" id="keep"><button id="go">Log in</button></form>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "keep",
+      "go",
+    ]);
   });
 
   it("leaves out a show-password icon button without a locator, such as モッピー's and LinkedIn's", () => {
@@ -1098,6 +1171,39 @@ describe("extractLoginObservation", () => {
     page(
       `<form><input name="u1"><input name="p1" type="password"><input type="button" value="Login"></form>
       <form><input name="u2"><input name="p2" type="password"><input type="button" value="Login"></form>`,
+    );
+    expect(observe().complete).toBe(false);
+    // A textless button outside every form submits nothing, whatever its type, as a
+    // cookie banner's close button beside Bank of America's formless sign-in fields.
+    page(
+      `<main><section><div><input id="u"><input id="p" type="password">
+        <button type="button">Sign in</button></div></section></main>
+      <div id="banner"><div><div><button aria-label="Close" style="width:16px;height:16px">
+      </button></div></div></div>`,
+    );
+    observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "u",
+      "p",
+      "Sign in",
+    ]);
+    // Without another button to submit with, it may be the script-run submit itself,
+    // and so it may beside the fields even when a button elsewhere is located.
+    const submit = `<button aria-label="Sign in" style="width:16px;height:16px"></button>`;
+    for (const other of ["", `<header><button id="menu">Menu</button></header>`])
+      for (const fields of [
+        `<div><input id="u"><input id="p" type="password">${submit}</div>`,
+        `<div><div><input id="u"></div><div><input id="p" type="password"></div>
+          <div><span><span>${submit}</span></span></div></div>`,
+      ]) {
+        page(`${other}<main><section>${fields}</section></main>`);
+        expect(observe().complete, other + fields).toBe(false);
+      }
+    // Inside a form, a textless submit button still counts beside another located one.
+    page(
+      `<form><input name="mail"><input name="pass" type="password">${toggle}
+        <button aria-label="Go" style="width:16px;height:16px"></button></form>`,
     );
     expect(observe().complete).toBe(false);
     // An icon button may be the form's only, script-run submit, so there it still does.
@@ -1357,6 +1463,40 @@ describe("extractLoginObservation", () => {
       }
     });
   });
+  it("reads an input transparent only under its own shown label as visible (Airbnb, 2026-10-23)", () => {
+    // A floating label: the label's text shows, its input appears once focused.
+    const field = (label: string, input = "") =>
+      `<label for="email" style="display:block;position:relative">${label}
+        <div style="opacity:0"><input id="email" type="email" ${input}></div></label>`;
+    const rest = `<input id="p" type="password"><button id="go">Log in</button>`;
+    page(`<form id="f">${field("<div style='position:absolute'>Email</div>")}${rest}</form>`);
+    let observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "email",
+      "p",
+      "go",
+    ]);
+    // A label whose text is transparent too, an input at opacity 0 itself, or a
+    // transparent input outside its label is still faint, as a trap.
+    for (const html of [
+      `<div style="opacity:0">${field("Email")}</div>`,
+      field("Email", `style="opacity:0"`),
+      field("<span style='opacity:0'>Email</span>"),
+      `<label for="email">Email</label><div style="opacity:0"><input id="email" type="email"></div>`,
+      field(" "),
+      // A label clipped to one pixel, as a screen-reader-only one.
+      `<label for="email" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">
+        Email<div style="opacity:0"><input id="email" type="email"></div></label>`,
+      // A label naming another field holds no label of this one.
+      `<label for="other">Email<div style="opacity:0"><input id="email" type="email"></div></label>
+        <input id="other">`,
+    ]) {
+      page(`<form id="f">${html}${rest}</form>`);
+      observation = observe();
+      expect(observation.complete, html).toBe(false);
+    }
+  });
 
   it("names the first cause of an incomplete observation, without page text (ADR 0019)", () => {
     const gap = (html: string, shadow?: string) => {
@@ -1381,7 +1521,7 @@ describe("extractLoginObservation", () => {
       [form(`<select id="kind"><option>A</option></select>`), undefined, "unsupported-control"],
       [form(`<input type="radio" id="kind">`), undefined, "unsupported-control"],
       [form(`<input>`), undefined, "unlocated-field"],
-      [form(`<input type="checkbox">`), undefined, "unlocated-checkbox"],
+      [form(`<input type="checkbox" required>`), undefined, "unlocated-checkbox"],
       [form("", `<button>Log in</button><button>Log in</button>`), undefined, "unlocated-button"],
       // An icon button may be the form's only, script-run submit.
       [
@@ -1403,10 +1543,63 @@ describe("extractLoginObservation", () => {
         undefined,
         "unsupported-control",
       ],
-      [form(`<input type="checkbox"><input id="r" readonly>`), undefined, "unfillable-field"],
+      [
+        form(`<input type="checkbox" required><input id="r" readonly>`),
+        undefined,
+        "unfillable-field",
+      ],
       [`${form("<select id='k'></select>")}<div id="host"></div>`, `<input>`, "shadow-field"],
     ] as const)
       expect(gap(html, shadow), html).toEqual([false, expected]);
+  });
+
+  it("counts a control outside every form only near the sign-in fields outside one", () => {
+    const outcome = (html: string) => {
+      page(html);
+      const result = extractLoginObservation();
+      if (!result.ok) throw new Error(`no observation: ${result.reason}`);
+      return [result.observation.complete, result.gap];
+    };
+    const login = `<div><div><dl><dt>ID</dt><dd><input id="u" autocomplete="username"></dd></dl>
+      <div><button id="next">Next</button></div></div></div>`;
+    const picker = `<select id="lang"><option>日本語</option></select>`;
+    // A language picker in the page's footer, without footer markup, as on dアカウント's
+    // login page (2026-10-23).
+    expect(
+      outcome(`<div><div>${login}</div><div><ul><li><div>${picker}</div></li></ul></div></div>`),
+    ).toEqual([true, undefined]);
+    // Beside the fields, the same select is one the sign-in may need.
+    expect(
+      outcome(`<div><div><dl><dd><input id="u" autocomplete="username"></dd>
+        <dd>${picker}</dd></dl><button id="next">Next</button></div></div>`),
+    ).toEqual([false, "unsupported-control"]);
+    // When the fields' area would take the whole page, every control outside a form counts.
+    expect(
+      outcome(`<input id="u" autocomplete="username">${picker}<button id="n">Next</button>`),
+    ).toEqual([false, "unsupported-control"]);
+    // Rows of a grid layout: the select's row sits beside the fields' rows.
+    const row = (cell: string) => `<div class="row"><div class="col">${cell}</div></div>`;
+    expect(
+      outcome(`<div><main><div class="container">${row(`<input id="u" autocomplete="username">`)}
+        ${row(`<input id="p" type="password">`)}${row(picker)}${row(`<button id="go">Log in</button>`)}
+        </div></main></div>`),
+    ).toEqual([false, "unsupported-control"]);
+    expect(
+      outcome(`<div><main><div class="container">${row(`<input id="u" autocomplete="username">`)}
+        ${row(`<input type="radio" id="kind">`)}${row(`<button id="go">Log in</button>`)}</div></main></div>`),
+    ).toEqual([false, "unsupported-control"]);
+    // A text area far from two fields, such as a feedback box at the page's foot.
+    expect(
+      outcome(`<div><div><div><div><div><div><input id="u"><input id="p" type="password">
+        <button id="go">Log in</button></div></div></div></div></div>
+        <div><div><div><textarea id="feedback"></textarea></div></div></div></div>`),
+    ).toEqual([true, undefined]);
+    // A field that cannot be filled counts anywhere outside a form.
+    expect(
+      outcome(
+        `<div><div>${login}</div><div><div><div><input id="r" readonly></div></div></div></div>`,
+      ),
+    ).toEqual([false, "unfillable-field"]);
   });
 
   it("leaves out a field the continued recipe already fills when it is read-only or disabled", () => {

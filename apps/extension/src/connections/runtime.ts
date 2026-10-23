@@ -15,7 +15,13 @@ import { createLocalSettingsRuntime } from "../settings";
 import { createIndexedDbVaultStore } from "../vault/storage";
 import { createLocalVaultManager } from "../vault/manager";
 import { vaultFailure } from "../vault/record";
-import { notifyingVaultStore, vaultRecordState, type VaultRecordState } from "./action-icon";
+import {
+  notifyingVaultManager,
+  notifyingVaultStore,
+  vaultRecordState,
+  type VaultRecordState,
+} from "./action-icon";
+import { catalogEntry } from "./catalog";
 import { createBrowserConnectionRegistry } from "./registry";
 import { createConnectionPolicy, quarantinedItems } from "./policy";
 import { providerPermissionOrigins } from "./permissions";
@@ -43,6 +49,8 @@ export function createConnectionRuntime(
      * either can change which connections unlock automatically.
      */
     onVaultStateMayChange?: () => void;
+    /** Called once a vault serves a new snapshot after an accepted sync or a restore. */
+    onVaultOpened?: () => void;
     /** Called with each settings-page Sync result, for the local log. */
     onSync?: (connectionId: string, reply: SetupReply) => void;
     /** Called with each Bitwarden refresh result, for the local log. */
@@ -68,7 +76,9 @@ export function createConnectionRuntime(
     const store = notifyingVaultStore(createIndexedDbVaultStore({ profile }), () =>
       options.onVaultStateMayChange?.(),
     );
-    const manager = createLocalVaultManager({ profile, host, store });
+    const manager = notifyingVaultManager(createLocalVaultManager({ profile, host, store }), () =>
+      options.onVaultOpened?.(),
+    );
     const value = { store, manager };
     vaults.set(profile.connectionId, value);
     return value;
@@ -90,28 +100,7 @@ export function createConnectionRuntime(
       throw new Error("vault-unavailable");
     return {
       entry: record.data,
-      catalog: {
-        id: connectionId,
-        label: configuration.label,
-        provider: "bitwarden",
-        userId: projected.data.userId,
-        snapshotId: record.data.accepted.snapshotId,
-        groups: projected.data.groups,
-        items: projected.data.items.map((item) => ({
-          id: item.id,
-          label: item.label,
-          allowedOrigins: [],
-          groupIds: item.groupIds,
-          fields: item.fields.map(({ id, label, name, kind, linkedFieldId, empty }) => ({
-            id,
-            label,
-            name,
-            kind,
-            ...(linkedFieldId ? { linkedFieldId } : {}),
-            ...(empty ? { empty } : {}),
-          })),
-        })),
-      } satisfies VaultCatalog["connections"][number],
+      catalog: catalogEntry(connectionId, configuration.label, projected.data),
     };
   }
   async function catalog(snapshot: SettingsSnapshot): Promise<VaultCatalog> {

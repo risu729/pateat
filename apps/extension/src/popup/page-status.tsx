@@ -45,6 +45,8 @@ const NOT_STARTED: Record<string, string> = {
   "stopped-login": "the last login on this site stopped in this tab",
   "first-step-missing": "the sign-in form shows, but the recipe's first step was not found",
   "no-recipe-on-path": "no recipe of this site starts on this page",
+  "confirm-unsupported":
+    "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
   "logged-out": "you logged out of this site; choose an account to log in again",
   "account-ambiguous": "several accounts match; choose one to log in",
   "origin-busy": "another tab's login to this site is running or did not succeed",

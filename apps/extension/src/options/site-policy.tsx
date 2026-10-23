@@ -143,7 +143,7 @@ function matchedBy(option: Pick<SiteAccountOption, "uri" | "passkey">): string {
   return option.passkey ? "passkey" : "no match for this origin";
 }
 
-const SITE_ACCOUNTS_DELAY_MS = 300;
+export const SITE_ACCOUNTS_DELAY_MS = 300;
 const WAIT_FOR_ACCOUNTS = "Wait until the matching accounts are listed.";
 /** The select value that removes an origin's default. */
 const NO_DEFAULT = "";

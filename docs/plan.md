@@ -459,12 +459,20 @@ than in this repository.
   so its retention rule needs no work. The first login result of each revision reaches
   the service as codes
   ([ADR 0035](adr/0035-page-kinds-per-site.md#amendment-2026-10-18-login-results-on-the-service)).
-- The toolbar badge counts the matching items on every HTTP(S) site (on an `http:` page
-  only items saved with an `http://` URI;
+  Implemented on 2026-10-23
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#implementation-of-delivery-1)) except the
+  local evaluation fields of `confirm-unsupported` pages beyond the recipe and its kind,
+  and the counts of pages not sent, which come next. Covered by unit, Worker and
+  fake-model tests only; no real site or paid generation checked it.
+- Done: the toolbar badge counts the matching items on every HTTP(S) site (on an `http:`
+  page only items saved with an `http://` URI;
   [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
   gray when every match is excluded, amber while a login waits for a choice (owner,
   2026-10-13 14:42 UTC;
-  [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
+  [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)). Covered by
+  unit tests and a synthetic Playwright test. Next: see it once in installed Chrome on a
+  site with a saved item, including that Chrome draws the gray and teal colours and
+  keeps the count across a same-origin navigation.
 - Generation for passkey-only start pages, moved from phase 4 (owner, 2026-10-19;
   [ADR 0053](adr/0053-passkey-only-generation.md)): implemented. A page that shows only
   a button to sign in with a passkey is sent once the no-input page wait of
@@ -488,8 +496,12 @@ than in this repository.
   and the service's D1 records. The Japanese government sites and Santander, which the
   owner wants to work although they look hard, are among them. So is Instagram: its
   saved-profile list shows a handle while the item's username is an email, which
-  [ADR 0028](adr/0028-account-chooser-login-pages.md) does not match, and what to do
-  there is not decided.
+  [ADR 0028](adr/0028-account-chooser-login-pages.md) does not match. The owner chose on
+  2026-10-23 (11:23 UTC) to add no rule for it: Pateat keeps logging in through "Use
+  another profile" and never picks a saved profile there. An item's username is the ID
+  typed on the sign-in page; matching a list's handle against another field (such as a
+  custom field) is considered only once lists like this are found to make logins fail
+  or take needless time, such as re-verification requests (owner, 11:24 UTC).
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
   - A plain HTTP site whose item is saved with an `http://` URI logs in, submit
@@ -2397,18 +2409,23 @@ after the final submission, with the login paths, and returns `signed-in` with a
 or link marker, `rejected` or `challenge`, or abstains when unclear. An unknown marker,
 one that is not a button or link, or a page that still has a password input not marked
 `new-password` or a field marked `username`, `current-password` or `one-time-code` fails
-as `invalid-output`. `addCompletion` stores the marker as the recipe's `completion` in
-the next revision. It refuses a marker that is not on the judged page, a page on another
-origin, a marker one of the recipe's own steps uses on that path, and a page that still
-shows an element a step uses on that path or a field any step fills. A failed sign-in
-that shows the form again with the same locators, on its own path or where the form
-posted, is then not learned as signed in. A site that signs in on the login page's own
-path learns its completion only once that form is gone, and the completion then lists
-that path's fill fields as `absent` (at most four), which the executor requires to be
-missing. Both roles share `runStructuredRole` for metering, timeouts and disabled
-telemetry. The service routes call them
-([API README](../services/api/README.md#recipe-generation)), and the extension calls
-those routes as described under the remaining M4 AI work below.
+as `invalid-output`. The response format describes the marker as a candidate ID (such as
+`c3`) since 2026-10-23: on 31 synthetic judged pages, most of Sonnet 5.5's and Haiku
+5.5's errors were a marker given as a button's text (`"Log out"`), which fails here.
+With the ID named, Haiku 5.5 low went from 0.785 to 0.978 and Sonnet 5.5 medium from
+0.817 to 0.968 (3 runs each, on the same pages; Opus 5.5 never made that error). The
+owner chose this on 2026-10-23 (11:03 UTC). The change re-judges each page judged before
+once. `addCompletion` stores the marker as the recipe's `completion` in the next
+revision. It refuses a marker that is not on the judged page, a page on another origin,
+a marker one of the recipe's own steps uses on that path, and a page that still shows an
+element a step uses on that path or a field any step fills. A failed sign-in that shows
+the form again with the same locators, on its own path or where the form posted, is then
+not learned as signed in. A site that signs in on the login page's own path learns its
+completion only once that form is gone, and the completion then lists that path's fill
+fields as `absent` (at most four), which the executor requires to be missing. Both roles
+share `runStructuredRole` for metering, timeouts and disabled telemetry. The service
+routes call them ([API README](../services/api/README.md#recipe-generation)), and the
+extension calls those routes as described under the remaining M4 AI work below.
 
 A 16-page synthetic Japanese/English corpus covers bank branch/account/password
 (including an unlabeled page distinguishable only by length),
@@ -2610,15 +2627,15 @@ Remaining M4 AI work:
   name the page's `accountSwitch`, so a generated recipe carries it
   ([Background execution](architecture.md#background-execution)).
 - More Japanese pages. The owner chose on 2026-10-11 to take them from both public
-  login pages opened in Chrome on the owner's PC and the request log; six public pages
-  are in (below). Next, in a browser that can reach the sites (a cloud environment whose
-  network access allows them, or the owner's PC): refresh the six with the current
-  extractor, and observe more public login pages of banks, securities firms, card
-  issuers, shops and telecom carriers, retrying the twelve that gave no or an incomplete
-  observation. On 2026-10-11 the request log held one Japanese row, a MyJCB
-  generation that abstained (`insufficient-evidence`) on an observation from before
-  #206 with no login control, so it adds no case. The finite-choice provider waited
-  for a Claude baseline, which now exists for both page sets.
+  login pages opened in Chrome on the owner's PC and the request log; 108 public pages
+  are in (below), 102 of them from 2026-10-23, plus 45 English ones. Pages that answer a
+  cloud session with 403 or a bot check (Rakuten Card, SMBC Card, JAL, Eki-net,
+  Mercari and others) still need a browser on the owner's PC. On 2026-10-11 the request
+  log held one Japanese row, a MyJCB generation that abstained
+  (`insufficient-evidence`) on an observation from before #206 with no login control,
+  so it adds no case. The finite-choice provider waited for a Claude baseline, which
+  exists for the first six Japanese pages and the Formasaurus pages; the 2026-10-23
+  pages have no Claude run yet.
 
 The real-page corpus per ADR 0012 starts with
 [Formasaurus](https://github.com/scrapinghub/Formasaurus) commit `4bb46a9`:
@@ -2802,8 +2819,53 @@ has it in another role. Listed URLs are observed into a local report for labelli
 hand. Each case records the date and the commit of its observation, and refreshed page
 text is reviewed for personal data again before it is committed. A cloud session on
 2026-10-15 reached none of the pages: the cloud environment's network policy refused
-every site (`ERR_TUNNEL_CONNECTION_FAILED`), so the six pages of 2026-10-11 are still
-the corpus.
+every site (`ERR_TUNNEL_CONNECTION_FAILED`), so the six pages of 2026-10-11 were still
+the corpus then.
+
+On 2026-10-23 a cloud session reached most sites and observed about 270 public pages
+with main `381116f` in Chrome for Testing 156 (Playwright's Chromium 141 lacks
+`Map.prototype.getOrInsertComputed`, which the extractor uses). The owner asked for a
+larger corpus that day, ahead of the phase order
+("フェーズは一旦無視して、ある程度決め打ちで進め、後から判断"),
+so the agent chose the pages and labels below and the owner may change them. 65 cases
+were added to the Japanese pages (71 in all) and 18 English pages went to a new set,
+`packages/inference/src/corpus/web.json` (`--corpus web`), observed the same way with
+locale `ja-JP` as in the owner's Chrome; a page observed as `en` goes to the English
+set, one observed as `ja` or `mixed` to the Japanese set. They include sites in the
+request log (EPOS Net, Wise, Slack, UniSuper, connpass, Moppy, Q-move, AIRDO and
+others), banks and securities firms (MUFG, au Jibun Bank, Matsui, Mitsubishi UFJ eSmart,
+Daiwa, GMO Click, St.George), AWS IAM, identifier-first pages (`advance`), 11 passkey
+buttons, decoy search, sign-up and social sign-in controls, unlabelled fields (COLOPL
+recruiting, Apple Account), text CAPTCHA fields beside the login form (BizReach, Mobile
+Suica: labelled as plans, the person types the CAPTCHA), and 12 pages that must abstain
+(sign-up pages, search-only and 404 pages, Yahoo! JAPAN's CAPTCHA page). A case may name
+its item's own fields (`slots` as a list: Daiwa's 支店コード and 6-digit 口座番号,
+St.George's Hidden security number, the AWS account ID); the built-in slots come first
+and the
+custom fields take `custom-1` and on in the listed order, as the extension sends them.
+The page text was checked for personal data and holds none (emails and numbers are
+already redacted). On both sets the heuristic scores 0.70 (Japanese, 15 false submits)
+and 0.67 (English, 3 false submits). Not usable from the cloud: about 40 answered 403 or
+a bot check (Rakuten Card, SMBC Card, JAL, Eki-net, Mercari, npm, Cloudflare, OpenAI and
+others), about 30 failed through the proxy, and these gave incomplete observations, an
+extractor gap: Rakuten's login (`shadow-control`), Amazon's `/ax/claim`
+(`unlocated-button`), Duolingo and Bank of America (`unlocated-button`), Stripe and
+1Password (`unlocated-checkbox`), Hacker News (`unlocated-field`) and Airbnb
+(`unfillable-field`). IIJmio was complete but showed no login button. On Seven Bank
+(`URL.parse` replaced by the page) and American Express (`eval` disabled) the probe
+failed in the page's own world, where the extension's content script would not.
+
+A second pass the same day observed about 280 more pages (Japanese shops, hosting,
+job and travel sites; English SaaS, banks, universities and streaming services) with
+the same build and added 39 Japanese and 31 English cases, after an independent review
+of every label. Pages whose email step only sends a sign-in link or code, with no
+password (Slack, Vercel, Claude Platform, Instacart, Loom, Temu), are left out, as no
+login item fits them; Slack and Vercel were removed from the first pass for that
+reason. Sakura Internet's login page is left out too: its login button sits outside
+the form of its fields, so the correct plan fails the plan check (`mixed-groups`), a
+case for that check rather than for the corpus. The Japanese set now has 108 cases (15
+abstain, 11 passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey
+buttons, 13 `advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
@@ -2866,11 +2928,18 @@ links; no page's completeness changed, and five pages that are not login pages l
 context links to the 48-candidate limit or to shared text. Hidden, collapsed,
 `aria-hidden` and before-the-page-start inputs are skipped as likely traps; a
 transparent (opacity 0, also through an ancestor) or tiny field makes the form
-incomplete. Since 2026-10-17 an element transparent only because it or each transparent
-ancestor has a running or paused CSS animation, CSS transition or script animation that
-still takes its opacity above 0 later in its current iteration, in the direction it
-plays (one still in its delay from the iteration's start), counts as opaque, wherever
-the content script reads whether an element is shown (fields, buttons and their text,
+incomplete, unless it is also disabled: since 2026-10-23 such a field, which takes input
+from no one, is read as absent on a login page, also in choosing its login forms (the
+page after a sign-in still reads it, as a code field may wait there for a timer), as
+Bitwarden never picks a disabled field as the username or password field (`!f.disabled`
+in its `autofill.service.ts`). An example is the 12-pixel disabled text and password
+pair at opacity 0 in SBI新生銀行's login form (read in cloud Chromium on main `8f50e3e`;
+agent fix, local tests only, not checked in the owner's Chrome). Since 2026-10-17 an
+element transparent only because it or each transparent ancestor has a running or paused
+CSS animation, CSS transition or script animation that still takes its opacity above 0
+later in its current iteration, in the direction it plays (one still in its delay from
+the iteration's start), counts as opaque, wherever the content script reads whether an
+element is shown (fields, buttons and their text,
 lists of accounts, sign-in entries and the signed-in page). An input at opacity 0 with
 no such animation stays transparent, as does one under an animation that holds the
 opacity at 0 for the rest of its iteration (a fade-out that then holds, a carousel's
@@ -2904,11 +2973,14 @@ its visible name when no other shown fillable input has it, before such an `id`
 ([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
 locator when its text matches exactly one button and redaction leaves it unchanged, and
 a script link when its text matches no button and exactly one script link. In a login
-form, a field, button or checkbox without a target, a control the executor cannot act on
-(a select, radio, text area, another input type, or a read-only, disabled, transparent
-or tiny field) or a control in a shadow root makes the observation incomplete, as do
-more than 48 candidates, so inference rejects it; a page without a field, or where
-nothing in a login form can be located or acted on, is refused. The login forms are
+form, a field, button or required checkbox without a target (a checkbox is context
+only, so one without `required` or `aria-required="true"` and without a target is left
+out, 2026-10-23, as Stripe's and 1Password's "Remember me"), a control the executor
+cannot act on (a select, radio, text area, another input type, or a read-only, disabled,
+transparent or tiny field) or a control in a shadow root makes the observation
+incomplete, as do more than 48 candidates, so inference rejects it; a page without a
+field, or where nothing in a login form can be located or acted on, is refused. The
+login forms are
 those with one password field that is not `new-password`, or with a `username` or
 `one-time-code` field, as ADR 0016 detects a login; failing that, any with a password
 field; otherwise every form that holds a field. Any other form with such a control, such
@@ -2917,7 +2989,15 @@ left out entirely, so every form the observation describes is complete. On the 2
 observed Formasaurus login pages of the real-page corpus (2026-10-11), this cut the
 incomplete ones from 108 to 52: 55 became complete, each still showing the form
 Formasaurus labels as the login form, and one whose login form has no locatable control
-now gives no observation. A field in any open shadow root marks it incomplete too, as it
+now gives no observation. Fields outside every form count as one more form, whose
+controls are those outside every form; since 2026-10-23 a control the executor cannot
+act on that is not a field counts there only inside the fields' area, their nearest
+common ancestor (a lone field itself) and up to four levels above it (never the body or
+the root element), so a language picker in a page footer without footer markup, as on
+dアカウント's login page
+(`cfg.smt.docomo.ne.jp`, read in cloud Chromium on main `381116f`), no longer makes the
+page incomplete (agent fix, local tests only; not checked in the owner's Chrome). A
+field in any open shadow root marks it incomplete too, as it
 may be the real login. Links are context only: the plan check accepts only a button as
 the page action. Known limits: a read-only username shown again on a password step makes
 that step incomplete, and honeypot inputs moved to the right or clipped by
@@ -2950,6 +3030,97 @@ now keeps the header's links. There, an attribute locator that redaction would c
 counts as no locator, so an account number in an `id` is never sent.
 `mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
 pages.
+
+Model comparison (2026-10-23). The owner gave leftover Claude API credits for testing
+other models. `--model` and `--effort` run another Claude model at its own rates, and
+`--speed fast` runs fast mode on the models that offer it; the service still runs
+`claude-opus-5-5` at effort `low` (ADR 0014). `--corpus judge` scores the sign-in judge
+on 31 synthetic pages shown after a sign-in step
+(`packages/inference/src/corpus/judge.ts`): signed-in pages whose only text markers name
+the person, a count or a balance, code pages from an app, SMS and email (one box per
+digit too), security key and method-choice pages, rejected, locked and returned login
+pages, a CAPTCHA, a push approval, an emailed link, a stay-signed-in prompt, a passkey
+offer, pages with no sign of an account, and two stops before the password (ADR 0036).
+It scores the model's own answer in candidate IDs: the decision, then the marker, the
+passkey and password buttons and the code it names. Every run below was on main
+`381116f` plus this change (the #875 columns on #875's `df2003f` plus it), one call per
+case with no retries; latency was measured from the cloud container and includes the
+network. The "Japanese 71" and "web 18" columns ran on the pages of #875 before its
+review, so a label may still change. Accuracy is the mean over runs, with the number of
+runs in brackets; cost per call is from reported usage at the published rates.
+
+| Generation | Synthetic 17 | Formasaurus 131 | Japanese 71 | Web 18 | p50 / p95 s (131) | USD per call |
+| --- | --- | --- | --- | --- | --- | --- |
+| Opus 5.5 `low` (service) | 0.882 (4) | 0.985 (2) | 1.000 (2) | 1.000 (2) | 1.95 / 2.85 | 0.0120 |
+| Opus 5.5 `medium` | 0.902 (3) | 0.977 | 1.000 | 1.000 | 1.97 / 3.24 | 0.0120 |
+| Opus 5.5 `low`, fast mode | 0.941 | 0.992 | 1.000 | 1.000 | 1.05 / 1.49 | 0.0239 |
+| Fable 5.1 `low` | 0.863 (3) | 0.992 | 0.986 | 1.000 | 1.97 / 4.58 | 0.0299 |
+| Opus 5 `low` | 0.961 (3) | 0.992 | 1.000 | 1.000 | 1.62 / 2.29 | 0.0149 |
+| Sonnet 5.5 `low` | 1.000 (3) | 1.000 | 1.000 | 1.000 | 1.67 / 2.69 | 0.0060 |
+| Sonnet 5.5 `medium` | 1.000 (3) | 1.000 | 1.000 | 1.000 | 1.65 / 2.76 | 0.0060 |
+| Haiku 5.5 `low` | 0.882 (3) | 0.992 | 1.000 | 1.000 | 1.32 / 2.42 | 0.0003 |
+| Haiku 5.5 `medium` | 0.882 (3) | 1.000 | 1.000 | 1.000 | 1.63 / 2.75 | 0.0004 |
+
+The only false submit was one Fable 5.1 run on `ja-bank-unlabeled-lengths`. On the
+synthetic corpus Opus 5.5, Fable and Haiku abstain on `en-label-injection`
+(`unsafe-instructions`) and `ja-fullwidth-pin` (`insufficient-evidence`, a four-digit
+暗証番号 for the password slot) in nearly every run, which Sonnet 5.5 maps; Opus 5 maps
+the first, and Opus 5.5 maps the second in one `medium` run and the fast run. Sonnet's
+whole lead is these 2 pages and 2 Formasaurus sign-up pages; the Japanese and web pages
+do not separate the models, and the single-run columns are within one page. The
+Formasaurus failures are `invalid-output` with `unexpected-entry`: on the sign-up pages
+formasaurus-1, -62 and -407, expected to abstain, the Opus and Fable models name the
+"Log in" link as a sign-in entry, which a request with slots refuses. Fable 5.1 refused
+`ja-mufg-direct` and Opus 5 `ja-bank-unlabeled-lengths` (`cyber`).
+
+| Judge (31) | Accuracy | Wrong detail | Wrong decision | False signed-in | Failed | p50 / p95 s | USD per call |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Opus 5.5 `low` (service) | 0.989 (6) | 0 | 0 | 0 | 2 | 1.76 / 3.23 | 0.0097 |
+| Opus 5.5 `medium` | 0.989 (3) | 0 | 0 | 0 | 1 | 1.95 / 3.55 | 0.0107 |
+| Opus 5.5 `low`, fast mode | 1.000 (3) | 0 | 0 | 0 | 0 | 1.03 / 1.55 | 0.0174 |
+| Fable 5.1 `low` | 0.946 (3) | 0 | 0 | 0 | 5 | 1.53 / 1.96 | 0.0209 |
+| Opus 5 `low` | 0.968 (3) | 0 | 0 | 0 | 3 | 1.69 / 2.11 | 0.0106 |
+| Sonnet 5.5 `low` | 0.817 (3) | 13 | 4 | 0 | 0 | 1.37 / 2.16 | 0.0042 |
+| Sonnet 5.5 `medium` | 0.817 (3) | 11 | 6 | 0 | 0 | 1.41 / 2.18 | 0.0042 |
+| Haiku 5.5 `low` | 0.785 (3) | 16 | 4 | 0 | 0 | 1.43 / 2.60 | 0.0003 |
+| Haiku 5.5 `medium` | 0.806 (3) | 14 | 4 | 0 | 0 | 1.66 / 3.84 | 0.0003 |
+
+Opus 5.5 failed only on `en-method-chooser` (Password, Text message and Passkey
+buttons): once its output was cut at the 8,192-token bound and once it was refused as
+`reasoning_extraction`. Fable 5.1 and Opus 5 refused `ja-number-pad-pin` (a three-digit
+PIN on a number pad) and Fable 5.1 also `ja-sms-6`, both as `cyber`. Most Sonnet
+and Haiku errors are a marker given as the button's text, such as `"Log out"`
+instead of its candidate ID, which the judge refuses as `invalid-output`; the rest are
+`unclear` on the nickname link (`ja-nickname-href`), the count-and-balance page and the
+stay-signed-in prompt. With one more phrase in the marker's description in
+`judgedPageSchema` ("The candidate ID (such as c3) of a button or link …"), measured
+the same day on the same 31 pages and not adopted, the judge scored: Opus 5.5 `low`
+1.000 (3 runs; it never made that mistake), Sonnet 5.5 `low` 0.935 and `medium` 0.968,
+Haiku 5.5 `low` 0.978 and `medium` 0.957, each over 3 runs and every remaining error an
+`unclear`. Opus 5.5's truncated call took 59.7 s (56.4 s at `medium`), next to the 60 s
+timeout.
+
+After #889 grew the corpora (main `b803056`: 108 Japanese and 45 web pages), the main
+choices ran again on them:
+
+| Generation | Japanese 108 | Web 45 | p50 / p95 s | USD per call |
+| --- | --- | --- | --- | --- |
+| Opus 5.5 `low` (service) | 0.986 (2) | 1.000 (2) | 1.96 / 2.91 | 0.0116 |
+| Opus 5.5 `low`, fast mode | 0.991 | 1.000 | 1.01 / 1.73 | 0.0232 |
+| Sonnet 5.5 `low` | 0.991 (2) | 0.989 (2) | 1.68 / 2.50 | 0.0058 |
+| Haiku 5.5 `low` | 1.000 (3) | 1.000 (3) | 1.45 / 2.52 | 0.0003 |
+
+On `ja-agoda-top`, a top page labelled to abstain, Opus 5.5 and Sonnet 5.5 name its
+サインイン button as a sign-in entry, which a request with slots refuses
+(`unexpected-entry`); Haiku 5.5 abstains. Sonnet 5.5 once abstained on `web-mailchimp`
+(`insufficient-evidence`). These runs cost about $9.
+
+Fast mode takes about 0.9 s off a generation and 0.6 s off a judgement for Opus 5.5
+(p50 1.59 s standard against 1.03 s fast for the judge in the same window) at twice the
+price ($8/$40 per million tokens). Recipes and judgements are stored, so this speeds up
+only a site's first sign-in. On this organization Opus 5 answered one short fast request
+and then every one with a rate limit of 0 fast mode input tokens per minute. Fast mode
+is a Claude API research preview with its own rate limits per organization.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
