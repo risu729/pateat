@@ -2121,10 +2121,9 @@ failure only loses the sample, logged as `recipe.sample`.
 A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 `user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), an `<input>`'s `autocomplete`
-token, a fillable input's visible name
-([ADR 0037](adr/0037-fields-by-visible-name.md), below), a `password` handler's
-button's accessible name (ADR 0048's amendment, below), or, for a click or a state
-check only, a button's text:
+token, a fillable input's visible name ([ADR 0037](adr/0037-fields-by-visible-name.md),
+below), a `password` handler's button's accessible name (ADR 0048's amendment, below),
+or, for a click or a state check only, a button's text:
 `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
 without any, its images' `alt`), the `<input type="submit|button">` whose value, or the
 `<input type="image">` whose `alt` equals the value after whitespace is collapsed (owner
@@ -2148,14 +2147,13 @@ that shows such an input cannot become the completion. A script button is a cont
 scripts make clickable: a script link, or another element with `role="button"`, but
 never a form control or anything inside an `<a href>`. A script link is an `<a>` without
 `href` that has an `onclick` attribute or `role="button"`, such as
-`<a id="login" onclick="document.loginForm.submit()">`, or sets a pointer cursor
-itself (CSS `cursor: pointer` that its parent does not have), such as IIJmio's
+`<a id="login" onclick="document.loginForm.submit()">`, or sets a pointer cursor itself
+(CSS `cursor: pointer` that its parent does not have), such as IIJmio's
 `<a class="pink_btn">ログイン</a>`, whose script listener leaves no attribute
-(2026-10-23, agent change); the cursor is read as computed when the page is read, so
-one set only on hover or once the fields are filled does not count, or an `<a href>`
-that runs a
-script instead of following the link: a `javascript:` URL (or a `data:` or `vbscript:`
-one, which Chrome never follows from a page), such as
+(2026-10-23, approved by the owner that day); the cursor is read as computed when the
+page is read, so one set only on hover or once the fields are filled does not count, or
+an `<a href>` that runs a script instead of following the link: a `javascript:` URL (or
+a `data:` or `vbscript:` one, which Chrome never follows from a page), such as
 `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or fragment-only
 `href` on a link with an `onclick` attribute or `role="button"`, such as
 `<a id="login" href="#" onclick="document.loginForm.submit()">` (some pages' scripts add
@@ -2166,90 +2164,87 @@ content security policy of the world that clicked, and the login content script'
 isolated world has the extension's own policy. So a click Pateat makes on an `<a href>`
 whose URL, as the browser parses it, is `javascript:` (`src/page/script-url-click.ts`;
 `data:` and `vbscript:` links take the same path, though Chrome follows neither) is made
-in the page's main world by `login-main.js`, which runs at document start in the
-MAIN world wherever the login script runs (every HTTP(S) page and frame), with no
-permission or host access of its own. The isolated script dispatches a fixed,
-non-bubbling event that carries nothing on the link itself; the main-world listener
-clicks that link once, only when it is such a link, and cancels the event. When nothing
-cancels it, as when the script did not load, the isolated script clicks the link itself,
-as before; only one world clicks, so the link's `onclick` handler runs once, and
-whether the page reacted is still judged by the attempt's own checks, never by anything
-the main world reports. A page sees the event and can click its own links anyway, so it
-gains no power over its own login it lacked, though the event tells any HTTP(S) page or
-frame that Pateat is installed (the passkey bridge does so in top-level documents). A
-link in a closed shadow root is still clicked from the isolated world, since the
-main-world listener sees only its host. The click on a list's link for another account
-(ADR 0028) takes the same path, so such a `javascript:` link now runs its URL. Every
-other click, including links with other URLs, buttons
-and form submits, is made in the isolated world as before. Before this, a link whose
-action is its URL alone never submitted: on 2026-10-13 a recruiting site's sign-in
-logged `Refused to run the JavaScript URL` in the console after such a click,
-reproduced in Chromium with a synthetic page, and on 2026-10-17 the owner's Chrome on
-build `d29951d` (01:55 UTC) filled SMBC Trust Bank's sign-on page and clicked its
-サインオン control, `<a href="javascript:submitProc();doTransaction(...)">`, whose
+in the page's main world by `login-main.js`, which runs at document start in the MAIN
+world wherever the login script runs (every HTTP(S) page and frame), with no permission
+or host access of its own. The isolated script dispatches a fixed, non-bubbling event
+that carries nothing on the link itself; the main-world listener clicks that link once,
+only when it is such a link, and cancels the event. When nothing cancels it, as when the
+script did not load, the isolated script clicks the link itself, as before; only one
+world clicks, so the link's `onclick` handler runs once, and whether the page reacted is
+still judged by the attempt's own checks, never by anything the main world reports. A
+page sees the event and can click its own links anyway, so it gains no power over its
+own login it lacked, though the event tells any HTTP(S) page or frame that Pateat is
+installed (the passkey bridge does so in top-level documents). A link in a closed shadow
+root is still clicked from the isolated world, since the main-world listener sees only
+its host. The click on a list's link for another account (ADR 0028) takes the same path,
+so such a `javascript:` link now runs its URL. Every other click, including links with
+other URLs, buttons and form submits, is made in the isolated world as before. Before
+this, a link whose action is its URL alone never submitted: on 2026-10-13 a recruiting
+site's sign-in logged `Refused to run the JavaScript URL` in the console after such a
+click, reproduced in Chromium with a synthetic page, and on 2026-10-17 the owner's
+Chrome on build `d29951d` (01:55 UTC) filled SMBC Trust Bank's sign-on page and clicked
+its サインオン control, `<a href="javascript:submitProc();doTransaction(...)">`, whose
 `submitProc()` copies the shown fields into hidden ones and submits, and
 `chrome://extensions` logged
-`Running the JavaScript URL violates the following Content Security Policy directive
-'script-src 'self' 'wasm-unsafe-eval' …'` from `content-scripts/login.js`, so the page
-never submitted. Clicking such links from the main world is an agent implementation
-choice under the owner's 2026-10-11 decision that they are clicked as buttons. A text
-locator names a script link by its rendered text, but only
-when no native button carries that text, shown or hidden: native buttons are matched
-first, so a login tab such as `<a href="#" onclick="...">Login</a>` never makes the
-`<input type="submit" value="Login">` below it ambiguous, and a text locator waits for a
-hidden native button rather than clicking a script link with its text. A recipe that
-names a script link by text clicks a native button instead if the page later adds one
-with the same text. Other script buttons, such as a `<div role="button">`, are often
-widgets such as menus and toggles, so their `id`, `name` or `data-testid` names them,
-and their rendered text only inside a login `<form>` or beside a password form, when no
-native button (shown or hidden), script link or other such element carries that text:
-since 2026-10-13, when Instagram's Log in control was a `<div role="button">` with no
-attribute to name it and the page was described without it, the executor matches them by
-text after native buttons and script links, but only in lookups that never name a link:
-a login's steps and a marker's `absent` elements, where such a control showing again
-counts. Lookups that may name a link (an entry, an account switch, a signed-in marker)
-compare links instead and never match them, so a widget elsewhere on the page never
-stands in for a link, and in a login form a link loses its text locator when such an
-element shares its text. The extractor leaves out a script button without a locator
+`Running the JavaScript URL violates the following Content Security Policy directive 'script-src 'self' 'wasm-unsafe-eval' …'`
+from `content-scripts/login.js`, so the page never submitted. Clicking such links from
+the main world is an agent implementation choice under the owner's 2026-10-11 decision
+that they are clicked as buttons. A text locator names a script link by its rendered
+text, but only when no native button carries that text, shown or hidden: native buttons
+are matched first, so a login tab such as `<a href="#" onclick="...">Login</a>` never
+makes the `<input type="submit" value="Login">` below it ambiguous, and a text locator
+waits for a hidden native button rather than clicking a script link with its text. A
+recipe that names a script link by text clicks a native button instead if the page later
+adds one with the same text. Other script buttons, such as a `<div role="button">`, are
+often widgets such as menus and toggles, so their `id`, `name` or `data-testid` names
+them, and their rendered text only inside a login `<form>` or beside a password form,
+when no native button (shown or hidden), script link or other such element carries that
+text: since 2026-10-13, when Instagram's Log in control was a `<div role="button">` with
+no attribute to name it and the page was described without it, the executor matches them
+by text after native buttons and script links, but only in lookups that never name a
+link: a login's steps and a marker's `absent` elements, where such a control showing
+again counts. Lookups that may name a link (an entry, an account switch, a signed-in
+marker) compare links instead and never match them, so a widget elsewhere on the page
+never stands in for a link, and in a login form a link loses its text locator when such
+an element shares its text. The extractor leaves out a script button without a locator
 instead of marking the page incomplete. It does the same for an icon button that never
-submits (`type="button"`, or any type outside every form, with no text of its own),
-such as the eye that shows the password on モッピー's and LinkedIn's sign-in pages
+submits (`type="button"`, or any type outside every form, with no text of its own), such
+as the eye that shows the password on モッピー's and LinkedIn's sign-in pages
 (2026-10-12), whose only name is an `aria-label`, or a cookie banner's close button
 beside Bank of America's sign-in fields, which sit outside any form (2026-10-23), but
 only when its form, or the fields outside every form, has another located button, and,
 for a button of another type outside every form, only when no field outside every form
 is within two ancestors of it and it is within two ancestors of none of them (reaching
-the body counts as near), where it may be their script-run submit:
-an icon-only button may be the form's script-run submit. A `type="button"` button with
-text, such as `<input type="button" value="Login">` submitting by script, still marks
-the page incomplete when it has no unique locator. The executor compares strings and
-acts only when exactly one element matches; more than one is a structural mismatch. It
-clicks buttons, image buttons and script buttons (not a disabled button, nor a script
-button with `aria-disabled="true"`, nor a control that is or sits inside an `inert`
-element; the extractor still describes a control `inert` itself, as a disabled button,
-since a page may lift it once its fields are filled, as ANA's login modal does, #853),
-never links, except a recipe's `accountSwitch`,
-which may be an `<a href>` link (a script link with `href` included) named by its
-rendered text; no other script button is clicked as a switch. A switch's text locator
-names another link only when no shown button or script link has that text (a hidden
-native button holds back only script links), so a switch recipe that names a link clicks
-a button instead if the page later shows one with the same text. A link's text is its
-rendered text or, for an image-only link such as a header icon, its shown images' `alt`.
-The extractor gives a link a text locator only when no other link and no button shows
-that text, and only on a login page (for an account switch) or the signed-in page (for a
-completion marker). On the signed-in page a link to the page's own origin is located by
-its path first (`{ "by": "href", "value": "/my" }`), when no other link goes there and
-the path has only letters, `-`, `.`, `_`, `~` and `/`, no token segment and no segment
-that repeats the link's text or one or two words of the page's header (a handle or name
-the page shows);
-the executor finds it as the one non-script `<a href>` to that path on the page's
-origin, whatever its query or fragment, never one with an empty or fragment-only `href`
-(`#top`). Only completion markers take such a locator
+the body counts as near), where it may be their script-run submit: an icon-only button
+may be the form's script-run submit. A `type="button"` button with text, such as
+`<input type="button" value="Login">` submitting by script, still marks the page
+incomplete when it has no unique locator. The executor compares strings and acts only
+when exactly one element matches; more than one is a structural mismatch. It clicks
+buttons, image buttons and script buttons (not a disabled button, nor a script button
+with `aria-disabled="true"`, nor a control that is or sits inside an `inert` element;
+the extractor still describes a control `inert` itself, as a disabled button, since a
+page may lift it once its fields are filled, as ANA's login modal does, #853), never
+links, except a recipe's `accountSwitch`, which may be an `<a href>` link (a script link
+with `href` included) named by its rendered text; no other script button is clicked as a
+switch. A switch's text locator names another link only when no shown button or script
+link has that text (a hidden native button holds back only script links), so a switch
+recipe that names a link clicks a button instead if the page later shows one with the
+same text. A link's text is its rendered text or, for an image-only link such as a
+header icon, its shown images' `alt`. The extractor gives a link a text locator only
+when no other link and no button shows that text, and only on a login page (for an
+account switch) or the signed-in page (for a completion marker). On the signed-in page a
+link to the page's own origin is located by its path first
+(`{ "by": "href", "value": "/my" }`), when no other link goes there and the path has
+only letters, `-`, `.`, `_`, `~` and `/`, no token segment and no segment that repeats
+the link's text or one or two words of the page's header (a handle or name the page
+shows); the executor finds it as the one non-script `<a href>` to that path on the
+page's origin, whatever its query or fragment, never one with an empty or fragment-only
+`href` (`#top`). Only completion markers take such a locator
 ([ADR 0029](adr/0029-local-sign-in-state.md)), so an account link whose text is the
-person's nickname can still give a marker. A click is not tied to the
-form the previous fill used: a page that shows a second, previously hidden button with
-the same text stops the attempt as ambiguous, but if the observed button is removed and
-another button with the same text remains, that one is clicked.
+person's nickname can still give a marker. A click is not tied to the form the previous
+fill used: a page that shows a second, previously hidden button with the same text stops
+the attempt as ambiguous, but if the observed button is removed and another button with
+the same text remains, that one is clicked.
 
 The extractor gives no `id` that React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`,
 a hydrated `:R1aH1:`, also after a prefix such as `radix-`): it counts the components
