@@ -344,13 +344,13 @@ than in this repository.
     default, follows the browser's `prefers-color-scheme` (owner, 2026-10-12 20:54 UTC).
     The choice is presentation only, kept in each program's `localStorage`
     (`pateat.theme`), and an open extension page follows a change made on another.
-  - Done: the extension's settings page has the approved layout: a section list with
-    the Theme select at its foot, panels, icon-led status lines and no intro
-    paragraphs. Each Bitwarden connection is a row with its vault, sync sign-in and
-    automatic-unlock lines, one main action (Sync, or Sign in again when syncing needs
-    a sign-in first) and the other actions in a menu. Adding a connection is a
-    disclosure, open while there is none, and the paired sync service is a row with its
-    last sync.
+  - Done: the extension's settings page has the approved layout: a section list with the
+    Theme select at its foot, panels, icon-led status lines and no intro paragraphs.
+    Each Bitwarden connection is a row with its vault, sync sign-in and automatic-unlock
+    lines, one main action (Sync, Unlock when the vault is locked, or Sign in again when
+    syncing needs a sign-in first) and the other actions in a menu. Adding a connection
+    is a disclosure, open while there is none, and the paired sync service is a row with
+    its last sync.
   - Done: the settings page's Sites list. An exclusion rule matches a hostname, or a
     hostname and its subdomains, on every scheme and port, and a default names one
     exact origin, so the list has two kinds of row, sorted together by hostname. An
@@ -491,12 +491,17 @@ than in this repository.
   is used when every matching item holds a passkey (the recipe is shared), and
   otherwise the entry or the list is handled as before (owner, 2026-10-19 22:44 UTC).
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
-  finds on its own. Reading the extension's error logs without a report needs a way for
-  them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
-  keeps local; that is a design to bring to the owner first. The one exception so far is
-  the value-free result code of each recipe revision's first login, which reaches the
-  service's `login_outcomes` table (owner, 2026-10-18 06:08 UTC,
-  [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
+  finds on its own. The local log's `warn` and `error` lines, and its `info` lines that
+  say why Pateat did nothing on a page, go to the service's `problem_log` automatically
+  (owner, 2026-10-23 12:28 and 13:00 UTC), kept a year, shown on `/manage/problems` and
+  read by Claude through read-only D1 without a report
+  ([ADR 0066](adr/0066-problem-lines-sent-to-the-service.md)); implemented with local
+  tests only, not deployed. The rest of the log stays local
+  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)). The service also has each recipe
+  revision's first login result in `login_outcomes` (owner, 2026-10-18 06:08 UTC,
+  [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation))
+  and every ended login's result and times in `login_timings`
+  ([ADR 0055](adr/0055-login-records-sent-to-the-service.md)).
 - Moved from phase 1 (owner, 2026-10-12 20:35 UTC): the daily-use sites not tested
   yet, about 50 in the project's list. They are no longer tested in batches; the
   owner uses them, and Claude fixes what fails, from the owner's reports, the local log
@@ -915,11 +920,12 @@ than in this repository.
   the owner comes before any code. Built by Claude on 2026-10-23 on best guesses, at the
   owner's request to go ahead and decide later, and accepted by the owner that day as
   [ADR 0061](adr/0061-personal-details-during-a-login.md); its delivery 1, the `detail`
-  handler that the judge learns, and delivery 3, links to the items that hold the
-  values, proposed in the popup, are implemented. エポスNet asks for the
-  card's security code after the password (owner, 2026-10-12 04:18 UTC: it can wait),
-  and other sites ask for a birth date or similar details as extra verification. The
-  owner sees these as one need (2026-10-12 05:29 UTC): the value is in a card or
+  handler that the judge learns, delivery 2, judging a page that asks for a detail
+  beside the sign-in form (`beside`), and delivery 3, links to the items that hold the
+  values, proposed in the popup, are implemented. エポスNet asks for the card's
+  security code after the password (owner, 2026-10-12 04:18 UTC: it can wait), and other
+  sites ask for a birth date or similar details as extra verification. The owner sees
+  these as one need (2026-10-12 05:29 UTC): the value is in a card or
   identity item, not in the login item, so the login has to be linked to that item. The
   owner chose how to link them (05:27 UTC): Pateat guesses the item from the site being
   logged into and what its pages show (such as a card name, brand or masked last
@@ -1013,6 +1019,12 @@ Once the fixes have settled:
   going from the service to a device (owner, 2026-10-18 08:38 UTC:
   「リリース前の考慮事項として記録はしておいて。一旦ユーザー私だけなので大丈夫」;
   [ADR 0055](adr/0055-login-records-sent-to-the-service.md)).
+- Before Pateat has other users, add a setting that turns off what a device sends on its
+  own: the login records of
+  [ADR 0055](adr/0055-login-records-sent-to-the-service.md) and the problem log lines
+  of [ADR 0066](adr/0066-problem-lines-sent-to-the-service.md). Neither has
+  one while the owner is the only user (owner, 2026-10-23 12:28 UTC: the off switch
+  waits for this list, as the revisit of ADR 0055 above does).
 - Next, before the rest of the work below that makes Pateat public: Japanese alongside
   English for Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the
   extension's UI text. The service's pages, such as `/manage`, come later. The owner
@@ -1195,7 +1207,8 @@ items the owner mentioned and gates still open on 2026-10-11.
   quotas come with it.
 - Settings to limit Pateat as an extension that handles personal data: only allowed
   sites (an allowlist), and a choice of how long the vault stays unlocked, as the
-  official Bitwarden extension offers.
+  official Bitwarden extension offers. The second is done: Lock, Log out and the vault
+  timeout ([ADR 0075](adr/0075-vault-lock-and-timeout.md)).
 - Answering Chrome's Immediate UI requests (`navigator.credentials.get` with
   `uiMode: "immediate"`, made when the person presses a site's sign-in button) like
   other passkey get requests, chooser window included: decided and implemented on
@@ -1223,12 +1236,16 @@ items the owner mentioned and gates still open on 2026-10-11.
   A PIN or card code asked in an ordinary input is the
   [phase 2](#phase-2-use-it-and-fix-what-comes-up) item on personal details asked
   during a login.
-- Optional confirmation pages after a login, such as
-  GitHub's "Verify your two-factor authentication (2FA) settings": Pateat should
-  complete them itself (owner, 2026-10-12 04:08 UTC), as a general rule rather than for
-  one site ([ADR 0033](adr/0033-no-site-specific-features.md), owner 13:46 UTC). Until
-  then, [ADR 0029](adr/0029-local-sign-in-state.md) treats the login as complete there
-  and leaves the page to the person.
+- Done (local tests and a judge benchmark only, not checked on a real site): optional
+  confirmation pages after a login, such as GitHub's "Verify your two-factor
+  authentication (2FA) settings" or an "Add a passkey?" offer, which the owner wanted
+  handled by a general rule (2026-10-12 04:08 UTC;
+  [ADR 0033](adr/0033-no-site-specific-features.md), 13:46 UTC). The owner chose on
+  2026-10-23 12:27 UTC to treat the account as signed in there, leave the page as it is
+  and press nothing ([ADR 0065](adr/0065-optional-pages-after-a-sign-in.md)): the judge
+  answers `optional`, the login completes as signed in without the yellow "!" once the
+  password or a second factor was sent, and nothing is learned or reused on the page; a
+  page with any input but a search box stays `challenge`.
 - Re-verification asked while already signed in, such as a secret question before
   profile settings open (ポイントインカム's `/my/my_profile_change.php`, seen on
   2026-10-12) or a password asked again before a sensitive change: Pateat should answer

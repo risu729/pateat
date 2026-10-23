@@ -3437,6 +3437,70 @@ describe("extractSignedInObservation", () => {
     expect(gap()).toEqual([true, undefined]);
   });
 
+  it("says when a signed-in page shows a choice or answer it leaves out (ADR 0065)", () => {
+    const flagged = (markup: string) => {
+      page(`<button id="logout">Sign out</button>${markup}`);
+      const result = extractSignedInObservation();
+      expect(result, markup).toMatchObject({ ok: true, observation: { complete: true } });
+      return (result as { inputLeftOut?: true }).inputLeftOut === true;
+    };
+    // "Send the code to: [SMS] [Email] [Continue]", however the choice is built.
+    const card = (input: string) =>
+      `<form><label class="card">${input.replaceAll("$", "sms")} Text message</label>` +
+      `<label class="card">${input.replaceAll("$", "email")} Email</label>` +
+      `<button id="continue">Continue</button></form>`;
+    for (const markup of [
+      card(`<input type="radio" name="via" value="$">`),
+      // A styled radio: transparent, tiny or not rendered under its label "card".
+      card(`<input type="radio" name="via" value="$" style="opacity: 0; position: absolute">`),
+      card(`<input type="radio" name="via" value="$" style="width: 1px; height: 1px">`),
+      card(`<input type="radio" name="via" value="$" style="display: none">`),
+      card(`<input type="radio" name="via" value="$" disabled>`),
+      // ARIA radios, and other ARIA widgets.
+      `<div role="radiogroup" aria-label="Send the code to">` +
+        `<div role="radio" aria-checked="true" tabindex="0">Text message</div>` +
+        `<div role="radio" aria-checked="false" tabindex="-1">Email</div></div>` +
+        `<button id="continue">Continue</button>`,
+      `<div role="combobox" aria-label="Method" tabindex="0">Text message</div>`,
+      `<ul role="listbox" aria-label="Method"><li role="option">Text message</li></ul>`,
+      `<div role="textbox" contenteditable="true" aria-label="Answer"></div>`,
+      // Selects and text areas, disabled ones too.
+      `<form><select id="via"><option>Text message</option><option>Email</option></select></form>`,
+      `<form><select id="via" disabled><option>Text message</option></select></form>`,
+      `<textarea id="answer"></textarea>`,
+      `<textarea id="answer" disabled></textarea>`,
+      // A site search box in the same form exempts only itself.
+      `<form><input type="search" id="q" aria-label="Search">` +
+        `<label><input type="radio" name="via" value="sms"> Text message</label>` +
+        `<label><input type="radio" name="via" value="email"> Email</label>` +
+        `<button id="continue">Continue</button></form>`,
+      // A footer exempts only a picker: its radios and text areas still count, and a
+      // card's or section's own footer is no page footer.
+      `<footer><label><input type="radio" name="via" value="sms"> Text message</label></footer>`,
+      `<div role="contentinfo"><textarea id="answer"></textarea></div>`,
+      `<section><footer><select id="via"><option>Text message</option></select></footer></section>`,
+      `<form><input type="search" id="q"><input id="email" type="email">` +
+        `<select id="via"><option>Text message</option></select><button id="go">Go</button></form>`,
+    ])
+      expect(flagged(markup), markup).toBe(true);
+    // Part of a site search, or hidden with its container, says nothing.
+    for (const markup of [
+      `<form role="search"><select id="in"><option>All</option></select></form>`,
+      `<search><select id="in"><option>All</option></select></search>`,
+      `<nav role="search"><input role="combobox" aria-label="Search"></nav>`,
+      `<form><input type="search" id="q"><select id="in"><option>All</option></select>` +
+        `<button id="go">Go</button></form>`,
+      `<input id="q" role="combobox" placeholder="Search the docs">`,
+      `<div hidden><select id="in"><option>All</option></select></div>`,
+      // A page footer's language picker.
+      `<footer><select id="lang"><option>English</option><option>日本語</option></select></footer>`,
+      `<div role="contentinfo"><div role="combobox" aria-label="Language" tabindex="0">English</div></div>`,
+      `<footer><form><select id="lang"><option>English</option></select></form></footer>`,
+      `<div style="display: none"><label><input type="radio" name="via"> Email</label></div>`,
+    ])
+      expect(flagged(markup), markup).toBe(false);
+  });
+
   it("reports a still-visible sign-in field so the service can refuse the page", () => {
     page(`<form><input id="pw" type="password"><button id="go">Sign in</button></form>`);
     expect(summary(signedIn())).toEqual([

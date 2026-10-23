@@ -358,10 +358,23 @@ export const recipeCompletionRequestSchema = v.pipe(
      * name, it tells the service that the login's item has no password but a passkey.
      */
     stop: v.optional(v.literal(true)),
+    /**
+     * The page still shows one of the route's fill fields, on a route path, beside another
+     * form with a text-like input and its own button (`showsBesideForm`, ADR 0061). The
+     * service judges such a page though it shows the route's fill field, and keeps only a
+     * `detail` handler from it. Never with `stop`.
+     */
+    beside: v.optional(v.literal(true)),
   }),
   v.check(
     (request) => request.stop !== true || (request.route === "password" && !request.branch),
     "A stop is a password login's without a chooser",
+  ),
+  v.check(
+    (request) =>
+      request.beside !== true ||
+      (request.stop !== true && request.route === "password" && !request.branch),
+    "A page beside the sign-in form is a password login's without a chooser or a stop",
   ),
 );
 
@@ -403,6 +416,12 @@ export const recipeCompletionResultSchema = v.variant("status", [
     status: v.literal("challenge"),
     change: v.optional(activeChange),
   }),
+  /**
+   * The person is signed in and the page only offers something they may put off, such as a
+   * prompt to check two-factor settings or add a passkey (ADR 0065). Nothing is learned:
+   * the login completes there as signed in and leaves the page to the person.
+   */
+  v.strictObject({ version: v.literal(1), status: v.literal("optional") }),
   v.strictObject({ version: v.literal(1), status: v.literal("unclear") }),
   v.strictObject({
     version: v.literal(1),

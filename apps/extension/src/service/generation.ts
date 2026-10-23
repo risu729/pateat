@@ -779,6 +779,7 @@ export function createLoginGeneration(options: {
       branch?: ChooserBranch,
       partial?: true,
       stop?: true,
+      beside?: true,
     ) {
       const connection = await connected();
       if (!connection) return { verdict: "retry", reason: "not-connected" };
@@ -795,6 +796,7 @@ export function createLoginGeneration(options: {
           observation,
           ...(partial ? { partial } : {}),
           ...(stop ? { stop } : {}),
+          ...(beside ? { beside } : {}),
         },
       );
       const result: RecipeCompletionResult | undefined =
@@ -812,7 +814,8 @@ export function createLoginGeneration(options: {
       if (
         result?.status === "signed-in" ||
         result?.status === "rejected" ||
-        result?.status === "challenge"
+        result?.status === "challenge" ||
+        result?.status === "optional"
       )
         return { verdict: result.status, ...timed };
       // For the local log: the transport's, the service's or the model call's code.
