@@ -2,6 +2,7 @@ import {
   manageDashboardSchema,
   manageDevicesSchema,
   manageErrorSchema,
+  manageModelsSchema,
   manageRecipeConflictSchema,
   manageRecipesSchema,
   manageRequestLogDeletedSchema,
@@ -12,6 +13,7 @@ import {
   type LocalSettings,
   type ManageDashboardRange,
   type ManageErrorCode,
+  type ModelConfig,
   type SyncSettingsState,
 } from "@pateat/contracts";
 import * as v from "valibot";
@@ -119,6 +121,18 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
       );
       return read(response, syncRecipeWriteResultSchema);
     },
+    /** The model configuration and the models it may name (ADR 0014). */
+    async models() {
+      return read(await call(fetcher, "/models"), manageModelsSchema);
+    },
+    async saveModels(config: ModelConfig) {
+      const response = await call(fetcher, "/models", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, config }),
+      });
+      return read(response, manageModelsSchema);
+    },
     async requestLog() {
       return read(await call(fetcher, "/request-log"), manageRequestLogSchema);
     },
@@ -152,6 +166,8 @@ export function describeError(error: unknown): string {
       return "The recipe changed elsewhere or is already revoked. The page now shows its current state.";
     case "settings_conflict":
       return "The settings changed elsewhere, for example by a device sync. The page now shows the current settings; make the change again.";
+    case "model_unavailable":
+      return "A choice names a model, effort or speed that is no longer offered. The page now shows the current list; choose again.";
     case "rate_limited":
       return "Too many requests in the last minute. Wait a minute and try again.";
     case "bad_request":

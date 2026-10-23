@@ -390,7 +390,7 @@ function attemptWindow(
         .limit(1);
       return recent ? "recently-tried" : undefined;
     },
-    reserved: (db: AttemptDb, now: number) => [
+    beforeSend: (db: AttemptDb, now: number) => [
       db
         .insert(generationAttempts)
         .values({ ownerId, recipeId, branch, origin, path, baseRevision, attemptedAt: now })
@@ -1095,7 +1095,7 @@ export async function judgeCompletion(
     // A request the role refuses before sending still uses its slot, as a generation
     // attempt does; a `partial` row judged again takes today's slot and waits for its new
     // verdict. Rows of older revisions or judges go once their day is over.
-    reserved: (db, now) => [
+    beforeSend: (db, now) => [
       db
         .insert(pageJudgements)
         .values({

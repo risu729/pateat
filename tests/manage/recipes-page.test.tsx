@@ -82,6 +82,8 @@ function mockClient(initial: Listed) {
     }),
     requestLog: vi.fn<ManageClient["requestLog"]>(),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
+    models: vi.fn<ManageClient["models"]>(),
+    saveModels: vi.fn<ManageClient["saveModels"]>(),
     replace(next: Listed) {
       current = { unreadable: [], ...next };
     },

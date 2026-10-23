@@ -33,17 +33,48 @@ monthly Claude API credit and chose the model. The offline harness in
   Identity Federation.
 - The default monthly spending limit is $100 against the $200 credit, leaving room
   for the overshoot ADR 0003 allows from in-flight and concurrent requests. The owner
-  first set $150 and lowered it to $100 on 2026-10-11.
+  first set $150 and lowered it to $100 on 2026-10-11. Nothing is reserved before a
+  call (owner, 2026-10-23 11:31 UTC): each call checks the stops first and is charged
+  after it returns, from reported usage, or at its upper bound (64 KiB of input as
+  tokens plus 1,024 output tokens at its rates) when usage is unknown. With one call at
+  a time per owner, a stop is overshot by at most the call that crossed it. The calls
+  run under the request's `waitUntil`, so a client that disconnects mid-call cannot
+  leave a sent call uncharged. The owner may bring the reservation back if overshoot
+  becomes a problem (12:16 UTC).
 - Anthropic's server-side `fallbacks` parameter is not used. An overload or other
   failure of the configured model ends as an error, with no automatic switch to another
   model, as ADR 0003 requires. A refusal is the one exception (owner, 2026-10-23 11:04
-  UTC): the service asks `claude-sonnet-5-5` at effort `low` the same request once, as a
-  call of its own with its own spend reservation at Sonnet's rates ($2/$10 per million)
-  and its own request log row, unless the refused call reached a spend stop. Sonnet's
-  refusal ends the request as `refused`; no third model is asked. The service retries
-  rather than sending `fallbacks`, since Anthropic's server-side fallback does not retry
-  every refusal category, such as the `reasoning_extraction` refusals Opus 5.5 gave in
-  the 2026-10-23 comparison.
+  UTC): the service asks the owner's next choice (below) the same request, as a call of
+  its own with its own request log row, unless the refused call reached a spend stop.
+  The last choice's refusal ends the request as `refused`. The service retries rather
+  than sending `fallbacks`, since Anthropic's server-side fallback does not retry every
+  refusal category, such as the `reasoning_extraction` refusals Opus 5.5 gave in the
+  2026-10-23 comparison.
+- Each owner chooses the models (owner, 2026-10-23 11:11 and 11:31 UTC). For each role
+  (`generate`, `judge`) the owner saves an ordered list of up to three choices, each a
+  provider (`anthropic`; others such as OpenAI may follow), model, effort and speed
+  (`standard` or `fast`), in `inference_model_configs`. Only the web UI's Models page
+  (`/manage/models`) reads or writes it; device tokens cannot, so a stolen one cannot
+  raise the cost per call. Without a saved list both roles ask `claude-opus-5-5` at
+  effort `low`, then `claude-sonnet-5-5` at `low` after a refusal
+  (`DEFAULT_MODEL_CONFIG`). A choice in fast mode whose call fails `rate-limited`,
+  `provider-error` or `timeout` asks the same model at the standard speed; a refusal
+  skips that and asks the next choice, and any other failure ends the request. Each call
+  is logged with its model, `effort` and `speed`.
+- The page lists the models the Models API returns with the owner's own credential,
+  read for each request (a new token exchange, no cache) and never needed by a login:
+  only the newest of each `line` by `created_at` (and, while that one has no price yet,
+  the newest priced one too), plus every model the saved lists name, with the efforts
+  its `capabilities` accept. Models without structured output are left out. When that
+  call fails the page lists the pricing page's models instead, newest per family, with
+  every effort. A model without a published price is shown but cannot be chosen, and is
+  written to the Worker log (`Claude model has no price`) so it can be found later; a
+  saved choice that loses its price is skipped at call time with the same kind of log
+  line, and a role left with none asks the defaults. Fast mode cannot be chosen where
+  the pricing page lists no fast price, or while the owner's last three fast calls of
+  that model in the last seven days all failed as above, as when the organization has
+  no fast mode access; a saved fast choice of such a model then runs at the standard
+  speed. Retirement dates are not shown.
 - Model rates are not written by hand (owner, 2026-10-23 11:31 UTC). `mise run
   //packages/inference:pricing` reads the model and fast mode tables of Anthropic's
   public pricing page (`https://platform.claude.com/docs/en/about-claude/pricing.md`)

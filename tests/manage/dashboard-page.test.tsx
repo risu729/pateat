@@ -25,6 +25,8 @@ function mockClient() {
     revokeLayout: vi.fn<ManageClient["revokeLayout"]>(),
     requestLog: vi.fn<ManageClient["requestLog"]>(),
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
+    models: vi.fn<ManageClient["models"]>(),
+    saveModels: vi.fn<ManageClient["saveModels"]>(),
   } satisfies ManageClient;
 }
 

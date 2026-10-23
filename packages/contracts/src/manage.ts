@@ -380,6 +380,8 @@ export const manageErrorCodeSchema = v.picklist([
   "method_not_allowed",
   "payload_too_large",
   "unsupported_media_type",
+  /** A model choice names a model, effort or speed the model list does not offer. */
+  "model_unavailable",
   /** Too many requests from this identity in the last minute. */
   "rate_limited",
   "internal_error",

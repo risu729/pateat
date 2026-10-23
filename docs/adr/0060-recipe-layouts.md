@@ -111,7 +111,7 @@ accounts in another language fails the same way.
 Existing recipes are discarded, not converted. The rule of
 [Compatibility before release](../development.md#compatibility-before-release) forbids
 a migration whose only purpose is older data, and wrapping each recipe as
-`layouts: [body]` would be one. Migration 0027 deletes every recipe revision and head,
+`layouts: [body]` would be one. Migration 0028 deletes every recipe revision and head,
 with the judged pages, generation attempts and first-login results that named a branch
 the old way. The request log and login records stay. The device's recipe cache moves to
 version 2, so a version 1 cache is ignored and the device syncs from the start.
@@ -189,7 +189,7 @@ Recorded on 2026-10-23 from the owner; neither is designed or decided here:
   the layout.
 - Service: `services/api/src/recipes/generate.ts`, `recipe-store.ts` (`markLayoutUsed`,
   `removeUnusedLayouts`), `routes/recipes.ts`, `routes/manage-api.ts`, `db/schema.ts`,
-  migration `0027_recipe_layouts.sql`, and the management page
+  migration `0028_recipe_layouts.sql`, and the management page
   (`services/api/web/recipes.tsx`).
 
 ## Alternatives
