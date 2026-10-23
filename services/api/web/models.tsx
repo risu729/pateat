@@ -13,7 +13,7 @@ import { ArrowDown, ArrowUp, Gauge, ListOrdered, TriangleAlert } from "lucide-re
 import { useState } from "react";
 import { describeError, ManageApiError, type ManageClient } from "./api";
 import { Button } from "./button";
-import { ErrorNotice, Line, Lines, PAGE_TITLE_CLASSES, Panel, SuccessNotice } from "./ui";
+import { ErrorNotice, Line, Lines, Panel, SuccessNotice } from "./ui";
 
 export const MODELS_QUERY_KEY = ["models"] as const;
 
@@ -66,9 +66,9 @@ function withModel(choice: ModelChoice, model: ManageModelOption): ModelChoice {
 /**
  * The owner's model configuration (ADR 0014): for each role, the model, effort and speed
  * to ask first, then the fallbacks asked in order after a refusal. Fast mode that fails
- * asks the same model at the standard speed. Only this page reads or changes it.
+ * asks the same model at the standard speed. Only the Claude page reads or changes it.
  */
-export function ModelsPage({ client }: { client: ManageClient }) {
+export function ModelsPanel({ client }: { client: ManageClient }) {
   const queryClient = useQueryClient();
   // Read once per visit: each read exchanges a new token and calls the Models API.
   const models = useQuery({
@@ -77,7 +77,7 @@ export function ModelsPage({ client }: { client: ManageClient }) {
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
   });
-  // The owner's unsaved edit; null while the page shows the saved configuration.
+  // The owner's unsaved edit; null while the panel shows the saved configuration.
   const [draft, setDraft] = useState<ModelConfig | null>(null);
   const save = useMutation({
     mutationFn: (config: ModelConfig) => client.saveModels(config),
@@ -92,10 +92,7 @@ export function ModelsPage({ client }: { client: ManageClient }) {
   });
 
   return (
-    <section aria-labelledby="models-heading" className="space-y-4">
-      <h1 id="models-heading" className={PAGE_TITLE_CLASSES}>
-        Models
-      </h1>
+    <Panel id="models-heading" title="Models">
       <SuccessNotice id="models-saved" message={save.isSuccess && "Models saved"} />
       {save.isError && <ErrorNotice id="models-error">{describeError(save.error)}</ErrorNotice>}
       {models.isPending ? (
@@ -121,7 +118,7 @@ export function ModelsPage({ client }: { client: ManageClient }) {
           Fast mode costs more; when it fails, the same model is asked at the standard speed
         </Line>
       </Lines>
-    </section>
+    </Panel>
   );
 }
 
@@ -158,7 +155,10 @@ function ModelsForm({
       )}
       {!view.saved && <p className="text-sm text-ink-muted">These are the defaults.</p>}
       {modelRoles.map((role) => (
-        <Panel key={role} id={`models-${role}`} title={ROLE_TITLES[role]}>
+        <section key={role} aria-labelledby={`models-${role}`} className="space-y-3">
+          <h3 id={`models-${role}`} className="text-base font-semibold">
+            {ROLE_TITLES[role]}
+          </h3>
           <ol className="space-y-3">
             {config[role].map((choice, index) => (
               <ChoiceRow
@@ -223,11 +223,11 @@ function ModelsForm({
               )
             );
           })()}
-        </Panel>
+        </section>
       ))}
       <div className="flex flex-wrap gap-3">
         <Button type="submit" id="models-save" disabled={saving}>
-          Save
+          Save models
         </Button>
         <Button
           variant="outline"

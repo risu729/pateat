@@ -130,11 +130,11 @@ export function pickFailure(
   if (reason === "origin-busy")
     return makeDefault
       ? t(
-          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 5 minutes, then choose again.",
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 10 minutes, then choose again.",
           { name },
         )
       : t(
-          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 10 minutes, then choose again.",
         );
   if (reason === "paused-no-password")
     return makeDefault
@@ -185,6 +185,7 @@ export const switchRefusalSchema = v.picklist([
   "choice-waiting",
   "in-progress",
   "tab-busy",
+  "site-held",
   "settings-unavailable",
   "paused",
   "not-a-candidate",
@@ -206,6 +207,8 @@ export function switchRefusal(reason: SwitchRefusal, name: string, t: TFunction)
       "choice-waiting": "This page waits for an account choice. Choose the account there.",
       "in-progress": "An account switch is already running in this tab.",
       "tab-busy": "A login is running in this tab. Wait for it to end, then try again.",
+      "site-held":
+        "Another tab's login to this site is running or waits for a code. Finish or close it, then try again.",
       "settings-unavailable": "Pateat settings could not be read. Try again.",
       paused: "Automatic login is paused for this site, so Pateat did not switch accounts.",
       unavailable: "Pateat needs its service to find how to log out. Pair it in the settings.",

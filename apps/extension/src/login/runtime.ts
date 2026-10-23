@@ -603,6 +603,13 @@ const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
   // A clock set back ends the hold rather than prolonging it.
   now - (entry.changedAt ?? 0) >= 0 &&
   now - (entry.changedAt ?? 0) < HOLD_MS;
+/**
+ * Whether a record holds its origin against the site's other tabs at `now` (ADR 0022): as
+ * {@link holdsSite}, and a watched login for as long as its watch, as while its tab waits
+ * for a code, so a second tab does not log in and send a second code (owner, 2026-10-23).
+ */
+const holdsOthers = (entry: LoginAttemptMetadata, now: number) =>
+  holdsSite(entry, now) || (entry.watch !== undefined && !watchOver(entry, now));
 /** Documents are tracked per frame; a tab still runs at most one attempt. */
 const frameKey = (document: { tabId: number; frameId: number }) =>
   `${document.tabId}:${document.frameId}`;
@@ -2505,6 +2512,12 @@ export function createLoginRuntime(
       };
     });
   }
+  /**
+   * By tab: whether it is in an incognito window, as Chrome reported it. Incognito windows
+   * keep their own cookies, so a tab there never shares a site's session with a tab
+   * outside them, and neither holds the other back (owner, 2026-10-23).
+   */
+  const incognitoTabs = new Map<number, boolean>();
   const loaded = (async () => {
     try {
       const [config, stored] = await Promise.all([probeConfig.read(), attemptRecords.read()]);
@@ -2531,6 +2544,9 @@ export function createLoginRuntime(
       // Complete startup reconciliation before accepting any hello or checking
       // ownership. Closing a tab can wake a worker whose in-memory map is empty.
       const openTabs = await browser.tabs.query({});
+      for (const tab of openTabs)
+        if (tab.id !== undefined && !incognitoTabs.has(tab.id))
+          incognitoTabs.set(tab.id, tab.incognito);
       const liveIds = new Set(openTabs.map((tab) => tab.id));
       for (const [key, metadata] of persisted)
         if (!liveIds.has(metadata.document.tabId) && !replacedTabs.has(metadata.document.tabId))
@@ -2579,6 +2595,7 @@ export function createLoginRuntime(
       senderDocumentOrigin(sender) === undefined
     )
       return undefined;
+    if (sender.tab.incognito !== undefined) incognitoTabs.set(sender.tab.id, sender.tab.incognito);
     try {
       const url = new URL(sender.url);
       if (!(await admitted(url))) return undefined;
@@ -2629,11 +2646,23 @@ export function createLoginRuntime(
         (entry) =>
           entry.account.origin === siteOrigin &&
           entry.document.tabId !== tabId &&
-          holdsSite(entry, now),
+          sharesCookies(entry.document.tabId, tabId) &&
+          holdsOthers(entry, now),
       );
   }
   /**
-   * Whether another tab's login of the origin authenticated within the last hour. A list of
+   * Whether two tabs may share a site's cookies: unless one is known to be in an incognito
+   * window and the other known not to be (owner, 2026-10-23).
+   */
+  function sharesCookies(tabId: number, otherTabId: number): boolean {
+    const incognito = incognitoTabs.get(tabId);
+    const other = incognitoTabs.get(otherTabId);
+    return incognito === undefined || other === undefined || incognito === other;
+  }
+  /** The tab of a `recordKey`. */
+  const keyTab = (key: string) => Number(key.slice(0, key.indexOf(" ")));
+  /**
+   * Whether another tab sharing its cookies logged in to the origin within the last hour. A list of
    * accounts showing then is most likely the signed-in site's own, such as its accounts or
    * workspaces, so it is not sent for generation (ADR 0028, owner 2026-10-17). The record
    * stays until that tab shows the recipe's first step again or closes, so the hour bounds
@@ -2646,6 +2675,7 @@ export function createLoginRuntime(
       return (
         entry.account.origin === siteOrigin &&
         entry.document.tabId !== tabId &&
+        sharesCookies(entry.document.tabId, tabId) &&
         entry.state === "authenticated" &&
         // A clock set back ends the skip rather than prolonging it.
         age >= 0 &&
@@ -2653,17 +2683,20 @@ export function createLoginRuntime(
       );
     });
   }
-  /** Whether another tab still asks after the site rejected its login (ADR 0021). */
+  /** Whether another tab sharing its cookies still asks after the site rejected its login (ADR 0021). */
   function rejectedElsewhere(tabId: number, siteOrigin: string): boolean {
     return [...rejectedAsks].some(
-      (key) => key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`),
+      (key) =>
+        key !== recordKey(tabId, siteOrigin) &&
+        key.endsWith(` ${siteOrigin}`) &&
+        sharesCookies(keyTab(key), tabId),
     );
   }
   /** Tells the tab why it does not log in while another tab's login holds the site (a key). */
   function showHeld(tabId: number): void {
     badge.note(
       tabId,
-      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
+      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.",
     );
   }
   /** The attempt a tab runs, else the one it last recorded. */
@@ -3195,7 +3228,8 @@ export function createLoginRuntime(
   }
   /**
    * Starts an account switch from the popup (ADR 0063) on the tab's top page: only one
-   * Pateat watches, that waits for no account choice and runs no login or other switch, on
+   * Pateat watches, that waits for no account choice and runs no login or other switch, whose
+   * site no login of another tab sharing its cookies holds, on
    * a site that is neither excluded nor paused, for an account that matches the page, and
    * with a paired service's logout recipes. The switch's pick is stored first; the logout
    * runs on behind the answer.
@@ -3212,6 +3246,9 @@ export function createLoginRuntime(
     if (switchesRunning.has(tabId)) return { ok: false, reason: "in-progress" };
     const running = tabAttempt(tabId);
     if (running && !terminal(running) && !idle(running)) return { ok: false, reason: "tab-busy" };
+    // Another tab's login of the site, as one waiting for a code, holds the session the
+    // logout would end, and the switch's own login would wait for it (ADR 0022).
+    if (siteHeldElsewhere(tabId, site)) return { ok: false, reason: "site-held" };
     if (!options.logout) return { ok: false, reason: "unavailable" };
     const snapshot = await settings
       .handle({ version: 1, type: "settings.get" })
@@ -6549,8 +6586,10 @@ export function createLoginRuntime(
       );
       // The content script's refusal, such as `no-locator` or `extract-error`, as for a
       // first page; `extract-failed` for an answer that fails its check or never came.
-      if (extracted.success && !extracted.output.ok) missing = extracted.output.reason;
-      else if (extracted.success && extracted.output.ok) {
+      if (extracted.success && !extracted.output.ok) {
+        missing = extracted.output.reason;
+        if (extracted.output.detail) detail = logCode(extracted.output.detail);
+      } else if (extracted.success && extracted.output.ok) {
         const accepted = acceptedObservation(extracted.output, {
           origin: run.live.document.origin,
           path: observed.path,
@@ -8316,7 +8355,10 @@ export function createLoginRuntime(
         let unsent =
           extracted.success && !extracted.output.ok ? extracted.output.reason : "extract-failed";
         // Why a described page is not sent, for the log (ADR 0019).
-        let detail: string | undefined;
+        let detail: string | undefined =
+          extracted.success && !extracted.output.ok && extracted.output.detail
+            ? logCode(extracted.output.detail)
+            : undefined;
         if (extracted.success && extracted.output.ok) {
           // An incomplete observation is not sent (ADR 0016). A list is sent as one, and
           // only a page announced as one is.
@@ -9260,8 +9302,9 @@ export function createLoginRuntime(
     /**
      * Ends a watched login, which never signed in, once the recipe's first step shows again,
      * as after a code or an approval expired (ADR 0027). Only the watched login's tab asks
-     * and fills, as after a stopped login, while the site's other tabs log in as before
-     * (owner, 2026-10-13). Returns a refusal when it could not, else undefined.
+     * and fills, as after a stopped login (owner, 2026-10-13). Only its own tab's page ends
+     * it: until the watch ends, the site's other tabs that share its cookies wait (owner,
+     * 2026-10-23). Returns a refusal when it could not, else undefined.
      */
     const abandonWatch = async (
       watchedLogin: LoginAttemptMetadata,
@@ -9467,34 +9510,6 @@ export function createLoginRuntime(
       }
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       recorded = undefined;
-    }
-    // The same holds when the person starts over in another tab, such as after closing a
-    // code page that expired: another tab's watched login of the site ends, so this tab logs
-    // in as before instead of waiting for that login's hold to end, and only the watched
-    // tab asks if its own first step shows again (ADR 0027). Only a page first seen during
-    // the watch does, not one left open from before.
-    if (!recorded && document.frameId === 0 && start?.path === live.path) {
-      const keys = [...persisted.keys()];
-      // One at a time, each read again: ending one awaits, and another watched login may
-      // have moved on meanwhile.
-      /* eslint-disable no-await-in-loop */
-      for (const entryKey of keys) {
-        const entry = persisted.get(entryKey);
-        if (!entry) continue;
-        const run = attempts.get(entry.document.tabId);
-        const latest = run?.metadata.id === entry.id ? run.metadata : entry;
-        if (
-          !latest.watch ||
-          watchOver(latest, Date.now()) ||
-          latest.account.origin !== document.origin ||
-          latest.document.tabId === document.tabId ||
-          live.seenAt < latest.watch.since
-        )
-          continue;
-        const refused = await abandonWatch(latest);
-        if (refused) return refused;
-      }
-      /* eslint-enable no-await-in-loop */
     }
     // The tab asks for an account after the site rejected its login or another tab's login
     // of the origin, which shares its session, or after its own login stopped (ADR 0021 D);
@@ -10396,7 +10411,8 @@ export function createLoginRuntime(
         (entry) =>
           entry.document.tabId !== tabId &&
           siteOf(entry.account.origin) === site &&
-          holdsSite(entry, now),
+          sharesCookies(entry.document.tabId, tabId) &&
+          holdsOthers(entry, now),
       );
   }
   /** The blocks stored on this device; a read that fails is not kept, so it is read again. */
@@ -11282,6 +11298,8 @@ export function createLoginRuntime(
     void accountPicks.moveSwitch(removed, added).catch(() => undefined);
     const switching = switchStates.get(removed);
     if (switching) switchStates.set(added, switching);
+    const incognito = incognitoTabs.get(removed);
+    if (incognito !== undefined && !incognitoTabs.has(added)) incognitoTabs.set(added, incognito);
     const moved = (key: string) =>
       key.startsWith(`${removed} `) ? `${added}${key.slice(String(removed).length)}` : key;
     void sessionLoaded.then(async () => {
@@ -11387,6 +11405,8 @@ export function createLoginRuntime(
       if (relogins.size && (await forgetClosedSites())) changed = true;
       for (const key of noted.keys())
         if (key.startsWith(`${tabId} `)) changed = noted.delete(key) || changed;
+      // Kept until here, so `elsewhere` above compares the closed tab's window.
+      incognitoTabs.delete(tabId);
       if (changed) await quietly(saveSession);
       return undefined;
     });

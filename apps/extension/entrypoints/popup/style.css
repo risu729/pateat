@@ -376,3 +376,13 @@
 .popup-switch-row .popup-switch-button {
   width: 100%;
 }
+
+/* Forced colors (such as Windows contrast themes) replace the accent colors with the same
+   system colors everywhere and drop box shadows, so the selected card gets a system-color
+   border of its own. */
+@media (forced-colors: active) {
+  .popup-choice:has(input:checked) {
+    padding: 9px 11px;
+    border: 2px solid Highlight;
+  }
+}

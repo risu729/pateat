@@ -767,6 +767,20 @@ const chooserTargetSchema = v.variant("by", [
   loginAttributeTargetSchema.options[1],
   loginTextTargetSchema,
 ]);
+/** A chooser recipe's members, before the checks that relate them. */
+const chooserRecipeEntriesSchema = v.strictObject({
+  version: v.literal(1),
+  id: identifier,
+  revision,
+  origin: loginOriginSchema,
+  chooser: v.strictObject({
+    path,
+    other: v.optional(chooserTargetSchema),
+    continue: v.optional(chooserTargetSchema),
+    afterAccount: v.optional(loginRecipeSchema),
+    afterOther: v.optional(loginRecipeSchema),
+  }),
+});
 /**
  * A recipe that starts on a page listing accounts to choose from (ADR 0028), such as
  * Cloudflare's saved profiles: `chooser.path` is where the list shows. `other` is the
@@ -780,22 +794,14 @@ const chooserTargetSchema = v.variant("by", [
  * ID, origin and revision. A branch is absent until a login takes it and its page is
  * generated as an ADR 0018 continuation.
  *
- * A login on the list runs `chooserRoute` for what it clicks there.
+ * A login on the list runs `chooserRoute` for what it clicks there, so a branch is held
+ * only when that route is a recipe for every click that leads to it. With the click on
+ * the list in front, a branch has at most 31 steps, at most 7 of them clicks or fills
+ * that advance or submit, nothing that proves or hands off the sign-in on the button it
+ * clicks there, and no `passkeyOnly`; `chooserRoute` decides each case.
  */
 export const loginChooserRecipeSchema = v.pipe(
-  v.strictObject({
-    version: v.literal(1),
-    id: identifier,
-    revision,
-    origin: loginOriginSchema,
-    chooser: v.strictObject({
-      path,
-      other: v.optional(chooserTargetSchema),
-      continue: v.optional(chooserTargetSchema),
-      afterAccount: v.optional(loginRecipeSchema),
-      afterOther: v.optional(loginRecipeSchema),
-    }),
-  }),
+  chooserRecipeEntriesSchema,
   v.check(
     ({ id, revision: current, origin, chooser }) =>
       [chooser.afterAccount, chooser.afterOther].every(
@@ -814,6 +820,12 @@ export const loginChooserRecipeSchema = v.pipe(
   v.check(
     ({ chooser }) => !chooser.afterOther || chooser.other !== undefined,
     "A chooser has an other-account branch only with its button",
+  ),
+  // A branch runs only as `chooserRoute` builds it, so every click that leads to it must
+  // make a recipe of it.
+  v.check(
+    (recipe) => chooserClicks(recipe).every((click) => chooserRoute(recipe, click) !== undefined),
+    "A chooser branch cannot run after the click that leads to it",
   ),
 );
 /** How many clicks a logout recipe holds (ADR 0063): a switch runs at most 3 rounds. */
@@ -988,7 +1000,9 @@ export function loginStepEffect(step: LoginStep): LoginEffect | undefined {
 }
 export type LoginRecipe = v.InferOutput<typeof loginRecipeSchema>;
 export type LoginEntryRecipe = v.InferOutput<typeof loginEntryRecipeSchema>;
-export type LoginChooserRecipe = v.InferOutput<typeof loginChooserRecipeSchema>;
+// Inferred from the members alone: the schema's own checks build `chooserRoute`, which
+// takes this type. Its checks change no member's type.
+export type LoginChooserRecipe = v.InferOutput<typeof chooserRecipeEntriesSchema>;
 export type LoginLogoutRecipe = v.InferOutput<typeof loginLogoutRecipeSchema>;
 export type LogoutPurpose = v.InferOutput<typeof logoutPurposeSchema>;
 export type LogoutTarget = LoginLogoutRecipe["logout"]["targets"][number];
@@ -1134,6 +1148,20 @@ export function chooserRoute(
     maxSubmissions: Math.min(8, (branch?.maxSubmissions ?? 0) + 1),
   });
   return parsed.success ? parsed.output : undefined;
+}
+/**
+ * The clicks a login can take on a chooser's list, each with its `chooserRoute`: an
+ * account's entry, the `continue` and `other` buttons the chooser has, and `other-shown`
+ * once its `other` branch starts on the list's path.
+ */
+function chooserClicks(recipe: LoginChooserRecipe): ChooserClick[] {
+  const { chooser } = recipe;
+  return [
+    "entry",
+    ...(chooser.continue ? (["continue"] as const) : []),
+    ...(chooser.other ? (["other"] as const) : []),
+    ...(chooser.afterOther?.steps[0]!.path === chooser.path ? (["other-shown"] as const) : []),
+  ];
 }
 /** The slots a stored recipe's routes fill: none for an entry, its branches' for a chooser. */
 export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {

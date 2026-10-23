@@ -24,6 +24,7 @@ const schema = v.variant("action", [
       "cancel-result",
       "status",
       "release",
+      "argon2-max",
     ]),
   }),
   v.strictObject({
@@ -44,7 +45,8 @@ export function createCryptoProbeControls() {
   let reached = false;
   let release: (() => void) | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let budget = 30_000;
+  /** Unset, each job keeps the host's own budget. */
+  let budget: number | undefined;
   return {
     checkpoint(checkpoint: Checkpoint) {
       if (stage !== checkpoint) return Promise.resolve();
@@ -82,7 +84,7 @@ export function createCryptoProbeControls() {
       return { checkpoint: stage ?? null, reached };
     },
     requestTimeoutMs: () => budget,
-    setBudget(value: number) {
+    setBudget(value: number | undefined) {
       budget = value;
     },
   };
@@ -200,6 +202,22 @@ export function createCryptoProbe(
         return { ok: true, data: { released: true } };
       }
       if (action === "vectors") return { ok: true, data: await vectors() };
+      if (action === "argon2-max") {
+        // Bitwarden's largest Argon2id memory choice (1024 MiB), within the Argon2id budget.
+        const result = await host.deriveAuthentication({
+          ...authInput("synthetic-host-argon2-max"),
+          prelogin: {
+            mode: "legacy" as const,
+            response: { kdf: 1, kdfIterations: 2, kdfMemory: 1024, kdfParallelism: 1 },
+          },
+        });
+        return {
+          ok: true,
+          data: result.ok
+            ? { derived: result.data.masterPasswordHash.length > 0 }
+            : { derived: false, code: result.error.code },
+        };
+      }
       if (action === "cancel-result") {
         const opened = await open(rawV1Account(), "synthetic-host-result");
         if (!opened.ok) return { ok: true, data: { withheld: false, locked: false } };
@@ -291,7 +309,7 @@ export function createCryptoProbe(
         abort.abort();
       }
       const result = await pending;
-      controls.setBudget(30_000);
+      controls.setBudget(undefined);
       return {
         ok: true,
         data: {
@@ -300,7 +318,7 @@ export function createCryptoProbe(
         },
       };
     } catch {
-      controls.setBudget(30_000);
+      controls.setBudget(undefined);
       return { ok: false, error: { code: "crypto-failed" } };
     }
   };

@@ -925,7 +925,7 @@ test("a site another tab's login holds says so until that tab lets it go", async
   await expect
     .element(page.getByRole("button", { name: "Log in" }))
     .toHaveAccessibleDescription(
-      "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes.",
+      "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 10 minutes.",
     );
   // Closing that tab lets the site go; the open popup asks again and enables the pick.
   choices.get.mockResolvedValue(offer);
@@ -938,7 +938,7 @@ test("a site another tab's login holds says so until that tab lets it go", async
   await expect
     .element(
       page.getByText(
-        /so Pateat did not log in here\. Demo primary account was not made the default\. Close that tab or wait up to 5 minutes, then choose again\.$/,
+        /so Pateat did not log in here\. Demo primary account was not made the default\. Close that tab or wait up to 10 minutes, then choose again\.$/,
       ),
     )
     .toBeVisible();

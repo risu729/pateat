@@ -36,6 +36,7 @@ import {
   extractLoginObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
+  fieldsMissDetail,
   presence,
 } from "../observation/extract";
 import { listChoice, listControls } from "../page/account-list";
@@ -844,6 +845,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   : command.page === "logout"
                     ? extractLogoutObservation(document)
                     : extractSignedInObservation();
+        // A page described without a field says why, for the log (ADR 0019).
+        if (
+          command.page !== "entry" &&
+          command.page !== "signed-in" &&
+          command.page !== "logout" &&
+          (result as { reason?: unknown }).reason === "no-candidates"
+        )
+          result = {
+            ok: false,
+            reason: "no-candidates",
+            detail: fieldsMissDetail(document).slice(0, 64),
+          };
       } catch {
         // A page the extractor cannot read still gets an answer the log can name.
         result = { ok: false, reason: "extract-error" };

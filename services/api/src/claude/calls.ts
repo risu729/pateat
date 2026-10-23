@@ -501,12 +501,16 @@ const answeredPlanSchema = v.object({
 
 /**
  * What the request log keeps of a call's result: the structured result for `ok`, the
- * abstention reason, and for refused output which check refused it, with the output
- * reduced to references the request holds when the role kept one (ADR 0012).
+ * abstention reason, for refused output which check refused it, with the output
+ * reduced to references the request holds when the role kept one (ADR 0012), and for a
+ * `refused` call the provider's refusal category code when it reported one (ADR 0014),
+ * never its explanation.
  */
 function loggedResult<T>(call: ClaudeCall<T>, outcome: InferenceOutcome<T>): unknown {
   if (outcome.status === "ok") return call.logValue(outcome.value);
   if (outcome.status === "abstained") return { reason: outcome.reason };
+  if (outcome.error === "refused" && outcome.refusalCategory !== undefined)
+    return { refusalCategory: outcome.refusalCategory };
   const rejection = outputRejection(outcome);
   if (!rejection) return null;
   return { rejection, ...(outcome.output === undefined ? {} : { output: outcome.output }) };

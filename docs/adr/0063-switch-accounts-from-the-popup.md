@@ -7,11 +7,14 @@ Status: accepted by the owner on 2026-10-23 and implemented in
 
 - 11:57 UTC (20:57 JST): build the switch in the same pull request as ADR 0062
   (「切替は一緒にやってしまいましょう」).
-- 11:58 UTC (20:58 JST), how Pateat logs out: through the model, but a clear match of a
-  logout control in the page is clicked first without a model call; when the page shows
-  no reaction within about 5 seconds, several controls match, or a menu or dialog
-  opens, the page goes to the model, with the local click.
-- 11:59 UTC (20:59 JST), how long a pick that is not made the default lasts: the site
+- 11:58 UTC (20:58 JST), how Pateat logs out
+  (「方法1でいいです。ただし、多くなりそうなので、機械的にログアウトがどれかはっきりわかるときは送らないようにしたい。…ログアウトっぽいボタンを押して一定時間(5秒とか？)反応が無ければAIに送る感じで」):
+  through the model, but a clear match of a logout control in the page is clicked first
+  without a model call; when the page shows no reaction within about 5 seconds, several
+  controls match, or a menu or dialog opens, the page goes to the model, with the local
+  click.
+- 11:59 UTC (20:59 JST), how long a pick that is not made the default lasts
+  (「既定にするがオフの時は、毎回聞く、でいいです。自動ログインできない」): the site
   asks every time, logging in by itself no more, until a pick is made the default or the
   saved default changes. This replaces the proposal's pick kept for the browser session.
 
@@ -52,9 +55,13 @@ is not in the observation until the menu is open.
   first in the account choice, then a popup pick; then a paused site or an asking tab
   asks; then the saved default, then the only match.
 - A switch is refused when the tab has no page, a choice waits, a switch or login runs,
-  the settings cannot be read, the site is paused (also by an exclusion rule, or in a
-  private window while ADR 0062 E keeps it off), the item is not a candidate, or no
-  paired service can answer.
+  another tab's login holds the site (`site-held`, as a login waiting for a code in a
+  tab that shares its cookies does,
+  [ADR 0022](0022-login-attempts-per-tab-and-origin.md)), the settings cannot be read,
+  the item is not a candidate, or no paired service can answer. A paused site, also one
+  an exclusion rule or a private window pauses
+  ([ADR 0062](0062-log-in-again-after-a-logout.md)), still switches: the switch is the
+  person's pick.
 - The logout first runs the site's stored logout recipe for the page's origin and path.
   Past its end, or without one, the page's one shown control that says it logs out of
   this site is looked for in the page (`apps/extension/src/page/logout-controls.ts`):
@@ -87,8 +94,8 @@ is not in the observation until the menu is open.
   entry pressed, without the `no-return-target` and `site-record` checks, only for this
   switch.
 - The popup says when no logout control was found, when the page still looks signed in
-  after three clicks, and when the site is paused. It also says that a site signing in
-  through an identity provider
+  after three clicks, and when another tab's login holds the site. It also says that a
+  site signing in through an identity provider
   ([ADR 0026](0026-sign-in-through-identity-providers.md)) may sign in to the same
   account again, since the provider's session stays.
 - The log shows `login.switch` with its stage (`start`, `click`, `end`), outcome and

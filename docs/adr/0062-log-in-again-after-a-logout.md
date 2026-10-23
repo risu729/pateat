@@ -26,12 +26,14 @@ later (「フェーズは一旦無視して、ある程度決め打ちで進め�
 - 11:56–11:57 UTC (20:56–20:57 JST), E: a setting for private windows, off by default
   (「incognitoで一括して自動ログインを永久に止める設定は作っておきましょうか」
   「incognitoでも入力するか、既定オフみたいなことね」).
-- 12:00 UTC (21:00 JST), D: the pause covers the whole site, and its length is chosen
-  when pressing it. At 12:01 UTC (21:01 JST) and by a card at 12:14 UTC (21:14 JST): the
-  lengths are 10 minutes, 1 hour and "Until turned back on"; "Until turned back on" is
-  the existing site exclusion, which now pauses instead of turning Pateat off on the
-  site, and the popup's "Pateat on this site" switch and the pause button become one
-  control whose rule is the registrable site with its subdomains.
+- 12:00 UTC (21:00 JST), D, by a card: the pause covers the whole site, and its length
+  is chosen when pressing it (「サイト全体・押すとき選ぶ」). At 12:01 UTC (21:01 JST):
+  「ブラウザを閉じるまで、は、オンにもどすまで、にしましょう。既存の対象外にする設定と一緒にして。細かい挙動の差分は基本的に不要なのでいいです。」,
+  so the lengths are 10 minutes, 1 hour and "Until turned back on", which is the
+  existing site exclusion. By a card at 12:14 UTC (21:14 JST), the exclusion now pauses
+  instead of turning Pateat off on the site (「対象外も一時停止の動きに」), and the
+  popup's "Pateat on this site" switch and the pause button become one control whose
+  rule is the registrable site with its subdomains.
 
 Replaces
 [ADR 0021 D](0021-account-choice-outside-settings.md#d-after-a-logout-choose-again-detection-l1)
@@ -92,7 +94,6 @@ included.
   refusals `logged-out` and `logout-clicked`, the passkey mark `logoutClicked`), the
   passkey chooser in a tab Pateat signed in from (`pateat.passkey-signed.v1`, the mark
   `signedBefore`), and the log entries `login.logout` and `login.refused` `logged-out`.
-  Attempt records are read from `pateat.login-attempts.v6`; older records are not read.
   A username-less passkey request is signed with the site's account without a window
   when one is to be used; the chooser opens for several matches without a usable
   default, as C of ADR 0021 says, or where D, E or ADR 0063 treats the default as unset.
@@ -167,9 +168,10 @@ that logs out right after a login, or two tabs of a site that allows one session
   within the site. A covering rule for a parent of the site, such as a public suffix,
   also covers other sites: the popup says "Paused by a rule for other sites too" and
   links it to the settings page. The extension's settings page and `/manage` edit the
-  rules as before, now named Pause and Resume; their per-origin Pause adds the exact
-  hostname without subdomains. A rule is synced, applies in both window kinds on every
-  device of the profile, and shows over a timed pause.
+  rules as before, now named Pause and Resume; their per-origin Pause, and the switch on
+  a `/manage` site page, add the same registrable-site rule as the popup. A rule is
+  synced, applies in both window kinds on every device of the profile, and shows over a
+  timed pause.
 - An exclusion used to turn Pateat off on its hosts: no document was admitted, the popup
   listed no account and offered no choice ("No logins or passkey answers on this site"),
   a waiting choice was dropped, and every passkey request was handed on. Now the
@@ -199,7 +201,7 @@ that logs out right after a login, or two tabs of a site that allows one session
   is preselected, "Make default" starts unticked, and the window says automatic login is
   paused. Where the window cannot open, the request is handed on as `paused`; nothing is
   signed without a choice (`passkey.request` marks `defaultUnset` and `paused`). An
-  account switch is refused (ADR 0063).
+  account switch, being the person's pick, still runs (ADR 0063).
 - The badge shows a gray `II` on the site's tabs, with the end time, or "until turned
   back on", in its title; a waiting choice's amber count and the model request's spinner
   win ([ADR 0038](0038-login-status-badge.md)).
@@ -261,7 +263,7 @@ that logs out right after a login, or two tabs of a site that allows one session
 - No setting keeps the vault away from a site any more: on a paused site a popup pick
   and the person's own passkey request still use it. Only hostnames Pateat does not run
   on stay untouched.
-- In a private window nothing logs in by itself, and no account is switched, until the
-  setting is turned on.
+- In a private window nothing logs in by itself until the setting is turned on; a pick
+  and an account switch still log in.
 - The plan's real-site rows for choosing again after a logout (Wise, アパホテル) are
   replaced by a check that the login after a logout runs, and that a pause holds it.
