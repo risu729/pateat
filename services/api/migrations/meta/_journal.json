@@ -183,6 +183,13 @@
       "when": 1792781654429,
       "tag": "0029_recipe_layouts",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1792785887403,
+      "tag": "0030_recipe_repairs",
+      "breakpoints": true
     }
   ]
 }

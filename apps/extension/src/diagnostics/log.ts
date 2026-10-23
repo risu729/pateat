@@ -404,7 +404,8 @@ export const LOG_EVENTS = {
       // Why a returned recipe was not taken over (ADR 0027, amended 2026-10-19).
       notTakenOver: "code",
       // `accounts` for a list of accounts (ADR 0028), `entry` for a sign-in entry (ADR 0031),
-      // `other` for a form on a chooser's path sent as its `other` branch (ADR 0028).
+      // `other` for a form on a chooser's path sent as its `other` branch (ADR 0028),
+      // `repair` for a stale recipe's start page (ADR 0041).
       page: "code",
       // A returned route recipe's page kind, and the `signedIn` hint a recipe's first page
       // was sent with (ADR 0035).
@@ -447,8 +448,21 @@ export const LOG_EVENTS = {
       url: "url",
     },
   },
-  // A recipe the chosen item cannot run, revoked so its page is generated again (ADR 0058 A).
-  "recipe.revoke": {
+  // A generated recipe's start page that missed its first steps (ADR 0041).
+  "recipe.repair": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      recipeRevision: "count",
+      outcome: "code",
+      reason: "code",
+      url: "url",
+    },
+  },
+  // A recipe the chosen item cannot run, whose start page is sent for repair (ADR 0058 A,
+  // amended by ADR 0041).
+  "recipe.unfit": {
     level: "info",
     fields: {
       origin: "origin",
@@ -458,10 +472,6 @@ export const LOG_EVENTS = {
       outcome: "code",
       reason: "code",
       detail: "code",
-      // How long the request took (ADR 0019, amended 2026-10-18).
-      roundTripMs: "count",
-      serverMs: "count",
-      networkMs: "count",
       url: "url",
     },
   },
@@ -1362,9 +1372,10 @@ const SENT_SKIPS: ReadonlySet<unknown> = new Set(["sending", "sent"]);
 function pathAllowed(entry: LogEntry): boolean {
   const { fields } = entry;
   switch (entry.event) {
-    // A login's start, and a recipe revoked for a new login on its first page (ADR 0058 A).
+    // A login's start, and a recipe the chosen item cannot run, on a new login's first page
+    // (ADR 0058 A).
     case "login.start":
-    case "recipe.revoke":
+    case "recipe.unfit":
       return true;
     // A login that stopped at a step it neither filled nor clicked, before it submitted
     // anything and in the document it began in (`unsubmitted`), outside a handler (as a code

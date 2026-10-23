@@ -44,7 +44,6 @@ export function generationRequest(options: GenerateOptions): {
   task: string;
   slots: unknown[];
   observation: { origin: string; path: string };
-  repair?: unknown;
 } {
   const user = [...options.prompt].reverse().find((message) => message.role === "user");
   const part = user?.content.find((entry) => entry.type === "text");

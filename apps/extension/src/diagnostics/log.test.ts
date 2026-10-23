@@ -1602,7 +1602,7 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs a recipe revoked for an item that cannot run it (ADR 0058 A) by its outcome", async () => {
+  it("logs a repair claimed for an item that cannot run its recipe (ADR 0058 A) by its outcome", async () => {
     const recipeOrigin = "https://login.example";
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
@@ -1619,7 +1619,7 @@ describe("unhandled errors", () => {
       vi.spyOn(console, level).mockImplementation(() => undefined);
     await log.logger.enableDebug();
     const page = {
-      type: "revoke" as const,
+      type: "unfit" as const,
       tabId: 3,
       origin: recipeOrigin,
       recipeId: "gen-0123456789abcdef0123456789abcdef",
@@ -1627,19 +1627,16 @@ describe("unhandled errors", () => {
       route: "passkey" as const,
       detail: "password-empty:no-advance",
     };
-    const timing = { roundTripMs: 120, serverMs: 80, networkMs: 40 };
-    log.login({ ...page, outcome: "revoked", timing });
-    log.login({ ...page, outcome: "conflict", timing });
+    log.login({ ...page, outcome: "claimed" });
     log.login({ ...page, outcome: "not-due" });
-    log.login({ ...page, outcome: "not-due", reason: "sent" });
+    log.login({ ...page, outcome: "not-due", reason: "not-connected" });
     log.login({ ...page, outcome: "not-sent", reason: "storage-unavailable" });
-    log.login({ ...page, outcome: "failed", reason: "rate-limited", timing });
     await vi.waitFor(async () =>
       expect(
-        (await log.logger.entries()).filter((entry) => entry.event === "recipe.revoke"),
-      ).toHaveLength(6),
+        (await log.logger.entries()).filter((entry) => entry.event === "recipe.unfit"),
+      ).toHaveLength(4),
     );
-    const entries = (await log.logger.entries()).filter((entry) => entry.event === "recipe.revoke");
+    const entries = (await log.logger.entries()).filter((entry) => entry.event === "recipe.unfit");
     const fields = {
       origin: recipeOrigin,
       recipe: page.recipeId,
@@ -1649,12 +1646,10 @@ describe("unhandled errors", () => {
       tab: 3,
     };
     expect(entries.map((entry) => [entry.level, entry.fields])).toEqual([
-      ["info", { ...fields, outcome: "revoked", ...timing }],
-      ["info", { ...fields, outcome: "conflict", ...timing }],
+      ["info", { ...fields, outcome: "claimed" }],
       ["debug", { ...fields, outcome: "not-due" }],
-      ["debug", { ...fields, outcome: "not-due", reason: "sent" }],
-      ["debug", { ...fields, outcome: "not-sent", reason: "storage-unavailable" }],
-      ["warn", { ...fields, outcome: "failed", reason: "rate-limited", ...timing }],
+      ["debug", { ...fields, outcome: "not-due", reason: "not-connected" }],
+      ["warn", { ...fields, outcome: "not-sent", reason: "storage-unavailable" }],
     ]);
     vi.restoreAllMocks();
   });
@@ -3194,7 +3189,7 @@ describe("problem lines (ADR 0066)", () => {
       ["recipe.generate", { ...page, outcome: "failed", reason: "error" }],
       ["recipe.generate", { ...page, outcome: "abstained", reason: "not-login" }],
       ["recipe.generate", { ...page, outcome: "skipped", reason: "sent" }],
-      ["recipe.revoke", { ...page, outcome: "failed", reason: "error" }],
+      ["recipe.unfit", { ...page, outcome: "not-sent", reason: "vault-unavailable" }],
     ];
     // Every other line sends none: (A) a login whose result was watched, that ended its
     // watch, was cancelled, left the origin, stopped in a handler such as a code page, or

@@ -745,9 +745,24 @@ export function createDiagnosticsLog(options: {
                   : "info",
           },
         );
-      else if (report.type === "revoke")
+      else if (report.type === "repair")
         void logger.log(
-          "recipe.revoke",
+          "recipe.repair",
+          {
+            origin: report.origin,
+            url: report.url,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            outcome: report.outcome,
+            reason: report.reason,
+          },
+          // A start page sent for repair is worth seeing; one not sent is logged for
+          // evaluation at debug level (ADR 0041).
+          { source, level: report.outcome === "due" ? "info" : "debug" },
+        );
+      else if (report.type === "unfit")
+        void logger.log(
+          "recipe.unfit",
           {
             origin: report.origin,
             url: report.url,
@@ -757,19 +772,17 @@ export function createDiagnosticsLog(options: {
             outcome: report.outcome,
             reason: report.reason,
             detail: report.detail,
-            roundTripMs: report.timing?.roundTripMs,
-            serverMs: report.timing?.serverMs,
-            networkMs: report.timing?.networkMs,
           },
-          // A recipe revoked so its page is generated again is worth seeing (ADR 0058 A); one
-          // not due, as within 30 days of the last, changed nothing; a failed request is a
-          // problem.
+          // A recipe the chosen item cannot run, whose repair is claimed or whose newer
+          // revision is tried, is worth seeing (ADR 0058 A, amended by ADR 0041); one not due,
+          // as within 3 days of the last for the route, changed nothing; a claim that could
+          // not be recorded is a problem.
           {
             source,
             level:
-              report.outcome === "revoked" || report.outcome === "conflict"
+              report.outcome === "claimed" || report.outcome === "newer"
                 ? "info"
-                : report.outcome === "failed"
+                : report.outcome === "not-sent"
                   ? "warn"
                   : "debug",
           },

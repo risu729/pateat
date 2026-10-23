@@ -187,6 +187,7 @@ export const en = {
   "the site's sign-in link": "the site's sign-in link",
   "the site's list of accounts": "the site's list of accounts",
   "the rest of the site's sign-in": "the rest of the site's sign-in",
+  "the site's changed sign-in page": "the site's changed sign-in page",
   "the site's sign-in page": "the site's sign-in page",
   "This site has a recipe for this page.": "This site has a recipe for this page.",
   "This site has a recipe, but none starts on this page.":
