@@ -34,9 +34,13 @@ import { newId } from "@pateat/contracts/ids";
 // per owner, the monthly and daily spend stops, and the ADR 0012 request
 // log with its one-year retention, which also keeps requests answered without a call.
 
-/** Request bounds shared by both roles; the same as the approved benchmark run. */
-export const ROLE_LIMITS = { timeoutMs: 60_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
-export const MAX_OUTPUT_TOKENS = 8_192;
+/**
+ * Request bounds shared by both roles; the same as the benchmark. Every Opus 5.5 call in
+ * the 2026-10-23 comparison that succeeded took under 7 s and wrote under 300 tokens
+ * (owner decision, 2026-10-23 11:03 UTC).
+ */
+export const ROLE_LIMITS = { timeoutMs: 10_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
+export const MAX_OUTPUT_TOKENS = 1_024;
 
 export const CLAUDE_CALL_LIMITS = {
   /** $100 a month (ADR 0014), estimated from returned usage. */

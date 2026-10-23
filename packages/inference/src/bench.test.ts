@@ -81,9 +81,9 @@ describe("Claude benchmark runner", () => {
       maxCostUsd: 1,
       fetch: claude.fetch,
     });
-    // (65,536 input bytes x $4 + 8,192 output tokens x $20) per million, per call.
-    expect(result.report.total).toBe(2);
-    expect(result.estimatedCostUsd).toBeCloseTo(2 * 0.426_0, 3);
+    // (65,536 input bytes x $4 + 1,024 output tokens x $20) per million, per call.
+    expect(result.report.total).toBe(3);
+    expect(result.estimatedCostUsd).toBeCloseTo(3 * 0.282_6, 3);
   });
 
   it("reports the refusal category of a refused case", async () => {

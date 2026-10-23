@@ -45,7 +45,7 @@ const TOKEN_URL = "https://api.anthropic.com/v1/oauth/token";
 const MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const ORIGIN = "https://shop.example.test";
 const DAY_MS = 24 * 60 * 60 * 1000;
-const RESERVED = 64 * 1024 * 4 + 8_192 * 20;
+const RESERVED = 64 * 1024 * 4 + 1_024 * 20;
 
 const slots: SemanticSlot[] = [
   { id: "email", kind: "identifier", description: "account email address" },
