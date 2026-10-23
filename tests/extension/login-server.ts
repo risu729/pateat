@@ -738,15 +738,18 @@ export async function startLoginFixture(
     } else if (path === "/enter-submit") {
       // A form that shows no button to press (ADR 0064). `?late` adds a submit button once
       // the password has a value, as x.com's sign-in does; `?shown` shows a "Sign up"
-      // submit button from the start, which Enter would press and Pateat never does.
+      // submit button from the start, and `?image` a "Sign up" image input, which Enter
+      // would press and Pateat never does.
       const variant = fixtureUrl.searchParams.has("late")
         ? "late"
         : fixtureUrl.searchParams.has("shown")
           ? "shown"
-          : "none";
+          : fixtureUrl.searchParams.has("image")
+            ? "image"
+            : "none";
       response.end(
         html(
-          `<h1>Synthetic form without a button</h1><form>${variant === "shown" ? '<button id="sign-up" type="submit">Sign up</button>' : ""}<label>Password<input id="password" type="password"></label></form>`,
+          `<h1>Synthetic form without a button</h1><form>${variant === "shown" ? '<button id="sign-up" type="submit">Sign up</button>' : variant === "image" ? '<input id="sign-up" type="image" src="data:," alt="Sign up" width="60" height="20">' : ""}<label>Password<input id="password" type="password"></label></form>`,
           `const form = document.querySelector('form');
           const count = (key) => sessionStorage.setItem(key, String(Number(sessionStorage.getItem(key) || 0) + 1));
           ${

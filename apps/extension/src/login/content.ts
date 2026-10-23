@@ -216,8 +216,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    */
   let filled = new WeakSet<HTMLInputElement>();
   let shownBefore: WeakSet<HTMLInputElement> | undefined;
-  // The submit buttons shown when that filling began, which Enter never presses (ADR 0064).
-  let submitsBefore: WeakSet<Element> | undefined;
+  // The submit buttons this document showed when a fill began, which Enter never presses
+  // (ADR 0064). A fill whose fields already hold values adds none once one fill has, so a
+  // button such a page shows only for a value is not taken as one the model saw.
+  const submitsBefore = new WeakSet<Element>();
+  let submitsTaken = false;
   let filledAttempt: string | undefined;
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
@@ -881,7 +884,6 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (operation.attemptId !== filledAttempt) {
         filled = new WeakSet();
         shownBefore = undefined;
-        submitsBefore = undefined;
         filledAttempt = operation.attemptId;
       }
       // With an advance whose next step is on its path, that step's elements just before
@@ -896,8 +898,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
        * Enter there does (ADR 0064): a click on the form's default button, its first submit
        * button in tree order, or `requestSubmit()` when it has none, as the official
        * auto-submit falls back to. Enter on a disabled default button submits nothing, and
-       * a default button that showed when the fill began, which the generation could have
-       * named, or one only associated with the form from outside it, is never pressed. The
+       * a default button that showed when a fill began (`submitsBefore`), which the
+       * generation could have named, or one only associated with the form from outside it,
+       * is never pressed. The
        * page's own validation must pass, and the checks of a click run first: the
        * destination (ADR 0051), the form still holding its fills, and a CAPTCHA left to the
        * person, who then presses Enter or the button.
@@ -908,10 +911,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (!writable(field) || !filled.has(field) || !field.form)
           return fail("structural-mismatch", "target-missing");
         const form = field.form;
-        const button = [...form.elements].find((element) => submitButton(element));
+        // The first submit button the form owns in tree order; `form.elements` leaves out
+        // image inputs.
+        const defaultButton = () =>
+          [...document.querySelectorAll("button, input")].find(
+            (element): element is HTMLButtonElement | HTMLInputElement =>
+              submitButton(element) && element.form === form,
+          );
+        const button = defaultButton();
         if (
           button &&
-          (button.matches(":disabled") || submitsBefore?.has(button) || !form.contains(button))
+          (button.matches(":disabled") || submitsBefore.has(button) || !form.contains(button))
         )
           return fail("structural-mismatch", "target-missing");
         if (!form.noValidate && !button?.formNoValidate && !form.checkValidity())
@@ -923,14 +933,20 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           return fail("cancelled", refused);
         if (refused) return fail("structural-mismatch", refused);
         if (pagePath() !== step.path) return fail("cancelled", "page-changed");
+        // The page may have changed the form while the background answered.
+        if (
+          !form.isConnected ||
+          field.form !== form ||
+          defaultButton() !== button ||
+          button?.matches(":disabled")
+        )
+          return fail("structural-mismatch", "form-changed");
         const formInputs = [...form.elements].filter((input) => input instanceof HTMLInputElement);
         const fills = filled;
         const passwordsBefore = shownBefore;
         filled = new WeakSet();
         shownBefore = undefined;
-        submitsBefore = undefined;
         if (
-          field.form !== form ||
           unreadyForm(formInputs, {
             filled: (input) => fills.has(input),
             shownBefore: (input) => passwordsBefore?.has(input) === true,
@@ -1091,14 +1107,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             }
             // Mark uncertainty before calling into DOM/page code, including a throwing setter.
             mutated = true;
+            if (!shownBefore && (!submitsTaken || writableInputs.every((other) => !other.value))) {
+              for (const other of document.querySelectorAll("button, input"))
+                if (submitButton(other) && visible(other)) submitsBefore.add(other);
+              submitsTaken = true;
+            }
             shownBefore ??= new WeakSet(
               [...document.querySelectorAll("input")].filter(
                 (other) => other.type === "password" && writable(other),
-              ),
-            );
-            submitsBefore ??= new WeakSet(
-              [...document.querySelectorAll("button, input")].filter(
-                (other) => submitButton(other) && visible(other),
               ),
             );
             if (split) {
@@ -1173,7 +1189,6 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           if (step.effect !== "prepare") {
             filled = new WeakSet();
             shownBefore = undefined;
-            submitsBefore = undefined;
           }
           // A code page that submits the code by itself must not get a click as well: the
           // button is clicked only when nothing showed a submission during the watch. Its
@@ -1257,7 +1272,6 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // The next fills are checked against the next click.
         filled = new WeakSet();
         shownBefore = undefined;
-        submitsBefore = undefined;
         // The page changed the form under the fill: never send it without its values.
         if (
           unreadyForm(formInputs, {

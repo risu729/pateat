@@ -1489,18 +1489,25 @@ test("submits a form without a button by Enter in its last field, never through 
         expect(await count(page, "buttonClicks")).toBe(buttonClicks);
         await page.close();
       }
-      // A "Sign up" submit button shown before the fill is never pressed, nor the form sent:
-      // the step fails as a click that finds no target does.
-      const shown = await context.newPage();
-      await shown.goto(`${fixture.origin}/enter-submit?shown`);
-      await expect
-        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
-        .toMatchObject({
-          attempts: [{ recipeId: "demo-enter-submit", outcome: "structural-mismatch" }],
-        });
-      await expect(shown.locator("#password")).not.toHaveValue("");
-      expect(await clicks(shown)).toBe(0);
-      expect(await count(shown, "signUpClicks")).toBe(0);
+      // A "Sign up" submit button or image input shown before the fill is never pressed,
+      // nor the form sent: the step fails as a click that finds no target does.
+      for (const query of ["?shown", "?image"]) {
+        const shown = await context.newPage();
+        await shown.goto(`${fixture.origin}/enter-submit${query}`);
+        await expect
+          .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({
+            attempts: [{ recipeId: "demo-enter-submit", outcome: "structural-mismatch" }],
+          });
+        await expect(shown.locator("#password")).not.toHaveValue("");
+        expect(await clicks(shown)).toBe(0);
+        expect(await count(shown, "signUpClicks")).toBe(0);
+        await shown.close();
+        // Closing the tab releases its record before the next page starts.
+        await expect
+          .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({ attempts: [] });
+      }
     });
   } finally {
     await fixture.close();

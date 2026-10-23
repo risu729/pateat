@@ -56,12 +56,16 @@ form, else calls `requestSubmit()` on it
    as Enter does; with none, the form gets `requestSubmit()`, Bitwarden's fallback. The
    step fails `target-missing` without submitting when the default button is disabled
    (Enter does nothing then), is only associated with the form from outside it (`form=`),
-   or was already shown when the attempt's fill began: such a button was on the page the
-   model saw and did not name. A form the page's own constraint validation refuses is not
-   submitted (`fill-rejected`). Before submitting, the checks of a click run: the
-   destination of the default button, or of the form without one
-   ([ADR 0051](0051-form-destinations-by-item-uri-match.md)), the form still holding the
-   values filled into it, and a CAPTCHA.
+   or was already shown when a fill began in the document: such a button was on the page
+   the model saw and did not name. Only the first fill in a document whose fields already
+   hold values counts, so a button that a page shows once a value is in, as x.com's, is
+   not taken as one shown before when a second login in that document starts with the
+   username still there. A hidden default button is pressed, as Enter presses it. A form
+   the page's own constraint validation refuses is not submitted (`fill-rejected`).
+   Before submitting, the checks of a click run: the destination of the default button,
+   or of the form without one ([ADR 0051](0051-form-destinations-by-item-uri-match.md)),
+   the form and its default button unchanged after that check, the form still holding
+   the values filled into it, and a CAPTCHA.
 
 ## Consequences
 
@@ -74,6 +78,9 @@ form, else calls `requestSubmit()` on it
   "Sign up" submit before the login fields, is never submitted this way: the login ends
   `structural-mismatch` (`target-missing`) after the fill, as a click that finds no
   button does.
+- A page that shows its button for a value already there when Pateat first fills it, as
+  a username the browser or the page prefilled on such a page, fails like the "Sign up"
+  case above: the button counts as one the model saw.
 - A form that a person can only submit through a script button outside the form, or
   that has no `<form>`, still gets no recipe.
 - `requestSubmit()` goes beyond what Enter does in one case: a form with no submit button

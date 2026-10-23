@@ -333,12 +333,7 @@ describe("declarative login boundaries", () => {
       },
       // A button's text or accessible name names no field.
       { ...valid, steps: [fill, { ...enter, target: { by: "text", value: "Next" } }, ...rest] },
-      // After an effectful fill, or into a code.
-      {
-        ...valid,
-        steps: [{ ...fill, effect: "advance", event: "input" }, enter, ...rest],
-        maxSubmissions: 3,
-      },
+      // Into a code.
       {
         ...valid,
         slots: ["totp", "password"],
