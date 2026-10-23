@@ -149,6 +149,8 @@ export interface ConnectionPolicy {
     catalog: VaultCatalog["connections"][number];
     /** Items whose decrypted custom fields the crypto host found equal in both snapshots. */
     sameCustomFields?: string[];
+    /** Set for an automatic check (ADR 0025), which a later conflicting save names. */
+    automatic?: true;
   }): Promise<{ policyReviewItemIds: string[] }>;
 }
 export type ConnectionSetupDependencies = {

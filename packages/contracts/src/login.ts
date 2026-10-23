@@ -623,6 +623,8 @@ const routeRules: readonly (readonly [(recipe: RouteBody) => boolean, string])[]
     "Too many result elements to observe with a step",
   ],
   // The switch is clicked instead of signing in, so it must not be a step's own button.
+  // A marker proves the sign-in wherever it shows (ADR 0029), so a login page that shows
+  // the switch must not read as signed in either.
   [
     (recipe) => {
       if (!recipe.accountSwitch) return true;
@@ -633,9 +635,10 @@ const routeRules: readonly (readonly [(recipe: RouteBody) => boolean, string])[]
         ),
         ...(recipe.handlers ?? []).flatMap(handlerTargets),
         ...(recipe.rejection ? [recipe.rejection] : []),
+        ...(recipe.completion ?? []).map((marker) => marker.target),
       ].some((target) => targetKey(target) === key);
     },
-    "Account switch target is a step or rejection target",
+    "Account switch target is a step, rejection or completion marker target",
   ],
   // The markers and the rejection are checked after every step, on any path, so a
   // variant's own element must never prove or refuse the sign-in. A marker proves it

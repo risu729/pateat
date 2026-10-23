@@ -1,7 +1,12 @@
 import * as v from "valibot";
 import type { LoginMarkerTarget, LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
+import {
+  accountText,
+  comparableAccounts,
+  showsOtherAccount,
+  shownAccounts,
+} from "../page/accounts";
 import { isButton } from "../page/text";
 import { pressElement } from "../page/script-url-click";
 import { autocompleteTokens, findTargets } from "../page/targets";
@@ -28,6 +33,7 @@ import {
   extractLoginObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
+  fieldsMissDetail,
   presence,
 } from "../observation/extract";
 import { listChoice, listControls } from "../page/account-list";
@@ -194,6 +200,48 @@ const fillSettleMs = 500;
  */
 const offerQuietMs = 1000;
 const offerWaitMs = 5000;
+/**
+ * A fill compared with the account the page shows, while the page shows no identifier
+ * to compare with, waits until the document has loaded and its DOM has had no change for
+ * `accountQuietMs`, or `accountWaitMs` while it keeps changing: Duolingo's sign-in shows its remembered account's address after the password
+ * field (2026-10-23), and a check before it would pass. It ends `accountReserveMs` before
+ * the operation expires, so a page that keeps changing is still compared and filled.
+ */
+const accountQuietMs = 1000;
+const accountWaitMs = 5000;
+const accountReserveMs = 2000;
+
+/**
+ * Resolves once `document` has loaded and its DOM has had no change for `quietMs`, or at
+ * `until` (a time in ms since the epoch), whichever comes first.
+ */
+function settled(document: Document, quietMs: number, until: number): Promise<void> {
+  return new Promise((resolve) => {
+    const view = document.defaultView;
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    const restart = () => {
+      clearTimeout(quiet);
+      if (document.readyState === "complete") quiet = setTimeout(done, quietMs);
+    };
+    const observer = new MutationObserver(restart);
+    const cap = setTimeout(done, Math.max(0, until - Date.now()));
+    function done(): void {
+      observer.disconnect();
+      clearTimeout(quiet);
+      clearTimeout(cap);
+      view?.removeEventListener("load", restart);
+      resolve();
+    }
+    observer.observe(document, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+    });
+    view?.addEventListener("load", restart);
+    restart();
+  });
+}
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
   readonly probeStatus?: boolean;
@@ -741,6 +789,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 : command.page === "entry"
                   ? extractEntryObservation(document, (url) => onSite.has(url.hostname))
                   : extractSignedInObservation();
+        // A page described without a field says why, for the log (ADR 0019).
+        if (
+          command.page !== "entry" &&
+          command.page !== "signed-in" &&
+          (result as { reason?: unknown }).reason === "no-candidates"
+        )
+          result = {
+            ok: false,
+            reason: "no-candidates",
+            detail: fieldsMissDetail(document).slice(0, 64),
+          };
       } catch {
         // A page the extractor cannot read still gets an answer the log can name.
         result = { ok: false, reason: "extract-error" };
@@ -965,6 +1024,32 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return { ok: true, mutation: "possible" } as const;
       };
       if (step.kind === "fill") {
+        // A fill compared with the shown account waits for the page to settle while the
+        // page shows nothing to compare with, so an account it shows after its fields is
+        // compared too (`accountQuietMs`).
+        const masked = command.values.some(
+          (entry) => entry.secret === "password" || entry.secret === "hidden",
+        );
+        if (command.account) {
+          const first = step.fields[0] ? matches(step.fields[0].target) : [];
+          const form =
+            first.length === 1 && first[0] instanceof HTMLInputElement ? first[0].form : null;
+          const comparable = comparableAccounts(
+            shownAccounts(accountText(document, form)),
+            command.account.username,
+            { masked },
+          );
+          if (comparable?.length === 0) {
+            await settled(
+              document,
+              accountQuietMs,
+              Math.min(Date.now() + accountWaitMs, operation.expiresAt - accountReserveMs),
+            );
+            if (cancelled) return fail("cancelled", "document-cancelled");
+            if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
+            if (step.path !== pagePath()) return fail("cancelled", "page-changed");
+          }
+        }
         // Resolve every target first so a partial/ambiguous mapping never causes partial fill.
         const inputs = step.fields.map((field) => {
           const found = matches(field.target);
@@ -979,6 +1064,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           )
         )
           return fail("structural-mismatch", "unexpected-values");
+        // Each field has its own input: two locators that name one input would leave only
+        // the second value in it, and the form would be sent with the wrong value.
+        if (new Set(inputs).size !== inputs.length)
+          return fail("structural-mismatch", "fields-shared");
         // One step fills one form (or only inputs outside any form), and secrets only fit their inputs.
         const writableInputs = inputs as HTMLInputElement[];
         const form = writableInputs[0]!.form;
@@ -1008,11 +1097,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const other = showsOtherAccount(
             shownAccounts(accountText(document, form)),
             command.account.username,
-            {
-              masked: command.values.some(
-                (entry) => entry.secret === "password" || entry.secret === "hidden",
-              ),
-            },
+            { masked },
           );
           command.account.username = "";
           if (other) {

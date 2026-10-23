@@ -8,6 +8,7 @@ import {
   extractLoginObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
+  fieldsMissDetail,
 } from "./extract";
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
@@ -4058,5 +4059,17 @@ describe("passkey-only start observation", () => {
   ])("does not qualify registration, hidden buttons or a fill form: %s", (html) => {
     page(html);
     expect(extractPasskeyObservation(document).ok).toBe(false);
+  });
+});
+
+describe("fieldsMissDetail", () => {
+  it("names the page's inputs and how each shows, as codes only", () => {
+    page(`<form><input type="email" value="me@example.com" aria-hidden="true">
+      <input type="password" style="opacity: 0"></form>
+      <input type="text" hidden><input type="text" name="q">`);
+    expect(fieldsMissDetail(document)).toBe(
+      "n4.d2.email-hidden-attr.password-transparent.text-hidden-attr-out",
+    );
+    expect(fieldsMissDetail(document)).not.toContain("example");
   });
 });

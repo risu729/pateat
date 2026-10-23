@@ -621,6 +621,9 @@ export async function startLoginFixture(
       const shown = fixtureUrl.searchParams.get("shown");
       const switchTo = fixtureUrl.searchParams.get("switch");
       const masked = /^[A-Za-z0-9@.*]+$/u;
+      // `?shown-late` shows the account only after a loading text changes for 1.6 s, as
+      // Duolingo's remembered account shows after its password field (2026-10-23).
+      const shownLate = fixtureUrl.searchParams.get("shown-late");
       // `?maxlength` limits the password input, such as below the synthetic password.
       const maxLength = fixtureUrl.searchParams.get("maxlength");
       // `?form` puts the login in a form: `same-origin` posts to this page with its submit
@@ -650,7 +653,7 @@ export async function startLoginFixture(
         html(
           `<h1>Synthetic single-page login</h1>${
             shown !== null && masked.test(shown) ? `<p>Signed in as ${shown}</p>` : ""
-          }${
+          }${shownLate !== null && masked.test(shownLate) ? `<p id="account" data-shown="Signed in as ${shownLate}">Loading</p>` : ""}${
             // `switch` names the account the "Use another account" link shows next;
             // `switch-submit` makes it the submit button of its own form instead.
             switchTo === null || !masked.test(switchTo)
@@ -704,6 +707,11 @@ export async function startLoginFixture(
               "switch-form":
                 "document.getElementById('password').addEventListener('change', (event) => { event.target.value = ''; document.getElementById('security').hidden = false; });",
             }[fixtureUrl.searchParams.get("reject-fill") ?? ""] ?? ""
+          }
+          ${
+            shownLate !== null && masked.test(shownLate)
+              ? `{ let ticks = 0; const loading = setInterval(() => { ticks += 1; document.getElementById('account').textContent = 'Loading' + '.'.repeat(ticks % 4); if (ticks === 8) { clearInterval(loading); document.getElementById('account').textContent = document.getElementById('account').dataset.shown; } }, 200); }`
+              : ""
           }
           ${form === null || form === "script" ? "" : "document.getElementById('login').form?.addEventListener('submit', (event) => event.preventDefault());"}
           document.getElementById('login').addEventListener('click', () => {
@@ -923,6 +931,19 @@ export async function startLoginFixture(
       response.end(
         html(
           '<h1>Synthetic ambiguous login</h1><input name="password" type="password"><input name="password" type="password"><button id="login" type="button">Log in</button>',
+        ),
+      );
+    } else if (path === "/shared-input") {
+      // One input that both of the recipe's locators name (its ID and its name): filling
+      // both slots would leave only the second value in it, which the page rejects.
+      response.end(
+        html(
+          '<h1>Synthetic shared input</h1><main id="app"><form><label>Password<input id="account" name="password" type="password"></label><button id="login" type="button">Log in</button></form></main>',
+          `document.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          document.getElementById('app').innerHTML = '<p id="rejected">Wrong account or password</p>';
+          updateFixtureStatus();
+        });`,
         ),
       );
     } else if (path === "/authenticated") {

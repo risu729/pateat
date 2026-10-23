@@ -82,6 +82,9 @@ function mockClient(initial = devices()) {
     }),
     models: vi.fn<ManageClient["models"]>(),
     saveModels: vi.fn<ManageClient["saveModels"]>(),
+    claude: vi.fn<ManageClient["claude"]>(),
+    saveClaude: vi.fn<ManageClient["saveClaude"]>(),
+    testClaude: vi.fn<ManageClient["testClaude"]>(),
   } satisfies ManageClient;
 }
 

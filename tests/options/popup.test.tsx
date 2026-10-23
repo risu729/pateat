@@ -381,6 +381,110 @@ test("a switch change that is not saved returns to the saved state", async () =>
   await expect.element(toggle).toBeChecked();
 });
 
+/** Focuses a button and presses Enter, as a keyboard or screen reader user does. */
+async function pressWithKeyboard(name: string) {
+  const button = page.getByRole("button", { name });
+  (button.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  return button;
+}
+
+/** Holds the next save until the returned function is called. */
+function holdNextSave(client: ReturnType<typeof store>["client"]) {
+  const save = client.saveSettings.getMockImplementation()!;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  client.saveSettings.mockImplementationOnce(async (request) => {
+    await held;
+    return save(request);
+  });
+  return () => release();
+}
+
+const resultMessage = () => document.querySelector("#popup-message");
+
+test("saving or removing the default with the keyboard keeps focus in the popup", async () => {
+  const { client } = store();
+  await mount(client, "https://bank.example/login");
+  await userEvent.click(page.getByText("Demo work vault"));
+  const release = holdNextSave(client);
+  const useDefault = await pressWithKeyboard("Use as default");
+  await expect.element(page.getByText("Saving…")).toBeVisible();
+  // The button is only marked disabled while the save runs, so it keeps focus.
+  expect(document.activeElement).toBe(useDefault.element());
+  await expect.element(useDefault).toHaveAttribute("aria-disabled", "true");
+  release();
+  await expect
+    .element(page.getByText("Demo team account is now the default for this site"))
+    .toBeVisible();
+  // The saved default leaves the button disabled, so the result message takes focus.
+  await expect.element(useDefault).toBeDisabled();
+  await expect.poll(() => document.activeElement).toBe(resultMessage());
+
+  client.saveSettings.mockResolvedValueOnce({
+    version: 1,
+    ok: false,
+    error: { code: "storage-unavailable", message: "Unavailable." },
+  });
+  const remove = await pressWithKeyboard("Remove default");
+  await expect.element(page.getByText("The change could not be saved")).toBeVisible();
+  await expect.element(remove).toBeEnabled();
+  expect(document.activeElement).toBe(remove.element());
+  await pressWithKeyboard("Remove default");
+  await expect
+    .element(page.getByText("The default account for this site was removed"))
+    .toBeVisible();
+  // The button is gone with the default, so the result message takes focus.
+  await expect.element(remove).not.toBeInTheDocument();
+  await expect.poll(() => document.activeElement).toBe(resultMessage());
+});
+
+test("a pick that fails with the keyboard keeps focus in the popup", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  const offer = {
+    ok: true as const,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  };
+  choices.get.mockResolvedValue(offer);
+  await mount(client, "https://bank.example/", choices);
+  const logIn = page.getByRole("button", { name: "Log in" });
+  await expect.element(logIn).toBeEnabled();
+  // A pick that leaves the choice waiting keeps focus on Log in.
+  choices.pick.mockResolvedValueOnce({ ok: false, reason: "document-gone" });
+  await pressWithKeyboard("Log in");
+  await expect
+    .element(page.getByText("The page changed, so nothing was started.", { exact: false }))
+    .toBeVisible();
+  await expect.element(logIn).toBeEnabled();
+  expect(document.activeElement).toBe(logIn.element());
+  // Another tab's login now holds the site, which disables Log in.
+  choices.pick.mockResolvedValueOnce({ ok: false, reason: "origin-busy" });
+  choices.get.mockResolvedValue({ ...offer, held: true });
+  await pressWithKeyboard("Log in");
+  await expect.element(page.getByText(/so Pateat did not log in here\./)).toBeVisible();
+  await expect.element(logIn).toBeDisabled();
+  await expect.poll(() => document.activeElement).toBe(resultMessage());
+  // Once the page no longer waits, the choice and its Log in button are gone.
+  choices.get.mockResolvedValue(offer);
+  await expect.element(logIn).toBeEnabled();
+  choices.pick.mockResolvedValueOnce({ ok: false, reason: "not-started" });
+  choices.get.mockResolvedValue({ ok: false, reason: "no-choice" });
+  await pressWithKeyboard("Log in");
+  await expect
+    .element(page.getByText("Pateat could not log in with", { exact: false }))
+    .toBeVisible();
+  await expect.element(logIn).not.toBeInTheDocument();
+  await expect.poll(() => document.activeElement).toBe(resultMessage());
+});
+
 test("a tab whose address Pateat cannot read says so", async () => {
   const { client } = store();
   await mount(client, undefined);

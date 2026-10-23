@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBitwardenAccountMapper } from "@pateat/bitwarden";
 import { createCryptoHost, type CryptoHost, type CryptoHostPort } from "./host";
-import { CRYPTO_PORT, type HostCommand, type HostSessionRef } from "./wire";
+import { CRYPTO_PORT, type HostCommand, type HostSessionRef, type HostUnlock } from "./wire";
 import {
   accountNow,
   accountProfile,
@@ -64,6 +64,31 @@ function prepared() {
   return mapped.data;
 }
 
+/** An open request for an account prepared under `ownedConnectionId`. */
+function openInput(ownedConnectionId: string = connectionId) {
+  const mapped = prepared();
+  return {
+    connectionId: ownedConnectionId,
+    prepared: {
+      ...mapped,
+      binding: {
+        ...mapped.binding,
+        profile: { ...mapped.binding.profile, connectionId: ownedConnectionId },
+      },
+    },
+    snapshotId,
+    unlock: { kind: "password" as const, password: v1Password },
+  };
+}
+
+/** Settles with the promise's result, or "waiting" if it is still pending after `ms`. */
+function within<T>(promise: Promise<T>, ms: number) {
+  return Promise.race([
+    promise,
+    new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), ms)),
+  ]);
+}
+
 function auth() {
   return {
     connectionId: String(connectionId),
@@ -73,9 +98,22 @@ function auth() {
   };
 }
 
+/** A sign-in whose prelogin asks for Argon2id. */
+function argon2idAuth(owner = "connection-2") {
+  return {
+    ...auth(),
+    connectionId: owner,
+    prelogin: {
+      mode: "legacy" as const,
+      response: { kdf: 1, kdfIterations: 2, kdfMemory: 16, kdfParallelism: 1 },
+    },
+  };
+}
+
 function harness(
   options: {
     timeoutMs?: number;
+    argon2idTimeoutMs?: number;
     existing?: boolean;
     automaticReady?: boolean;
     checkpoint?: (stage: "before-dispatch" | "after-result") => Promise<void>;
@@ -125,6 +163,9 @@ function harness(
     closeDocument,
     createDocument,
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options.argon2idTimeoutMs !== undefined
+      ? { argon2idTimeoutMs: options.argon2idTimeoutMs }
+      : {}),
     ...(options.checkpoint ? { checkpoint: options.checkpoint } : {}),
   });
   disposed.push(host);
@@ -143,25 +184,11 @@ function harness(
     await vi.waitFor(() => expect(commands.length).toBeGreaterThan(index), { interval: 1 });
     return commands[index]!;
   };
-  const open = async (ownedConnectionId: string = connectionId) => {
-    const index = commands.length;
-    const mapped = prepared();
-    const pending = host.open({
-      connectionId: ownedConnectionId,
-      prepared: {
-        ...mapped,
-        binding: {
-          ...mapped.binding,
-          profile: { ...mapped.binding.profile, connectionId: ownedConnectionId },
-        },
-      },
-      snapshotId,
-      unlock: { kind: "password", password: v1Password },
-    });
-    const request = await command(index);
+  /** Answers a delivered open as its Worker would and returns the new session. */
+  const answerOpen = (request: HostCommand) => {
     const session: HostSessionRef = {
       brokerGeneration: host.generation,
-      connectionId: ownedConnectionId,
+      connectionId: request.connectionId,
       userId: accountUserId,
       sessionId: crypto.randomUUID(),
       snapshotId,
@@ -171,13 +198,21 @@ function harness(
       data: {
         session,
         metadata: {
-          connectionId: ownedConnectionId,
+          connectionId: request.connectionId,
           userId: accountUserId,
           accountVersion: "v1",
           securityVersion: 1,
         },
       },
     });
+    return session;
+  };
+  const open = async (ownedConnectionId: string = connectionId) => {
+    const index = commands.length;
+    const pending = host.open(openInput(ownedConnectionId));
+    // An open the host refuses settles without being delivered; show its result.
+    expect(await Promise.race([pending, command(index).then(() => undefined)])).toBeUndefined();
+    const session = answerOpen(commands[index]!);
     expect(await pending).toMatchObject({ ok: true, data: { session } });
     return session;
   };
@@ -191,6 +226,7 @@ function harness(
     commands,
     command,
     reply,
+    answerOpen,
     open,
     closeDocument,
     createDocument,
@@ -556,6 +592,109 @@ describe("fixed operations, session scope and reply fencing", () => {
     expect(h.commands).toHaveLength(4);
   });
 
+  it("delivers an open for another connection once the open ahead of it settles", async () => {
+    const h = harness();
+    const first = h.host.open(openInput());
+    const firstCommand = await h.command(0);
+    // A page restores connection B while a sync of connection A opens its candidate.
+    const second = h.host.open(openInput("connection-2"));
+    expect(await within(second, 20)).toBe("waiting");
+    expect(h.commands).toHaveLength(1);
+    const a = h.answerOpen(firstCommand);
+    expect(await first).toMatchObject({ ok: true, data: { session: a } });
+    const secondCommand = await h.command(1);
+    expect(secondCommand).toMatchObject({
+      connectionId: "connection-2",
+      operation: { kind: "open" },
+    });
+    const b = h.answerOpen(secondCommand);
+    expect(await second).toMatchObject({ ok: true, data: { session: b } });
+  });
+
+  it("delivers a derive-auth once the open ahead of it settles", async () => {
+    const h = harness();
+    const opening = h.host.open(openInput());
+    const openCommand = await h.command(0);
+    // A manual sign-in starts while a restore opens another connection's vault.
+    const deriving = h.host.deriveAuthentication({ ...auth(), connectionId: "connection-2" });
+    expect(await within(deriving, 20)).toBe("waiting");
+    expect(h.commands).toHaveLength(1);
+    h.answerOpen(openCommand);
+    expect(await opening).toMatchObject({ ok: true });
+    const deriveCommand = await h.command(1);
+    expect(deriveCommand.operation).toMatchObject({ kind: "derive-auth" });
+    const derived = { connectionId: "connection-2", masterPasswordHash: "synthetic-hash" };
+    h.reply(deriveCommand, { ok: true, data: derived });
+    expect(await deriving).toEqual({ ok: true, data: derived });
+  });
+
+  it("retires the Worker session of an open whose result the host refuses", async () => {
+    const h = harness();
+    const pending = h.host.open(openInput());
+    const request = await h.command(0);
+    const session: HostSessionRef = {
+      brokerGeneration: h.host.generation,
+      connectionId,
+      userId: accountUserId,
+      sessionId: crypto.randomUUID(),
+      snapshotId,
+    };
+    // The metadata names another connection, so the host refuses the session.
+    h.reply(request, {
+      ok: true,
+      data: {
+        session,
+        metadata: {
+          connectionId: "connection-2",
+          userId: accountUserId,
+          accountVersion: "v1",
+          securityVersion: 1,
+        },
+      },
+    });
+    expect(await pending).toEqual({ ok: false, error: { code: "crypto-failed" } });
+    expect(h.posted).toContainEqual(
+      expect.objectContaining({ type: "crypto.cancel", requestId: request.requestId }),
+    );
+    expect(h.host.status()).toMatchObject({ pending: 0, sessions: 0 });
+  });
+
+  it("rechecks a waiting open against the session caps when its turn comes", async () => {
+    const h = harness();
+    await h.open();
+    // A sync's candidate open and a second one for the same connection race.
+    const candidate = h.host.open(openInput());
+    const extra = h.host.open(openInput());
+    const candidateCommand = await h.command(1);
+    expect(await within(extra, 20)).toBe("waiting");
+    h.answerOpen(candidateCommand);
+    expect(await candidate).toMatchObject({ ok: true });
+    expect(await extra).toEqual({ ok: false, error: { code: "resource-limit" } });
+    expect(h.commands).toHaveLength(2);
+    expect(h.host.status()).toMatchObject({ pending: 0, sessions: 2 });
+  });
+
+  it("refuses a waiting open whose wait outlasts its budget without delivering it", async () => {
+    const h = harness({ timeoutMs: 300 });
+    const first = h.host.open(openInput());
+    const second = h.host.open(openInput("connection-2"));
+    const third = h.host.open(openInput("connection-3"));
+    const firstCommand = await h.command(0);
+    expect(await within(second, 20)).toBe("waiting");
+    await new Promise((resolve) => setTimeout(resolve, 130));
+    h.answerOpen(firstCommand);
+    expect(await first).toMatchObject({ ok: true });
+    const secondCommand = await h.command(1);
+    // The third has waited its whole budget behind the second, without reaching the Worker.
+    expect(await third).toEqual({ ok: false, error: { code: "resource-limit" } });
+    h.answerOpen(secondCommand);
+    expect(await second).toMatchObject({ ok: true });
+    expect(h.commands).toHaveLength(2);
+    expect(
+      h.posted.filter((message) => (message as { type: string }).type === "crypto.cancel"),
+    ).toHaveLength(0);
+  });
+
   it("fails a session's waiting jobs without delivering them when it is locked", async () => {
     const h = harness();
     const a = await h.open();
@@ -863,19 +1002,118 @@ describe("cancellation, deadlines and host loss", () => {
     );
   });
 
-  it("bounds native initialization work before the handshake instead of admitting concurrent KDF jobs", async () => {
-    const h = harness({ automaticReady: false, timeoutMs: 100 });
-    const controller = new AbortController();
-    const first = h.host.deriveAuthentication(auth(), controller.signal);
-    expect(
-      await h.host.deriveAuthentication({ ...auth(), connectionId: "second-connection" }),
-    ).toEqual({
+  it("opens vaults for six connections, past Bitwarden's 5 accounts, each with a sync candidate", async () => {
+    const h = harness();
+    const connections = [1, 2, 3, 4, 5, 6].map((index) => `connection-${index}`);
+    // Each open answers its own delivered command, so they run one after another.
+    // eslint-disable-next-line no-await-in-loop
+    for (const owned of connections) await h.open(owned);
+    // A sync opens each candidate while the connection's live session is still open.
+    // eslint-disable-next-line no-await-in-loop
+    for (const owned of connections) await h.open(owned);
+    expect(h.host.status()).toMatchObject({ sessions: 12 });
+  });
+
+  it("refuses a third session of one connection", async () => {
+    const h = harness();
+    await h.open("connection-2");
+    await h.open("connection-2");
+    const sent = h.commands.length;
+    // The live session and one sync candidate are a connection's whole share.
+    expect(await h.host.open(openInput("connection-2"))).toEqual({
       ok: false,
       error: { code: "resource-limit" },
     });
-    controller.abort();
-    expect(await first).toEqual({ ok: false, error: { code: "cancelled" } });
-    expect(h.commands).toEqual([]);
+    expect(h.commands).toHaveLength(sent);
+    expect(h.host.status()).toMatchObject({ sessions: 2 });
+  });
+
+  it("gives an Argon2id derivation its own longer budget", async () => {
+    const h = harness({ timeoutMs: 100, argon2idTimeoutMs: 400 });
+    const deriving = h.host.deriveAuthentication(argon2idAuth());
+    const deriveCommand = await h.command(0);
+    // Past the normal budget, within the Argon2id one.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const derived = { connectionId: "connection-2", masterPasswordHash: "synthetic-hash" };
+    h.reply(deriveCommand, { ok: true, data: derived });
+    expect(await deriving).toEqual({ ok: true, data: derived });
+  });
+
+  it("gives an Argon2id unlock with the master password the longer budget, and one with a retained key the normal one", async () => {
+    const h = harness({ timeoutMs: 100, argon2idTimeoutMs: 400 });
+    const argon2id = (unlock: HostUnlock) => {
+      const input = openInput();
+      return {
+        ...input,
+        prepared: {
+          ...input.prepared,
+          kdf: { argon2id: { iterations: 10, memory: 1024, parallelism: 4 } },
+        },
+        unlock,
+      };
+    };
+    const withPassword = h.host.open(argon2id({ kind: "password", password: v1Password }));
+    const passwordCommand = await h.command(0);
+    // Past the normal budget, within the Argon2id one.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    h.answerOpen(passwordCommand);
+    expect(await withPassword).toMatchObject({ ok: true });
+    // A retained key runs no KDF, whatever the account's KDF is.
+    const withKey = h.host.open(argon2id({ kind: "decrypted-key", userKey: "synthetic-user-key" }));
+    await h.command(1);
+    expect(await withKey).toEqual({ ok: false, error: { code: "timeout" } });
+  });
+
+  it("times out an Argon2id derivation once its own budget runs out", async () => {
+    const h = harness({ timeoutMs: 100, argon2idTimeoutMs: 200 });
+    const deriving = h.host.deriveAuthentication(argon2idAuth());
+    await h.command(0);
+    expect(await deriving).toEqual({ ok: false, error: { code: "timeout" } });
+  });
+
+  it("lets an open wait behind an Argon2id derivation for that derivation's budget", async () => {
+    const h = harness({ timeoutMs: 100, argon2idTimeoutMs: 400 });
+    const deriving = h.host.deriveAuthentication(argon2idAuth());
+    const deriveCommand = await h.command(0);
+    const opening = h.host.open(openInput());
+    // Past its own budget, it still waits instead of failing `resource-limit`.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(await within(opening, 1)).toBe("waiting");
+    h.reply(deriveCommand, {
+      ok: true,
+      data: { connectionId: "connection-2", masterPasswordHash: "synthetic-hash" },
+    });
+    expect(await deriving).toMatchObject({ ok: true });
+    h.answerOpen(await h.command(1));
+    expect(await opening).toMatchObject({ ok: true });
+  });
+
+  it("bounds native initialization work before the handshake by running one KDF job at a time", async () => {
+    const h = harness({ automaticReady: false, timeoutMs: 300 });
+    const first = h.host.deriveAuthentication(auth());
+    const second = h.host.deriveAuthentication({ ...auth(), connectionId: "second-connection" });
+    expect(await within(second, 20)).toBe("waiting");
+    await vi.waitFor(() =>
+      expect(h.posted).toContainEqual(expect.objectContaining({ type: "crypto.reset" })),
+    );
+    h.onMessage.emit({ version: 1, type: "crypto.ready", generation: h.host.generation });
+    const firstCommand = await h.command(0);
+    expect(firstCommand.connectionId).toBe(connectionId);
+    // The second waits for the first instead of starting a concurrent KDF.
+    expect(await within(second, 20)).toBe("waiting");
+    expect(h.commands).toHaveLength(1);
+    const firstHash = { connectionId, masterPasswordHash: "synthetic-hash-1" };
+    h.reply(firstCommand, { ok: true, data: firstHash });
+    expect(await first).toEqual({ ok: true, data: firstHash });
+    const secondCommand = await h.command(1);
+    expect(secondCommand.connectionId).toBe("second-connection");
+    const secondHash = {
+      connectionId: "second-connection",
+      masterPasswordHash: "synthetic-hash-2",
+    };
+    h.reply(secondCommand, { ok: true, data: secondHash });
+    expect(await second).toEqual({ ok: true, data: secondHash });
+    expect(h.commands).toHaveLength(2);
   });
 
   it("cancellation at the dispatch barrier prevents any secret command delivery", async () => {

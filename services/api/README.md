@@ -14,14 +14,15 @@ migrations to that database before activation
 ## Routes
 
 All responses carry `Cache-Control: no-store` and `nosniff`; no route sends CORS
-headers. API routes answer JSON, and owner pages answer script-free HTML that cannot be
-framed. Device routes (`/v1/*`) also send `Server-Timing` with `total` from the Worker
-receiving the request, before device authentication. A generation or completion request
-that reached the Claude credential step adds `token` (that step) and, once it sent the
-model request, `model`; a request refused at the credential step or by the role's local
-checks reports `token` alone. Parse it by metric name, as Cloudflare may add entries; no
-`Timing-Allow-Origin` is sent. Contracts live in `packages/contracts/src/sync.ts`,
-`pairing.ts` and `generation.ts`.
+headers. API routes answer JSON; the owner web UI is a React app, and `/pair/signed-in`,
+the Access and error pages are script-free HTML; none can be framed. Device routes
+(`/v1/*`) also send `Server-Timing` with `total` from the Worker receiving the request,
+before device authentication. A generation or completion request that reached the Claude
+credential step adds `token` (that step) and, once it sent the model request, `model`; a
+request refused at the credential step or by the role's local checks reports `token`
+alone. Parse it by metric name, as Cloudflare may add entries; no `Timing-Allow-Origin`
+is sent. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts`, `manage.ts`
+and `generation.ts`.
 
 | Route | Purpose |
 | --- | --- |
@@ -42,7 +43,7 @@ checks reports `token` alone. Parse it by metric name, as Cloudflare may add ent
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/models`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; each role's models; the request log with Delete all |
+| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/claude`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; Claude credentials, the connection test and each role's models; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: login time (total less the person's) of the signed-in login records, apart for those that waited on the service, with the median of each part (network, the rest of the service, waiting for the site, the rest, and the person apart) and per site and extension build; model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure; a signed-in page sample, outcome `sampled`, is left out), the median login and model time per UTC day (null on a day without one), the 10 slowest requests, counts, every login's result with how many signed in (in total and per day), the first-login result codes apart, tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
@@ -56,9 +57,9 @@ checks reports `token` alone. Parse it by metric name, as Cloudflare may add ent
 | `PUT /manage/api/models` | Save `{ version: 1, config }`; a choice the list does not offer (a model, effort or speed, or fast mode while failing) answers 400 `model_unavailable` |
 | `GET /manage/api/request-log` | How many request log rows (`entries`), login result codes (`outcomes`) and login records (`logins`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
 | `DELETE /manage/api/request-log` | Delete every request log row, login result code and login record of the owner, and clear `device_id` and `log_id` of the owner's `recipe_unit_sources` rows, and nothing else; answers how many (`deleted`, `outcomes`, `logins`) |
-| `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
-| `POST /manage/claude` | Save the owner's four WIF identifiers |
-| `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
+| `GET /manage/api/claude` | The Claude Console values for this owner and their saved WIF identifiers; 404 `not_paired` without a paired device |
+| `PUT /manage/api/claude` | Replace the owner's four WIF identifiers |
+| `POST /manage/api/claude/test` | Exchange one assertion and return only the outcome, never the token |
 
 `/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only the
 SHA-256 digest of each 256-bit device credential and derives the owner from it; paths
@@ -216,11 +217,10 @@ own Claude credentials. `src/claude/` holds the only path from an owner to a cre
   settings both `/.well-known` routes answer 503 and nothing is signed.
 - The `inference_credentials` table holds one row per owner with kind `wif` and the
   identifiers of the owner's own federation rule: `fdrl_…`, the organization UUID,
-  `svac_…` and `wrkspc_…`. None is a secret. The owner enters them on
-  `/manage/claude`, a temporary script-free page that the React web UI will replace.
-  It applies its own Access, same-origin and body-size checks; no app-wide `/manage`
-  middleware covers it. Its test button only
-  exchanges a token, which calls no model and costs nothing.
+  `svac_…` and `wrkspc_…`. None is a secret. The owner enters them on the web UI's
+  Claude tab (`/manage/claude`) through `/manage/api/claude`, behind the same Access,
+  same-origin, rate and body-size checks as the rest of `/manage/api`. Its test button
+  only exchanges a token, which calls no model and costs nothing.
 - `resolveClaudeCredential(env, ownerId)` signs a fresh assertion
   `{ iss, sub: "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }`
   that lasts five minutes. It exchanges the assertion once at
@@ -237,8 +237,8 @@ Console offers it. On 2026-10-11 the Connect workload wizard offered only
 `workspace:developer` and `org:admin`, so the owner's rule uses `workspace:developer`
 with the wizard's 600-second token lifetime. That scope also allows Files, Skills and
 Managed Agents in the rule's workspace; Pateat calls only the Messages API, and each
-exchanged token serves one call and is then discarded. `/manage/claude` shows the saved
-identifiers.
+exchanged token serves one call and is then discarded. `/manage/claude` shows these
+values and the saved identifiers.
 
 ## Recipe generation
 
@@ -462,7 +462,7 @@ a first page, the tombstone's revision for a revoked recipe generated again), so
 recipes of one origin that lead to the same page do not block each other. A request that
 passes every check is an attempt, including one the role then refuses locally for its
 size, which would be refused again. Each role asks the owner's model choices in order
-(`src/claude/models.ts`, saved in `inference_model_configs` from `/manage/models`, ADR
+(`src/claude/models.ts`, saved in `inference_model_configs` from `/manage/claude`, ADR
 0014; by default Claude Opus 5.5 then Claude Sonnet 5.5, both at effort `low`): a
 refusal asks the next choice, a fast mode call that fails `rate-limited`,
 `provider-error` or `timeout` asks the same model at the standard speed, and any other

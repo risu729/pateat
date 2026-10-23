@@ -1164,6 +1164,27 @@ const describeAll = (document: Document) =>
   [...document.querySelectorAll(observed)].map(describe).filter((entry) => entry !== undefined);
 
 /**
+ * Why a page's description found no field, as a log code of codes only (ADR 0019): how
+ * many inputs other than hidden ones the page holds (`n`), how many fields `describe`
+ * accepted (`d`), and the first three such inputs as `type-presence`, the presence being
+ * `shown` or {@link presenceMiss}'s reason, with `-out` for one outside every form. Added
+ * after x.com's sign-in was described without its field in the owner's Chrome only
+ * (2026-10-23).
+ */
+export function fieldsMissDetail(document: Document): string {
+  const inputs = [...document.querySelectorAll<HTMLInputElement>("input:not([type='hidden'])")];
+  const described = describeAll(document).filter(
+    (entry) =>
+      (entry.kind === "candidate" && fillTypes[entry.draft.role]) ||
+      (entry.kind === "unsupported" && entry.field),
+  ).length;
+  const first = inputs
+    .slice(0, 3)
+    .map((input) => `${input.type}-${presenceMiss(input) ?? "shown"}${input.form ? "" : "-out"}`);
+  return [`n${inputs.length}`, `d${described}`, ...first].join(".");
+}
+
+/**
  * An icon button that never submits a form on its own, such as the eye that shows the
  * password: `type="button"` and no text of its own, so no text locator either. One with
  * text, such as an `<input type="button" value="Login">` that submits by script, is not.

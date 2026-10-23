@@ -514,7 +514,8 @@ for (const { name, start, query, passwordPath } of [
           await page.close();
           const next = await browser.context.newPage();
           await next.goto(`${site}${start}${query}`);
-          await expect(next.locator("#signed-in")).toBeVisible();
+          // The password fill waits for the page to settle before its account check.
+          await expect(next.locator("#signed-in")).toBeVisible({ timeout: 10_000 });
           expect(claude.prompts).toHaveLength(3);
           expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
         },

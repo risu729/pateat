@@ -119,17 +119,21 @@ describe("Access verification", () => {
       expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
     const pageBodies = await Promise.all(pageResponses.map((response) => response.text()));
     for (const body of pageBodies) expect(body).not.toContain("Pateat test app");
-    const claudeForm = await request("/manage/claude", {
-      method: "POST",
+    // A well-formed same-origin write is refused by Access, not by origin or body checks.
+    const claudeWrite = await request("/manage/api/claude", {
+      method: "PUT",
       access: viaPair.token,
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: ORIGIN },
-      body: new URLSearchParams({ action: "save" }),
+      headers: { "Content-Type": "application/json", Origin: ORIGIN },
+      body: JSON.stringify({
+        version: 1,
+        identifiers: {
+          federationRuleId: "fdrl_01SyntheticRule",
+          organizationId: "00000000-0000-4000-8000-000000000000",
+          serviceAccountId: "svac_01SyntheticAccount",
+          workspaceId: "wrkspc_01SyntheticWorkspace",
+        },
+      }),
     });
-    expect(claudeForm.status).toBe(403);
-    // Refused by Access, not by the form's own origin or body checks.
-    const claudeFormBody = await claudeForm.text();
-    expect(claudeFormBody).toContain("Access denied");
-    expect(claudeFormBody).toContain("Your sign-in could not be verified.");
 
     const apiResponses = await Promise.all([
       manageApi("/manage/api/devices", viaPair.token, "GET"),
@@ -137,14 +141,24 @@ describe("Access verification", () => {
       manageApi("/manage/api/recipes", viaPair.token, "GET"),
       manageApi("/manage/api/dashboard", viaPair.token, "GET"),
       manageApi(`/manage/api/devices/${device.deviceId}/revoke`, viaPair.token, "POST"),
+      manageApi("/manage/api/models", viaPair.token, "GET"),
+      manageApi("/manage/api/claude", viaPair.token, "GET"),
+      manageApi("/manage/api/claude/test", viaPair.token, "POST"),
+      claudeWrite,
     ]);
-    expect(apiResponses.map((response) => response.status)).toEqual([403, 403, 403, 403, 403]);
+    expect(apiResponses.map((response) => response.status)).toEqual(apiResponses.map(() => 403));
     expect(await Promise.all(apiResponses.map((response) => response.json()))).toEqual(
       apiResponses.map(() => ({ error: "forbidden" })),
     );
 
-    // The device was not revoked, and the host-wide application still reaches the owner.
+    // The device was not revoked, no identifiers were saved, and the host-wide
+    // application still reaches the owner.
     expect((await deviceApi(device.credential)).status).toBe(200);
+    expect(
+      await env.DB.prepare("SELECT 1 FROM inference_credentials WHERE owner_id = ?")
+        .bind(await ownerIdFor(viaPair.subject))
+        .first(),
+    ).toBeNull();
     const viaHost = await owner(viaPair.subject);
     expect((await request("/manage", { access: viaHost.token })).status).toBe(200);
     const listed = v.parse(

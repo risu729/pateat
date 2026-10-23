@@ -1211,7 +1211,8 @@ for (const [mode, query, verifyClicks, autoSubmits] of [
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
         const page = await context.newPage();
         await page.goto(`${fixture.origin}/totp?${query}`);
-        await expect(page.locator("#authenticated")).toBeVisible();
+        // The password fill waits for the page to settle before its account check.
+        await expect(page.locator("#authenticated")).toBeVisible({ timeout: 10_000 });
         await expect.poll(status).toContain('"authenticated"');
         // One input event per digit; the page joins the six inputs into the code.
         expect(await codeEvidence(page)).toEqual({
@@ -1415,6 +1416,15 @@ test("a page showing another account is not filled, and its account switch is cl
       await expect(other.locator("#password")).toHaveValue("");
       expect(await clicks(other)).toBe(0);
       await other.close();
+      await expect.poll(status).not.toContain("wrong-account");
+      // An account shown only after the fields, once the page has loaded it, stops it too.
+      const late = await context.newPage();
+      await late.goto(`${fixture.origin}/single?shown-late=****9999`);
+      await expect.poll(status).toContain("wrong-account");
+      await expect(late.locator("#account")).toHaveText("Signed in as ****9999");
+      await expect(late.locator("#password")).toHaveValue("");
+      expect(await clicks(late)).toBe(0);
+      await late.close();
       await expect.poll(status).not.toContain("wrong-account");
       const same = await context.newPage();
       await same.goto(`${fixture.origin}/single?shown=****1234`);
@@ -1652,6 +1662,15 @@ test("a password fills only a password input and one step stays inside one form"
       ).toBe(0);
       await moved.close();
       await expect.poll(status).not.toContain("cancelled");
+      // Two of the step's locators name one input: nothing is filled or submitted, since
+      // the second value would replace the first.
+      const shared = await context.newPage();
+      await shared.goto(`${fixture.origin}/shared-input`);
+      await expect.poll(status).toContain("retry-limit");
+      await expect(shared.locator("#account")).toHaveValue("");
+      expect(await clicks(shared)).toBe(0);
+      await shared.close();
+      await expect.poll(status).not.toContain("retry-limit");
       const declared = await context.newPage();
       await declared.goto(`${fixture.origin}/single?password-input=text-current-password`);
       await expect(declared.locator("#authenticated")).toBeVisible();

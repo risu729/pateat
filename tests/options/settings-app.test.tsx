@@ -377,6 +377,143 @@ test("the add form validates locally and keeps focus on the origin after adds an
   ]);
 });
 
+test("an account that cannot be saved marks the account select, not the origin", async () => {
+  const client = mockClient();
+  // The same account connected twice cannot be told apart.
+  const response = saved();
+  response.catalog.connections[1]!.userId = "demo-personal-account";
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  // With no matching item the select is disabled, so focus stays on the valid origin.
+  await control("site-origin").fill("https://none.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("No vault item matches");
+  await control("add-default").click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toMatchTextContent("Choose an available default account.");
+  await expect.element(control("site-origin")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("site-origin")).not.toHaveAttribute("aria-describedby");
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "true");
+  await expect
+    .element(control("default-account"))
+    .toHaveAccessibleDescription(/Choose an available default account\./);
+  await expect.element(control("site-origin")).toHaveFocus();
+  // Listing every item enables the select, so its stale error goes.
+  await control("default-account-all").click();
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  await control("default-account-all").click();
+
+  // An enabled select that names an ambiguous account takes focus.
+  await control("site-origin").fill("https://mail.example");
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("default-account-note")).toMatchTextContent("1 matching item");
+  await control("add-default").click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toMatchTextContent("This vault account is connected more than once.");
+  await expect.element(control("site-origin")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "true");
+  await expect.element(control("default-account")).toHaveFocus();
+  // Choosing another account clears the error.
+  await control("default-account-all").click();
+  await control("default-account").selectOptions(JSON.stringify(["demo-personal", "primary"]));
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  expect(client.saveSettings).not.toHaveBeenCalled();
+});
+
+test("saving while accounts load marks the account select until they are listed", async () => {
+  const client = mockClient();
+  const listed = deferred<Awaited<ReturnType<typeof demoSiteAccounts>>>();
+  client.findSiteAccounts.mockReturnValue(listed.promise);
+  await mount(client);
+  await control("site-origin").fill("https://bank.example");
+  await control("add-default").click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toMatchTextContent("Wait until the matching accounts are listed.");
+  await expect.element(control("site-origin")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "true");
+  await expect
+    .element(control("default-account"))
+    .toHaveAccessibleDescription(/Wait until the matching accounts are listed\./);
+  listed.resolve(await demoSiteAccounts("https://bank.example"));
+  await expect.element(control("default-account-note")).toMatchTextContent("3 matching items");
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  expect(client.saveSettings).not.toHaveBeenCalled();
+});
+
+test("after a default is saved the next origin starts from its best match", async () => {
+  const client = mockClient();
+  await mount(client);
+  await control("site-origin").fill("https://bank.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("3 matching items");
+  await control("default-account").selectOptions(JSON.stringify(["demo-work", "primary"]));
+  await control("add-default").click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  // The work account is offered for mail.example too, but does not match it.
+  await control("default-account-all").click();
+  await control("site-origin").fill("https://mail.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("1 matching item");
+  await expect
+    .element(control("default-account"))
+    .toHaveValue(JSON.stringify(["demo-personal", "secondary"]));
+});
+
+test("an origin in another spelling is saved in its canonical form", async () => {
+  const client = mockClient();
+  await mount(client);
+  for (const spelling of [
+    "https://bank.example/",
+    "https://bank.example/path",
+    "https://bank.example?query",
+    "https://bank.example#hash",
+    "https://user@bank.example",
+    "https://bank_example",
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop
+    await control("site-origin").fill(spelling);
+    // oxlint-disable-next-line no-await-in-loop
+    await control("add-default").click();
+    // oxlint-disable-next-line no-await-in-loop
+    await expect
+      .element(page.getByRole("alert"))
+      .toMatchTextContent("Enter an exact HTTP(S) origin without a path or trailing slash.");
+  }
+  // A Unicode hostname is searched and saved as punycode.
+  await control("site-origin").fill("https://bücher.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("No vault item matches");
+  expect(client.findSiteAccounts).toHaveBeenLastCalledWith(
+    "https://xn--bcher-kva.example",
+    expect.anything(),
+  );
+  for (const [revision, spelling] of [
+    "HTTPS://Bank.Example",
+    "https://bank.example:443",
+  ].entries()) {
+    // oxlint-disable-next-line no-await-in-loop
+    await control("site-origin").fill(spelling);
+    // oxlint-disable-next-line no-await-in-loop
+    await expect.element(control("default-account-note")).toMatchTextContent("3 matching items");
+    // oxlint-disable-next-line no-await-in-loop
+    await control("add-default").click();
+    // oxlint-disable-next-line no-await-in-loop
+    await expect
+      .element(control("settings-status"))
+      .toMatchTextContent(`saved locally. Revision ${revision + 1}`);
+    expect(client.findSiteAccounts).toHaveBeenLastCalledWith(
+      "https://bank.example",
+      expect.anything(),
+    );
+    expect(client.saveSettings.mock.calls[revision]?.[0].settings.siteDefaults).toEqual([
+      expect.objectContaining({ origin: "https://bank.example", itemId: "primary" }),
+    ]);
+  }
+});
+
 test("an origin row changes its default only on Save, and No default removes it", async () => {
   const client = mockClient();
   const response = saved(1);
@@ -648,6 +785,126 @@ test("an edit made during a save that conflicts stays in the draft unsaved", asy
   const items = page.getByLabelText("Demo personal vault: Items for Pateat", { exact: true });
   await items.selectOptions("selected");
   await expect.element(items).toHaveValue("selected");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+});
+
+function conflict(
+  ...causes: NonNullable<Extract<SettingsResponse, { ok: false }>["error"]["causes"]>
+) {
+  return {
+    version: 1 as const,
+    ok: false as const,
+    error: {
+      code: "revision-conflict" as const,
+      message: "Synthetic newer revision exists.",
+      causes,
+    },
+  };
+}
+
+/** A newer revision whose recorded causes start at revision 1. */
+function written(
+  causes: NonNullable<
+    Extract<SettingsResponse, { ok: true }>["snapshot"]["changes"]
+  >[number]["cause"][],
+  hostname?: string,
+) {
+  const response = saved(causes.length, hostname);
+  response.snapshot.changes = causes.map((cause, index) => ({ revision: index + 1, cause }));
+  return response;
+}
+
+test("a save conflict after an automatic vault sync saves the edits again on the newer revision (ADR 0025)", async () => {
+  const client = mockClient();
+  const write = deferred<SettingsResponse>();
+  client.saveSettings.mockReturnValueOnce(write.promise);
+  await mount(client);
+  await addSite("pending.example");
+  // An edit made while the conflicting save runs is applied again too.
+  await addSite("later.example");
+  client.getSettings.mockResolvedValue(
+    written(["automatic-vault-sync", "account-choice"], "background.example"),
+  );
+  write.resolve(conflict("automatic-vault-sync"));
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
+  expect(client.saveSettings).toHaveBeenCalledTimes(2);
+  expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
+    expectedRevision: 2,
+    settings: {
+      excludedSites: [
+        { hostname: "background.example" },
+        { hostname: "pending.example" },
+        { hostname: "later.example" },
+      ],
+    },
+  });
+  await expect.element(control("site-list")).toMatchTextContent("background.example");
+});
+
+test("a save that conflicts again after the retry names the cause and keeps the draft", async () => {
+  const client = mockClient();
+  client.saveSettings
+    .mockResolvedValueOnce(conflict("account-choice"))
+    .mockResolvedValueOnce(conflict("automatic-vault-sync"));
+  await mount(client);
+  client.getSettings.mockResolvedValue(written(["account-choice", "account-choice"]));
+  await addSite("draft.example");
+  await expect
+    .element(control("settings-status"))
+    .toMatchTextContent(
+      "Saved settings changed before this save: a Bitwarden vault was synced automatically. Your unsaved draft has been preserved.",
+    );
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
+  expect(client.saveSettings).toHaveBeenCalledTimes(2);
+  expect(client.saveSettings.mock.calls[1]?.[0].expectedRevision).toBe(2);
+});
+
+test("a page that saved before the retry read the newer revision stops the retry", async () => {
+  const client = mockClient();
+  const write = deferred<SettingsResponse>();
+  client.saveSettings.mockReturnValueOnce(write.promise);
+  await mount(client);
+  await addSite("draft.example");
+  // The toolbar popup saves after the conflict was answered.
+  client.getSettings.mockResolvedValue(written(["automatic-vault-sync", "settings-save"]));
+  write.resolve(conflict("automatic-vault-sync"));
+  await expect
+    .element(control("settings-status"))
+    .toMatchTextContent(
+      "Saved settings changed before this save: a Bitwarden vault was synced automatically and settings were saved in another window or the toolbar popup.",
+    );
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+});
+
+test("a save conflict after another page saved names the causes without retrying", async () => {
+  const client = mockClient();
+  client.saveSettings.mockResolvedValueOnce(conflict("settings-save", "automatic-vault-sync"));
+  await mount(client);
+  await addSite("draft.example");
+  await expect
+    .element(control("settings-status"))
+    .toMatchTextContent(
+      "Saved settings changed before this save: settings were saved in another window or the toolbar popup and a Bitwarden vault was synced automatically. Your unsaved draft has been preserved.",
+    );
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+  expect(client.getSettings).toHaveBeenCalledTimes(1);
+});
+
+test("a save conflict with an unrecorded cause names each cause in one sentence", async () => {
+  const client = mockClient();
+  client.saveSettings.mockResolvedValueOnce(
+    conflict("unknown", "automatic-vault-sync", "service-sync"),
+  );
+  await mount(client);
+  await addSite("draft.example");
+  await expect
+    .element(control("settings-status"))
+    .toMatchTextContent(
+      /Saved settings changed before this save: settings changed for a reason no longer recorded, a Bitwarden vault was synced automatically,? and settings were merged with the Pateat sync service\./,
+    );
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
 });
 

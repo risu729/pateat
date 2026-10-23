@@ -219,6 +219,7 @@ export const loginOutcomeCauseSchema = v.picklist([
   "form-changed",
   "assert-failed",
   "unexpected-values",
+  "fields-shared",
   "fields-split",
   "secret-refused",
   "unsupported-input",

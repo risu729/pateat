@@ -25,7 +25,7 @@ import {
   Trash2,
   TriangleAlert,
 } from "lucide-react";
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode, type RefObject } from "react";
 import * as v from "valibot";
 import type { SetupBegin, SetupReply } from "../connections/types";
 import { providerPermissionOrigins } from "../connections/permissions";
@@ -51,6 +51,11 @@ type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verifi
 type EmailCode = "sending" | Extract<SetupReply, { kind: "email-code" }>["result"];
 /** Below Chrome's 30-second idle limit for an extension service worker. */
 const KEEP_ALIVE_MS = 20_000;
+/**
+ * The official browser extension's `ACCOUNT_LIMIT`. Pateat does not cap connections but
+ * warns past it, since each unlocked vault keeps its own Worker in memory.
+ */
+const BITWARDEN_ACCOUNT_LIMIT = 5;
 const emailCodeLines: Record<EmailCode, { tone: Tone; text: string }> = {
   sending: { tone: "idle", text: "Asking the server to email a verification code…" },
   sent: {
@@ -302,13 +307,17 @@ export function BitwardenSetup({
   const keepConnectionButton = useRef<HTMLButtonElement>(null);
   // Unset until toggled: the form starts open only while there is no connection.
   const [addOpen, setAddOpen] = useState<boolean>();
-  const focusPassword = useRef(false);
+  // A control to focus once it is shown and enabled, such as a field in a form just opened.
+  const focusNext = useRef<RefObject<HTMLElement | null>>(undefined);
+  const shownChallenge = useRef<Challenge>(undefined);
+  const deleting = useRef(false);
+  const wasBusy = useRef(false);
+  // A cancel ended the person's action, even when no operation was running.
+  const cancelled = useRef(false);
   const [provider, setProvider] = useState<0 | 1>(0);
   const [emailCode, setEmailCode] = useState<EmailCode>();
   // The sign-in whose email code was already asked for once without a click.
   const emailFlow = useRef<string>(undefined);
-  // Disabling the form for a send drops focus from the method select; return it to the code.
-  const focusCode = useRef(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(true);
   const [statusKnown, setStatusKnown] = useState(false);
@@ -333,6 +342,8 @@ export function BitwardenSetup({
   draft.current = { name, email };
   const passwordInput = useRef<HTMLInputElement>(null);
   const codeInput = useRef<HTMLInputElement>(null);
+  const regionSelect = useRef<HTMLSelectElement>(null);
+  const statusOutput = useRef<HTMLOutputElement>(null);
   const catalogChanged = useRef(onCatalogChanged);
   catalogChanged.current = onCatalogChanged;
   function clearSecrets() {
@@ -448,7 +459,7 @@ export function BitwardenSetup({
       setRefused(again);
       if (again) {
         // The same sign-in waits for another code: the method and the sent email stay.
-        focusCode.current = true;
+        focusNext.current = codeInput;
         say("The code was not accepted.");
       } else if (result.kind === "mfa-required") {
         // Ascending IDs put the authenticator before email, as the official clients rank them.
@@ -531,7 +542,7 @@ export function BitwardenSetup({
     const environment: BitwardenProfile["environment"] =
       existing?.environment ??
       (region === "self-hosted"
-        ? { kind: "self-hosted", baseUrl }
+        ? { kind: "self-hosted", baseUrl: baseUrl.trim() }
         : { kind: "cloud", region: region === "eu" ? "eu" : "us" });
     const profile = normalizeBitwardenProfile({ connectionId: "setup-preview", environment });
     if (!profile.ok || (!existing && (!name.trim() || !v.is(bitwardenEmail, email))) || !password) {
@@ -577,11 +588,13 @@ export function BitwardenSetup({
     });
   }
   function continueSetup() {
-    if (!challenge || !code || operation.current) return;
+    // As the official clients, only the ends are trimmed, so a pasted code keeps its digits.
+    const value = code.trim();
+    if (!challenge || !value || operation.current) return;
     const input =
       challenge.kind === "mfa-required"
-        ? { flowId: challenge.flowId, twoFactor: { provider, code } }
-        : { flowId: challenge.flowId, newDeviceOtp: code };
+        ? { flowId: challenge.flowId, twoFactor: { provider, code: value } }
+        : { flowId: challenge.flowId, newDeviceOtp: value };
     clearSecrets();
     start(async (epoch) => {
       await receive(await client.continue(input), epoch, adding.current);
@@ -592,7 +605,9 @@ export function BitwardenSetup({
     // A new code is on its way; the refused one no longer matters.
     setRefused(false);
     setEmailCode("sending");
-    focusCode.current = true;
+    // Disabling the form for a send drops focus from the method select or Resend code;
+    // return it to the code.
+    focusNext.current = codeInput;
     start(async (epoch) => {
       const result = await client.sendEmailCode(flowId);
       if (epoch !== generation.current) return;
@@ -653,12 +668,8 @@ export function BitwardenSetup({
       document.removeEventListener("visibilitychange", shown);
     };
   }, [challenge]);
-  useEffect(() => {
-    if (!focusCode.current || busy) return;
-    focusCode.current = false;
-    codeInput.current?.focus();
-  });
   function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
+    cancelled.current = true;
     clearSecrets();
     setExisting(undefined);
     setEnded(undefined);
@@ -721,7 +732,7 @@ export function BitwardenSetup({
     setEnableUnlock(unfinished);
     if (explain) setEnded(undefined);
     setAddOpen(true);
-    focusPassword.current = true;
+    focusNext.current = passwordInput;
     if (!explain) return;
     say(
       unfinished
@@ -729,17 +740,43 @@ export function BitwardenSetup({
         : "Enter the master password to sign in again. Automatic unlock stays unchanged unless explicitly enabled.",
     );
   }
-  // The sign-in form may only now be open, or still disabled by the operation that opened it;
-  // focus its password once it is shown and enabled.
   useEffect(() => {
-    if (!focusPassword.current || busy) return;
-    focusPassword.current = false;
-    passwordInput.current?.focus();
+    // The first load is not the person's operation and must not take focus.
+    const finished = (wasBusy.current && !busy) || cancelled.current;
+    wasBusy.current = busy && statusKnown;
+    cancelled.current = false;
+    const focused = document.activeElement;
+    // Focus the person moved out of the panel, such as into another settings field while
+    // a sign-in ran, stays there.
+    const lost = !focused || focused === document.body || focused.matches(":disabled");
+    if (challenge !== shownChallenge.current) {
+      shownChallenge.current = challenge;
+      // A new or repeated challenge asks for a code. When it ends, its removed controls
+      // leave focus on the page; the status then says how it ended, unless the end opened
+      // another control to fill, such as the master password to finish a first sign-in.
+      if (challenge) focusNext.current = codeInput;
+      else if (focusNext.current === codeInput) focusNext.current = undefined;
+      if (!challenge && !focusNext.current && (!focused || focused === document.body))
+        statusOutput.current?.focus({ preventScroll: true });
+    }
+    // The control may only now be shown, or still disabled while an operation finishes. An
+    // operation started in this render, such as the email send choosing email starts, has
+    // not disabled it yet.
+    const target = focusNext.current?.current;
+    if (target?.isConnected && !target.matches(":disabled") && !operation.current) {
+      focusNext.current = undefined;
+      if (lost || focused.closest("#bitwarden")) target.focus();
+      return;
+    }
+    // A control the result removed or disabled, such as Cancel setup with nothing left to
+    // cancel, leaves focus on the page; the status says what happened.
+    if (finished && !focusNext.current && lost)
+      statusOutput.current?.focus({ preventScroll: true });
   });
   const previewEnvironment: BitwardenProfile["environment"] =
     existing?.environment ??
     (region === "self-hosted"
-      ? { kind: "self-hosted", baseUrl }
+      ? { kind: "self-hosted", baseUrl: baseUrl.trim() }
       : { kind: "cloud", region: region === "eu" ? "eu" : "us" });
   const origins = providerPermissionOrigins(previewEnvironment);
   const formOpen = addOpen ?? !connections.length;
@@ -772,6 +809,7 @@ export function BitwardenSetup({
             variant="ghost"
             aria-label={t("Refresh connections")}
             disabled={busy || !!challenge}
+            focusableWhenDisabled={busy}
             onClick={() =>
               start(async (epoch) => {
                 await readConnections(epoch);
@@ -787,6 +825,8 @@ export function BitwardenSetup({
     >
       <output
         id="bitwarden-setup-status"
+        ref={statusOutput}
+        tabIndex={-1}
         className="settings-status block text-sm leading-5"
         aria-live="polite"
         aria-atomic="true"
@@ -819,6 +859,7 @@ export function BitwardenSetup({
                     type="button"
                     variant="outline"
                     disabled={blocked}
+                    focusableWhenDisabled={busy}
                     aria-label={t("{{name}}: {{action}}", {
                       name: connection.label,
                       action: t(signInFirst ? "Sign in again" : "Sync"),
@@ -926,6 +967,19 @@ export function BitwardenSetup({
           );
         })}
       </RowList>
+      {connections.length > BITWARDEN_ACCOUNT_LIMIT && (
+        <StatusLines
+          lines={[
+            {
+              tone: "warn",
+              icon: TriangleAlert,
+              text: t(
+                "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.",
+              ),
+            },
+          ]}
+        />
+      )}
       <AlertDialog.Root
         handle={deleteDialog}
         onOpenChange={(open, details) => {
@@ -941,7 +995,14 @@ export function BitwardenSetup({
             <AlertDialog.Popup
               className="fixed top-1/2 left-1/2 max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-surface p-6 text-ink shadow-[var(--shadow-menu)] outline-none transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0"
               initialFocus={keepConnectionButton}
-              finalFocus={() => (payload && menuTriggers.current.get(payload.connectionId)) ?? true}
+              finalFocus={() => {
+                // Deleting removes the row's menu; the status reports the outcome either way.
+                if (deleting.current) {
+                  deleting.current = false;
+                  return statusOutput.current ?? true;
+                }
+                return (payload && menuTriggers.current.get(payload.connectionId)) ?? true;
+              }}
             >
               <AlertDialog.Title className="m-0 text-lg font-semibold wrap-anywhere">
                 {t("Delete {{name}}?", { name: payload?.label })}
@@ -967,6 +1028,7 @@ export function BitwardenSetup({
                   onClick={() => {
                     // Close retains these buttons during its exit animation.
                     if (!deleteDialog.isOpen || !payload) return;
+                    deleting.current = true;
                     start(async (epoch) => {
                       await receive(await client.deleteConnection(payload.connectionId), epoch);
                     });
@@ -1159,8 +1221,11 @@ export function BitwardenSetup({
             <Button
               id="bitwarden-continue"
               type="button"
+              focusableWhenDisabled={busy}
               disabled={
-                busy || !code || (challenge.kind === "mfa-required" && !challenge.providers.length)
+                busy ||
+                !code.trim() ||
+                (challenge.kind === "mfa-required" && !challenge.providers.length)
               }
               onClick={continueSetup}
             >
@@ -1209,6 +1274,7 @@ export function BitwardenSetup({
                     {t("Server")}
                     <select
                       id="bitwarden-region"
+                      ref={regionSelect}
                       className={controlClass}
                       value={region}
                       onChange={(event) => setRegion(event.target.value)}
@@ -1302,6 +1368,18 @@ export function BitwardenSetup({
             <StatusLines
               muted
               lines={[
+                // Past the limit, the same warning already stands under the list.
+                ...(!existing && connections.length === BITWARDEN_ACCOUNT_LIMIT
+                  ? [
+                      {
+                        tone: "warn" as const,
+                        icon: TriangleAlert,
+                        text: t(
+                          "More than 5 connections. The official Bitwarden extension allows up to 5 accounts, and each unlocked vault uses more memory.",
+                        ),
+                      },
+                    ]
+                  : []),
                 {
                   tone: "idle",
                   icon: Lock,
@@ -1326,7 +1404,13 @@ export function BitwardenSetup({
             />
           </fieldset>
           <div className="flex flex-wrap gap-2">
-            <Button id="bitwarden-connect" type="button" disabled={busy} onClick={connect}>
+            <Button
+              id="bitwarden-connect"
+              type="button"
+              disabled={busy}
+              focusableWhenDisabled={busy}
+              onClick={connect}
+            >
               {t(existing ? "Sign in and sync" : "Connect Bitwarden")}
             </Button>
             {existing && (
@@ -1339,6 +1423,8 @@ export function BitwardenSetup({
                   clearSecrets();
                   setExisting(undefined);
                   setEnded(undefined);
+                  // This button leaves with the sign-in form; continue in the new one.
+                  focusNext.current = regionSelect;
                 }}
               >
                 {t("Add another connection")}

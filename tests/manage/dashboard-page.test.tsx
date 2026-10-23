@@ -27,6 +27,9 @@ function mockClient() {
     deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
     models: vi.fn<ManageClient["models"]>(),
     saveModels: vi.fn<ManageClient["saveModels"]>(),
+    claude: vi.fn<ManageClient["claude"]>(),
+    saveClaude: vi.fn<ManageClient["saveClaude"]>(),
+    testClaude: vi.fn<ManageClient["testClaude"]>(),
   } satisfies ManageClient;
 }
 

@@ -101,6 +101,7 @@ import {
   type SavedLoginBinding,
   type SemanticSlot,
   type SettingsResponse,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type ValueShape,
   type VaultCatalog,
@@ -422,6 +423,7 @@ type SettingsRuntime = {
   /** Trusted background mutation; saves an automatic account choice after confirmed `authenticated`. */
   update?(
     expectedRevision: number | undefined,
+    cause: SettingsChangeCause,
     mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
   ): Promise<SettingsSnapshot>;
 };
@@ -3171,7 +3173,7 @@ export function createLoginRuntime(
       }
       writing = true;
       const written = await settings
-        .update(run.metadata.policyRevision, (snapshot) => ({
+        .update(run.metadata.policyRevision, "account-choice", (snapshot) => ({
           ...snapshot,
           settings: withChoice(snapshot.settings, choice),
         }))
@@ -5753,8 +5755,10 @@ export function createLoginRuntime(
       );
       // The content script's refusal, such as `no-locator` or `extract-error`, as for a
       // first page; `extract-failed` for an answer that fails its check or never came.
-      if (extracted.success && !extracted.output.ok) missing = extracted.output.reason;
-      else if (extracted.success && extracted.output.ok) {
+      if (extracted.success && !extracted.output.ok) {
+        missing = extracted.output.reason;
+        if (extracted.output.detail) detail = logCode(extracted.output.detail);
+      } else if (extracted.success && extracted.output.ok) {
         const accepted = acceptedObservation(extracted.output, {
           origin: run.live.document.origin,
           path: observed.path,
@@ -7601,7 +7605,10 @@ export function createLoginRuntime(
         let unsent =
           extracted.success && !extracted.output.ok ? extracted.output.reason : "extract-failed";
         // Why a described page is not sent, for the log (ADR 0019).
-        let detail: string | undefined;
+        let detail: string | undefined =
+          extracted.success && !extracted.output.ok && extracted.output.detail
+            ? logCode(extracted.output.detail)
+            : undefined;
         if (extracted.success && extracted.output.ok) {
           // An incomplete observation is not sent (ADR 0016). A list is sent as one, and
           // only a page announced as one is.
