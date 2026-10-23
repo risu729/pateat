@@ -143,7 +143,7 @@ const ignoredTypes = new Set(["hidden", "reset"]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
 /** Every element `describe` may accept, script buttons included. */
-const observed = "input, select, textarea, button, a[href], a[onclick], [role]";
+const observed = "input, select, textarea, button, a, [role]";
 /** Fillable inputs only; consent banners in shadow roots often hold checkboxes. */
 const shadowFields = Object.keys(fillTypes)
   .map((type) => `input[type='${type}' i]`)
