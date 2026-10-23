@@ -6,6 +6,7 @@ import {
   manageRequestLogSchema,
   type DevicePairResult,
   type LoginRecipeDocument,
+  type PageKind,
 } from "@pateat/contracts";
 import { env } from "cloudflare:workers";
 import * as v from "valibot";
@@ -561,17 +562,19 @@ describe("owner web UI recipes", () => {
     id: string,
     revision: number,
     origin = "https://bank.example",
-    layouts: { key: string; createdAt: number }[] = [{ key: "1000", createdAt: 1000 }],
+    layouts: { key: string; createdAt: number; pageKind?: PageKind }[] = [
+      { key: "1000", createdAt: 1000 },
+    ],
   ): LoginRecipeDocument {
     return {
       version: 1,
       id,
       revision,
       origin,
-      layouts: layouts.map(({ key, createdAt }) => ({
+      layouts: layouts.map(({ key, createdAt, pageKind = "sign-in" }) => ({
         key,
         createdAt,
-        pageKind: "sign-in",
+        pageKind,
         slots: ["username", "password"],
         steps: [
           {
@@ -928,6 +931,35 @@ describe("owner web UI recipes", () => {
       .bind(await ownerIdFor(by.subject))
       .all();
     expect(rows.results).toEqual([{ revision: 2, created_by_device_id: null }]);
+  });
+
+  it("keeps an idle layout generated as a verification, which never runs (ADR 0035, ADR 0060)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    const now = Date.now();
+    const old = now - 91 * 24 * 60 * 60 * 1000;
+    const layouts = [
+      { key: "1000", createdAt: old, pageKind: "confirm" as const },
+      { key: "2000", createdAt: old },
+      { key: "3000", createdAt: now },
+    ];
+    const stored = recipe("bank-signin", 1, "https://bank.example", layouts);
+    const written = await deviceApi(device.credential, "/v1/recipes/bank-signin", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, expectedRevision: 0, state: "active", recipe: stored }),
+    });
+    expect(written.status).toBe(200);
+    // Only the idle sign-in layout goes; the recipe itself is never revoked as idle.
+    const { recipes } = await list(by);
+    expect(recipes.map((entry) => entry.change)).toEqual([
+      {
+        recipeId: "bank-signin",
+        revision: 2,
+        state: "active",
+        recipe: { ...stored, revision: 2, layouts: [stored.layouts[0], stored.layouts[2]] },
+      },
+    ]);
   });
 
   it("refuses other methods on the recipes API", async () => {

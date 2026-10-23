@@ -1,8 +1,8 @@
 # ADR 0060: A recipe holds up to three layouts of its sign-in pages
 
-Status: proposed by Claude on 2026-10-23 and accepted by the owner on 2026-10-23 at 11:41
-UTC, who approved recipe layouts as proposed (the recommended option, case B, of the
-recipe-schema proposal), including keeping the layouts in the recipe document and
+Status: proposed by Claude on 2026-10-23 and accepted by the owner on 2026-10-23 at
+11:41 UTC, who approved recipe layouts as proposed (the recommended option, case B, of
+the recipe-schema proposal), including keeping the layouts in the recipe document and
 discarding existing recipes. Chooser layouts are part of the decision. The owner's
 wording is not quoted here; the notes under [Later](#later) record two further wishes,
 not decided by this ADR. Implemented on `claude/review-issue-prs-j7hli2` (local tests
@@ -36,10 +36,11 @@ accounts in another language fails the same way.
   generated from, left out when the page was `mixed`.
 - Each layout keeps the kind of its start page (`pageKind`,
   [ADR 0035](0035-page-kinds-per-site.md)), which ADR 0035 put on the recipe: only a
-  `sign-in` layout is chosen for a login or counts as a logout, and a layout generated as
-  `confirm` or `unclear` never reports use, so it is never removed as idle and its recipe
-  is never revoked as idle. A chooser branch's route is `sign-in`, as in ADR 0035. (Added
-  when ADR 0035's first delivery was merged in; not confirmed by the owner.)
+  `sign-in` layout is chosen for a login or counts as a logout, and a layout generated
+  as `confirm` or `unclear` never reports use, so it is never removed as idle and its
+  recipe is never revoked as idle. A chooser branch's route is `sign-in`, as in ADR
+  0035. (Added when ADR 0035's first delivery was merged in; not confirmed by the
+  owner.)
 - The key never changes and is the decimal creation time, made unique within the
   document. Every record refers to a layout by its key, never by its place in the array,
   which removals shift.
@@ -148,10 +149,10 @@ rewrite of ADR 0041. The repair work builds on this ADR.
 
 Recorded on 2026-10-23 from the owner; neither is designed or decided here:
 
-- The owner wants layouts from trusted users to be mergeable into a canonical recipe kept
-  by the server later, once several users share recipes.
-- Generation provenance (which generation made each layout) is being added in the same PR
-  as this ADR's implementation; its details are recorded with that change.
+- The owner wants layouts from trusted users to be mergeable into a canonical recipe
+  kept by the server later, once several users share recipes.
+- Generation provenance (which generation made each layout) is being added in the same
+  PR as this ADR's implementation; its details are recorded with that change.
 
 ## Consequences
 

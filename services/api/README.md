@@ -226,10 +226,10 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
 
 - `POST /v1/recipes/generate` takes
   `{ version: 1, observation, slots, base?, branch?, signedIn? }`. Each origin and start
-  path has one generated recipe, `gen-` and the first 32 hex digits of the SHA-256 of the JSON
-  `[origin, path]`; a page without `base` is the start of its own. The recipe holds up
-  to three layouts ([ADR 0060](../../docs/adr/0060-recipe-layouts.md)); a
-  first page writes one, keyed by its creation time and marked with the page's language.
+  path has one generated recipe, `gen-` and the first 32 hex digits of the SHA-256 of
+  the JSON `[origin, path]`; a page without `base` is the start of its own. The recipe
+  holds up to three layouts ([ADR 0060](../../docs/adr/0060-recipe-layouts.md)); a first
+  page writes one, keyed by its creation time and marked with the page's language.
   `base` and `branch` go together: `branch` names the layout continued (`<key>`, or
   `<key>:account` / `<key>:other` for a chooser's branch), and a branch the stored
   recipe does not have answers `recipe-conflict`. Without `base`, an active recipe is
@@ -285,9 +285,9 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   page. Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and
   `irreversible` (`yes`, `no` or `unclear`, for evaluation only). Each layout stores its
   first page's `pageKind` (ADR 0060): a continuation keeps the layout's, and a chooser
-  branch's pages are `sign-in` whatever the model answers. `irreversible` is never stored
-  on a recipe. A recipe stored without `pageKind` no longer validates, so it reads as
-  revoked and its page is generated again rather than taken as `sign-in`.
+  branch's pages are `sign-in` whatever the model answers. `irreversible` is never
+  stored on a recipe. A recipe stored without `pageKind` no longer validates, so it
+  reads as revoked and its page is generated again rather than taken as `sign-in`.
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and

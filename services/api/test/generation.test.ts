@@ -4589,8 +4589,10 @@ describe("account lists and chooser branches (ADR 0028)", () => {
     );
     if (answer.status !== "recipe" || !("chooser" in answer.change.recipe))
       throw new Error(answer.status);
-    // The chooser layout's branch keeps it (ADR 0060).
-    expect(answer.change.recipe.chooser.layouts[0]!.afterOther?.pageKind).toBe("sign-in");
+    // The chooser layout's branch keeps it (ADR 0060); the answer is that layout projected.
+    expect(answer.change.recipe).toMatchObject({
+      chooser: { afterOther: { pageKind: "sign-in" } },
+    });
     // The log keeps what the model answered.
     expect(
       await rows(

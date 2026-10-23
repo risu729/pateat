@@ -1568,7 +1568,11 @@ describe("unused recipe revocation (ADR 0058)", () => {
         version: 1,
         expectedRevision: 0,
         state: "active",
-        recipe: { ...recipe(id, 1), pageKind },
+        // The layout keeps the page kind (ADR 0060).
+        recipe: {
+          ...recipe(id, 1),
+          layouts: recipe(id, 1).layouts.map((layout) => ({ ...layout, pageKind })),
+        },
       });
       expect(written.status).toBe(200);
     }

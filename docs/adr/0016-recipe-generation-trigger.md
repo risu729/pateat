@@ -51,11 +51,11 @@ implemented): a page whose recipe the chosen item cannot run is generated again,
 recipe revoked first, though a recipe starts there.
 
 Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the owner on
-2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe holds up to three layouts, a
-continuation and a page judgement name the layout they continue or judge in `branch`,
-and generated pages, judged pages and the signed-in page sample of the ADR 0029
-amendment are kept per layout. A page where any layout's first step shows is a page
-where a recipe starts.
+2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe holds up
+to three layouts, a continuation and a page judgement name the layout they continue or
+judge in `branch`, and generated pages, judged pages and the signed-in page sample of
+the ADR 0029 amendment are kept per layout. A page where any layout's first step shows
+is a page where a recipe starts.
 
 Date: 2026-10-11
 

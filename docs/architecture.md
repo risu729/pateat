@@ -2086,8 +2086,9 @@ that way once stored.
 ### Recipe layouts
 
 Status: accepted by the owner on 2026-10-23 at 11:41 UTC
-([ADR 0060](adr/0060-recipe-layouts.md)). Implemented and tested locally on a branch, not deployed and not tried on real sites.
-Repair, which would add a layout when none shows, is not implemented.
+([ADR 0060](adr/0060-recipe-layouts.md)). Implemented and tested locally on a branch,
+not deployed and not tried on real sites. Repair, which would add a layout when none
+shows, is not implemented.
 
 A stored login recipe holds one to three layouts under `layouts`, each the steps,
 routes, handlers and markers of one version of its sign-in pages, with a fixed `key`
