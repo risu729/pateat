@@ -10,6 +10,7 @@ import {
   loginDisplayNames,
   loginRecipesForOrigin,
   resolveBindingFields,
+  resolveDetailSourceField,
   saveLoginChoice,
   selectLoginRecipe,
   templateLoginBinding,
@@ -872,6 +873,38 @@ describe("saved bindings with gaps (ADR 0027, amended 2026-10-19)", () => {
       ok: false,
       reason: "binding-slots-mismatch",
     });
+  });
+});
+
+describe("a linked detail's source field (ADR 0061)", () => {
+  const itemFields: LocalItemField[] = [
+    { id: "identity.phone", name: null },
+    { id: "custom.snapshot.0", name: "生年月日" },
+    { id: "custom.snapshot.1", name: "Birthday" },
+    { id: "custom.snapshot.3", name: "Birthday" },
+  ];
+
+  it("keeps a built-in field the item has", () => {
+    expect(resolveDetailSourceField("identity.phone", itemFields)).toBe("identity.phone");
+    expect(resolveDetailSourceField("card.code", itemFields)).toBeUndefined();
+    expect(resolveDetailSourceField("card.number", [{ id: "card.number", name: null }])).toBe(
+      "card.number",
+    );
+  });
+
+  it("resolves a custom field by its name, as a binding reference does", () => {
+    expect(resolveDetailSourceField({ custom: "生年月日" }, itemFields)).toBe("custom.snapshot.0");
+    expect(
+      resolveDetailSourceField({ custom: "Birthday", position: 2, count: 2 }, itemFields),
+    ).toBe("custom.snapshot.3");
+  });
+
+  it("resolves no custom field that is missing, ambiguous or counted differently", () => {
+    expect(resolveDetailSourceField({ custom: "Phone" }, itemFields)).toBeUndefined();
+    expect(resolveDetailSourceField({ custom: "Birthday" }, itemFields)).toBeUndefined();
+    expect(
+      resolveDetailSourceField({ custom: "Birthday", position: 1, count: 3 }, itemFields),
+    ).toBeUndefined();
   });
 });
 
