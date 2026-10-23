@@ -5798,7 +5798,6 @@ export function createLoginRuntime(
         entry.handler.kind === "detail" &&
         !run.metadata.handlers.some((entered) => entered.index === entry.index)
       )
-        // eslint-disable-next-line no-await-in-loop
         detailPicks.set(entry.index, await detailInput(run, entry.handler));
     if (!current(run)) return true;
     // A `password` handler goes first; refused, as when its button shows again after its
