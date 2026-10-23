@@ -239,7 +239,8 @@ async function generate(device: Device, page: LoginObservation, base?: unknown) 
   const response = await post(device, "/v1/recipes/generate", {
     version: 1,
     observation: page,
-    slots,
+    // A list of accounts is sent without slots (ADR 0028, owner 2026-10-23 11:48 UTC).
+    slots: page.accounts === undefined ? slots : [],
     // A first page that lists no accounts carries the signedIn hint (ADR 0035).
     ...(base === undefined ? (page.accounts === undefined ? { signedIn: false } : {}) : { base }),
   });
@@ -1917,7 +1918,8 @@ describe("custom-field slots (ADR 0027)", () => {
     const response = await post(device, "/v1/recipes/generate", {
       version: 1,
       observation: page,
-      slots: customSlots,
+      // A list of accounts is sent without slots (owner 2026-10-23 11:48 UTC).
+      slots: page.accounts ? [] : customSlots,
       ...(base === undefined ? (page.accounts ? {} : { signedIn: false }) : { base }),
     });
     expect(response.status).toBe(200);
@@ -2181,7 +2183,8 @@ describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", ()
     const response = await post(device, "/v1/recipes/generate", {
       version: 1,
       observation: page,
-      slots: customSlots,
+      // A list of accounts is sent without slots (owner 2026-10-23 11:48 UTC).
+      slots: page.accounts ? [] : customSlots,
       ...(base === undefined ? (page.accounts ? {} : { signedIn: false }) : { base }),
       ...(branchName === undefined ? {} : { branch: branchName }),
     });
@@ -4645,6 +4648,9 @@ describe("account lists and chooser branches (ADR 0028)", () => {
     expect(JSON.parse(String(logged!["request"]))).toMatchObject({
       instructions: accountListGenerationInstructions,
     });
+    // It goes to the model, and to the log, without slots (owner 2026-10-23 11:48 UTC).
+    expect(JSON.stringify(sent[0]!.body)).toContain(String.raw`\"slots\":[]`);
+    expect(JSON.parse(String(logged!["request"]))).toMatchObject({ slots: [] });
     expect(await accountListGenerationPromptVersion()).not.toBe(await generationPromptVersion());
     expect(
       await rows(
@@ -5657,9 +5663,26 @@ describe("requests answered without a model call (ADR 0012)", () => {
       {
         version: 1,
         observation: { ...emailPage, accounts: ["[email]"] },
-        slots,
+        slots: [],
         signedIn: true,
       },
+      // A list of accounts carries no slot or value shape (owner 2026-10-23 11:48 UTC).
+      ...[
+        slots,
+        [
+          {
+            id: "username",
+            kind: "identifier",
+            description: "account username",
+            valueShape: { length: 8, classes: ["ascii-letter"], email: false },
+          },
+        ],
+        [{ id: "custom-1", kind: "identifier", description: "vault field", fieldName: "Branch" }],
+      ].map((offered) => ({
+        version: 1,
+        observation: { ...emailPage, accounts: ["[email]"] },
+        slots: offered,
+      })),
     ])
       // oxlint-disable-next-line no-await-in-loop -- Each body is refused on its own.
       expect((await post(device, "/v1/recipes/generate", body)).status).toBe(400);
