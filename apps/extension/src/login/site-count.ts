@@ -5,7 +5,7 @@
 // name or a value.
 import {
   getItemEligibility,
-  isSiteExcluded,
+  siteAccess,
   type SettingsChangeCause,
   type SettingsSnapshot,
   type VaultCatalog,
@@ -36,7 +36,8 @@ export const STOPPED_RETRY_MS = [1000, 2000, 4000, 8000, 16_000, 32_000] as cons
  */
 export type UncheckedReason = "locked" | "not-opened" | "unreadable" | "updating" | "busy";
 /** Why some or all of the matching items are not usable. */
-export type ExcludedReason = "site" | "items" | "review" | "items-review";
+/** `not-allowed`: the allowed sites are on and leave the site out (ADR 0077). */
+export type ExcludedReason = "site" | "not-allowed" | "items" | "review" | "items-review";
 export type SiteCount = {
   /** Items a login on the origin may use; the popup lists the same ones. */
   usable: number;
@@ -245,7 +246,8 @@ export async function countSite(
   step: CountStep,
 ): Promise<SiteCountState | undefined> {
   const { settings } = scope.snapshot;
-  const siteExcluded = isSiteExcluded(settings, origin);
+  const access = siteAccess(settings, origin);
+  const siteExcluded = access !== "allowed";
   let usable = 0;
   let matching = 0;
   let unevaluated = 0;
@@ -332,7 +334,9 @@ export async function countSite(
     usable === matching
       ? undefined
       : siteExcluded
-        ? "site"
+        ? access === "not-allowed"
+          ? "not-allowed"
+          : "site"
         : reasons.size > 1
           ? "items-review"
           : reasons.has("review")
@@ -348,7 +352,7 @@ const countSchema = v.object({
   usable: v.pipe(v.number(), v.integer(), v.minValue(0)),
   matching: v.pipe(v.number(), v.integer(), v.minValue(0)),
   unevaluated: v.pipe(v.number(), v.integer(), v.minValue(0)),
-  excluded: v.exactOptional(v.picklist(["site", "items", "review", "items-review"])),
+  excluded: v.exactOptional(v.picklist(["site", "not-allowed", "items", "review", "items-review"])),
 });
 const storedSchema = v.object({
   origins: v.array(v.tuple([v.string(), v.string(), countSchema])),

@@ -86,6 +86,13 @@ describe("host policy and URL validation", () => {
       parseLocalSettings({
         ...saved,
         repromptSites: [
+          { hostname: "bank.example", includeSubdomains: false },
+          { hostname: "bank.example", includeSubdomains: true },
+        ],
+      }),
+    ).toThrow();
+  });
+
   it("limits Pateat to the allowed sites only while they are on, and exclusions still win", () => {
     const settings = withDefault();
     settings.allowedSites = [

@@ -90,6 +90,8 @@ type Replacement = {
   label: string;
   profile: { id: string; name: string };
   exclusions: number;
+  allowed: number;
+  reprompt: number;
   defaults: number;
 };
 
@@ -263,9 +265,15 @@ export function ServiceConnection({
       // Unreadable local settings still warn: they may hold entries.
       const settings = local?.ok ? local.snapshot.settings : undefined;
       const exclusions = settings ? settings.excludedSites.length : -1;
+      const allowed = settings ? (settings.allowedSites?.length ?? 0) : -1;
+      const reprompt = settings ? settings.repromptSites.length : -1;
       const defaults = settings ? settings.siteDefaults.length : -1;
-      if (exclusions !== 0 || defaults !== 0) {
-        setReplacement({ origin, label: name, profile, exclusions, defaults });
+      // Allowed sites that are on but empty are a setting too: Pateat runs nowhere (ADR 0077).
+      if (
+        [exclusions, allowed, reprompt, defaults].some((count) => count !== 0) ||
+        settings?.allowedSitesEnabled
+      ) {
+        setReplacement({ origin, label: name, profile, exclusions, allowed, reprompt, defaults });
         return;
       }
     }
@@ -462,7 +470,7 @@ export function ServiceConnection({
               <legend className="mb-1.5 p-0 text-sm font-semibold">{t("Settings profile")}</legend>
               <p id="sync-service-profile-hint" className="m-0 text-sm text-ink-muted">
                 {t(
-                  "A profile holds site exclusions, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.",
+                  "A profile holds site exclusions, allowed sites, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.",
                 )}
               </p>
               {profiles.map((profile) => (
@@ -527,14 +535,16 @@ export function ServiceConnection({
               <p id="sync-service-replace-detail" className="m-0">
                 {replacement.exclusions < 0
                   ? t(
-                      "This device's site exclusions, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.",
+                      "This device's site exclusions, allowed sites, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.",
                       { profile: replacement.profile.name },
                     )
                   : t(
-                      "This device's site exclusions ({{exclusions}}) and saved accounts ({{defaults}}) are removed and {{profile}}'s are used instead. Account bindings are kept.",
+                      "This device's site exclusions ({{exclusions}}), allowed sites ({{allowed}}), sites that ask for the master password ({{reprompt}}) and saved accounts ({{defaults}}) are removed and {{profile}}'s are used instead. Account bindings are kept.",
                       {
                         profile: replacement.profile.name,
                         exclusions: replacement.exclusions,
+                        allowed: replacement.allowed,
+                        reprompt: replacement.reprompt,
                         defaults: replacement.defaults,
                       },
                     )}{" "}
@@ -607,7 +617,7 @@ export function ServiceConnection({
                 tone: "idle",
                 icon: Lock,
                 text: t(
-                  "Syncs recipes, site exclusions, default accounts and account bindings. Never sends vault values, passwords or keys.",
+                  "Syncs recipes, site exclusions, allowed sites, default accounts and account bindings. Never sends vault values, passwords or keys.",
                 ),
               },
             ]}

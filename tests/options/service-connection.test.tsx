@@ -508,13 +508,19 @@ const profileRequired: ServiceResponse = {
   ],
 };
 /** Local settings holding two site exclusions and one saved account. */
-function localSettings(excludedSites = 2, siteDefaults = 1) {
+function localSettings(
+  excludedSites = 2,
+  siteDefaults = 1,
+  allowed: { allowedSites?: unknown[]; allowedSitesEnabled?: boolean } = {},
+) {
   const settings = {
+    ...allowed,
     connections: [],
     excludedSites: Array.from({ length: excludedSites }, (_, index) => ({
       hostname: `site-${index}.example`,
       includeSubdomains: false,
     })),
+    repromptSites: [],
     siteDefaults: Array.from({ length: siteDefaults }, () => ({})),
     bindings: [],
   };
@@ -548,7 +554,7 @@ test("asks which profile to use before pairing an owner's further device", async
   await expect
     .element(page.getByRole("group", { name: "Settings profile", exact: true }))
     .toHaveAccessibleDescription(
-      "A profile holds site exclusions, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile. Choose a profile for this device.",
+      "A profile holds site exclusions, allowed sites, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile. Choose a profile for this device.",
     );
   await expect
     .element(page.getByRole("radio", { name: "Local browser", exact: true }))
@@ -578,7 +584,7 @@ test("warns before an existing profile replaces this device's site settings", as
   await expect
     .element(warning)
     .toHaveAccessibleDescription(
-      "This device's site exclusions (2) and saved accounts (1) are removed and Local browser's are used instead. Account bindings are kept. To keep them, create a new profile from this device instead.",
+      "This device's site exclusions (2), allowed sites (0), sites that ask for the master password (0) and saved accounts (1) are removed and Local browser's are used instead. Account bindings are kept. To keep them, create a new profile from this device instead.",
     );
   expect(client.pair).toHaveBeenCalledOnce();
   await warning.getByRole("button", { name: "Back", exact: true }).click();
@@ -593,6 +599,36 @@ test("warns before an existing profile replaces this device's site settings", as
   await warning.getByRole("button", { name: "Pair and replace", exact: true }).click();
   expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", { profileId: LOCAL_PROFILE });
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+});
+
+// Allowed sites alone are worth a warning, and so is the switch with an empty list.
+test.each([
+  { allowedSites: [{ hostname: "bank.example", includeSubdomains: false }] },
+  { allowedSites: [], allowedSitesEnabled: true },
+])("warns before an existing profile replaces this device's allowed sites %o", async (allowed) => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(profileRequired);
+  await render(
+    <ServiceConnection
+      client={client}
+      pollMs={60_000}
+      settingsClient={localSettings(0, 0, allowed)}
+    />,
+  );
+  await submitPair();
+  await page.getByRole("radio", { name: "Local browser", exact: true }).click();
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await expect
+    .element(
+      page.getByRole("group", {
+        name: "Replace this device's site settings with Local browser's?",
+        exact: true,
+      }),
+    )
+    .toHaveAccessibleDescription(
+      `This device's site exclusions (0), allowed sites (${allowed.allowedSites.length}), sites that ask for the master password (0) and saved accounts (0) are removed and Local browser's are used instead. Account bindings are kept. To keep them, create a new profile from this device instead.`,
+    );
+  expect(client.pair).toHaveBeenCalledOnce();
 });
 
 test("creates a new profile from the warning, named after the device by default", async () => {

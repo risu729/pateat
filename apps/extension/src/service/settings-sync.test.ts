@@ -1279,6 +1279,24 @@ describe("allowed sites (ADR 0077)", () => {
     });
   });
 
+  // A device that pairs with an existing profile takes its allowed sites and switch,
+  // both when the profile has them on and when it has none (ADR 0076).
+  it.each([
+    settingsOf({ allowedSites: [site("bank.example")], allowedSitesEnabled: true }),
+    settingsOf({ excludedSites: [site("intranet.example")] }),
+  ])("adopts a profile's allowed sites in place of this device's %#", async (remote) => {
+    const local = settingsOf({
+      allowedSites: [site("local-only.example")],
+      allowedSitesEnabled: true,
+    });
+    const { sync, local: after } = setup({ local, service: state(3, remote) });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(after()?.settings).toMatchObject({
+      allowedSites: remote.allowedSites,
+      allowedSitesEnabled: remote.allowedSitesEnabled,
+    });
+  });
+
   it("treats settings without allowed sites as an empty list that is off", async () => {
     const bare: LocalSettings = {
       connections: [],

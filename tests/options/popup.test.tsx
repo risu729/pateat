@@ -508,6 +508,25 @@ test("with the allowed sites on, turning off a site a shared rule allows exclude
   ]);
 });
 
+test("with the allowed sites on, the site's own rule with subdomains is kept when turned off", async () => {
+  const settings = createDefaultSettings();
+  settings.allowedSitesEnabled = true;
+  settings.allowedSites = [{ hostname: "login.bank.example", includeSubdomains: true }];
+  const { client, current } = store(saved(3, settings));
+  await mount(client, "https://login.bank.example/");
+  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+  await expect.element(toggle).toBeChecked();
+  await userEvent.click(toggle);
+  // The rule also allows the subdomains, so the switch excludes the site instead.
+  await expect.element(page.getByText("login.bank.example is now excluded.")).toBeVisible();
+  expect(current().snapshot.settings.allowedSites).toEqual([
+    { hostname: "login.bank.example", includeSubdomains: true },
+  ]);
+  expect(current().snapshot.settings.excludedSites).toEqual([
+    { hostname: "login.bank.example", includeSubdomains: false },
+  ]);
+});
+
 test("allowed sites that are off change nothing in the popup", async () => {
   const settings = createDefaultSettings();
   settings.allowedSitesEnabled = false;

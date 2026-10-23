@@ -11,15 +11,12 @@ allowed sites, the **Allow** button renamed **Remove exclusion**, and the allowe
 shown on the management page's site switch in the same change. Details not covered there
 were chosen by an agent and are marked so. Amends [ADR 0024](0024-settings-profiles.md)
 (a new profile part). Replaces the allowlist half of the proposal that was ADR 0042 on
-the
-
-## 614 branch, whose vault timeout half became
-
-[ADR 0075](0075-vault-lock-and-timeout.md).
+the [#614](https://github.com/risu729/pateat/pull/614) branch, whose vault timeout half
+became [ADR 0075](0075-vault-lock-and-timeout.md).
 
 Date: 2026-10-23
 
-### Context
+## Context
 
 Pateat may act on every HTTPS page and, for vault items saved with an `http://` URI, on
 HTTP pages too ([ADR 0009](0009-install-time-https-site-access.md),
@@ -30,7 +27,7 @@ items are selected, and which items and fields are excluded
 an agent's browser that should sign in to two sites had to exclude every other one it
 might visit.
 
-### Decision
+## Decision
 
 - The settings gain `allowedSites`, a list of the same rules as `excludedSites` (a
   hostname, optionally with its subdomains, at most 1000, no duplicates), and
@@ -75,7 +72,7 @@ might visit.
   hostnames are.
 - No new permission: the allowed sites narrow what Pateat does with the access it has.
 
-### Consequences
+## Consequences
 
 - Turning the switch on with an empty list stops every login and passkey answer on the
   devices of that profile until a site is allowed. The settings page and the management

@@ -304,6 +304,10 @@ export const ja = {
     "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定で除外されているため使えません。",
   badgeExcludedSite_other:
     "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定で除外されているため使えません。",
+  badgeNotAllowedSite_one:
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定の許可サイトに入っていないため使えません。",
+  badgeNotAllowedSite_other:
+    "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、このサイトは設定の許可サイトに入っていないため使えません。",
   badgeExcludedItems_one:
     "Pateat：このサイトに一致するアカウントが {{count}} 件ありますが、設定で除外されているため使えません。",
   badgeExcludedItems_other:

@@ -301,6 +301,10 @@ export const en = {
     "Pateat: {{count}} account matches this site, but none can be used: this site is excluded in settings.",
   badgeExcludedSite_other:
     "Pateat: {{count}} accounts match this site, but none can be used: this site is excluded in settings.",
+  badgeNotAllowedSite_one:
+    "Pateat: {{count}} account matches this site, but none can be used: this site is not an allowed site in settings.",
+  badgeNotAllowedSite_other:
+    "Pateat: {{count}} accounts match this site, but none can be used: this site is not an allowed site in settings.",
   badgeExcludedItems_one:
     "Pateat: {{count}} account matches this site, but none can be used: they are excluded in settings.",
   badgeExcludedItems_other:
