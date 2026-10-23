@@ -1306,8 +1306,8 @@ export function extractLoginObservation(
       return input instanceof HTMLInputElement && input.type === "password" ? [entry.form] : [];
     }),
   );
-  // Fields outside every form, and whether a button is near them: within `besideDepth`
-  // ancestors, never counting the body or the root, which hold every field.
+  // Fields outside every form, and whether a button is near them: one of them within its
+  // `besideDepth` nearest ancestors. Reaching the body or the root counts as near.
   const formless = found.flatMap((entry) => {
     const input =
       entry.kind === "candidate" ? fillTypes[entry.draft.role] && entry.draft.element : entry.field;
