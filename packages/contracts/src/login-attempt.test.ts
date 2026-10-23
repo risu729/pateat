@@ -1831,6 +1831,90 @@ describe("the totp handler in an attempt (ADR 0027)", () => {
   });
 });
 
+describe("the detail handler in an attempt (ADR 0061)", () => {
+  const detail = {
+    kind: "detail",
+    path: "/confirm",
+    fields: [
+      { detail: "birth-date", format: "yyyymm", target: { by: "name", value: "birth" } },
+      { detail: "phone-last-4", target: { by: "name", value: "phone" } },
+    ],
+    target: { by: "id", value: "submit" },
+  } as const;
+  const detailed: LoginRecipe = { ...recipe, handlers: [detail] };
+  const confirmPage = { ...document, documentId: "document-confirm" };
+  /** After the route's click, with the handler entered to fill input `field`. */
+  function entered(field?: number) {
+    let attempt = transitionLoginAttempt(detected(detailed), { type: "RESOLVE" });
+    for (const [operationId, kind] of [
+      ["fill-one", "fill"],
+      ["click-one", "click"],
+    ] as const) {
+      attempt = transitionLoginAttempt(attempt, { type: "PREPARE", operationId, kind });
+      attempt = transitionLoginAttempt(attempt, {
+        type: kind === "fill" ? "MUTATION_INTENT" : "SUBMIT_INTENT",
+        operationId,
+      });
+      if (kind === "fill")
+        attempt = transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId });
+    }
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId: "click-one" });
+    return transitionLoginAttempt(attempt, {
+      type: "HANDLER",
+      handler: 0,
+      ...(field === undefined ? {} : { field }),
+      steps: 2,
+      effects: 1,
+      document: confirmPage,
+    });
+  }
+  const fillOf = (name: string) => ({
+    step: {
+      kind: "fill",
+      path: "/confirm",
+      fields: [{ slot: "detail", target: { by: "name", value: name } }],
+      effect: "prepare",
+    },
+    handler: 0,
+  });
+  const click = {
+    step: { kind: "click", path: "/confirm", target: detail.target, purpose: "submit" },
+    handler: 0,
+  };
+
+  it("records the input the login fills and plans its fill and the button's click", () => {
+    const attempt = entered(1);
+    expect(attempt).toMatchObject({
+      state: "ready",
+      stepIndex: 2,
+      stepCount: 4,
+      handlers: [{ index: 0, start: 2, field: 1 }],
+    });
+    expect(attemptPlan(detailed, attempt)?.slice(2)).toEqual([fillOf("phone"), click]);
+  });
+
+  it("keeps the chosen input after a worker restart", () => {
+    const restored = recoverLoginAttempt(parseAttemptMetadata(structuredClone(entered(1))));
+    expect(restored.handlers).toEqual([{ index: 0, start: 2, field: 1 }]);
+    expect(attemptPlan(detailed, restored)?.slice(2)).toEqual([fillOf("phone"), click]);
+  });
+
+  it("plans the first input for a handler entered without one", () => {
+    const attempt = entered();
+    expect(attempt.handlers).toEqual([{ index: 0, start: 2 }]);
+    expect(attemptPlan(detailed, attempt)?.slice(2)).toEqual([fillOf("birth"), click]);
+    expect(attemptPlan(detailed, entered(0))?.slice(2)).toEqual([fillOf("birth"), click]);
+  });
+
+  it("refuses an input beyond a handler's three", () => {
+    expect(() => entered(3)).toThrow();
+    expect(() => entered(-1)).toThrow();
+    expect(() =>
+      parseAttemptMetadata({ ...entered(1), handlers: [{ index: 0, start: 2, field: 3 }] }),
+    ).toThrow();
+  });
+});
+
 describe("password route variants in an attempt (ADR 0027)", () => {
   const contract = {
     slots: ["contract"],

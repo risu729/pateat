@@ -304,18 +304,22 @@ export function createDiagnosticsLog(options: {
           added: changes.added || undefined,
           updated: changes.updated || undefined,
           removed: changes.removed || undefined,
+          unreadable: changes.unreadable || undefined,
           roundTripMs: changes.timing?.roundTripMs,
           serverMs: changes.timing?.serverMs,
           networkMs: changes.timing?.networkMs,
         },
         {
-          level: QUIET_SYNC.has(outcome)
-            ? changed
-              ? "info"
-              : "debug"
-            : outcome === "unreachable" || outcome === "busy"
-              ? "info"
-              : "warn",
+          // A change left out waits for an extension update, which only the person can make.
+          level: changes.unreadable
+            ? "warn"
+            : QUIET_SYNC.has(outcome)
+              ? changed
+                ? "info"
+                : "debug"
+              : outcome === "unreachable" || outcome === "busy"
+                ? "info"
+                : "warn",
         },
       );
     },

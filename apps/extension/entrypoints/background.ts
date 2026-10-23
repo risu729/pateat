@@ -287,6 +287,7 @@ export default defineBackground(() => {
     storage: recipeCacheStorage,
     schedule: recipeScheduleStorage,
     settings: settingsSync,
+    build: PATEAT_BUILD_REVISION,
     report: (outcome, changes) => {
       diagnosticsLog.recipeSync(outcome, changes);
       if (outcome === "synced") {

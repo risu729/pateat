@@ -188,6 +188,7 @@ function setup(
     recovery?: unknown;
     now?: () => number;
     settings?: SettingsSyncOutcome;
+    build?: string;
   } = {},
 ) {
   let value = options.stored;
@@ -240,6 +241,7 @@ function setup(
     storage,
     schedule,
     report,
+    build: options.build ?? "1c42ad3",
     now: options.now ?? (() => 5_000),
     ...(options.settings ? { settings: settingsSync } : {}),
   });
@@ -322,6 +324,153 @@ describe("recipe sync", () => {
     const { sync, transport } = setup({ stored, pages: [page([], 7)] });
     await sync.sync();
     expect(transport.recipeChanges).toHaveBeenCalledWith(SERVICE, CREDENTIAL, 7);
+  });
+
+  it("applies the rest of a page whose change this build cannot read (#959)", async () => {
+    const held = recipe("bank-otp", "/otp");
+    const stored = { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 2, recipes: [held] };
+    const added = recipe("bank-signin", "/login");
+    const { sync, cache, report, service } = setup({
+      stored,
+      pages: [
+        {
+          kind: "page",
+          page: { version: 1, changes: [active(added)], cursor: 6, complete: true },
+          unreadable: ["bank-otp"],
+        },
+      ],
+    });
+    expect(await sync.sync()).toBe("synced");
+    // The recipe written after the unreadable one arrives, the cursor moves past both, and
+    // the copy held of the unreadable recipe stays.
+    expect(cache()).toEqual({
+      ...stored,
+      cursor: 6,
+      recipes: [held, added],
+      unreadableBy: "1c42ad3",
+    });
+    expect(report).toHaveBeenCalledExactlyOnceWith("synced", {
+      scope: "full",
+      added: 1,
+      updated: 0,
+      removed: 0,
+      unreadable: 1,
+    });
+    expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { syncedAt: 5_000 });
+  });
+
+  it("reads every head again once another build syncs after a change was left out", async () => {
+    const held = recipe("bank-otp", "/otp");
+    const stored = {
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 6,
+      recipes: [held],
+      unreadableBy: "0ld0001",
+    };
+    const added = recipe("bank-signin", "/login");
+    const { sync, transport, cache } = setup({ stored, pages: [page([active(added)], 6)] });
+    expect(await sync.sync()).toBe("synced");
+    expect(transport.recipeChanges).toHaveBeenCalledExactlyOnceWith(SERVICE, CREDENTIAL, 0);
+    // The held copy stays while the heads are read again; nothing is left out now.
+    expect(cache()).toEqual({
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 6,
+      recipes: [held, added],
+    });
+  });
+
+  it("brings a revision left out once another build can read it", async () => {
+    const stored = {
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 6,
+      recipes: [recipe("bank-signin", "/login")],
+      unreadableBy: "0ld0001",
+    };
+    const newer = recipe("bank-signin", "/login", 2);
+    const { sync, cache, report, recovery } = setup({
+      stored,
+      // A checkpoint of the old build's walk from cursor 6.
+      recovery: { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 6, after: 9 },
+      pages: [page([active(newer)], 6)],
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(cache()).toMatchObject({ cursor: 6, recipes: [newer] });
+    expect(cache()).not.toHaveProperty("unreadableBy");
+    expect(report).toHaveBeenCalledExactlyOnceWith("synced", {
+      scope: "full",
+      added: 0,
+      updated: 1,
+      removed: 0,
+    });
+    // The cursor landing on 6 again never resumes the old walk from 9.
+    expect(recovery()).toEqual({
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 0,
+      after: 0,
+    });
+  });
+
+  it("keeps the build that left a change out across later pages", async () => {
+    const { sync, cache } = setup({
+      pages: [
+        {
+          kind: "page",
+          page: { version: 1, changes: [], cursor: 2, complete: false },
+          unreadable: ["bank-otp"],
+        },
+        page([active(recipe("bank-signin", "/login"))], 4),
+      ],
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(cache()).toMatchObject({ cursor: 4, unreadableBy: "1c42ad3" });
+  });
+
+  it("stores the reset of a reread before reading, so a failed one goes on from cursor 0", async () => {
+    const stored = {
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 6,
+      recipes: [],
+      unreadableBy: "0ld0001",
+    };
+    const { sync, cache, transport } = setup({
+      stored,
+      pages: [{ kind: "failed", error: "unreachable" }, page([], 6)],
+    });
+    expect(await sync.sync()).toBe("unreachable");
+    // The reset is stored before the first page is read, so a later run is an ordinary one.
+    const { unreadableBy: _, ...reset } = stored;
+    expect(cache()).toEqual({ ...reset, cursor: 0 });
+    expect(await sync.sync()).toBe("synced");
+    expect(transport.recipeChanges.mock.calls).toEqual([
+      [SERVICE, CREDENTIAL, 0],
+      [SERVICE, CREDENTIAL, 0],
+    ]);
+    expect(cache()).not.toHaveProperty("unreadableBy");
+  });
+
+  it("does not read the heads again for the build that left a change out", async () => {
+    const stored = {
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 6,
+      recipes: [],
+      unreadableBy: "1c42ad3",
+    };
+    const { sync, transport, cache } = setup({ stored, pages: [page([], 6)] });
+    expect(await sync.sync()).toBe("synced");
+    expect(transport.recipeChanges).toHaveBeenCalledExactlyOnceWith(SERVICE, CREDENTIAL, 6);
+    expect(cache()).toEqual(stored);
   });
 
   it("starts over for another pairing or an unreadable cache", async () => {
