@@ -54,11 +54,15 @@ export { MAX_RECIPE_CACHE_BYTES } from "@pateat/contracts";
 // chooser is looked up and starts a login, on its list's path, and `entries` lists an
 // origin's entry recipes. Version 2 holds recipes with layouts (ADR 0060): a version 1
 // cache is ignored, so the device pulls every recipe again from the start.
+// A change this build cannot read, as a recipe a newer service stored with a locator this
+// build does not know, is left out and the cursor moves past it (#959); `unreadableBy` names
+// the build that left one out, and any other build reads every head again from the start.
 const cacheSchema = v.strictObject({
   version: v.literal(2),
   origin: serviceOriginSchema,
   deviceId: deviceIdSchema,
   cursor: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
+  unreadableBy: v.optional(v.pipe(v.string(), v.minLength(1))),
   recipes: v.pipe(
     v.array(storedLoginRecipeSchema),
     v.check(
@@ -123,6 +127,8 @@ export type RecipeSyncChanges = {
   added: number;
   updated: number;
   removed: number;
+  /** Changes left out because this build cannot read their recipe (#959). */
+  unreadable?: number;
   /** The run's requests' timing added up; none when it sent none (ADR 0019). */
   timing?: ServiceTiming;
 };
@@ -153,6 +159,8 @@ export function createRecipeSync(options: {
   };
   /** Receives the outcome of each sync run and what it changed, for the local log. */
   report?: (outcome: RecipeSyncOutcome, changes: RecipeSyncChanges) => void;
+  /** The extension's build: its commit, or `development` for a build outside git. */
+  build: string;
   now?: () => number;
 }) {
   const { service, transport, storage, schedule } = options;
@@ -280,10 +288,36 @@ export function createRecipeSync(options: {
       cursor: 0,
       recipes: [],
     };
+    // Another build left out a change it could not read: this one reads every head again,
+    // keeping the recipes held meanwhile, so the recipe arrives once the extension can read
+    // it (#959).
+    const reread = cache.unreadableBy !== undefined && cache.unreadableBy !== options.build;
+    if (reread) {
+      const { unreadableBy: _, ...rest } = cache;
+      cache = { ...rest, cursor: 0 };
+    }
     // Disconnected while loading the cache; the old credential is not used again.
     if (generation !== started) return "not-connected";
     let recovery: RecipeRecovery | undefined;
-    if (loaded) {
+    if (reread) {
+      // The checkpoint of the walk from the old cursor is replaced by one that skips
+      // nothing, so the cursor arriving there again never resumes that walk; then the reset
+      // is stored, so later runs keep the checkpoints of this walk from cursor 0.
+      try {
+        const neutral: RecipeRecovery = {
+          version: 2,
+          origin: cache.origin,
+          deviceId: cache.deviceId,
+          cursor: 0,
+          after: 0,
+        };
+        if (!(await persist(() => storage.writeRecovery(neutral), started))) return "not-connected";
+      } catch {
+        return "storage-unavailable";
+      }
+      const failure = await writeCache(cache, { added: 0, updated: 0, removed: 0 });
+      if (failure) return failure;
+    } else if (loaded) {
       try {
         const parsed = v.safeParse(recoverySchema, await storage.readRecovery());
         if (
@@ -299,7 +333,9 @@ export function createRecipeSync(options: {
       }
       if (generation !== started) return "not-connected";
     }
-    async function readPage(cursor: number): Promise<SyncRecipeChanges | RecipeSyncOutcome> {
+    async function readPage(
+      cursor: number,
+    ): Promise<(SyncRecipeChanges & { unreadable: number }) | RecipeSyncOutcome> {
       if (generation !== started) return "not-connected";
       const result = await transport.recipeChanges(
         connection.origin,
@@ -315,7 +351,7 @@ export function createRecipeSync(options: {
       if (result.kind === "failed") return result.error;
       if (result.page.cursor < cursor || (!result.page.complete && result.page.cursor === cursor))
         return "unexpected-response";
-      return result.page;
+      return { ...result.page, unreadable: result.unreadable?.length ?? 0 };
     }
 
     async function writeCache(
@@ -410,7 +446,12 @@ export function createRecipeSync(options: {
         if (kept && before.get(id) !== recipes.get(id)) counts[held ? "updated" : "added"] += 1;
         else if (held && !kept) counts.removed += 1;
       }
-      const next: RecipeCache = { ...cache, cursor, recipes: [...recipes.values()] };
+      const next: RecipeCache = {
+        ...cache,
+        cursor,
+        recipes: [...recipes.values()],
+        ...(result.unreadable ? { unreadableBy: options.build } : {}),
+      };
       if (encoder.encode(JSON.stringify(next)).byteLength > MAX_RECIPE_CACHE_BYTES) {
         if (walkedOverflow) {
           // The retry may include revocations made while the walk was running.
@@ -449,6 +490,7 @@ export function createRecipeSync(options: {
       // oxlint-disable-next-line no-await-in-loop -- advance the cursor only with a complete page
       const failure = await writeCache(next, counts);
       if (failure) return failure;
+      if (result.unreadable) changed.unreadable = (changed.unreadable ?? 0) + result.unreadable;
       if (complete) return "synced";
     }
     return "incomplete";

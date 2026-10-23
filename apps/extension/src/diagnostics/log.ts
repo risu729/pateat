@@ -145,6 +145,8 @@ export const LOG_EVENTS = {
       added: "count",
       updated: "count",
       removed: "count",
+      // Changes left out because this build cannot read their recipe (#959).
+      unreadable: "count",
       // The run's requests added up (ADR 0019, amended 2026-10-18).
       roundTripMs: "count",
       serverMs: "count",

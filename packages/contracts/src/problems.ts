@@ -74,6 +74,7 @@ export const PROBLEM_EVENT_FIELDS = {
     added: "count",
     updated: "count",
     removed: "count",
+    unreadable: "count",
     roundTripMs: "count",
     serverMs: "count",
     networkMs: "count",
