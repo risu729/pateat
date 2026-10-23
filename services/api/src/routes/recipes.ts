@@ -3,6 +3,7 @@ import {
   generationRequestSchema,
   loginOutcomeReportSchema,
   loginRecordSchema,
+  logoutGenerationRequestSchema,
   recipeCompletionRequestSchema,
   recipeUseReportSchema,
   recipePageSampleRequestSchema,
@@ -21,6 +22,7 @@ import { apiError } from "../http";
 import { purgeExpiredLog } from "../claude/calls";
 import { revokeUnusedRecipes, selectHeads, toChange, writeRecipe } from "../recipe-store";
 import { generateEntry, generateRecipe, judgeCompletion, samplePage } from "../recipes/generate";
+import { generateLogout } from "../recipes/logout";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
 const recipeParam = validate("param", v.strictObject({ recipeId: syncRecipeIdSchema }));
@@ -50,6 +52,10 @@ const changesQuerySchema = v.strictObject({
 export const recipeRoutes = new Hono<ApiEnv>()
   // "generate" names the generation route, never a recipe.
   .on(["PUT"], "/generate", (c) =>
+    apiError(c, 405, { error: "method_not_allowed" }, { Allow: "POST" }),
+  )
+  // "logout" names the logout route of an account switch (ADR 0063), never a recipe.
+  .on(["PUT"], "/logout", (c) =>
     apiError(c, 405, { error: "method_not_allowed" }, { Allow: "POST" }),
   )
   .get("/", validate("query", changesQuerySchema), async (c) => {
@@ -86,6 +92,13 @@ export const recipeRoutes = new Hono<ApiEnv>()
       "slots" in request
         ? await generateRecipe(c.env, c.get("scope"), request, c.get("trace"))
         : await generateEntry(c.env, c.get("scope"), request, c.get("trace"));
+    return result ? c.json(result) : apiError(c, 400, { error: "bad_request" });
+  })
+  // An account switch's signed-in page (ADR 0063), under the generation route's device
+  // authentication, request limit, owner lock, retry window and spend stops. Registered
+  // before `/:recipeId` routes; answers are 200 with a status.
+  .post("/logout", requireJsonBody, jsonBody(logoutGenerationRequestSchema), async (c) => {
+    const result = await generateLogout(c.env, c.get("scope"), c.req.valid("json"), c.get("trace"));
     return result ? c.json(result) : apiError(c, 400, { error: "bad_request" });
   })
   .post(

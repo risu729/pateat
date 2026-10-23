@@ -6,6 +6,8 @@ import {
   generationRequestSchema,
   generationUnavailableReasonSchema,
   isEntryObservation,
+  logoutGenerationRequestSchema,
+  logoutGenerationResultSchema,
   recipeCompletionRequestSchema,
   recipeCompletionResultSchema,
   recipeGenerationRequestSchema,
@@ -517,5 +519,104 @@ describe("page judgement contracts (ADR 0027)", () => {
         v.is(recipeCompletionResultSchema, { version: 1, status: "unavailable", reason }),
       ).toBe(true);
     }
+  });
+});
+
+describe("logout requests and answers (ADR 0063)", () => {
+  const signedIn = {
+    ...observation,
+    path: "/home",
+    candidates: [
+      { id: "c1", role: "button", target: { by: "id", value: "menu" }, label: "Account" },
+      { id: "c2", role: "link", target: { by: "text", value: "Help" } },
+    ],
+  };
+  const logoutRecipe = {
+    version: 1,
+    id: "gen-logout-1",
+    revision: 1,
+    origin: "https://shop.example.test",
+    logout: {
+      path: "/home",
+      targets: [
+        { kind: "click", path: "/home", target: { by: "id", value: "menu" }, purpose: "menu" },
+      ],
+    },
+  };
+
+  it("takes a page without fields, as a start or after a base revision's last click", () => {
+    expect(v.is(logoutGenerationRequestSchema, { version: 1, observation: signedIn })).toBe(true);
+    expect(
+      v.is(logoutGenerationRequestSchema, {
+        version: 1,
+        observation: signedIn,
+        base: { recipeId: "gen-logout-1", revision: 1 },
+      }),
+    ).toBe(true);
+    // A page with a field to fill, slots or a list of accounts is no logout request.
+    expect(v.is(logoutGenerationRequestSchema, { version: 1, observation })).toBe(true);
+    expect(
+      v.is(logoutGenerationRequestSchema, {
+        version: 1,
+        observation: {
+          ...signedIn,
+          candidates: [
+            ...signedIn.candidates,
+            { id: "c3", role: "text", target: { by: "id", value: "search" } },
+          ],
+        },
+      }),
+    ).toBe(false);
+    expect(v.is(logoutGenerationRequestSchema, { version: 1, observation: signedIn, slots })).toBe(
+      false,
+    );
+  });
+
+  it("answers a logout recipe only, signed-out, an abstention, a failure or a refusal", () => {
+    const change = { recipeId: "gen-logout-1", revision: 1, state: "active", recipe: logoutRecipe };
+    expect(v.is(logoutGenerationResultSchema, { version: 1, status: "recipe", change })).toBe(true);
+    // A login route recipe never answers a logout request, nor a logout recipe a page request.
+    expect(
+      v.is(logoutGenerationResultSchema, {
+        version: 1,
+        status: "recipe",
+        change: { ...change, recipeId: "gen-1", revision: 2, recipe },
+      }),
+    ).toBe(false);
+    expect(v.is(recipeGenerationResultSchema, { version: 1, status: "recipe", change })).toBe(
+      false,
+    );
+    expect(v.is(entryGenerationResultSchema, { version: 1, status: "recipe", change })).toBe(false);
+    // The change's identity must be the recipe's.
+    expect(
+      v.is(logoutGenerationResultSchema, {
+        version: 1,
+        status: "recipe",
+        change: { ...change, revision: 2 },
+      }),
+    ).toBe(false);
+    for (const answer of [
+      { version: 1, status: "signed-out" },
+      { version: 1, status: "abstained", reason: "no-logout-control" },
+      { version: 1, status: "failed", error: "invalid-output", rejection: { check: "json" } },
+      { version: 1, status: "unavailable", reason: "daily-limit" },
+    ])
+      expect(v.is(logoutGenerationResultSchema, answer)).toBe(true);
+    // A login page's abstention reason is not one of a logout's.
+    expect(
+      v.is(logoutGenerationResultSchema, {
+        version: 1,
+        status: "abstained",
+        reason: "no-login-form",
+      }),
+    ).toBe(false);
+    expect(
+      v.is(logoutGenerationResultSchema, {
+        version: 1,
+        status: "failed",
+        error: "timeout",
+        rejection: { check: "json" },
+      }),
+    ).toBe(false);
   });
 });

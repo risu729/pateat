@@ -16,6 +16,7 @@ import {
   loginAutocompleteTokens,
   loginChooserRecipeSchema,
   loginEntryRecipeSchema,
+  loginLogoutRecipeSchema,
   passkeyAnswersRequest,
   passwordStopOrMiss,
   passwordVariants,
@@ -2975,5 +2976,100 @@ describe("the route a recipe lacks for the item (ADR 0058 A)", () => {
   it("names nothing for an item that holds neither", () => {
     expect(heldRouteMissing(plain(), facts(false, false), true)).toBeUndefined();
     expect(heldRouteMissing(button(), facts(false, false), true)).toBeUndefined();
+  });
+});
+
+describe("logout recipes (ADR 0063)", () => {
+  const click = (path: string, value: string, purpose: string) => ({
+    kind: "click",
+    path,
+    target: { by: "text", value },
+    purpose,
+  });
+  const logout = (targets: unknown[] = [click("/home", "Account", "menu")]) => ({
+    version: 1,
+    id: "gen-logout-01",
+    revision: 1,
+    origin: "https://www.example.test",
+    logout: { path: "/home", targets },
+  });
+
+  it("stores a recipe with only a logout, which starts no login and fills nothing", () => {
+    const stored = v.parse(storedLoginRecipeSchema, logout());
+    expect(stored).toEqual(logout());
+    expect(v.is(loginLogoutRecipeSchema, logout())).toBe(true);
+    expect(isLoginRouteRecipe(stored)).toBe(false);
+    expect(storedRecipeStartPath(stored)).toBe("/home");
+    expect(storedRecipeSlots(stored)).toEqual([]);
+    expect(v.is(loginRecipeSchema, logout())).toBe(false);
+    expect(v.is(loginEntryRecipeSchema, logout())).toBe(false);
+  });
+
+  it("holds the menu, the logout and its confirmation in order, at most three clicks", () => {
+    const full = [
+      click("/home", "Account", "menu"),
+      click("/home", "Sign out", "logout"),
+      click("/logout", "Yes, sign out", "confirm"),
+    ];
+    expect(v.is(storedLoginRecipeSchema, logout(full))).toBe(true);
+    expect(v.is(storedLoginRecipeSchema, logout([...full, click("/", "Again", "logout")]))).toBe(
+      false,
+    );
+    expect(v.is(storedLoginRecipeSchema, logout([]))).toBe(false);
+    // The first click is on the recipe's path.
+    expect(v.is(storedLoginRecipeSchema, logout([click("/other", "Account", "menu")]))).toBe(false);
+    // A confirmation only follows the logout, as the last click.
+    expect(
+      v.is(
+        storedLoginRecipeSchema,
+        logout([click("/home", "Account", "menu"), click("/home", "Yes", "confirm")]),
+      ),
+    ).toBe(false);
+    expect(
+      v.is(
+        storedLoginRecipeSchema,
+        logout([
+          click("/home", "Sign out", "logout"),
+          click("/home", "Yes", "confirm"),
+          click("/home", "Account", "menu"),
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it("names a control by id, name, test-id or text, never an input or accessible-name locator", () => {
+    for (const target of [
+      { by: "id", value: "logout" },
+      { by: "name", value: "logout" },
+      { by: "test-id", value: "account-menu" },
+    ])
+      expect(
+        v.is(
+          storedLoginRecipeSchema,
+          logout([{ kind: "click", path: "/home", target, purpose: "logout" }]),
+        ),
+      ).toBe(true);
+    for (const target of [
+      { by: "autocomplete", value: "username" },
+      { by: "label", value: "Sign out" },
+      { by: "accessible-name", value: "Sign out" },
+      { by: "href", value: "/logout" },
+    ])
+      expect(
+        v.is(
+          storedLoginRecipeSchema,
+          logout([{ kind: "click", path: "/home", target, purpose: "logout" }]),
+        ),
+      ).toBe(false);
+  });
+
+  it("never holds a logout beside a login route or entry member", () => {
+    const { slots, steps } = recipe();
+    for (const extra of [
+      { slots },
+      { steps },
+      { entry: { path: "/home", target: { by: "text", value: "Login" } } },
+    ])
+      expect(v.is(storedLoginRecipeSchema, { ...logout(), ...extra })).toBe(false);
   });
 });

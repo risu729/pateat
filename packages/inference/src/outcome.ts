@@ -25,6 +25,8 @@ export type AbstentionReason =
   | "ambiguous"
   | "insufficient-evidence"
   | "unsafe-instructions"
+  /** The logout role found no control that signs out (ADR 0063). */
+  | "no-logout-control"
   | "low-confidence"
   | "missing-probabilities"
   | "inconsistent-mapping"
