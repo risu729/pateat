@@ -1,3 +1,6 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
+import { i18n } from "../i18n";
 import {
   isSiteExcluded,
   normalizeHostname,
@@ -72,6 +75,7 @@ export interface PopupHost {
 type Saved = Extract<SettingsResponse, { ok: true }>;
 type ExcludedSite = LocalSettings["excludedSites"][number];
 type Tone = "progress" | "success" | "error";
+type NoticeText = (translate: TFunction) => string;
 
 /** The tab's origin when Pateat can run there: an HTTP(S) page with a valid hostname. */
 export function popupOrigin(url: string | undefined): string | undefined {
@@ -129,10 +133,11 @@ function SiteSwitch({
   busy: boolean;
   onChange: (on: boolean) => void;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   const checked = pending ?? site.on;
   return (
     <label className="popup-switch">
-      <span>Pateat on this site</span>
+      <span>{t("Pateat on this site")}</span>
       <input
         id="popup-site-switch"
         type="checkbox"
@@ -179,13 +184,16 @@ function accountCards(
   accounts: MatchedAccounts,
   currentValue: string | undefined,
 ): AccountCard[] {
+  const t = i18n.t.bind(i18n);
   const cards = options.map((option) => {
     const username = usernameOf(option, accounts);
     return {
       option,
       value: option.value,
       title: username || option.itemName,
-      sub: username ? `${option.itemName} in ${option.connectionLabel}` : option.connectionLabel,
+      sub: username
+        ? t("{{item}} in {{account}}", { item: option.itemName, account: option.connectionLabel })
+        : option.connectionLabel,
       isDefault: option.value === currentValue,
     };
   });
@@ -197,16 +205,20 @@ function accountCards(
   // Cards that would read the same add the item ID's first 8 characters.
   return cards.map(({ option, ...card }) =>
     (seen.get(JSON.stringify([card.title, card.sub])) ?? 0) > 1
-      ? { ...card, sub: `${card.sub}, ID ${option.itemId.slice(0, 8)}` }
+      ? {
+          ...card,
+          sub: t("{{item}}, ID {{id}}", { item: card.sub, id: option.itemId.slice(0, 8) }),
+        }
       : card,
   );
 }
 
 function DefaultBadge() {
+  const { t } = useTranslation(undefined, { i18n });
   return (
     <span className="popup-badge">
       <Star size={12} strokeWidth={2} aria-hidden="true" />
-      Default
+      {t("Default")}
     </span>
   );
 }
@@ -240,6 +252,7 @@ function AccountChoices({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   return (
     <div className="popup-choices">
       {cards.map((card) => (
@@ -250,7 +263,10 @@ function AccountChoices({
             value={card.value}
             checked={checked === card.value}
             disabled={disabled}
-            aria-label={`${card.title}, ${card.sub}${card.isDefault ? ", default" : ""}`}
+            aria-label={t(card.isDefault ? "{{title}}, {{sub}}, default" : "{{title}}, {{sub}}", {
+              title: card.title,
+              sub: card.sub,
+            })}
             onChange={() => onChange(card.value)}
           />
           <CardBody card={card} />
@@ -334,6 +350,7 @@ function DetailChoices({
  * that could give it, the best guess selected, and the site's links, each removable.
  */
 function DetailSection({
+  t,
   offer,
   links,
   picks,
@@ -342,6 +359,7 @@ function DetailSection({
   onFill,
   onRemove,
 }: {
+  t: TFunction;
   offer: DetailOffer | undefined;
   links: DetailLink[];
   picks: Partial<Record<LoginDetail, string>>;
@@ -361,7 +379,7 @@ function DetailSection({
         return (
           <fieldset key={detail} className="popup-fieldset popup-detail">
             <legend id={`popup-detail-${detail}`} className="popup-detail-ask">
-              {`This page asks for ${detailName(detail, format)}.`}
+              {t("This page asks for {{detail}}.", { detail: detailName(detail, t, format) })}
             </legend>
             <DetailChoices
               detail={detail}
@@ -382,7 +400,7 @@ function DetailSection({
               onClick={() => shown && onFill(detail, shown)}
             >
               <TextCursorInput size={16} strokeWidth={2} aria-hidden="true" />
-              Fill
+              {t("Fill")}
             </Button>
           </fieldset>
         );
@@ -391,7 +409,7 @@ function DetailSection({
         <ul
           id="popup-detail-links"
           className="popup-rules"
-          aria-label="Personal details Pateat fills on this site"
+          aria-label={t("Personal details Pateat fills on this site")}
         >
           {links.map((link) => {
             const Icon = DETAIL_ICON[link.detail];
@@ -399,9 +417,13 @@ function DetailSection({
               <li key={link.detail} id={`popup-detail-link-${link.detail}`}>
                 <Icon className="popup-detail-icon" size={16} strokeWidth={2} aria-hidden="true" />
                 <span className="popup-choice-main">
-                  <span className="popup-choice-title">{capitalized(detailName(link.detail))}</span>
+                  <span className="popup-choice-title">
+                    {capitalized(detailName(link.detail, t))}
+                  </span>
                   <span className="popup-choice-sub">
-                    {`Filled from ${sourceLabel(link)}${link.pending ? " (not saved yet)" : ""}`}
+                    {link.pending
+                      ? t("Filled from {{field}} (not saved yet)", { field: sourceLabel(link) })
+                      : t("Filled from {{field}}", { field: sourceLabel(link) })}
                   </span>
                 </span>
                 <Button
@@ -410,10 +432,12 @@ function DetailSection({
                   variant="outline"
                   disabled={busy}
                   focusableWhenDisabled
-                  aria-label={`Remove the link for ${detailName(link.detail)}`}
+                  aria-label={t("Remove the link for {{detail}}", {
+                    detail: detailName(link.detail, t),
+                  })}
                   onClick={() => onRemove(link.detail)}
                 >
-                  Remove
+                  {t("Remove")}
                 </Button>
               </li>
             );
@@ -460,19 +484,35 @@ export function SiteApp({
   host: PopupHost;
   listingWaitMs?: number;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   // The vault field picked for each detail the page asks for; the best guess otherwise.
   const [detailPicks, setDetailPicks] = useState<Partial<Record<LoginDetail, string>>>({});
-  // Set while a Fill or Remove runs from a focused button, which the answer may take away.
-  const refocus = useRef(false);
-  const [notice, setNotice] = useState<{ text: string; tone: Tone }>({ text: "", tone: "success" });
+  const [notice, setNotice] = useState<{ text?: NoticeText; tone: Tone }>({ tone: "success" });
   const [chosen, setChosen] = useState("");
   const [picked, setPicked] = useState("");
   const [makeDefault, setMakeDefault] = useState<boolean>();
   // The switch shows its new position while that change is saved.
   const [switching, setSwitching] = useState<boolean>();
-  const say = (text: string, tone: Tone) => setNotice({ text, tone });
+  const say = (text: NoticeText, tone: Tone) => setNotice({ text, tone });
+  // Buttons that start a change are only marked disabled while it runs, since Chrome moves
+  // focus away from a focused control that becomes disabled. A control the result
+  // removes or disables, such as Remove default once the default is gone, leaves focus on
+  // the result message, so a keyboard user is not sent back to the top of the popup. A
+  // mouse click also focuses the button, so the move does not scroll.
+  const message = useRef<HTMLOutputElement>(null);
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    const focused = document.activeElement;
+    if (
+      wasBusy.current &&
+      !busy &&
+      (!focused || focused === document.body || (focused as HTMLButtonElement).disabled)
+    )
+      message.current?.focus({ preventScroll: true });
+    wasBusy.current = busy;
+  }, [busy]);
   const tab = useQuery({
     queryKey: ["popup", "tab"],
     queryFn: async () => (await host.currentTab()) ?? null,
@@ -523,16 +563,6 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
-  // A button that a Fill or Remove took away leaves focus on the page's heading rather
-  // than on nothing.
-  useEffect(() => {
-    if (busy || !refocus.current) return;
-    refocus.current = false;
-    if (document.activeElement && document.activeElement !== document.body) return;
-    (
-      document.getElementById("popup-page-heading") ?? document.getElementById("popup-origin")
-    )?.focus();
-  });
   // Only the connections, exclusions and each vault's sync, state and quarantine decide the
   // matches, so saving a default keeps the listed accounts instead of listing them again.
   const accounts = useQuery({
@@ -570,7 +600,7 @@ export function SiteApp({
     gcTime: 0,
   });
 
-  async function change(update: (value: LocalSettings) => void, done: string) {
+  async function change(update: (value: LocalSettings) => void, done: NoticeText) {
     if (!saved || busy) {
       setSwitching(undefined);
       return;
@@ -578,7 +608,7 @@ export function SiteApp({
     const next = structuredClone(saved.snapshot.settings);
     update(next);
     setBusy(true);
-    say("Saving…", "progress");
+    say((translate) => translate("Saving…"), "progress");
     try {
       const response = await client.saveSettings({
         version: 1,
@@ -593,12 +623,18 @@ export function SiteApp({
         if (choice.isEnabled) void choice.refetch();
       } else if (response.error.code === "revision-conflict") {
         await settings.refetch();
-        say("Changed elsewhere and reloaded. Nothing was changed.", "error");
-      } else say("The change could not be saved", "error");
+        say(
+          (translate) => translate("Changed elsewhere and reloaded. Nothing was changed."),
+          "error",
+        );
+      } else say((translate) => translate("The change could not be saved"), "error");
     } catch {
       // The store may still have saved it; reopening shows the saved settings.
       say(
-        "The change may not have been saved. Reopen this popup to see the saved settings.",
+        (translate) =>
+          translate(
+            "The change may not have been saved. Reopen this popup to see the saved settings.",
+          ),
         "error",
       );
     } finally {
@@ -615,7 +651,7 @@ export function SiteApp({
   ) {
     if (tabId === undefined || busy) return;
     setBusy(true);
-    say("Starting the login…", "progress");
+    say((translate) => translate("Starting the login…"), "progress");
     try {
       const response = await choices.pick({
         tabId,
@@ -626,9 +662,15 @@ export function SiteApp({
       });
       if (response.ok) {
         say(
-          asDefault
-            ? `Logging in with ${selected.name}. It becomes the default once the login succeeds.`
-            : `Logging in with ${selected.name}`,
+          (translate) =>
+            asDefault
+              ? translate(
+                  "Logging in with {{name}}. It becomes the default once the login succeeds.",
+                  {
+                    name: selected.name,
+                  },
+                )
+              : translate("Logging in with {{name}}", { name: selected.name }),
           "success",
         );
         // The login runs in the page from here; the popup has nothing left to show.
@@ -637,10 +679,18 @@ export function SiteApp({
       }
       // The saved default stays when its own pick fails, so only another account is said
       // not to have become the default.
-      say(pickFailure(response.reason, selected.name, asDefault && !isDefault), "error");
+      say(
+        (translate) =>
+          pickFailure(response.reason, selected.name, asDefault && !isDefault, translate),
+        "error",
+      );
       await choice.refetch();
     } catch {
-      say("The login could not be started. Reopen this popup and try again.", "error");
+      say(
+        (translate) =>
+          translate("The login could not be started. Reopen this popup and try again."),
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -648,9 +698,8 @@ export function SiteApp({
 
   async function fillDetail(documentId: string, detail: LoginDetail, source: DetailSource) {
     if (tabId === undefined || busy) return;
-    refocus.current = true;
     setBusy(true);
-    say("Filling…", "progress");
+    say((translate) => translate("Filling…"), "progress");
     try {
       const response = await details.fill({
         tabId,
@@ -661,14 +710,20 @@ export function SiteApp({
         fieldId: source.fieldId,
       });
       say(
-        response.ok
-          ? "Filled. Check it and submit the form; Pateat saves this choice once you are signed in."
-          : detailFillFailure(response.reason),
+        (translate) =>
+          response.ok
+            ? translate(
+                "Filled. Check it and submit the form; Pateat saves this choice once you are signed in.",
+              )
+            : detailFillFailure(response.reason, translate),
         response.ok ? "success" : "error",
       );
       await pageDetails.refetch();
     } catch {
-      say("Nothing was filled. Reopen this popup and try again.", "error");
+      say(
+        (translate) => translate("Nothing was filled. Reopen this popup and try again."),
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -676,18 +731,33 @@ export function SiteApp({
 
   async function removeDetail(detail: LoginDetail) {
     if (tabId === undefined || busy) return;
-    refocus.current = true;
     setBusy(true);
-    say("Removing…", "progress");
+    say((translate) => translate("Removing…"), "progress");
     try {
       const response = await details.remove(tabId, detail);
       if (response.ok)
-        say(`Removed. Pateat no longer fills ${detailName(detail)} on this site.`, "success");
-      else if (response.reason === "no-link") say("This link was already removed.", "success");
-      else say("The link could not be removed. Reopen this popup and try again.", "error");
+        say(
+          (translate) =>
+            translate("Removed. Pateat no longer fills {{detail}} on this site.", {
+              detail: detailName(detail, translate),
+            }),
+          "success",
+        );
+      else if (response.reason === "no-link")
+        say((translate) => translate("This link was already removed."), "success");
+      else
+        say(
+          (translate) =>
+            translate("The link could not be removed. Reopen this popup and try again."),
+          "error",
+        );
       await pageDetails.refetch();
     } catch {
-      say("The link may not have been removed. Reopen this popup to see the links.", "error");
+      say(
+        (translate) =>
+          translate("The link may not have been removed. Reopen this popup to see the links."),
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -699,20 +769,24 @@ export function SiteApp({
   };
   let switchControl;
   let body;
-  if (tab.isPending || settings.isPending) body = <p className="popup-muted">Loading…</p>;
+  if (tab.isPending || settings.isPending) body = <p className="popup-muted">{t("Loading…")}</p>;
   else if (!origin)
     body = (
       <p id="popup-unsupported">
         {tab.data?.url
-          ? "Pateat works on websites (HTTP and HTTPS). Open a website, then click the Pateat icon again."
-          : "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too."}
+          ? t(
+              "Pateat works on websites (HTTP and HTTPS). Open a website, then click the Pateat icon again.",
+            )
+          : t(
+              "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.",
+            )}
       </p>
     );
   else if (!saved)
     body = (
       <p id="popup-error" className="popup-notice popup-notice--error" role="alert">
         <CircleX size={16} strokeWidth={2} aria-hidden="true" />
-        <span>Pateat settings could not be loaded</span>
+        <span>{t("Pateat settings could not be loaded")}</span>
       </p>
     );
   else {
@@ -727,7 +801,10 @@ export function SiteApp({
           setSwitching(on);
           void change(
             (value) => site.set(value, on),
-            on ? `${hostname} is no longer excluded` : `${hostname} is now excluded`,
+            (translate) =>
+              on
+                ? translate("{{hostname}} is no longer excluded", { hostname })
+                : translate("{{hostname}} is now excluded", { hostname }),
           );
         }}
       />
@@ -791,7 +868,10 @@ export function SiteApp({
         current.itemName ??
         current.itemId,
       sub:
-        currentConnection?.label ?? `${current.accountName ?? "Vault account"}, not available here`,
+        currentConnection?.label ??
+        t("{{account}}, not available here", {
+          account: current.accountName ?? t("Vault account"),
+        }),
       isDefault: true,
     };
     // While the site's matches are still listed, the saved default is not missing yet: its
@@ -803,24 +883,32 @@ export function SiteApp({
       : savedDefault;
     let accountsNote: { tone: "idle" | "warn" | "err"; text: string } | undefined;
     if (accounts.isPending)
-      accountsNote = { tone: "idle", text: "Finding the vault items that match this site…" };
+      accountsNote = { tone: "idle", text: t("Finding the vault items that match this site…") };
     else if (accounts.error instanceof ListingTimeout)
       accountsNote = {
         tone: "err",
-        text: "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup",
+        text: t(
+          "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup",
+        ),
       };
     else if (!found)
-      accountsNote = { tone: "err", text: "The matching accounts could not be listed" };
+      accountsNote = { tone: "err", text: t("The matching accounts could not be listed") };
     else if (!options.length)
       accountsNote = {
         tone: "idle",
-        text: "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync",
+        text: t(
+          "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync",
+        ),
       };
 
     const setDefault = () => {
       const selected = options.find((entry) => entry.value === shown);
       if (!selected?.userId) {
-        say("This account is unavailable. Choose another one or use the settings page.", "error");
+        say(
+          (translate) =>
+            translate("This account is unavailable. Choose another one or use the settings page."),
+          "error",
+        );
         return;
       }
       const entry = {
@@ -835,7 +923,10 @@ export function SiteApp({
       const target = siteDefaultConnection(entry, catalog);
       if (!target.ok || target.connectionId !== selected.connectionId) {
         say(
-          "This vault account is connected more than once. Choose the default in the settings page.",
+          (translate) =>
+            translate(
+              "This vault account is connected more than once. Choose the default in the settings page.",
+            ),
           "error",
         );
         return;
@@ -845,23 +936,30 @@ export function SiteApp({
           value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
           value.siteDefaults.push(entry);
         },
-        `${accountName(selected, found?.accounts)} is now the default for this site`,
+        (translate) =>
+          translate("{{name}} is now the default for this site", {
+            name: accountName(selected, found?.accounts),
+          }),
       );
     };
 
     const removeDefault = () =>
-      void change((value) => {
-        value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
-      }, "The default account for this site was removed");
+      void change(
+        (value) => {
+          value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
+        },
+        (translate) => translate("The default account for this site was removed"),
+      );
     const removeDefaultButton = current && (
       <Button
         id="popup-remove-default"
         type="button"
         variant="outline"
         disabled={busy || listing}
+        focusableWhenDisabled={busy}
         onClick={removeDefault}
       >
-        Remove default
+        {t("Remove default")}
       </Button>
     );
 
@@ -874,6 +972,7 @@ export function SiteApp({
     const detailLinks = detailState?.links ?? [];
     const detailSection = (detailOffer || detailLinks.length > 0) && (
       <DetailSection
+        t={t}
         offer={detailOffer}
         links={detailLinks}
         picks={detailPicks}
@@ -892,34 +991,34 @@ export function SiteApp({
         )}
         {choice.isPending && choice.isEnabled && (
           <p id="popup-choice-checking" className="popup-muted">
-            Checking whether this page waits for an account choice…
+            {t("Checking whether this page waits for an account choice…")}
           </p>
         )}
         {offered && !labelled && (
           <p id="popup-choice-checking" className="popup-muted">
-            Listing the accounts that match this page…
+            {t("Listing the accounts that match this page…")}
           </p>
         )}
         {offered && showChoice && (
           <section className="popup-section" aria-labelledby="popup-choice-heading">
             <div className="popup-section-head">
-              <h2 id="popup-choice-heading">Choose an account</h2>
+              <h2 id="popup-choice-heading">{t("Choose an account")}</h2>
               <p id="popup-choice-reason" className="popup-muted popup-reason">
-                {choiceReason(offered.logout, pickOptions.length)}
+                {choiceReason(offered.logout, pickOptions.length, t)}
               </p>
             </div>
             {offered.held && (
               <p id="popup-pick-held" className="popup-notice popup-notice--warning">
                 <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
                 <span>
-                  {
-                    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes."
-                  }
+                  {t(
+                    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes.",
+                  )}
                 </span>
               </p>
             )}
             <fieldset className="popup-fieldset">
-              <legend className="visually-hidden">Account to log in with</legend>
+              <legend className="visually-hidden">{t("Account to log in with")}</legend>
               <AccountChoices
                 name="popup-pick"
                 cards={accountCards(pickOptions, found?.accounts, currentValue)}
@@ -936,13 +1035,14 @@ export function SiteApp({
                 disabled={busy}
                 onChange={(event) => setMakeDefault(event.target.checked)}
               />
-              Make it the default for {hostname}
+              {t("Make it the default for {{hostname}}", { hostname })}
             </label>
             <Button
               id="popup-pick"
               type="button"
               className="w-full gap-2"
               disabled={busy || offered.held || !shownPick}
+              focusableWhenDisabled={busy}
               aria-describedby={offered.held ? "popup-pick-held" : undefined}
               onClick={() => {
                 const selected = pickOptions.find((entry) => entry.value === shownPick);
@@ -956,7 +1056,7 @@ export function SiteApp({
               }}
             >
               <LogIn size={16} strokeWidth={2} aria-hidden="true" />
-              Log in
+              {t("Log in")}
             </Button>
           </section>
         )}
@@ -976,13 +1076,17 @@ export function SiteApp({
                   )}
                   {missingFromChoice && (
                     <Line tone="warn" id="popup-default">
-                      {`The saved default, ${missingFromChoice.title} (${missingFromChoice.sub}), is not one of these accounts`}
+                      {t("The saved default, {{title}} ({{sub}}), is not one of these accounts", {
+                        title: missingFromChoice.title,
+                        sub: missingFromChoice.sub,
+                      })}
                     </Line>
                   )}
                   {found && !found.complete && (
                     <Line tone="warn" id="popup-accounts-incomplete">
-                      Some vaults or items could not be checked, so the site's matches may be
-                      incomplete
+                      {t(
+                        "Some vaults or items could not be checked, so the site's matches may be incomplete",
+                      )}
                     </Line>
                   )}
                 </ul>
@@ -993,7 +1097,7 @@ export function SiteApp({
         ) : site.on ? (
           <fieldset className="popup-fieldset popup-section">
             <legend id="popup-default-heading" className="popup-legend">
-              Default account
+              {t("Default account")}
             </legend>
             {missingDefault && (
               <div id="popup-default" className="popup-choice popup-choice--static">
@@ -1017,17 +1121,17 @@ export function SiteApp({
               )}
               {!current && (
                 <Line tone="idle" id="popup-no-default">
-                  No default account. With exactly one matching item, Pateat uses that item
+                  {t("No default account. With exactly one matching item, Pateat uses that item")}
                 </Line>
               )}
               {found && !found.complete && (
                 <Line tone="warn" id="popup-accounts-incomplete">
-                  Some vaults or items could not be checked, so this list may be incomplete
+                  {t("Some vaults or items could not be checked, so this list may be incomplete")}
                 </Line>
               )}
               <li className="popup-line popup-line--idle">
                 <Clock size={16} strokeWidth={2} aria-hidden="true" />
-                <span>Takes effect at the next login</span>
+                <span>{t("Takes effect at the next login")}</span>
               </li>
             </ul>
             {(options.length > 0 || current) && (
@@ -1037,9 +1141,10 @@ export function SiteApp({
                     id="popup-set-default"
                     type="button"
                     disabled={busy || !shown || shown === currentValue}
+                    focusableWhenDisabled={busy}
                     onClick={setDefault}
                   >
-                    Use as default
+                    {t("Use as default")}
                   </Button>
                 )}
                 {removeDefaultButton}
@@ -1050,21 +1155,23 @@ export function SiteApp({
           <div className="popup-section">
             {!site.editable && (
               <>
-                <p id="popup-site-shared">Excluded by a rule for other sites too</p>
+                <p id="popup-site-shared">{t("Excluded by a rule for other sites too")}</p>
                 <ul className="popup-rules">
                   {site.shared.map((rule) => (
                     <li key={`${rule.hostname} ${rule.includeSubdomains}`}>
                       <span className="popup-choice-main">
                         <span className="popup-choice-title">{rule.hostname}</span>
-                        <span className="popup-choice-sub">and its subdomains</span>
+                        <span className="popup-choice-sub">{t("and its subdomains")}</span>
                       </span>
                       <a
                         href="options.html"
                         className="popup-link"
-                        aria-label={`Change in settings for ${rule.hostname}`}
+                        aria-label={t("Change in settings for {{hostname}}", {
+                          hostname: rule.hostname,
+                        })}
                         onClick={openSettings}
                       >
-                        Change in settings
+                        {t("Change in settings")}
                       </a>
                     </li>
                   ))}
@@ -1073,7 +1180,7 @@ export function SiteApp({
             )}
             <p id="popup-site-status" className="popup-muted popup-status">
               <Ban size={16} strokeWidth={2} aria-hidden="true" />
-              No logins or passkey answers on this site
+              {t("No logins or passkey answers on this site")}
             </p>
           </div>
         )}
@@ -1087,14 +1194,12 @@ export function SiteApp({
       <header className="popup-header">
         <div className="popup-title">
           <Logo className="popup-logo" />
-          <h1 id="popup-origin" tabIndex={-1}>
-            {origin ? hostnameOf(origin) : "This tab"}
-          </h1>
+          <h1 id="popup-origin">{origin ? hostnameOf(origin) : t("This tab")}</h1>
           <button
             id="popup-open-settings"
             type="button"
             className="popup-icon-button"
-            aria-label="Open settings"
+            aria-label={t("Open settings")}
             onClick={() => openSettings()}
           >
             <Settings2 size={20} strokeWidth={2} aria-hidden="true" />
@@ -1102,11 +1207,17 @@ export function SiteApp({
         </div>
         {switchControl}
       </header>
-      <output id="popup-message" className="popup-message" aria-live="polite">
+      <output
+        id="popup-message"
+        ref={message}
+        className="popup-message"
+        aria-live="polite"
+        tabIndex={-1}
+      >
         {notice.text && (
           <span className={`popup-notice popup-notice--${notice.tone}`}>
             <NoticeIcon size={16} strokeWidth={2} aria-hidden="true" />
-            <span>{notice.text}</span>
+            <span>{notice.text(t)}</span>
           </span>
         )}
       </output>

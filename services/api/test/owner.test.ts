@@ -9,7 +9,7 @@ import {
 } from "@pateat/contracts";
 import { env } from "cloudflare:workers";
 import * as v from "valibot";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { app } from "../src/app";
 import {
   claims,
@@ -17,6 +17,7 @@ import {
   forgedAccess,
   installAccessKeys,
   jwks,
+  type JwksMode,
   newSubject,
   ORIGIN,
   owner,
@@ -26,7 +27,7 @@ import {
   request,
   type Owner,
 } from "./access-helpers";
-import { awaitRoomInMinute } from "./limiter";
+import { OWNER_LIMIT, withLimiter } from "./limiter";
 
 // Synthetic Access keys, identities and extension IDs only. Every test uses fresh
 // subjects so results never depend on rows written by another test.
@@ -151,15 +152,93 @@ describe("Access verification", () => {
     expect(listed.devices.map((entry) => entry.id)).toEqual([device.deviceId]);
   });
 
-  it("fails closed when the signing keys cannot be fetched", async () => {
-    jwks.available = false;
+  /** Runs `body` while the mocked key set answers as `mode`, then restores it. */
+  async function duringOutage<T>(mode: JwksMode, body: () => Promise<T>): Promise<T> {
+    jwks.mode = mode;
     try {
-      const response = await request("/manage", { access: (await owner()).token });
-      expect(response.status).toBe(403);
+      return await body();
     } finally {
-      jwks.available = true;
+      jwks.mode = "ok";
     }
-  });
+  }
+
+  const outages: [string, JwksMode][] = [
+    ["a non-OK response", "status"],
+    ["a JSON body that is not a key set", "malformed"],
+    ["a body that is not JSON", "not-json"],
+    ["a fetch that rejects", "reject"],
+  ];
+
+  it.each(outages)(
+    "treats %s for the signing keys as an outage, not a refused sign-in",
+    async (_, mode) => {
+      const viaHost = await owner();
+      const viaPair = await pairOwner();
+      const pages: [string, string][] = [
+        ["/manage", viaHost.token],
+        ["/manage/sites", viaHost.token],
+        ["/manage/sites/https/bank.example", viaHost.token],
+        ["/manage/assets/app.js", viaHost.token],
+        ["/manage/claude", viaHost.token],
+        ["/pair/signed-in", viaPair.token],
+      ];
+      const { pageResponses, apiResponses, missing } = await duringOutage(mode, async () => ({
+        pageResponses: await Promise.all(pages.map(([path, access]) => request(path, { access }))),
+        apiResponses: await Promise.all([
+          postPair(viaPair.token),
+          postPair(viaHost.token),
+          manageApi("/manage/api/devices", viaHost.token, "GET"),
+          manageApi("/manage/api/settings", viaHost.token, "GET"),
+          manageApi(`/manage/api/devices/${crypto.randomUUID()}/revoke`, viaHost.token, "POST"),
+        ]),
+        // A missing token is refused before any key is fetched.
+        missing: await Promise.all([request("/manage"), postPair(undefined)]),
+      }));
+
+      expect(pageResponses.map((response) => response.status)).toEqual(pages.map(() => 503));
+      for (const response of pageResponses)
+        expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
+      for (const body of await Promise.all(pageResponses.map((response) => response.text()))) {
+        expect(body).toContain("Your sign-in could not be checked. Try again later.");
+        expect(body).not.toContain("Access denied");
+        expect(body).not.toContain("Pateat test app");
+      }
+      expect(apiResponses.map((response) => response.status)).toEqual(apiResponses.map(() => 503));
+      expect(await Promise.all(apiResponses.map((response) => response.json()))).toEqual(
+        apiResponses.map(() => ({ error: "access_keys_unavailable" })),
+      );
+      expect(missing.map((response) => response.status)).toEqual([401, 401]);
+      // No owner was created by the pairing attempts.
+      expect(await ownerIdFor(viaPair.subject)).toBeNull();
+      expect(await ownerIdFor(viaHost.subject)).toBeNull();
+
+      // Once the keys answer again, the same tokens work.
+      expect((await request("/manage", { access: viaHost.token })).status).toBe(200);
+      expect((await postPair(viaPair.token)).status).toBe(201);
+    },
+  );
+
+  it("gives up on signing keys that never arrive after its timeout", async () => {
+    // The real timeout is 5 s; shorten the requested signal so the abort really fires.
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    const requested: number[] = [];
+    const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      requested.push(ms);
+      return timeout(20);
+    });
+    try {
+      const responses = await duringOutage("hang", async () =>
+        Promise.all([
+          request("/manage", { access: (await owner()).token }),
+          postPair((await pairOwner()).token),
+        ]),
+      );
+      expect(responses.map((response) => response.status)).toEqual([503, 503]);
+      expect(requested).toEqual([5_000, 5_000]);
+    } finally {
+      spy.mockRestore();
+    }
+  }, 2_000);
 
   it("fails closed without Access configuration", async () => {
     const { token } = await owner();
@@ -252,26 +331,27 @@ describe("owner web UI", () => {
   });
 
   it("rate limits the API per Access identity before the origin check", async () => {
+    const limitedEnv = withLimiter("OWNER_LIMITER", OWNER_LIMIT);
+    const send = (path: string, access: string, init: RequestInit = {}) => {
+      const headers = new Headers(init.headers);
+      headers.set("Cf-Access-Jwt-Assertion", access);
+      return app.request(`${ORIGIN}${path}`, { ...init, headers }, limitedEnv);
+    };
     const { token } = await owner();
-    await awaitRoomInMinute();
     const statuses: number[] = [];
-    for (let attempt = 0; attempt < 120; attempt += 1)
+    for (let attempt = 0; attempt < OWNER_LIMIT; attempt += 1)
       // oxlint-disable-next-line no-await-in-loop -- the limiter counts sequential calls
-      statuses.push((await request("/manage/api/devices", { access: token })).status);
+      statuses.push((await send("/manage/api/devices", token)).status);
     expect(statuses.every((status) => status === 200)).toBe(true);
-    const limited = await manageApi(
-      `/manage/api/devices/${crypto.randomUUID()}/revoke`,
-      token,
-      "POST",
-      "https://attacker.example",
-    );
+    const limited = await send(`/manage/api/devices/${crypto.randomUUID()}/revoke`, token, {
+      method: "POST",
+      headers: { Origin: "https://attacker.example" },
+    });
     expect(limited.status).toBe(429);
     expect(limited.headers.get("Retry-After")).toBe("60");
     expect(await limited.json()).toEqual({ error: "rate_limited" });
-    expect((await request("/manage/api/devices", { access: (await owner()).token })).status).toBe(
-      200,
-    );
-  }, 20_000);
+    expect((await send("/manage/api/devices", (await owner()).token)).status).toBe(200);
+  });
 
   it("lists only the signed-in owner's devices, newest first", async () => {
     const first = await owner();
@@ -561,6 +641,7 @@ describe("owner web UI recipes", () => {
       id,
       revision,
       origin,
+      pageKind: "sign-in",
       slots: ["username", "password"],
       steps: [
         {

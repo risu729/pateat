@@ -10,9 +10,9 @@ login is released like a finished one when its first step shows in a new page of
 or of another tab of the site (implemented). Amended on 2026-10-13 by ADR 0027 (owner's
 「このタブだけ」): a watched login is no longer released as a logout; only its own tab
 asks (implemented, see the end of D). Amended on 2026-10-13 by the owner's
-[site count badge](#site-count-badge) decision (part B, not implemented). Amended on
-2026-10-16 by the owner: in D, a click on a control that logs out also makes the tab ask
-(implemented, see [logout clicks](#logout-clicks)).
+[site count badge](#site-count-badge) decision (part B, implemented on 2026-10-23).
+Amended on 2026-10-16 by the owner: in D, a click on a control that logs out also makes
+the tab ask (implemented, see [logout clicks](#logout-clicks)).
 
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet). Amended on 2026-10-11
@@ -493,12 +493,12 @@ own badge counts matching logins.
 
 Status: decided by the owner on 2026-10-13 (14:42 UTC, every recommendation of the
 reviewed proposal), for [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up).
-Not implemented. [ADR 0038](0038-login-status-badge.md) (2026-10-13 19:28 UTC) already
-gives the waiting choice its amber colour and puts a model request's spin and the last
-login's result above the count; a brief result goes back to the count. The
-owner asked at 14:06 UTC for the badge to always say whether a site has no saved item,
-items that are all excluded, or usable items, and at 14:06 UTC for a gray number when
-all are excluded.
+Implemented on 2026-10-23 ([details](#site-count-implementation)).
+[ADR 0038](0038-login-status-badge.md) (2026-10-13 19:28 UTC) already gives the waiting
+choice its amber colour and puts a model request's spin and the last login's result
+above the count; a brief result goes back to the count. The owner asked at 14:06 UTC for
+the badge to always say whether a site has no saved item, items that are all excluded,
+or usable items, and at 14:06 UTC for a gray number when all are excluded.
 
 Each write sets the badge text, background, text colour and title for one tab:
 
@@ -558,6 +558,60 @@ This amends [ADR 0009](0009-install-time-https-site-access.md) and
 open vault locally even without a recipe or a sign-in signal. A test must show that a
 count started before a page's announcement delays that page's login without refusing
 it.
+
+#### Site count implementation
+
+Implemented on 2026-10-23 in `apps/extension/src/login/site-count.ts`, superseding the
+stale [PR 602](https://github.com/risu729/pateat/pull/602). These details fill gaps the
+decision left open; they are implementation choices, not owner decisions:
+
+- A count matches through the same `match-uris` and passkey lookups the popup's list and
+  logins use (`createVaultUriMatcher`, `createVaultPasskeyFinder`), so an `http:` page
+  counts only items saved with an `http://` URI and asks for passkeys only on
+  `http://localhost` ([ADR 0050](0050-http-pages-for-http-items.md)). The crypto Worker
+  answers from the login URIs it decrypted when the snapshot opened; a count decrypts
+  nothing. It reads an open snapshot's catalog once and keeps in memory, per connection,
+  only what eligibility reads: item IDs, group IDs and field IDs, kinds and emptiness,
+  no name or label. That copy goes once a scope read finds the vault closed, locked, on
+  another snapshot, disabled or removed.
+- An item whose URI rules could not be read is noted when the popup's eligibility rule
+  allows it, one whose passkeys could not be read by the passkey rule, and a quarantined
+  item never.
+- Titles: `Pateat: 2 accounts for this site. 1 more is excluded in settings.`, or
+  `1 more waits for a custom-field review in settings.` for a quarantined item, or
+  `N more are excluded or wait for a custom-field review in settings.` for both;
+  `Pateat: 3 accounts match this site, but none can be used:` followed by
+  `this site is excluded in settings`, `they are excluded in settings`,
+  `they wait for a custom-field review in settings`, or both of the last two; and for no
+  match, `Pateat: no account for this site.` Items a login could use whose URI rules or
+  passkeys could not be read add `N items could not be checked.`, as the popup's list
+  notes only those. The not-checked titles end `so this site's accounts were not
+  counted.` A held login's tooltip replaces the count's title, not its number.
+- A locked vault (its record holds no key), an unreadable record or an open vault on
+  another snapshot than the accepted one shows not checked even when a count is cached.
+  A vault not opened since Pateat restarted shows a count cached for the same settings
+  revision and accepted snapshot, as the official extension shows its count whenever
+  the vault is unlocked, and not checked only on a miss.
+- A saved or synced settings change, an account choice or passkey default a login saves,
+  each vault record write, and a vault serving a new snapshot after a sync's accept or a
+  restore (which happens after the record write notified) show again what the cache has
+  for every counted tab, from one read of the settings and records, so a count of the
+  previous settings stops showing, and count each miss of a tab whose page has announced
+  or whose 5 seconds passed. The decision limits only worker starts, tab activation and
+  finished loads to the cache. A worker start reads them once for all open tabs, and
+  takes a tab that had finished loading as announced.
+- A count stopped for a login or an admission (of any frame, in any tab) shows no number
+  and a not-checked title that starts
+  `Pateat: a login or a page check was using the vault` and ends `were not counted yet.`
+  It is tried again after 1, 2, 4, 8, 16 and 32 seconds, then no more on its own; after
+  any top frame's handled announcement; and when a login signs in, is blocked, settles
+  as unknown or is only watched; those do not restart the waits. The vault-replacement
+  hold covers only the count's jobs, not the final read of what applies now.
+- A count that finishes after the settings or a vault changed is cached under the key
+  it was made for, and the tabs show what applies now instead. An announcement whose
+  origin is no longer the tab's does not count.
+- In the probe build, the bundled demo connections are counted by their static
+  `allowedOrigins`.
 
 ## Consequences
 

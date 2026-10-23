@@ -1,7 +1,12 @@
 import * as v from "valibot";
 import type { LoginMarkerTarget, LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
+import {
+  accountText,
+  comparableAccounts,
+  showsOtherAccount,
+  shownAccounts,
+} from "../page/accounts";
 import { isButton } from "../page/text";
 import { pressElement } from "../page/script-url-click";
 import { autocompleteTokens, findTargets } from "../page/targets";
@@ -74,6 +79,13 @@ const pagePath = () => observedPath(location.pathname);
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginMarkerTarget, links = false): Element[] {
   return findTargets(document, target, { links });
+}
+/** A button that submits its form: `<button type=submit>` or `<input type=submit|image>`. */
+function submitButton(element: Element): element is HTMLButtonElement | HTMLInputElement {
+  return (
+    (element instanceof HTMLButtonElement && element.type === "submit") ||
+    (element instanceof HTMLInputElement && (element.type === "submit" || element.type === "image"))
+  );
 }
 function followable(element: Element | undefined): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
@@ -192,6 +204,48 @@ const fillSettleMs = 500;
  */
 const offerQuietMs = 1000;
 const offerWaitMs = 5000;
+/**
+ * A fill compared with the account the page shows, while the page shows no identifier
+ * to compare with, waits until the document has loaded and its DOM has had no change for
+ * `accountQuietMs`, or `accountWaitMs` while it keeps changing: Duolingo's sign-in shows its remembered account's address after the password
+ * field (2026-10-23), and a check before it would pass. It ends `accountReserveMs` before
+ * the operation expires, so a page that keeps changing is still compared and filled.
+ */
+const accountQuietMs = 1000;
+const accountWaitMs = 5000;
+const accountReserveMs = 2000;
+
+/**
+ * Resolves once `document` has loaded and its DOM has had no change for `quietMs`, or at
+ * `until` (a time in ms since the epoch), whichever comes first.
+ */
+function settled(document: Document, quietMs: number, until: number): Promise<void> {
+  return new Promise((resolve) => {
+    const view = document.defaultView;
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    const restart = () => {
+      clearTimeout(quiet);
+      if (document.readyState === "complete") quiet = setTimeout(done, quietMs);
+    };
+    const observer = new MutationObserver(restart);
+    const cap = setTimeout(done, Math.max(0, until - Date.now()));
+    function done(): void {
+      observer.disconnect();
+      clearTimeout(quiet);
+      clearTimeout(cap);
+      view?.removeEventListener("load", restart);
+      resolve();
+    }
+    observer.observe(document, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+    });
+    view?.addEventListener("load", restart);
+    restart();
+  });
+}
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
   readonly probeStatus?: boolean;
@@ -214,6 +268,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    */
   let filled = new WeakSet<HTMLInputElement>();
   let shownBefore: WeakSet<HTMLInputElement> | undefined;
+  // The submit buttons this document showed when a fill began, which Enter never presses
+  // (ADR 0064). A fill whose fields already hold values adds none once one fill has, so a
+  // button such a page shows only for a value is not taken as one the model saw.
+  const submitsBefore = new WeakSet<Element>();
+  let submitsTaken = false;
   let filledAttempt: string | undefined;
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
@@ -369,6 +428,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           "id",
           "name",
           "data-testid",
+          "data-test",
           "type",
           "autocomplete",
           "hidden",
@@ -931,7 +991,106 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (next)
           before = next.targets.map((target) => targetState(document, target, next.require));
       };
+      /**
+       * Submits the form of `target`, the field the fill just before typed last, as pressing
+       * Enter there does (ADR 0064): a click on the form's default button, its first submit
+       * button in tree order, or `requestSubmit()` when it has none, as the official
+       * auto-submit falls back to. Enter on a disabled default button submits nothing, and
+       * a default button that showed when a fill began (`submitsBefore`), which the
+       * generation could have named, or one only associated with the form from outside it,
+       * is never pressed. The
+       * page's own validation must pass, and the checks of a click run first: the
+       * destination (ADR 0051), the form still holding its fills, and a CAPTCHA left to the
+       * person, who then presses Enter or the button.
+       */
+      const pressEnter = async (target: LoginTarget, submit: boolean) => {
+        const found = matches(target);
+        const field = found.length === 1 ? found[0] : undefined;
+        if (!writable(field) || !filled.has(field) || !field.form)
+          return fail("structural-mismatch", "target-missing");
+        const form = field.form;
+        // The first submit button the form owns in tree order; `form.elements` leaves out
+        // image inputs.
+        const defaultButton = () =>
+          [...document.querySelectorAll("button, input")].find(
+            (element): element is HTMLButtonElement | HTMLInputElement =>
+              submitButton(element) && element.form === form,
+          );
+        const button = defaultButton();
+        if (
+          button &&
+          (button.matches(":disabled") || submitsBefore.has(button) || !form.contains(button))
+        )
+          return fail("structural-mismatch", "target-missing");
+        if (!form.noValidate && !button?.formNoValidate && !form.checkValidity())
+          return fail("fill-rejected");
+        const refused = await destinationRefusal(() =>
+          button ? clickDestinations(button) : [formDestination(field, "fill")],
+        );
+        if (refused === "document-cancelled" || refused === "operation-expired")
+          return fail("cancelled", refused);
+        if (refused) return fail("structural-mismatch", refused);
+        if (pagePath() !== step.path) return fail("cancelled", "page-changed");
+        // The page may have changed the form while the background answered.
+        if (
+          !form.isConnected ||
+          field.form !== form ||
+          defaultButton() !== button ||
+          button?.matches(":disabled")
+        )
+          return fail("structural-mismatch", "form-changed");
+        const formInputs = [...form.elements].filter((input) => input instanceof HTMLInputElement);
+        const fills = filled;
+        const passwordsBefore = shownBefore;
+        filled = new WeakSet();
+        shownBefore = undefined;
+        if (
+          unreadyForm(formInputs, {
+            filled: (input) => fills.has(input),
+            shownBefore: (input) => passwordsBefore?.has(input) === true,
+            writable,
+            submit,
+          })
+        )
+          return fail("structural-mismatch", "form-changed");
+        measureNext();
+        submitted = submittedPage(document, formInputs.filter(writable));
+        if (showsCaptcha(document) && !passedCaptcha(document)) return fail("captcha");
+        mutated = true;
+        if (button) button.click();
+        else form.requestSubmit();
+        return { ok: true, mutation: "possible" } as const;
+      };
       if (step.kind === "fill") {
+        // A fill compared with the shown account waits for the page to settle while the
+        // page shows nothing to compare with, so an account it shows after its fields is
+        // compared too (`accountQuietMs`).
+        const masked = command.values.some(
+          (entry) =>
+            entry.secret === "password" ||
+            entry.secret === "hidden" ||
+            entry.secret === "card-code",
+        );
+        if (command.account) {
+          const first = step.fields[0] ? matches(step.fields[0].target) : [];
+          const form =
+            first.length === 1 && first[0] instanceof HTMLInputElement ? first[0].form : null;
+          const comparable = comparableAccounts(
+            shownAccounts(accountText(document, form)),
+            command.account.username,
+            { masked },
+          );
+          if (comparable?.length === 0) {
+            await settled(
+              document,
+              accountQuietMs,
+              Math.min(Date.now() + accountWaitMs, operation.expiresAt - accountReserveMs),
+            );
+            if (cancelled) return fail("cancelled", "document-cancelled");
+            if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
+            if (step.path !== pagePath()) return fail("cancelled", "page-changed");
+          }
+        }
         // Resolve every target first so a partial/ambiguous mapping never causes partial fill.
         const inputs = step.fields.map((field) => {
           const found = matches(field.target);
@@ -946,6 +1105,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           )
         )
           return fail("structural-mismatch", "unexpected-values");
+        // Each field has its own input: two locators that name one input would leave only
+        // the second value in it, and the form would be sent with the wrong value.
+        if (new Set(inputs).size !== inputs.length)
+          return fail("structural-mismatch", "fields-shared");
         // One step fills one form (or only inputs outside any form), and secrets only fit their inputs.
         const writableInputs = inputs as HTMLInputElement[];
         const form = writableInputs[0]!.form;
@@ -975,14 +1138,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const other = showsOtherAccount(
             shownAccounts(accountText(document, form)),
             command.account.username,
-            {
-              masked: command.values.some(
-                (entry) =>
-                  entry.secret === "password" ||
-                  entry.secret === "hidden" ||
-                  entry.secret === "card-code",
-              ),
-            },
+            { masked },
           );
           command.account.username = "";
           if (other) {
@@ -1078,6 +1234,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             }
             // Mark uncertainty before calling into DOM/page code, including a throwing setter.
             mutated = true;
+            if (!shownBefore && (!submitsTaken || writableInputs.every((other) => !other.value))) {
+              for (const other of document.querySelectorAll("button, input"))
+                if (submitButton(other) && visible(other)) submitsBefore.add(other);
+              submitsTaken = true;
+            }
             shownBefore ??= new WeakSet(
               [...document.querySelectorAll("input")].filter(
                 (other) => other.type === "password" && writable(other),
@@ -1205,6 +1366,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         }
       }
       if (command.values.length) return fail("structural-mismatch", "unexpected-values");
+      if (step.kind === "click" && step.press === "enter")
+        return await pressEnter(step.target, step.purpose === "submit");
       if (step.kind === "click") {
         let element: HTMLElement | undefined;
         if (command.list) {

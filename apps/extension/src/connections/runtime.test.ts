@@ -78,22 +78,43 @@ describe("settings-page setup port", () => {
 
   it("answers the page's heartbeat on the same port, expired when this worker holds no flow", async () => {
     const onVaultStateMayChange = vi.fn();
+    const onSignIn = vi.fn();
     const runtime = createConnectionRuntime({} as CryptoHost, {
       registry: { list: async () => [], get: async () => undefined } as never,
       onVaultStateMayChange,
+      onSignIn,
     });
     const port = settingsPort(() => undefined);
     expect(runtime.attach(port as never)).toBe(true);
     const requestId = crypto.randomUUID();
     port.send({ requestId, type: "connection.keep-alive", flowId: crypto.randomUUID() });
     await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledOnce());
-    expect(port.postMessage).toHaveBeenCalledWith({
-      requestId,
-      result: { ok: false, error: { code: "setup-expired" } },
-    });
+    const expired = { ok: false, error: { code: "setup-expired" } };
+    expect(port.postMessage).toHaveBeenCalledWith({ requestId, result: expired });
+    // The local log gets the sign-in that ended while it waited for its code.
+    expect(onSignIn).toHaveBeenCalledExactlyOnceWith("keep-alive", expired);
     expect(port.disconnect).not.toHaveBeenCalled();
     // A heartbeat every 20 seconds changes no vault state, so it re-reads none.
     expect(onVaultStateMayChange).not.toHaveBeenCalled();
+    // Each sign-in step is logged too; a status read is not.
+    const begin = crypto.randomUUID();
+    port.send({
+      requestId: begin,
+      type: "connection.begin",
+      input: {
+        kind: "existing",
+        connectionId: "synthetic-missing",
+        password: "synthetic-password",
+        autoUnlock: "preserve",
+      },
+    });
+    port.send({ requestId: crypto.randomUUID(), type: "connection.status" });
+    await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledTimes(3));
+    expect(onSignIn).toHaveBeenCalledTimes(2);
+    expect(onSignIn).toHaveBeenLastCalledWith("begin", {
+      ok: false,
+      error: { code: "invalid-request" },
+    });
   });
 });
 

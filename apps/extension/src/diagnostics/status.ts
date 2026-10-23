@@ -26,10 +26,9 @@ import type {
   DiagnosticsStatus,
 } from "./wire";
 
-/** A clock further off than one TOTP step makes generated codes fail. */
-export const CLOCK_SKEW_WARNING_MS = 30_000;
-/** Recipe sync normally runs every few minutes while the browser is in use. */
-export const RECIPE_SYNC_OVERDUE_MS = 24 * 60 * 60 * 1000;
+import { CLOCK_SKEW_WARNING_MS, RECIPE_SYNC_OVERDUE_MS } from "./limits";
+export { CLOCK_SKEW_WARNING_MS, RECIPE_SYNC_OVERDUE_MS } from "./limits";
+
 export const HEALTH_TIMEOUT_MS = 5_000;
 /** A stalled store read must not leave the page collecting forever. */
 export const DIAGNOSTICS_TIMEOUT_MS = 15_000;
@@ -274,7 +273,10 @@ async function device(
 }
 
 const recipeCacheSchema = v.looseObject({ recipes: v.array(v.unknown()) });
-const scheduleSchema = v.looseObject({ retryAt: v.pipe(v.number(), v.integer(), v.minValue(0)) });
+const scheduleSchema = v.looseObject({
+  startedAt: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  retryAt: v.pipe(v.number(), v.integer(), v.minValue(0)),
+});
 const baseSchema = v.looseObject({ revision: v.pipe(v.number(), v.integer(), v.minValue(0)) });
 const holdSchema = v.pipe(v.number(), v.integer(), v.minValue(0));
 
@@ -308,7 +310,11 @@ async function service(
       bytes: new TextEncoder().encode(JSON.stringify(cache)).byteLength,
     };
   const next = v.safeParse(scheduleSchema, schedule);
-  if (next.success) result.nextSyncAt = next.output.retryAt;
+  // Sync treats a schedule that started after now, as after a clock change, as due now.
+  if (next.success) {
+    const at = now();
+    result.nextSyncAt = next.output.startedAt <= at ? next.output.retryAt : at;
+  }
   const revision = v.safeParse(baseSchema, base);
   if (revision.success) result.settingsRevision = revision.output.revision;
   const since = v.safeParse(holdSchema, hold);

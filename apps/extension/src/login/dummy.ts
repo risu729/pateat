@@ -30,6 +30,7 @@ const PROBE_PATHS = [
   "/dialog",
   "/slow-button",
   "/text-submit",
+  "/enter-submit",
   "/variants",
   "/passkey",
   "/totp",
@@ -37,6 +38,7 @@ const PROBE_PATHS = [
   "/identifier-swap",
   "/method-choice",
   "/method-choice-named",
+  "/shared-input",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -67,6 +69,7 @@ function variantsRecipe(origin: string, path: string): LoginRecipe {
     id: "demo-variants",
     revision: 1,
     origin,
+    pageKind: "sign-in",
     ...contract,
     alternatives: [set(["branch", "account", "password"])],
     completion: [{ target: target("authenticated") }],
@@ -84,6 +87,7 @@ function totpRecipe(origin: string, path: string): LoginRecipe {
     id: "demo-totp",
     revision: 1,
     origin,
+    pageKind: "sign-in",
     slots: ["password"],
     steps: [
       { kind: "fill", path, fields: [{ slot: "password", target: target("password") }] },
@@ -109,6 +113,7 @@ function identifierFirstRecipe(origin: string, path: string, swap = false): Logi
     id: swap ? "demo-identifier-swap" : "demo-identifier-first",
     revision: 1,
     origin,
+    pageKind: "sign-in",
     slots: ["account", "password"],
     steps: [
       { kind: "fill", path, fields: [{ slot: "account", target: target("account") }] },
@@ -147,10 +152,39 @@ function namedMethodChoiceRecipe(origin: string, path: string): LoginRecipe {
     ],
   });
 }
+/**
+ * Two fields of one step whose different locators name the same input: the step must
+ * fail before it fills anything, since the second value would replace the first.
+ */
+function sharedInputRecipe(origin: string, path: string): LoginRecipe {
+  return parseLoginRecipe({
+    version: 1,
+    id: "demo-shared-input",
+    revision: 1,
+    origin,
+    pageKind: "sign-in",
+    slots: ["account", "password"],
+    steps: [
+      {
+        kind: "fill",
+        path,
+        fields: [
+          { slot: "account", target: target("account") },
+          { slot: "password", target: { by: "name", value: "password" } },
+        ],
+      },
+      { kind: "click", path, target: target("login"), purpose: "submit" },
+    ],
+    completion: [{ target: target("authenticated") }],
+    rejection: target("rejected"),
+    maxSubmissions: 1,
+  });
+}
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
   if (!PROBE_PATHS.includes(path)) return undefined;
   if (path === "/method-choice") return methodChoiceRecipe(origin, path);
   if (path === "/method-choice-named") return namedMethodChoiceRecipe(origin, path);
+  if (path === "/shared-input") return sharedInputRecipe(origin, path);
   if (path === "/variants") return variantsRecipe(origin, path);
   if (path === "/totp") return totpRecipe(origin, path);
   if (path === "/identifier-first") return identifierFirstRecipe(origin, path);
@@ -163,6 +197,7 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
     id: `demo-${path.slice(1)}`,
     revision: 1,
     origin,
+    pageKind: "sign-in",
     slots: multi
       ? ["branch", "account", "password"]
       : inputAdvance
@@ -252,12 +287,22 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
                   },
                 ],
               },
-              {
-                kind: "click",
-                path,
-                target: path === "/text-submit" ? { by: "text", value: "Log in" } : target("login"),
-                purpose: "submit",
-              },
+              // A form without a button is submitted by Enter in its field (ADR 0064).
+              path === "/enter-submit"
+                ? {
+                    kind: "click",
+                    path,
+                    target: target("password"),
+                    purpose: "submit",
+                    press: "enter",
+                  }
+                : {
+                    kind: "click",
+                    path,
+                    target:
+                      path === "/text-submit" ? { by: "text", value: "Log in" } : target("login"),
+                    purpose: "submit",
+                  },
             ],
     completion: [{ target: target("authenticated") }],
     rejection: target("rejected"),

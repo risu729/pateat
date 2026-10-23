@@ -1,0 +1,46 @@
+import type { SettingsConflictCause } from "@pateat/contracts";
+import { formatLocale } from "../i18n";
+import type { LocalizedMessage } from "./ui";
+
+const reasons = {
+  "settings-save": "settings were saved in another window or the toolbar popup",
+  "vault-added": "a Bitwarden vault was added",
+  "vault-sync": "a Bitwarden vault was synced after a sign-in or Sync",
+  "automatic-vault-sync": "a Bitwarden vault was synced automatically",
+  "field-review": "custom fields were reviewed",
+  "service-sync": "settings were merged with the Pateat sync service",
+  "account-choice": "an account used to sign in on a site was saved for that site",
+  "detail-link": "a vault field for a personal detail was linked or unlinked for a site",
+  unknown: "settings changed for a reason no longer recorded",
+} as const satisfies Record<SettingsConflictCause, string>;
+
+/**
+ * The status line after a save met a revision conflict, naming what wrote the newer
+ * revisions (ADR 0025).
+ */
+export function saveConflictMessage(
+  causes: readonly SettingsConflictCause[] = [],
+): LocalizedMessage {
+  const distinct = [...new Set(causes.length ? causes : ["unknown" as const])];
+  return (translate) =>
+    translate(
+      "Saved settings changed before this save: {{reasons}}. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.",
+      {
+        reasons: new Intl.ListFormat(formatLocale(), {
+          style: "long",
+          type: "conjunction",
+        }).format(distinct.map((cause) => translate(reasons[cause]))),
+      },
+    );
+}
+
+/**
+ * Whether only background work wrote the revisions a save did not expect, so the draft's
+ * edits can be applied once to the newer revision (ADR 0025). A save from another page, or
+ * a revision with no recorded cause, may hold edits the owner has not seen.
+ */
+export function backgroundOnlyConflict(causes: readonly SettingsConflictCause[] = []): boolean {
+  return (
+    causes.length > 0 && causes.every((cause) => cause !== "settings-save" && cause !== "unknown")
+  );
+}

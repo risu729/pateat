@@ -81,6 +81,8 @@ export const setupRequestSchema = v.variant("type", [
     }),
   }),
 ]);
+/** A waiting sign-in's end, as the worker's `Date.now()`. */
+const expiresAt = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 const errorCode = v.pipe(v.string(), v.minLength(1), v.maxLength(80), v.regex(/^[a-z-]+$/));
 const replySchema = v.union([
   v.strictObject({
@@ -102,6 +104,8 @@ const replySchema = v.union([
     kind: v.literal("mfa-required"),
     flowId: v.pipe(v.string(), v.uuid()),
     providers: v.pipe(v.array(v.picklist([0, 1])), v.maxLength(2)),
+    expiresAt,
+    invalidCode: v.optional(v.literal(true)),
   }),
   v.strictObject({
     ok: v.literal(true),
@@ -119,6 +123,7 @@ const replySchema = v.union([
     kind: v.literal("new-device-verification-required"),
     flowId: v.pipe(v.string(), v.uuid()),
     invalidOtp: v.boolean(),
+    expiresAt,
   }),
   v.strictObject({
     ok: v.literal(true),

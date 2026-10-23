@@ -85,6 +85,8 @@ describe("entry generation (ADR 0031)", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "username", candidate: "c2" }],
           action: { candidate: "Search", purpose: "submit" },
         },
@@ -103,6 +105,8 @@ describe("entry generation (ADR 0031)", () => {
       // The request log's answer reduces it the same way: an entry request has no slots.
       answer: {
         decision: "plan",
+        pageKind: "sign-in",
+        irreversible: "no",
         fields: [{ slot: "?", candidate: "c2" }],
         action: { candidate: "?", purpose: "submit" },
       },
