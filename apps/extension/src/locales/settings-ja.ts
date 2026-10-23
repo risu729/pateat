@@ -12,8 +12,19 @@ export const settingsJa = {
     "保存済みの設定を読み込みました。リビジョン {{revision}}",
   "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.":
     "設定の保存中に保管庫の情報が変更されました。編集中の内容は保持されています。再度保存する前に、保存済みの設定を再読み込みしてください。再読み込みすると、編集中の内容は破棄されます。",
-  "Settings changed in another window. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.":
-    "別のウィンドウで設定が変更されました。未保存の編集内容は保持されています。保存する前に、保存済みの設定を再読み込みして最新版を確認してください。再読み込みすると、編集中の内容は破棄されます。",
+  "Saved settings changed before this save: {{reasons}}. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.":
+    "この保存の前に保存済みの設定が変更されました（{{reasons}}）。未保存の編集内容は保持されています。保存する前に、保存済みの設定を再読み込みして最新版を確認してください。再読み込みすると、編集中の内容は破棄されます。",
+  "settings were saved in another window or the toolbar popup":
+    "別のウィンドウかツールバーのポップアップでの保存",
+  "a Bitwarden vault was added": "Bitwarden 保管庫の追加",
+  "a Bitwarden vault was synced after a sign-in or Sync":
+    "サインインか同期ボタンによる Bitwarden 保管庫の同期",
+  "a Bitwarden vault was synced automatically": "Bitwarden 保管庫の自動同期",
+  "custom fields were reviewed": "カスタムフィールドの確認",
+  "settings were merged with the Pateat sync service": "Pateat 同期サービスとの設定の統合",
+  "an account used to sign in on a site was saved for that site":
+    "サイトでのサインインに使ったアカウントの保存",
+  "settings changed for a reason no longer recorded": "理由の記録が残っていない変更",
   "{{error}} Your unsaved draft has been preserved.":
     "{{error}} 未保存の編集内容は保持されています。",
   "{{error}} Your unsaved draft has been preserved. Reload saved settings to retry. Reloading discards the draft.":
@@ -55,8 +66,8 @@ export const settingsJa = {
   "Stored settings are invalid. They were not replaced.":
     "保存済みの設定が無効です。設定は置き換えられていません。",
   "Local settings storage is unavailable.": "ローカル設定の保存領域を利用できません。",
-  "Settings changed in another window. Reload before saving.":
-    "別のウィンドウで設定が変更されました。保存する前に再読み込みしてください。",
+  "Saved settings changed. Reload before saving.":
+    "保存済みの設定が変更されました。保存する前に再読み込みしてください。",
   "The settings revision cannot be advanced.": "設定のリビジョンを更新できません。",
   "The protected exclusions exceed the supported settings limits.":
     "保護された除外設定が、対応する設定の上限を超えています。",

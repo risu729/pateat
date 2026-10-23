@@ -651,18 +651,52 @@ test("an edit made during a save that conflicts stays in the draft unsaved", asy
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
 });
 
-test("a save conflict after an automatic vault sync says so and keeps the draft (ADR 0025)", async () => {
-  const client = mockClient();
-  client.saveSettings.mockResolvedValueOnce({
-    version: 1,
-    ok: false,
+function conflict(
+  ...causes: NonNullable<Extract<SettingsResponse, { ok: false }>["error"]["causes"]>
+) {
+  return {
+    version: 1 as const,
+    ok: false as const,
     error: {
-      code: "revision-conflict",
+      code: "revision-conflict" as const,
       message: "Synthetic newer revision exists.",
-      causes: ["automatic-vault-sync"],
+      causes,
+    },
+  };
+}
+
+test("a save conflict after an automatic vault sync saves the edits again on the newer revision (ADR 0025)", async () => {
+  const client = mockClient();
+  const write = deferred<SettingsResponse>();
+  client.saveSettings.mockReturnValueOnce(write.promise);
+  await mount(client);
+  await addSite("pending.example");
+  // An edit made while the conflicting save runs is applied again too.
+  await addSite("later.example");
+  client.getSettings.mockResolvedValue(saved(3, "background.example"));
+  write.resolve(conflict("automatic-vault-sync"));
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 4");
+  expect(client.saveSettings).toHaveBeenCalledTimes(2);
+  expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
+    expectedRevision: 3,
+    settings: {
+      excludedSites: [
+        { hostname: "background.example" },
+        { hostname: "pending.example" },
+        { hostname: "later.example" },
+      ],
     },
   });
+  await expect.element(control("site-list")).toMatchTextContent("background.example");
+});
+
+test("a save that conflicts again after the retry names the cause and keeps the draft", async () => {
+  const client = mockClient();
+  client.saveSettings
+    .mockResolvedValueOnce(conflict("account-choice"))
+    .mockResolvedValueOnce(conflict("automatic-vault-sync"));
   await mount(client);
+  client.getSettings.mockResolvedValue(saved(2));
   await addSite("draft.example");
   await expect
     .element(control("settings-status"))
@@ -670,28 +704,39 @@ test("a save conflict after an automatic vault sync says so and keeps the draft 
       "Saved settings changed before this save: a Bitwarden vault was synced automatically. Your unsaved draft has been preserved.",
     );
   await expect.element(control("site-list")).toMatchTextContent("draft.example");
-  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+  expect(client.saveSettings).toHaveBeenCalledTimes(2);
+  expect(client.saveSettings.mock.calls[1]?.[0].expectedRevision).toBe(2);
 });
 
-test("a save conflict names each cause in one sentence", async () => {
+test("a save conflict after another page saved names the causes without retrying", async () => {
   const client = mockClient();
-  client.saveSettings.mockResolvedValueOnce({
-    version: 1,
-    ok: false,
-    error: {
-      code: "revision-conflict",
-      message: "Synthetic newer revision exists.",
-      causes: ["unknown", "automatic-vault-sync", "service-sync"],
-    },
-  });
+  client.saveSettings.mockResolvedValueOnce(conflict("settings-save", "automatic-vault-sync"));
   await mount(client);
   await addSite("draft.example");
   await expect
     .element(control("settings-status"))
     .toMatchTextContent(
-      "Saved settings changed before this save: settings changed for a reason no longer recorded, a Bitwarden vault was synced automatically and settings were merged with the Pateat sync service.",
+      "Saved settings changed before this save: settings were saved in another window or the toolbar popup and a Bitwarden vault was synced automatically. Your unsaved draft has been preserved.",
     );
   await expect.element(control("site-list")).toMatchTextContent("draft.example");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+  expect(client.getSettings).toHaveBeenCalledTimes(1);
+});
+
+test("a save conflict with an unrecorded cause names each cause in one sentence", async () => {
+  const client = mockClient();
+  client.saveSettings.mockResolvedValueOnce(
+    conflict("unknown", "automatic-vault-sync", "service-sync"),
+  );
+  await mount(client);
+  await addSite("draft.example");
+  await expect
+    .element(control("settings-status"))
+    .toMatchTextContent(
+      /Saved settings changed before this save: settings changed for a reason no longer recorded, a Bitwarden vault was synced automatically,? and settings were merged with the Pateat sync service\./,
+    );
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
 });
 
 test("a default for an account not connected here shows its saved names", async () => {
