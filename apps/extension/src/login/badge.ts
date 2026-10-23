@@ -106,7 +106,11 @@ export type PageStatus = {
    * `sent` while a page is out, then what came back; `page` tells a list of accounts, a
    * sign-in entry or a continuation from a plain sign-in page.
    */
-  generation?: { outcome: string; reason?: string; page?: "accounts" | "entry" | "continuation" };
+  generation?: {
+    outcome: string;
+    reason?: string;
+    page?: "accounts" | "entry" | "continuation" | "repair";
+  };
 };
 
 type Shown = Required<Omit<BadgeDetails, "tabId">>;
@@ -135,15 +139,19 @@ const RESULT_TEXT = { failed: "!", succeeded: "✓", unsettled: "!" } as const;
 function resultTitle(result: BadgeResult, t: TFunction): string {
   if (result.kind === "succeeded") return t("Pateat: logged in.");
   if (result.kind === "unsettled")
-    return t("Pateat: the login's result is not known ({{reason}}). Open Pateat for details.", {
+    return t("Pateat: the result of the login is not known ({{reason}}). Click for details.", {
       reason: result.reason,
     });
-  return t("Pateat: the login did not succeed ({{reason}}). Open Pateat for details.", {
+  return t("Pateat: the login did not succeed ({{reason}}). Click for details.", {
     reason: result.reason,
   });
 }
 
-/** The tooltip of a tab whose login waits for an account choice (ADR 0021). */
+/**
+ * The tooltip of a tab whose login waits for an account choice (ADR 0021): the popup's
+ * reason line (`choiceReason`), then what a click does. The badge never knows whether
+ * another tab's login was rejected, so `other-tab` keeps the sentence that covers both.
+ */
 function choiceTitle(
   { count, ask, paused }: Choice,
   pause: PauseState | undefined,
@@ -160,7 +168,7 @@ function choiceTitle(
           rejected:
             "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
           "rejected-elsewhere":
-            "Pateat: the site did not accept the last login in another tab. Click to choose an account.",
+            "Pateat: the site did not accept a login in another tab. Click to choose an account.",
           "stopped-login":
             "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
           "relogin-limit":
@@ -796,7 +804,7 @@ const storedSchema = v.object({
           v.object({
             outcome: v.string(),
             reason: v.exactOptional(v.string()),
-            page: v.exactOptional(v.picklist(["accounts", "entry", "continuation"])),
+            page: v.exactOptional(v.picklist(["accounts", "entry", "continuation", "repair"])),
           }),
         ),
       }),

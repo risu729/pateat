@@ -43,6 +43,7 @@ function setup(
     storage?: ReturnType<typeof memoryStorage>;
     transport?: Pick<ServiceTransport, "pair" | "revoke">;
     hasSiteAccess?: (origin: string) => Promise<boolean>;
+    onPaired?: (connection: { origin: string; deviceId: string }) => void;
   } = {},
 ) {
   const storage = options.storage ?? memoryStorage();
@@ -51,6 +52,7 @@ function setup(
     storage,
     transport,
     hasSiteAccess: options.hasSiteAccess ?? (async () => true),
+    ...(options.onPaired ? { onPaired: options.onPaired } : {}),
   });
   return { storage, transport, runtime };
 }
@@ -62,6 +64,22 @@ function stored(storage: ReturnType<typeof memoryStorage>) {
 }
 
 describe("pairing", () => {
+  it("tells of a new pairing once its credential is stored, and a listener changes nothing", async () => {
+    const onPaired = vi.fn(() => {
+      throw new Error("listener");
+    });
+    const { storage, runtime } = setup({ onPaired });
+    const response = await runtime.handle(pair);
+    expect(response).toMatchObject({ ok: true, state: { kind: "connected" } });
+    expect(onPaired).toHaveBeenCalledTimes(1);
+    expect(onPaired).toHaveBeenCalledWith({
+      origin: ORIGIN,
+      deviceId: stored(storage)["deviceId"],
+    });
+    await runtime.handle(pair);
+    expect(onPaired).toHaveBeenCalledTimes(1);
+  });
+
   it("saves the issued credential and never returns it", async () => {
     const { storage, transport, runtime } = setup();
     expect(await runtime.handle({ version: 1, type: "service.get" })).toEqual({
@@ -69,7 +87,7 @@ describe("pairing", () => {
       state: { kind: "disconnected" },
     });
     const response = await runtime.handle(pair);
-    expect(transport.pair).toHaveBeenCalledWith(ORIGIN, "Work laptop");
+    expect(transport.pair).toHaveBeenCalledWith(ORIGIN, "Work laptop", undefined);
     expect(response).toEqual({
       ok: true,
       state: {
@@ -103,6 +121,25 @@ describe("pairing", () => {
     expect(await runtime.handle(request)).toEqual({ ok: false, error: "invalid-request" });
     expect(storage.write).not.toHaveBeenCalled();
     expect(transport.pair).not.toHaveBeenCalled();
+  });
+
+  it("passes the chosen or new profile and returns the profiles to choose from", async () => {
+    const profiles = [{ id: "00000000-0000-4000-8000-000000000010", name: "Default" }];
+    const transport = fakeTransport({ kind: "profile", error: "profile-name-taken", profiles });
+    const { storage, runtime } = setup({ transport });
+    expect(await runtime.handle({ ...pair, newProfile: "Agent browser" })).toEqual({
+      ok: false,
+      error: "profile-name-taken",
+      profiles,
+    });
+    expect(transport.pair).toHaveBeenLastCalledWith(ORIGIN, "Work laptop", {
+      newProfile: "Agent browser",
+    });
+    await runtime.handle({ ...pair, profileId: profiles[0]?.id });
+    expect(transport.pair).toHaveBeenLastCalledWith(ORIGIN, "Work laptop", {
+      profileId: profiles[0]?.id,
+    });
+    expect(storage.write).not.toHaveBeenCalled();
   });
 
   it("stores nothing when the service asks for a sign-in", async () => {

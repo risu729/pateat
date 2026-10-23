@@ -139,6 +139,7 @@ function settingsFor({
             },
           ],
           excludedSites: [],
+          repromptSites: [],
           siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
           bindings: [],
         },

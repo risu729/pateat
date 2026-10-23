@@ -24,6 +24,7 @@ import {
   type UnsentRequest,
 } from "../claude/calls";
 import { hasRecipeByteRoom, hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
+import { LOGOUT_UNIT } from "../recipe-units";
 import {
   active,
   answerUnsent,
@@ -180,6 +181,8 @@ export async function generateLogout(
         : value,
   });
   if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
+  // A logout request carries no `deviceModel` (ADR 0040), so no call is left to the device.
+  if (call.status === "device-call") return unsent(unavailable("credentials-not-configured"));
   const { outcome } = call;
   if (outcome.status === "failed") {
     const rejection = outputRejection(outcome);
@@ -229,6 +232,15 @@ export async function generateLogout(
     recipeId,
     { version: 1, state: "active", expectedRevision: baseRevision, recipe: built.recipe },
     scope.deviceId,
+    {
+      sources: {
+        origin: "generated",
+        units: [{ layout: null, unit: LOGOUT_UNIT }],
+        served: call.served,
+        promptVersion: logged.promptVersion,
+        logId: call.logId,
+      },
+    },
   );
   if (!written.ok) {
     if (written.limited) return unavailable("recipe-limit");

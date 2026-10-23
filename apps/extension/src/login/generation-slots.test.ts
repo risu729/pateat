@@ -69,6 +69,25 @@ describe("custom-field offers (ADR 0027)", () => {
     expect(JSON.stringify(offers.map((offer) => offer.slot))).not.toContain("item-1");
   });
 
+  it("never offers a Text or Hidden field the catalog flags as holding a TOTP key", () => {
+    // Such a field fills only the `totp` slot, with a code (owner, 2026-10-23).
+    const offers = customFieldOffers([
+      item("item-1", [
+        custom(0, "Branch number", "text"),
+        custom(1, "Seed", "hidden", { totpSeed: true }),
+        custom(2, "Authenticator key", "text", { totpSeed: true }),
+      ]),
+      // A name flagged on one item is still offered for another item's unflagged field.
+      item("item-2", [custom(0, "Seed", "text")]),
+    ]);
+    expect(
+      offers.map((offer) => [offer.slot.fieldName, offer.members.map((m) => m.itemId)]),
+    ).toEqual([
+      ["Branch number", ["item-1"]],
+      ["Seed", ["item-2"]],
+    ]);
+  });
+
   it("skips Boolean, unsupported, unnamed, blank and over-long names and excluded fields", () => {
     const offers = customFieldOffers([
       item(

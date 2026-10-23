@@ -17,7 +17,7 @@ export function pauseLine(
   t: TFunction,
   timeZone?: string,
 ): string {
-  if (until === "private") return t("Automatic login is off in private windows");
+  if (until === "private") return t("Automatic login is off in private windows.");
   return until === "rule"
     ? t("Paused until turned back on")
     : t("Paused until {{time}}", { time: localClock(until, timeZone) });
@@ -96,17 +96,17 @@ export const PAUSE_CHOICES: readonly {
   {
     length: "10m",
     label: (t) => t("10 minutes"),
-    done: (t) => t("Automatic login on this site is paused for 10 minutes"),
+    done: (t) => t("Automatic login on this site is paused for 10 minutes."),
   },
   {
     length: "1h",
     label: (t) => t("1 hour"),
-    done: (t) => t("Automatic login on this site is paused for an hour"),
+    done: (t) => t("Automatic login on this site is paused for an hour."),
   },
   {
     length: "rule",
     label: (t) => t("Until turned back on"),
-    done: (t) => t("Automatic login on this site is paused until turned back on"),
+    done: (t) => t("Automatic login on this site is paused until turned back on."),
   },
 ];
 
@@ -203,7 +203,7 @@ export function PauseControl({
       {pause.kind === "shared" ? (
         <div className="popup-pause-shared">
           <p id="popup-site-shared" className="popup-muted">
-            {t("Paused by a rule for other sites too")}
+            {t("Paused by a rule that also covers other sites.")}
           </p>
           <ul className="popup-rules">
             {pause.rules.map((rule) => (

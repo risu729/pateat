@@ -68,7 +68,7 @@ const generation = (
 const NONE = { text: "", title: "Pateat" };
 // The tooltip of a choice after a rejection in another tab, whatever the count.
 const OTHER_TAB =
-  "Pateat: the site did not accept the last login in another tab. Click to choose an account.";
+  "Pateat: the site did not accept a login in another tab. Click to choose an account.";
 const choose = (count: number) => `Pateat: ${count} accounts match this page. Click to choose one.`;
 const CHOICE = { color: "#8a5a00", textColor: "#ffffff" };
 const BUSY = { color: "#4f46e5", textColor: "#ffffff" };
@@ -146,9 +146,9 @@ describe("badgeResult", () => {
       expect(badgeResult({ ...sample, outcome }, now)).toBeUndefined();
   });
 
-  it("ignores a recipe revoked for an item that cannot run it (ADR 0058 A)", () => {
-    const revoke = {
-      type: "revoke" as const,
+  it("ignores a repair claimed for an item that cannot run its recipe (ADR 0058 A)", () => {
+    const unfit = {
+      type: "unfit" as const,
       tabId: 1,
       origin: "https://login.example",
       recipeId: "gen-0123456789abcdef0123456789abcdef",
@@ -156,8 +156,8 @@ describe("badgeResult", () => {
       route: "passkey" as const,
       detail: "password-empty:no-advance",
     };
-    for (const outcome of ["revoked", "conflict", "not-due", "not-sent", "failed"] as const)
-      expect(badgeResult({ ...revoke, outcome }, now)).toBeUndefined();
+    for (const outcome of ["claimed", "not-due", "not-sent"] as const)
+      expect(badgeResult({ ...unfit, outcome }, now)).toBeUndefined();
   });
 
   it("shows an unconfirmed completion as unsettled for four seconds", () => {
@@ -320,7 +320,7 @@ describe("login badge", () => {
     h.badge.observe(attempt({ outcome: "credential-rejected" }));
     await h.flush();
     expect(h.view().title).toBe(
-      "Pateat：ログインに成功しませんでした（credential-rejected）。詳しくは Pateat を開いてください。",
+      "Pateat：ログインに成功しませんでした（credential-rejected）。詳しくはクリックしてください。",
     );
   });
 
@@ -528,15 +528,15 @@ describe("login badge", () => {
     expect(h.calls).toHaveLength(writes);
   });
 
-  it("keeps the tab's badge through a revocation report (ADR 0058 A)", async () => {
+  it("keeps the tab's badge through an unfit recipe's report (ADR 0058 A)", async () => {
     const h = harness();
     h.badge.observe(attempt({ outcome: "credential-rejected" }));
     await h.flush();
     const before = h.view();
     expect(before).toMatchObject(FAILED);
-    for (const outcome of ["revoked", "failed"] as const)
+    for (const outcome of ["claimed", "not-sent"] as const)
       h.badge.observe({
-        type: "revoke",
+        type: "unfit",
         tabId,
         origin: "https://login.example",
         recipeId: "gen-0123456789abcdef0123456789abcdef",
@@ -1598,7 +1598,7 @@ describe("page status", () => {
     await h.flush();
     expect(h.view()).toMatchObject(FAILED);
     expect(h.view().title).toBe(
-      "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Open Pateat for details.",
+      "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Click for details.",
     );
     // A failure stays.
     await vi.advanceTimersByTimeAsync(60_000);

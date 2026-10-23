@@ -419,7 +419,7 @@ async function requestWithChooser(context: BrowserContext, page: Page, spec: Spe
   });
   await page.getByRole("button", { name: "Sign in with a passkey" }).click();
   const chooser = await opened;
-  await expect(chooser.getByRole("heading", { name: /^Sign in to /u })).toBeVisible();
+  await expect(chooser.getByRole("heading", { name: /^Log in to /u })).toBeVisible();
   return {
     chooser,
     settle: () =>

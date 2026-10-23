@@ -1,3 +1,4 @@
+import type { ProblemReport } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
   DEVICE_TIMEOUT_MS,
@@ -32,6 +33,7 @@ function respond(status: number, body?: unknown, init: ResponseInit = {}) {
 
 describe("pair", () => {
   const LABEL = "Work laptop";
+  const PROFILE = { id: "00000000-0000-4000-8000-000000000010", name: "Default" };
   const issued = {
     version: 1,
     deviceId: "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41",
@@ -60,6 +62,17 @@ describe("pair", () => {
       "X-Requested-With": "XMLHttpRequest",
     });
     expect(JSON.parse(init!.body as string)).toEqual({ version: 1, label: LABEL });
+  });
+
+  it("sends the chosen profile or the new profile's name", async () => {
+    const fetch = json(201, issued);
+    const transport = createServiceTransport({ fetch });
+    await transport.pair(ORIGIN, LABEL, { profileId: PROFILE.id });
+    await transport.pair(ORIGIN, LABEL, { newProfile: "Agent browser" });
+    expect(fetch.mock.calls.map(([, init]) => JSON.parse(init!.body as string))).toEqual([
+      { version: 1, label: LABEL, profileId: PROFILE.id },
+      { version: 1, label: LABEL, newProfile: "Agent browser" },
+    ]);
   });
 
   it("accepts JSON with a charset", async () => {
@@ -157,6 +170,30 @@ describe("pair", () => {
       { kind: "failed", error: "access-keys-unavailable" },
     ],
     ["a rate limit", 429, { error: "rate_limited" }, { kind: "failed", error: "rate-limited" }],
+    [
+      "a missing profile choice",
+      409,
+      { error: "profile_required", profiles: [PROFILE] },
+      { kind: "profile", error: "profile-required", profiles: [PROFILE] },
+    ],
+    [
+      "a deleted profile",
+      404,
+      { error: "profile_not_found", profiles: [PROFILE] },
+      { kind: "profile", error: "profile-not-found", profiles: [PROFILE] },
+    ],
+    [
+      "a taken profile name",
+      409,
+      { error: "profile_name_taken", profiles: [PROFILE] },
+      { kind: "profile", error: "profile-name-taken", profiles: [PROFILE] },
+    ],
+    [
+      "a profile choice without profiles",
+      409,
+      { error: "profile_required" },
+      { kind: "failed", error: "unexpected-response" },
+    ],
     ["an unknown 403", 403, { error: "other" }, { kind: "failed", error: "unexpected-response" }],
     [
       "a bad request",
@@ -340,6 +377,88 @@ describe("recipe changes", () => {
     });
   });
 
+  describe("a change this build cannot read (#959)", () => {
+    const layout = (target: unknown) => ({
+      key: "1760000000000",
+      createdAt: 1760000000000,
+      pageKind: "sign-in",
+      slots: ["password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/login",
+          fields: [{ slot: "password", target }],
+          effect: "submit",
+          event: "change",
+        },
+      ],
+      maxSubmissions: 1,
+    });
+    const change = (recipeId: string, target: unknown) => ({
+      recipeId,
+      revision: 2,
+      state: "active",
+      recipe: {
+        version: 1,
+        id: recipeId,
+        revision: 2,
+        origin: "https://shop.example",
+        layouts: [layout(target)],
+      },
+    });
+    const readable = change("shop-signin", { by: "id", value: "password" });
+    // A locator kind a newer build might add.
+    const newer = change("card-signin", { by: "future-locator", value: "password" });
+    const read = (body: unknown) =>
+      untimed(
+        createServiceTransport({ fetch: respond(200, body) }).recipeChanges(ORIGIN, CREDENTIAL, 3),
+      );
+
+    it("leaves it out and keeps the rest of the page", async () => {
+      expect(
+        await read({ ...recipePage, changes: [newer, readable, recipePage.changes[0]] }),
+      ).toEqual({
+        kind: "page",
+        page: { ...recipePage, changes: [readable, recipePage.changes[0]] },
+        unreadable: ["card-signin"],
+      });
+    });
+
+    it("names every change of a page that only holds unreadable recipes", async () => {
+      const other = change("card-otp", { by: "future-locator", value: "code" });
+      expect(await read({ ...recipePage, changes: [newer, other] })).toEqual({
+        kind: "page",
+        page: { ...recipePage, changes: [] },
+        unreadable: ["card-signin", "card-otp"],
+      });
+    });
+
+    it.each([
+      ["a tombstone that does not read", [{ ...recipePage.changes[0], revision: 0 }]],
+      ["a change without a recipe ID", [{ ...newer, recipeId: "" }]],
+      ["an unknown state", [{ ...newer, state: "paused" }]],
+      ["a recipe left out twice", [newer, newer]],
+      ["a bad revision", [{ ...newer, revision: 0, recipe: { ...newer.recipe, revision: 0 } }]],
+      ["a recipe of another ID", [{ ...newer, recipe: { ...newer.recipe, id: "shop-signin" } }]],
+      ["a recipe of another revision", [{ ...newer, recipe: { ...newer.recipe, revision: 3 } }]],
+      ["an active change without a recipe", [{ ...newer, recipe: undefined }]],
+      ["another field on a change", [{ ...newer, note: "x" }]],
+      [
+        "a tombstone with a key a strict object refuses",
+        [JSON.parse('{"recipeId":"bank-signin","revision":2,"state":"revoked","constructor":1}')],
+      ],
+      [
+        "a recipe left out and read once",
+        [newer, change("card-signin", { by: "id", value: "password" })],
+      ],
+    ])("still refuses a page with %s", async (_, changes) => {
+      expect(await read({ ...recipePage, changes })).toEqual({
+        kind: "failed",
+        error: "unexpected-response",
+      });
+    });
+  });
+
   it("accepts a page larger than the pairing limit", async () => {
     const body = `${" ".repeat(64 * 1024)}${JSON.stringify({ ...recipePage, cursor: 3 })}`;
     expect(
@@ -383,8 +502,19 @@ describe("recipe changes", () => {
 });
 
 describe("settings", () => {
-  const document = { connections: [], excludedSites: [], siteDefaults: [], bindings: [] };
-  const state = { version: 1, revision: 4, settings: document };
+  const document = {
+    connections: [],
+    excludedSites: [],
+    repromptSites: [],
+    siteDefaults: [],
+    bindings: [],
+  };
+  const state = {
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 4,
+    settings: document,
+  };
 
   it("reads and conditionally writes the settings document", async () => {
     const read = respond(200, state);
@@ -476,7 +606,13 @@ function edgeRateLimitPage() {
 }
 
 describe("rate limits on device-credential routes", () => {
-  const document = { connections: [], excludedSites: [], siteDefaults: [], bindings: [] };
+  const document = {
+    connections: [],
+    excludedSites: [],
+    repromptSites: [],
+    siteDefaults: [],
+    bindings: [],
+  };
   const write = { version: 1, expectedRevision: 3, settings: document } as const;
   const routes: [string, (transport: ServiceTransport) => Promise<object>][] = [
     ["recipe changes", (transport) => transport.recipeChanges(ORIGIN, CREDENTIAL, 3)],
@@ -553,7 +689,9 @@ describe("recipe generation", () => {
           version: 1,
           revision: 2,
           route: "password",
+          branch: "1760000000000",
           observation,
+          slots: [],
         }),
       ),
     ).toEqual({ kind: "result", result: { version: 1, status: "unclear" } });
@@ -580,7 +718,14 @@ describe("recipe generation", () => {
             ? { error: "device_revoked" }
             : { error: "synthetic" },
       );
-      const sample = { version: 1 as const, revision: 2, route: "password" as const, observation };
+      const sample = {
+        version: 1 as const,
+        revision: 2,
+        route: "password" as const,
+        branch: "1760000000000",
+        observation,
+        slots: [] as [],
+      };
       expect(
         await createServiceTransport({ fetch }).samplePage(ORIGIN, CREDENTIAL, recipeId, sample),
       ).toEqual(expected);
@@ -662,6 +807,7 @@ describe("reportOutcome", () => {
   const report = {
     version: 1,
     revision: 3,
+    branch: "1760000000000",
     outcome: "unknown-submit",
     cause: "settled",
     step: 1,
@@ -711,6 +857,7 @@ describe("reportLogin", () => {
   const record = {
     version: 1,
     revision: 3,
+    branch: "1760000000000",
     outcome: "authenticated",
     extensionBuild: "1c42ad3",
     totalMs: 4210,
@@ -753,11 +900,11 @@ describe("reportLogin", () => {
 });
 
 describe("reportUse", () => {
-  const report = { version: 1, revision: 3 } as const;
+  const report = { version: 1, revision: 3, layout: "1760000000000" } as const;
   const send = (fetch: typeof globalThis.fetch, recipeId = "gen-0123") =>
     createServiceTransport({ fetch }).reportUse(ORIGIN, CREDENTIAL, recipeId, report);
 
-  it("posts only the revision with the device credential, no cookies and no redirects", async () => {
+  it("posts only the revision and layout with the device credential, no cookies and no redirects", async () => {
     const fetch = respond(204);
     expect(await send(fetch)).toEqual({ kind: "kept" });
     const [url, init] = fetch.mock.calls[0]!;
@@ -773,7 +920,11 @@ describe("reportUse", () => {
       Authorization: `Bearer ${CREDENTIAL}`,
       "Content-Type": "application/json",
     });
-    expect(JSON.parse(init!.body as string)).toEqual({ version: 1, revision: 3 });
+    expect(JSON.parse(init!.body as string)).toEqual({
+      version: 1,
+      revision: 3,
+      layout: "1760000000000",
+    });
   });
 
   it("encodes the recipe ID into the path", async () => {
@@ -804,6 +955,45 @@ describe("reportUse", () => {
   });
 });
 
+describe("reportProblems (ADR 0066)", () => {
+  const report: ProblemReport = {
+    version: 1,
+    extensionBuild: "1c42ad3",
+    logId: "0123456789abcdef0123456789abcdef",
+    entries: [{ seq: 1, time: 1, level: "warn", event: "vault.sync", fields: {} }],
+  };
+  const send = (fetch: typeof globalThis.fetch) =>
+    createServiceTransport({ fetch }).reportProblems(ORIGIN, CREDENTIAL, report);
+
+  it("posts the lines with the device credential", async () => {
+    const fetch = respond(204);
+    expect(await send(fetch)).toEqual({ kind: "kept" });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/device/problems`);
+    expect(init).toMatchObject({ method: "POST", credentials: "omit" });
+    expect(JSON.parse(init!.body as string)).toEqual(report);
+  });
+
+  it("passes on how long a rate limit asks to wait", async () => {
+    expect(
+      await send(respond(429, { error: "rate_limited" }, { headers: { "Retry-After": "3600" } })),
+    ).toEqual({ kind: "failed", error: "rate-limited", retryAfterMs: 3_600_000 });
+    expect(
+      await send(respond(429, { error: "rate_limited" }, { headers: { "Retry-After": "soon" } })),
+    ).toEqual({ kind: "failed", error: "rate-limited" });
+    expect(await send(respond(400, { error: "bad_request" }))).toEqual({ kind: "refused" });
+  });
+
+  it("keeps the lines when the service does not have the route yet", async () => {
+    for (const status of [404, 405])
+      // oxlint-disable-next-line no-await-in-loop -- one answer at a time
+      expect(await send(respond(status, { error: "not_found" }))).toEqual({
+        kind: "failed",
+        error: "unexpected-response",
+      });
+  });
+});
+
 describe("revokeRecipe (ADR 0058 A)", () => {
   const recipeId = "gen-0123456789abcdef0123456789abcdef";
   const other = "gen-fedcba9876543210fedcba9876543210";
@@ -817,18 +1007,24 @@ describe("revokeRecipe (ADR 0058 A)", () => {
       id: recipeId,
       revision: 4,
       origin: "https://shop.example",
-      pageKind: "sign-in",
-      slots: ["password"],
-      steps: [
+      layouts: [
         {
-          kind: "fill",
-          path: "/login",
-          fields: [{ slot: "password", target: { by: "id", value: "password" } }],
-          effect: "submit",
-          event: "change",
+          key: "1760000000000",
+          createdAt: 1760000000000,
+          pageKind: "sign-in",
+          slots: ["password"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/login",
+              fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+              effect: "submit",
+              event: "change",
+            },
+          ],
+          maxSubmissions: 1,
         },
       ],
-      maxSubmissions: 1,
     },
   } as const;
   const send = (fetch: typeof globalThis.fetch, id = recipeId) =>
@@ -1070,7 +1266,9 @@ describe("service timing", () => {
         version: 1,
         revision: 1,
         route: "password",
+        branch: "1760000000000",
         observation: request.observation,
+        slots: [],
       }),
     ).toEqual({ kind: "rejected", timing: { roundTripMs: 250, serverMs: 20, networkMs: 230 } });
     const unreachable = vi.fn<typeof globalThis.fetch>(async () => {

@@ -151,8 +151,17 @@ export function createCountScope(
       // oxlint-disable-next-line no-await-in-loop -- one record read per connection
       const record = await vault.store.read();
       const handle = vault.manager.status().handle;
+      // A locked vault counts as open only while this browser session holds its key.
+      const usable =
+        record.ok &&
+        (record.data?.state === "active" ||
+          (record.data?.state === "locked" &&
+            // oxlint-disable-next-line no-await-in-loop -- one record read per connection
+            (handle !== undefined || (await vault.manager.keyFor(record.data)) !== undefined)));
       const snapshotId =
-        record.ok && record.data?.state === "active" ? record.data.accepted.snapshotId : undefined;
+        usable && record.data && record.data.state !== "disabled"
+          ? record.data.accepted.snapshotId
+          : undefined;
       if (!handle || handle.snapshotId !== snapshotId) catalogs.delete(connectionId);
       if (!record.ok) unchecked ??= "unreadable";
       else if (snapshotId === undefined) unchecked ??= "locked";

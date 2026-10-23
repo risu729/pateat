@@ -1,6 +1,7 @@
 import {
   getItemEligibility,
   isSupportedSite,
+  itemAsksForMasterPassword,
   siteDefaultConnection,
   type SettingsResponse,
   type SettingsChangeCause,
@@ -147,6 +148,7 @@ export async function findVaultPasskeys(input: {
         discoverable: entry.discoverable,
         counter: entry.counter,
         preferred: preferred?.connectionId === connection.id && preferred.itemId === entry.itemId,
+        ...(itemAsksForMasterPassword(settings, item, input.origin) ? { reprompt: true } : {}),
         display: {
           ...(item?.label ? { item: item.label } : {}),
           ...(entry.userName ? { userName: entry.userName } : {}),
@@ -290,6 +292,19 @@ export function createVaultPasskeySource(
         find,
         ...(only ? { only } : {}),
       });
+    },
+    async verifyMasterPassword(candidate, password) {
+      const vault = await managerFor(candidate.connectionId);
+      // The account the candidate was found in must still be the open one.
+      if (
+        !vault ||
+        vault.handle.snapshotId !== candidate.snapshotId ||
+        vault.handle.userId !== candidate.userId
+      )
+        throw new Error("passkey-unavailable");
+      const checked = await vault.manager.verifyMasterPassword(vault.handle, password);
+      if (!checked.ok) throw new Error("passkey-unavailable");
+      return checked.data.matches;
     },
     async sign(candidate, authenticatorData, clientDataHash) {
       if (!current(await read(), candidate)) throw new Error("passkey-stale");

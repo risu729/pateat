@@ -21,23 +21,23 @@ describe("the popup's reason for asking (ADR 0021)", () => {
     // The site did not accept this tab's last login (ADR 0021 D, 2026-10-13), or another
     // tab's of the origin, which shares the session.
     expect(choiceReason("rejected", 3, en)).toBe(
-      "The site did not accept the last login in this tab",
+      "The site did not accept the last login in this tab.",
     );
     expect(choiceReason("rejected-elsewhere", 2, en)).toBe(
-      "The site did not accept the last login in another tab",
+      "The site did not accept a login in another tab.",
     );
     // A login that stopped after a submission, or a watched login that ended before it
     // signed in (ADR 0027), asks in this tab only.
     expect(choiceReason("stopped-login", 1, en)).toBe(
-      "The last login on this site stopped in this tab",
+      "The last login on this site stopped in this tab.",
     );
     // Two automatic logins of the site signed in within 10 minutes (ADR 0062).
     expect(choiceReason("relogin-limit", 1, en)).toBe(
-      "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose",
+      "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose.",
     );
     // An account picked without making it the default (ADR 0063).
     expect(choiceReason("one-time-pick", 2, en)).toBe(
-      "You chose an account here without making it the default, so Pateat asks each time until an account is made the default",
+      "You chose an account here without making it the default, so Pateat asks each time until an account is made the default.",
     );
   });
 
@@ -52,31 +52,31 @@ describe("the popup's reason for asking (ADR 0021)", () => {
       "The page changed, so nothing was started. Example was not made the default. Reload it to choose again.",
     );
     expect(pickFailure("origin-busy", "Example", false, en)).toBe(
-      "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 10 minutes, then choose again.",
+      "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, or wait up to 10 minutes, then choose again.",
     );
     expect(pickFailure("no-choice", "Example", false, en)).toBe(
-      "This page is no longer waiting for a choice",
+      "This page no longer waits for an account choice.",
     );
     expect(pickFailure("not-a-candidate", "Example", true, en)).toBe(
-      "This page is no longer waiting for a choice. Example was not made the default.",
+      "This page no longer waits for an account choice. Example was not made the default.",
     );
   });
 
   it("counts the matches outside an ask, and names a paused site", () => {
-    expect(choiceReason(undefined, 3, en)).toBe("3 accounts match this page");
-    expect(choiceReason(undefined, 1, en)).toBe("1 account matches this page");
-    expect(choiceReason("rejected", 3, en, true)).toBe("Automatic login is paused on this site");
+    expect(choiceReason(undefined, 3, en)).toBe("3 accounts match this page.");
+    expect(choiceReason(undefined, 1, en)).toBe("1 account matches this page.");
+    expect(choiceReason("rejected", 3, en, true)).toBe("Automatic login is paused on this site.");
     expect(choiceReason(undefined, 1, en, "private")).toBe(
-      "Automatic login is off in private windows",
+      "Automatic login is off in private windows.",
     );
   });
 
   it("points a private window's pick without a password to the page's passkey button only", () => {
     expect(pickFailure("paused-no-password", "Example", false, en, true)).toBe(
-      "Automatic login is off in private windows, and Example has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when Example is this site's only passkey or its default.",
+      "Automatic login is off in private windows, and Example has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when Example is this site's only passkey or its default.",
     );
     expect(pickFailure("paused-no-password", "Example", true, en, true)).toBe(
-      "Automatic login is off in private windows, and Example has no password, so Pateat did not log in. Example was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when Example is this site's only passkey or its default.",
+      "Automatic login is off in private windows, and Example has no password, so Pateat did not log in. Example was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when Example is this site's only passkey or its default.",
     );
     for (const makeDefault of [false, true])
       expect(pickFailure("paused-no-password", "Example", makeDefault, en, true)).not.toContain(
@@ -89,14 +89,17 @@ describe("the popup's reason for asking (ADR 0021)", () => {
 
   it("says the same in Japanese, with the account name kept as written", () => {
     expect(choiceReason("rejected", 3, ja)).toBe(
-      "このタブでの前回のログインはサイトに受け付けられませんでした",
+      "このタブでの前回のログインはサイトに受け付けられませんでした。",
     );
-    expect(choiceReason(undefined, 3, ja)).toBe("3 件のアカウントがこのページに一致します");
+    expect(choiceReason("rejected-elsewhere", 2, ja)).toBe(
+      "別のタブでのログインがサイトに受け付けられませんでした。",
+    );
+    expect(choiceReason(undefined, 3, ja)).toBe("3 件のアカウントがこのページに一致します。");
     expect(pickFailure("document-gone", "<b>Example</b>", true, ja)).toBe(
       "ページが変わったため、ログインを開始しませんでした。<b>Example</b> は既定のアカウントになっていません。もう一度選ぶには、ページを再読み込みしてください。",
     );
     expect(pickFailure("no-choice", "Example", false, ja)).toBe(
-      "このページはアカウントの選択を待っていません",
+      "このページはアカウントの選択を待っていません。",
     );
   });
 
@@ -134,22 +137,22 @@ describe("the popup's account switch (ADR 0063)", () => {
       "Logging out to switch to Example…",
     );
     expect(switchStatus("signed-out", undefined, "Example", en)).toBe(
-      "Logged out. Pateat logs in with Example on this site's login page in this tab",
+      "Logged out. Pateat logs in with Example on this site's login page in this tab.",
     );
     expect(switchStatus("failed", "no-logout-control", "Example", en)).toBe(
-      "Pateat found no way to log out on this page, so it did not switch to Example. Log out yourself, then choose the account",
+      "Pateat found no way to log out on this page, so it did not switch to Example. Log out yourself, then choose the account.",
     );
     expect(switchStatus("failed", "unsafe-control", "Example", en)).toBe(
-      "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to Example. Log out yourself, then choose the account",
+      "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to Example. Log out yourself, then choose the account.",
     );
     expect(switchStatus("failed", "interrupted", "Example", en)).toBe(
-      "Pateat stopped while logging out, so it did not switch to Example. Check whether you are logged out, then choose the account",
+      "Pateat stopped while logging out, so it did not switch to Example. Check whether you are logged out, then choose the account.",
     );
     expect(switchStatus("failed", "still-signed-in", "Example", en)).toBe(
-      "The site still shows you logged in after 3 tries, so Pateat did not switch to Example. Log out yourself, then choose the account",
+      "The site still shows you logged in after 3 tries, so Pateat did not switch to Example. Log out yourself, then choose the account.",
     );
     expect(switchStatus("failed", "service-unavailable", "Example", en)).toBe(
-      "Pateat could not log out to switch to Example. Log out yourself, then choose the account",
+      "Pateat could not log out to switch to Example. Log out yourself, then choose the account.",
     );
   });
 

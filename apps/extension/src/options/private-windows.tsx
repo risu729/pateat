@@ -56,15 +56,15 @@ export function PrivateWindows({
             tone: "idle",
             icon: Pause,
             text: on
-              ? t("Pateat logs in by itself in private windows as in other windows")
+              ? t("Pateat logs in by itself in private windows as in other windows.")
               : t(
-                  "Off: every site in a private window is paused, so Pateat logs in there only with an account picked in the toolbar popup",
+                  "Off: every site in a private window is paused, so Pateat logs in there only with an account picked in the toolbar popup.",
                 ),
           },
           {
             tone: "idle",
             icon: Info,
-            text: t("Applies on all your devices; other windows are not affected"),
+            text: t("Applies on all your devices; other windows are not affected."),
           },
         ]}
       />

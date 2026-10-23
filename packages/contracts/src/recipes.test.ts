@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
-import { parseLoginRecipe, type LoginRecipe, type StoredLoginRecipe } from "./login";
+import {
+  parseLoginRecipe,
+  routeBodyOf,
+  storedLoginRecipeSchema,
+  toLoginLayout,
+  type LoginRecipe,
+  type LoginRecipeDocument,
+  type StoredLoginRecipe,
+} from "./login";
 import {
   bindingGaps,
   customFieldReference,
@@ -8,11 +16,20 @@ import {
   fillLoginBinding,
   findLoginBinding,
   loginDisplayNames,
+  languageDecides,
+  layoutFirstSteps,
+  layoutShown,
+  layoutStartTargets,
+  loginLayoutCandidates,
   loginRecipesForOrigin,
+  rankLayouts,
   resolveBindingFields,
+  resolveDetailSourceField,
   saveLoginChoice,
   selectLoginRecipe,
   templateLoginBinding,
+  totpFieldMismatch,
+  totpFieldReference,
   type LocalItemField,
 } from "./recipes";
 import {
@@ -40,6 +57,19 @@ function recipe(id: string, firstPath: string, revision = 1, at = origin): Login
     completion: [{ target: target("welcome") }],
     maxSubmissions: 1,
   });
+}
+/** The recipe stored as a document of its layouts, created at the times given (ADR 0060). */
+function stored(route: LoginRecipe, ...created: number[]): LoginRecipeDocument {
+  const { version, id, revision, origin: at } = route;
+  return {
+    version,
+    id,
+    revision,
+    origin: at,
+    layouts: (created.length ? created : [1000]).map((createdAt) =>
+      toLoginLayout(route, { key: String(createdAt), createdAt }),
+    ),
+  };
 }
 const binding = (overrides: Partial<SavedLoginBinding> = {}): SavedLoginBinding => ({
   recipeId: "bank-signin",
@@ -74,15 +104,16 @@ const resolve = (entry: SavedLoginBinding, live: readonly LocalItemField[] = fie
 
 describe("recipe selection", () => {
   const recipes = [
-    recipe("bank-signin", "/login"),
-    recipe("bank-admin", "/admin"),
-    recipe("other-signin", "/login", 1, "https://other.example"),
+    stored(recipe("bank-signin", "/login")),
+    stored(recipe("bank-admin", "/admin")),
+    stored(recipe("other-signin", "/login", 1, "https://other.example")),
   ];
 
   it("starts only on a recipe's first step", () => {
     expect(selectLoginRecipe(recipes, origin, "/login")).toMatchObject({
       ok: true,
-      recipe: { id: "bank-signin" },
+      recipe: { id: "bank-signin", layout: "1000" },
+      layouts: [{ recipe: { id: "bank-signin", layout: "1000" }, createdAt: 1000 }],
       stepIndex: 0,
     });
     expect(selectLoginRecipe(recipes, origin, "/password")).toEqual({
@@ -97,22 +128,151 @@ describe("recipe selection", () => {
 
   it("refuses when two recipes start on the same page", () => {
     expect(
-      selectLoginRecipe([...recipes, recipe("bank-business", "/login")], origin, "/login"),
+      selectLoginRecipe([...recipes, stored(recipe("bank-business", "/login"))], origin, "/login"),
     ).toEqual({ ok: false, reason: "recipe-ambiguous" });
     expect(
-      selectLoginRecipe([...recipes, recipe("bank-signin", "/login", 2)], origin, "/login"),
+      selectLoginRecipe([...recipes, stored(recipe("bank-signin", "/login", 2))], origin, "/login"),
     ).toEqual({ ok: false, reason: "recipe-ambiguous" });
   });
 
+  it("offers every layout of one recipe, the newest first by default (ADR 0060)", () => {
+    const layered = stored(recipe("bank-signin", "/login"), 3000, 1000, 2000);
+    const selected = selectLoginRecipe([layered], origin, "/login");
+    expect(selected).toMatchObject({ ok: true, recipe: { layout: "3000" } });
+    expect(selected.ok && selected.layouts.map((candidate) => candidate.recipe.layout)).toEqual([
+      "3000",
+      "1000",
+      "2000",
+    ]);
+    // Layouts of one recipe never make its start ambiguous.
+    expect(loginRecipesForOrigin([layered], origin)).toHaveLength(1);
+  });
+
+  it("counts the elements of every route's steps on the start path, each once", () => {
+    const route = recipe("bank-signin", "/login");
+    expect(layoutStartTargets(route)).toEqual([target("user")]);
+    const single = parseLoginRecipe({
+      ...route,
+      steps: [
+        { kind: "fill", path: "/login", fields: [{ slot: "username", target: target("user") }] },
+        { kind: "wait", path: "/login", target: target("spinner"), present: false, timeoutMs: 100 },
+        { kind: "fill", path: "/login", fields: [{ slot: "password", target: target("pass") }] },
+        { kind: "click", path: "/login", target: target("login"), purpose: "submit" },
+      ],
+      passkey: { path: "/login", target: target("passkey") },
+      alternatives: [
+        {
+          slots: ["email", "password"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/login",
+              fields: [
+                { slot: "email", target: target("email") },
+                { slot: "password", target: target("pass") },
+              ],
+            },
+            { kind: "click", path: "/login", target: target("go"), purpose: "submit" },
+          ],
+        },
+      ],
+    });
+    expect(layoutStartTargets(single)).toEqual(
+      ["passkey", "user", "pass", "login", "email", "go"].map(target),
+    );
+  });
+
+  it("ranks layouts by a first step shown whole, missing and shown elements, language, age", () => {
+    const route = recipe("bank-signin", "/login");
+    const candidates = loginLayoutCandidates({
+      ...stored(route, 1000, 2000, 3000),
+      layouts: [
+        { ...toLoginLayout(route, { key: "1000", language: "ja", createdAt: 1000 }) },
+        { ...toLoginLayout(route, { key: "2000", language: "en", createdAt: 2000 }) },
+        { ...toLoginLayout(route, { key: "3000", createdAt: 3000 }) },
+      ],
+    });
+    expect(candidates.map((candidate) => candidate.language)).toEqual(["ja", "en", undefined]);
+    const shows = (starts: boolean, shown: number, missing = 0) => ({ starts, shown, missing });
+    const order = (shown: ReturnType<typeof shows>[], language?: "ja" | "en" | "mixed") =>
+      rankLayouts(candidates, shown, language).map((candidate) => candidate.recipe.layout);
+    // A layout one of whose first steps shows whole goes first, whatever the counts.
+    expect(order([shows(false, 4, 1), shows(true, 2, 1), shows(false, 1)])).toEqual(["2000"]);
+    // Then the fewest missing start elements, however many more another shows.
+    expect(order([shows(true, 4, 1), shows(true, 3), shows(true, 3)])).toEqual(["3000", "2000"]);
+    // Then the most shown; the rest drop out.
+    expect(order([shows(true, 2), shows(true, 1), shows(true, 1)])).toEqual(["1000"]);
+    // On a tie, the page's language first, then the newest.
+    const tie = [shows(true, 1), shows(true, 1), shows(true, 1)];
+    expect(order(tie, "ja")).toEqual(["1000", "3000", "2000"]);
+    expect(order(tie, "en")).toEqual(["2000", "3000", "1000"]);
+    expect(order(tie, "mixed")).toEqual(["3000", "2000", "1000"]);
+    expect(order([shows(false, 0), shows(false, 0), shows(false, 0)])).toEqual([
+      "3000",
+      "2000",
+      "1000",
+    ]);
+    // The language is read only when the best ones differ in it.
+    expect(languageDecides(rankLayouts(candidates, tie))).toBe(true);
+    expect(languageDecides(rankLayouts(candidates, [shows(true, 2), ...tie.slice(1)]))).toBe(false);
+  });
+
+  it("measures a layout against what the page shows", () => {
+    const route = parseLoginRecipe({
+      ...recipe("bank-signin", "/login"),
+      steps: [
+        { kind: "fill", path: "/login", fields: [{ slot: "username", target: target("user") }] },
+        { kind: "click", path: "/login", target: target("login"), purpose: "submit" },
+      ],
+      passkey: { path: "/login", target: target("passkey") },
+    });
+    expect(layoutFirstSteps(route)).toEqual([[target("passkey")], [target("user")]]);
+    const page =
+      (shown: string[], asked = ["passkey", "user", "login"]) =>
+      (asking: { value: string }) =>
+        asked.includes(asking.value) ? shown.includes(asking.value) : undefined;
+    const measure = (shown: string[], asked?: string[]) =>
+      layoutShown(layoutFirstSteps(route), layoutStartTargets(route), page(shown, asked));
+    expect(measure(["user", "login"])).toEqual({ starts: true, shown: 2, missing: 1 });
+    expect(measure(["login"])).toEqual({ starts: false, shown: 1, missing: 2 });
+    // An element the page was not asked about counts as neither.
+    expect(measure(["user"], ["user"])).toEqual({ starts: true, shown: 1, missing: 0 });
+    // A first step that waits for an element to go shows no start.
+    expect(layoutShown([[]], [], () => true)).toEqual({ starts: false, shown: 0, missing: 0 });
+  });
+
   it("never lists or starts a recipe generated as confirm or unclear (ADR 0035)", () => {
-    const confirm = { ...recipe("bank-transfer", "/transfer"), pageKind: "confirm" as const };
-    const unclear = { ...recipe("bank-secret", "/secret"), pageKind: "unclear" as const };
+    const confirm = stored({ ...recipe("bank-transfer", "/transfer"), pageKind: "confirm" });
+    const unclear = stored({ ...recipe("bank-secret", "/secret"), pageKind: "unclear" });
     const all = [...recipes, confirm, unclear];
     expect(loginRecipesForOrigin(all, origin).map(({ id }) => id)).toEqual([
       "bank-signin",
       "bank-admin",
     ]);
     expect(selectLoginRecipe(all, origin, "/transfer")).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+    });
+  });
+
+  it("keeps one page kind for every layout of a recipe (ADR 0035, ADR 0060)", () => {
+    const route = recipe("bank-signin", "/login");
+    const mixed: LoginRecipeDocument = {
+      ...stored(route, 1000),
+      layouts: [
+        toLoginLayout(route, { key: "1000", createdAt: 1000 }),
+        toLoginLayout({ ...route, pageKind: "confirm" }, { key: "2000", createdAt: 2000 }),
+      ],
+    };
+    // A document mixing kinds is never stored or synced, so a recipe runs, or not, whole.
+    expect(v.is(storedLoginRecipeSchema, mixed)).toBe(false);
+    const confirm: LoginRecipeDocument = {
+      ...mixed,
+      layouts: mixed.layouts.map((layout) => ({ ...layout, pageKind: "confirm" as const })),
+    };
+    expect(v.is(storedLoginRecipeSchema, confirm)).toBe(true);
+    expect(loginLayoutCandidates(confirm)).toEqual([]);
+    expect(selectLoginRecipe([confirm], origin, "/login")).toEqual({
       ok: false,
       reason: "recipe-not-found",
     });
@@ -142,13 +302,16 @@ describe("recipe selection", () => {
   });
 
   it("never lists or starts a chooser recipe or its branch (ADR 0028)", () => {
-    const signin = recipes[0]!;
+    const signin = recipe("bank-signin", "/login");
     const chooser: StoredLoginRecipe = {
       version: 1,
       id: "bank-chooser",
       revision: 1,
       origin,
-      chooser: { path: "/login", afterAccount: { ...signin, id: "bank-chooser", revision: 1 } },
+      chooser: {
+        path: "/login",
+        layouts: [{ key: "1000", createdAt: 1000, afterAccount: routeBodyOf(signin) }],
+      },
     };
     expect(loginRecipesForOrigin([chooser, ...recipes], origin).map(({ id }) => id)).toEqual([
       "bank-signin",
@@ -884,6 +1047,158 @@ describe("saved bindings with gaps (ADR 0027, amended 2026-10-19)", () => {
       })),
     });
     expect(fillLoginBinding(full, ["password"], [], fields)).toEqual({
+      ok: false,
+      reason: "binding-slots-mismatch",
+    });
+  });
+});
+
+describe("a linked detail's source field (ADR 0061)", () => {
+  const itemFields: LocalItemField[] = [
+    { id: "identity.phone", name: null },
+    { id: "custom.snapshot.0", name: "生年月日" },
+    { id: "custom.snapshot.1", name: "Birthday" },
+    { id: "custom.snapshot.3", name: "Birthday" },
+  ];
+
+  it("keeps a built-in field the item has", () => {
+    expect(resolveDetailSourceField("identity.phone", itemFields)).toBe("identity.phone");
+    expect(resolveDetailSourceField("card.code", itemFields)).toBeUndefined();
+    expect(resolveDetailSourceField("card.number", [{ id: "card.number", name: null }])).toBe(
+      "card.number",
+    );
+  });
+
+  it("resolves a custom field by its name, as a binding reference does", () => {
+    expect(resolveDetailSourceField({ custom: "生年月日" }, itemFields)).toBe("custom.snapshot.0");
+    expect(
+      resolveDetailSourceField({ custom: "Birthday", position: 2, count: 2 }, itemFields),
+    ).toBe("custom.snapshot.3");
+  });
+
+  it("resolves no custom field that is missing, ambiguous or counted differently", () => {
+    expect(resolveDetailSourceField({ custom: "Phone" }, itemFields)).toBeUndefined();
+    expect(resolveDetailSourceField({ custom: "Birthday" }, itemFields)).toBeUndefined();
+    expect(
+      resolveDetailSourceField({ custom: "Birthday", position: 1, count: 3 }, itemFields),
+    ).toBeUndefined();
+  });
+});
+
+describe("the totp slot's field (ADR 0027, owner 2026-10-23)", () => {
+  const custom = (index: number) => `custom.${snapshotId}.${index}`;
+  const bank = { id: "bank-signin", origin };
+  const account = {
+    provider: "bitwarden",
+    userId: binding().userId,
+    itemId: binding().itemId,
+    itemName: "Example Bank",
+  };
+  // The built-in TOTP field holds no key, and the custom field "Seed" holds one.
+  const seeded: LocalItemField[] = [
+    { id: "login.username", name: null },
+    { id: "login.password", name: null },
+    { id: "login.totp-code", name: null, empty: true },
+    { id: custom(0), name: "Branch number" },
+    { id: custom(1), name: "Seed", totpSeed: true },
+  ];
+
+  it("reads the built-in field when it holds a key, else the one flagged custom field", () => {
+    expect(totpFieldReference(fields)).toBe("totp");
+    expect(totpFieldReference(seeded)).toEqual({ custom: "Seed" });
+    // A built-in field holding a key wins over a flagged custom field.
+    const both = seeded.map((field) =>
+      field.id === "login.totp-code" ? { id: field.id, name: null } : field,
+    );
+    expect(totpFieldReference(both)).toBe("totp");
+    // Several flagged fields, or an unnamed one, leave the built-in field.
+    expect(
+      totpFieldReference([...seeded, { id: custom(2), name: "Other seed", totpSeed: true }]),
+    ).toBe("totp");
+    expect(
+      totpFieldReference(
+        seeded.map((field) => (field.id === custom(1) ? { ...field, name: null } : field)),
+      ),
+    ).toBe("totp");
+    // A flag on a built-in field never counts.
+    expect(
+      totpFieldReference([{ id: "login.totp-code", name: null, empty: true, totpSeed: true }]),
+    ).toBe("totp");
+    // Same-name fields are named by position.
+    expect(totpFieldReference([...seeded, { id: custom(2), name: "Seed" }])).toEqual({
+      custom: "Seed",
+      position: 1,
+      count: 2,
+    });
+  });
+
+  it("tells which fields a slot may not read under the TOTP key rule", () => {
+    const [, , builtin, branch, seed] = seeded;
+    // Only the totp slot reads a flagged field, and it reads no unflagged custom field.
+    expect(totpFieldMismatch("branch", seed)).toBe(true);
+    expect(totpFieldMismatch("password", seed)).toBe(true);
+    expect(totpFieldMismatch("totp", seed)).toBe(false);
+    expect(totpFieldMismatch("totp", branch)).toBe(true);
+    expect(totpFieldMismatch("branch", branch)).toBe(false);
+    // Built-in fields are left to the other checks.
+    expect(totpFieldMismatch("totp", builtin)).toBe(false);
+    expect(totpFieldMismatch("totp", { id: "login.password", name: null })).toBe(false);
+    expect(totpFieldMismatch("totp", undefined)).toBe(false);
+  });
+
+  it("binds the automatic, template and gap-filled totp slot to the flagged field", () => {
+    expect(defaultLoginBinding(["username", "totp"], bank, account, seeded)?.slots).toEqual([
+      { slot: "username", field: "username" },
+      { slot: "totp", field: { custom: "Seed" } },
+    ]);
+    // Without the item's fields, the built-in field as before.
+    expect(defaultLoginBinding(["totp"], bank, account)?.slots).toEqual([
+      { slot: "totp", field: "totp" },
+    ]);
+    const template = [{ slot: "branch", field: { custom: "Branch number" } }];
+    const built = templateLoginBinding(["branch", "totp"], bank, account, [template], seeded);
+    expect(built.ok && built.binding.slots).toEqual([
+      { slot: "branch", field: { custom: "Branch number" } },
+      { slot: "totp", field: { custom: "Seed" } },
+    ]);
+    const saved = binding({ slots: [{ slot: "username", field: "username" }] });
+    const filled = fillLoginBinding(saved, ["username", "totp"], [], seeded);
+    expect(filled.ok && filled.binding.slots).toEqual([
+      { slot: "username", field: "username" },
+      { slot: "totp", field: { custom: "Seed" } },
+    ]);
+    expect(filled.ok && resolve(filled.binding, seeded)).toEqual({
+      ok: true,
+      slots: [
+        { slot: "username", fieldId: "login.username" },
+        { slot: "totp", fieldId: custom(1) },
+      ],
+    });
+    // A template that would fill the flagged field as text is skipped for the next one.
+    const seedTemplate = [{ slot: "branch", field: { custom: "Seed" } }];
+    const skipped = templateLoginBinding(
+      ["branch", "totp"],
+      bank,
+      account,
+      [seedTemplate, template],
+      seeded,
+    );
+    expect(skipped.ok && skipped.binding.slots).toEqual([
+      { slot: "branch", field: { custom: "Branch number" } },
+      { slot: "totp", field: { custom: "Seed" } },
+    ]);
+    expect(templateLoginBinding(["branch"], bank, account, [seedTemplate], seeded)).toEqual({
+      ok: false,
+      reason: "binding-not-found",
+    });
+    expect(fillLoginBinding(saved, ["username", "branch"], [seedTemplate], seeded)).toEqual({
+      ok: false,
+      reason: "binding-slots-mismatch",
+    });
+    // A saved binding that already names the flagged field under another slot is not
+    // filled with it again.
+    const named = binding({ slots: [{ slot: "code", field: { custom: "Seed" } }] });
+    expect(fillLoginBinding(named, ["code", "totp"], [], seeded)).toEqual({
       ok: false,
       reason: "binding-slots-mismatch",
     });

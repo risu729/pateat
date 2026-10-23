@@ -173,12 +173,12 @@ that logs out right after a login, or two tabs of a site that allows one session
   `{hostname: <registrable site>, includeSubdomains: true}`, replacing a rule of the
   same hostname, and its Resume removes the rules that cover the tab's hostname and lie
   within the site. A covering rule for a parent of the site, such as a public suffix,
-  also covers other sites: the popup says "Paused by a rule for other sites too" and
-  links it to the settings page. The extension's settings page and `/manage` edit the
-  rules as before, now named Pause and Resume; their per-origin Pause, and the switch on
-  a `/manage` site page, add the same registrable-site rule as the popup. A rule is
-  synced, applies in both window kinds on every device of the profile, and shows over a
-  timed pause.
+  also covers other sites: the popup says "Paused by a rule that also covers other
+  sites." and links it to the settings page. The extension's settings page and `/manage`
+  edit the rules as before, now named Pause and Resume; their per-origin Pause, and the
+  switch on a `/manage` site page, add the same registrable-site rule as the popup. A
+  rule is synced, applies in both window kinds on every device of the profile, and shows
+  over a timed pause.
 - An exclusion used to turn Pateat off on its hosts: no document was admitted, the popup
   listed no account and offered no choice ("No logins or passkey answers on this site"),
   a waiting choice was dropped, and every passkey request was handed on. Now the
@@ -228,7 +228,7 @@ that logs out right after a login, or two tabs of a site that allows one session
 - While it is off, every site in a private (incognito) window is paused as in D: nothing
   logs in, fills, presses an entry or is sent by itself, conditional passkey requests
   are handed on, and a popup pick still runs. The popup says "Automatic login is off in
-  private windows" with "Change in settings", which opens that section, and offers no
+  private windows." with "Change in settings", which opens that section, and offers no
   timed pause; the badge, the popup's reason and page lines say automatic login is off
   in private windows rather than that the site is paused. A tab whose window kind is not
   known is not treated as private.

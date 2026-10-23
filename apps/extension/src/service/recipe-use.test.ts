@@ -30,6 +30,8 @@ function started(overrides: Overrides = {}): LoginReport {
     origin: "https://bank.example",
     recipeId: "gen-0123",
     recipeRevision: 3,
+    // The layout the login started on (ADR 0060).
+    layout: "1000",
     route: "password",
     variant: 0,
     account: "match",
@@ -40,10 +42,10 @@ function started(overrides: Overrides = {}): LoginReport {
 }
 
 describe("recipeUseOf", () => {
-  it("sends the version and revision only, never the origin, account or route", () => {
+  it("sends the version, revision and layout only, never the origin, account or route", () => {
     expect(recipeUseOf(started())).toEqual({
       recipeId: "gen-0123",
-      report: { version: 1, revision: 3 },
+      report: { version: 1, revision: 3, layout: "1000" },
     });
     // A fill-only login, one at a later step and one on a chooser's list count as well.
     for (const report of [
@@ -53,7 +55,7 @@ describe("recipeUseOf", () => {
     ])
       expect(recipeUseOf(report)).toEqual({
         recipeId: "gen-0123",
-        report: { version: 1, revision: 3 },
+        report: { version: 1, revision: 3, layout: "1000" },
       });
   });
 
@@ -75,6 +77,8 @@ describe("recipeUseOf", () => {
       } as LoginReport,
       { type: "refused", tabId: 7, origin: "https://bank.example", reason: "no-recipe" },
       { type: "ask-ended" } as LoginReport,
+      // No layout (ADR 0060).
+      started({ layout: undefined }),
       // No service recipe revision.
       started({ recipeRevision: 0 }),
       started({ recipeRevision: -1 }),
@@ -123,9 +127,14 @@ describe("createRecipeUse", () => {
     await vi.waitFor(() => expect(logged).toHaveLength(1));
     await settle();
     expect(reportUse.mock.calls).toEqual([
-      [CONNECTION.origin, CONNECTION.credential, "gen-0123", { version: 1, revision: 3 }],
+      [
+        CONNECTION.origin,
+        CONNECTION.credential,
+        "gen-0123",
+        { version: 1, revision: 3, layout: "1000" },
+      ],
     ]);
-    expect(logged).toEqual([{ recipeId: "gen-0123", revision: 3, result: "kept" }]);
+    expect(logged).toEqual([{ recipeId: "gen-0123", revision: 3, layout: "1000", result: "kept" }]);
   });
 
   it("sends a revision once an hour per service, and each other revision or recipe", async () => {
@@ -175,7 +184,9 @@ describe("createRecipeUse", () => {
     use.observe(started());
     await settle();
     expect(reportUse).toHaveBeenCalledTimes(1);
-    expect(logged).toEqual([{ recipeId: "gen-0123", revision: 3, result: "refused" }]);
+    expect(logged).toEqual([
+      { recipeId: "gen-0123", revision: 3, layout: "1000", result: "refused" },
+    ]);
   });
 
   it("forgets a failed send, so the next login on the revision sends again", async () => {
@@ -215,7 +226,9 @@ describe("createRecipeUse", () => {
     });
     expect(() => use.observe(started())).not.toThrow();
     await vi.waitFor(() =>
-      expect(logged).toEqual([{ recipeId: "gen-0123", revision: 3, result: "failed:threw" }]),
+      expect(logged).toEqual([
+        { recipeId: "gen-0123", revision: 3, layout: "1000", result: "failed:threw" },
+      ]),
     );
     fail = false;
     use.observe(started());

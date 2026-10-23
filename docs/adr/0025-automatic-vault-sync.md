@@ -13,7 +13,8 @@ the owner chose on 2026-10-23 that a conflict only background work caused is ret
 once by itself, and the other details were chosen by an agent. Amended on 2026-10-12 by
 [ADR 0034](0034-answer-page-passkey-requests.md): a conditional passkey request waiting
 for a login is not a request being handled; the hold covers it only while it reads the
-vault and signs.
+vault and signs. Amended on 2026-10-23 by
+[ADR 0075](0075-vault-lock-and-timeout.md): a locked vault is not synced.
 
 Date: 2026-10-11
 
@@ -193,6 +194,7 @@ and no setting value:
 | `field-review` | A custom-field review ([ADR 0023](0023-synced-vault-policy.md)) |
 | `service-sync` | Settings merged from the Pateat service |
 | `account-choice` | An account used on a site, from a login or a passkey request, saved for that site ([ADR 0021](0021-account-choice-outside-settings.md)) |
+| `detail-link` | A vault field linked to, or unlinked from, a personal detail on a site ([ADR 0061](0061-personal-details-during-a-login.md)) |
 
 The store writes the entry itself, so a background mutation cannot drop or rewrite it. A
 `revision-conflict` answer lists the distinct causes of the revisions after the expected
@@ -205,7 +207,8 @@ reads the newest revision, applies the draft's unsaved edits to it in order, and
 once more against that revision. The edits are the page's own changes, such as an added
 site or a vault's item selection, so they replay on top of what the background wrote.
 Every write still goes through the store's revision check. A login's saved account
-choice and a custom-field review count as background work too: the owner made them
+choice, a personal detail's link saved or removed after a login (`detail-link`) and a
+custom-field review count as background work too: the owner made them
 elsewhere, and the replayed edits change only what the page itself edited. Before
 replaying, the page checks the newest revision's own causes, so a save from another page
 after the conflict also stops the retry. The page shows the reason only when the retry
@@ -240,6 +243,12 @@ about one token renewal; `/sync` only when the vault changed. Bitwarden cloud al
 [Identity](https://github.com/bitwarden/server/blob/5e68c1e65dd5ea476c3a00283b2a2ba575574c1d/src/Identity/appsettings.json)),
 so even five connections stay far below it. Self-hosted and Vaultwarden limits depend
 on the installation.
+
+## Locked vaults
+
+A vault that is locked ([ADR 0075](0075-vault-lock-and-timeout.md), 2026-10-23) is
+skipped: verifying what a sync downloads needs its key. The next automatic sync after an
+unlock fetches it.
 
 ## Later work
 

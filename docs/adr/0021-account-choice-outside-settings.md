@@ -286,6 +286,12 @@ the page shows another account, the fill ends and the tab asks. The log shows su
 login as `login.attempt` with reason `fill-only`, then the asking as `login.refused`
 `logged-out` with the tab that logged out.
 
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md), Claude's default
+safety tightening after an independent review, not confirmed by the owner: a fill on a
+page's software keyboard counts as a step with an effect here, since a key press may
+submit, as a PIN pad does at its last digit. The fill-only login ends before it and the
+contract refuses it, so after a logout a keypad login is left to the person.
+
 Implementation detail, not confirmed by the owner (2026-10-21,
 [#831](https://github.com/risu729/pateat/issues/831)): a document is filled once on
 each path, so a start on another path of the same document, as the password step
@@ -656,3 +662,26 @@ pick marked "make default" is saved only on a confirmed completion. An undecided
 completion drops the pending choice and saves no default or binding. It still ends
 `authenticated`, releases the site to other tabs and counts as a finished login for
 D's detection of a later logout. The earlier accepted rules above remain as history.
+
+## Amendment: master password re-prompt in the chooser window (2026-10-23)
+
+The owner decided at 12:46 UTC that on a site listed in the settings' `repromptSites`,
+an item with Bitwarden's master password re-prompt is used only after its master
+password is entered in the chooser window
+([vault adapter](../architecture.md#vault-adapter)). The same window, with the same
+rules for when it opens (one at a time, only for the active tab of the focused window
+outside incognito), asks for it:
+
+- A login whose item has re-prompt is refused with `master-password-reprompt` and fills
+  or presses nothing. The window shows the one item, its vault and a master password
+  field. Once the vault accepts the password, the document announces again and its login
+  starts with that item, keeping a popup pick, within 60 seconds and once. A tab the
+  window could not open for, or whose window was closed, shows "Enter the master
+  password" in the toolbar popup, which opens the window again.
+- A passkey request that an item with re-prompt answers alone opens the window with that
+  passkey; in a list of passkeys, such a passkey asks for the password once it is
+  chosen. A passkey request inside a login that already started with the item does not
+  ask again.
+- The background checks the password offline, one at a time, and never aborts a check
+  midway; five wrong passwords end the request. The window's answer for such an entry is
+  only accepted through the check (implemented).

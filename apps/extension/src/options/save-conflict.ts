@@ -9,7 +9,8 @@ const reasons = {
   "automatic-vault-sync": "a Bitwarden vault was synced automatically",
   "field-review": "custom fields were reviewed",
   "service-sync": "settings were merged with the Pateat sync service",
-  "account-choice": "an account used to sign in on a site was saved for that site",
+  "account-choice": "an account used to log in on a site was saved for that site",
+  "detail-link": "a vault field for a personal detail was linked or unlinked for a site",
   unknown: "settings changed for a reason no longer recorded",
 } as const satisfies Record<SettingsConflictCause, string>;
 
@@ -23,7 +24,7 @@ export function saveConflictMessage(
   const distinct = [...new Set(causes.length ? causes : ["unknown" as const])];
   return (translate) =>
     translate(
-      "Saved settings changed before this save: {{reasons}}. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.",
+      "The saved settings changed before this save: {{reasons}}. Your unsaved changes are kept. Reload saved settings to see the latest ones before you change anything else; reloading drops them.",
       {
         reasons: new Intl.ListFormat(formatLocale(), {
           style: "long",

@@ -6,20 +6,30 @@ import {
   parseSiteUrl,
   siteDefaultConnection,
   type LocalSettings,
+  type LoginDetail,
   type SettingsResponse,
   type SiteAccountsResponse,
 } from "@pateat/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  CalendarDays,
   CircleCheck,
   CircleX,
   Clock,
+  CreditCard,
+  IdCard,
   Info,
+  KeyRound,
   LoaderCircle,
+  Lock,
+  LockKeyhole,
   LogIn,
   LogOut,
+  MessageCircleQuestionMark,
   Settings2,
+  Smartphone,
   Star,
+  TextCursorInput,
   TriangleAlert,
   UserRound,
 } from "lucide-react";
@@ -36,6 +46,12 @@ import {
   type ChoiceClient,
   type PauseLength,
 } from "../login/choice-wire";
+import {
+  detailFillFailure,
+  detailName,
+  type DetailClient,
+  type DetailResponse,
+} from "../login/detail-wire";
 import { PageStatusSection } from "./page-status";
 import {
   PAUSE_CHOICES,
@@ -77,6 +93,7 @@ export interface PopupHost {
 type Saved = Extract<SettingsResponse, { ok: true }>;
 type Tone = "progress" | "success" | "error";
 type NoticeText = (translate: TFunction) => string;
+type ExcludedSite = LocalSettings["excludedSites"][number];
 
 /** The tab's origin when Pateat can run there: an HTTP(S) page with a valid hostname. */
 export function popupOrigin(url: string | undefined): string | undefined {
@@ -89,6 +106,100 @@ export function popupOrigin(url: string | undefined): string | undefined {
 
 function hostnameOf(origin: string): string {
   return normalizeHostname(new URL(origin).hostname) ?? new URL(origin).hostname;
+}
+
+/** Which rules of a site list cover a hostname, and how the popup changes its own. */
+function hostRules(rules: ExcludedSite[], hostname: string) {
+  const covering = rules.filter(
+    (site) =>
+      hostname === site.hostname ||
+      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
+  );
+  const own = (site: ExcludedSite) => site.hostname === hostname && !site.includeSubdomains;
+  return {
+    listed: covering.length > 0,
+    editable: covering.every(own),
+    /** The covering rules the popup cannot change; each includes subdomains. */
+    shared: covering.filter((site) => !own(site)),
+    /** The list with or without the hostname's own rule. */
+    with: (list: ExcludedSite[], listed: boolean) =>
+      listed
+        ? [...list.filter((site) => !own(site)), { hostname, includeSubdomains: false }]
+        : list.filter((site) => !own(site)),
+  };
+}
+
+/** Whether the site asks for the master password before a re-prompt item is used. */
+export function repromptSwitch(settings: LocalSettings, hostname: string) {
+  const rules = hostRules(settings.repromptSites, hostname);
+  return {
+    on: rules.listed,
+    editable: rules.editable,
+    shared: rules.shared,
+    set(value: LocalSettings, on: boolean) {
+      value.repromptSites = rules.with(value.repromptSites, on);
+    },
+  };
+}
+
+/**
+ * The site's switch for Bitwarden's master password re-prompt: on, a vault item with it
+ * waits for the master password in Pateat's window before it fills or signs.
+ */
+function RepromptSwitch({
+  site,
+  pending,
+  busy,
+  onChange,
+  onOpenSettings,
+}: {
+  site: ReturnType<typeof repromptSwitch>;
+  pending: boolean | undefined;
+  busy: boolean;
+  onChange: (on: boolean) => void;
+  onOpenSettings: (event: { preventDefault(): void }) => void;
+}) {
+  const { t } = useTranslation(undefined, { i18n });
+  const checked = pending ?? site.on;
+  return (
+    <div className="popup-section">
+      <label className="popup-switch">
+        <span>{t("Ask for the master password")}</span>
+        <input
+          id="popup-reprompt-switch"
+          type="checkbox"
+          role="switch"
+          checked={checked}
+          aria-checked={checked}
+          disabled={!site.editable}
+          aria-disabled={busy || undefined}
+          aria-describedby="popup-reprompt-note"
+          onChange={(event) => {
+            if (!busy) onChange(event.target.checked);
+          }}
+        />
+      </label>
+      <p id="popup-reprompt-note" className="popup-muted">
+        {site.editable
+          ? t("For vault items with Bitwarden's master password re-prompt.")
+          : t("Set by a rule for {{hostname}} and its subdomains.", {
+              hostname: site.shared[0]?.hostname ?? "",
+            })}
+      </p>
+      {!site.editable && (
+        <a
+          href="options.html"
+          className="popup-link"
+          aria-label={t("Change in settings for {{hostname}}", {
+            hostname: site.shared[0]?.hostname ?? "",
+          })}
+          onClick={onOpenSettings}
+        >
+          {t("Change in settings")}
+        </a>
+      )}
+    </div>
+  );
 }
 
 const NOTICE_ICON = { progress: LoaderCircle, success: CircleCheck, error: CircleX } as const;
@@ -224,6 +335,200 @@ function AccountChoices({
   );
 }
 
+type DetailOffer = NonNullable<Extract<DetailResponse, { ok: true }>["offer"]>;
+type DetailSource = DetailOffer["details"][number]["candidates"][number];
+type DetailLink = Extract<DetailResponse, { ok: true }>["links"][number];
+
+const DETAIL_ICON = {
+  "birth-date": CalendarDays,
+  "phone-last-4": Smartphone,
+  "card-last-4": CreditCard,
+  "card-code": CreditCard,
+  "card-number": CreditCard,
+  "card-expiry": CreditCard,
+  pin: KeyRound,
+  "secret-answer": MessageCircleQuestionMark,
+  "member-id": IdCard,
+} as const satisfies Record<LoginDetail, unknown>;
+
+const sourceValue = (source: DetailSource) =>
+  JSON.stringify([source.connectionId, source.itemId, source.fieldId]);
+/** How the popup names a vault field: only its item's and its own labels, never its value. */
+const sourceLabel = (source: { itemLabel: string; fieldLabel: string }) =>
+  `${source.itemLabel} › ${source.fieldLabel}`;
+const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** The vault fields that could give a detail, as native radios styled as cards. */
+function DetailChoices({
+  detail,
+  candidates,
+  checked,
+  disabled,
+  onChange,
+}: {
+  detail: LoginDetail;
+  candidates: DetailSource[];
+  checked: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useTranslation(undefined, { i18n });
+  const Icon = DETAIL_ICON[detail];
+  const seen = new Map<string, number>();
+  for (const source of candidates)
+    seen.set(sourceLabel(source), (seen.get(sourceLabel(source)) ?? 0) + 1);
+  return (
+    <div className="popup-choices">
+      {candidates.map((source) => {
+        const title = sourceLabel(source);
+        // Fields that would read the same add their item ID's first 8 characters.
+        const sub =
+          (seen.get(title) ?? 0) > 1
+            ? t("ID {{id}}", { id: source.itemId.slice(0, 8) })
+            : undefined;
+        return (
+          <label key={sourceValue(source)} className="popup-choice">
+            <input
+              type="radio"
+              name={`popup-detail-${detail}`}
+              value={sourceValue(source)}
+              checked={checked === sourceValue(source)}
+              disabled={disabled}
+              aria-label={sub ? t("{{title}}, {{sub}}", { title, sub }) : title}
+              onChange={() => onChange(sourceValue(source))}
+            />
+            <span className="popup-avatar">
+              <Icon size={16} strokeWidth={2} aria-hidden="true" />
+            </span>
+            <span className="popup-choice-main">
+              <span className="popup-choice-title">{title}</span>
+              {sub && <span className="popup-choice-sub">{sub}</span>}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The page's personal details (ADR 0061): what the page asks for with the vault fields
+ * that could give it, the best guess selected, and the site's links, each removable.
+ */
+function DetailSection({
+  t,
+  offer,
+  links,
+  picks,
+  busy,
+  onPick,
+  onFill,
+  onRemove,
+}: {
+  t: TFunction;
+  offer: DetailOffer | undefined;
+  links: DetailLink[];
+  picks: Partial<Record<LoginDetail, string>>;
+  busy: boolean;
+  onPick: (detail: LoginDetail, value: string) => void;
+  onFill: (detail: LoginDetail, source: DetailSource) => void;
+  onRemove: (detail: LoginDetail) => void;
+}) {
+  return (
+    <>
+      {offer?.details.map(({ detail, format, candidates, preselect, question }) => {
+        const picked = picks[detail];
+        // A detail whose candidates are no guess starts with none selected.
+        const shown =
+          candidates.find((source) => sourceValue(source) === picked) ??
+          (preselect === false ? undefined : candidates[0]);
+        return (
+          <fieldset key={detail} className="popup-fieldset popup-detail">
+            <legend id={`popup-detail-${detail}`} className="popup-detail-ask">
+              {question
+                ? t("This page asks \u201C{{question}}\u201D.", { question })
+                : t("This page asks for {{detail}}.", { detail: detailName(detail, t, format) })}
+            </legend>
+            {question && (
+              // The AI's pairing of the question with a field named otherwise is only a
+              // proposal: Fill confirms it (ADR 0061).
+              <p id={`popup-detail-paired-${detail}`} className="popup-choice-sub">
+                {t(
+                  "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.",
+                )}
+              </p>
+            )}
+            <DetailChoices
+              detail={detail}
+              candidates={candidates}
+              checked={shown ? sourceValue(shown) : ""}
+              disabled={busy}
+              onChange={(value) => onPick(detail, value)}
+            />
+            <Button
+              id={`popup-detail-fill-${detail}`}
+              type="button"
+              className="w-full gap-2"
+              // Kept focusable while a fill runs, since Chrome moves focus away from a
+              // focused control that becomes disabled.
+              disabled={busy || !shown}
+              focusableWhenDisabled
+              aria-describedby={
+                question
+                  ? `popup-detail-${detail} popup-detail-paired-${detail}`
+                  : `popup-detail-${detail}`
+              }
+              onClick={() => shown && onFill(detail, shown)}
+            >
+              <TextCursorInput size={16} strokeWidth={2} aria-hidden="true" />
+              {t("Fill")}
+            </Button>
+          </fieldset>
+        );
+      })}
+      {links.length > 0 && (
+        <ul
+          id="popup-detail-links"
+          className="popup-rules"
+          aria-label={t("Personal details Pateat fills on this site")}
+        >
+          {links.map((link) => {
+            const Icon = DETAIL_ICON[link.detail];
+            return (
+              <li key={link.detail} id={`popup-detail-link-${link.detail}`}>
+                <Icon className="popup-detail-icon" size={16} strokeWidth={2} aria-hidden="true" />
+                <span className="popup-choice-main">
+                  <span className="popup-choice-title">
+                    {capitalized(detailName(link.detail, t))}
+                  </span>
+                  <span className="popup-choice-sub">
+                    {link.pending
+                      ? t("Filled from {{field}} (not saved yet)", { field: sourceLabel(link) })
+                      : t("Filled from {{field}}", { field: sourceLabel(link) })}
+                  </span>
+                </span>
+                <Button
+                  id={`popup-detail-remove-${link.detail}`}
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  focusableWhenDisabled
+                  aria-label={t("Remove the link for {{detail}}", {
+                    detail: detailName(link.detail, t),
+                  })}
+                  onClick={() => onRemove(link.detail)}
+                >
+                  {t("Remove")}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
+  );
+}
+
 /** An icon-led status line. */
 function Line({
   tone,
@@ -251,23 +556,28 @@ function Line({
 export function SiteApp({
   client,
   choices,
+  details,
   host,
   listingWaitMs = SITE_ACCOUNTS_WAIT_MS,
 }: {
   client: SettingsClient;
   choices: ChoiceClient;
+  details: DetailClient;
   host: PopupHost;
   listingWaitMs?: number;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
+  // The vault field picked for each detail the page asks for; the best guess otherwise.
+  const [detailPicks, setDetailPicks] = useState<Partial<Record<LoginDetail, string>>>({});
   const [notice, setNotice] = useState<{ text?: NoticeText; tone: Tone }>({ tone: "success" });
   const [chosen, setChosen] = useState("");
   const [picked, setPicked] = useState("");
   const [makeDefault, setMakeDefault] = useState<boolean>();
   // An account switch's pick is kept for this browser session unless made the default.
   const [switchDefault, setSwitchDefault] = useState(false);
+  const [reprompting, setReprompting] = useState<boolean>();
   const say = (text: NoticeText, tone: Tone) => setNotice({ text, tone });
   // Buttons that start a change are only marked disabled while it runs, since Chrome moves
   // focus away from a focused control that becomes disabled. A control the result
@@ -328,6 +638,16 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
+  // The personal details the page asks for and the site's links (ADR 0061), read again
+  // while the popup is open, since the login may stop at the page after it opened.
+  const pageDetails = useQuery({
+    queryKey: ["popup", "details", tabId],
+    queryFn: () => details.get(tabId!),
+    enabled: tabId !== undefined && origin !== undefined,
+    refetchInterval: 1000,
+    staleTime: 0,
+    gcTime: 0,
+  });
   // Only the connections and each vault's sync, state and quarantine decide the matches, so
   // saving a default or a pause keeps the listed accounts instead of listing them again.
   const accounts = useQuery({
@@ -366,7 +686,10 @@ export function SiteApp({
     update: (value: LocalSettings) => void,
     done: NoticeText,
   ): Promise<boolean> {
-    if (!saved || busy) return false;
+    if (!saved || busy) {
+      setReprompting(undefined);
+      return false;
+    }
     const next = structuredClone(saved.snapshot.settings);
     update(next);
     setBusy(true);
@@ -388,10 +711,18 @@ export function SiteApp({
       if (response.error.code === "revision-conflict") {
         await settings.refetch();
         say(
-          (translate) => translate("Changed elsewhere and reloaded. Nothing was changed."),
+          (translate) =>
+            translate(
+              "The settings changed elsewhere, so this change was not saved. The popup now shows them.",
+            ),
           "error",
         );
-      } else say((translate) => translate("The change could not be saved"), "error");
+      } else
+        say(
+          (translate) =>
+            translate("The change could not be saved. Reopen this popup and try again."),
+          "error",
+        );
     } catch {
       // The store may still have saved it; reopening shows the saved settings.
       say(
@@ -403,6 +734,7 @@ export function SiteApp({
       );
     } finally {
       setBusy(false);
+      setReprompting(undefined);
     }
     return false;
   }
@@ -434,7 +766,7 @@ export function SiteApp({
                     name: selected.name,
                   },
                 )
-              : translate("Logging in with {{name}}", { name: selected.name }),
+              : translate("Logging in with {{name}}.", { name: selected.name }),
           "success",
         );
         // The login runs in the page from here; the popup has nothing left to show.
@@ -510,7 +842,7 @@ export function SiteApp({
         rules &&
         (await change(
           (value) => rules.pause(value),
-          (translate) => translate("Automatic login on this site is paused until turned back on"),
+          (translate) => translate("Automatic login on this site is paused until turned back on."),
         ))
       )
         void pageStatus.refetch();
@@ -520,7 +852,7 @@ export function SiteApp({
     if (length === undefined && rules?.rules.length) {
       const removed = await change(
         (value) => rules.resume(value),
-        (translate) => translate("Automatic login on this site resumed"),
+        (translate) => translate("Automatic login on this site resumed."),
       );
       if (!removed || !pageStatus.data?.ok || pageStatus.data.pause === undefined) {
         void pageStatus.refetch();
@@ -540,7 +872,7 @@ export function SiteApp({
           (translate) =>
             lengthChosen
               ? lengthChosen.done(translate)
-              : translate("Automatic login on this site resumed"),
+              : translate("Automatic login on this site resumed."),
           "success",
         );
         await pageStatus.refetch();
@@ -550,7 +882,7 @@ export function SiteApp({
           (translate) =>
             translate(
               response.reason === "no-site"
-                ? "This tab has no site to pause"
+                ? "This tab has no site to pause."
                 : "The pause could not be saved. Try again.",
             ),
           "error",
@@ -559,6 +891,107 @@ export function SiteApp({
       say(
         (translate) =>
           translate("The pause could not be changed. Reopen this popup and try again."),
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function fillDetail(documentId: string, detail: LoginDetail, source: DetailSource) {
+    if (tabId === undefined || busy) return;
+    setBusy(true);
+    say((translate) => translate("Filling…"), "progress");
+    try {
+      const response = await details.fill({
+        tabId,
+        documentId,
+        detail,
+        connectionId: source.connectionId,
+        itemId: source.itemId,
+        fieldId: source.fieldId,
+      });
+      say(
+        (translate) =>
+          response.ok
+            ? translate(
+                "Filled. Check it and submit the form; Pateat saves this choice once you are signed in.",
+              )
+            : detailFillFailure(response.reason, translate),
+        response.ok ? "success" : "error",
+      );
+      await pageDetails.refetch();
+    } catch {
+      say(
+        (translate) => translate("Nothing was filled. Reopen this popup and try again."),
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeDetail(detail: LoginDetail) {
+    if (tabId === undefined || busy) return;
+    setBusy(true);
+    say((translate) => translate("Removing…"), "progress");
+    try {
+      const response = await details.remove(tabId, detail);
+      if (response.ok)
+        say(
+          (translate) =>
+            translate("Removed. Pateat no longer fills {{detail}} on this site.", {
+              detail: detailName(detail, translate),
+            }),
+          "success",
+        );
+      else if (response.reason === "no-link")
+        say((translate) => translate("This link was already removed."), "success");
+      else
+        say(
+          (translate) =>
+            translate("The link could not be removed. Reopen this popup and try again."),
+          "error",
+        );
+      await pageDetails.refetch();
+    } catch {
+      say(
+        (translate) =>
+          translate("The link may not have been removed. Reopen this popup to see the links."),
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function askAgain() {
+    if (tabId === undefined || busy) return;
+    setBusy(true);
+    say((translate) => translate("Opening the master password window…"), "progress");
+    try {
+      // Answered once the window is done; the popup closes on its own as the window opens.
+      const response = await choices.reprompt(tabId);
+      if (response.ok) {
+        // The window asks from here; the popup would stay over it.
+        host.close();
+        return;
+      }
+      say(
+        (translate) =>
+          response.reason === "unavailable"
+            ? translate(
+                "The master password window could not open. It opens only for the active tab outside incognito, one window at a time.",
+              )
+            : response.reason === "closed"
+              ? translate("The master password window was closed before the vault item was used.")
+              : translate("This page no longer waits for the master password. Reload it."),
+        "error",
+      );
+    } catch {
+      say(
+        (translate) =>
+          translate("The master password window could not open. Reopen this popup and try again."),
         "error",
       );
     } finally {
@@ -589,12 +1022,13 @@ export function SiteApp({
     body = (
       <p id="popup-error" className="popup-notice popup-notice--error" role="alert">
         <CircleX size={16} strokeWidth={2} aria-hidden="true" />
-        <span>{t("Pateat settings could not be loaded")}</span>
+        <span>{t("Pateat's settings could not be loaded.")}</span>
       </p>
     );
   else {
     const hostname = hostnameOf(origin);
     const rules = siteRules(saved.snapshot.settings, origin);
+    const reprompt = repromptSwitch(saved.snapshot.settings, hostname);
     const { catalog } = saved;
     const current = saved.snapshot.settings.siteDefaults.find((entry) => entry.origin === origin);
     const found = accounts.data?.ok && accounts.data.origin === origin ? accounts.data : undefined;
@@ -673,16 +1107,19 @@ export function SiteApp({
       accountsNote = {
         tone: "err",
         text: t(
-          "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup",
+          "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup.",
         ),
       };
     else if (!found)
-      accountsNote = { tone: "err", text: t("The matching accounts could not be listed") };
+      accountsNote = {
+        tone: "err",
+        text: t("The matching accounts could not be listed. Reopen this popup to try again."),
+      };
     else if (!options.length)
       accountsNote = {
         tone: "idle",
         text: t(
-          "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync",
+          "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync.",
         ),
       };
 
@@ -722,7 +1159,7 @@ export function SiteApp({
           value.siteDefaults.push(entry);
         },
         (translate) =>
-          translate("{{name}} is now the default for this site", {
+          translate("{{name}} is now the default for this site.", {
             name: accountName(selected, found?.accounts),
           }),
       );
@@ -733,7 +1170,7 @@ export function SiteApp({
         (value) => {
           value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
         },
-        (translate) => translate("The default account for this site was removed"),
+        (translate) => translate("The default account for this site was removed."),
       );
     const removeDefaultButton = current && (
       <Button
@@ -769,7 +1206,7 @@ export function SiteApp({
         <div className="popup-section-head">
           <h2 id="popup-switch-heading">{t("Switch account")}</h2>
           <p className="popup-muted popup-reason">
-            {t("Logs this tab out of {{hostname}}, then logs in with the account you choose", {
+            {t("Logs this tab out of {{hostname}}, then logs in with the account you choose.", {
               hostname,
             })}
           </p>
@@ -821,7 +1258,7 @@ export function SiteApp({
           )}
           <Line tone="idle" id="popup-switch-provider">
             {t(
-              "A site you log in to through another account, such as a company or Google sign-in, may log you out of that account too",
+              "A site you log in to through another account, such as a company or Google sign-in, may log you out of that account too.",
             )}
           </Line>
         </ul>
@@ -850,15 +1287,47 @@ export function SiteApp({
           onOpenSettings={(section) => host.openSettings(section)}
         />
       );
+    const detailState =
+      pageDetails.data?.ok && pageDetails.data.origin === origin ? pageDetails.data : undefined;
+    const detailOffer = detailState?.offer;
+    const detailLinks = detailState?.links ?? [];
+    const detailSection = (detailOffer || detailLinks.length > 0) && (
+      <DetailSection
+        t={t}
+        offer={detailOffer}
+        links={detailLinks}
+        picks={detailPicks}
+        busy={busy}
+        onPick={(detail, value) => setDetailPicks((picks) => ({ ...picks, [detail]: value }))}
+        onFill={(detail, source) => void fillDetail(detailOffer!.documentId, detail, source)}
+        onRemove={(detail) => void removeDetail(detail)}
+      />
+    );
     body = (
       <>
-        {status && (
+        {(status || detailSection) && (
           <PageStatusSection
             status={status}
             inPrivate={inPrivate}
             onOpenDiagnostics={() => host.openDiagnostics()}
-          />
+          >
+            {detailSection}
+          </PageStatusSection>
         )}
+        {status?.page?.state === "denied" &&
+          status.page.reason === "master-password-reprompt" &&
+          !status.login && (
+            <Button
+              id="popup-reprompt"
+              type="button"
+              className="w-full gap-2"
+              disabled={busy}
+              onClick={() => void askAgain()}
+            >
+              <LockKeyhole size={16} strokeWidth={2} aria-hidden="true" />
+              {t("Enter the master password")}
+            </Button>
+          )}
         {choice.isPending && choice.isEnabled && (
           <p id="popup-choice-checking" className="popup-muted">
             {t("Checking whether this page waits for an account choice…")}
@@ -887,7 +1356,7 @@ export function SiteApp({
                 <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
                 <span>
                   {t(
-                    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 10 minutes.",
+                    "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes.",
                   )}
                 </span>
               </p>
@@ -951,7 +1420,7 @@ export function SiteApp({
                   )}
                   {missingFromChoice && (
                     <Line tone="warn" id="popup-default">
-                      {t("The saved default, {{title}} ({{sub}}), is not one of these accounts", {
+                      {t("The saved default, {{title}} ({{sub}}), is not one of these accounts.", {
                         title: missingFromChoice.title,
                         sub: missingFromChoice.sub,
                       })}
@@ -960,7 +1429,7 @@ export function SiteApp({
                   {found && !found.complete && (
                     <Line tone="warn" id="popup-accounts-incomplete">
                       {t(
-                        "Some vaults or items could not be checked, so the site's matches may be incomplete",
+                        "Some vaults or items could not be checked, so the site's matches may be incomplete.",
                       )}
                     </Line>
                   )}
@@ -997,17 +1466,21 @@ export function SiteApp({
                 )}
                 {!current && (
                   <Line tone="idle" id="popup-no-default">
-                    {t("No default account. With exactly one matching item, Pateat uses that item")}
+                    {t(
+                      "No default account. With exactly one matching item, Pateat uses that item.",
+                    )}
                   </Line>
                 )}
                 {found && !found.complete && (
                   <Line tone="warn" id="popup-accounts-incomplete">
-                    {t("Some vaults or items could not be checked, so this list may be incomplete")}
+                    {t(
+                      "Some vaults or items could not be checked, so this list may be incomplete.",
+                    )}
                   </Line>
                 )}
                 <li className="popup-line popup-line--idle">
                   <Clock size={16} strokeWidth={2} aria-hidden="true" />
-                  <span>{t("Takes effect at the next login")}</span>
+                  <span>{t("A default takes effect at the next login.")}</span>
                 </li>
               </ul>
               {(options.length > 0 || current) && (
@@ -1030,11 +1503,32 @@ export function SiteApp({
             {switchSection}
           </>
         )}
+        <RepromptSwitch
+          site={reprompt}
+          pending={reprompting}
+          busy={busy}
+          onOpenSettings={openSettings}
+          onChange={(on) => {
+            setReprompting(on);
+            void change(
+              (value) => reprompt.set(value, on),
+              (translate) =>
+                on
+                  ? translate("{{hostname}} now asks for the master password.", { hostname })
+                  : translate("{{hostname}} no longer asks for the master password.", {
+                      hostname,
+                    }),
+            );
+          }}
+        />
       </>
     );
   }
 
   const NoticeIcon = NOTICE_ICON[notice.tone];
+  // A locked vault neither fills nor signs passkeys until it is unlocked (ADR 0075).
+  const lockedVaults =
+    saved?.catalog.connections.filter((entry) => entry.state === "locked").length ?? 0;
   return (
     <main className="popup">
       <header className="popup-header">
@@ -1067,6 +1561,19 @@ export function SiteApp({
           </span>
         )}
       </output>
+      {lockedVaults > 0 && (
+        <p id="popup-vault-locked" className="popup-notice popup-notice--warning">
+          <Lock size={16} strokeWidth={2} aria-hidden="true" />
+          <span>
+            {t("vaultsLocked", {
+              count: lockedVaults,
+            })}{" "}
+            <a href="options.html" className="popup-link" onClick={openSettings}>
+              {t("Unlock in settings")}
+            </a>
+          </span>
+        </p>
+      )}
       {body}
     </main>
   );

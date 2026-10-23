@@ -106,7 +106,7 @@ test("service language changes retain pairing inputs and localize an asynchronou
   await expect.element(page.getByText(japanese(message), { exact: true })).toBeVisible();
   await i18n.changeLanguage("en");
   await expect.element(page.getByText(message, { exact: true })).toBeVisible();
-  expect(value.pair).toHaveBeenCalledExactlyOnceWith(ORIGIN, "Synthetic device");
+  expect(value.pair).toHaveBeenCalledExactlyOnceWith(ORIGIN, "Synthetic device", undefined);
   expect(value.openSignIn).not.toHaveBeenCalled();
 });
 

@@ -21,7 +21,7 @@ export {
   type LocalFieldGrant,
   type LocalFieldValue,
 } from "./fields";
-export { generateLocalTotp, type LocalOtpValue, type LocalTotpOptions } from "./totp";
+export { generateLocalTotp, isTotpSeed, type LocalOtpValue, type LocalTotpOptions } from "./totp";
 export {
   admitBitwardenUriMatchContext,
   createBitwardenUriMatcher,

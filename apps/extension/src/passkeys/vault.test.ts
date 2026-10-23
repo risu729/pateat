@@ -57,6 +57,8 @@ function saved(
     defaultAccount?: string;
     /** Connects the other connection to the same Bitwarden account as `live`. */
     sameAccount?: boolean;
+    /** `first` has Bitwarden's re-prompt; `site` lists the origin as asking for it. */
+    reprompt?: { site: boolean };
   } = {},
 ): Extract<SettingsResponse, { ok: true }> {
   const catalog: VaultCatalog = {
@@ -71,7 +73,7 @@ function saved(
         quarantinedItemIds: [quarantined, ...(options.quarantine ?? [])],
         groups: [],
         items: [
-          item(first),
+          { ...item(first), ...(options.reprompt ? { reprompt: true as const } : {}) },
           item(second),
           item(quarantined),
           item(excluded),
@@ -108,6 +110,8 @@ function saved(
       userId: options.defaultAccount ?? userId,
       itemId: options.siteDefault,
     });
+  if (options.reprompt?.site)
+    settings.repromptSites.push({ hostname: "github.com", includeSubdomains: false });
   if (options.excludedSite)
     settings.excludedSites.push({ hostname: options.excludedSite, includeSubdomains: false });
   return {
@@ -630,6 +634,10 @@ describe("vault passkey source", () => {
     const manager = {
       status: () => ({ handle: "handle" in overrides ? overrides.handle : { synthetic: true } }),
       findPasskeys: vi.fn(async () => ({ ok: true as const, data: matches([first]) })),
+      verifyMasterPassword: vi.fn(async (_handle: unknown, password: string) => ({
+        ok: true as const,
+        data: { matches: password === "right" },
+      })),
       signPasskey: vi.fn(async () => ({
         ok: true as const,
         data: {
@@ -681,6 +689,33 @@ describe("vault passkey source", () => {
     );
     // The runtime's per-request signal never reaches the vault manager.
     expect(manager.signPasskey.mock.calls[0]).toHaveLength(2);
+  });
+
+  it("marks a re-prompt passkey only on a site that asks, and checks its master password", async () => {
+    const elsewhere = runtime([saved({ reprompt: { site: false } })]);
+    const [plain] = (await elsewhere.source.candidates(origin, rpId, signal))!.candidates;
+    expect(plain!.reprompt).toBeUndefined();
+    const handle = { snapshotId, userId };
+    const asking = runtime([saved({ reprompt: { site: true } })], { handle });
+    const [guarded] = (await asking.source.candidates(origin, rpId, signal))!.candidates;
+    expect(guarded).toMatchObject({ itemId: first, reprompt: true });
+    expect(await asking.source.verifyMasterPassword!(guarded!, "right")).toBe(true);
+    expect(await asking.source.verifyMasterPassword!(guarded!, "wrong")).toBe(false);
+    expect(asking.manager.verifyMasterPassword).toHaveBeenCalledWith(handle, "right");
+    // A vault that synced or switched account since cannot answer for the candidate.
+    await Promise.all(
+      [
+        { snapshotId: otherSnapshotId, userId },
+        { snapshotId, userId: otherUserId },
+      ].map(async (other) => {
+        const moved = runtime([saved({ reprompt: { site: true } })], { handle: other });
+        const [found] = (await moved.source.candidates(origin, rpId, signal))!.candidates;
+        await expect(moved.source.verifyMasterPassword!(found!, "right")).rejects.toThrow(
+          "passkey-unavailable",
+        );
+        expect(moved.manager.verifyMasterPassword).not.toHaveBeenCalled();
+      }),
+    );
   });
 
   it("searches only a login's item when asked to", async () => {

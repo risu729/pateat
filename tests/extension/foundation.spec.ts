@@ -175,7 +175,7 @@ test("production package permits local storage, the crypto host and the HTTPS lo
       js: ["content-scripts/passkey-main.js"],
     },
   ]);
-  expect(manifest.permissions).toEqual(["storage", "offscreen", "alarms"]);
+  expect(manifest.permissions).toEqual(["storage", "offscreen", "alarms", "idle"]);
   expect(manifest.host_permissions).toEqual(["https://*/*", "http://*/*"]);
   // Chrome omits an optional entry the required hosts already cover, with a warning.
   expect(manifest.optional_host_permissions).toBeUndefined();
@@ -194,7 +194,7 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   );
   // URL rechecks and worker reconnect require host access in addition to script
   // matches. Loopback HTTP belongs only to the synthetic build.
-  expect(probeManifest.permissions).toEqual(["storage", "offscreen", "alarms"]);
+  expect(probeManifest.permissions).toEqual(["storage", "offscreen", "alarms", "idle"]);
   expect(probeManifest.host_permissions).toEqual(["https://*/*", "http://127.0.0.1/*"]);
   expect(probeManifest.optional_host_permissions).toBeUndefined();
   // WebAuthn rejects IP-address origins, so only the passkey probe scripts use localhost.
@@ -308,7 +308,9 @@ test("probe options support keyboard policy validation and pass accessibility ch
     expect(invalid.violations).toEqual([]);
     await page.locator("#site-origin").fill("https://bank.example");
     // The matching accounts are listed again for the corrected origin before it is added.
-    await expect(page.locator("#default-account-note")).toContainText("matching item");
+    await expect(page.locator("#default-account-note")).toContainText(
+      /\d+ items? match(?:es)? this origin\./u,
+    );
     await page.locator("#site-origin").press("Enter");
     await expect(page.locator("#site-list")).toContainText("https://bank.example");
     await expect(page.locator("#site-origin")).toBeFocused();
@@ -330,7 +332,7 @@ test("options reloaded at a section link still read settings and the service", a
       "Connections loaded. Add a vault or sign in again below.",
     );
     await expect(page.getByLabel("Service address", { exact: true })).toBeVisible();
-    await expect(page.getByText("The extension did not answer", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("Pateat did not answer", { exact: false })).toHaveCount(0);
   });
 });
 
@@ -661,7 +663,7 @@ test("local policies and account defaults survive a browser restart", async () =
           .selectOption(JSON.stringify(["demo-personal", "primary"]));
         // Each change is saved as it is made.
         await page.locator("#add-default").click();
-        await expect(page.locator("#settings-status")).toContainText("saved locally");
+        await expect(page.locator("#settings-status")).toContainText("Settings saved");
       },
       profile,
     );
@@ -733,7 +735,7 @@ test("a stale settings page preserves its draft and cannot overwrite newer polic
     );
     await first.locator("#site-origin").fill("protected.example");
     await first.locator("#add-site").click();
-    await expect(first.locator("#settings-status")).toContainText("saved locally");
+    await expect(first.locator("#settings-status")).toContainText("Settings saved");
     await second.locator("#site-origin").fill("draft.example");
     await second.locator("#add-site").click();
     await expect(second.locator("#settings-status")).toContainText("Reload");

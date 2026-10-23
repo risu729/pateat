@@ -18,7 +18,11 @@ export const localVaultMetadataSchema = v.strictObject({
         id: uuid,
         label,
         type: v.picklist([1, 2, 3, 4]),
+        /** The item is in the trash or archived: nothing fills from it (ADR 0061). */
+        inactive: v.optional(v.literal(true)),
         groupIds: v.pipe(v.array(uuid), v.maxLength(1000)),
+        /** Bitwarden asks for the master password again before the item is used (`reprompt: 1`). */
+        reprompt: v.optional(v.literal(true)),
         fields: v.pipe(
           v.array(
             v.strictObject({
@@ -28,6 +32,7 @@ export const localVaultMetadataSchema = v.strictObject({
               kind: v.picklist(["text", "hidden", "boolean", "linked", "otp", "unsupported"]),
               linkedFieldId: v.optional(id),
               empty: v.optional(v.literal(true)),
+              totpSeed: v.optional(v.literal(true)),
             }),
           ),
           v.maxLength(2000),

@@ -3,6 +3,7 @@ import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
 import { createLoginRuntime } from "../src/login/runtime";
+import { createRecipeRepairs } from "../src/login/repair";
 import { createLoginSites } from "../src/login/sites";
 import {
   combineFieldSources,
@@ -17,12 +18,22 @@ import { createSiteAccountsHandler } from "../src/vault/site-accounts";
 import { actionIconState, createActionIcon } from "../src/connections/action-icon";
 import { createConnectionRuntime } from "../src/connections/runtime";
 import { createConnectionProbeTransport } from "../src/connections/probe";
+import { createLoginReprompt, createVaultPasswordCheck } from "../src/login/reprompt";
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createPasskeyCreateHandler } from "../src/passkeys/create";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
-import { sessionValue } from "../src/storage";
+import { sessionValue, trustedRecord } from "../src/storage";
+import {
+  createVaultTimeout,
+  IDLE_DETECTION_SECONDS,
+  keyRetention,
+  parseVaultTimeout,
+  VAULT_ACTIVITY_KEY,
+  VAULT_TIMEOUT_ALARM,
+  VAULT_TIMEOUT_KEY,
+} from "../src/vault/timeout";
 import { followLanguagePreference, i18n } from "../src/i18n";
 import { createLoginBadge, LOGIN_BADGE_KEY, setActionBadge } from "../src/login/badge";
 import {
@@ -40,10 +51,16 @@ import {
   rememberVaultPasskey,
   type VaultPasskeyCandidate,
 } from "../src/passkeys/vault";
+import {
+  createDeviceModel,
+  DEVICE_MODEL_KEY,
+  DEVICE_MODEL_SPEND_KEY,
+} from "../src/service/device-model";
 import { createLoginGeneration } from "../src/service/generation";
 import { createLogoutService } from "../src/service/logout";
 import { createLoginRecords } from "../src/service/login-records";
 import { createLoginOutcomes } from "../src/service/outcomes";
+import { createProblemReports } from "../src/service/problems";
 import { createRecipeUse } from "../src/service/recipe-use";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
@@ -55,6 +72,7 @@ import {
   createBrowserPageSampleStorage,
   createBrowserRecipeCacheStorage,
   createBrowserRecipeReplacementStorage,
+  createBrowserRecipeRepairStorage,
   createBrowserRecipeScheduleStorage,
   createBrowserServiceStorage,
   createBrowserSettingsBaseStorage,
@@ -79,8 +97,12 @@ export default defineBackground(() => {
     settings: () => settings.read(),
     recipeCache: () => recipeCacheStorage.read(),
     connections: () => connections.service.status(),
+    onProblem: () => problemReports?.schedule(),
   });
   const { logger } = diagnosticsLog;
+  // ADR 0066: warning and error lines, and why Pateat did nothing, go to the paired
+  // service; set below, once the service is.
+  let problemReports: ReturnType<typeof createProblemReports> | undefined;
   const catalog = import.meta.env.MODE === "probe" ? createProbeCatalog() : undefined;
   const cryptoControls = import.meta.env.MODE === "probe" ? createCryptoProbeControls() : undefined;
   const cryptoHost = createBrowserCryptoHost(
@@ -112,6 +134,41 @@ export default defineBackground(() => {
     onSync: diagnosticsLog.vaultSync,
     onSignIn: diagnosticsLog.vaultSignIn,
     onRefresh: diagnosticsLog.vaultRefresh,
+    retention: async () => keyRetention(parseVaultTimeout(await vaultTimeoutSetting.read())),
+    vaultTimeout: {
+      check: () => vaultTimeout.check(),
+      used: (opened) => vaultTimeout.used(opened),
+      unclosed: (connectionId) => vaultTimeout.unclosed(connectionId),
+    },
+  });
+  // The vault timeout (ADR 0075), a device setting the settings page writes.
+  const vaultTimeoutSetting = trustedRecord(VAULT_TIMEOUT_KEY);
+  const vaultTimeout = createVaultTimeout({
+    setting: vaultTimeoutSetting,
+    activity: sessionValue(VAULT_ACTIVITY_KEY),
+    timeOut: (action, connectionIds, retry) => connections.timeOut(action, connectionIds, retry),
+    keepKeys: (retention) => connections.keepKeys(retention),
+    schedule: async (when) => {
+      if (when === undefined) await browser.alarms.clear(VAULT_TIMEOUT_ALARM);
+      else await browser.alarms.create(VAULT_TIMEOUT_ALARM, { when });
+    },
+    report: diagnosticsLog.vaultTimeout,
+  });
+  // Each worker start checks first, so a restart locks before anything uses a vault, then
+  // moves any key a changed setting left in the wrong place.
+  void vaultTimeout
+    .check()
+    .catch(() => undefined)
+    .then(() => vaultTimeout.apply())
+    .catch(() => undefined);
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && VAULT_TIMEOUT_KEY in changes)
+      void vaultTimeout.changed().catch(() => undefined);
+  });
+  // "On system idle" and "On system lock", as the official extension detects them.
+  browser.idle.setDetectionInterval(IDLE_DETECTION_SECONDS);
+  browser.idle.onStateChanged.addListener((state) => {
+    void vaultTimeout.idle(state).catch(() => undefined);
   });
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({
@@ -177,6 +234,8 @@ export default defineBackground(() => {
     // Chrome match patterns do not carry ports; site access is granted per host.
     hasSiteAccess: (origin) =>
       browser.permissions.contains({ origins: [`https://${new URL(origin).hostname}/*`] }),
+    // ADR 0066: a new device's lines start at its pairing.
+    onPaired: (connection) => void problemReports?.paired(connection),
   });
   const settingsBaseStorage = createBrowserSettingsBaseStorage();
   const settingsHoldStorage = createBrowserSettingsHoldStorage();
@@ -213,12 +272,26 @@ export default defineBackground(() => {
     build: PATEAT_BUILD_REVISION,
     report: diagnosticsLog.loginRecord,
   });
+  problemReports = createProblemReports({
+    service,
+    transport: serviceTransport,
+    log: logger,
+    build: PATEAT_BUILD_REVISION,
+    report: diagnosticsLog.problemsSent,
+  });
+  // Lines a stopped worker had not sent yet go now.
+  void problemReports.flush();
   // ADR 0058: every login that starts on a recipe revision tells the service it was used.
   const recipeUse = createRecipeUse({
     service,
     transport: serviceTransport,
     report: diagnosticsLog.recipeUse,
   });
+  // ADR 0040: with this device's own key saved, the device makes the model calls itself.
+  const modelRequests = createDeviceModel({
+    storage: trustedRecord(DEVICE_MODEL_KEY),
+    spend: trustedRecord(DEVICE_MODEL_SPEND_KEY),
+  }).wrap(serviceTransport);
   const recipeCacheStorage = createBrowserRecipeCacheStorage();
   const recipeScheduleStorage = createBrowserRecipeScheduleStorage();
   const recipeSync = createRecipeSync({
@@ -227,9 +300,13 @@ export default defineBackground(() => {
     storage: recipeCacheStorage,
     schedule: recipeScheduleStorage,
     settings: settingsSync,
+    build: PATEAT_BUILD_REVISION,
     report: (outcome, changes) => {
       diagnosticsLog.recipeSync(outcome, changes);
-      if (outcome === "synced") void loginOutcomes.flush();
+      if (outcome === "synced") {
+        void loginOutcomes.flush();
+        void problemReports?.flush();
+      }
     },
   });
   // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
@@ -264,7 +341,19 @@ export default defineBackground(() => {
         );
     },
     // A stopped worker would leave a refresh claimed and require password sign-in (ADR 0008).
-    run: (connectionId, hold) => keepAlive(connections.service.autoSync(connectionId, hold)),
+    // A sync opens the next snapshot with the vault's key, so it waits for the timeout's check.
+    run: (connectionId, hold) =>
+      vaultTimeout
+        .check()
+        .then(() => vaultTimeout.unclosed(connectionId))
+        .then(
+          // A vault the timeout could not close stays refused.
+          (unclosed) =>
+            unclosed
+              ? ("skipped" as const)
+              : keepAlive(connections.service.autoSync(connectionId, hold)),
+          () => "skipped" as const,
+        ),
     loginActive: () => login.active(),
     report: diagnosticsLog.vaultCheck,
   });
@@ -286,11 +375,10 @@ export default defineBackground(() => {
     generation: createLoginGeneration({
       service,
       transport: {
-        generateRecipe: (...request) => keepAlive(serviceTransport.generateRecipe(...request)),
-        generateEntry: (...request) => keepAlive(serviceTransport.generateEntry(...request)),
-        judgeCompletion: (...request) => keepAlive(serviceTransport.judgeCompletion(...request)),
+        generateRecipe: (...request) => keepAlive(modelRequests.generateRecipe(...request)),
+        generateEntry: (...request) => keepAlive(modelRequests.generateEntry(...request)),
+        judgeCompletion: (...request) => keepAlive(modelRequests.judgeCompletion(...request)),
         samplePage: (...request) => keepAlive(serviceTransport.samplePage(...request)),
-        revokeRecipe: (...request) => keepAlive(serviceTransport.revokeRecipe(...request)),
       },
       storage: createBrowserGenerationAttemptStorage(),
       slotStorage: createBrowserGeneratedSlotStorage(),
@@ -308,6 +396,8 @@ export default defineBackground(() => {
       recipes: recipeSync.recipes,
       refresh: () => recipeSync.sync({ settings: false }),
     }),
+    // ADR 0041: a generated recipe whose start page no longer matches is repaired.
+    repairs: createRecipeRepairs(createBrowserRecipeRepairStorage()),
     // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
     // ADR 0034: a popup choice keeps the page's request only when an item holds a passkey.
@@ -330,6 +420,16 @@ export default defineBackground(() => {
     },
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
     badge: loginBadge,
+    // Bitwarden's re-prompt on a site that honours it: the chooser window asks first.
+    askMasterPassword: createLoginReprompt({
+      chooser: () => passkeyChooser,
+      check: createVaultPasswordCheck(connections),
+      async tab(tabId) {
+        const tab = await browser.tabs.get(tabId);
+        const window = await browser.windows.get(tab.windowId);
+        return { active: tab.active, focused: window.focused, incognito: tab.incognito };
+      },
+    }),
     // A late answer to the tab's previous page does not take the tab over from its new one.
     announced: (tabId, url) =>
       void browser.tabs
@@ -494,6 +594,7 @@ export default defineBackground(() => {
     },
     cryptoHost: () => cryptoHost.status(),
     actionIcon: async () => actionIconState(await connections.vaultStates()),
+    vaultTimeout: async () => parseVaultTimeout(await vaultTimeoutSetting.read()),
     async serviceState() {
       const response = await service.handle({ version: 1, type: "service.get" });
       if (!response.ok) throw new Error(response.error);
@@ -539,6 +640,7 @@ export default defineBackground(() => {
     .catch(() => undefined);
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === VAULT_SYNC_ALARM) vaultSync.refreshIfStale();
+    if (alarm.name === VAULT_TIMEOUT_ALARM) void vaultTimeout.check().catch(() => undefined);
   });
   // Wakes the worker at browser start so automatic unlock shows the unlocked icon.
   browser.runtime.onStartup.addListener(() => {

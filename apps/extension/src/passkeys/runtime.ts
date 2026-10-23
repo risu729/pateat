@@ -51,6 +51,11 @@ export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCand
     clientDataHash: Uint8Array<ArrayBuffer>,
     signal: AbortSignal,
   ): Promise<Uint8Array>;
+  /**
+   * Whether a master password is right for the candidate's account, before a `reprompt`
+   * candidate signs; throws when the vault cannot tell. Without it such a candidate never signs.
+   */
+  verifyMasterPassword?(candidate: TCandidate, password: string): Promise<boolean>;
 }
 
 /** What the user did in the chooser window, by position in the offered list. */
@@ -75,8 +80,18 @@ export interface PasskeyChooser {
     readonly tabId: number;
     readonly origin: string;
     readonly rpId: string;
-    /** The site default, if offered, comes first and is `preferred`. */
-    readonly entries: readonly (PasskeyDisplay & { readonly preferred?: boolean })[];
+    /**
+     * The site default, if offered, comes first and is `preferred`. A `reprompt` entry is
+     * chosen only after `verify` accepts the master password typed for it.
+     */
+    readonly entries: readonly (PasskeyDisplay & {
+      readonly preferred?: boolean;
+      readonly reprompt?: boolean;
+    })[];
+    /** Whether a master password typed for the entry at `index` is right; throws if unknown. */
+    readonly verify?: (index: number, password: string) => Promise<boolean>;
+    /** The window asks the master password for a password login's one entry (ADR 0021). */
+    readonly purpose?: "login";
     /** The origin has a site default; making another passkey default replaces it. */
     readonly replacesDefault: boolean;
     /**
@@ -494,7 +509,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       let credential: TCandidate;
       let assertion: Signed["assertion"] | undefined;
       let makeDefault = false;
-      if (selection.kind === "credential") {
+      // One passkey whose item has Bitwarden's re-prompt, on a site that honours it, signs only
+      // after its master password is typed in the chooser window (owner, 2026-10-23 12:46 UTC).
+      // A running login's item was asked for when that login started.
+      const reprompt =
+        !login && selection.kind === "credential" && selection.credential.reprompt === true;
+      if (selection.kind === "credential" && !reprompt) {
         credential = selection.credential;
         // Signed with no login of the tab and no choice: a sign-in Pateat made by itself.
         if (!login) after.silent = true;
@@ -505,21 +525,32 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         return { kind: "delegate", reason: `login-item-${selection.reason}` };
       else {
         // Only passkeys Pateat can sign with are offered, the site default first. Fewer than
-        // two is not a choice, except where the default counts as unset.
-        const offered = accepted
-          .filter((entry) => entry.counter === 0)
-          .sort((a, b) =>
-            unset ? 0 : Number(b.preferred === true) - Number(a.preferred === true),
-          );
+        // two is not a choice, except where the default counts as unset or the one asks for
+        // the master password.
+        const offered =
+          reprompt && selection.kind === "credential"
+            ? [selection.credential]
+            : accepted
+                .filter((entry) => entry.counter === 0)
+                .sort((a, b) =>
+                  unset ? 0 : Number(b.preferred === true) - Number(a.preferred === true),
+                );
+        const asksPassword = offered.some((entry) => entry.reprompt === true);
         // A paused site is handed on rather than signed without a choice (ADR 0062).
-        const declined = unset
-          ? ({ kind: "delegate", reason: paused ? "paused" : "default-unset" } as const)
-          : ({ kind: "delegate", reason: "ambiguous-credential" } as const);
-        if (unset ? offered.length === 0 : selection.reason !== "ambiguous-credential")
-          return unset ? declined : selection;
-        if (offered.length < 2 && !unset) return selection;
-        // An unsearched item might hold the passkey the person signed out to switch to.
-        if (!candidates.complete) return { kind: "delegate", reason: "vault-incomplete" };
+        const declined = reprompt
+          ? ({ kind: "delegate", reason: "master-password-reprompt" } as const)
+          : unset
+            ? ({ kind: "delegate", reason: paused ? "paused" : "default-unset" } as const)
+            : ({ kind: "delegate", reason: "ambiguous-credential" } as const);
+        if (selection.kind === "delegate") {
+          if (unset ? offered.length === 0 : selection.reason !== "ambiguous-credential")
+            return unset ? declined : selection;
+          if (offered.length < 2 && !unset) return selection;
+        }
+        // An unsearched item might hold the passkey the person wants.
+        if (!candidates.complete && !reprompt)
+          return { kind: "delegate", reason: "vault-incomplete" };
+        const verifier = source.verifyMasterPassword?.bind(source);
         const remaining = received + chooserWaitMs(admission.request.timeoutMs) - Date.now();
         if (
           !options.chooser ||
@@ -528,7 +559,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           // A background tab or a prerendered page never pulls a window to the front.
           !message.focused ||
           !context.active ||
-          remaining < CHOOSER_MIN_REMAINING_MS
+          remaining < CHOOSER_MIN_REMAINING_MS ||
+          (asksPassword && !verifier)
         )
           return declined;
         // The window waits for a person, so the lookup budget no longer applies.
@@ -545,7 +577,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
             entries: offered.map((entry, index) => ({
               ...(entry.display ?? { item: `Passkey ${index + 1}` }),
               ...(entry.preferred === true && !unset ? { preferred: true } : {}),
+              ...(entry.reprompt === true ? { reprompt: true } : {}),
             })),
+            // Not aborted with the request: a check cut off mid-way would lock the vault.
+            ...(asksPassword && verifier
+              ? { verify: (index: number, password: string) => verifier(offered[index]!, password) }
+              : {}),
             replacesDefault:
               candidates.siteDefault !== undefined && candidates.siteDefault !== "unset",
             ...(paused ? { paused: true } : {}),

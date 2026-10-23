@@ -54,6 +54,16 @@ Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (owner,
 implemented): condition 1 reads "the site is not paused": a timed pause, an exclusion
 rule, or a private window while automatic login is off there keeps the page from being
 sent (`recipe.generate` skipped `paused`).
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the owner on
+2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe holds up
+to three layouts, a continuation and a page judgement name the layout they continue or
+judge in `branch`, and generated pages, judged pages and the signed-in page sample of
+the ADR 0029 amendment are kept per layout. A page where any layout's first step shows
+is a page where a recipe starts.
+
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): an empty read-only
+password input beside the page's software keyboard counts as a sign-in input for
+condition 3.
 
 Date: 2026-10-11
 

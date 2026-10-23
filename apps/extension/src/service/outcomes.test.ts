@@ -29,6 +29,8 @@ function attempt(overrides: Overrides = {}): LoginReport {
     origin: "https://bank.example",
     recipeId: "gen-0123",
     recipeRevision: 3,
+    // The layout the login ran (ADR 0060).
+    branch: "1000",
     route: "password",
     variant: 0,
     state: "reconciling",
@@ -81,8 +83,20 @@ describe("loginOutcomeOf", () => {
       loginOutcomeOf(attempt({ reason: "no-receiver", unconfirmed: true, handler: 1 })),
     ).toEqual({
       recipeId: "gen-0123",
-      report: { version: 1, revision: 3, outcome: "unknown-submit", cause: "settled", step: 1 },
+      report: {
+        version: 1,
+        revision: 3,
+        branch: "1000",
+        outcome: "unknown-submit",
+        cause: "settled",
+        step: 1,
+      },
     });
+  });
+
+  it("reports nothing of a login without a layout (ADR 0060)", () => {
+    // The service files each report under the layout the login ran.
+    expect(loginOutcomeOf(attempt({ branch: undefined }))).toBeUndefined();
   });
 
   it("keeps a listed cause and the chooser branch", () => {
@@ -93,14 +107,14 @@ describe("loginOutcomeOf", () => {
           outcome: "structural-mismatch",
           cause: "target-missing",
           settled: undefined,
-          branch: "other",
+          branch: "1000:other",
           stepIndex: 0,
         }),
       )?.report,
     ).toEqual({
       version: 1,
       revision: 3,
-      branch: "other",
+      branch: "1000:other",
       outcome: "structural-mismatch",
       cause: "target-missing",
       step: 0,
@@ -109,7 +123,7 @@ describe("loginOutcomeOf", () => {
       loginOutcomeOf(
         attempt({ state: "authenticated", outcome: "authenticated", settled: undefined }),
       )?.report,
-    ).toEqual({ version: 1, revision: 3, outcome: "authenticated", step: 1 });
+    ).toEqual({ version: 1, revision: 3, branch: "1000", outcome: "authenticated", step: 1 });
     expect(
       loginOutcomeOf(
         attempt({
@@ -129,7 +143,14 @@ describe("loginOutcomeOf", () => {
           settled: undefined,
         }),
       )?.report,
-    ).toEqual({ version: 1, revision: 3, outcome: "cancelled", cause: "page-changed", step: 1 });
+    ).toEqual({
+      version: 1,
+      revision: 3,
+      branch: "1000",
+      outcome: "cancelled",
+      cause: "page-changed",
+      step: 1,
+    });
   });
 
   it("reports a watched login only when its watch ends (ADR 0027)", () => {
@@ -145,7 +166,7 @@ describe("loginOutcomeOf", () => {
       loginOutcomeOf(
         attempt({ state: "authenticated", outcome: "authenticated", settled: undefined }),
       )?.report,
-    ).toEqual({ version: 1, revision: 3, outcome: "authenticated", step: 1 });
+    ).toEqual({ version: 1, revision: 3, branch: "1000", outcome: "authenticated", step: 1 });
     expect(
       loginOutcomeOf(
         attempt({ state: "blocked", outcome: "challenge-abandoned", settled: undefined }),
@@ -154,7 +175,7 @@ describe("loginOutcomeOf", () => {
     expect(
       loginOutcomeOf(attempt({ state: "blocked", outcome: "unknown-submit", settled: undefined }))
         ?.report,
-    ).toEqual({ version: 1, revision: 3, outcome: "unknown-submit", step: 1 });
+    ).toEqual({ version: 1, revision: 3, branch: "1000", outcome: "unknown-submit", step: 1 });
   });
 
   it("lets a listed cause take precedence over the settled flag", () => {
@@ -207,7 +228,7 @@ describe("loginOutcomeOf", () => {
           settled: undefined,
         }),
       )?.report,
-    ).toEqual({ version: 1, revision: 3, outcome: "interrupted", step: 1 });
+    ).toEqual({ version: 1, revision: 3, branch: "1000", outcome: "interrupted", step: 1 });
   });
 });
 
@@ -224,21 +245,35 @@ describe("createLoginOutcomes", () => {
         CONNECTION.origin,
         CONNECTION.credential,
         "gen-0123",
-        { version: 1, revision: 3, outcome: "unknown-submit", cause: "settled", step: 1 },
+        {
+          version: 1,
+          revision: 3,
+          branch: "1000",
+          outcome: "unknown-submit",
+          cause: "settled",
+          step: 1,
+        },
       ],
     ]);
     // A new revision, and a chooser branch of it, are each reported once more.
     outcomes.observe(attempt({ recipeRevision: 4 }));
-    outcomes.observe(attempt({ recipeRevision: 4, branch: "account" }));
+    outcomes.observe(attempt({ recipeRevision: 4, branch: "1000:account" }));
     outcomes.observe(attempt({ recipeRevision: 4 }));
     await settle();
     expect(reportOutcome.mock.calls.map((call) => call[3])).toEqual([
       expect.objectContaining({ revision: 3 }),
-      { version: 1, revision: 4, outcome: "unknown-submit", cause: "settled", step: 1 },
       {
         version: 1,
         revision: 4,
-        branch: "account",
+        branch: "1000",
+        outcome: "unknown-submit",
+        cause: "settled",
+        step: 1,
+      },
+      {
+        version: 1,
+        revision: 4,
+        branch: "1000:account",
         outcome: "unknown-submit",
         cause: "settled",
         step: 1,
@@ -292,6 +327,7 @@ describe("createLoginOutcomes", () => {
           service: CONNECTION.origin,
           deviceId: CONNECTION.deviceId,
           recipeId: "gen-0123",
+          branch: "1000",
           revision: 3,
           at: 1_000,
         },
@@ -311,9 +347,10 @@ describe("createLoginOutcomes", () => {
           service: CONNECTION.origin,
           deviceId: CONNECTION.deviceId,
           recipeId: "gen-0123",
+          branch: "1000",
           revision: 2,
           at: 1_000,
-          pending: { version: 1, revision: 2, outcome: "authenticated", step: 1 },
+          pending: { version: 1, revision: 2, branch: "1000", outcome: "authenticated", step: 1 },
         },
       ],
     });
@@ -428,7 +465,7 @@ describe("createLoginOutcomes", () => {
     const { outcomes, reportOutcome, settle, state, stored, logged } = setup();
     reportOutcome.mockResolvedValue({ kind: "failed", error: "unreachable" });
     outcomes.observe(attempt({ recipeRevision: 1 }));
-    outcomes.observe(attempt({ recipeRevision: 2, branch: "other" }));
+    outcomes.observe(attempt({ recipeRevision: 2, branch: "1000:other" }));
     await settle();
     expect(reportOutcome).toHaveBeenCalledTimes(1);
     // A 5xx or an HTML error page for revision 1 ends the run and moves it last.
@@ -453,10 +490,10 @@ describe("createLoginOutcomes", () => {
     expect((stored() as { entries: object[] }).entries[0]).not.toHaveProperty("pending");
     // The local log gets one value-free line per request (ADR 0019).
     expect(logged).toEqual([
-      { recipeId: "gen-0123", revision: 1, result: "failed:unreachable" },
-      { recipeId: "gen-0123", revision: 1, result: "failed:unexpected-response" },
-      { recipeId: "gen-0123", revision: 2, branch: "other", result: "kept" },
-      { recipeId: "gen-0123", revision: 1, result: "failed:unexpected-response" },
+      { recipeId: "gen-0123", revision: 1, branch: "1000", result: "failed:unreachable" },
+      { recipeId: "gen-0123", revision: 1, branch: "1000", result: "failed:unexpected-response" },
+      { recipeId: "gen-0123", revision: 2, branch: "1000:other", result: "kept" },
+      { recipeId: "gen-0123", revision: 1, branch: "1000", result: "failed:unexpected-response" },
     ]);
   });
 

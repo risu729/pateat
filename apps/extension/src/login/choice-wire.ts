@@ -27,7 +27,11 @@ export const askReasonSchema = v.picklist([
   "one-time-pick",
 ]);
 export type AskReason = v.InferOutput<typeof askReasonSchema>;
-/** The toolbar popup's line saying why it asks for an account (ADR 0021), in its language. */
+/**
+ * The toolbar popup's line saying why it asks for an account (ADR 0021), in its language;
+ * the icon's title says the same (`choiceTitle` in `badge.ts`). A paused site, or a private
+ * window while automatic login is off there (`private`), says so instead (ADR 0062).
+ */
 export function choiceReason(
   ask: AskReason | undefined,
   matches: number,
@@ -36,18 +40,18 @@ export function choiceReason(
 ): string {
   // A paused site asks with any matching account, also with one (ADR 0062). In a private
   // window the pause is the private-window setting.
-  if (paused === "private") return t("Automatic login is off in private windows");
-  if (paused) return t("Automatic login is paused on this site");
+  if (paused === "private") return t("Automatic login is off in private windows.");
+  if (paused) return t("Automatic login is paused on this site.");
   if (ask === undefined) return t("matchingAccounts", { count: matches });
   return t(
     {
-      rejected: "The site did not accept the last login in this tab",
-      "rejected-elsewhere": "The site did not accept the last login in another tab",
-      "stopped-login": "The last login on this site stopped in this tab",
+      rejected: "The site did not accept the last login in this tab.",
+      "rejected-elsewhere": "The site did not accept a login in another tab.",
+      "stopped-login": "The last login on this site stopped in this tab.",
       "relogin-limit":
-        "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose",
+        "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose.",
       "one-time-pick":
-        "You chose an account here without making it the default, so Pateat asks each time until an account is made the default",
+        "You chose an account here without making it the default, so Pateat asks each time until an account is made the default.",
     }[ask],
   );
 }
@@ -68,6 +72,23 @@ export const pickRequestSchema = v.strictObject({
   /** Save it as the site default once the login is confirmed `authenticated`. */
   makeDefault: v.boolean(),
 });
+/**
+ * The popup asks again for the master password a tab's login waits for: the window did not
+ * open by itself, as for a tab that was in the background, or it was closed.
+ */
+export const repromptRequestSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.reprompt.ask"),
+  tabId,
+});
+export const repromptResponseSchema = v.variant("ok", [
+  v.strictObject({ ok: v.literal(true) }),
+  v.strictObject({
+    ok: v.literal(false),
+    reason: v.picklist(["not-waiting", "unavailable", "closed", "document-gone"]),
+  }),
+]);
+export type RepromptResponse = v.InferOutput<typeof repromptResponseSchema>;
 export const choiceResponseSchema = v.variant("ok", [
   v.strictObject({
     ok: v.literal(true),
@@ -134,22 +155,22 @@ export function pickFailure(
   if (reason === "origin-busy")
     return makeDefault
       ? t(
-          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab or wait up to 10 minutes, then choose again.",
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab, or wait up to 10 minutes, then choose again.",
           { name },
         )
       : t(
-          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 10 minutes, then choose again.",
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, or wait up to 10 minutes, then choose again.",
         );
   // In a private window the page's own passkey request is answered as in a normal window
   // with automatic login running, but Pateat's window cannot open there (ADR 0062 E).
   if (reason === "paused-no-password" && inPrivate)
     return makeDefault
       ? t(
-          "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when {{name}} is this site's only passkey or its default.",
+          "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.",
           { name },
         )
       : t(
-          "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat signs in there when {{name}} is this site's only passkey or its default.",
+          "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.",
           { name },
         );
   if (reason === "paused-no-password")
@@ -172,10 +193,10 @@ export function pickFailure(
           name,
         });
   return makeDefault
-    ? t("This page is no longer waiting for a choice. {{name}} was not made the default.", {
+    ? t("This page no longer waits for an account choice. {{name}} was not made the default.", {
         name,
       })
-    : t("This page is no longer waiting for a choice");
+    : t("This page no longer waits for an account choice.");
 }
 /**
  * The popup's account switch (ADR 0063): log the tab out of its site, then log in on the
@@ -242,31 +263,31 @@ export function switchStatus(
 ): string {
   if (state === "running") return t("Logging out to switch to {{name}}…", { name });
   if (state === "signed-out")
-    return t("Logged out. Pateat logs in with {{name}} on this site's login page in this tab", {
+    return t("Logged out. Pateat logs in with {{name}} on this site's login page in this tab.", {
       name,
     });
   if (reason === "no-logout-control")
     return t(
-      "Pateat found no way to log out on this page, so it did not switch to {{name}}. Log out yourself, then choose the account",
+      "Pateat found no way to log out on this page, so it did not switch to {{name}}. Log out yourself, then choose the account.",
       { name },
     );
   if (reason === "unsafe-control")
     return t(
-      "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to {{name}}. Log out yourself, then choose the account",
+      "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to {{name}}. Log out yourself, then choose the account.",
       { name },
     );
   if (reason === "interrupted")
     return t(
-      "Pateat stopped while logging out, so it did not switch to {{name}}. Check whether you are logged out, then choose the account",
+      "Pateat stopped while logging out, so it did not switch to {{name}}. Check whether you are logged out, then choose the account.",
       { name },
     );
   if (reason === "still-signed-in")
     return t(
-      "The site still shows you logged in after 3 tries, so Pateat did not switch to {{name}}. Log out yourself, then choose the account",
+      "The site still shows you logged in after 3 tries, so Pateat did not switch to {{name}}. Log out yourself, then choose the account.",
       { name },
     );
   return t(
-    "Pateat could not log out to switch to {{name}}. Log out yourself, then choose the account",
+    "Pateat could not log out to switch to {{name}}. Log out yourself, then choose the account.",
     { name },
   );
 }
@@ -345,7 +366,7 @@ export const statusResponseSchema = v.variant("ok", [
       v.strictObject({
         outcome: code,
         reason: v.optional(code),
-        page: v.optional(v.picklist(["accounts", "entry", "continuation"])),
+        page: v.optional(v.picklist(["accounts", "entry", "continuation", "repair"])),
       }),
     ),
   }),
@@ -397,6 +418,8 @@ export interface ChoiceClient {
   switchTo(request: SwitchRequest): Promise<SwitchResponse>;
   /** Pauses automatic login of the tab's site, or resumes it (ADR 0062). */
   pause(tabId: number, change: PauseChange): Promise<PauseResponse>;
+  /** Opens the master password window again for the tab's waiting login. */
+  reprompt(tabId: number): Promise<RepromptResponse>;
 }
 
 export function createChoiceClient(send: (message: unknown) => Promise<unknown>): ChoiceClient {
@@ -425,6 +448,11 @@ export function createChoiceClient(send: (message: unknown) => Promise<unknown>)
       v.parse(
         pauseResponseSchema,
         await send({ version: 1, type: "login.pause.set", tabId: tab, ...change }),
+      ),
+    reprompt: async (tab) =>
+      v.parse(
+        repromptResponseSchema,
+        await send({ version: 1, type: "login.reprompt.ask", tabId: tab }),
       ),
   };
 }

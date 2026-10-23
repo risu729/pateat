@@ -203,12 +203,17 @@ async function execute(command: HostCommand) {
           id: String(checked.data.id),
           label: vaultDisplayLabel(checked.data.name, String(checked.data.id)),
           type: checked.data.type as 1 | 2 | 3 | 4,
+          ...(checked.data.deletedDate || checked.data.archivedDate
+            ? { inactive: true as const }
+            : {}),
           groupIds: [
             ...new Set([
               ...(checked.data.folderId ? [String(checked.data.folderId)] : []),
               ...checked.data.collectionIds.map(String),
             ]),
           ],
+          // Bitwarden's master password re-prompt; a site's settings decide whether it is asked.
+          ...(checked.data.reprompt === 1 ? { reprompt: true as const } : {}),
           fields: snapshot.data.list().map((field) => ({
             id: field.ref.fieldId,
             label: vaultDisplayLabel(field.label, field.ref.fieldId),
@@ -216,6 +221,7 @@ async function execute(command: HostCommand) {
             kind: field.kind,
             ...(field.linkedFieldId ? { linkedFieldId: field.linkedFieldId } : {}),
             ...(field.empty ? { empty: true as const } : {}),
+            ...(field.totpSeed ? { totpSeed: true as const } : {}),
           })),
         });
       } finally {
@@ -371,6 +377,7 @@ async function execute(command: HostCommand) {
     return snapshot.data.resolve(op.ref, {
       allowedFieldIds: op.allowedFieldIds,
       ...(op.nowMs === undefined ? {} : { nowMs: () => op.nowMs! }),
+      ...(op.code ? { code: true as const } : {}),
     });
   } finally {
     snapshot.data.dispose();
