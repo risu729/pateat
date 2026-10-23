@@ -2646,15 +2646,16 @@ path (owner decision 2026-10-13). Labels can contain private data too: sanitize 
 bound them, with privacy fixtures and an abstention path when a useful safe observation
 cannot be constructed. The owner chose on 2026-10-11 to redact observed text before it
 is sent: email-like strings, including masked ones, become `[email]`, whatever HTML's
-valid email address allows in the local part (such as `'` and `#`, but not `/`, `=`,
-`?` or `&`, so `youtube.com/@pateat` stays) and with internationalized domain labels
-before an ASCII last one (`taro@例え.jp`; `taro@example.comでログイン` becomes
-`[email]でログイン`); runs of three or more `*`, `●`, `•` or `＊`
-become `[masked]`; and runs of four or more ASCII or fullwidth digits become `[number]`
-(`口座番号 ****1234` becomes `口座番号 [masked][number]`). Page text is read as it
-renders, both before redaction and before it is compared with an account: a `<wbr>`
-line-break opportunity separates nothing, and format characters (`\p{Cf}`, such as
-U+200B zero-width space and U+00AD soft hyphen) are left out, so
+valid email address allows in the local part (such as `'` and `#`, but not `/`, `=`, `?`
+or `&`, so `youtube.com/@pateat` stays) and with internationalized domain labels
+(`taro@例え.jp`); an ASCII last label ends the address (`taro@example.comでログイン`
+becomes `[email]でログイン`), while a last label that is not ASCII takes the text glued
+to it along (`taro@例え.日本でログイン中` becomes `[email]`); runs of three or more `*`,
+`●`, `•` or `＊` become `[masked]`; and runs of four or more ASCII or fullwidth digits
+become `[number]` (`口座番号 ****1234` becomes `口座番号 [masked][number]`). Page text
+is read as it renders, both before redaction and before it is compared with an account:
+a `<wbr>` line-break opportunity separates nothing, and format characters (`\p{Cf}`,
+such as U+200B zero-width space and U+00AD soft hyphen) are left out, so
 `taro.yamada@<wbr>example.com` and `taro.yamada@&#8203;example.com` become `[email]`,
 and the sign-in state's E2, the entries of a list of accounts and the wrong-account
 check each read them as one address; usernames are compared without format characters
