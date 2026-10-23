@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "50a56beb-500b-4ef4-93dd-803694a26b38",
+  "id": "98e3ecd4-fe2e-4f61-b2c2-38dfa76b6b25",
   "prevId": "df02d796-1040-4281-a9a8-0510c9a76597",
   "tables": {
     "devices": {
@@ -372,6 +372,13 @@
         },
         "branch": {
           "name": "branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "layout": {
+          "name": "layout",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

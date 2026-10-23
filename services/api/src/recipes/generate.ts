@@ -585,10 +585,14 @@ export async function generateRecipe(
       ? carriedSlotNames(slots, await recipeBindingSlots(env.DB, scope.ownerId, origin, recipeId))
       : new Map<string, string>();
   let raced: Extract<RecipeGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
+  // A first page starts the recipe's first layout (ADR 0060), keyed by when it was made and
+  // in the page's language; until repair lands, no request adds another. Its key is chosen
+  // before the call, so the request log names the layout the answer creates.
+  const meta = newLayoutMeta(observation.language, Date.now());
 
   const call = await callClaude(env, scope.ownerId, trace, {
     ...logged,
-    recipe: { ...logged.recipe, baseRevision },
+    recipe: { ...logged.recipe, baseRevision, ...(base ? {} : { layout: meta.key }) },
     ...attemptWindow(
       scope.ownerId,
       { recipeId, branch: attemptBranch, origin, path, baseRevision },
@@ -703,9 +707,6 @@ export async function generateRecipe(
   if ("accountList" in value !== list) return failed("invalid-output");
   // A recipe generated again follows its tombstone's revision.
   const revision = baseRevision + 1;
-  // A first page starts the recipe's first layout (ADR 0060), keyed by when it was made and
-  // in the page's language; until repair lands, no request adds another.
-  const meta = newLayoutMeta(observation.language, Date.now());
   /** A new recipe document, checked as devices check what they sync. */
   const document = (recipe: StoredLoginRecipe) =>
     v.is(storedLoginRecipeSchema, recipe) ? recipe : undefined;

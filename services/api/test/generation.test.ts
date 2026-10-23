@@ -6070,7 +6070,7 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
   const sampledRows = async (ownerId: string) =>
     (
       await rows(
-        "SELECT role, provider, model_id, prompt_version, outcome, origin, path, recipe_id, branch, base_revision, revision, recipe_page, build, observation_hash, request, result, answer, input_tokens, output_tokens, cost_micro_usd FROM inference_log WHERE owner_id = ? AND outcome = 'sampled' ORDER BY created_at",
+        "SELECT role, provider, model_id, prompt_version, outcome, origin, path, recipe_id, branch, layout, base_revision, revision, recipe_page, build, observation_hash, request, result, answer, input_tokens, output_tokens, cost_micro_usd FROM inference_log WHERE owner_id = ? AND outcome = 'sampled' ORDER BY created_at",
         ownerId,
       )
     ).map((row) => ({ ...row, request: JSON.parse(String(row.request)) as unknown }));
@@ -6102,6 +6102,8 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
         path: "/home",
         recipe_id: change.recipeId,
         branch: await layoutKey(device.ownerId, change.recipeId),
+        // The sampled page's layout (ADR 0060).
+        layout: await layoutKey(device.ownerId, change.recipeId),
         base_revision: 2,
         revision: null,
         recipe_page: null,
@@ -6487,6 +6489,13 @@ describe("recipe layouts (ADR 0060)", () => {
     });
     // The answer is the stored document; a device projects the layout it runs.
     expect(first.change.recipe).toMatchObject({ layout: key });
+    // The request log names the layout the first page's answer created.
+    expect(
+      await rows(
+        "SELECT layout, branch, recipe_page, revision FROM inference_log WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ layout: key, branch: "", recipe_page: "first", revision: 1 }]);
     // A page in both languages gives its layout none.
     const mixed = await owner();
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
@@ -6544,6 +6553,10 @@ describe("recipe layouts (ADR 0060)", () => {
         device.ownerId,
       ),
     ).toEqual([{ branch: "1000", base_revision: 1 }]);
+    // The request log names the layout the continuation was for.
+    expect(
+      await rows("SELECT layout, branch FROM inference_log WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ layout: "1000", branch: "1000" }]);
   });
 
   it("refuses to continue a layout the recipe does not have, or one that submitted", async () => {
@@ -6582,6 +6595,13 @@ describe("recipe layouts (ADR 0060)", () => {
       await rows("SELECT branch, revision FROM page_judgements WHERE owner_id = ?", device.ownerId),
     ).toEqual([{ branch: "2000", revision: 1 }]);
     expect(await layoutUses(device.ownerId)).toEqual([{ recipe_id: recipeId, layout: "2000" }]);
+    // The request log names the judged layout.
+    expect(
+      await rows(
+        "SELECT role, layout, branch FROM inference_log WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ role: "judge", layout: "2000", branch: "2000" }]);
   });
 
   it("builds a layout from the model's answer without writing it", async () => {

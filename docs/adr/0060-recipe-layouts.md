@@ -95,6 +95,9 @@ accounts in another language fails the same way.
   chooser layout's branch, and writes the document at its next revision. A request
   without `branch`, for a layout the document no longer has, or naming a chooser branch
   on a login recipe answers `recipe-conflict` without a model call.
+- The request log keeps the layout of each generation and judge row in `layout`: the
+  one `branch` names, or for a recipe's first page sent to the model the key of the
+  layout its answer creates, chosen before the call (not confirmed by the owner).
 - A judgement learns its handler or marker into the named layout. Generation attempts
   and judged pages are keyed by layout, so two layouts of one revision and path do not
   share the once-per-page rule.

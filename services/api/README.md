@@ -436,18 +436,21 @@ accounts, whose instructions add one list line), the instructions and input as s
 structured result, the outcome code, usage and estimated cost. Since 2026-10-18
 ([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus))
 it also records the recipe the call is for (`recipe_id`, `branch`, empty without one),
-`base_revision` (the head revision when the call was made: 0 for none, the tombstone's
-for a revoked recipe generated again, the judged one for the judge), `recipe_page` for
-generation (`first` for a page sent without a base: a new recipe, one generated again, a
-list of accounts or an entry page; `continuation` for one sent with a base, a chooser
-branch's pages included), for generation `signed_in` (the request's hint), `page_kind`
-and `irreversible` (the plan's answers, also for a plan the local checks refused; null
-when the answer was no plan) ([ADR 0035](../../docs/adr/0035-page-kinds-per-site.md)),
-`build` (`PATEAT_BUILD_REVISION`) and `observation_hash` (12
-hex digits of the SHA-256 of the request's observation as JSON). `callClaude` returns
-the row's ID, and once the answer's recipe write succeeds `keepLogRevision` sets
-`revision`; a write refused or lost to a device leaves it null, and a failed update is
-logged as `Inference log revision not kept` and never fails the request. Since the
+`layout` ([ADR 0060](../../docs/adr/0060-recipe-layouts.md): the layout `branch` names,
+or for a recipe's first page sent to the model the key of the layout its answer creates;
+null for an entry page and a first page answered without a call), `base_revision` (the
+head revision when the call was made: 0 for none, the tombstone's for a revoked recipe
+generated again, the judged one for the judge), `recipe_page` for generation (`first`
+for a page sent without a base: a new recipe, one generated again, a list of accounts or
+an entry page; `continuation` for one sent with a base, a chooser branch's pages
+included), for generation `signed_in` (the request's hint), `page_kind` and
+`irreversible` (the plan's answers, also for a plan the local checks refused; null when
+the answer was no plan) ([ADR 0035](../../docs/adr/0035-page-kinds-per-site.md)),
+`build` (`PATEAT_BUILD_REVISION`) and `observation_hash` (12 hex digits of the SHA-256
+of the request's observation as JSON). `callClaude` returns the row's ID, and once the
+answer's recipe write succeeds `keepLogRevision` sets `revision`; a write refused or
+lost to a device leaves it null, and a failed update is logged as
+`Inference log revision not kept` and never fails the request. Since the
 [timings amendment](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-request-timings),
 `pre_model_ms` (from the Worker receiving the request to just before the model call:
 authentication, the request limit, the route's reads, the lock and checks, the

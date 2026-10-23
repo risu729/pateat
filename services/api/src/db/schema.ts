@@ -245,6 +245,14 @@ export const inferenceLog = sqliteTable(
      */
     branch: text("branch"),
     /**
+     * The recipe layout (ADR 0060) the row is for: the one a continuation, judgement or
+     * signed-in page sample names in `branch`, or, for a recipe's first page sent to the
+     * model (a list of accounts included), the key of the layout its answer creates, which
+     * exists once `revision` is set. Null for an entry page and for a first page answered
+     * without a call.
+     */
+    layout: text("layout"),
+    /**
      * The recipe's head revision when the call was made: 0 when it had none, the
      * tombstone's for a revoked recipe generated again, the judged one for the judge. A
      * request answered without a call has the head read when it arrived, and a signed-in

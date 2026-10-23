@@ -10,7 +10,9 @@ CREATE TABLE `recipe_layout_uses` (
 	`last_used_at` integer NOT NULL,
 	PRIMARY KEY(`owner_id`, `recipe_id`, `layout`),
 	FOREIGN KEY (`owner_id`,`recipe_id`) REFERENCES `recipe_heads`(`owner_id`,`recipe_id`) ON UPDATE no action ON DELETE no action
-);--> statement-breakpoint
+);
+--> statement-breakpoint
+ALTER TABLE `inference_log` ADD `layout` text;--> statement-breakpoint
 DELETE FROM `recipe_revisions`;--> statement-breakpoint
 DELETE FROM `recipe_heads`;--> statement-breakpoint
 DELETE FROM `page_judgements`;--> statement-breakpoint
