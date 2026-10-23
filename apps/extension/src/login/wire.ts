@@ -23,8 +23,16 @@ export const loginSecretKinds = [
   "detail",
   "answer",
 ] as const;
-/** A custom field's name that a secret question's answer is filled under (ADR 0061). */
-const questionSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
+/**
+ * What a secret question's answer is filled under (ADR 0061): its custom field's `name`,
+ * which the page's text beside the input must contain, or, for a field named otherwise,
+ * the `question` the owner confirmed, which must be one whole question shown there.
+ */
+const questionSchema = v.union([
+  v.strictObject({ name: v.pipe(v.string(), v.minLength(1), v.maxLength(200)) }),
+  v.strictObject({ question: v.pipe(v.string(), v.minLength(1), v.maxLength(200)) }),
+]);
+export type AskedQuestion = v.InferOutput<typeof questionSchema>;
 export type LoginSecretKind = (typeof loginSecretKinds)[number];
 const path = v.pipe(v.string(), v.minLength(1), v.maxLength(300));
 /** One target's state: no element, exactly one usable element, several, or one unusable. */
@@ -499,8 +507,8 @@ export const commandSchema = v.variant("type", [
           /** Secret values fill only matching inputs; other values fill any writable input. */
           secret: v.optional(v.picklist(loginSecretKinds)),
           /**
-           * A secret question's answer goes in only while the input's question is still
-           * this field name (ADR 0061), checked just before it is typed.
+           * A secret question's answer goes in only while the input still asks this
+           * field's question (ADR 0061), checked just before it is typed.
            */
           question: v.optional(questionSchema),
         }),
@@ -580,8 +588,9 @@ export const commandSchema = v.variant("type", [
     account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
   }),
   /**
-   * Which of the login item's custom field names is the secret question shown beside
-   * `target` (ADR 0061); page text never leaves the document.
+   * Which of the login item's answer fields, each by its name or by the question the owner
+   * confirmed for it, is the secret question shown beside `target` (ADR 0061); page text
+   * never leaves the document.
    */
   v.strictObject({
     version: v.literal(1),

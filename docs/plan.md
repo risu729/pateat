@@ -939,11 +939,11 @@ than in this repository.
   handler that the judge learns, delivery 2, judging a page that asks for a detail
   beside the sign-in form (`beside`), delivery 3, links to the items that hold the
   values, proposed in the popup, delivery 4, secret-question answers and member IDs,
-  and delivery 5, whole card numbers, expiry dates and PINs, are implemented. エポスNet
-  asks for the card's security code after the password (owner, 2026-10-12 04:18 UTC:
-  it can wait), and other sites ask for a birth date or similar details as extra
-  verification. The owner sees these as one need (2026-10-12 05:29 UTC): the value is
-  in a card or
+  delivery 5, whole card numbers, expiry dates and PINs, and delivery 6, the judge's
+  account slots and secret-question pairing, are implemented. エポスNet asks for the
+  card's security code after the password (owner, 2026-10-12 04:18 UTC: it can wait),
+  and other sites ask for a birth date or similar details as extra verification. The
+  owner sees these as one need (2026-10-12 05:29 UTC): the value is in a card or
   identity item, not in the login item, so the login has to be linked to that item. The
   owner chose how to link them (05:27 UTC): Pateat guesses the item from the site being
   logged into and what its pages show (such as a card name, brand or masked last
@@ -2526,7 +2526,8 @@ For [ADR 0018](adr/0018-recipe-generation-route.md), `appendPageSteps` builds a
 generated recipe one page at a time: the first page starts it at revision 1, and a later
 page is appended only after a step that advances, within the contract's bounds. The
 recipe's slots are the ones its steps fill. `createCompletionJudge` sends the page shown
-after the final submission, with the login paths, and returns `signed-in` with a button
+after the final submission, with the login paths and the login item's slots (ADR 0061,
+2026-10-23), and returns `signed-in` with a button
 or link marker, `rejected` or `challenge`, or abstains when unclear. An unknown marker,
 one that is not a button or link, or a page that still has a password input not marked
 `new-password` or a field marked `username`, `current-password` or `one-time-code` fails

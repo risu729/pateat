@@ -344,6 +344,9 @@ export const en = {
   "The page did not accept the value.": "The page did not accept the value.",
   "the answer to your secret question": "the answer to your secret question",
   "your member or customer number": "your member or customer number",
+  "This page asks \u201C{{question}}\u201D.": "This page asks \u201C{{question}}\u201D.",
+  "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.":
+    "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.",
   "your card number": "your card number",
   "your card's expiry date": "your card's expiry date",
   "your PIN": "your PIN",

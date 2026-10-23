@@ -347,6 +347,9 @@ export const ja = {
   "The page did not accept the value.": "ページが値を受け付けませんでした。",
   "the answer to your secret question": "秘密の質問の答え",
   "your member or customer number": "会員番号またはお客様番号",
+  "This page asks \u201C{{question}}\u201D.": "このページは「{{question}}」と尋ねています。",
+  "Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.":
+    "Pateat の AI は、このフィールドが答えだと判断しました。正しい場合だけ「入力」を押してください。押すと、この質問が表示されるたびに Pateat が入力します。",
   "your card number": "カード番号",
   "your card's expiry date": "カードの有効期限",
   "your PIN": "暗証番号",

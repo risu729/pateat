@@ -679,6 +679,7 @@ describe("recipe generation", () => {
           route: "password",
           branch: "1760000000000",
           observation,
+          slots: [],
         }),
       ),
     ).toEqual({ kind: "result", result: { version: 1, status: "unclear" } });
@@ -711,6 +712,7 @@ describe("recipe generation", () => {
         route: "password" as const,
         branch: "1760000000000",
         observation,
+        slots: [] as [],
       };
       expect(
         await createServiceTransport({ fetch }).samplePage(ORIGIN, CREDENTIAL, recipeId, sample),
@@ -1254,6 +1256,7 @@ describe("service timing", () => {
         route: "password",
         branch: "1760000000000",
         observation: request.observation,
+        slots: [],
       }),
     ).toEqual({ kind: "rejected", timing: { roundTripMs: 250, serverMs: 20, networkMs: 230 } });
     const unreachable = vi.fn<typeof globalThis.fetch>(async () => {

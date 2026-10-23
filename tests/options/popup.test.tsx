@@ -1571,6 +1571,46 @@ test("a Fill that filled nothing says why", async () => {
   expect(page.getByText("Filled.", { exact: false }).query()).toBeNull();
 });
 
+test("a secret question the AI paired with a field named otherwise is proposed for the owner to confirm", async () => {
+  const { client } = store();
+  const answerField = {
+    connectionId: "demo-personal",
+    itemId: "login-1",
+    fieldId: "custom.1",
+    itemLabel: "Bank",
+    fieldLabel: "お母さんの旧姓",
+  };
+  const details = withDetails({
+    offer: {
+      documentId: "detail-document",
+      details: [{ detail: "secret-answer", candidates: [answerField], question: "母親の旧姓は" }],
+    },
+  });
+  await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
+  const asks = page.getByRole("group", { name: "This page asks \u201C母親の旧姓は\u201D." });
+  await expect.element(asks).toBeVisible();
+  await expect.element(asks.getByRole("radio", { name: "Bank › お母さんの旧姓" })).toBeChecked();
+  const fill = page.getByRole("button", { name: "Fill" });
+  // The Fill button says what it confirms.
+  await expect
+    .element(fill)
+    .toHaveAccessibleDescription(
+      "This page asks \u201C母親の旧姓は\u201D. Pateat\u2019s AI thinks this field holds the answer. Fill only if it does; Pateat then fills it whenever this question shows.",
+    );
+  // Nothing is filled or saved before the owner presses Fill.
+  expect(details.fill).not.toHaveBeenCalled();
+  await userEvent.click(fill);
+  expect(details.fill).toHaveBeenCalledExactlyOnceWith({
+    tabId: 7,
+    documentId: "detail-document",
+    detail: "secret-answer",
+    connectionId: "demo-personal",
+    itemId: "login-1",
+    fieldId: "custom.1",
+  });
+  expect(client.saveSettings).not.toHaveBeenCalled();
+});
+
 test("an excluded site offers no fill, even one the worker still keeps", async () => {
   const settings = createDefaultSettings();
   settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: false });
