@@ -219,12 +219,13 @@ there.
   extension. **Delete all** on the **Request log** page deletes every stored page
   description, login record and problem report, and removes the device and request from
   the record of which model wrote each recipe part. A settings profile no device uses,
-  other than the last one, can be deleted on the **Profiles** page; today that hides the
-  profile, but its stored settings stay. Disconnecting or revoking a device stops it
-  from syncing but keeps its record. These have no delete control: device records, the
-  records of judged pages and recipe repairs, the record of which model wrote each
-  recipe part, and the record of spending on Claude. The service's owner can delete them
-  from its database.
+  other than the last one, can be deleted on the **Profiles** page, which deletes its
+  excluded sites, sites that ask for the master password and default accounts; the
+  profile's name stays for the devices that used it. Disconnecting or revoking a device
+  stops it from syncing but keeps its record. These have no delete control: device
+  records, deleted profiles' names, the records of judged pages and recipe repairs, the
+  record of which model wrote each recipe part, and the record of spending on Claude.
+  The service's owner can delete them from its database.
 - **Your Anthropic API key**: **Remove key** on the settings page deletes the key from
   your device; its spend count stays until you remove the extension.
 - **On a lost device**: revoking it on the service stops it from reaching the service,
