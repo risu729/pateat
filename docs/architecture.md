@@ -3043,10 +3043,11 @@ planned change. Each is current behavior that the service does not handle.
   A misconfigured `ACCESS_AUD` or `ACCESS_PAIR_AUD` (for example with stray
   whitespace) refuses every token with 403.
 
-The [offline synthetic measurement report](research/2026-10-17-synthetic-limits.md)
-provides a reproducible UTF-8 serialization check against these configured limits,
-including a valid wide-marker shape that reaches the device cap before 1,000 recipes.
-It is not hosted enforcement, storage-quota or performance evidence.
+The [offline synthetic measurement report](research/2026-10-23-synthetic-limits.md)
+provides a reproducible UTF-8 serialization check against these configured limits: a
+valid wide-marker shape reaches the 1.5 MiB owner byte cap at 710 recipes, whose cache
+still fits the 2 MiB device cap. It is not hosted enforcement, storage-quota or
+performance evidence.
 
 ### Device enrollment
 

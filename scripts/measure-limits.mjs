@@ -13,8 +13,9 @@ function constant(file, name) {
   const declaration = source.match(new RegExp(`^(?:export )?const ${name} = ([^;]+);$`, "m"));
   assert.ok(declaration, `Missing constant ${name} in ${file}`);
   const factors = declaration[1].trim().split(/\s*\*\s*/u);
+  // Integer or decimal literals, such as `1.5 * 1024 * 1024`; the product must be whole.
   assert.ok(
-    factors.every((factor) => /^\d[\d_]*$/u.test(factor)),
+    factors.every((factor) => /^\d[\d_]*(?:\.\d+)?$/u.test(factor)),
     "Review changed constant syntax",
   );
   const value = factors.reduce(
@@ -25,7 +26,8 @@ function constant(file, name) {
   return value;
 }
 const limits = {
-  recipeCacheBytes: constant("apps/extension/src/service/recipes.ts", "MAX_RECIPE_CACHE_BYTES"),
+  recipeCacheBytes: constant("packages/contracts/src/sync.ts", "MAX_RECIPE_CACHE_BYTES"),
+  activeRecipeBytes: constant("packages/contracts/src/sync.ts", "MAX_ACTIVE_RECIPE_BYTES"),
   activeRecipes: constant("services/api/src/limits.ts", "MAX_ACTIVE_RECIPES"),
   keptRecipeRevisions: constant("services/api/src/limits.ts", "KEPT_RECIPE_REVISIONS"),
   settingsDocumentBytes: constant("packages/contracts/src/sync.ts", "MAX_SETTINGS_DOCUMENT_BYTES"),
@@ -42,6 +44,7 @@ function recipe(index, kind) {
     id: `synthetic-${String(index).padStart(6, "0")}`,
     revision: 1,
     origin: "https://login.example.test",
+    pageKind: "sign-in",
     slots: kind === "password" ? ["password"] : ["username", "password"],
     steps: [
       ...(kind === "password"
@@ -104,11 +107,20 @@ function measure(kind) {
   const fittingBytes = bytes(cache(lower, kind));
   const nextBytes = bytes(cache(upper, kind));
   assert.ok(fittingBytes <= limits.recipeCacheBytes && nextBytes > limits.recipeCacheBytes);
+  // The service's owner cap counts the UTF-8 bytes of each active recipe document only.
+  const recipeBytes = bytes(recipe(0, kind));
+  const ownerCapCount = Math.floor(limits.activeRecipeBytes / recipeBytes);
+  const ownerCapRecipes = Math.min(ownerCapCount, limits.activeRecipes);
+  const cacheAtOwnerCap = bytes(cache(ownerCapRecipes, kind));
+  // Within the owner's caps, a device's whole cache must fit its own cap.
+  assert.ok(cacheAtOwnerCap <= limits.recipeCacheBytes);
   return {
     kind,
-    recipeDocumentBytes: bytes(recipe(0, kind)),
+    recipeDocumentBytes: recipeBytes,
     cacheAtActiveRecipeLimitBytes: bytes(cache(limits.activeRecipes, kind)),
     fitsAtActiveRecipeLimit: bytes(cache(limits.activeRecipes, kind)) <= limits.recipeCacheBytes,
+    largestCountWithinOwnerBytes: ownerCapCount,
+    cacheAtOwnerCapsBytes: cacheAtOwnerCap,
     largestFittingCount: lower,
     fittingCacheBytes: fittingBytes,
     nextCount: upper,
