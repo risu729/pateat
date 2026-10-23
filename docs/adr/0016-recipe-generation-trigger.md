@@ -50,6 +50,14 @@ Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md) (owner, 20
 implemented): a page whose recipe the chosen item cannot run is generated again, its
 recipe revoked first, though a recipe starts there.
 
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (proposed by Claude; its
+shape and the discarding of existing recipes are assumed, pending the owner's answers;
+implemented on a branch, local tests only): a recipe holds up to three layouts, a
+continuation and a page judgement name the layout they continue or judge in `branch`,
+and generated pages, judged pages and the signed-in page sample of the ADR 0029
+amendment are kept per layout. A page where any layout's first step shows is a page
+where a recipe starts.
+
 Date: 2026-10-11
 
 ## Context

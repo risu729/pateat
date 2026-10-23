@@ -11,6 +11,12 @@ Amends [ADR 0013](0013-service-held-recipes-and-settings.md) (only the owner rev
 recipes) and [ADR 0016](0016-recipe-generation-trigger.md) (a page with a recipe is not
 generated again).
 
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (proposed by Claude; its
+shape and the discarding of existing recipes are assumed, pending the owner's answers;
+implemented on a branch, local tests only): part B counts use per layout of a recipe
+([Amendment: use per layout](#amendment-2026-10-23-use-per-layout)). Part A is unchanged
+here; the proposal to repair instead of revoking waits for the repair work.
+
 Date: 2026-10-19
 
 ## Context
@@ -109,6 +115,18 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
 - Existing recipes start from the newest of their last write and their last reported
   login.
 - One check revokes at most 50 recipes; the next sync revokes the rest.
+
+### Amendment 2026-10-23: use per layout
+
+Proposed with [ADR 0060](0060-recipe-layouts.md), pending the owner's answers. A recipe
+now holds up to three layouts, and the service keeps each layout's last use in
+`recipe_layout_uses`: a login that starts on it (the use report names the layout), a
+login on it that ends, and a continuation, handler or marker the service writes into it.
+A write that changes one layout is no use of the others. A layout's last use is the
+newer of its creation and its last reported use. The same check that revokes an idle
+recipe removes a layout unused for 90 days, as a new revision without it, while another
+layout of the recipe is used; such a removal, like a removal of one layout on `/manage`,
+is no use of the recipe. When every layout is idle, the recipe is revoked as above.
 
 ## Consequences
 

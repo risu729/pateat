@@ -107,6 +107,7 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0057: Pages without a sign-in input are decided once the DOM is quiet](adr/0057-decide-no-input-pages-when-the-dom-is-quiet.md)
 - [0058: Recipes that are not used or cannot run are removed automatically](adr/0058-automatic-recipe-removal.md)
 - [0059: The latest Vaultwarden release is a supported server](adr/0059-latest-vaultwarden-server.md)
+- [0060: A recipe holds up to three layouts of its sign-in pages](adr/0060-recipe-layouts.md) (proposed; assumed decisions pending the owner)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

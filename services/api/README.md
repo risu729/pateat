@@ -49,8 +49,9 @@ checks reports `token` alone. Parse it by metric name, as Cloudflare may add ent
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 | `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
-| `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
+| `GET /manage/api/recipes` | Every recipe head with its document and each layout's last use (ADR 0060), most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
+| `POST /manage/api/recipes/:recipeId/layouts/:layout/revoke` | Remove one layout as the next revision if `expectedRevision` is the head, revoking the recipe when it was the last; 404 for a layout the head lacks, otherwise 409 with the current head |
 | `GET /manage/api/request-log` | How many request log rows (`entries`), login result codes (`outcomes`) and login records (`logins`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
 | `DELETE /manage/api/request-log` | Delete every request log row, login result code and login record of the owner, and nothing else; answers how many (`deleted`, `outcomes`, `logins`) |
 | `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
@@ -157,12 +158,18 @@ under this cap can therefore recover; see
 The feed contains current heads, rather than every historical revision: a write moves
 its recipe's head to a new increasing sequence. The same batch deletes revisions older
 than the newest 10, and every earlier revision when the write revokes the recipe.
-Every winning write sets the head's `last_used_at`, and so do each accepted `/logins`
-record and `/use` report while the head is active. `GET /v1/recipes` and
+Every winning write sets the head's `last_used_at`, except a service write that only
+removes layouts, and so do each accepted `/logins` record and `/use` report while the
+head is active. Each layout's own last use is kept in `recipe_layout_uses` (ADR 0060):
+the `/logins` record and `/use` report of a login on it, and the service's continuation,
+handler and marker writes into it; a write that drops a layout deletes its row. `GET /v1/recipes` and
 `GET /manage/api/recipes` first revoke up to 50 of the owner's active recipes whose
 `last_used_at` is more than 90 days old, oldest first and never an entry recipe, as
 tombstones with no writing device; a write that marks one used before its revocation
-lands keeps it ([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)). A failed
+lands keeps it ([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)). The same
+check then removes, from up to 50 recipes, each layout whose newer of creation and last
+use is more than 90 days old while another layout of the recipe is newer, as the next
+revision without it. A failed
 check is logged and the request goes on.
 
 ## Claude credentials
@@ -217,11 +224,17 @@ a code, or `unavailable` with a reason when no model was called. A generation th
 the path ending before it), or `{ check: "plan", reason }` with the plan check's code
 (such as `incompatible-role`).
 
-- `POST /v1/recipes/generate` takes `{ version: 1, observation, slots, base? }`. Each
-  origin and start path has one generated recipe, `gen-` and the first 32 hex digits of
-  the SHA-256 of the JSON `[origin, path]`; a page without `base` is the start of its
-  own. Without `base`, an active recipe is returned as is; with `base`, the page's steps
-  are appended after the recipe's last `advance` step. A stale `base` gets the current
+- `POST /v1/recipes/generate` takes `{ version: 1, observation, slots, base?, branch? }`.
+  Each origin and start path has one generated recipe, `gen-` and the first 32 hex
+  digits of the SHA-256 of the JSON `[origin, path]`; a page without `base` is the start
+  of its own. The recipe holds up to three layouts
+  ([ADR 0060](../../docs/adr/0060-recipe-layouts.md), proposed); a first page writes
+  one, keyed by its creation time and marked with the page's language. `base` and
+  `branch` go together: `branch` names the layout continued (`<key>`, or
+  `<key>:account` / `<key>:other` for a chooser's branch), and a branch the stored
+  recipe does not have answers `recipe-conflict`. Without `base`, an active recipe is
+  returned as is; with `base`, the page's steps are appended after that layout's last
+  `advance` step. A stale `base` gets the current
   recipe back, a `base` whose recipe is revoked answers `recipe-revoked` while the
   revoked recipe's start page is generated again as the revision after its tombstone, a
   `base` whose recipe was not generated for this origin and its start path answers
@@ -352,7 +365,8 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   `href-locator` (an element located by a link's path, which only a marker may be). A
   `signed-in` marker on a `totp` handler's path that shows its code field fails
   `addCompletion` like one on the sign-in page, and the call answers `invalid-output`.
-- `stop: true` (only with the `password` route and no `branch`) marks the page of a
+- `stop: true` (only with the `password` route and a `branch` that names no chooser
+  branch) marks the page of a
   `password` login's stop before its item's missing password
   ([ADR 0036](../../docs/adr/0036-passkey-after-the-identifier.md), owner 2026-10-13
   05:39 UTC); like the `passkey` route's name, it tells the service that the item has no
@@ -468,7 +482,7 @@ Invalid bodies and requests answered 400 or 404 are not logged: a `base` ID not 
 `gen-…` form, a judged page of an origin no move reaches, a missing recipe. Such a row
 has `server_ms` but no `pre_model_ms`, `token_ms` or `model_ms`.
 
-`POST /v1/recipes/:recipeId/page-sample` takes `{ version: 1, revision, route, branch?,
+`POST /v1/recipes/:recipeId/page-sample` takes `{ version: 1, revision, route, branch,
 observation }`: the signed-in page of a login that the recipe's marker completed
 ([ADR 0029](../../docs/adr/0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18),
 owner 2026-10-18 08:05 UTC). The revision must be a kept, active revision of the owner's
@@ -498,19 +512,19 @@ Rows older than one year are deleted whenever a request is logged and on every
 then logs its row afterwards.
 
 `POST /v1/recipes/:recipeId/outcome` takes
-`{ version: 1, revision, branch?, outcome, cause?, step }`: how the first login of that
+`{ version: 1, revision, branch, outcome, cause?, step }`: how the first login of that
 revision on a device ended
 ([ADR 0019](../../docs/adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
 `outcome` is a `loginOutcomeSchema` code, `cause` one of `loginOutcomeCauseSchema`'s
 fixed codes and `step` the attempt's step index; any other field, a URL or free text
 answers 400, a body over 1 KiB 413. A recipe the owner does not hold, a revision above
 its head or a revoked head's tombstone answers 404. The `login_outcomes` row keeps the
-owner, recipe, branch (empty without one), revision, the codes and the service's own
+owner, recipe, branch (the layout, ADR 0060), revision, the codes and the service's own
 time; the first report of a revision is kept and any later one, from any device, is
 answered 204 and ignored. Its rows follow the request log's one-year retention (deleted
 with the expired log rows, also on each report) and its delete-all.
 
-`POST /v1/recipes/:recipeId/logins` takes `{ version: 1, revision, branch?, outcome,
+`POST /v1/recipes/:recipeId/logins` takes `{ version: 1, revision, branch, outcome,
 cause?, extensionBuild, totalMs, serviceMs, networkMs, personMs, pageMs }`: one login of
 that revision that ended
 ([ADR 0055](../../docs/adr/0055-login-records-sent-to-the-service.md)). The codes are
@@ -521,20 +535,21 @@ and from this service, counted only for answers that named their `Server-Timing`
 origin, a URL, free text, `otherMs`) answers 400, a body over 1 KiB 413. A recipe the
 owner does not hold, a revision above its head, a revoked head's tombstone, or a recipe
 with no kept document (as after its revocation) answers 404. Each report is one
-`login_timings` row: the owner, recipe, branch (empty without one), revision, the
+`login_timings` row: the owner, recipe, branch (the layout), revision, the
 recipe's `origin` read from the reported revision's document (or the newest kept one
 when that revision was pruned), the codes, the build, the times and the service's own
 time. Its rows follow the request log's one-year retention and its delete-all. The same
 batch marks the recipe used (`last_used_at`) while its head is active, whichever
-revision the record names.
+revision the record names, and the record's layout when the head's document has it.
 
-`POST /v1/recipes/:recipeId/use` takes `{ version: 1, revision }`: a login started on
+`POST /v1/recipes/:recipeId/use` takes `{ version: 1, revision, layout }`: a login started on
 that revision, whatever happened after
 ([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)), including the fill-only
 logins and the logins that stop before an item's missing password, which send no
 `/logins` record. Any other field answers 400, a body over 256 bytes 413. It sets the
 head's `last_used_at` to the service's time when the head is active and the revision is
-at most its head, and answers 204; a recipe the owner does not hold, a revision above
+at most its head, and answers 204, and marks the layout used when the head's document
+has it; a recipe the owner does not hold, a revision above
 its head or a revoked recipe answers 404. Nothing else is stored.
 
 ## Schema and tests

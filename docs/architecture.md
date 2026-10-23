@@ -1841,8 +1841,8 @@ Only three value-free records of a login leave it: this result code, the
 ([ADR 0058](adr/0058-automatic-recipe-removal.md)). When a login on a service
 recipe revision first ends on this device, signed in or blocked, or settles as unknown
 without being watched, the worker (`apps/extension/src/service/outcomes.ts`) sends
-`POST /v1/recipes/:recipeId/outcome` with the revision, the chooser branch when there is
-one, the `login.attempt` outcome, its cause when it is one of a fixed list (the worker's
+`POST /v1/recipes/:recipeId/outcome` with the revision, the layout and chooser branch
+([ADR 0060](adr/0060-recipe-layouts.md)), the `login.attempt` outcome, its cause when it is one of a fixed list (the worker's
 stop causes and the page's step reasons; `settled` or `unconfirmed` only when there is
 no listed cause) and the step index. A watched login
 ([ADR 0027](adr/0027-per-account-login-routes.md)) reports when its watch ends, signed
@@ -1871,7 +1871,7 @@ Status: the owner's decision of 2026-10-18 (08:38 UTC,
 locally, not deployed. Every login on a service recipe revision that ends, signed in or
 blocked (a watched one when its watch ends), is sent by the worker
 (`apps/extension/src/service/login-records.ts`) as one record to
-`POST /v1/recipes/:recipeId/logins`: the revision, the chooser branch when there is one,
+`POST /v1/recipes/:recipeId/logins`: the revision, the layout and chooser branch,
 the `login.attempt` outcome, the cause as for the first login's result code, the
 extension build, and `totalMs`, `serviceMs`, `networkMs`, `personMs` and `pageMs` from
 the [login's times](#request-and-login-timing). No URL, origin, reason text, label,
@@ -1892,7 +1892,7 @@ Status: Claude's choice for
 confirmed by the owner; implemented and tested locally, not deployed. When a login
 starts on a service recipe revision (its `login.start` report), the worker
 (`apps/extension/src/service/recipe-use.ts`) sends `POST /v1/recipes/:recipeId/use` with
-the revision only, so the service does not revoke the recipe as unused, whatever the
+the revision and the layout the login runs only, so the service does not revoke the recipe as unused, whatever the
 login does after. This covers the logins that send no login record: fill-only logins,
 those of an item without a password, and `policy-changed`, `account-switched` or
 cause-less `cancelled` ends. A revision sent to the same service within the last hour
@@ -1982,9 +1982,9 @@ recipe's block is lost, and the block holds in the worker only.
 A third kind is a chooser recipe
 ([ADR 0028](adr/0028-account-chooser-login-pages.md#recipe-shape)), whose only member
 besides its identity, revision and origin is `chooser`: the path where a list of
-accounts shows, the optional `other` and `continue` buttons, and the optional
-`afterAccount` and `afterOther` branches, each a login recipe under the chooser's own
-ID, revision and origin. The entry to click is never stored. Like an entry recipe, it is
+accounts shows and its [layouts](#recipe-layouts), each with the optional `other` and
+`continue` buttons and the optional `afterAccount` and `afterOther` branches, each a
+login recipe under the chooser's own ID, revision and origin. The entry to click is never stored. Like an entry recipe, it is
 validated, stored, synced, listed and revoked, and the extension never starts it yet.
 The service writes one when the model answers that a page with `accounts` is an account
 list, naming the list's `other` and `continue` controls by reference; the controls must
@@ -1992,8 +1992,8 @@ be buttons or links of the page whose text holds no `[email]`, `[masked]`, `[num
 `@` or run of four digits. The page's description also says how many of its listed
 accounts are entries the extension clicks itself (`accountEntries`); when none is, an
 answer naming neither control is refused (`no-list-control`), since nothing could lead
-on from the list. A request with `branch` (`account` or `other`) and the chooser as
-`base` generates that branch's next page: its first page when the branch is absent, with
+on from the list. A request with `branch` (`<layout>:account` or `<layout>:other`) and
+the chooser as `base` generates that branch's next page: its first page when the branch is absent, with
 no alternatives and no passkey route as for any later page, or an append after the
 branch's final `advance`. The page judgement takes the same `branch` and learns a
 signed-in marker or handler into that branch, with the list's path among the login
@@ -2014,6 +2014,40 @@ pressed the button for another account, the login runs that branch without a cli
 (`other-shown`). Before the chooser has that branch, such a form with a field for the
 account is sent as the branch's first page, as after the login's own click, and starts
 that way once stored.
+
+### Recipe layouts
+
+Status: Claude's proposal of 2026-10-23 ([ADR 0060](adr/0060-recipe-layouts.md)); the
+shape and the discarding of earlier recipes are assumed, pending the owner's answers.
+Implemented and tested locally on a branch, not deployed and not tried on real sites.
+Repair, which would add a layout when none shows, is not implemented.
+
+A stored login recipe holds one to three layouts under `layouts`, each the steps, routes,
+handlers and markers of one version of its sign-in pages, with a fixed `key` (its
+creation time in milliseconds), `createdAt` and, unless the page was `mixed`, the
+`language` it was generated from. A chooser holds its layouts under `chooser.layouts`.
+Every layout shares the recipe's ID, origin, start path and the owner's bindings.
+Requests and the service's records name a layout in `branch`: `<key>`, or
+`<key>:account` and `<key>:other` for a chooser's branches.
+
+The device's recipe cache (version 2) keeps the documents and hands the login runtime a
+projection: one layout as a recipe of the earlier shape with `layout` set. The
+projection carries that layout's markers only; the checks for an existing sign-in read
+every layout's. A new login on a start page takes, among the layouts whose start-path
+elements show most, the first whose plan passes for the account, preferring one in the
+page's language (read from the page's text with its ready report) and then the newest,
+and records its key in the attempt; a resumed login loads the same layout. A login that
+starts at a later step chooses among the layouts of that recipe the same way, and a
+chooser login on the list by its buttons, language and age.
+
+Generation writes a new recipe with one layout. A continuation, a judged handler or
+marker, a page sample and a first-login result name their layout, and the service writes
+into that layout only. The service keeps each layout's last use in
+`recipe_layout_uses` ([ADR 0058](adr/0058-automatic-recipe-removal.md) B): a started or
+ended login on it, or a write into it. A layout unused for 90 days, counted from its
+creation when it has no use, is removed while another layout of the recipe is used.
+Migration 0022 discarded every earlier recipe; each site generates again on its next
+visit.
 
 A generated recipe has no signed-in marker until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
@@ -3048,9 +3082,12 @@ field exclusions and custom-field review, which need the device's vault catalog
     a rule that includes subdomains disables it with the reason, since that rule covers
     other sites too); the default account with Remove, which restores the automatic
     single-match choice, and a pointer to the popup for choosing another; the origin's
-    active recipes, each with its ID, revision, slots, signed-in markers, rejection
-    target, steps, or an entry or chooser recipe's entry, and its JSON, and revocation
-    with a tombstone after a confirmation that names the revision shown; and the
+    active recipes, each with its ID, revision and JSON, then each of its layouts
+    ([ADR 0060](adr/0060-recipe-layouts.md), proposed) with its language, creation time,
+    last use, slots, signed-in markers, rejection target and steps, or an entry
+    recipe's entry, and revocation with a tombstone after a confirmation that names the
+    revision shown, or removal of one layout, as the next revision without it (the last
+    layout revokes the recipe); and the
     origin's `bindings` entries with Remove, which makes that item fall back to the
     built-in-slot binding. A generated recipe may have no marker yet (ADR 0018).
 
