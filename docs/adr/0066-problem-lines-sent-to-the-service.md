@@ -61,7 +61,9 @@ condition that no value leaves.
   `[id]` as in an observation ([ADR 0039](0039-redacted-token-path-segments.md)), each
   segment holding `@` (an email address, also percent-encoded up to three times) too,
   and a last segment the log's 512-character cut may have left partial.
-- A path leaves only on an allowlist (`pathAllowed`) of event and state, outcome or
+- Only a line's own page (`url`) may leave as a path, never another page's, such as
+  the tab's previous page (`previousUrl`). It leaves only on an allowlist
+  (`pathAllowed`) of event and state, outcome or
   reason known to come before a login's submit, where the path is a recipe's own or one
   already sent for generation: a login's start (`login.start`); a login blocked at a
   step it neither filled nor clicked, outside a handler and not settled (`login.attempt`

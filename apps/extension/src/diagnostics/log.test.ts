@@ -3065,7 +3065,15 @@ describe("problem lines (ADR 0066)", () => {
       ["login.exception", { ...page, state: "detected", name: "TypeError" }],
       ["login.exception", { ...page, state: "ready", step: 0, name: "TypeError" }],
       ["login.entry", { ...page, outcome: "refused", reason: "target-missing" }],
-      ["login.refused", { ...page, reason: "not-started", detail: "first-step-missing" }],
+      [
+        "login.refused",
+        {
+          ...page,
+          reason: "not-started",
+          detail: "first-step-missing",
+          previousUrl: "https://bank.example/users/alice/settings",
+        },
+      ],
       ["recipe.generate", { ...page, outcome: "failed", reason: "error" }],
       ["recipe.generate", { ...page, outcome: "abstained", reason: "not-login" }],
       ["recipe.generate", { ...page, outcome: "skipped", reason: "sent" }],
@@ -3121,6 +3129,9 @@ describe("problem lines (ADR 0066)", () => {
         { ...page, outcome: "skipped", reason: "no-listed-account", detail: "username-in-path" },
       ],
       ["recipe.generate", { ...page, outcome: "skipped", reason: "vault-unavailable" }],
+      ["recipe.generate", { ...page, outcome: "skipped", reason: "text-answer" }],
+      ["recipe.generate", { ...page, outcome: "skipped", reason: "frame" }],
+      ["login.confirm-left", { ...page, personSubmitted: true }],
       ["recipe.judge", { ...page, verdict: "unclear", watched: true }],
       ["recipe.sample", { ...page, outcome: "failed" }],
       ["login.state", { ...page, decision: "signed-in" }],
@@ -3149,6 +3160,9 @@ describe("problem lines (ADR 0066)", () => {
       expect(line?.fields["url"], line?.event).toBe("/users/alice/home");
     for (const [index, line] of lines.slice(before.length, -1).entries())
       expect(line?.fields, JSON.stringify(after[index])).not.toHaveProperty("url");
+    // Nor does another page's path, such as the tab's previous page.
+    for (const line of lines) expect(line?.fields).not.toHaveProperty("previousUrl");
+    expect(JSON.stringify(lines)).not.toMatch(/settings/u);
     // A path cut at the field limit loses its last, maybe partial, segment.
     const cut = lines.at(-1)?.fields["url"];
     expect(cut).toMatch(/^\/(?:a\/)+\[id\]$/u);

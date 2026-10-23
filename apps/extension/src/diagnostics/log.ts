@@ -1405,8 +1405,9 @@ function problemPath(stored: string): string {
  * An entry as it is sent to the service (ADR 0066), or nothing for one that does not go
  * ({@link sentToService}): the fields a download carries with sites shown that the contract
  * lets the event carry (`PROBLEM_EVENT_FIELDS`, which leaves out the item and connection
- * pseudonyms), with a page URL as {@link problemPath} only where {@link pathAllowed}, and
- * no value the log cut. Origins of sites not set up stay pseudonyms.
+ * pseudonyms), with the line's own page (`url`) as {@link problemPath} only where
+ * {@link pathAllowed} and no other page's, such as the tab's previous one, and no value the
+ * log cut. Origins of sites not set up stay pseudonyms.
  */
 export function problemLine(entry: LogEntry): ProblemLine | undefined {
   if (!sentToService(entry) || entry.level === "debug") return undefined;
@@ -1418,8 +1419,10 @@ export function problemLine(entry: LogEntry): ProblemLine | undefined {
   for (const [key, value] of Object.entries(exportedFields(entry))) {
     const kind = Object.hasOwn(kinds, key) ? kinds[key] : undefined;
     if (!kind || value === TRUNCATED) continue;
+    // Only the line's own page may leave, never another, such as the tab's previous page.
     if (kind === "path") {
-      if (typeof value === "string" && pathAllowed(entry)) fields[key] = problemPath(value);
+      if (key === "url" && typeof value === "string" && pathAllowed(entry))
+        fields[key] = problemPath(value);
     } else fields[key] = value;
   }
   return { level: entry.level, event: entry.event, time: entry.time, fields };

@@ -2166,7 +2166,8 @@ ID. Each line is the event, level, device time and the fields `problemLine` lets
 those a log download carries with sites shown that the contract's
 `PROBLEM_EVENT_FIELDS` lists for the event (the log's allowlist less the item and
 connection pseudonyms; a test holds the two equal), with a page URL as its path alone,
-token-like and email-like segments as `[id]`. A path leaves only on `pathAllowed`'s
+token-like and email-like segments as `[id]`; no other page's path, such as
+`previousUrl`, leaves. A path leaves only on `pathAllowed`'s
 allowlist of event and state, outcome or reason known to come before a login's submit
 (a login's start, a login blocked at a step it neither filled nor clicked, an exception
 before the first step, an entry press refused before the press, a recipe's first step
