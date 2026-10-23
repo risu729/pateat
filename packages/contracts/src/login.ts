@@ -796,8 +796,9 @@ const chooserRecipeEntriesSchema = v.strictObject({
  *
  * A login on the list runs `chooserRoute` for what it clicks there, so a branch is held
  * only when that route is a recipe for every click that leads to it. With the click on
- * the list in front, a branch has at most 31 steps, at most 7 of them clicks or
- * submitting fills, and no signed-in marker or account switch on the button it clicks.
+ * the list in front, a branch has at most 31 steps, at most 7 of them clicks or fills
+ * that advance or submit, nothing that proves or hands off the sign-in on the button it
+ * clicks there, and no `passkeyOnly`; `chooserRoute` decides each case.
  */
 export const loginChooserRecipeSchema = v.pipe(
   chooserRecipeEntriesSchema,
