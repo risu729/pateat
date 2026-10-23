@@ -9,6 +9,7 @@ import {
   continuesRecipe,
   createAttemptMetadata,
   defaultLoginBinding,
+  effectfulStep,
   extendsRecipe,
   fillLoginBinding,
   findLoginBinding,
@@ -88,6 +89,8 @@ import {
   type LocalSettings,
   type EntryGenerationRequest,
   type LoginEntryRecipe,
+  type LoginLogoutRecipe,
+  type LogoutPurpose,
   type RecipeGenerationRequest,
   type SavedLoginBinding,
   type SemanticSlot,
@@ -123,6 +126,9 @@ import {
   stateResultSchema,
   statusSchema,
   submittedSchema,
+  localLogoutResultSchema,
+  logoutClickResultSchema,
+  LOGOUT_REACTION_MS,
   chooseResultSchema,
   type ListMissReport as ListMiss,
   probeControlSchema,
@@ -154,11 +160,13 @@ import {
   pauseRequestSchema,
   pickRequestSchema,
   statusRequestSchema,
+  switchRequestSchema,
   type AskReason,
   type ChoiceResponse,
   type PauseResponse,
   type PickResponse,
   type StatusResponse,
+  type SwitchResponse,
 } from "./choice-wire";
 import {
   createLoginPauses,
@@ -196,6 +204,14 @@ import {
 import { newId } from "@pateat/contracts/ids";
 import { loginMoveFits } from "@pateat/contracts/site";
 import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
+import {
+  createAccountPicks,
+  runLogout,
+  siteDefaultsMark,
+  type LogoutPress,
+  type LogoutSource,
+  type LogoutService,
+} from "./switch";
 
 const STORAGE_KEY = "pateat.login-attempts.v6";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
@@ -204,14 +220,21 @@ const CHOICES_KEY = "session:pateat.login-choices.v1";
 /**
  * Tabs whose login of an origin stopped after a submission and whose login form then
  * showed again on a later page, or whose watched login was abandoned (ADR 0027); they ask
- * for an account without filling anything, in that tab only (ADR 0021 D, ADR 0062).
+ * for an account, in that tab only, and fill the page once without pressing anything
+ * (ADR 0021 D).
  */
 const STOPPED_ASKS_KEY = "session:pateat.login-stopped-asks.v1";
 /**
- * Tabs whose login of an origin the site rejected; they ask for an account without filling
- * anything, and so do the origin's other tabs while one asks (ADR 0021 D, ADR 0062).
+ * Tabs whose login of an origin the site rejected; they ask for an account, and so do the
+ * origin's other tabs while one asks, each filling a page once without pressing anything
+ * (ADR 0021 D).
  */
 const REJECTED_ASKS_KEY = "session:pateat.login-rejected-asks.v1";
+/**
+ * Pages filled once while their tab asks for an account, as `${tabId} ${documentId} ${path}`,
+ * and documents a rejected login keeps unfilled, as `${tabId} ${documentId}` (ADR 0021 D).
+ */
+const ASK_FILLS_KEY = "session:pateat.login-ask-fills.v1";
 /**
  * When automatic logins of a registrable site ended `authenticated`, by site and incognito,
  * so a site that keeps logging out again is not logged in over and over (ADR 0062).
@@ -388,6 +411,16 @@ const sameSiteAs =
     return site !== undefined && siteOf(url) === site;
   };
 /**
+ * An account switch's waits (ADR 0063): how often the tab is looked at after a click, how
+ * long a page that stays the same must be quiet before it counts as settled, as when a menu
+ * opened, how long the tab may take to settle at all, and how long its sign-in input is
+ * waited for once it did.
+ */
+const SWITCH_POLL_MS = 250;
+const SWITCH_QUIET_MS = 1500;
+const SWITCH_SETTLE_MS = 15_000;
+const SWITCH_CHECK_MS = 1500;
+/**
  * How long a page's own conditional passkey request waits for a login of its document to
  * start before it is handed on (ADR 0034).
  */
@@ -546,6 +579,8 @@ type ListOffer = {
 /** Whether a record holds its origin against other tabs at `now` (ADR 0022). */
 const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
   entry.state !== "authenticated" &&
+  // A fill-only login never submits (ADR 0021 D).
+  !entry.fillOnly &&
   // A login interrupted before anything was submitted never submits.
   !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions) &&
   !stoppedByPateat(entry) &&
@@ -641,6 +676,8 @@ type Execution = {
   metadata: LoginAttemptMetadata;
   /** A chooser login's recipe (ADR 0028), whose list its first step clicks on. */
   chooser?: LoginChooserRecipe;
+  /** A fill-only login's accounts and why its tab asks, offered once it ends (ADR 0021 D). */
+  asked?: { candidates: PendingChoice["candidates"]; ask: AskReason };
   recipe: LoginRecipe;
   live: LiveDocument;
   running: boolean;
@@ -859,6 +896,8 @@ export interface LoginRecipes {
   ): Promise<LoginChooserRecipe | undefined>;
   /** The origin's entry recipes (ADR 0031): a start path and the link pressed there. */
   entries(origin: string): Promise<LoginEntryRecipe[]>;
+  /** The origin's logout recipes (ADR 0063), for an account switch. */
+  logouts?(origin: string): Promise<LoginLogoutRecipe[]>;
 }
 export const noLoginRecipes: LoginRecipes = {
   recipe: async () => undefined,
@@ -1397,8 +1436,12 @@ type GenerationScope = {
  * uses `recipes`; the loopback probe adapter and its controls exist only in the probe build.
  * Account metadata comes from each live settings read; values come from `fields` per fill.
  */
-/** How a login's account was chosen (ADR 0013, ADR 0021). */
-export type AccountSource = "default" | "match" | "pick";
+/**
+ * How a login's account was chosen (ADR 0013, ADR 0021): the saved default, the only match,
+ * a pick in the popup, an account switch's pick, or the site's pick kept for the browser
+ * session (ADR 0063).
+ */
+export type AccountSource = "default" | "match" | "pick" | "switch";
 /**
  * A value-free account of what the runtime decided, for the local log (ADR 0019). The
  * origin and recipe ID are reduced there; no account ID is included, and the only item ID,
@@ -1489,6 +1532,11 @@ export type LoginReport = (
       candidates?: number;
       /** For an account found by URI match: the item, logged only as a pseudonym. */
       itemId?: string;
+      /**
+       * The login fills the page without pressing anything while its tab asks for an
+       * account (ADR 0021 D).
+       */
+      fillOnly?: true;
       /** The later step of its variant the login started at (ADR 0049). */
       startStep?: number;
       /**
@@ -1752,6 +1800,29 @@ export type LoginReport = (
       timing?: ServiceTiming;
     }
   | {
+      /**
+       * An account switch from the popup (ADR 0063): `start` once it began, `click` for each
+       * logout click with its `purpose` and whether the model gave it in this switch
+       * (`learned`), and `end` with `outcome` `signed-out` or `failed`, why (`reason`) and the
+       * model's or page's code (`detail`).
+       */
+      type: "switch";
+      tabId: number;
+      origin: string;
+      stage: "start" | "click" | "end";
+      outcome?: "signed-out" | "failed";
+      reason?: string;
+      detail?: string;
+      purpose?: LogoutPurpose;
+      /** Where a click came from: the stored recipe, the model or the control's words. */
+      source?: LogoutSource;
+      learned?: true;
+      clicks?: number;
+      recipeId?: string;
+      recipeRevision?: number;
+      makeDefault?: true;
+    }
+  | {
       type: "handler";
       tabId: number;
       origin: string;
@@ -1878,6 +1949,8 @@ function choiceBadge(
               "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
             "relogin-limit":
               "Pateat: this site was logged in again twice in 10 minutes. Click to choose an account.",
+            "one-time-pick":
+              "Pateat: you chose an account here without making it the default. Click to choose an account.",
           }[ask]
         : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
   };
@@ -1904,6 +1977,11 @@ export function createLoginRuntime(
      * keeps a page's own conditional request waiting.
      */
     passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+    /**
+     * An account switch's logout (ADR 0063): the stored logout recipes and the logout role.
+     * Without it the popup offers no switch.
+     */
+    logout?: LogoutService;
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
     /**
@@ -1943,6 +2021,8 @@ export function createLoginRuntime(
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
+  /** Account switches' and the browser session's picks (ADR 0063). */
+  const accountPicks = createAccountPicks();
   const badge =
     options.badge ?? createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() });
   const pauses = options.pauses ?? createLoginPauses(sessionValue(LOGIN_PAUSES_KEY));
@@ -2051,6 +2131,7 @@ export function createLoginRuntime(
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(metadata.unconfirmed ? { unconfirmed: true as const } : {}),
       ...(metadata.watch ? { watched: true as const } : {}),
+      ...(metadata.fillOnly ? { reason: "fill-only" } : {}),
       ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
       ...(stop ? { cause: stop } : {}),
@@ -2147,6 +2228,18 @@ export function createLoginRuntime(
    */
   const replacedTabs = new Set<number>();
   const picked = new Map<number, PickedAccount>();
+  /** Tabs whose account switch is logging out (ADR 0063). */
+  const switchesRunning = new Set<number>();
+  /** Each tab's last account switch, as the popup shows it (ADR 0063). */
+  const switchStates = new Map<
+    number,
+    {
+      state: "running" | "signed-out" | "failed";
+      reason?: string;
+      connectionId: string;
+      itemId: string;
+    }
+  >();
   const pending = new Map<number, PendingChoice>();
   /** Reasons already logged, by tab, document and path; stored with the asks. */
   const noted = new Map<string, Set<string>>();
@@ -2157,6 +2250,21 @@ export function createLoginRuntime(
   const stoppedAsks = new Set<string>();
   /** By `recordKey`: tabs that ask because the site rejected their login of the origin. */
   const rejectedAsks = new Set<string>();
+  /**
+   * Documents filled once while their tab asks, each as `tabId documentId path`, so neither
+   * a re-announcement nor a restarted worker fills over what the user typed (ADR 0021 D); a
+   * whole document, as `tabId documentId`, that showed the site's rejection of a login is
+   * never filled again. The oldest go first.
+   */
+  const askFills = new Set<string>();
+  /** Records a page or document in `askFills`, keeping the 256 newest. */
+  function addAskFill(entry: string): void {
+    askFills.add(entry);
+    for (const old of askFills) {
+      if (askFills.size <= 256) break;
+      askFills.delete(old);
+    }
+  }
   /**
    * By `reloginKey`: when automatic logins of a site ended `authenticated` in the last
    * `RELOGIN_WINDOW_MS`, the oldest first (ADR 0062).
@@ -2201,6 +2309,7 @@ export function createLoginRuntime(
       CHOICES_KEY,
       STOPPED_ASKS_KEY,
       REJECTED_ASKS_KEY,
+      ASK_FILLS_KEY,
       ENTRY_PRESSES_KEY,
       NOTED_KEY,
       RELOGINS_KEY,
@@ -2221,6 +2330,11 @@ export function createLoginRuntime(
     const rejected = v.safeParse(v.array(askSchema), stored[REJECTED_ASKS_KEY] ?? []);
     if (rejected.success)
       for (const entry of rejected.output) rejectedAsks.add(recordKey(entry.tabId, entry.origin));
+    const filled = v.safeParse(
+      v.pipe(v.array(v.string()), v.maxLength(256)),
+      stored[ASK_FILLS_KEY] ?? [],
+    );
+    if (filled.success) for (const entry of filled.output) askFills.add(entry);
     const counted = v.safeParse(
       v.pipe(v.array(reloginSchema), v.maxLength(256)),
       stored[RELOGINS_KEY] ?? [],
@@ -2257,6 +2371,7 @@ export function createLoginRuntime(
       { key: CHOICES_KEY, value: [...pending.values()] },
       { key: STOPPED_ASKS_KEY, value: scopes(stoppedAsks) },
       { key: REJECTED_ASKS_KEY, value: scopes(rejectedAsks) },
+      { key: ASK_FILLS_KEY, value: [...askFills] },
       { key: ENTRY_PRESSES_KEY, value: [...entryPresses.values()] },
       { key: NOTED_KEY, value: [...noted].map(([page, ids]) => [page, [...ids]]) },
       { key: RELOGINS_KEY, value: [...relogins.values()] },
@@ -2692,6 +2807,7 @@ export function createLoginRuntime(
                 cause: known.login.cause,
               }),
               ...(known.login.unconfirmed ? { unconfirmed: true as const } : {}),
+              ...(known.login.fillOnly ? { fillOnly: true as const } : {}),
               ...(settled ? { settled: true as const } : {}),
             },
           }
@@ -2699,6 +2815,52 @@ export function createLoginRuntime(
       ...(known?.refused ? { refused: clipCodes(known.refused) } : {}),
       ...(pausedTill === undefined ? {} : { pause: { until: pausedTill } }),
       ...(known?.generation ? { generation: clipCodes(known.generation) } : {}),
+      ...usedAndSwitch(tabId, pageOrigin),
+    };
+  }
+  /**
+   * For the popup (ADR 0063): the account of the tab's latest login on the page's site that
+   * signed in, and the tab's account switch.
+   */
+  function usedAndSwitch(
+    tabId: number,
+    pageOrigin: string,
+  ): Pick<Extract<StatusResponse, { ok: true }>, "used" | "switch"> {
+    const site = siteOf(pageOrigin);
+    const run = attempts.get(tabId)?.metadata;
+    const signedIn = [
+      ...persisted.values().filter((entry) => entry.id !== run?.id),
+      ...(run ? [run] : []),
+    ]
+      .filter(
+        (entry) =>
+          entry.document.tabId === tabId &&
+          entry.state === "authenticated" &&
+          site !== undefined &&
+          siteOf(entry.account.origin) === site,
+      )
+      .sort((left, right) => (left.changedAt ?? 0) - (right.changedAt ?? 0))
+      .at(-1);
+    const switching = switchStates.get(tabId);
+    return {
+      ...(signedIn
+        ? {
+            used: {
+              connectionId: signedIn.account.connectionId,
+              itemId: signedIn.account.itemId,
+            },
+          }
+        : {}),
+      ...(switching
+        ? {
+            switch: {
+              state: switching.state,
+              ...(switching.reason ? { reason: logCode(switching.reason) } : {}),
+              connectionId: switching.connectionId,
+              itemId: switching.itemId,
+            },
+          }
+        : {}),
     };
   }
   /**
@@ -2961,6 +3123,298 @@ export function createLoginRuntime(
     return { ok: false, reason: "not-started" };
   }
   /**
+   * Starts an account switch from the popup (ADR 0063) on the tab's top page: only one
+   * Pateat watches, that waits for no account choice and runs no login or other switch, on
+   * a site that is neither excluded nor paused, for an account that matches the page, and
+   * with a paired service's logout recipes. The switch's pick is stored first; the logout
+   * runs on behind the answer.
+   */
+  async function switchFor(
+    request: v.InferOutput<typeof switchRequestSchema>,
+  ): Promise<SwitchResponse> {
+    await sessionLoaded;
+    const { tabId } = request;
+    const live = documents.get(frameKey({ tabId, frameId: 0 }));
+    const site = live && siteOf(live.document.origin);
+    if (!live || site === undefined) return { ok: false, reason: "no-page" };
+    if (pending.has(tabId)) return { ok: false, reason: "choice-waiting" };
+    if (switchesRunning.has(tabId)) return { ok: false, reason: "in-progress" };
+    const running = tabAttempt(tabId);
+    if (running && !terminal(running) && !idle(running)) return { ok: false, reason: "tab-busy" };
+    if (!options.logout) return { ok: false, reason: "unavailable" };
+    const snapshot = await settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    if (!snapshot?.ok) return { ok: false, reason: "settings-unavailable" };
+    // A paused site, also one an exclusion rule pauses, switches nothing (ADR 0062).
+    if ((await pauseOf(live)) !== undefined) return { ok: false, reason: "paused" };
+    const found = uris ? await siteCandidates(snapshot, live) : { reason: "no-uri-matcher" };
+    if (
+      "reason" in found ||
+      !found.candidates.some(
+        (entry) => entry.connectionId === request.connectionId && entry.itemId === request.itemId,
+      )
+    )
+      return { ok: false, reason: "not-a-candidate" };
+    // Checked again after the reads: the tab may have started a login or switch meanwhile.
+    if (switchesRunning.has(tabId)) return { ok: false, reason: "in-progress" };
+    if (documents.get(frameKey(live.document)) !== live) return { ok: false, reason: "no-page" };
+    switchesRunning.add(tabId);
+    try {
+      await accountPicks.startSwitch({
+        tabId,
+        site,
+        incognito: live.incognito === true,
+        connectionId: request.connectionId,
+        itemId: request.itemId,
+        makeDefault: request.makeDefault,
+      });
+    } catch {
+      switchesRunning.delete(tabId);
+      return { ok: false, reason: "settings-unavailable" };
+    }
+    switchStates.set(tabId, {
+      state: "running",
+      connectionId: request.connectionId,
+      itemId: request.itemId,
+    });
+    report(live.document, {
+      type: "switch",
+      tabId,
+      origin: live.document.origin,
+      stage: "start",
+      ...(request.makeDefault ? { makeDefault: true as const } : {}),
+    });
+    // The records the tab holds for the site now are the account being signed out of.
+    const before = new Set(
+      [...persisted.values()]
+        .filter((entry) => entry.document.tabId === tabId && siteOf(entry.account.origin) === site)
+        .map((entry) => entry.id),
+    );
+    void runSwitch(live, site, before, request).finally(() => switchesRunning.delete(tabId));
+    return { ok: true };
+  }
+  /**
+   * Signs the tab out for its switch (ADR 0063), then lets the site's next login page log
+   * in with the picked account: the tab's records of the signed-out account are released,
+   * as after a logout, and its page announces again.
+   */
+  async function runSwitch(
+    started: LiveDocument,
+    site: string,
+    before: ReadonlySet<string>,
+    request: v.InferOutput<typeof switchRequestSchema>,
+  ): Promise<void> {
+    const { tabId } = request;
+    const top = () => {
+      const live = documents.get(frameKey({ tabId, frameId: 0 }));
+      return live && siteOf(live.document.origin) === site ? live : undefined;
+    };
+    const logout = options.logout!;
+    let run: Awaited<ReturnType<typeof runLogout>>;
+    try {
+      run = await runLogout<LiveDocument>(
+        {
+          page: top,
+          describe: async (live) => {
+            const extracted = v.safeParse(
+              extractResultSchema,
+              await send(live, { type: "login.extract", page: "logout" }).catch(() => undefined),
+            );
+            if (!extracted.success) return { unsent: "extract-failed" };
+            if (!extracted.output.ok) return { unsent: extracted.output.reason };
+            const accepted = acceptedObservation(extracted.output, {
+              origin: live.document.origin,
+              path: live.path,
+            });
+            if ("detail" in accepted) return { unsent: accepted.detail };
+            return isEntryObservation(accepted.observation)
+              ? { observation: accepted.observation }
+              : { unsent: "not-entry" };
+          },
+          click: async (live, target): Promise<LogoutPress> => {
+            let answer: unknown;
+            try {
+              answer = await send(live, {
+                type: "login.logout.click",
+                target,
+                timeoutMs: LOGIN_STEP_WAIT_MS,
+              });
+            } catch {
+              // The page went while it was pressed: the press led there.
+              return "clicked";
+            }
+            const parsed = v.safeParse(logoutClickResultSchema, answer);
+            if (!parsed.success) return "missing";
+            if (parsed.output.ok) return "clicked";
+            return parsed.output.reason === "ambiguous"
+              ? "ambiguous"
+              : parsed.output.reason === "missing"
+                ? "missing"
+                : "page-changed";
+          },
+          findLocal: async (live) => {
+            const parsed = v.safeParse(
+              localLogoutResultSchema,
+              await send(live, { type: "login.logout.local" }).catch(() => undefined),
+            );
+            if (!parsed.success) return "none";
+            return parsed.output.ok ? parsed.output.target : parsed.output.reason;
+          },
+          pressLocal: async (live, target) => {
+            let answer: unknown;
+            try {
+              answer = await send(live, {
+                type: "login.logout.click",
+                target,
+                timeoutMs: SWITCH_CHECK_MS,
+                watchMs: LOGOUT_REACTION_MS,
+              });
+            } catch {
+              // The page went while it was pressed or watched: the press led there.
+              return { press: "clicked", reacted: "navigated" };
+            }
+            const parsed = v.safeParse(logoutClickResultSchema, answer);
+            if (!parsed.success) return { press: "missing" };
+            if (parsed.output.ok)
+              return { press: "clicked", reacted: parsed.output.reacted ?? "none" };
+            return {
+              press:
+                parsed.output.reason === "ambiguous"
+                  ? "ambiguous"
+                  : parsed.output.reason === "missing"
+                    ? "missing"
+                    : "page-changed",
+            };
+          },
+          settle: (live) => settleSwitch(tabId, site, live),
+        },
+        {
+          recipes: (recipeOrigin) => logout.recipes(recipeOrigin),
+          generate: async (logoutRequest) => {
+            const spin = spinning(tabId);
+            spin.sent(() => undefined)();
+            try {
+              return await logout.generate(logoutRequest);
+            } finally {
+              spin.stop();
+            }
+          },
+        },
+        (purpose, learned, source) =>
+          report(started.document, {
+            type: "switch",
+            tabId,
+            origin: started.document.origin,
+            stage: "click",
+            purpose,
+            source,
+            ...(learned ? { learned: true as const } : {}),
+          }),
+      );
+    } catch {
+      run = { outcome: "failed", reason: "page-unreadable", detail: "exception", clicks: 0 };
+    }
+    report(top()?.document ?? started.document, {
+      type: "switch",
+      tabId,
+      origin: started.document.origin,
+      stage: "end",
+      outcome: run.outcome,
+      ...(run.outcome === "failed" ? { reason: run.reason } : {}),
+      ...(run.outcome === "failed" && run.detail ? { detail: logCode(run.detail) } : {}),
+      clicks: run.clicks,
+      ...(run.recipe ? { recipeId: run.recipe.id, recipeRevision: run.recipe.revision } : {}),
+      ...(run.learned ? { learned: true as const } : {}),
+    });
+    if (run.outcome === "failed") {
+      switchStates.set(tabId, {
+        state: "failed",
+        reason: run.reason,
+        connectionId: request.connectionId,
+        itemId: request.itemId,
+      });
+      await accountPicks.endSwitch(tabId).catch(() => undefined);
+      return;
+    }
+    // The login the switch's pick started may already have taken it over.
+    if (switchStates.get(tabId)?.state === "running")
+      switchStates.set(tabId, {
+        state: "signed-out",
+        connectionId: request.connectionId,
+        itemId: request.itemId,
+      });
+    // The signed-out account's records no longer hold the tab: its next login page logs in
+    // as a new one, and a page without a login form may press the site's sign-in entry.
+    for (const [key, entry] of persisted)
+      if (before.has(entry.id) && entry.document.tabId === tabId) {
+        if (attempts.get(tabId)?.metadata.id === entry.id) attempts.delete(tabId);
+        if (picked.get(tabId)?.attemptId === entry.id) {
+          picked.delete(tabId);
+          void quietly(saveSession);
+        }
+        await forget(key).catch(() => undefined);
+      }
+    const page = top();
+    if (page)
+      await browser.tabs
+        .sendMessage(
+          tabId,
+          { version: 1, type: "login.reconnect" },
+          { frameId: 0, documentId: page.document.documentId },
+        )
+        .catch(() => undefined);
+  }
+  /**
+   * Waits for the tab's page after a switch's click to settle (ADR 0063): a new top
+   * document of the site once it announced, or the same one after a short quiet time, as
+   * when a menu opened. Then reads whether it shows a sign-in input or a recipe's first
+   * step. Nothing once the tab left the site or closed.
+   */
+  async function settleSwitch(
+    tabId: number,
+    site: string,
+    before: LiveDocument,
+  ): Promise<{ page: LiveDocument; signIn: boolean } | undefined> {
+    const since = Date.now();
+    let page: LiveDocument | undefined;
+    for (;;) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => setTimeout(resolve, SWITCH_POLL_MS));
+      // eslint-disable-next-line no-await-in-loop
+      const tab = await browser.tabs.get(tabId).catch(() => undefined);
+      if (tab?.url === undefined) return undefined;
+      const over = Date.now() - since >= SWITCH_SETTLE_MS;
+      const live = documents.get(frameKey({ tabId, frameId: 0 }));
+      // The tab may pass through another site, as an identity provider's logout does, and
+      // a page still loading may yet be replaced.
+      if (siteOf(tab.url) !== site || tab.status === "loading") {
+        if (over) return undefined;
+        continue;
+      }
+      // A new document, or the same one announcing again, as after a URL change in place.
+      if (live && live !== before && siteOf(live.document.origin) === site) {
+        page = live;
+        break;
+      }
+      // The same document after a quiet time: a menu or dialog opened in place.
+      if (live === before && Date.now() - since >= SWITCH_QUIET_MS) {
+        page = live;
+        break;
+      }
+      if (over) return undefined;
+    }
+    if (!page) return undefined;
+    const starts = await startsFor(page.document.origin).catch(() => []);
+    const checked = v.safeParse(
+      entryCheckResultSchema,
+      await send(page, { type: "login.entry.check", starts, timeoutMs: SWITCH_CHECK_MS }).catch(
+        () => undefined,
+      ),
+    );
+    return { page, signIn: checked.success && (checked.output.signIn || checked.output.start) };
+  }
+  /**
    * Adds time a login waited for the service to its attempt (ADR 0019): to the run that
    * holds it now, which may be a later document's, and to its stored record, both written
    * with the attempt's next change.
@@ -3097,6 +3551,13 @@ export function createLoginRuntime(
     next: LoginAttemptMetadata,
     pageOrigin?: string,
   ) => {
+    // A login confirmed signed in keeps its account for the site's session (ADR 0063).
+    if (
+      next.state === "authenticated" &&
+      !next.unconfirmed &&
+      !(previous.state === "authenticated" && !previous.unconfirmed)
+    )
+      void keepPick(next);
     if (!signedInNow(previous, next)) return;
     const origins = new Set(
       [next.account.origin, next.pageOrigin, pageOrigin].filter(
@@ -3110,6 +3571,43 @@ export function createLoginRuntime(
         // Never changes the login.
       }
   };
+  /**
+   * Keeps the account a popup pick or an account switch signed in with as the site's pick
+   * for the browser session, unless it was made the default, which drops the session's
+   * pick instead (ADR 0063).
+   */
+  async function keepPick(signedIn: LoginAttemptMetadata): Promise<void> {
+    const { tabId } = signedIn.document;
+    const pick = picked.get(tabId);
+    const site = siteOf(signedIn.account.origin);
+    const live =
+      documents.get(frameKey(signedIn.document)) ?? documents.get(frameKey({ tabId, frameId: 0 }));
+    if (!pick || pick.attemptId !== signedIn.id || site === undefined || !live) return;
+    if (pick.makeDefault) {
+      await accountPicks.stopAsking(site, live.incognito === true).catch(() => undefined);
+      return;
+    }
+    const snapshot = await settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    if (!snapshot?.ok) return;
+    // Picking the saved default itself chose nothing else: the site goes on as before.
+    const saved = snapshot.snapshot.settings.siteDefaults.find(
+      (entry) => entry.origin === signedIn.account.origin,
+    );
+    const mapped = saved && siteDefaultConnection(saved, snapshot.catalog);
+    if (saved?.itemId === pick.itemId && mapped?.ok && mapped.connectionId === pick.connectionId) {
+      await accountPicks.stopAsking(site, live.incognito === true).catch(() => undefined);
+      return;
+    }
+    await accountPicks
+      .askEveryTime({
+        site,
+        incognito: live.incognito === true,
+        defaults: siteDefaultsMark(snapshot.snapshot.settings.siteDefaults, site, siteOf),
+      })
+      .catch(() => undefined);
+  }
   async function change(
     run: Execution,
     event: LoginAttemptEvent,
@@ -3184,6 +3682,40 @@ export function createLoginRuntime(
     if (terminal(run.metadata) || idle(run.metadata)) reviewRequests();
     if (run.metadata.state === "authenticated" && !run.metadata.unconfirmed && run.choice)
       await remember(run);
+  }
+  /**
+   * Ends a fill-only login before its first step with an effect and forgets its record, so
+   * it neither holds the site nor counts as a login of the tab. The document announces again
+   * on this status and asks for an account, as before the fill (ADR 0021 D).
+   */
+  async function endFillOnly(run: Execution): Promise<void> {
+    if (!current(run)) return;
+    if (!terminal(run.metadata)) {
+      run.metadata = transitionLoginAttempt(run.metadata, { type: "CANCEL" });
+      reportAttempt(run.metadata, run.recipe);
+    }
+    const { document } = run.live;
+    const key = recordKey(document.tabId, run.metadata.account.origin);
+    attempts.delete(document.tabId);
+    await forget(key).catch(() => undefined);
+    // The page then waits for a pick; its own announcement after this status carries no
+    // start, so the choice is offered and the asking logged here.
+    if (run.asked?.candidates.length) {
+      const ask = askFor(document.tabId, document.origin) ?? run.asked.ask;
+      offerChoice(document, run.asked.candidates, ask);
+      run.live.state = "denied";
+      run.live.reason = "account-asked";
+      report(document, {
+        type: "refused",
+        tabId: document.tabId,
+        origin: document.origin,
+        reason: "account-asked",
+        detail: ask,
+        candidates: run.asked.candidates.length,
+        ...(document.frameId === 0 ? {} : { frame: true as const }),
+      });
+    }
+    await publish(run.live, run.metadata);
   }
   /**
    * The times automatic logins of `site` ended `authenticated` that still count at `now`
@@ -3400,6 +3932,10 @@ export function createLoginRuntime(
     source: AccountSource;
     candidates?: number;
     pick?: PickedAccount;
+    /** While the tab asks: fill the page without any step with an effect (ADR 0021 D). */
+    fillOnly?: true;
+    /** With `fillOnly`: the accounts the tab offers once the fill ends. */
+    asked?: PendingChoice["candidates"];
   };
   /** `noUriMatch` marks a refusal because no vault item matches the page, or the saved
    * default's item no longer does, which a vault sync may change; it is logged as the
@@ -3442,17 +3978,57 @@ export function createLoginRuntime(
    * eligible provider URI match across all enabled connections is used for this attempt
    * only (ADR 0013); none, several, or any connection or item that could not be evaluated
    * refuses rather than guessing. While the tab asks (`asking`, the refusal's reason), only
-   * a pick logs in.
+   * a pick logs in; with `fill`, the one account to use fills the page without pressing
+   * anything (ADR 0021 D).
    */
   async function choose(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
     asking?: "account-asked" | "relogin-limit",
     paused = false,
+    fill = false,
   ): Promise<Choice | Refusal> {
+    await sessionLoaded;
+    // An account switch's pick (ADR 0063) wins for the tab's next login page of its site,
+    // over an older pick, a logout's asking and the saved default: it becomes the pick of
+    // this document, and of the login it starts, which ends the switch's pick.
+    const switching = await accountPicks.switchFor(
+      live.document.tabId,
+      siteOf(live.document.origin),
+      live.incognito === true,
+    );
+    if (switching) {
+      const held = picked.get(live.document.tabId);
+      const pick =
+        held?.attemptId === undefined &&
+        held?.documentId === live.document.documentId &&
+        held.origin === live.document.origin &&
+        held.connectionId === switching.connectionId &&
+        held.itemId === switching.itemId
+          ? held
+          : {
+              tabId: live.document.tabId,
+              origin: live.document.origin,
+              documentId: live.document.documentId,
+              connectionId: switching.connectionId,
+              itemId: switching.itemId,
+              makeDefault: switching.makeDefault,
+              waitedMs: 0,
+            };
+      if (pick !== held) {
+        picked.set(live.document.tabId, pick);
+        void quietly(saveSession);
+      }
+      return {
+        connectionId: pick.connectionId,
+        itemId: pick.itemId,
+        saved: false,
+        source: "switch",
+        pick,
+      };
+    }
     // An account picked in the popup wins for the document it restarted and the attempt that
     // document started; its item must still match the page and pass every check below.
-    await sessionLoaded;
     const pick = picked.get(live.document.tabId);
     const owner = recordFor(live.document.tabId, live.document.origin);
     if (
@@ -3478,7 +4054,7 @@ export function createLoginRuntime(
       return { reason: "paused", paused: true, ...(listed.length ? { candidates: listed } : {}) };
     }
     if (asking) {
-      // The tab asks, with the saved default first, and fills nothing (ADR 0021 D, ADR 0062).
+      // The tab asks, with the saved default first (ADR 0021 D).
       const listed: PendingChoice["candidates"] = [];
       const mapped = saved && siteDefaultConnection(saved, snapshot.catalog);
       if (saved && mapped?.ok)
@@ -3496,6 +4072,25 @@ export function createLoginRuntime(
             listed.push({ connectionId: entry.connectionId, itemId: entry.itemId });
       }
       if (!listed.length) return { reason: saved ? "default-unavailable" : "default-not-set" };
+      // With one account to use, the saved default or the only match, the page is filled
+      // without any click or submitting fill; the tab still asks (ADR 0021 D). A saved
+      // default that cannot be used fills nothing, as it would refuse a login.
+      const only = saved
+        ? mapped?.ok
+          ? listed[0]
+          : undefined
+        : listed.length === 1
+          ? listed[0]
+          : undefined;
+      if (fill && only)
+        return {
+          ...only,
+          saved: Boolean(saved),
+          source: saved ? "default" : "match",
+          candidates: listed.length,
+          fillOnly: true,
+          asked: listed.slice(0, 100),
+        };
       return { reason: asking, candidates: listed.slice(0, 100), ask: true };
     }
     if (saved) {
@@ -3885,6 +4480,8 @@ export function createLoginRuntime(
     request: {
       /** The tab asks for an account, refused with this reason unless a pick logs in. */
       asking?: "account-asked" | "relogin-limit";
+      /** While the tab asks, the single account to use may fill the page (ADR 0021 D). */
+      fill?: boolean;
       route?: LoginRouteChoice;
       /** Slots of the handlers a running login entered; `totp` reads the built-in field. */
       handlerSlots?: readonly string[];
@@ -3906,14 +4503,23 @@ export function createLoginRuntime(
     let chosen: Choice | undefined;
     let savedDefault = false;
     if (probeMode && recipe.origin === origin) {
-      // The tab asks, as `choose` answers it (ADR 0021 D); the probe has no list to offer.
+      // The tab asks, as `choose` answers it (ADR 0021 D); the probe has no list to offer. A
+      // page to fill while the tab asks still logs in fully here, without production's
+      // fill-only.
       if (request.paused) return { ok: false as const, reason: "paused" as const };
-      if (request.asking) return { ok: false as const, reason: request.asking, ask: true as const };
+      if (request.asking && !request.fill)
+        return { ok: false as const, reason: request.asking, ask: true as const };
       catalog = grantProbeOrigin(snapshot.catalog, origin, account);
       const top = await topScope(snapshot, live, account, catalog);
       if (top) return { ok: false as const, reason: top.reason };
     } else {
-      const found = await choose(snapshot, live, request.asking, request.paused === true);
+      const found = await choose(
+        snapshot,
+        live,
+        request.asking,
+        request.paused === true,
+        request.fill === true,
+      );
       if ("reason" in found)
         return {
           ok: false as const,
@@ -4049,6 +4655,7 @@ export function createLoginRuntime(
             }
           : {}),
         ...(choice ? { choice } : {}),
+        ...(chosen?.fillOnly ? { fillOnly: true as const, asked: chosen.asked ?? [] } : {}),
       };
     };
     // A running or resumed login checks its recorded route alone.
@@ -4056,7 +4663,8 @@ export function createLoginRuntime(
     let facts: LoginItemFacts | undefined;
     const factsOf = (resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>) =>
       itemFacts(resolved.connection, { ...resolved.account, origin: live.document.origin });
-    const pageRequest = request.pageRequest === true && passkeyAnswersRequest(recipe);
+    const pageRequest =
+      request.pageRequest === true && !chosen?.fillOnly && passkeyAnswersRequest(recipe);
     const { passkey: _button, ...buttonless } = recipe;
     const routeRecipe: LoginRecipe = request.later ? buttonless : recipe;
     // Only a page the passkey scripts run on can answer a passkey request (ADR 0050). A pick
@@ -4698,9 +5306,10 @@ export function createLoginRuntime(
   /**
    * Releases a login whose submission the site answered with its sign-in form again, as
    * after a rejection: the tab, and the origin's other tabs, ask for an account instead of
-   * watching, and nothing is filled or submitted again by itself (ADR 0021 D, amended
-   * 2026-10-13; ADR 0062). Its page is asked to announce again, so it asks once a recipe's
-   * first step is ready there, or may be sent for a recipe like any sign-in page.
+   * watching, and the page that showed the form is never filled again (ADR 0021 D, amended
+   * 2026-10-13). Nothing is submitted again by itself. Its page is asked to announce again,
+   * so it asks once a recipe's first step is ready there, or may be sent for a recipe like
+   * any sign-in page.
    */
   async function askAgain(run: Execution): Promise<void> {
     if (!current(run) || run.live.document.frameId !== 0) return;
@@ -4709,18 +5318,23 @@ export function createLoginRuntime(
     const { tabId } = document;
     const key = recordKey(tabId, document.origin);
     if (persisted.get(key)?.id !== metadata.id) return;
+    const page = documentKey(document);
     const asked = rejectedAsks.has(key);
+    const unfilled = !askFills.has(page);
     rejectedAsks.add(key);
+    if (unfilled) addAskFill(page);
     try {
       await saveSession();
     } catch {
       // The login stays watched, as before.
       if (!asked) rejectedAsks.delete(key);
+      if (unfilled) askFills.delete(page);
       return;
     }
     if (!current(run) || persisted.get(key)?.id !== metadata.id) {
       // The page went meanwhile: the login stays as it was, and so does the tab.
       if (!asked) rejectedAsks.delete(key);
+      if (unfilled) askFills.delete(page);
       await quietly(saveSession);
       return;
     }
@@ -5045,10 +5659,11 @@ export function createLoginRuntime(
           entry.step.fields.some((field) => field.slot === "password"),
       );
     // A `password` handler's button goes on to the password this login types (ADR 0048): only
-    // a login that types it, runs in the tab's top document on the recipe's own origin and
-    // has not filled its password yet presses it.
+    // a login that types it, does not only fill, runs in the tab's top document on the
+    // recipe's own origin and has not filled its password yet presses it.
     const choosesPassword =
       typesPassword &&
+      run.metadata.fillOnly !== true &&
       run.live.document.frameId === 0 &&
       run.live.topUrl === undefined &&
       run.live.document.origin === run.recipe.origin &&
@@ -5377,6 +5992,7 @@ export function createLoginRuntime(
       live.document.frameId !== 0 ||
       metadata.pageOrigin !== undefined ||
       live.document.origin !== recipe.origin ||
+      before.fillOnly ||
       before.judged !== undefined ||
       before.watch !== undefined ||
       before.settled ||
@@ -5702,6 +6318,8 @@ export function createLoginRuntime(
       !generation ||
       !uris ||
       (probeMode && metadata.account.origin === origin) ||
+      // A fill-only login ends before any advance (ADR 0021 D).
+      metadata.fillOnly === true ||
       metadata.route !== "password" ||
       metadata.variant !== 0 ||
       (metadata.stopAt !== undefined && !stopsPastPlan(metadata)) ||
@@ -6345,7 +6963,8 @@ export function createLoginRuntime(
         if (error instanceof DocumentGone)
           reportAttempt(run.metadata, run.recipe, undefined, {
             stop: "document-gone",
-            reason: error.reason,
+            // A fill-only login keeps `fill-only` as its reason.
+            ...(run.metadata.fillOnly ? {} : { reason: error.reason }),
           });
         else
           report(run.metadata.document, {
@@ -6412,6 +7031,11 @@ export function createLoginRuntime(
       // A fill or click waits for its elements before any intent, vault read or value
       // delivery; a slow render is not a failure until the owner-approved limit passes.
       const upcoming = attemptPlan(run.recipe, run.metadata)?.[run.metadata.stepIndex]?.step;
+      // A fill-only login stops before anything that may advance or submit (ADR 0021 D).
+      if (run.metadata.fillOnly && (!upcoming || effectfulStep(upcoming))) {
+        await endFillOnly(run);
+        return;
+      }
       if (upcoming?.kind === "fill" || upcoming?.kind === "click") {
         // A code input may submit by itself once the code is in, as one that submits on
         // its last digit does; its click then has nothing left to do (ADR 0027).
@@ -6689,7 +7313,11 @@ export function createLoginRuntime(
           ...(expected ? { account: expected } : {}),
           ...(list ? { list } : {}),
           // One switch per tab: an attempt that follows a switch never clicks another.
-          ...(expected && run.recipe.accountSwitch && !run.metadata.accountSwitched
+          // A fill-only login never clicks, not even a switch (ADR 0021 D).
+          ...(expected &&
+          run.recipe.accountSwitch &&
+          !run.metadata.accountSwitched &&
+          !run.metadata.fillOnly
             ? { accountSwitch: run.recipe.accountSwitch }
             : {}),
           // A `totp` handler's code fill watches for the page submitting the code itself.
@@ -6740,13 +7368,19 @@ export function createLoginRuntime(
         const switched =
           result.output.switchable === true &&
           run.recipe.accountSwitch !== undefined &&
-          !run.metadata.accountSwitched;
+          !run.metadata.accountSwitched &&
+          !run.metadata.fillOnly;
         await change(run, {
           type: "WRONG_ACCOUNT",
           operationId: operation.operationId,
           document: run.live.document,
           ...(switched ? { switched: true } : {}),
         });
+        // The page shows another account: a fill-only login ends and asks.
+        if (run.metadata.fillOnly) {
+          await endFillOnly(run);
+          return;
+        }
         // The switch is recorded before the click, so the page it leads to starts a new
         // attempt instead of resuming this one (owner decision, 2026-10-11).
         if (run.metadata.outcome === "account-switched") {
@@ -8376,11 +9010,22 @@ export function createLoginRuntime(
     // one of a site the tab left, so a login never submits there again.
     let recorded = recordFor(document.tabId, document.origin);
     const askKey = recordKey(document.tabId, document.origin);
+    // A fill-only login is forgotten when it ends; one a stopped worker left ended is too.
+    if (recorded?.fillOnly && terminal(recorded)) {
+      try {
+        await forget(askKey);
+      } catch {
+        return refuse("storage-unavailable");
+      }
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      recorded = undefined;
+    }
     /**
      * Releases a tab's finished login of this origin once its first step shows again (ADR
      * 0021 D, ADR 0062): the page then logs in as on any visit. After the site rejected that
-     * login, the tab and the origin's other tabs ask for an account instead, filling nothing.
-     * Returns a refusal when it could not, else undefined.
+     * login, the tab and the origin's other tabs ask for an account instead, and the page
+     * that showed the rejection is never filled again. Returns a refusal when it could not,
+     * else undefined.
      */
     const releaseFinished = async (
       released: LoginAttemptMetadata,
@@ -8390,13 +9035,20 @@ export function createLoginRuntime(
       const rejected = released.outcome === "credential-rejected";
       if (attempts.get(tabId)?.metadata.id === released.id) attempts.delete(tabId);
       const unpicked = picked.get(tabId)?.attemptId === released.id && picked.delete(tabId);
+      // The page that showed the rejection is never filled with an account again: the site
+      // just refused what was filled there.
+      const rejectedPage = documentKey(released.document);
+      const asked = !rejected || rejectedAsks.has(releasedKey);
+      const unfilled = rejected && !askFills.has(rejectedPage);
       // The tab must keep asking after a restart, so its ask is stored first.
-      if (rejected && !rejectedAsks.has(releasedKey)) {
+      if (!asked || unfilled) {
         rejectedAsks.add(releasedKey);
+        if (unfilled) addAskFill(rejectedPage);
         try {
           await saveSession();
         } catch {
-          rejectedAsks.delete(releasedKey);
+          if (!asked) rejectedAsks.delete(releasedKey);
+          if (unfilled) askFills.delete(rejectedPage);
           return refuse("storage-unavailable");
         }
       } else if (unpicked) void quietly(saveSession);
@@ -8412,10 +9064,9 @@ export function createLoginRuntime(
     };
     /**
      * Ends a watched login, which never signed in, once the recipe's first step shows again,
-     * as after a code or an approval expired (ADR 0027). Only the watched login's tab asks,
-     * filling nothing, as after a stopped login, while the site's other tabs log in as
-     * before (owner, 2026-10-13; ADR 0062). Returns a refusal when it could not, else
-     * undefined.
+     * as after a code or an approval expired (ADR 0027). Only the watched login's tab asks
+     * and fills, as after a stopped login, while the site's other tabs log in as before
+     * (owner, 2026-10-13). Returns a refusal when it could not, else undefined.
      */
     const abandonWatch = async (
       watchedLogin: LoginAttemptMetadata,
@@ -8480,8 +9131,8 @@ export function createLoginRuntime(
     }
     // While a login is watched, its recipe's first step showing in a new page of the tab
     // means the person is back at the start, as when a code or an approval expired: the
-    // login never signed in. It ends, and only this tab asks, filling nothing (ADR 0027,
-    // ADR 0062). The page the watch began in never ends it.
+    // login never signed in. It ends, and only this tab asks and fills without pressing
+    // anything (ADR 0027). The page the watch began in never ends it.
     if (
       recorded?.watch &&
       document.frameId === 0 &&
@@ -8553,7 +9204,7 @@ export function createLoginRuntime(
       // included: a new page of the tab logs in as a new tab would, with the saved default
       // or by asking when several accounts match (ADR 0022). One that submitted is resumed,
       // so a site that sends the tab back to its first step never gets it again; only its
-      // form showing on a later page makes the tab ask (below).
+      // form showing on a later page makes the tab ask and fill (below).
       const released = recorded;
       if (attempts.get(document.tabId)?.metadata.id === released.id)
         attempts.delete(document.tabId);
@@ -8585,8 +9236,8 @@ export function createLoginRuntime(
     ) {
       // A login that stopped after it submitted is resumed by the tab's later pages, so it
       // never submits again. Its form showing again on one of them asks for an account, in
-      // this tab only, filling nothing (ADR 0021 D, owner's choice 2026-10-12; ADR 0062);
-      // until then the page watches for it.
+      // this tab only, and fills without pressing anything (ADR 0021 D, owner's choice
+      // 2026-10-12); until then the page watches for it.
       if (start?.path !== live.path) {
         const starts = await startsFor(document.origin);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
@@ -8642,7 +9293,7 @@ export function createLoginRuntime(
     }
     // The tab asks for an account after the site rejected its login or another tab's login
     // of the origin, which shares its session, or after its own login stopped (ADR 0021 D);
-    // it fills nothing then (ADR 0062).
+    // it may fill the page once then, pressing nothing (below).
     let ask = recorded ? undefined : askFor(document.tabId, document.origin);
     // A tab runs one attempt at a time; another one still running holds it.
     const running = tabAttempt(document.tabId);
@@ -8831,7 +9482,10 @@ export function createLoginRuntime(
       // A page whose URL names another path of its site may be sent as a sign-in entry
       // once no sign-in input showed (ADR 0031); a list of accounts goes first.
       const entryPage =
-        offer && namesReturnPath(new URL(live.url), sameSiteAs(live.url)) ? true : undefined;
+        offer &&
+        (namesReturnPath(new URL(live.url), sameSiteAs(live.url)) || (await switchingTab(live)))
+          ? true
+          : undefined;
       const entryOffer = !plain && entryHello?.path === live.path;
       // A page with a passkey button is sent as a passkey-only page when a matching item
       // holds a discoverable passkey; otherwise the list or entry it also shows is handled
@@ -9058,6 +9712,15 @@ export function createLoginRuntime(
     // in the popup still logs in, and is not counted (ADR 0062).
     if (!ask && !previous && !switched && reloginLimited(document.origin, incognito === true))
       ask = "relogin-limit";
+    // A pick that did not make its account the default makes the site ask every time until
+    // the browser closes or a default is saved for it (ADR 0063).
+    if (
+      !ask &&
+      !previous &&
+      !switched &&
+      (await asksEveryTime(document.origin, incognito === true, snapshot))
+    )
+      ask = "one-time-pick";
     if (ask && heldElsewhere(document.tabId, document.origin)) {
       showHeld(document.tabId);
       return refuse("origin-busy");
@@ -9065,20 +9728,43 @@ export function createLoginRuntime(
     const asking = ask === "relogin-limit" ? ask : ask ? "account-asked" : undefined;
     // A new login reads its item's facts once and chooses its route from them (ADR 0027);
     // a resumed one keeps those in its record, so a sync cannot change its route.
+    // While the tab asks after a rejection, a stopped login or an abandoned watch, a
+    // document is filled once on each path with the single account to use, without
+    // pressing anything (ADR 0021 D); the passkey route has nothing to fill, and the relogin
+    // limit fills nothing (ADR 0062). A single-page app that shows its next step in place,
+    // as a password page after its email page, gets that step filled as a new document
+    // would (ADR 0049). A page the site rejected a login on is never filled again, on any
+    // path.
+    const filledKey = `${documentKey(document)} ${live.path}`;
+    const fill =
+      asking === "account-asked" &&
+      !previous &&
+      !switched &&
+      !askFills.has(documentKey(document)) &&
+      !askFills.has(filledKey);
     // A new login answers the page's own passkey request when its item holds a passkey
     // (ADR 0034), as one picked in the popup and one on a chooser's list do, instead of
-    // clicking there.
+    // clicking there; a login that only fills keeps its form.
     const pageRequest = !previous && document.frameId === 0 && parkedFor(document) !== undefined;
     // A paused site starts no login by itself; a resumed one goes on (ADR 0062).
     const pausedStart = paused && !previous;
     let plan = await planFor(snapshot, live, recipe, {
       ...(asking ? { asking } : {}),
+      ...(fill ? { fill } : {}),
       ...(pausedStart ? { paused: true } : {}),
       ...(previous ? { route: attemptRouteChoice(previous) } : {}),
       ...(pageRequest ? { pageRequest } : {}),
       ...(later && !later.button ? { later: true } : {}),
     });
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+    if (plan.ok && "fillOnly" in plan && plan.route.route !== "password") {
+      plan = await planFor(snapshot, live, recipe, {
+        ...(asking ? { asking } : {}),
+        ...(pausedStart ? { paused: true } : {}),
+        ...(later && !later.button ? { later: true } : {}),
+      });
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+    }
     // A passkey-only item on a list whose account branch cannot take the stop (ADR 0036,
     // owner 2026-10-13 06:32 UTC: the account's row, else "another account") still reads
     // the list first, planned on the click alone: it goes on only through `other`, and is
@@ -9091,11 +9777,12 @@ export function createLoginRuntime(
         bare &&
         (await planFor(snapshot, live, bare, {
           ...(asking ? { asking } : {}),
+          ...(fill ? { fill } : {}),
           ...(pageRequest ? { pageRequest } : {}),
           ...(pausedStart ? { paused: true } : {}),
         }));
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-      if (bare && alone && alone.ok && "stopAt" in alone) {
+      if (bare && alone && alone.ok && "stopAt" in alone && !("fillOnly" in alone)) {
         deferred = {
           route: bare,
           ...("detail" in plan && typeof plan.detail === "string" ? { detail: plan.detail } : {}),
@@ -9184,10 +9871,10 @@ export function createLoginRuntime(
       return refuse("origin-busy");
     }
     // A new login on a chooser's list decides what it clicks there for its account (ADR
-    // 0028), and takes the route that click leads to.
+    // 0028), and takes the route that click leads to. A fill-only login presses nothing.
     let click: ChooserClick | "none" | undefined = shownOther ? "other-shown" : undefined;
     let listMiss: ListMiss | undefined;
-    if (!previous && chooser && !shownOther) {
+    if (!previous && chooser && !shownOther && !("fillOnly" in plan)) {
       const chosen = await listClick(snapshot, live, chooser, plan.account);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       // Without the account's username nothing on the list can be compared with it.
@@ -9252,7 +9939,7 @@ export function createLoginRuntime(
     // login a popup pick started goes on (ADR 0062).
     const picking = previous
       ? picked.get(document.tabId)?.attemptId === previous.id
-      : "chosen" in plan && plan.chosen?.source === "pick";
+      : "chosen" in plan && (plan.chosen?.source === "pick" || plan.chosen?.source === "switch");
     if (!paused && !picking && (await pauseOf(live)) !== undefined) {
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       return { ok: false, reason: CHOICE_SAVED };
@@ -9342,6 +10029,7 @@ export function createLoginRuntime(
           document,
           ...(document.frameId === 0 ? {} : { pageOrigin: siteOrigin }),
           accountSwitched: switched,
+          fillOnly: "fillOnly" in plan,
           ...(chooser
             ? { chooser: click === undefined || click === "none" ? "entry" : click }
             : {}),
@@ -9368,6 +10056,7 @@ export function createLoginRuntime(
       plan.account.itemId === metadata.account.itemId
         ? { choice: plan.choice }
         : {}),
+      ...(ask && "asked" in plan ? { asked: { candidates: plan.asked, ask } } : {}),
     };
     // A new document after an advance on the same path, as a form posted back to its own
     // path, is checked against what the advancing document showed before it (ADR 0013).
@@ -9398,6 +10087,7 @@ export function createLoginRuntime(
               ...(plan.chosen.source === "match" ? { itemId: metadata.account.itemId } : {}),
             }
           : {}),
+        ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
         ...(metadata.startStep === undefined ? {} : { startStep: metadata.startStep }),
         ...(click ? { click } : {}),
         ...(listMiss ? { listMiss } : {}),
@@ -9436,9 +10126,18 @@ export function createLoginRuntime(
       pick.attemptId = metadata.id;
       sessionChanged = true;
     }
+    // The login an account switch's pick started ends that pick and the switch (ADR 0063).
+    if (!previous && "chosen" in plan && plan.chosen?.source === "switch") {
+      switchStates.delete(document.tabId);
+      void accountPicks.endSwitch(document.tabId);
+    }
     // A login started while the tab asks, as by a pick, ends the tab's asking for this
-    // origin, and that of the origin's other tabs it began.
-    if (!previous) {
+    // origin, and that of the origin's other tabs it began; filling the page only does not,
+    // and the document is not filled again on this path.
+    if (metadata.fillOnly) {
+      addAskFill(filledKey);
+      sessionChanged = true;
+    } else if (!previous) {
       const rejected = rejectedAsks.delete(askKey);
       if (stoppedAsks.delete(askKey) || rejected) sessionChanged = true;
     }
@@ -9728,13 +10427,47 @@ export function createLoginRuntime(
    */
   async function entryOfferRefusal(live: LiveDocument): Promise<string | undefined> {
     const site = siteOf(live.document.origin);
-    if (site === undefined || !namesReturnPath(new URL(live.url), sameSiteAs(live.url)))
+    if (site === undefined) return "no-return-target";
+    // An account switch's tab goes to the site's login page on purpose (ADR 0063).
+    const switching = await switchingTab(live);
+    if (!switching && !namesReturnPath(new URL(live.url), sameSiteAs(live.url)))
       return "no-return-target";
     // The page right after a sign-in (ADR 0028); the document skips its own next path.
     if (afterSignIn.get(live.document.tabId) === live.document.documentId) return "after-sign-in";
-    if (siteRecorded(live.document.tabId, site)) return "site-record";
+    if (!switching && siteRecorded(live.document.tabId, site)) return "site-record";
     const matched = await vaultMatches(live).catch(() => undefined);
     return matched ? undefined : "no-vault-match";
+  }
+  /** Whether the document's tab has an account switch's pick for its site (ADR 0063). */
+  async function switchingTab(live: LiveDocument): Promise<boolean> {
+    const pick = await accountPicks
+      .switchFor(live.document.tabId, siteOf(live.document.origin), live.incognito === true)
+      .catch(() => undefined);
+    return pick !== undefined;
+  }
+  /**
+   * Whether the site of `pageOrigin` asks every time (ADR 0063): an account was picked there
+   * in this browser session without making it the default, and its saved defaults are still
+   * those of then. A settings read that fails counts as not asking.
+   */
+  async function asksEveryTime(
+    pageOrigin: string,
+    incognito: boolean,
+    snapshot?: Extract<SettingsResponse, { ok: true }>,
+  ): Promise<boolean> {
+    const site = siteOf(pageOrigin);
+    if (site === undefined) return false;
+    const read =
+      snapshot ??
+      (await settings.handle({ version: 1, type: "settings.get" }).catch(() => undefined));
+    if (!read?.ok) return false;
+    return accountPicks
+      .asksEveryTime(
+        site,
+        incognito,
+        siteDefaultsMark(read.snapshot.settings.siteDefaults, site, siteOf),
+      )
+      .catch(() => false);
   }
   /**
    * Sends the page as a site's sign-in entry (ADR 0031): its buttons and links, without
@@ -9859,11 +10592,13 @@ export function createLoginRuntime(
       JSON.stringify(cached.entry) !== JSON.stringify(recipe.entry)
     )
       return "recipe-changed";
+    // An account switch's tab goes to the site's login page on purpose (ADR 0063).
+    const switching = await switchingTab(live);
     // A manual logout that lands on the bare top page is never undone.
-    if (!namesReturnPath(new URL(url), sameSiteAs(url))) return "no-return-target";
+    if (!switching && !namesReturnPath(new URL(url), sameSiteAs(url))) return "no-return-target";
     const site = siteOf(pageOrigin);
     if (site === undefined) return "no-site";
-    if (siteRecorded(tabId, site)) return "site-record";
+    if (!switching && siteRecorded(tabId, site)) return "site-record";
     if (siteHeldElsewhere(tabId, site)) return "site-held";
     // Pateat presses nothing by itself on a paused site (ADR 0062).
     if ((await pauseOf({ ...live, url })) !== undefined) return "paused";
@@ -10068,6 +10803,8 @@ export function createLoginRuntime(
       if (asked.success) return popupStatus(asked.output.tabId);
       const pick = v.safeParse(pickRequestSchema, message);
       if (pick.success) return pickFor(pick.output);
+      const switched = v.safeParse(switchRequestSchema, message);
+      if (switched.success) return switchFor(switched.output);
       return undefined;
     }
     if (v.safeParse(submittedSchema, message).success) {
@@ -10278,6 +11015,11 @@ export function createLoginRuntime(
   browser.tabs.onReplaced.addListener((added, removed) => {
     if (added === removed) return;
     replacedTabs.add(removed);
+    // An account switch's pick and state go with the tab, as to a prerendered sign-in page
+    // (ADR 0063); moved before `forgetTab` below ends the gone tab's.
+    void accountPicks.moveSwitch(removed, added).catch(() => undefined);
+    const switching = switchStates.get(removed);
+    if (switching) switchStates.set(added, switching);
     const moved = (key: string) =>
       key.startsWith(`${removed} `) ? `${added}${key.slice(String(removed).length)}` : key;
     void sessionLoaded.then(async () => {
@@ -10331,6 +11073,8 @@ export function createLoginRuntime(
   });
   /** Forgets a closed tab, or the gone page of a replaced one. */
   function forgetTab(tabId: number): void {
+    switchStates.delete(tabId);
+    void accountPicks.endSwitch(tabId);
     passwordSubmits.delete(tabId);
     passwordFills.delete(tabId);
     afterSignIn.delete(tabId);
@@ -10374,6 +11118,8 @@ export function createLoginRuntime(
             ...(rejectedElsewhere(tabId, asked) ? { elsewhere: true as const } : {}),
           },
         );
+      for (const key of askFills)
+        if (key.startsWith(`${tabId} `)) changed = askFills.delete(key) || changed;
       if (entryPresses.delete(tabId)) changed = true;
       // A site's re-logins count until all of its tabs closed (ADR 0062).
       if (relogins.size && (await forgetClosedSites())) changed = true;
@@ -11017,6 +11763,13 @@ export function createLoginRuntime(
     const pausedPage = async () => (await pauseOf({ url: input.origin, incognito })) !== undefined;
     if (await pausedPage()) return { kind: "delegate", reason: "paused" };
     const run = attempts.get(input.tabId);
+    // A site that asks every time logs in only by a pick, whose own login answers the
+    // request of its document; any other goes to the browser (ADR 0063).
+    if (
+      run?.live.document.documentId !== input.documentId &&
+      (await asksEveryTime(input.origin, incognito === true))
+    )
+      return { kind: "delegate", reason: "one-time-pick" };
     if (run?.live.document.documentId !== input.documentId) {
       const starts = await startsFor(input.origin).catch(() => []);
       if (!starts.length) return { kind: "delegate", reason: "no-recipe" };
@@ -11177,7 +11930,7 @@ export function createLoginRuntime(
    * Decides every waiting conditional request whose login ended or never started, and
    * checks again each second while one waits (ADR 0034). The `passkey` route answers its
    * own page's request itself. A request whose document the tab asks for an account (ADR
-   * 0021 D, ADR 0062) waits for the login the pick starts; so does one whose
+   * 0021 D, ADR 0062), or fills only, waits for the login the pick starts; so does one whose
    * document is offered a popup choice in which an item holds a passkey, for up to four
    * minutes.
    */
@@ -11197,16 +11950,16 @@ export function createLoginRuntime(
       if (running) parked.during = true;
       const offered = !running && askedFor(parked);
       if (offered) delete parked.dropped;
-      if (offered) parked.asked = true;
+      if (running ? own.fillOnly : offered) parked.asked = true;
       // A choice still offered decides alone: another tab's login can end the rejection this
       // tab asks for, while its choice stays. A dropped pick leaves it a moment to be
-      // offered again.
-      const asks =
-        !running &&
-        (offered ||
+      // offered again. A login that only fills while the tab asks waits as the ask does.
+      const asks = running
+        ? own.fillOnly === true
+        : offered ||
           (parked.asked === true &&
             stillAsks(parked.tabId, parked.origin) &&
-            (parked.dropped === undefined || now - parked.dropped < REQUEST_START_WAIT_MS)));
+            (parked.dropped === undefined || now - parked.dropped < REQUEST_START_WAIT_MS));
       // A popup choice outside an ask keeps the request while it offers an item with a
       // passkey, or while that is being checked. Once the choice goes, the request waits a
       // moment for it to be offered again. A login of its document, once seen, decides.
@@ -11258,6 +12011,7 @@ export function createLoginRuntime(
       metadata.route !== "password" ||
       !passkeyAnswersRequest(run.recipe) ||
       run.passkeyFailed ||
+      metadata.fillOnly ||
       !metadata.facts.discoverablePasskey ||
       metadata.submissions > 0 ||
       metadata.handlers.length > 0 ||
@@ -11689,12 +12443,15 @@ export function createLoginRuntime(
     passkeyAnswered,
     conditionalRequest,
     /**
-     * Whether automatic login of a top document's site is paused in the window kind of its
-     * tab, for the page's own passkey requests (ADR 0062). A pause that cannot be read counts
-     * as none.
+     * Whether a passkey request of the origin treats the saved default as unset (ADR 0063):
+     * `paused` while automatic login of its site is paused in the window kind of its tab
+     * (ADR 0062), else true when its site asks every time after a pick that did not make its
+     * account the default. A pause that cannot be read counts as none.
      */
-    passkeyPaused: async (input: { origin: string; incognito: boolean }) =>
-      (await pauseOf({ url: input.origin, incognito: input.incognito })) !== undefined,
+    defaultUnset: async (pageOrigin: string, incognito: boolean): Promise<boolean | "paused"> =>
+      (await pauseOf({ url: pageOrigin, incognito })) !== undefined
+        ? "paused"
+        : asksEveryTime(pageOrigin, incognito),
     /** A tab's page changed: a page of a paused site shows `II` on its badge (ADR 0062). */
     tabLoaded: (tab: Browser.tabs.Tab) => showTabPause(tab).catch(() => undefined),
   };

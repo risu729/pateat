@@ -45,8 +45,9 @@ describe("recipeUseOf", () => {
       recipeId: "gen-0123",
       report: { version: 1, revision: 3 },
     });
-    // A login at a later step and one on a chooser's list count as well.
+    // A fill-only login, one at a later step and one on a chooser's list count as well.
     for (const report of [
+      started({ fillOnly: true }),
       started({ startStep: 1 }),
       started({ click: "none", listMiss: { username: "email", entries: 2 } as never }),
     ])

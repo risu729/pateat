@@ -2,6 +2,7 @@ import {
   devicePairResultSchema,
   recipeCompletionResultSchema,
   entryGenerationResultSchema,
+  logoutGenerationResultSchema,
   recipeGenerationResultSchema,
   SYNC_PAGE_LIMIT,
   syncDeviceStateSchema,
@@ -14,6 +15,8 @@ import {
   type EntryGenerationResult,
   type LoginOutcomeReport,
   type LoginRecord,
+  type LogoutGenerationRequest,
+  type LogoutGenerationResult,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -236,6 +239,15 @@ export interface ServiceTransport {
     credential: string,
     request: EntryGenerationRequest,
   ): Promise<InferenceResult<EntryGenerationResult>>;
+  /**
+   * `POST /v1/recipes/logout`: a signed-in page of an account switch, whose answer names the
+   * control that signs out or opens the menu holding it (ADR 0063).
+   */
+  generateLogout(
+    origin: string,
+    credential: string,
+    request: LogoutGenerationRequest,
+  ): Promise<InferenceResult<LogoutGenerationResult>>;
   /**
    * `POST /v1/recipes/:recipeId/outcome`: how the first login of a recipe revision ended,
    * as codes only (ADR 0019, amended 2026-10-18).
@@ -586,6 +598,9 @@ export function createServiceTransport(
         request,
         entryGenerationResultSchema,
       );
+    },
+    generateLogout(origin, credential, request) {
+      return infer(origin, credential, "/v1/recipes/logout", request, logoutGenerationResultSchema);
     },
     reportOutcome(origin, credential, recipeId, report) {
       return post(

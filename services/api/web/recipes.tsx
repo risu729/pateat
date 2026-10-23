@@ -96,6 +96,22 @@ function recipeFacts(recipe: StoredLoginRecipe): {
       ],
       variants: [],
     };
+  // A recipe that signs out for an account switch (ADR 0063).
+  if ("logout" in recipe)
+    return {
+      facts: [
+        [
+          "Logout",
+          recipe.logout.targets
+            .map(
+              (target) =>
+                `Click ${describeTarget(target.target)} on ${target.path} (${target.purpose})`,
+            )
+            .join(", then "),
+        ],
+      ],
+      variants: [],
+    };
   // A recipe that starts on a list of accounts (ADR 0028), which devices do not start yet.
   if ("chooser" in recipe) {
     const { chooser } = recipe;

@@ -20,6 +20,7 @@ import {
   type LoginRecipe,
   type LoginMarkerTarget,
   type LoginRoute,
+  type LogoutGenerationResult,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -96,15 +97,15 @@ export const JUDGEMENTS_PER_RECIPE_DAY = 20;
 const utcDayStart = (now: number) => now - (now % DAY_MS);
 
 type AttemptDb = Parameters<NonNullable<ClaudeCall<unknown>["gate"]>>[0];
-type GenerationEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
+export type GenerationEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
 type Failure = Extract<RecipeGenerationResult, { status: "failed" }>["error"];
 /** An answer given without a model call: a refusal, a failure, or a stored recipe. */
-type UnsentAnswer = Extract<
-  RecipeGenerationResult | EntryGenerationResult | RecipeCompletionResult,
+export type UnsentAnswer = Extract<
+  RecipeGenerationResult | EntryGenerationResult | RecipeCompletionResult | LogoutGenerationResult,
   { status: "unavailable" | "failed" | "recipe" }
 >;
 
-const roleConfig = {
+export const roleConfig = {
   limits: ROLE_LIMITS,
   maxOutputTokens: MAX_OUTPUT_TOKENS,
   refusalCategory: claudeRefusalCategory,
@@ -128,7 +129,7 @@ export async function generatedRecipeId(origin: string, startPath: string) {
  * owner 2026-10-18 08:04 UTC): the reason or failure code, or `recipe` for a recipe
  * another request stored. The row is named on `trace` for its server time.
  */
-async function answerUnsent<Answer extends UnsentAnswer>(
+export async function answerUnsent<Answer extends UnsentAnswer>(
   env: GenerationEnv,
   ownerId: string,
   unsent: UnsentRequest,
@@ -145,24 +146,26 @@ async function answerUnsent<Answer extends UnsentAnswer>(
   return answer;
 }
 
-const unavailable = (reason: GenerationUnavailableReason) =>
+export const unavailable = (reason: GenerationUnavailableReason) =>
   ({ version: 1, status: "unavailable", reason }) as const;
-const failed = (error: Failure) => ({ version: 1, status: "failed", error }) as const;
+export const failed = (error: Failure) => ({ version: 1, status: "failed", error }) as const;
 // Nobody waits on a cancelled request, so it reads as the timeout that usually causes it.
-const failureOf = (error: InferenceErrorCode): Failure =>
+export const failureOf = (error: InferenceErrorCode): Failure =>
   error === "cancelled" ? "timeout" : error;
-const active = (change: SyncRecipeChange | null) =>
+export const active = (change: SyncRecipeChange | null) =>
   change?.state === "active" ? change : undefined;
 /**
  * An active head a generation or judgement answers with: a route recipe, or a chooser
  * recipe (ADR 0028) for an account list or one of its branches. An entry recipe (ADR 0031)
- * is never one.
+ * or a logout recipe (ADR 0063) is never one.
  */
 const answerable = (
   change: SyncRecipeChange | null,
 ): Extract<RecipeGenerationResult, { status: "recipe" }>["change"] | undefined => {
   const head = active(change);
-  return head && !("entry" in head.recipe) ? { ...head, recipe: head.recipe } : undefined;
+  return head && !("entry" in head.recipe) && !("logout" in head.recipe)
+    ? { ...head, recipe: head.recipe }
+    : undefined;
 };
 /** The branch's route recipe of a chooser head, or the head's own route recipe without one. */
 function routeOf(
@@ -220,7 +223,7 @@ function unsettled<T>(
  * by the recipe, the chooser branch (empty without one), the path and the revision the
  * call's write replaces. `recheck` reads the stored head again under the owner's lock.
  */
-function attemptWindow(
+export function attemptWindow(
   ownerId: string,
   key: { recipeId: string; branch: string; origin: string; path: string; baseRevision: number },
   recheck: () => Promise<GenerationUnavailableReason | undefined>,

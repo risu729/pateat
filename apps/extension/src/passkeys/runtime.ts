@@ -112,6 +112,8 @@ export interface PasskeyRequestReport {
    * out (`timeout`) or the request being cancelled (`cancelled`) while it was open.
    */
   readonly chooser?: PasskeyChoice["kind"] | "timeout" | "cancelled";
+  /** The site treated its saved default as unset, so the chooser asked (ADR 0063). */
+  readonly defaultUnset?: boolean;
   /** The request's mediation, when it names one (ADR 0034). */
   readonly mediation?: "optional" | "conditional" | "required" | "silent" | "immediate" | "other";
   readonly uiMode?: "immediate";
@@ -259,20 +261,22 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
      */
     answered?: (tabId: number, origin: string, rpId: string, signed: TCandidate) => void;
     /**
+     * Whether a request of the origin treats the site's saved default as unset: the person's
+     * own request, of no running login, then opens the chooser with every passkey that fits
+     * and none preselected, also for one passkey (ADR 0063: a site that asks every time after
+     * a pick that did not make its account the default). `paused` does the same for a site
+     * whose automatic login is paused (ADR 0062): the window says so, and where it cannot open
+     * the request is handed on as `paused`. A conditional request never gets here without a
+     * login, so it is handed on as before. A value that cannot be read counts as false.
+     */
+    defaultUnset?: (
+      origin: string,
+      incognito: boolean,
+    ) => Promise<boolean | "paused"> | boolean | "paused";
+    /**
      * Decides a `conditional` request of a top document through the login of its page
      * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).
      */
-    /**
-     * Whether automatic login of a top document's site is paused (ADR 0062). A request the
-     * person started there, modal or Immediate UI, then signs only with a passkey chosen in the
-     * chooser window, as if the site had no default; it is handed on where the window cannot
-     * open. A pause that cannot be read counts as none, as for logins.
-     */
-    paused?: (input: {
-      tabId: number;
-      origin: string;
-      incognito: boolean;
-    }) => Promise<boolean> | boolean;
     conditional?: (input: {
       tabId: number;
       origin: string;
@@ -386,8 +390,6 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     const answer = async (
       login: PasskeyItem | undefined,
       signal: AbortSignal,
-      /** The site is paused and no login of the tab runs, so Pateat signs only on a choice. */
-      paused = false,
     ): Promise<RuntimeResult> => {
       step = "passkey-lookup";
       const candidates = await abortable(
@@ -405,18 +407,26 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       if (candidates.siteDefault) detail.siteDefaultItem = candidates.siteDefault;
       detail.complete = candidates.complete;
       // One match or the site default signs without asking, also after a logout in the tab
-      // (ADR 0062); several matches ask. A running login never asks (ADR 0027). On a paused
-      // site the default counts as unset and any match asks (ADR 0062); the stored default
-      // stays as it is.
-      const selection = selectPasskey(
-        admission.request,
-        paused
-          ? {
-              ...candidates,
-              candidates: candidates.candidates.map((entry) => ({ ...entry, preferred: false })),
-            }
-          : candidates,
-      );
+      // (ADR 0062); several matches ask. A running login never asks (ADR 0027).
+      const found = selectPasskey(admission.request, candidates);
+      // A site that treats its default as unset asks for any passkey that fits: one that asks
+      // every time (ADR 0063), or one whose automatic login is paused (ADR 0062). The stored
+      // default stays as it is.
+      const unsetBy =
+        !login &&
+        options.defaultUnset !== undefined &&
+        (found.kind === "credential" || found.reason === "ambiguous-credential") &&
+        (await abortable(
+          Promise.try(() => options.defaultUnset!(origin, context.incognito)).catch(() => false),
+          signal,
+        ));
+      const unset = unsetBy === true || unsetBy === "paused";
+      const paused = unsetBy === "paused";
+      if (unset) detail.defaultUnset = true;
+      if (paused) detail.paused = true;
+      const selection: typeof found = unset
+        ? { kind: "delegate", reason: "ambiguous-credential" }
+        : found;
       const signWith = (candidate: TCandidate) => {
         step = "signing";
         return abortable(
@@ -458,22 +468,26 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       let credential: TCandidate;
       let assertion: Signed["assertion"] | undefined;
       let makeDefault = false;
-      if (selection.kind === "credential" && !paused) credential = selection.credential;
+      if (selection.kind === "credential") credential = selection.credential;
       // A login's item answers alone; otherwise the browser or Bitwarden does, so Pateat
       // never signs in as another account.
       else if (login && selection.kind === "delegate")
         return { kind: "delegate", reason: `login-item-${selection.reason}` };
       else {
         // Only passkeys Pateat can sign with are offered, the site default first. Fewer than
-        // two is not a choice, except on a paused site, where nothing signs unchosen and no
-        // entry is the default (ADR 0062).
-        const offered = accepted.filter((entry) => entry.counter === 0);
-        if (!paused)
-          offered.sort((a, b) => Number(b.preferred === true) - Number(a.preferred === true));
-        const asks =
-          selection.kind === "credential" ||
-          (selection.reason === "ambiguous-credential" && offered.length >= (paused ? 1 : 2));
-        if (selection.kind === "delegate" && !asks) return selection;
+        // two is not a choice, except where the default counts as unset.
+        const offered = accepted
+          .filter((entry) => entry.counter === 0)
+          .sort((a, b) =>
+            unset ? 0 : Number(b.preferred === true) - Number(a.preferred === true),
+          );
+        // A paused site is handed on rather than signed without a choice (ADR 0062).
+        const declined = unset
+          ? ({ kind: "delegate", reason: paused ? "paused" : "default-unset" } as const)
+          : ({ kind: "delegate", reason: "ambiguous-credential" } as const);
+        if (unset ? offered.length === 0 : selection.reason !== "ambiguous-credential")
+          return unset ? declined : selection;
+        if (offered.length < 2 && !unset) return selection;
         // An unsearched item might hold the passkey the person signed out to switch to.
         if (!candidates.complete) return { kind: "delegate", reason: "vault-incomplete" };
         const remaining = received + chooserWaitMs(admission.request.timeoutMs) - Date.now();
@@ -486,8 +500,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           !context.active ||
           remaining < CHOOSER_MIN_REMAINING_MS
         )
-          // A paused site is handed on rather than signed without a choice (ADR 0062).
-          return { kind: "delegate", reason: paused ? "paused" : "ambiguous-credential" };
+          return declined;
         // The window waits for a person, so the lookup budget no longer applies.
         clearTimeout(timer);
         timer = setTimeout(expire, remaining);
@@ -501,7 +514,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
             rpId: admission.request.rpId,
             entries: offered.map((entry, index) => ({
               ...(entry.display ?? { item: `Passkey ${index + 1}` }),
-              ...(entry.preferred === true && !paused ? { preferred: true } : {}),
+              ...(entry.preferred === true && !unset ? { preferred: true } : {}),
             })),
             replacesDefault:
               candidates.siteDefault !== undefined && candidates.siteDefault !== "unset",
@@ -586,20 +599,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     try {
       const signal = controller.signal;
       if (conditional) return await waitForLogin(signal);
-      // Read beside the vault hold; a pause that cannot be read counts as none (ADR 0062).
-      const pausedSite = Promise.try(() =>
-        options.paused?.({ tabId: context.tabId, origin, incognito: context.incognito }),
-      ).then(
-        (paused) => paused === true,
-        () => false,
-      );
       await hold(signal);
       // A failed lookup fails closed: the catch below delegates.
       const login = await options.loginAccount?.(context.tabId, origin);
-      // A login a popup pick started on a paused site answers with its item (ADR 0027).
-      const paused = await abortable(pausedSite, signal);
-      if (paused) detail.paused = true;
-      return await answer(login, signal, paused && !login);
+      return await answer(login, signal);
     } catch {
       answered?.(false);
       const reason = controller.signal.reason as unknown;

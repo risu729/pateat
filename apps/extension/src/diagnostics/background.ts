@@ -390,6 +390,7 @@ export function createDiagnosticsLog(options: {
             account: report.account,
             candidates: report.candidates,
             item: report.itemId,
+            fillOnly: report.fillOnly,
             startStep: report.startStep,
             list: report.click,
             listUsername: report.listMiss?.username,
@@ -651,6 +652,27 @@ export function createDiagnosticsLog(options: {
                   : "info",
           },
         );
+      else if (report.type === "switch")
+        void logger.log(
+          "login.switch",
+          {
+            origin: report.origin,
+            url: report.url,
+            stage: report.stage,
+            outcome: report.outcome,
+            reason: report.reason,
+            detail: report.detail,
+            purpose: report.purpose,
+            source: report.source,
+            learned: report.learned,
+            clicks: report.clicks,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            makeDefault: report.makeDefault,
+          },
+          // A switch that could not log out is a problem the person sees in the popup too.
+          { source, level: report.outcome === "failed" ? "warn" : "info" },
+        );
       else if (report.type === "pause")
         // The person paused or resumed automatic login of a site, or a login picked in the
         // popup ended its pause (ADR 0062).
@@ -722,13 +744,17 @@ export function createDiagnosticsLog(options: {
           {
             source,
             // A login that stopped, or whose result settled as unknown, did not finish. A resumed
-            // attempt that changed nothing repeats what was already logged. A route change is
-            // kept for the log too (ADR 0034).
+            // attempt that changed nothing repeats what was already logged.
+            // A fill-only login while its tab asks for an account ends by design without
+            // pressing anything. A route change is kept for the log too (ADR 0034).
             level: report.repeat
               ? "debug"
-              : // A submit that replaced the document leaves no receiver; any other
-                // unanswered message may be a fault, so it shows without debug logging.
-                (report.cause === "document-gone" && report.reason !== "no-receiver") ||
+              : (report.state === "blocked" &&
+                    report.outcome === "cancelled" &&
+                    report.reason === "fill-only") ||
+                  // A submit that replaced the document leaves no receiver; any other
+                  // unanswered message may be a fault, so it shows without debug logging.
+                  (report.cause === "document-gone" && report.reason !== "no-receiver") ||
                   // A click left to the person under a CAPTCHA explains a later challenge.
                   report.cause === "captcha-shown"
                 ? "info"
