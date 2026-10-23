@@ -977,6 +977,33 @@ describe("production login document admission", () => {
       expect(executed()).toEqual([]);
     });
 
+    it("asks in a new window when the document comes back before its closed window ends", async () => {
+      realTime();
+      const signals: AbortSignal[] = [];
+      const ends: (() => void)[] = [];
+      // A closed window ends only some time after it was told to close.
+      const askMasterPassword = vi.fn(
+        (input: { signal: AbortSignal }) =>
+          new Promise<"closed">((resolve) => {
+            signals.push(input.signal);
+            ends.push(() => resolve("closed"));
+          }),
+      );
+      const h = harness(listed, { reprompt: true, askMasterPassword });
+      await h.hello();
+      await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledOnce());
+      await h.hello({ documentId: "second-document" });
+      await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledTimes(2));
+      // The first document comes back, as from the back-forward cache, while its window
+      // still closes.
+      await h.hello();
+      await vi.waitFor(() => expect(askMasterPassword).toHaveBeenCalledTimes(3));
+      expect(signals.map((signal) => signal.aborted)).toEqual([true, true, false]);
+      expect(askMasterPassword.mock.calls[2]![0]).toMatchObject({ tabId: 1, origin });
+      for (const end of ends) end();
+      expect(executed()).toEqual([]);
+    });
+
     it("asks again from the popup after the window was closed", async () => {
       realTime();
       const askMasterPassword = vi

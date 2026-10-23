@@ -609,8 +609,9 @@ password for that vault account (decided 12):
   read, the guess selects none, not even by name. Its **Fill** asks.
 - One window asks per document. An ask while it is open, for a detail or for the login's
   own item, waits for its answer, and the password then counts for each waiting login of
-  the same vault account that the tab still runs. A window closed because the page
-  changed gives no password.
+  the same vault account that the tab still runs. An ask for another vault account
+  opens its own window once that one ends. A window closed because the page changed
+  gives no password, and the page coming back asks in a new window.
 
 The login item's own answers and member IDs are read as before, as its login started
 only after its master password. On a site not in `repromptSites`, nothing changes. Which

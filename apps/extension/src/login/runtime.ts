@@ -2731,6 +2731,8 @@ export function createLoginRuntime(
         repromptAsking.delete(key);
         controller.abort();
       }
+    // A closing window settles later; a document coming back meanwhile asks in a new one.
+    for (const key of passwordAsks.keys()) if (matches(key)) passwordAsks.delete(key);
     for (const key of repromptGrants.keys()) if (matches(key)) repromptGrants.delete(key);
     const waiting = repromptWaiting.get(tabId);
     if (waiting && (documentId === undefined || waiting.document.documentId === documentId))
@@ -3462,22 +3464,32 @@ export function createLoginRuntime(
     const { document, account: login } = asking;
     const key = `${document.tabId} ${document.documentId}`;
     if (!options.askMasterPassword) return { ok: false, reason: "unavailable" };
-    const open = passwordAsks.get(key);
-    if (open?.kind === "login") return { ok: true };
-    // A window that asks before a detail's read is answered first; its password counts
-    // for this login only when it was checked for the same vault account.
-    const asked =
-      open ??
-      openPasswordWindow("login", key, {
-        tabId: document.tabId,
-        origin: document.origin,
-        account: login,
-        connection,
-        item,
-      });
-    const { answer, aborted } = await asked.answer;
+    let settled: { answer: "verified" | "closed" | "unavailable"; aborted: boolean };
+    for (;;) {
+      const open = passwordAsks.get(key);
+      if (open?.kind === "login") return { ok: true };
+      // A window that asks before a detail's read is answered first; its password counts
+      // for this login only when it was checked for the same vault account.
+      const asked =
+        open ??
+        openPasswordWindow("login", key, {
+          tabId: document.tabId,
+          origin: document.origin,
+          account: login,
+          connection,
+          item,
+        });
+      settled = await asked.answer;
+      if (asked.connectionId === connection.id) break;
+      // Checked for another vault account, whatever its answer: once it ends, this login
+      // asks for its own, while the document still waits for it.
+      const live = documents.get(frameKey(document));
+      if (live?.document.documentId !== document.documentId || settled.aborted)
+        return { ok: false, reason: "document-gone" };
+      if (live.reason !== "master-password-reprompt") return { ok: false, reason: "not-waiting" };
+    }
+    const { answer, aborted } = settled;
     if (answer !== "verified") return { ok: false, reason: answer };
-    if (asked.connectionId !== connection.id) return { ok: false, reason: "closed" };
     const live = documents.get(frameKey(document));
     if (live?.document.documentId !== document.documentId || aborted)
       return { ok: false, reason: "document-gone" };
@@ -3520,22 +3532,27 @@ export function createLoginRuntime(
     const { document } = offer;
     const key = `${document.tabId} ${document.documentId}`;
     if (!options.askMasterPassword) return false;
-    // A window already open for the document, for its login's item or another detail's,
-    // is answered once; each ask then checks its own login.
-    const asked =
-      passwordAsks.get(key) ??
-      openPasswordWindow("detail", key, {
-        tabId: document.tabId,
-        origin: document.origin,
-        account: offer.account,
-        connection,
-        item,
-      });
-    const { answer, aborted } = await asked.answer;
-    if (answer !== "verified" || aborted || asked.connectionId !== connection.id) return false;
-    if (tabAttempt(document.tabId)?.id !== offer.attemptId) return false;
-    holdPassword(offer.attemptId, connection.id);
-    return true;
+    for (;;) {
+      // A window already open for the document, for its login's item or another detail's,
+      // is answered once; each ask then checks its own login.
+      const asked =
+        passwordAsks.get(key) ??
+        openPasswordWindow("detail", key, {
+          tabId: document.tabId,
+          origin: document.origin,
+          account: offer.account,
+          connection,
+          item,
+        });
+      const { answer, aborted } = await asked.answer;
+      if (aborted || tabAttempt(document.tabId)?.id !== offer.attemptId) return false;
+      if (asked.connectionId === connection.id) {
+        if (answer !== "verified") return false;
+        holdPassword(offer.attemptId, connection.id);
+        return true;
+      }
+      // Checked for another vault account: once it ends, this read asks for its own.
+    }
   }
   /** The popup's button for a tab whose login waits for the master password. */
   async function repromptFor(tabId: number): Promise<RepromptResponse> {
