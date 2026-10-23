@@ -26,7 +26,11 @@ async function serveSite(context: BrowserContext, fixture: { origin: string }) {
 }
 
 type Candidate = { id: string; role: string; target: { by: string; value: string } };
-type Prompt = { task: string; observation: { path: string; candidates: Candidate[] } };
+type Prompt = {
+  task: string;
+  signedIn?: boolean;
+  observation: { path: string; candidates: Candidate[] };
+};
 
 /**
  * Answers the Worker's token exchange and Messages API calls the way Claude would for
@@ -110,11 +114,15 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
             : passwordPage
               ? {
                   decision: "plan",
+                  pageKind: "sign-in",
+                  irreversible: "no",
                   fields: [{ slot: "password", candidate: byTarget("password") }],
                   action: { candidate: login(), purpose: "submit" },
                 }
               : {
                   decision: "plan",
+                  pageKind: "sign-in",
+                  irreversible: "no",
                   fields: [{ slot: "username", candidate: byTarget("account") }],
                   action: { candidate: byTarget("next"), purpose: "advance" },
                 };
@@ -230,6 +238,9 @@ for (const [button, marker] of [
             ["generate", "/sign-in"],
             ["judge-sign-in", "/account"],
           ]);
+          // The sign-in page went out with the hint that it shows no one signed in, and its
+          // recipe is stored as a sign-in page (ADR 0035).
+          expect(claude.prompts[0]).toMatchObject({ signedIn: false });
           expect(JSON.stringify(claude.prompts)).not.toContain(password);
           const recipes = (await (await service.request("/v1/recipes")).json()) as {
             changes: { recipe?: { revision: number; completion?: unknown } }[];
@@ -237,6 +248,7 @@ for (const [button, marker] of [
           expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
             {
               revision: 2,
+              pageKind: "sign-in",
               completion: [
                 {
                   target:

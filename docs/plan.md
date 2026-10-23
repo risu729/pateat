@@ -459,6 +459,11 @@ than in this repository.
   so its retention rule needs no work. The first login result of each revision reaches
   the service as codes
   ([ADR 0035](adr/0035-page-kinds-per-site.md#amendment-2026-10-18-login-results-on-the-service)).
+  Implemented on 2026-10-23
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#implementation-of-delivery-1)) except the
+  local evaluation fields of `confirm-unsupported` pages beyond the recipe and its kind,
+  and the counts of pages not sent, which come next. Covered by unit, Worker and
+  fake-model tests only; no real site or paid generation checked it.
 - Done: the toolbar badge counts the matching items on every HTTP(S) site (on an `http:`
   page only items saved with an `http://` URI;
   [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light

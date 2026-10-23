@@ -494,10 +494,14 @@ holds:
   request kept unanswered after a Pateat login of its page signed in, or after four
   minutes of waiting for that login or for a pick after a logout) and the delegate
   `reason`. A conditional request is handed on as `no-recipe` (no recipe for the site),
-  `no-login` (no login of its page started), `login-ended` (the login did not sign
-  in) or `no-pick` (the popup offered its page a choice of accounts outside a logout,
-  with an item that holds a passkey, and nothing was picked within four minutes)
-  ([ADR 0034](adr/0034-answer-page-passkey-requests.md));
+  `no-login` (no login of its page started), `login-ended` (the login did not sign in)
+  or `no-pick` (the popup offered its page a choice of accounts outside a logout, with
+  an item that holds a passkey, and nothing was picked within four minutes)
+  ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A request outside conditional
+  mediation that names its credentials, in a tab whose Pateat login of the origin signed
+  in with no logout detected since, is a re-verification while signed in and is handed
+  on as `confirm-fill`
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#passkey-re-verification));
 - once the request is admitted, `rpId` and `allowCredentials` (how many credential IDs
   the site listed);
 - once the vault was searched, `stored` (eligible stored passkeys with that RP ID in

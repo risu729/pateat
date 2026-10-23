@@ -51,6 +51,7 @@ import {
   routeSignInTargets,
   routeSlots,
   routeSteps,
+  runsLogin,
   sameLoginDocument,
   sameLoginTarget,
   saveLoginChoice,
@@ -78,6 +79,7 @@ import {
   type ChooserBranch,
   type ChooserClick,
   type ListClick,
+  type PageKind,
   type LoginChooserRecipe,
   type LoginRecipe,
   type LoginRoute,
@@ -230,6 +232,11 @@ const HOLD_MS = 5 * 60_000;
  * meanwhile, for about nine seconds after the page offers itself (ADR 0016).
  */
 const EXTRACT_READS = 10;
+/**
+ * At most this many matching items' usernames are looked for in a page's header or
+ * navigation for its generation request's `signedIn` hint (ADR 0035), one page read each.
+ */
+const MAX_HINT_USERNAMES = 8;
 const EXTRACT_RETRY_MS = 1000;
 /** How soon after a password submission the tab's next page counts as right after it (ADR 0028). */
 const AFTER_SIGN_IN_MS = 60_000;
@@ -841,6 +848,14 @@ export interface LoginRecipes {
   ): Promise<LoginChooserRecipe | undefined>;
   /** The origin's entry recipes (ADR 0031): a start path and the link pressed there. */
   entries(origin: string): Promise<LoginEntryRecipe[]>;
+  /**
+   * Every route recipe of the origin whatever its page kind, and each chooser branch (ADR
+   * 0028), which is `sign-in`. `recipe` and `starts` leave out one generated as `confirm`
+   * or `unclear` (ADR 0035): its page is never logged in to, never counts as a logout and
+   * is not sent for generation again. Their signed-in markers tell the generation request
+   * whether a page shows the user signed in.
+   */
+  routes?(origin: string): Promise<LoginRecipe[]>;
 }
 export const noLoginRecipes: LoginRecipes = {
   recipe: async () => undefined,
@@ -930,7 +945,15 @@ type ServiceTimed = { timing?: ServiceTiming };
 /** An outcome's fields for the local log: never the recipe itself or `retry`. */
 function outcomeFields(answer: GenerationOutcome | EntryGenerationOutcome) {
   const timed = answer.timing ? { timing: answer.timing } : {};
-  if (answer.outcome === "recipe") return { outcome: answer.outcome, ...timed };
+  // A route recipe's kind (ADR 0035); a chooser and an entry recipe are always `sign-in`.
+  if (answer.outcome === "recipe")
+    return {
+      outcome: answer.outcome,
+      ...("recipe" in answer && "pageKind" in answer.recipe
+        ? { pageKind: answer.recipe.pageKind }
+        : {}),
+      ...timed,
+    };
   if (!("check" in answer)) return { outcome: answer.outcome, reason: answer.reason, ...timed };
   const { outcome, reason, check, detail, path } = answer;
   return {
@@ -1443,6 +1466,13 @@ export type LoginReport = (
       detail?: string;
       /** For `account-ambiguous` and `logged-out`: how many accounts the tab may ask with. */
       candidates?: number;
+      /**
+       * For `not-started` with `confirm-unsupported`: the recipe generated as `confirm` or
+       * `unclear` that starts on the page, and its kind (ADR 0035).
+       */
+      recipeId?: string;
+      recipeRevision?: number;
+      pageKind?: PageKind;
       /** The same reason was already logged for this page (ADR 0019). */
       repeat?: true;
       /**
@@ -1597,6 +1627,10 @@ export type LoginReport = (
        * as its `other` branch's first page (ADR 0028).
        */
       page?: "accounts" | "entry" | "other";
+      /** A returned route recipe's page kind (ADR 0035). */
+      pageKind?: PageKind;
+      /** The `signedIn` hint the request carried (ADR 0035). */
+      signedIn?: boolean;
       /** How long the request took, once it was answered or failed (ADR 0019). */
       timing?: ServiceTiming;
     }
@@ -2613,14 +2647,19 @@ export function createLoginRuntime(
       return { ok: false, reason: "no-page" };
     const pageOrigin = page.origin;
     const path = observedPath(page.pathname);
-    const [starts, entries] = await Promise.all([
+    const [starts, entries, routes] = await Promise.all([
       recipes.starts(pageOrigin).catch(() => []),
       recipes.entries(pageOrigin).catch(() => []),
+      routesOf(pageOrigin),
     ]);
-    // A later step a login may start at counts as a start on its path (ADR 0049).
+    // A later step a login may start at counts as a start on its path (ADR 0049), and so
+    // does the first page of a recipe generated as a verification (ADR 0035).
     const paths = [
       ...starts.flatMap((start) => [start.path, ...(start.later ?? []).map((step) => step.path)]),
       ...entries.map((entry) => entry.entry.path),
+      ...(routes ?? [])
+        .filter((recipe) => !runsLogin(recipe))
+        .map((recipe) => recipe.steps[0]!.path),
     ];
     await loaded;
     const status = badge.status(tabId);
@@ -6651,7 +6690,8 @@ export function createLoginRuntime(
    * top-level page on whose path no cached recipe of its origin starts (several starting
    * there count too), and whose path was not sent within the retry window (ADR 0016). An
    * entry recipe's path counts as a start (ADR 0031); it is added here only, since
-   * `startsFor` leaves out a path several starts share.
+   * `startsFor` leaves out a path several starts share. So does the first page of a recipe
+   * generated as `confirm` or `unclear`, which never starts (ADR 0035).
    */
   async function offersGeneration(live: LiveDocument): Promise<true | GenerationHold | undefined> {
     if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return undefined;
@@ -6661,7 +6701,33 @@ export function createLoginRuntime(
     const entries = await recipes.entries(live.document.origin).catch(() => undefined);
     if (entries === undefined || entries.some((entry) => entry.entry.path === live.path))
       return undefined;
+    const routes = await routesOf(live.document.origin);
+    if (
+      routes === undefined ||
+      routes.some((recipe) => !runsLogin(recipe) && recipe.steps[0]?.path === live.path)
+    )
+      return undefined;
     return generation.available(live.document.origin, live.path).catch(() => undefined);
+  }
+  /**
+   * Every route recipe of the origin whatever its kind, and each chooser branch (ADR 0035),
+   * or undefined unread.
+   */
+  async function routesOf(pageOrigin: string): Promise<LoginRecipe[] | undefined> {
+    if (probeMode && pageOrigin === origin) return [];
+    return Promise.resolve(recipes.routes?.(pageOrigin) ?? []).catch(() => undefined);
+  }
+  /**
+   * The origin's recipe generated as `confirm` or `unclear` whose first page is `path`
+   * (ADR 0035): its page never starts a login and never counts as a logout.
+   */
+  async function confirmRecipeOn(
+    pageOrigin: string,
+    path: string,
+  ): Promise<LoginRecipe | undefined> {
+    return (await routesOf(pageOrigin))?.find(
+      (recipe) => !runsLogin(recipe) && recipe.steps[0]?.path === path,
+    );
   }
   /**
    * Whether a chooser's path may be sent as its `other` branch's first page (ADR 0028):
@@ -6991,6 +7057,52 @@ export function createLoginRuntime(
     } catch {
       return true;
     }
+  }
+  /**
+   * The `signedIn` hint of a page sent as a recipe's first page (ADR 0035): whether a
+   * signed-in marker learned on its origin by any of the origin's recipes shows, as ADR
+   * 0029's E1 reads it, or one of `usernames`, the matching items', shows in the page's
+   * header or navigation (E2). Markers past the wire's bound are left out. Only the flag
+   * leaves the device; a page that cannot be read shows neither.
+   */
+  async function signedInHint(live: LiveDocument, usernames: readonly string[]): Promise<boolean> {
+    const proofs: ReturnType<typeof markerProof>[] = [];
+    let bound = 24;
+    for (const recipe of (await routesOf(live.document.origin)) ?? []) {
+      const proof = markerProof(recipe, live.document.origin);
+      if (!proof.targets.length || proof.targets.length > bound) continue;
+      bound -= proof.targets.length;
+      proofs.push(proof);
+    }
+    if (proofs.length) {
+      const parsed = v.safeParse(
+        observationSchema,
+        await send(live, {
+          type: "login.observe",
+          path: live.path,
+          targets: proofs.flatMap((proof) => proof.targets),
+          require: proofs.flatMap((proof) => proof.shown),
+          links: proofs.flatMap((proof) => proof.links),
+          hidden: proofs.flatMap((proof) => proof.hidden),
+        }).catch(() => undefined),
+      );
+      let offset = 0;
+      for (const proof of proofs) {
+        if (parsed.success && proof.proves(parsed.output.targets, offset)) return true;
+        offset += proof.targets.length;
+      }
+    }
+    for (const username of usernames.slice(0, MAX_HINT_USERNAMES)) {
+      if (!username) continue;
+      // Serial reads of one page, as for a login's own check.
+      const parsed = v.safeParse(
+        stateResultSchema,
+        // eslint-disable-next-line no-await-in-loop
+        await send(live, { type: "login.state", account: { username } }).catch(() => undefined),
+      );
+      if (parsed.success && parsed.output.ok && parsed.output.signs.username === true) return true;
+    }
+    return false;
   }
   /** Whether the document shows a step's elements now, without waiting for them. */
   async function showsNow(live: LiveDocument, readiness: LoginReadiness): Promise<boolean> {
@@ -7325,6 +7437,9 @@ export function createLoginRuntime(
       }
       const usernames = await readUsernames(live.document.origin, usernameReads(scope));
       const shape = usernames && usernameShape(scope, usernames);
+      // A recipe's first page carries whether it shows the person signed in, read before
+      // the usernames are dropped; a list and a chooser's branch carry none (ADR 0035).
+      const signedIn = list || base || !usernames ? undefined : await signedInHint(live, usernames);
       // The account's own usernames never reach the service.
       const hidden = hideUsernames(observation, usernames, live);
       if (documents.get(key) !== live) return;
@@ -7342,6 +7457,7 @@ export function createLoginRuntime(
             version: 1,
             observation: hidden.observation,
             ...(passkeyOnly ? { passkeyOnly: true } : {}),
+            ...(signedIn === undefined ? {} : { signedIn }),
             slots: passkeyOnly
               ? []
               : [
@@ -7359,6 +7475,7 @@ export function createLoginRuntime(
               origin: live.document.origin,
               outcome: "sent",
               ...page,
+              ...(signedIn === undefined ? {} : { signedIn }),
             }),
           ),
         )
@@ -7373,6 +7490,7 @@ export function createLoginRuntime(
         origin: live.document.origin,
         ...outcomeFields(result),
         ...page,
+        ...(signedIn === undefined ? {} : { signedIn }),
       });
       if (result.outcome !== "recipe") return;
       // Every tab's page still tracked on this origin and path that holds no login announces
@@ -7895,7 +8013,7 @@ export function createLoginRuntime(
     };
     // A sign-in input shows on this path, but the page only watches: logged once per
     // document and path, so a login that silently does not start can be told apart.
-    const notStarted = (detail: string) => {
+    const notStarted = (detail: string, confirm?: LoginRecipe) => {
       if (shown?.path !== live.path || live.notStarted === detail) return;
       live.notStarted = detail;
       report(document, {
@@ -7904,6 +8022,13 @@ export function createLoginRuntime(
         origin: document.origin,
         reason: "not-started",
         detail,
+        ...(confirm
+          ? {
+              recipeId: confirm.id,
+              recipeRevision: confirm.revision,
+              pageKind: confirm.pageKind,
+            }
+          : {}),
         ...(document.frameId === 0 ? {} : { frame: true as const }),
       });
     };
@@ -8270,11 +8395,18 @@ export function createLoginRuntime(
       const rejectedHere =
         recorded.outcome === "credential-rejected" &&
         recorded.document.documentId === document.documentId;
-      if (start?.path !== live.path && !rejectedHere) {
+      // A page generated as a verification while signed in is no logout either, even when
+      // it announces a start from starts read before its recipe was generated again (ADR
+      // 0035): the service keeps one recipe per path, so no sign-in recipe starts there.
+      const confirm =
+        rejectedHere || live.topUrl ? undefined : await confirmRecipeOn(document.origin, live.path);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if ((start?.path !== live.path || confirm) && !rejectedHere) {
         const starts = await startsFor(document.origin);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         // Not a recipe's first step on its path, so not taken as a logout (ADR 0021 D).
-        notStarted("logged-in");
+        if (confirm) notStarted("confirm-unsupported", confirm);
+        else notStarted("logged-in");
         return { ok: false, reason: "logged-in", starts };
       }
       // It shows again after a finished login: a logout. Only this tab's record for this
@@ -8329,10 +8461,13 @@ export function createLoginRuntime(
       // never submits again. Its form showing again on one of them asks like a logout, in
       // this tab only, and fills without pressing anything (ADR 0021 D, owner's choice
       // 2026-10-12); until then the page watches for it.
-      if (start?.path !== live.path) {
+      const confirm = live.topUrl ? undefined : await confirmRecipeOn(document.origin, live.path);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (start?.path !== live.path || confirm) {
         const starts = await startsFor(document.origin);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        notStarted("stopped-login");
+        if (confirm) notStarted("confirm-unsupported", confirm);
+        else notStarted("stopped-login");
         return { ok: false, reason: "login-stopped", starts };
       }
       const released = recorded;
@@ -8547,6 +8682,21 @@ export function createLoginRuntime(
         await publish(live);
         void pressEntry(live, entryRecipe).catch(() => refuseEntry(live, entryRecipe, "exception"));
         return { ok: false, reason: "entry", starts };
+      }
+      // A recipe generated as `confirm` or `unclear` starts on this path: a verification
+      // while signed in, which Pateat does not fill yet. The page is neither logged in to
+      // nor sent for generation again, and the page only watches (ADR 0035).
+      const confirm =
+        recipe || document.frameId !== 0 || live.topUrl
+          ? undefined
+          : await confirmRecipeOn(document.origin, live.path);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (confirm) {
+        notStarted("confirm-unsupported", confirm);
+        live.state = "watching";
+        delete live.reason;
+        await publish(live);
+        return { ok: false, reason: "recipe-not-found", starts };
       }
       // The chooser's path shows a sign-in form instead of its list, and the chooser has no
       // `other` branch yet, as after the person pressed its button for another account: the
@@ -10295,6 +10445,23 @@ export function createLoginRuntime(
       ? { connectionId: metadata.account.connectionId, itemId: metadata.account.itemId }
       : undefined;
   }
+  /**
+   * Whether a passkey request naming its credentials in this tab is a re-verification while
+   * signed in (ADR 0035): the tab's Pateat login of the origin signed in, and no logout was
+   * detected since, neither its first step shown again (which forgets the record) nor a
+   * control that logs out clicked on the RP ID's site. A login made in another tab or
+   * before a browser restart is not known here.
+   */
+  async function passkeyReverification(
+    tabId: number,
+    siteOrigin: string,
+    rpId: string,
+  ): Promise<boolean> {
+    await loaded;
+    const metadata = recordFor(tabId, siteOrigin);
+    if (metadata?.state !== "authenticated" || metadata.fillOnly) return false;
+    return !(await logoutClicked(tabId, rpId));
+  }
   /** The passkey bridge saw a request of this tab's top document (ADR 0029: S5). */
   function passkeyRequested(tabId: number, siteOrigin: string): void {
     passkeyRequests.set(`${tabId} ${siteOrigin}`, Date.now());
@@ -11532,6 +11699,7 @@ export function createLoginRuntime(
     siteDefaultSaved: () => void choiceDefaults(),
     active,
     loginAccount,
+    passkeyReverification,
     passkeyRequested,
     passkeyAnswered,
     conditionalRequest,

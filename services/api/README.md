@@ -217,25 +217,25 @@ a code, or `unavailable` with a reason when no model was called. A generation th
 the path ending before it), or `{ check: "plan", reason }` with the plan check's code
 (such as `incompatible-role`).
 
-- `POST /v1/recipes/generate` takes `{ version: 1, observation, slots, base? }`. Each
-  origin and start path has one generated recipe, `gen-` and the first 32 hex digits of
-  the SHA-256 of the JSON `[origin, path]`; a page without `base` is the start of its
-  own. Without `base`, an active recipe is returned as is; with `base`, the page's steps
-  are appended after the recipe's last `advance` step. A stale `base` gets the current
-  recipe back, a `base` whose recipe is revoked answers `recipe-revoked` while the
-  revoked recipe's start page is generated again as the revision after its tombstone, a
-  `base` whose recipe was not generated for this origin and its start path answers
-  `recipe-conflict`. A first page needs room under the active recipe count limit; every
-  generated page, including continuations and entry pages, needs at least 32 KiB of byte
-  room before the model call. A refused write after the call also answers
-  `recipe-limit`. A judge write refused for bytes keeps the page's answer (`challenge`,
-  or `signed-in` once the recipe has a marker or the page is on another origin of the
-  site) and is logged; only a first marker on the recipe's own origin refused for bytes
-  answers `recipe-limit`. A `base` that is not a generated recipe ID is 400. The model
-  maps the slots, the plan is checked with `validateGeneratedPage`, and the steps are
-  stored with a conditional write. Up to 20 slots are accepted; a slot with a
-  `fieldName` (and `fieldPosition` for a duplicate name) is a custom-field offer, and
-  each offer names a different field
+- `POST /v1/recipes/generate` takes
+  `{ version: 1, observation, slots, base?, signedIn? }`. Each origin and start path has
+  one generated recipe, `gen-` and the first 32 hex digits of the SHA-256 of the JSON
+  `[origin, path]`; a page without `base` is the start of its own. Without `base`, an
+  active recipe is returned as is; with `base`, the page's steps are appended after the
+  recipe's last `advance` step. A stale `base` gets the current recipe back, a `base`
+  whose recipe is revoked answers `recipe-revoked` while the revoked recipe's start page
+  is generated again as the revision after its tombstone, a `base` whose recipe was not
+  generated for this origin and its start path answers `recipe-conflict`. A first page
+  needs room under the active recipe count limit; every generated page, including
+  continuations and entry pages, needs at least 32 KiB of byte room before the model
+  call. A refused write after the call also answers `recipe-limit`. A judge write
+  refused for bytes keeps the page's answer (`challenge`, or `signed-in` once the recipe
+  has a marker or the page is on another origin of the site) and is logged; only a first
+  marker on the recipe's own origin refused for bytes answers `recipe-limit`. A `base`
+  that is not a generated recipe ID is 400. The model maps the slots, the plan is
+  checked with `validateGeneratedPage`, and the steps are stored with a conditional
+  write. Up to 20 slots are accepted; a slot with a `fieldName` (and `fieldPosition` for
+  a duplicate name) is a custom-field offer, and each offer names a different field
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Each offer the plan
   uses is named from the page's text for its element, such as `店番号`
   (`customSlotNames` in `packages/inference`), and the steps store that name instead of
@@ -267,7 +267,15 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   passkey or security key, not named like a registration and not used by any set or the
   account switch is stored as the recipe's `passkey` route, any other is dropped without
   failing the call, and a continuation's is dropped. The request log records the kept
-  button.
+  button. A recipe's first page that lists no accounts, and only it, carries `signedIn`
+  (400 otherwise): the device's hint that the page shows the person signed in
+  ([ADR 0035](../../docs/adr/0035-page-kinds-per-site.md)), sent to the model with the
+  page. Every plan answers `pageKind` (`sign-in`, `confirm` or `unclear`) and
+  `irreversible` (`yes`, `no` or `unclear`, for evaluation only). The recipe stores its
+  first page's `pageKind`: a continuation keeps the recipe's, and a chooser branch's
+  pages are `sign-in` whatever the model answers. `irreversible` is never stored on a
+  recipe. A recipe stored without `pageKind` no longer validates, so it reads as revoked
+  and its page is generated again rather than taken as `sign-in`.
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and
@@ -289,21 +297,21 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   log row has the entry request's own prompt version and records `{ entry }` with the
   candidate ID.
 - `POST /v1/recipes/generate` also takes
-  `{ version: 1, observation, slots: [], passkeyOnly: true }` for a passkey-only start
-  page ([ADR 0053](../../docs/adr/0053-passkey-only-generation.md)): no `base` or
-  `branch`, and an observation with no fill candidate and no `accounts` (400 otherwise;
-  empty `slots` without `passkeyOnly` is 400 too). Its instructions are their own text,
-  not the generation role's with a line added, and are logged under their own prompt
-  version: the owner prefers instructions per page kind to one generalized prompt
-  (2026-10-19), so a new kind of page gets its own text rather than changing the shared
-  one. The model plans `fields: []` and one `submit` action on the button that signs in
-  with an existing passkey, naming the same button as `passkeyButton`, or abstains. The
-  plan check accepts only a `button` candidate whose label or locator names a passkey or
-  security key and not a registration (the ADR 0027 word lists). The stored recipe has
-  `passkeyOnly: true`, `slots: []`, one click step that submits, `maxSubmissions: 1` and
-  the same button as its `passkey` route, so it has no `password` route. The retry
-  window, attempt row, spend limits, request log and revocation apply as for a first
-  page; it grants no passkey signing permission.
+  `{ version: 1, observation, slots: [], passkeyOnly: true, signedIn }` for a
+  passkey-only start page ([ADR 0053](../../docs/adr/0053-passkey-only-generation.md)):
+  no `base` or `branch`, and an observation with no fill candidate and no `accounts`
+  (400 otherwise; empty `slots` without `passkeyOnly` is 400 too). Its instructions are
+  their own text, not the generation role's with a line added, and are logged under
+  their own prompt version: the owner prefers instructions per page kind to one
+  generalized prompt (2026-10-19), so a new kind of page gets its own text rather than
+  changing the shared one. The model plans `fields: []` and one `submit` action on the
+  button that signs in with an existing passkey, naming the same button as
+  `passkeyButton`, or abstains. The plan check accepts only a `button` candidate whose
+  label or locator names a passkey or security key and not a registration (the ADR 0027
+  word lists). The stored recipe has `passkeyOnly: true`, `slots: []`, one click step
+  that submits, `maxSubmissions: 1` and the same button as its `passkey` route, so it
+  has no `password` route. The retry window, attempt row, spend limits, request log and
+  revocation apply as for a first page; it grants no passkey signing permission.
 - `POST /v1/recipes/:recipeId/completion` takes
   `{ version: 1, revision, route, observation, partial?, stop? }` for a page an effect
   step of that revision led to, on the recipe's origin
@@ -417,7 +425,10 @@ it also records the recipe the call is for (`recipe_id`, `branch`, empty without
 for a revoked recipe generated again, the judged one for the judge), `recipe_page` for
 generation (`first` for a page sent without a base: a new recipe, one generated again, a
 list of accounts or an entry page; `continuation` for one sent with a base, a chooser
-branch's pages included), `build` (`PATEAT_BUILD_REVISION`) and `observation_hash` (12
+branch's pages included), for generation `signed_in` (the request's hint), `page_kind`
+and `irreversible` (the plan's answers, also for a plan the local checks refused; null
+when the answer was no plan) ([ADR 0035](../../docs/adr/0035-page-kinds-per-site.md)),
+`build` (`PATEAT_BUILD_REVISION`) and `observation_hash` (12
 hex digits of the SHA-256 of the request's observation as JSON). `callClaude` returns
 the row's ID, and once the answer's recipe write succeeds `keepLogRevision` sets
 `revision`; a write refused or lost to a device leaves it null, and a failed update is
