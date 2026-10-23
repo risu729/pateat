@@ -13,7 +13,7 @@ import {
   targetState,
   writable,
 } from "../page/target-state";
-import { chooseOption, optionFor } from "../page/select-option";
+import { chooseOption, optionFor, type WantedOption } from "../page/select-option";
 import { identifierInput } from "../page/identifier-field";
 import {
   CODE_SETTLE_MS,
@@ -93,33 +93,38 @@ type Control = HTMLInputElement | HTMLSelectElement;
  */
 const takes = (element: Element | undefined, secret: LoginSecretKind | undefined) =>
   writable(element) || (secret === "date-part" && choosable(element));
+/** A fill value as the content script checks it against its input (ADR 0010, ADR 0061). */
+type FitValue = WantedOption & { group?: number | undefined };
 /**
  * Whether `value` fits `control` before anything is filled (ADR 0010): an input's type and
  * declared lengths, and for a card number's or PIN's digit group a `maxlength` of exactly
- * its length; a select needs one option that says the number (`optionFor`, ADR 0061).
+ * the group's; a select needs one option that says the number (`optionFor`, ADR 0061).
  */
-function fitsControl(control: Control, value: { value: string; group?: true | undefined }) {
-  if (control instanceof HTMLSelectElement) return optionFor(control, value.value) !== undefined;
+function fitsControl(control: Control, value: FitValue) {
+  if (control instanceof HTMLSelectElement) return optionFor(control, value) !== undefined;
   return (
     inputValueMismatch(control, value.value) === undefined &&
-    (value.group === undefined || control.maxLength === value.value.length)
+    (value.group === undefined || control.maxLength === value.group)
   );
 }
 /**
  * Puts `value` into `control` as a person would: types it into an input (`typeValue`), or
- * chooses a select's one option that says it (ADR 0061), never one by its position. A
- * select whose choice the page's handlers undid is `refused`.
+ * chooses a select's one option that says it (ADR 0061), never one by its position, and
+ * passes it to `chosen`. A select whose choice the page's handlers undid is `refused`.
  */
 async function enter<Cause extends string>(
   control: Control,
-  value: string,
+  value: FitValue,
   setter: (this: HTMLInputElement, value: string) => void,
   options: Parameters<typeof typeValue<Cause>>[3],
+  chosen?: (option: HTMLOptionElement) => void,
 ): Promise<Cause | "refused" | undefined> {
-  if (control instanceof HTMLInputElement) return typeValue(control, value, setter, options);
+  if (control instanceof HTMLInputElement) return typeValue(control, value.value, setter, options);
   options?.beforeInput?.();
-  const index = optionFor(control, value);
-  return index !== undefined && chooseOption(control, index) ? undefined : "refused";
+  const option = optionFor(control, value);
+  if (!option || !chooseOption(control, option)) return "refused";
+  chosen?.(option);
+  return undefined;
 }
 const isOnly = (found: readonly Element[], element: Element) =>
   found.length === 1 && found[0] === element;
@@ -254,6 +259,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    * check before a click.
    */
   let filled = new WeakSet<HTMLInputElement>();
+  /**
+   * The selects a split date's parts were chosen in since the last click, each with its
+   * option (ADR 0061): the click goes on only while each still shows it.
+   */
+  let chosen: [HTMLSelectElement, HTMLOptionElement][] = [];
   let shownBefore: WeakSet<HTMLInputElement> | undefined;
   let filledAttempt: string | undefined;
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
@@ -614,15 +624,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           fields.some((field, at) => !usable(controls[at], field))
         )
           return { ok: false };
+        // Every part is in one form, or every part outside any form, as a login's fill
+        // requires (`fields-split`).
+        const form = (controls[0] as Control).form;
+        if (controls.some((control) => (control as Control).form !== form)) return { ok: false };
         // A value goes only to the login item's account when the page shows one, as a
         // login's fill does (owner decision, 2026-10-11).
         if (
           username !== undefined &&
-          showsOtherAccount(
-            shownAccounts(accountText(document, (controls[0] as Control).form)),
-            username,
-            { masked: fields.some((field) => maskedSecret(field.secret)) },
-          )
+          showsOtherAccount(shownAccounts(accountText(document, form)), username, {
+            masked: fields.some((field) => maskedSecret(field.secret)),
+          })
         )
           return { ok: false, reason: "other-account" };
         for (const [at, field] of fields.entries()) {
@@ -640,7 +652,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           )
             return { ok: false };
           // eslint-disable-next-line no-await-in-loop
-          const stopped = await enter(control, field.value, setter, {
+          const stopped = await enter(control, field, setter, {
             between: () =>
               cancelled || pagePath() !== command.path || !takes(control, field.secret)
                 ? "field-changed"
@@ -994,6 +1006,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // Another attempt in this document starts from nothing filled.
       if (operation.attemptId !== filledAttempt) {
         filled = new WeakSet();
+        chosen = [];
         shownBefore = undefined;
         filledAttempt = operation.attemptId;
       }
@@ -1219,22 +1232,28 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               // page may change between characters, so each one repeats the checks. A
               // split date's select gets its option instead (ADR 0061).
               // eslint-disable-next-line no-await-in-loop
-              const stopped = await enter(input, value.value, setter, {
-                beforeInput: code?.typed,
-                between: () => {
-                  if (cancelled) return "document-cancelled";
-                  if (pagePath() !== step.path) return "page-changed";
-                  const now = matches(field.target);
-                  return now.length !== 1 ||
-                    now[0] !== input ||
-                    !takes(input, value.secret) ||
-                    input.form !== form ||
-                    !acceptsSecret(input, value.secret) ||
-                    !fits(input, value)
-                    ? "field-changed"
-                    : undefined;
+              const stopped = await enter(
+                input,
+                value,
+                setter,
+                {
+                  beforeInput: code?.typed,
+                  between: () => {
+                    if (cancelled) return "document-cancelled";
+                    if (pagePath() !== step.path) return "page-changed";
+                    const now = matches(field.target);
+                    return now.length !== 1 ||
+                      now[0] !== input ||
+                      !takes(input, value.secret) ||
+                      input.form !== form ||
+                      !acceptsSecret(input, value.secret) ||
+                      !fits(input, value)
+                      ? "field-changed"
+                      : undefined;
+                  },
                 },
-              });
+                (option) => chosen.push([input as HTMLSelectElement, option]),
+              );
               if (stopped && code?.submitted()) return fail("submitted");
               // A value the page kept a character of out is never submitted.
               if (stopped === "refused") return fail("fill-rejected");
@@ -1253,6 +1272,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           // A fill that submits through its own event ends what the next click checks.
           if (step.effect !== "prepare") {
             filled = new WeakSet();
+            chosen = [];
             shownBefore = undefined;
           }
           // A code page that submits the code by itself must not get a click as well: the
@@ -1331,10 +1351,20 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           (input) => input instanceof HTMLInputElement,
         );
         const fills = filled;
+        const choices = chosen;
         const passwordsBefore = shownBefore;
         // The next fills are checked against the next click.
         filled = new WeakSet();
+        chosen = [];
         shownBefore = undefined;
+        // A select a split date's part was chosen in must still show that option, which
+        // the form-change check below cannot read (ADR 0061).
+        if (
+          choices.some(
+            ([select, option]) => !select.isConnected || select.selectedOptions[0] !== option,
+          )
+        )
+          return fail("cancelled", "field-changed");
         // The page changed the form under the fill: never send it without its values.
         if (
           unreadyForm(formInputs, {

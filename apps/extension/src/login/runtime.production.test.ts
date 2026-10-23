@@ -14762,9 +14762,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         // Each part goes to the content script on its own, never the whole date.
         expect(detailFills().map((entry) => entry.values)).toEqual([
           [
-            { slot: "detail", value: "1990", secret: "date-part" },
-            { slot: "detail 2", value: "4", secret: "date-part" },
-            { slot: "detail 3", value: "05", secret: "date-part" },
+            { slot: "detail", value: "1990", secret: "date-part", part: "year" },
+            { slot: "detail 2", value: "4", secret: "date-part", part: "month" },
+            { slot: "detail 3", value: "05", secret: "date-part", part: "day" },
           ],
         ]);
         expect(JSON.stringify(fake.state.messages)).not.toContain("1990-04-05");
@@ -14818,8 +14818,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         };
         h.recipes.recipe.mockResolvedValue(born);
         expect(await h.hello()).toEqual({ ok: true });
+        // The person finishes the page, so the login is watched as after a judged
+        // challenge (ADR 0027).
         await vi.waitFor(
-          () => expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+          () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
           { timeout: 6_000 },
         );
         expect(detailFills()).toHaveLength(1);
@@ -14892,15 +14894,16 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
             slot: at === 0 ? "detail" : `detail ${at + 1}`,
             value,
             secret: "card-number",
-            group: true,
+            group: 4,
           })),
         ]);
         expect(JSON.stringify(fake.state.messages)).not.toContain("4000000000000002");
         expect(clicks("confirm")).toBe(1);
       }, 10_000);
 
-      it("fills nothing when the card's digits do not fill its boxes exactly", async () => {
-        const short = parseLoginRecipe({
+      /** A login whose page asks for a card number in boxes of `lengths`. */
+      function boxedCard(lengths: number[], digits: string) {
+        const boxed = parseLoginRecipe({
           ...unlearned,
           completion: home,
           handlers: [
@@ -14910,17 +14913,16 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
               fields: [
                 {
                   detail: "card-number" as const,
-                  parts: [1, 2, 3].map((part) => ({
-                    part,
-                    length: 4,
-                    target: target(`c${part}`),
+                  parts: lengths.map((length, at) => ({
+                    part: at + 1,
+                    length,
+                    target: target(`c${at + 1}`),
                   })),
                 },
               ],
             },
           ],
         });
-        onClick({ login: { path: "/signin", present: ["c1", "c2", "c3", "confirm"] } });
         const report = vi.fn<(report: LoginReport) => void>();
         const h = harness(
           {
@@ -14947,19 +14949,53 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           return response;
         });
         h.fields.mockImplementation(async (request) =>
-          request.fieldId === "card.number" ? "4000 0000 0000 0002" : "synthetic-secret",
+          request.fieldId === "card.number" ? digits : "synthetic-secret",
         );
-        h.recipes.recipe.mockResolvedValue(short);
+        h.recipes.recipe.mockResolvedValue(boxed);
+        return { h, report };
+      }
+
+      it("types a 16-digit card number into boxes whose last takes up to 7 digits", async () => {
+        onClick({
+          login: { path: "/signin", present: ["c1", "c2", "c3", "c4", "confirm"] },
+          confirm: toHome,
+        });
+        const { h } = boxedCard([4, 4, 4, 7], "4000 0000 0000 0002");
         expect(await h.hello()).toEqual({ ok: true });
-        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "blocked" }]), {
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
           timeout: 6_000,
         });
+        // The last group goes only into a box of its input's length.
+        expect(detailFills().map((entry) => entry.values)).toEqual([
+          [
+            { slot: "detail", value: "4000", secret: "card-number", group: 4 },
+            { slot: "detail 2", value: "0000", secret: "card-number", group: 4 },
+            { slot: "detail 3", value: "0000", secret: "card-number", group: 4 },
+            { slot: "detail 4", value: "0002", secret: "card-number", group: 7 },
+          ],
+        ]);
+        expect(clicks("confirm")).toBe(1);
+      }, 10_000);
+
+      it("fills nothing, and leaves the page to the person, when the card's digits do not fit its boxes", async () => {
+        onClick({ login: { path: "/signin", present: ["c1", "c2", "c3", "confirm"] } });
+        // 16 digits leave 8 for a last box of 4.
+        const { h, report } = boxedCard([4, 4, 4], "4000 0000 0000 0002");
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          { timeout: 6_000 },
+        );
         expect(detailFills()).toEqual([]);
         expect(clicks("confirm")).toBe(0);
         expect(handlerReports(report)).toEqual([
           [0, "detail", "entered", 2],
-          [0, "detail", "detail-unreadable", 2],
+          [0, "detail", "detail-unfit", 2],
         ]);
+        // A value that does not fit the page is no change of the owner's settings.
+        expect(report.mock.calls.map(([entry]) => entry)).not.toContainEqual(
+          expect.objectContaining({ outcome: "policy-changed" }),
+        );
       }, 10_000);
     });
 
@@ -15116,8 +15152,14 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           expect.objectContaining({
             path: "/confirm",
             fields: [
-              { target: target("em"), value: "04", secret: "date-part" },
-              { target: target("ey"), value: "31", secret: "date-part" },
+              { target: target("em"), value: "04", secret: "date-part", part: "month" },
+              {
+                target: target("ey"),
+                value: "31",
+                secret: "date-part",
+                part: "year",
+                shortYear: true,
+              },
             ],
           }),
         ]);

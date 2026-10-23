@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  datePartSchema,
   isDetailSlot,
   listClickSchema,
   loginFieldTargetSchema,
@@ -374,6 +375,19 @@ export const chooseResultSchema = v.variant("ok", [
 /** Hosts the content script asks the worker about at most (ADR 0031). */
 const hostList = v.pipe(v.array(v.pipe(v.string(), v.maxLength(253))), v.maxLength(256));
 const href = v.pipe(v.string(), v.maxLength(8192));
+/** What a fill value of a split detail (ADR 0061) says about the input it goes into. */
+const splitPartEntries = {
+  /**
+   * A card number's or PIN's digit group goes only into an input whose `maxlength` is this,
+   * the group's length, or the last group's input's when its digits are fewer.
+   */
+  group: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(19))),
+  /** A split date's part, whose range a select's option values must lie in. */
+  part: v.optional(datePartSchema),
+  /** A card expiry year, which a select may write with two or four digits. */
+  shortYear: v.optional(v.literal(true)),
+};
+
 export const commandSchema = v.variant("type", [
   v.strictObject({
     version: v.literal(1),
@@ -425,11 +439,7 @@ export const commandSchema = v.variant("type", [
            * this field name (ADR 0061), checked just before it is typed.
            */
           question: v.optional(questionSchema),
-          /**
-           * A card number's or PIN's digit group goes only into an input whose `maxlength`
-           * is the group's length (ADR 0061).
-           */
-          group: v.optional(v.literal(true)),
+          ...splitPartEntries,
         }),
       ),
       v.maxLength(20),
@@ -499,7 +509,7 @@ export const commandSchema = v.variant("type", [
           value: v.pipe(v.string(), v.minLength(1), v.maxLength(128)),
           secret: v.optional(v.picklist(loginSecretKinds)),
           question: v.optional(questionSchema),
-          group: v.optional(v.literal(true)),
+          ...splitPartEntries,
         }),
       ),
       v.minLength(1),

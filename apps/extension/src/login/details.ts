@@ -246,8 +246,15 @@ export function detailSecret(
 export type DetailFillValue = {
   value: string;
   secret: LoginSecretKind;
-  /** A digit group, which goes only into an input whose `maxlength` is its length. */
-  group?: true;
+  /**
+   * A digit group's input's `maxlength`: the group's length, or, for the last group, the
+   * length its input declared when its digits are fewer.
+   */
+  group?: number;
+  /** A split date's part, whose range a select's option values must lie in. */
+  part?: DatePart;
+  /** A card expiry year, which a select may write with two or four digits. */
+  shortYear?: true;
 };
 
 /** A split date's part as its format writes it: `yyyy` or `yy`, `mm` or `m`, `dd` or `d`. */
@@ -266,15 +273,16 @@ function datePartText(
  * linked field's value (and, for a card's expiry date, `cardYear`): one input's value as
  * `detailValue` makes it, or one per part of a split value: a date's year, month and day
  * each in its part's format, chosen in a select by that number; a card number's or PIN's
- * digits cut into its groups' lengths, which must add up to all of them. Undefined when
- * the value is unreadable, its digits do not fill the groups exactly, or the field is a
- * secret question's, whose answer goes with its question.
+ * digits cut into its groups' lengths, every group but the last exactly and the last
+ * with the digits left, at least one and at most its length. Undefined when the value is
+ * unreadable or the field is a secret question's, whose answer goes with its question;
+ * `unfit` when a readable card number's or PIN's digits do not fit its groups.
  */
 export function detailFieldValues(
   field: DetailField,
   value: string,
   cardYear?: string,
-): DetailFillValue[] | undefined {
+): DetailFillValue[] | "unfit" | undefined {
   if (field.detail === "secret-answer") return undefined;
   if (!("parts" in field)) {
     const made = detailValue(field.detail, field.format, value, cardYear);
@@ -290,23 +298,35 @@ export function detailFieldValues(
       ? { year: String(read.year), month: read.month, day: read.day }
       : expiry && { year: expiry.year, month: Number(expiry.month), day: 0 };
     if (!date) return undefined;
-    const made = field.parts.map((part) =>
-      typeof part.part === "string" ? datePartText(date, part.part, part.format) : undefined,
-    );
-    return made.every((entry) => entry !== undefined)
-      ? made.map((entry) => ({ value: entry, secret: "date-part" as const }))
-      : undefined;
+    const made: DetailFillValue[] = [];
+    for (const part of field.parts) {
+      if (typeof part.part !== "string") return undefined;
+      const text = datePartText(date, part.part, part.format);
+      if (text === undefined) return undefined;
+      made.push({
+        value: text,
+        secret: "date-part",
+        part: part.part,
+        ...(field.detail === "card-expiry" && part.part === "year"
+          ? { shortYear: true as const }
+          : {}),
+      });
+    }
+    return made;
   }
   const whole = detailValue(field.detail, undefined, value);
+  if (whole === undefined) return undefined;
   const lengths = field.parts.map((part) => part.length ?? 0);
-  if (whole === undefined || lengths.reduce((sum, length) => sum + length, 0) !== whole.length)
-    return undefined;
+  const earlier = lengths.slice(0, -1).reduce((sum, length) => sum + length, 0);
+  const last = whole.length - earlier;
+  if (last < 1 || last > lengths.at(-1)!) return "unfit";
   const secret = detailSecret(field.detail);
   let at = 0;
-  return lengths.map((length) => {
-    const group = whole.slice(at, at + length);
-    at += length;
-    return { value: group, secret, group: true };
+  return lengths.map((length, index) => {
+    const size = index === lengths.length - 1 ? last : length;
+    const group = whole.slice(at, at + size);
+    at += size;
+    return { value: group, secret, group: length };
   });
 }
 

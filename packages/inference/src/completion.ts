@@ -335,17 +335,25 @@ function detailInputs(
     const field = page.candidates.find((candidate) => candidate.id === entry.field);
     if (!field) return "unknown-field";
     if (part !== undefined && !splitDetails.includes(entry.value)) return "part";
-    // A date part named without a format takes a four-digit year, or two digits for a card
-    // expiry year in a two-character input, and a month and day with a leading zero: a
-    // select's options are matched by their number, and an input's maxlength holds it
-    // (ADR 0061).
+    // A date part named without a format takes a four-digit year and a month and day with
+    // a leading zero: a select's options are matched by their number, and an input's
+    // maxlength holds it. A card expiry year in an input takes what its maxlength holds,
+    // two digits or four, and with neither nor a format named it is not filled. A year in a
+    // select is always matched by its four digits, whatever format the judge named; the
+    // select still takes a card expiry year it writes with two (ADR 0061).
     const format =
-      entry.format ??
-      (typeof part === "string"
-        ? part === "year" && entry.value === "card-expiry" && field.maxLength === 2
-          ? "yy"
-          : partFormats[part]
-        : undefined);
+      part === "year" && field.role === "select"
+        ? "yyyy"
+        : (entry.format ??
+          (part === "year" && entry.value === "card-expiry"
+            ? field.maxLength === 2
+              ? "yy"
+              : field.maxLength !== undefined && field.maxLength >= 4
+                ? "yyyy"
+                : undefined
+            : typeof part === "string"
+              ? partFormats[part]
+              : undefined));
     const formatFits =
       part === undefined
         ? detailFormatFits(entry.value, format as DetailFormat | undefined)

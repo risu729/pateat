@@ -301,13 +301,16 @@ describe("values split over several inputs (owner, 2026-10-23 12:26 UTC)", () =>
     detail,
     parts: lengths.map((length, index) => ({ part: index + 1, length, target: at(`g${index}`) })),
   });
-  const values = (made: { value: string }[] | undefined) => made?.map((entry) => entry.value);
+  const values = (made: { value: string }[] | "unfit" | undefined) =>
+    typeof made === "string" ? made : made?.map((entry) => entry.value);
 
   it("makes a birth date's year, month and day in each part's format", () => {
     const full = birth(["year", "yyyy"], ["month", "mm"], ["day", "dd"]);
-    expect(detailFieldValues(full, "1990-04-05")).toEqual(
-      ["1990", "04", "05"].map((value) => ({ value, secret: "date-part" })),
-    );
+    expect(detailFieldValues(full, "1990-04-05")).toEqual([
+      { value: "1990", secret: "date-part", part: "year" },
+      { value: "04", secret: "date-part", part: "month" },
+      { value: "05", secret: "date-part", part: "day" },
+    ]);
     expect(
       values(detailFieldValues(birth(["year", "yyyy"], ["month", "m"], ["day", "d"]), "1990/4/5")),
     ).toEqual(["1990", "4", "5"]);
@@ -331,9 +334,10 @@ describe("values split over several inputs (owner, 2026-10-23 12:26 UTC)", () =>
         { part: "year" as const, format: year, target: at("year") },
       ],
     });
+    // Only a card expiry year may be matched with the other number of digits in a select.
     expect(detailFieldValues(expiry("yy", "mm"), "4", "2031")).toEqual([
-      { value: "04", secret: "date-part" },
-      { value: "31", secret: "date-part" },
+      { value: "04", secret: "date-part", part: "month" },
+      { value: "31", secret: "date-part", part: "year", shortYear: true },
     ]);
     expect(values(detailFieldValues(expiry("yyyy", "m"), "１２", "31"))).toEqual(["12", "2031"]);
     expect(detailFieldValues(expiry("yy", "mm"), "13", "2031")).toBeUndefined();
@@ -345,7 +349,7 @@ describe("values split over several inputs (owner, 2026-10-23 12:26 UTC)", () =>
       ["4000", "0000", "0000", "0002"].map((value) => ({
         value,
         secret: "card-number",
-        group: true,
+        group: 4,
       })),
     );
     expect(values(detailFieldValues(groups("card-number", 4, 6, 5), "3400-000000-00009"))).toEqual([
@@ -354,18 +358,30 @@ describe("values split over several inputs (owner, 2026-10-23 12:26 UTC)", () =>
       "00009",
     ]);
     expect(detailFieldValues(groups("pin", 2, 2), "０１２３")).toEqual([
-      { value: "01", secret: "pin", group: true },
-      { value: "23", secret: "pin", group: true },
+      { value: "01", secret: "pin", group: 2 },
+      { value: "23", secret: "pin", group: 2 },
     ]);
-    // Too few or too many digits for the groups fill none of them.
+    // The last group may hold fewer digits than its input allows, as a last box of 7 for
+    // card numbers of 16 to 19 digits; it still goes only into an input of its length.
+    expect(detailFieldValues(groups("card-number", 4, 4, 4, 7), "4000 0000 0000 0002")).toEqual([
+      { value: "4000", secret: "card-number", group: 4 },
+      { value: "0000", secret: "card-number", group: 4 },
+      { value: "0000", secret: "card-number", group: 4 },
+      { value: "0002", secret: "card-number", group: 7 },
+    ]);
     expect(
-      detailFieldValues(groups("card-number", 4, 4, 4), "4000 0000 0000 0002"),
-    ).toBeUndefined();
-    expect(
-      detailFieldValues(groups("card-number", 4, 4, 4, 4, 4), "4000 0000 0000 0002"),
-    ).toBeUndefined();
-    expect(detailFieldValues(groups("pin", 2, 2), "12345")).toBeUndefined();
-    expect(detailFieldValues(groups("pin", 2, 2), "123")).toBeUndefined();
+      values(detailFieldValues(groups("card-number", 4, 4, 4, 7), "4000 0000 0000 0000 006")),
+    ).toEqual(["4000", "0000", "0000", "0000006"]);
+    // Too few digits for the groups before the last, or too many for the last, fill none
+    // of them, and say the value does not fit.
+    expect(detailFieldValues(groups("card-number", 4, 4, 4), "4000 0000 0000 0002")).toBe("unfit");
+    expect(detailFieldValues(groups("card-number", 4, 4, 4, 4, 4), "4000 0000 0000 0002")).toBe(
+      "unfit",
+    );
+    expect(detailFieldValues(groups("pin", 2, 2), "12345")).toBe("unfit");
+    expect(detailFieldValues(groups("pin", 1, 1, 1, 1), "12345")).toBe("unfit");
+    // A PIN too short to be one is unreadable, whatever its groups.
+    expect(detailFieldValues(groups("pin", 1, 1, 1, 1), "123")).toBeUndefined();
   });
 
   it("makes one input's value as before, and never a secret question's answer", () => {

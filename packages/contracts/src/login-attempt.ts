@@ -899,6 +899,25 @@ function record(
   }
 }
 
+/** A fill's values the page would not accept, for this fill (ADR 0010). */
+const valueRejected = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
+  event.type === "VALUE_REJECTED" &&
+  operationMatches(context, event) &&
+  context.operationKind === "fill" &&
+  sameLoginDocument(context.document, event.document) &&
+  // Only a preparing fill is checked after filling; an effectful one has submitted.
+  (event.stage === "before-fill" || context.operationEffect === "prepare") &&
+  !(event.challenge === true && event.stage !== "before-fill");
+/**
+ * A split `detail` value no input takes is left to the person as a challenge (ADR 0061);
+ * a top-level `password` login is then watched for their finish, as after a judged
+ * challenge (ADR 0027).
+ */
+const valueRejectedTransitions = [
+  { guard: "valueRejectedWatched", target: "watching", actions: "record" },
+  { guard: "valueRejected", target: "blocked", actions: "record" },
+] as const;
+
 const observedTransitions = [
   { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
   { guard: "observedWatched", target: "watching", actions: "record" },
@@ -973,14 +992,13 @@ function createLoginAttemptMachine() {
         operationMatches(context, event) &&
         context.operationKind === "fill" &&
         sameLoginDocument(context.document, event.document),
-      valueRejected: ({ context, event }) =>
+      valueRejected: ({ context, event }) => valueRejected(context, event),
+      valueRejectedWatched: ({ context, event }) =>
         event.type === "VALUE_REJECTED" &&
-        operationMatches(context, event) &&
-        context.operationKind === "fill" &&
-        sameLoginDocument(context.document, event.document) &&
-        // Only a preparing fill is checked after filling; an effectful one has submitted.
-        (event.stage === "before-fill" || context.operationEffect === "prepare") &&
-        !(event.challenge === true && event.stage !== "before-fill"),
+        event.challenge === true &&
+        context.route === "password" &&
+        context.document.frameId === 0 &&
+        valueRejected(context, event),
       retryAvailable: ({ context, event }) =>
         context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
       failedPossibleMutation: ({ context, event }) =>
@@ -1270,7 +1288,7 @@ function createLoginAttemptMachine() {
             { target: "retryable", actions: "record" },
           ],
           WRONG_ACCOUNT: { guard: "wrongAccount", target: "blocked", actions: "record" },
-          VALUE_REJECTED: { guard: "valueRejected", target: "blocked", actions: "record" },
+          VALUE_REJECTED: valueRejectedTransitions,
           AUTO_SUBMITTED: { guard: "canAutoSubmit", target: "reconciling", actions: "record" },
         },
       },
@@ -1288,7 +1306,7 @@ function createLoginAttemptMachine() {
             { target: "reconciling", actions: "record" },
           ],
           WRONG_ACCOUNT: { guard: "wrongAccount", target: "blocked", actions: "record" },
-          VALUE_REJECTED: { guard: "valueRejected", target: "blocked", actions: "record" },
+          VALUE_REJECTED: valueRejectedTransitions,
         },
       },
       "awaiting-result": {

@@ -68,6 +68,7 @@ import {
   detailLinkSchema,
   loginDetailSchema,
   loginTargetSchema,
+  type DatePart,
   type DetailLink,
   type LoginDetail,
   type LoginFieldTarget,
@@ -210,6 +211,7 @@ import {
   linkedField,
   savedDetailLink,
   savedDetailLinks,
+  type DetailFillValue,
   type DetailOwner,
 } from "./details";
 import {
@@ -1841,7 +1843,7 @@ export type LoginReport = (
        * for a shown input, `detail-unreadable` when the linked value is no date or has too
        * few digits, `detail-unavailable` when the vault could not give it, `detail-unfit`
        * when a value split over several inputs fits none of them, as when no option of a
-       * select matches its part, and, about the
+       * select matches its part or a card's digits do not fit its boxes, and, about the
        * site's links, `detail-saved` when the popup's fill was saved after the login was
        * confirmed, `detail-forgotten` when a refused value's link was removed, and
        * `detail-kept` when it could not be removed now.
@@ -5289,9 +5291,10 @@ export function createLoginRuntime(
     authorized: Authorized,
     stepIndex: number,
   ): Promise<
-    | { value: string; secret?: LoginSecretKind; question?: string; group?: true }[]
+    | (Omit<DetailFillValue, "secret"> & { secret?: LoginSecretKind; question?: string })[]
     | "unreadable"
     | "unavailable"
+    | "unfit"
   > {
     const index = attemptPlan(run.recipe, run.metadata)?.[stepIndex]?.handler;
     const handler = index === undefined ? undefined : run.recipe.handlers?.[index];
@@ -5607,7 +5610,7 @@ export function createLoginRuntime(
           )
         : detailFieldValues(field, read[0], read[1]);
     read.fill("");
-    if (values === undefined) return { ok: false, reason: "unreadable" };
+    if (values === undefined || values === "unfit") return { ok: false, reason: "unreadable" };
     const command = {
       type: "login.detail.fill",
       path: offer.path,
@@ -7294,7 +7297,9 @@ export function createLoginRuntime(
         value: string;
         secret?: LoginSecretKind;
         question?: string;
-        group?: true;
+        group?: number;
+        part?: DatePart;
+        shortYear?: true;
       }[] = [];
       let expected: { username: string } | undefined;
       let list: ({ username: string; others: string[] } & Record<string, unknown>) | undefined;
@@ -7314,9 +7319,22 @@ export function createLoginRuntime(
               if (values.some((entry) => isDetailSlot(entry.slot))) continue;
               const made = await detailFill(run, authorized, operation.stepIndex);
               if (!current(run)) return;
+              const handler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
+              // A card number or PIN whose digits its groups cannot take is left to the
+              // person, as a split value no input takes is (ADR 0061).
+              if (made === "unfit") {
+                if (handler !== undefined)
+                  reportDetail(run.live.document, run.recipe, handler, "detail-unfit");
+                await change(run, {
+                  type: "VALUE_REJECTED",
+                  operationId: operation.operationId,
+                  document: run.live.document,
+                  stage: "before-fill",
+                  challenge: true,
+                });
+                return;
+              }
               if (typeof made === "string") {
-                const handler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]
-                  ?.handler;
                 if (handler !== undefined)
                   reportDetail(run.live.document, run.recipe, handler, `detail-${made}`);
                 await change(

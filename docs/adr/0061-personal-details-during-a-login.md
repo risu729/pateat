@@ -158,31 +158,63 @@ with two to six `parts`, each with its own input:
   day (`m` and `d` without a leading zero). A birth date is split as year, month and
   day, year and month, or month and day; an expiry date as month and year. A birth year
   in two digits or as an era year stays no detail. The judge does not see a select's
-  options, so a select takes `yyyy`, `mm` and `dd`. A part the judge names without a
-  format takes these too, or `yy` for a card expiry year in a two-character input, and
-  its input's `maxlength` must hold it.
+  options, so a select takes `yyyy`, `mm` and `dd`, and a year in a select is always
+  `yyyy`, whatever format the judge named (a card expiry year still matches an option
+  that writes it with two digits, below). A part the judge names without a format takes
+  `yyyy`, `mm` and `dd` too, except a card expiry year in an input: `yy` in a
+  two-character input, `yyyy` in one of four or more, and in an input that declares no
+  `maxlength` no default, so that part and its value are dropped (`format`) unless the
+  judge named one. Its input's `maxlength` must hold the part.
 - A card number's or PIN's parts are digit groups `1`, `2` and so on in the order the
   digits go, each with the `length` its input's `maxlength` declared when it was judged.
-  The lengths add up to 12 to 19 digits for a card number and 4 to 12 for a PIN.
+  The lengths add up to 12 to 19 digits for a card number and 4 to 12 for a PIN, so a
+  page whose last box takes up to 7 digits for card numbers of 16 to 19 (4-4-4-7) is
+  one such set.
 - The contracts refuse any other set: a part twice, a format on another part or detail,
   a group without its length or out of order. A split value is one choice of the
   handler, as one input is, and its link is the same one link per detail.
 - Its steps are one fill of every part's input, slots `detail`, `detail 2` to
   `detail 6`, then the click. The service worker makes every part right after the one
-  vault read; a group's digits must fill all the groups exactly, or nothing is filled
-  and the login stops as `detail-unreadable`. The content script gets only the parts,
-  checks every part's input before it fills any, and fills them in one task: a group
-  goes only into an input whose `maxlength` is its length, a date's part into a text,
-  tel or number input or a single-choice select.
-- A select is set only by matching text, never by position: the option whose value or
-  visible text, after NFKC and trimming, holds one run of digits equal to the part's
-  number (`4`, `04`, `4月`, `1990年`). A four-digit year that no option says matches the
-  option that says only its last two digits, as a card's expiry year `31` for 2031. A
-  disabled or hidden option, or one in a disabled group, never matches. When no option
-  matches, or several do, as when the values count months from 0 and the texts from 1,
-  nothing is chosen in any part's input, and the login ends `challenge` with
-  `detail-unfit` in the log. A match is chosen through the native `selectedIndex`
-  setter, with `input` and `change` events that bubble.
+  vault read. Every group but the last takes exactly its length in digits, and the last
+  the digits left, at least one and at most its length, so 16 digits fill 4-4-4-7 as
+  `4000` `0000` `0000` `0002`. Digits that do not fit so, too few for the groups before
+  the last or too many for the last, fill nothing, and the login ends `challenge` with
+  `detail-unfit`, as a value no input takes (below), not as a changed policy. The
+  content script gets only the parts and checks every part's input before it fills any:
+  a group goes only into an input whose `maxlength` is the length the recipe gave it,
+  a date's part into a text, tel or number input or a single-choice select. That check
+  is what keeps the fill all or nothing. The parts are then filled one after another
+  with the pause between fields of every preparing fill, each input checked again just
+  before it, so a page that changes a later input meanwhile stops the fill with the
+  earlier parts already in (`field-changed`), as for any fill of several fields.
+- Before the click, every select a part was chosen in must still show the option that
+  was chosen, the same element: a page that set it back, or rebuilt its options, gets no
+  click (`field-changed`). The check of the click's form's inputs reads inputs only, so
+  the selects are checked on their own.
+- The popup's Fill of a split value takes every part's input in one form, or every one
+  outside any form, as a login's fill does (`fields-split`), and reads the account the
+  page shows from that form.
+- A select is set only by matching text, never by position (the header of
+  `apps/extension/src/page/select-option.ts` says the same). An option's visible text,
+  after NFKC and trimming, decides when it holds one run of digits: the option matches
+  when that number equals the part's (`4`, `04`, `4月`, `1990年`). Its value counts only
+  when its text holds no number, as a month's name, and only when every value of the
+  select that holds digits lies in the part's own range: 1 to 12 for a month, 1 to 31
+  for a day, four digits for a year (or two for a card expiry year), and none is 0. So
+  month names with values that count from 0 (`<option value="0">January</option>`)
+  never match, and May is never chosen for April. Only a card expiry year matches an
+  option that writes it with the other number of digits, when no option says it as
+  made: `31` for 2031, or `2031` for `31`. A birth year never does, so an era year
+  (`昭和55年`, value `S55`) matches no year and the select is left alone. A disabled or
+  hidden option, or one in a disabled group, never matches. When no option matches, or
+  several do, nothing is chosen in any part's input, and the login ends `challenge`
+  with `detail-unfit` in the log. A match is chosen through the native `selectedIndex`
+  setter, with `input` and `change` events that bubble; the option's place is read
+  again after the select took focus, since the page's focus handlers may add options.
+- A login that ends so, a top-level `password` login, is then watched as one stopped at
+  a judged challenge ([ADR 0027](0027-per-account-login-routes.md)), so
+  the person's own finish of the page is confirmed as the login's sign-in; a frame's or
+  another route's login ends there.
 - The judged page's description lists up to twelve shown, enabled single-choice selects
   as `select`, by their label and position, never their options. A login page's
   description still leaves selects out.
@@ -192,7 +224,7 @@ Security notes:
 - The judge names each part's input, and the content script checks only its type,
   `maxlength` or options. A part can land in a wrong input, as a whole value can; a
   wrong group length or a missing box fills nothing, since the groups must hold every
-  digit.
+  digit and each box's `maxlength` must be its group's.
 - An option is never chosen by its position, so a select that lists years from either
   end, or puts a placeholder first, is never off by one.
 
@@ -420,13 +452,13 @@ filling), `detail-unlinked`, `detail-unreadable` (the linked value is not a date
 expiry month and year, or has too few or too many digits) and `detail-unavailable` (the
 vault could not give the linked value at the fill); a login that meets either stops as a
 changed policy (`field-unavailable`). It gains `detail-unfit` too: a split value fits
-none of its inputs, as when no option of a select matches its part, and the login ends
-`challenge`. About links it gains `detail-saved` (a link filled
-from the popup was saved after the login was confirmed), `detail-not-saved` (it could
-not be written, as while another tab's login runs; it is dropped), `detail-forgotten` (a
-refused value's link was removed) and `detail-kept` (that removal could not be written
-now). The judge's log keeps `details` with each ID that is not a candidate replaced by
-`?`. Never a value or an item name.
+none of its inputs, as when no option of a select matches its part or a card's digits do
+not fit its boxes, and the login ends `challenge`, watched as above. About links it
+gains `detail-saved` (a link filled from the popup was saved after the login was
+confirmed), `detail-not-saved` (it could not be written, as while another tab's login
+runs; it is dropped), `detail-forgotten` (a refused value's link was removed) and
+`detail-kept` (that removal could not be written now). The judge's log keeps `details`
+with each ID that is not a candidate replaced by `?`. Never a value or an item name.
 
 ## Assumed (not confirmed)
 
@@ -464,6 +496,14 @@ now). The judge's log keeps `details` with each ID that is not a candidate repla
   `challenge` is what shows ([ADR 0038](0038-login-status-badge.md)).
 - A page beside the sign-in form is judged only when it shows a text, tel or number
   input, so one that asks only in selects there is not judged.
-- An option whose text holds two numbers, as `1990 (平成2)`, matches only by its value.
+- An option whose text holds two numbers, as `1990 (平成2)`, matches only by its value,
+  and only while the select's values are years.
+- A select the page keeps disabled until an earlier part is chosen, as a day select
+  enabled once the month is, is not settable, so the handler is not entered while it is:
+  the login ends `challenge` with `detail-unlinked`, and the popup proposes the link. A
+  part's select that the page disables after the handler was entered ends the fill as a
+  missing target (`structural-mismatch`). A dependent select that is enabled but still
+  empty has no option for its part, so the login ends `challenge` with `detail-unfit`.
+  Choosing a part and waiting for the next select's options is not done.
 - Whether MUFG keeps the sidebar sign-in form shown behind the lightbox, and the order
   of its radios and inputs, needs a check in the owner's Chrome.

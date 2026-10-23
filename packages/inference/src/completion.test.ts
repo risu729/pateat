@@ -1349,6 +1349,74 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
           },
         },
       });
+      // A four-character box takes four digits.
+      const long = await judged(
+        [box("em", 2), box("ey", 4), next],
+        answer(unnamed(["em", "ey"], "card-expiry", ["month", "year"])),
+      );
+      expect(long).toMatchObject({
+        status: "ok",
+        value: {
+          detail: {
+            fields: [
+              {
+                parts: [
+                  { part: "month", format: "mm" },
+                  { part: "year", format: "yyyy" },
+                ],
+              },
+            ],
+          },
+        },
+      });
+      // A box that declares no length gives no hint which the page wants: the year is not
+      // filled unless the judge names its format, and the month goes with it.
+      const open = await judged(
+        [box("em", 2), box("ey"), next],
+        answer(unnamed(["em", "ey"], "card-expiry", ["month", "year"])),
+      );
+      expect(open).toMatchObject({
+        status: "ok",
+        value: { detailsDropped: ["format", "parts"] },
+      });
+      expect(open.status === "ok" && open.value).not.toHaveProperty("detail");
+      const named = await judged(
+        [box("em", 2), box("ey"), next],
+        answer([
+          { field: "em", value: "card-expiry", part: "month" },
+          { field: "ey", value: "card-expiry", part: "year", format: "yy" },
+        ]),
+      );
+      expect(named).toMatchObject({
+        status: "ok",
+        value: {
+          detail: {
+            fields: [{ parts: [{ part: "month" }, { part: "year", format: "yy" }] }],
+          },
+        },
+      });
+    });
+
+    it("matches a year in a select by its four digits whatever format the judge names", async () => {
+      const outcome = await judged(
+        datePage,
+        answer(
+          dateAnswer.map((entry) => (entry.part === "year" ? { ...entry, format: "yy" } : entry)),
+        ),
+      );
+      expect(outcome).toMatchObject({
+        status: "ok",
+        value: {
+          detail: {
+            fields: [
+              {
+                detail: "birth-date",
+                parts: [{ part: "year", format: "yyyy", target: name("year") }, {}, {}],
+              },
+            ],
+          },
+        },
+      });
     });
 
     it("keeps a card number's boxes in their numbers' order, each as long as its maxlength", async () => {
@@ -1400,7 +1468,8 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
                   detail: "card-expiry",
                   parts: [
                     { part: "month", format: "mm", target: name("exp_m") },
-                    { part: "year", format: "yy", target: name("exp_y") },
+                    // A select's year is matched by its four digits, though named `yy`.
+                    { part: "year", format: "yyyy", target: name("exp_y") },
                   ],
                 },
                 {
@@ -1433,8 +1502,9 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
         ["parts", "parts", "parts", "parts"],
       ],
       [
-        "a two-digit birth year",
-        datePage,
+        // A select's year is matched by its four digits instead, whatever the judge names.
+        "a two-digit birth year in a box",
+        [box("year", 2), box("month", 2), box("day", 2), next],
         [{ ...dateAnswer[0], format: "yy" }, dateAnswer[1], dateAnswer[2]],
         ["format", "parts", "parts"],
       ],
