@@ -403,6 +403,12 @@ export const recipeCompletionResultSchema = v.variant("status", [
     status: v.literal("challenge"),
     change: v.optional(activeChange),
   }),
+  /**
+   * The person is signed in and the page only offers something they may put off, such as a
+   * prompt to check two-factor settings or add a passkey (ADR 0065). Nothing is learned:
+   * the login completes there as signed in and leaves the page to the person.
+   */
+  v.strictObject({ version: v.literal(1), status: v.literal("optional") }),
   v.strictObject({ version: v.literal(1), status: v.literal("unclear") }),
   v.strictObject({
     version: v.literal(1),

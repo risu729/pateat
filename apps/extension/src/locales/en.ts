@@ -338,4 +338,7 @@ export const en = {
     "Pateat cannot read that field now. Unlock the vault and try again.",
   "The page did not accept the value.": "The page did not accept the value.",
   "ID {{id}}": "ID {{id}}",
+  vaultsLocked_one: "{{count}} vault is locked, so its logins and passkeys wait.",
+  vaultsLocked_other: "{{count}} vaults are locked, so their logins and passkeys wait.",
+  "Unlock in settings": "Unlock in settings",
 } as const;

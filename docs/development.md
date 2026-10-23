@@ -616,10 +616,20 @@ Forget sync sign-in removes it locally without a server logout. Forget cancels a
 Sync but is refused while a password sign-in is in progress. Offline local-vault
 restoration is independent of that provider session.
 
-Each connection is a row with one main action, Sync, or Sign in again while syncing
-needs a sign-in first (the vault is locked, setup is incomplete, automatic unlock is
-off or the sync sign-in is missing). The other of the two, Turn off automatic unlock,
-Forget sync sign-in and Delete connection are in the row's menu.
+Each connection is a row with one main action: Unlock while the vault is locked, else
+Sync, or Sign in again while syncing needs a sign-in first (setup is incomplete, the
+connection is logged out or the sync sign-in is missing). Unlock opens the master
+password form in the row and unlocks offline
+([ADR 0075](adr/0075-vault-lock-and-timeout.md)). The other of the two, Lock, Log out,
+Forget sync sign-in and Delete connection are in the row's menu. Log out removes the
+unlock key and the sync sign-in and keeps the encrypted cache, as Turn off automatic
+unlock did.
+
+The **Vault timeout** section sets when every vault on this device locks or logs out:
+after 1, 5, 15 or 30 minutes or 1 or 4 hours without use, a custom number of minutes,
+On system idle, On system lock, On browser restart, or Never (the default). Use is a
+field filled, a passkey signed, an unlock or a sign-in. Only Never keeps the unlock key
+on disk; any other choice keeps it in memory, so a browser restart locks too.
 
 Delete connection, confirmed in the row, removes one connection from this
 device: its sync sign-in, its local vault record with the retained unlock key (after
@@ -653,18 +663,11 @@ the page first reads its connections (owner decision, 2026-10-19): stopping that
 says "Loading stopped.", reads the connections again and leaves the saved settings
 draft as it is, since nothing was written.
 
-Sign in again on a connection that never unlocked (automatic unlock "unknown" and a
-readable local record) starts with **Enable automatic unlock on this device**
-checked: the vault cannot be accepted without it, and the add that registered the
-connection asked for it. An unreadable record starts unchecked, since it may hide a
-choice to keep automatic unlock off.
-
-Connecting retains the local unlock key and encrypted cache. Disabling automatic
-unlock removes the retained key; signing in again does not implicitly re-enable
-it, though the box starts checked for a connection that never unlocked. A
+Connecting and every password sign-in unlock the vault and keep its unlock key where
+the vault timeout says. Log out removes the key; only a sign-in brings it back. A
 cancellation or timeout during the durable write can leave an accepted record even
-when setup reports an uncertain result. Reload connection status;
-explicitly disable automatic unlock if that retained key should be removed.
+when setup reports an uncertain result. Reload connection status; Lock or Log out if
+that key should be removed.
 Compensation removes only a positively identified first-enrollment candidate,
 never an unknown or newer record. Connection status and policy metadata contain
 no field values. A changed

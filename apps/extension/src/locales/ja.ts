@@ -341,4 +341,9 @@ export const ja = {
     "そのフィールドを今は読み取れません。保管庫のロックを解除して、もう一度お試しください。",
   "The page did not accept the value.": "ページが値を受け付けませんでした。",
   "ID {{id}}": "ID {{id}}",
+  vaultsLocked_one:
+    "{{count}} 個の保管庫がロック中のため、そのログインとパスキーは待機しています。",
+  vaultsLocked_other:
+    "{{count}} 個の保管庫がロック中のため、それらのログインとパスキーは待機しています。",
+  "Unlock in settings": "設定でロック解除",
 } satisfies Record<keyof typeof en, string>;

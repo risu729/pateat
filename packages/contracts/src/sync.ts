@@ -244,6 +244,11 @@ export const loginOutcomeReportSchema = v.strictObject({
   /** The attempt's step index when it ended: route steps and entered handlers' (at most 40). */
   step: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(40)),
 });
+/** The extension's build: its commit, or `development` for a build outside git. */
+export const extensionBuildSchema = v.pipe(
+  v.string(),
+  v.regex(/^(?:[0-9a-f]{7,40}|development)$/u),
+);
 /** The longest time a login record carries: a day; no login takes that long. */
 export const MAX_LOGIN_RECORD_MS = 86_400_000;
 const loginMilliseconds = v.pipe(
@@ -266,8 +271,7 @@ export const loginRecordSchema = v.strictObject({
   branch: v.optional(chooserBranchSchema),
   outcome: loginOutcomeSchema,
   cause: v.optional(loginOutcomeCauseSchema),
-  /** The extension's build: its commit, or `development` for a build outside git. */
-  extensionBuild: v.pipe(v.string(), v.regex(/^(?:[0-9a-f]{7,40}|development)$/u)),
+  extensionBuild: extensionBuildSchema,
   /** From when the extension saw the login's first page until the login ended. */
   totalMs: loginMilliseconds,
   /** Waiting for the service: generation, judging and the recipe sync after them. */

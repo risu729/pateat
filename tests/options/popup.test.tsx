@@ -1673,3 +1673,45 @@ test("a tab Pateat cannot run on asks nothing about its details", async () => {
   await expect.element(page.getByText("Pateat works on websites", { exact: false })).toBeVisible();
   expect(details.get).not.toHaveBeenCalled();
 });
+
+/** The demo catalog with its first `count` vaults locked (ADR 0075). */
+function withLocked(count: number) {
+  const value = saved(0);
+  value.catalog.connections = value.catalog.connections.map((connection, index) =>
+    index < count ? { ...connection, state: "locked" as const, groups: [], items: [] } : connection,
+  );
+  return value;
+}
+
+test("a locked vault is named with a link to unlock it in settings", async () => {
+  expect(DUMMY_VAULT_CATALOG.connections.length).toBeGreaterThanOrEqual(2);
+  const { client } = store(withLocked(1));
+  const host = await mount(client, "https://bank.example/login");
+  const notice = page.getByText("1 vault is locked, so its logins and passkeys wait.", {
+    exact: false,
+  });
+  await expect.element(notice).toBeVisible();
+  expect(document.querySelector("#popup-vault-locked")?.textContent).toContain(
+    "Unlock in settings",
+  );
+  await userEvent.click(page.getByRole("link", { name: "Unlock in settings", exact: true }));
+  expect(host.openSettings).toHaveBeenCalledOnce();
+  expect(client.saveSettings).not.toHaveBeenCalled();
+});
+
+test("the locked notice counts every locked vault", async () => {
+  const { client } = store(withLocked(2));
+  await mount(client, "https://bank.example/login");
+  await expect
+    .element(
+      page.getByText("2 vaults are locked, so their logins and passkeys wait.", { exact: false }),
+    )
+    .toBeVisible();
+});
+
+test("no locked notice shows while every vault is open", async () => {
+  const { client } = store();
+  await mount(client, "https://bank.example/login");
+  await expect.poll(() => client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
+  expect(document.querySelector("#popup-vault-locked")).toBeNull();
+});
