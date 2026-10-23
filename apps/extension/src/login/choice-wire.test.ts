@@ -3,15 +3,21 @@ import { choiceReason, choiceResponseSchema, pickFailure } from "./choice-wire";
 import * as v from "valibot";
 
 describe("the popup's reason for asking (ADR 0021)", () => {
-  it("names why the tab asks after a logout", () => {
-    expect(choiceReason("this-tab", 2)).toBe("You logged out of this site in this tab");
-    expect(choiceReason("other-tab", 2)).toBe("You logged out of this site in another tab");
-    // The site did not accept this tab's last login (ADR 0021 D, 2026-10-13).
+  it("names why the tab asks", () => {
+    // The site did not accept this tab's last login (ADR 0021 D, 2026-10-13), or another
+    // tab's of the origin, which shares the session.
     expect(choiceReason("rejected", 3)).toBe("The site did not accept the last login in this tab");
+    expect(choiceReason("rejected-elsewhere", 2)).toBe(
+      "The site did not accept the last login in another tab",
+    );
     // A login that stopped after a submission, or a watched login that ended before it
     // signed in (ADR 0027), asks in this tab only.
     expect(choiceReason("stopped-login", 1)).toBe(
       "The last login on this site stopped in this tab",
+    );
+    // Two automatic logins of the site signed in within 10 minutes (ADR 0062).
+    expect(choiceReason("relogin-limit", 1)).toBe(
+      "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose",
     );
   });
 
@@ -36,7 +42,7 @@ describe("the popup's reason for asking (ADR 0021)", () => {
     );
   });
 
-  it("counts the matches outside a logout", () => {
+  it("counts the matches outside an ask", () => {
     expect(choiceReason(undefined, 3)).toBe("3 accounts match this page");
   });
 
@@ -47,8 +53,10 @@ describe("the popup's reason for asking (ADR 0021)", () => {
       documentId: "synthetic-document",
       candidates: [{ connectionId: "connection", itemId: "item" }],
     };
-    for (const logout of ["this-tab", "rejected", "other-tab", "stopped-login"])
-      expect(v.parse(choiceResponseSchema, { ...response, logout })).toMatchObject({ logout });
-    expect(v.safeParse(choiceResponseSchema, { ...response, logout: true }).success).toBe(false);
+    for (const ask of ["rejected", "rejected-elsewhere", "stopped-login", "relogin-limit"])
+      expect(v.parse(choiceResponseSchema, { ...response, ask })).toMatchObject({ ask });
+    expect(v.safeParse(choiceResponseSchema, { ...response, ask: true }).success).toBe(false);
+    // A logout no longer makes a tab ask (ADR 0062).
+    expect(v.safeParse(choiceResponseSchema, { ...response, ask: "this-tab" }).success).toBe(false);
   });
 });

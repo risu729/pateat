@@ -276,7 +276,6 @@ export const LOG_EVENTS = {
       account: "code",
       candidates: "count",
       item: "item",
-      fillOnly: "flag",
       startStep: "count",
       list: "code",
       listUsername: "code",
@@ -292,19 +291,8 @@ export const LOG_EVENTS = {
       url: "url",
     },
   },
-  "login.logout": {
-    level: "info",
-    fields: {
-      origin: "origin",
-      recipe: "recipe",
-      recipeRevision: "count",
-      rejected: "flag",
-      clicked: "flag",
-      url: "url",
-    },
-  },
-  // A tab that asked after a logout closed; other tabs that asked only because of it stop
-  // asking (ADR 0021 D).
+  // A tab that asked for an account closed; other tabs that asked only because the site
+  // rejected its login stop asking (ADR 0021 D).
   "login.ask-ended": {
     level: "info",
     fields: { origin: "origin", ask: "code", cause: "code", elsewhere: "flag" },
@@ -316,7 +304,7 @@ export const LOG_EVENTS = {
       origin: "origin",
       choice: "code",
       candidates: "count",
-      logout: "code",
+      ask: "code",
       held: "flag",
       rejectedElsewhere: "flag",
       recordState: "code",
@@ -438,8 +426,6 @@ export const LOG_EVENTS = {
       siteDefaultItem: "code",
       complete: "flag",
       chooser: "code",
-      signedBefore: "flag",
-      logoutClicked: "flag",
       mediation: "code",
       uiMode: "code",
       duringLogin: "flag",

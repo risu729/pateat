@@ -73,7 +73,7 @@ describe("a single-page sign-in that shows its next step in place (ADR 0049)", (
     history.replaceState(null, "", "/signin");
     document.body.innerHTML = emailPage;
     // The first announcement learns the starts; the email step's login then runs and ends,
-    // as a fill-only login after a logout does, and the page announces again with no start.
+    // as a login stopped there does, and the page announces again with no start.
     replies.push(refused, () => ({ ok: true }), refused);
     uninstall = installLoginContent();
     await vi.advanceTimersByTimeAsync(200);

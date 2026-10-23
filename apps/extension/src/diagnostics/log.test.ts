@@ -2005,27 +2005,13 @@ describe("unhandled errors", () => {
     });
     log.login({ type: "refused", ...site, reason: "tab-busy", frame: true });
     log.login({ type: "refused", ...site, reason: "tab-busy" });
-    // Filling the form after a logout ends without pressing anything by design.
-    log.login({
-      type: "attempt",
-      ...site,
-      recipeId: "synthetic-recipe",
-      recipeRevision: 1,
-      route: "password",
-      state: "blocked",
-      stepIndex: 1,
-      stepCount: 2,
-      outcome: "cancelled",
-      reason: "fill-only",
-    });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(6));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(5));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields["settled"]])).toEqual([
       ["login.attempt", "warn", true],
       ["login.attempt", "debug", undefined],
       ["login.refused", "debug", undefined],
       ["login.refused", "info", undefined],
-      ["login.attempt", "info", undefined],
     ]);
     expect(entries[2]?.fields).toMatchObject({ reason: "tab-busy", frame: true });
     expect((await log.logger.summary()).recentWarnings).toBe(1);
@@ -2413,7 +2399,7 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs a closed tab that stops asking after a logout, with each entry's tab (ADR 0021 D)", async () => {
+  it("logs a closed tab that stops asking, with each entry's tab (ADR 0021 D)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -2426,8 +2412,7 @@ describe("unhandled errors", () => {
     });
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     const origin = "https://login.example";
-    log.login({ type: "logout", tabId: 4, origin, clicked: true });
-    log.login({ type: "ask-ended", tabId: 4, origin, ask: "logout", cause: "tab-closed" });
+    log.login({ type: "ask-ended", tabId: 4, origin, ask: "stopped-login", cause: "tab-closed" });
     log.login({
       type: "ask-ended",
       tabId: 5,
@@ -2436,14 +2421,13 @@ describe("unhandled errors", () => {
       cause: "tab-closed",
       elsewhere: true,
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
-      ["login.logout", "info", { origin: expect.any(String), clicked: true, tab: 4 }],
       [
         "login.ask-ended",
         "info",
-        { origin: expect.any(String), ask: "logout", cause: "tab-closed", tab: 4 },
+        { origin: expect.any(String), ask: "stopped-login", cause: "tab-closed", tab: 4 },
       ],
       [
         "login.ask-ended",
@@ -2468,11 +2452,11 @@ describe("unhandled errors", () => {
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>)
       .filter((line) => line["event"] !== undefined);
-    expect(exported.map((line) => line["tab"])).toEqual([4, 4, 5]);
+    expect(exported.map((line) => line["tab"])).toEqual([4, 5]);
     vi.restoreAllMocks();
   });
 
-  it("logs what the popup was told about a tab's account choice, and a rejected logout", async () => {
+  it("logs what the popup was told about a tab's account choice and why the tab asks", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -2494,19 +2478,12 @@ describe("unhandled errors", () => {
       pageReason: "logged-in",
     });
     log.login({
-      type: "logout",
-      ...site,
-      recipeId: "synthetic-recipe",
-      recipeRevision: 4,
-      rejected: true,
-    });
-    log.login({
       type: "popup",
       ...site,
       choice: "offered",
       candidates: 3,
-      logout: "rejected",
-      pageReason: "logged-out",
+      ask: "rejected",
+      pageReason: "account-asked",
     });
     // Another tab of the site, whose popup chooses no account after that rejection.
     log.login({
@@ -2515,14 +2492,13 @@ describe("unhandled errors", () => {
       origin: site.origin,
       choice: "offered",
       candidates: 3,
-      logout: "other-tab",
+      ask: "rejected-elsewhere",
       rejectedElsewhere: true,
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(4));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level])).toEqual([
       ["login.popup", "info"],
-      ["login.logout", "info"],
       ["login.popup", "info"],
       ["login.popup", "info"],
     ]);
@@ -2532,18 +2508,20 @@ describe("unhandled errors", () => {
       recordOutcome: "unknown-submit",
       pageReason: "logged-in",
     });
-    expect(entries[1]?.fields).toMatchObject({ rejected: true });
-    expect(entries[2]?.fields).toMatchObject({
+    expect(entries[1]?.fields).toMatchObject({
       choice: "offered",
       candidates: 3,
-      logout: "rejected",
-      pageReason: "logged-out",
+      ask: "rejected",
+      pageReason: "account-asked",
     });
-    expect(entries[3]?.fields).toMatchObject({ logout: "other-tab", rejectedElsewhere: true });
+    expect(entries[2]?.fields).toMatchObject({
+      ask: "rejected-elsewhere",
+      rejectedElsewhere: true,
+    });
     vi.restoreAllMocks();
   });
 
-  it("logs a login's start, what a chooser's list showed, the account choice and a logout at info", async () => {
+  it("logs a login's start, what a chooser's list showed and the account choice at info", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -2569,7 +2547,6 @@ describe("unhandled errors", () => {
       itemId,
     });
     log.login({ type: "choice", ...site, outcome: "saved" });
-    log.login({ type: "logout", ...site, recipeId: "synthetic-recipe", recipeRevision: 4 });
     // A chooser's list on which nothing fits logs what it showed, as counts and codes.
     const chooser = {
       type: "start",
@@ -2606,12 +2583,11 @@ describe("unhandled errors", () => {
         continue: "many",
       },
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(5));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(4));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level])).toEqual([
       ["login.start", "info"],
       ["login.choice", "info"],
-      ["login.logout", "info"],
       ["login.start", "info"],
       ["login.start", "info"],
     ]);
@@ -2623,9 +2599,8 @@ describe("unhandled errors", () => {
       candidates: 1,
       item: expect.stringMatching(/^item:[0-9a-f]{8}$/),
     });
-    expect(entries[2]?.fields).toMatchObject({ recipeRevision: 4 });
     expect(Object.keys(entries[0]!.fields).filter((key) => key.startsWith("list"))).toEqual([]);
-    expect(entries[3]?.fields).toMatchObject({
+    expect(entries[2]?.fields).toMatchObject({
       account: "default",
       list: "none",
       listUsername: "email",
@@ -2638,8 +2613,8 @@ describe("unhandled errors", () => {
       listOther: "missing",
       listContinue: "none",
     });
-    expect(entries[3]?.fields).not.toHaveProperty("listNamed");
-    expect(entries[4]?.fields).toMatchObject({
+    expect(entries[2]?.fields).not.toHaveProperty("listNamed");
+    expect(entries[3]?.fields).toMatchObject({
       list: "none",
       listUsername: "name",
       listEntries: 3,
@@ -2649,7 +2624,7 @@ describe("unhandled errors", () => {
       listContinue: "many",
     });
     for (const key of ["listMasked", "listSameDomain", "listFits", "listEntryMiss"])
-      expect(entries[4]?.fields).not.toHaveProperty(key);
+      expect(entries[3]?.fields).not.toHaveProperty(key);
     expect(JSON.stringify(entries)).not.toContain(itemId);
     vi.restoreAllMocks();
   });

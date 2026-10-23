@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSignIns } from "./sign-ins";
-import type { SessionItem } from "./signed-tabs";
+import type { SessionItem } from "./sign-ins";
 
 const KEY = "pateat.passkey-sign-ins.v1";
 const origin = "https://login.example.com";

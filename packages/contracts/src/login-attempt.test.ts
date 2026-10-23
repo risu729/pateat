@@ -218,30 +218,6 @@ describe("attempt identity and metadata", () => {
     });
     expect(staleReply).toEqual(intent);
   });
-
-  it("never issues or authorizes a step with an effect for a fill-only attempt", () => {
-    const ready = readyToClick();
-    const operation = nextLoginOperation(ready, recipe, document, "click-one", 1000)!;
-    const fillOnly = { ...ready, fillOnly: true as const };
-    expect(nextLoginOperation(fillOnly, recipe, document, "click-one", 1000)).toBeUndefined();
-    const intent = transitionLoginAttempt(
-      transitionLoginAttempt(fillOnly, {
-        type: "PREPARE",
-        operationId: "click-one",
-        kind: "click",
-      }),
-      { type: "SUBMIT_INTENT", operationId: "click-one" },
-    );
-    expect(validateLoginOperation(operation, intent, document, 3, 1001)).toBe(false);
-    // Its preparing fill is issued as for any login.
-    const start = {
-      ...transitionLoginAttempt(detected(), { type: "RESOLVE" }),
-      fillOnly: true as const,
-    };
-    expect(nextLoginOperation(start, recipe, document, "fill-one")).toMatchObject({
-      step: { kind: "fill" },
-    });
-  });
 });
 
 describe("submission and failure reconciliation", () => {
@@ -2726,12 +2702,6 @@ describe("route changes for a page's own passkey request (ADR 0034)", () => {
     expect(transitionLoginAttempt(filling, toPasskey)).toEqual(filling);
     // A submission, even before its result.
     expect(transitionLoginAttempt(submitting(), toPasskey)).toEqual(submitting());
-    // A login that only fills after a logout.
-    const fillOnly = transitionLoginAttempt(
-      create({ route: "password", variant: 0 }, { fillOnly: true }),
-      { type: "RESOLVE" },
-    );
-    expect(transitionLoginAttempt(fillOnly, toPasskey)).toEqual(fillOnly);
     // A login on a chooser's list once its click on the list, its first submission, went out.
     const listed = transitionLoginAttempt(
       create({ route: "password", variant: 0 }, { chooser: "other" }),
@@ -3175,9 +3145,6 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     expect(transitionLoginAttempt(before, answer)).toEqual(before);
     const unsubmitted = { ...stopped, submissions: 0 };
     expect(transitionLoginAttempt(unsubmitted, answer)).toEqual(unsubmitted);
-    // A fill-only login presses nothing.
-    const fillOnly = { ...stopped, fillOnly: true as const };
-    expect(transitionLoginAttempt(fillOnly, answer)).toEqual(fillOnly);
     // The budget is spent.
     const spent = { ...stopped, submissions: 2 };
     expect(transitionLoginAttempt(spent, answer)).toEqual(spent);
@@ -3287,12 +3254,11 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
       expect(transitionLoginAttempt(back, button)).toEqual(back);
     });
 
-    it("refuses a handler at the stop without a submission, while retrying or filling only", () => {
+    it("refuses a handler at the stop without a submission or while retrying", () => {
       const stopped = atStop();
       for (const refused of [
         { ...stopped, submissions: 0 },
         { ...stopped, retryRequired: true as const },
-        { ...stopped, fillOnly: true as const },
         { ...stopped, stepIndex: 1 },
         { ...stopped, handlers: [{ index: 0, start: 2 }], stepCount: 5, stopAt: 3, stepIndex: 3 },
         { ...stopped, maxSubmissions: 12 },
@@ -3323,7 +3289,6 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
       for (const refused of [
         { ...stopped, stepIndex: 1 },
         { ...stopped, submissions: 0 },
-        { ...stopped, fillOnly: true as const },
         { ...stopped, stopAt: 4, stepIndex: 4 },
       ])
         expect(transitionLoginAttempt(refused, judging)).toEqual(refused);
