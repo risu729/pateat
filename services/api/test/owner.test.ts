@@ -28,6 +28,7 @@ import {
   request,
   type Owner,
 } from "./access-helpers";
+import { writeRecipe } from "../src/recipe-store";
 import { OWNER_LIMIT, withLimiter } from "./limiter";
 
 // Synthetic Access keys, identities and extension IDs only. Every test uses fresh
@@ -1012,15 +1013,57 @@ describe("owner web UI recipes", () => {
     expect(rows.results).toEqual([{ revision: 2, created_by_device_id: null }]);
   });
 
-  it("keeps an idle layout generated as a verification, which never runs (ADR 0035, ADR 0060)", async () => {
+  it("keeps the idle layouts of a recipe generated as a verification, which never runs (ADR 0035, ADR 0060)", async () => {
     const by = await owner();
     const device = await pairDevice(by);
     const now = Date.now();
     const old = now - 91 * 24 * 60 * 60 * 1000;
+    const put = (layouts: { key: string; createdAt: number; pageKind?: PageKind }[]) =>
+      deviceApi(device.credential, "/v1/recipes/bank-signin", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: 1,
+          expectedRevision: 0,
+          state: "active",
+          recipe: recipe("bank-signin", 1, "https://bank.example", layouts),
+        }),
+      });
+    // Every layout of a recipe has its start page's kind, so a document mixing them is
+    // refused.
+    expect(
+      (
+        await put([
+          { key: "1000", createdAt: old, pageKind: "confirm" },
+          { key: "2000", createdAt: now },
+        ])
+      ).status,
+    ).toBe(400);
     const layouts = [
       { key: "1000", createdAt: old, pageKind: "confirm" as const },
-      { key: "2000", createdAt: old },
-      { key: "3000", createdAt: now },
+      { key: "2000", createdAt: now, pageKind: "confirm" as const },
+    ];
+    expect((await put(layouts)).status).toBe(200);
+    // No layout goes, and the recipe itself is never revoked as idle.
+    const { recipes } = await list(by);
+    expect(recipes.map((entry) => entry.change)).toEqual([
+      {
+        recipeId: "bank-signin",
+        revision: 1,
+        state: "active",
+        recipe: recipe("bank-signin", 1, "https://bank.example", layouts),
+      },
+    ]);
+  });
+
+  it("keeps an idle layout whose use arrives while it is removed (ADR 0060)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    const now = Date.now();
+    const unusedBefore = now - 90 * 24 * 60 * 60 * 1000;
+    const layouts = [
+      { key: "1000", createdAt: unusedBefore - 1000 },
+      { key: "2000", createdAt: now },
     ];
     const stored = recipe("bank-signin", 1, "https://bank.example", layouts);
     const written = await deviceApi(device.credential, "/v1/recipes/bank-signin", {
@@ -1029,16 +1072,40 @@ describe("owner web UI recipes", () => {
       body: JSON.stringify({ version: 1, expectedRevision: 0, state: "active", recipe: stored }),
     });
     expect(written.status).toBe(200);
-    // Only the idle sign-in layout goes; the recipe itself is never revoked as idle.
-    const { recipes } = await list(by);
-    expect(recipes.map((entry) => entry.change)).toEqual([
-      {
-        recipeId: "bank-signin",
-        revision: 2,
-        state: "active",
-        recipe: { ...stored, revision: 2, layouts: [stored.layouts[0], stored.layouts[2]] },
-      },
-    ]);
+    const ownerId = (await ownerIdFor(by.subject))!;
+    // The idle check read no use of layout 1000; a login reports one before it writes.
+    await env.DB.prepare(
+      "INSERT INTO recipe_layout_uses (owner_id, recipe_id, layout, last_used_at) VALUES (?, 'bank-signin', '1000', ?)",
+    )
+      .bind(ownerId, now)
+      .run();
+    const removal = (keys: string[]) =>
+      writeRecipe(
+        env.DB,
+        ownerId,
+        "bank-signin",
+        {
+          version: 1,
+          expectedRevision: 1,
+          state: "active",
+          recipe: { ...stored, revision: 2, layouts: stored.layouts.slice(1) },
+        },
+        null,
+        { used: false, idleLayouts: { keys, before: unusedBefore } },
+      );
+    expect(await removal(["1000"])).toMatchObject({ ok: false, limited: false });
+    const uses = () =>
+      env.DB.prepare("SELECT layout FROM recipe_layout_uses WHERE owner_id = ?")
+        .bind(ownerId)
+        .all()
+        .then(({ results }) => results);
+    expect(await uses()).toEqual([{ layout: "1000" }]);
+    // Once that use is old again, the removal wins and the use row goes with the layout.
+    await env.DB.prepare("UPDATE recipe_layout_uses SET last_used_at = ? WHERE owner_id = ?")
+      .bind(unusedBefore - 1, ownerId)
+      .run();
+    expect(await removal(["1000"])).toMatchObject({ ok: true, change: { revision: 2 } });
+    expect(await uses()).toEqual([]);
   });
 
   it("refuses other methods on the recipes API", async () => {

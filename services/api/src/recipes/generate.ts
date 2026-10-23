@@ -656,8 +656,9 @@ export async function generateRecipe(
   /**
    * Writes the recipe after `baseRevision` and answers with it, with `customSlots` when
    * given, or with what won the race: only the recipe this call wrote has a mapping to
-   * answer with. A branch's page lost to a write of the chooser's other branch, or of a
-   * judgement there, is written once more onto that head, so the paid answer is kept.
+   * answer with. A page lost to a write of another layout or of the chooser layout's
+   * other branch, such as a judgement or a removal there, is written once more onto that
+   * head, so the paid answer is kept.
    */
   const save = async (
     recipe: StoredLoginRecipe,
@@ -765,18 +766,18 @@ export async function generateRecipe(
   const head = active(headAtStart);
   const written = head && stored(head.recipe, branch, next);
   if (!written) return failed("recipe-invalid");
-  if (!chooserSide) return save(written, customSlots);
   return save(written, customSlots, async (latest) => {
-    // Only a head whose own branch of the layout is still the one this page continues
-    // takes the page.
+    // A write of another layout, or of the chooser layout's other branch, meanwhile keeps
+    // this page: only a head whose own route of the layout, or branch, is still the one
+    // this page continues takes it.
     const current = active(latest);
+    const resolved = current && storedBranchRoute(current.recipe, branch);
     if (
       !current ||
-      !("chooser" in current.recipe) ||
+      !resolved ||
       !(await generatedHere(current.recipe)) ||
-      !sameRoute(storedBranchRoute(current.recipe, branch)?.route, baseRecipe) ||
-      (chooserSide === "other" &&
-        !storedBranchRoute(current.recipe, branch)?.chooser?.chooser.other)
+      !sameRoute(resolved.route, baseRecipe) ||
+      (chooserSide === "other" && !resolved.chooser?.chooser.other)
     )
       return undefined;
     return stored(current.recipe, branch, { ...next, revision: current.revision + 1 });

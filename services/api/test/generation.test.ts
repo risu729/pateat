@@ -6727,6 +6727,76 @@ describe("recipe layouts (ADR 0060)", () => {
     ).toEqual([{ layout: "1000", branch: "1000" }]);
   });
 
+  it("keeps a continuation written during the call onto another layout's newer revision", async () => {
+    const device = await owner();
+    const { recipeId, document, together } = await twoLayouts(device);
+    const completion = [{ target: { by: "id" as const, value: "logout" } }];
+    // While the page of layout 1000 is generated, a judgement of layout 2000 on another
+    // device stores revision 2.
+    during = async () => {
+      const put = await post(
+        device,
+        `/v1/recipes/${recipeId}`,
+        {
+          version: 1,
+          expectedRevision: 1,
+          state: "active",
+          recipe: {
+            ...document,
+            revision: 2,
+            layouts: [document.layouts[0], { ...together, completion }],
+          },
+        },
+        "PUT",
+      );
+      expect(put.status).toBe(200);
+    };
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect(await continueAs(device, recipeId, "1000")).toMatchObject({
+      status: "recipe",
+      change: { revision: 3 },
+    });
+    // The paid answer lands on the newer revision, which keeps the other layout's marker.
+    expect(await storedHead(device.ownerId, recipeId)).toMatchObject({
+      revision: 3,
+      layouts: [
+        { key: "1000", slots: ["email", "password"] },
+        { key: "2000", completion },
+      ],
+    });
+    expect(sent).toHaveLength(1);
+    // A write of the continued layout itself meanwhile still wins over the page.
+    const other = await owner();
+    const second = await twoLayouts(other);
+    during = async () => {
+      const put = await post(
+        other,
+        `/v1/recipes/${second.recipeId}`,
+        {
+          version: 1,
+          expectedRevision: 1,
+          state: "active",
+          recipe: {
+            ...second.document,
+            revision: 2,
+            layouts: [{ ...second.email, completion }, second.together],
+          },
+        },
+        "PUT",
+      );
+      expect(put.status).toBe(200);
+    };
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect(await continueAs(other, second.recipeId, "1000")).toMatchObject({
+      status: "recipe",
+      change: { revision: 2 },
+    });
+    expect(await storedHead(other.ownerId, second.recipeId)).toMatchObject({
+      revision: 2,
+      layouts: [{ key: "1000", slots: ["email"], completion }, { key: "2000" }],
+    });
+  });
+
   it("refuses to continue a layout the recipe does not have, or one that submitted", async () => {
     const device = await owner();
     const { recipeId } = await twoLayouts(device);
