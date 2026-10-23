@@ -126,7 +126,8 @@ export type PairResult =
         | TransportFailure
         | "sign-in-rejected"
         | "extension-not-allowed"
-        | "pairing-unavailable";
+        | "pairing-unavailable"
+        | "access-keys-unavailable";
     };
 
 export type RevokeResult = { kind: "revoked" } | { kind: "failed"; error: TransportFailure };
@@ -425,6 +426,12 @@ export function createServiceTransport(
         void response.body?.cancel().catch(() => undefined);
         return { failed: "unexpected-response" as const, timing: timing() };
       }
+      // Every caller reads a 429 as "slow down" without its body, which may be an edge
+      // page that is not JSON, such as Cloudflare's rate-limit page.
+      if (response.status === 429) {
+        void response.body?.cancel().catch(() => undefined);
+        return { status: 429, body: undefined, timing: timing() };
+      }
       const text = await readBounded(response, limit);
       if (text === undefined) return { failed: "unexpected-response" as const, timing: timing() };
       let body: unknown;
@@ -488,6 +495,8 @@ export function createServiceTransport(
         return { kind: "failed", error: "sign-in-rejected" };
       if (response.status === 403 && code === "extension_not_allowed")
         return { kind: "failed", error: "extension-not-allowed" };
+      if (response.status === 503 && code === "access_keys_unavailable")
+        return { kind: "failed", error: "access-keys-unavailable" };
       if (response.status === 503) return { kind: "failed", error: "pairing-unavailable" };
       if (response.status === 429) return { kind: "failed", error: "rate-limited" };
       return { kind: "failed", error: "unexpected-response" };

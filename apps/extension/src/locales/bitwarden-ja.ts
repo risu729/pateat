@@ -64,8 +64,24 @@ export const bitwardenJa = {
   "Unable to read connection status. Refresh to retry.":
     "接続の状態を読み取れませんでした。再試行するには更新してください。",
   "Enter a two-step verification code.": "2 段階認証の確認コードを入力してください。",
-  "The new-device code was rejected. Enter a new code manually.":
-    "新しいデバイスの確認コードが拒否されました。新しいコードを手動で入力してください。",
+  "The sign-in ended before the code was entered.": "コードを入力する前にログインが終了しました。",
+  "The sign-in timed out waiting for the code.":
+    "コードの入力を待つ間にログインが時間切れになりました。",
+  "The sign-in ended early, by {{time}}, before its 5 minutes. This usually means Chrome stopped Pateat's background. Enter the master password to start again.":
+    "5 分を待たずに、{{time}} までにログインが終了しました。多くの場合、Chrome が Pateat のバックグラウンドを停止したことが原因です。やり直すにはマスターパスワードを入力してください。",
+  "The sign-in timed out at {{time}}: no code was entered within 5 minutes. Enter the master password to start again.":
+    "5 分以内にコードが入力されなかったため、{{time}} にログインが時間切れになりました。やり直すにはマスターパスワードを入力してください。",
+  "The sign-in reached its 5-minute end before it finished. Enter the master password to start again.":
+    "ログインが完了する前に 5 分の期限に達しました。やり直すにはマスターパスワードを入力してください。",
+  "The code was not accepted.": "コードが受け付けられませんでした。",
+  "The code was not accepted: it is wrong or no longer valid. Enter the current code from the authenticator app.":
+    "コードが受け付けられませんでした。コードが間違っているか、有効期限が切れています。認証アプリに表示されている現在のコードを入力してください。",
+  "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email, or Resend code.":
+    "コードが受け付けられませんでした。コードが間違っているか、有効期限が切れています。最新のメールのコードを入力するか、「コードを再送信」を押してください。",
+  "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email.":
+    "コードが受け付けられませんでした。コードが間違っているか、有効期限が切れています。最新のメールのコードを入力してください。",
+  "Enter the code by {{time}}. After that the sign-in ends and needs the master password again.":
+    "{{time}} までにコードを入力してください。それを過ぎるとログインが終了し、マスターパスワードの再入力が必要になります。",
   "Enter the new-device verification code from your email.":
     "メールで受信した新しいデバイスの確認コードを入力してください。",
   "Vault accepted. {{count}} item needs its field settings reviewed before use.":

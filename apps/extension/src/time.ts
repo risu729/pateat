@@ -29,6 +29,21 @@ export function localSyncTime(ms: number, locale?: string): string {
   }
 }
 
+/**
+ * A time of day for a settings page, such as `11:29 PM` in the browser's locale (or a
+ * supplied UI locale) and time zone.
+ */
+export function localClockTime(ms: number, locale?: string): string {
+  try {
+    return Temporal.Instant.fromEpochMilliseconds(ms).toLocaleString(locale, {
+      timeStyle: "short",
+    });
+  } catch {
+    // Only a damaged reply can be out of range; no words, so no language.
+    return "--:--";
+  }
+}
+
 /** The epoch milliseconds of an ISO 8601 time with a UTC offset; a RangeError for other text. */
 export function isoTimeMs(text: string): number {
   return Temporal.Instant.from(text).epochMilliseconds;

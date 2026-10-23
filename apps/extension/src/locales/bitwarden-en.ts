@@ -61,8 +61,24 @@ export const bitwardenEn = {
   "Unable to read connection status. Refresh to retry.":
     "Unable to read connection status. Refresh to retry.",
   "Enter a two-step verification code.": "Enter a two-step verification code.",
-  "The new-device code was rejected. Enter a new code manually.":
-    "The new-device code was rejected. Enter a new code manually.",
+  "The sign-in ended before the code was entered.":
+    "The sign-in ended before the code was entered.",
+  "The sign-in timed out waiting for the code.": "The sign-in timed out waiting for the code.",
+  "The sign-in ended early, by {{time}}, before its 5 minutes. This usually means Chrome stopped Pateat's background. Enter the master password to start again.":
+    "The sign-in ended early, by {{time}}, before its 5 minutes. This usually means Chrome stopped Pateat's background. Enter the master password to start again.",
+  "The sign-in timed out at {{time}}: no code was entered within 5 minutes. Enter the master password to start again.":
+    "The sign-in timed out at {{time}}: no code was entered within 5 minutes. Enter the master password to start again.",
+  "The sign-in reached its 5-minute end before it finished. Enter the master password to start again.":
+    "The sign-in reached its 5-minute end before it finished. Enter the master password to start again.",
+  "The code was not accepted.": "The code was not accepted.",
+  "The code was not accepted: it is wrong or no longer valid. Enter the current code from the authenticator app.":
+    "The code was not accepted: it is wrong or no longer valid. Enter the current code from the authenticator app.",
+  "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email, or Resend code.":
+    "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email, or Resend code.",
+  "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email.":
+    "The code was not accepted: it is wrong or no longer valid. Enter the code from the latest email.",
+  "Enter the code by {{time}}. After that the sign-in ends and needs the master password again.":
+    "Enter the code by {{time}}. After that the sign-in ends and needs the master password again.",
   "Enter the new-device verification code from your email.":
     "Enter the new-device verification code from your email.",
   "Vault accepted. {{count}} item needs its field settings reviewed before use.":
