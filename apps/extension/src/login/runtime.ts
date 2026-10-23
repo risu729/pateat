@@ -199,16 +199,23 @@ import { newId } from "@pateat/contracts/ids";
 import { loginMoveFits } from "@pateat/contracts/site";
 import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
 import {
+  cardGuessFields,
+  cardLast4,
   detailCandidates,
   detailFieldIds,
   detailFieldLabel,
   detailSecret,
   detailValue,
+  isCardDetail,
   linkedField,
+  MAX_CARD_GUESS_READS,
+  rankCards,
   savedDetailLink,
   savedDetailLinks,
+  type CardFacts,
   type DetailOwner,
 } from "./details";
+import { cardBrandOf, cardBrands, MAX_CARD_LAST_4 } from "../page/card-hints";
 import {
   detailFillRequestSchema,
   detailRemoveRequestSchema,
@@ -5368,6 +5375,75 @@ export function createLoginRuntime(
     return (await askedSource(live, path, target, named))?.candidate;
   }
   /**
+   * The popup's card candidates in the order of `rankCards` (ADR 0061, owner 2026-10-23
+   * 12:26 UTC): the document answers which last four digits and brands it shows beside
+   * `target` and in its title, then each candidate card's number and brand, the first
+   * `MAX_CARD_GUESS_READS` cards, are read one at a time, as a fill reads them, and only
+   * their last four digits and brand are kept until the ranking. Neither the page's
+   * answer nor a value is sent or logged. The site and the login item must still be
+   * allowed, as for a fill; a page that shows nothing reads nothing, and a read that fails
+   * keeps the order by name.
+   */
+  async function guessCard<T extends { itemId: string }>(
+    live: LiveDocument,
+    offer: DetailOffer,
+    target: DetailHandler["fields"][number]["target"],
+    policy: LocalSettings,
+    catalog: VaultCatalog,
+    candidates: T[],
+  ): Promise<{ candidates: T[]; preselect: boolean }> {
+    const byName = { candidates, preselect: true };
+    const connection = catalog.connections.find((entry) => entry.id === offer.account.connectionId);
+    if (
+      !connection ||
+      isSiteExcluded(policy, offer.account.origin) ||
+      !getItemEligibility(policy, catalog, connection.id, offer.account.itemId).eligible
+    )
+      return byName;
+    const answer = v.safeParse(
+      v.object({
+        ok: v.literal(true),
+        last4: v.pipe(
+          v.array(v.pipe(v.string(), v.regex(/^\d{4}$/u))),
+          v.maxLength(MAX_CARD_LAST_4),
+        ),
+        brands: v.pipe(v.array(v.picklist(cardBrands)), v.maxLength(cardBrands.length)),
+      }),
+      await send(live, { type: "login.detail.card", path: offer.path, target }).catch(
+        () => undefined,
+      ),
+    );
+    if (!answer.success || (!answer.output.last4.length && !answer.output.brands.length))
+      return byName;
+    const hints = answer.output;
+    const facts = new Map<string, CardFacts>();
+    try {
+      const items = [...new Set(candidates.map((entry) => entry.itemId))];
+      for (const itemId of items.slice(0, MAX_CARD_GUESS_READS)) {
+        const held: CardFacts = {};
+        for (const fieldId of cardGuessFields(policy, catalog, connection, itemId)) {
+          let value: string | undefined;
+          try {
+            // Serial reads through the shared vault host, as for a fill.
+            // eslint-disable-next-line no-await-in-loop
+            value = await fields({ account: { ...offer.account, itemId }, connection, fieldId });
+          } catch {
+            value = undefined;
+          }
+          if (value === undefined) return byName;
+          if (fieldId === "card.number") held.last4 = cardLast4(value);
+          else held.brand = cardBrandOf(value);
+          value = "";
+        }
+        facts.set(itemId, held);
+      }
+      return rankCards(candidates, facts, hints);
+    } finally {
+      facts.clear();
+      hints.last4.fill("");
+    }
+  }
+  /**
    * What the popup shows about a page's personal details (ADR 0061): the handler the tab's
    * login stopped at with the fields that could give each detail, and the site's links for
    * the login item, by their names in the device's catalog only.
@@ -5404,13 +5480,22 @@ export function createLoginRuntime(
           (await askedCandidate(live, offer!.path, field.target, found.connection, candidates));
         candidates = asked ? [asked] : [];
       }
+      // A card is guessed from the last digits and brand the page shows too.
+      let preselect = field.detail !== "member-id";
+      if (live && isCardDetail(field.detail) && candidates.length > 1) {
+        // eslint-disable-next-line no-await-in-loop
+        const guess = await guessCard(live, offer!, field.target, policy, catalog, candidates);
+        ({ candidates } = guess);
+        preselect &&= guess.preselect;
+      }
       if (candidates.length)
         details.push({
           detail: field.detail,
           ...(field.format ? { format: field.format } : {}),
           candidates: candidates as [(typeof candidates)[number], ...typeof candidates],
-          // A member ID's fields' names say little, so none is chosen for the owner.
-          ...(field.detail === "member-id" ? { preselect: false as const } : {}),
+          // A member ID's fields' names say little, and two cards may show the same last
+          // digits, so none is chosen for the owner.
+          ...(preselect ? {} : { preselect: false as const }),
         });
     }
     const kept = pendingDetails.get(tabId) ?? [];

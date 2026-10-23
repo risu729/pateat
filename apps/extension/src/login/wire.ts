@@ -489,6 +489,17 @@ export const commandSchema = v.variant("type", [
     names: v.pipe(v.array(questionSchema), v.maxLength(100)),
   }),
   /**
+   * What the page shows beside the card detail input `target` and in its title (ADR
+   * 0061): the last four digits of masked card numbers and card brands, never its text.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.detail.card"),
+    token: id,
+    path,
+    target: loginFieldTargetSchema,
+  }),
+  /**
    * Asks what a chooser's login would click on the list this document shows (ADR 0028),
    * without clicking anything.
    */

@@ -139,6 +139,8 @@ const fake = vi.hoisted(() => {
     },
     /** Runs when the document presses its sign-in entry. */
     onPress: undefined as undefined | (() => void),
+    /** The document's answer about the card it shows beside a card detail (ADR 0061). */
+    cardHints: undefined as unknown,
   };
   const browser = {
     runtime: {
@@ -255,6 +257,7 @@ const fake = vi.hoisted(() => {
                 }
               : {}),
           };
+        if (message["type"] === "login.detail.card" && state.cardHints) return state.cardHints;
         if (message["type"] === "login.switch") return state.switchReply;
         if (message["type"] === "login.choose") return state.chosen;
         if (message["type"] === "login.entry.hosts") return state.entry.hosts;
@@ -12149,6 +12152,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     fake.state.gone = new Set();
     fake.state.extracted = {};
     fake.state.signs = undefined;
+    fake.state.cardHints = undefined;
   });
 
   const securityKey = { by: "text" as const, value: "Use security key" };
@@ -14746,6 +14750,183 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       },
       10_000,
     );
+
+    describe("the popup's guess of a card (owner 2026-10-23 12:26 UTC)", () => {
+      // A synthetic page that asks for a card's security code; synthetic card numbers only.
+      const coded = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        handlers: [
+          { ...detailHandler, fields: [{ detail: "card-code" as const, target: target("code") }] },
+        ],
+      });
+      const popup = {
+        id: "synthetic-extension",
+        url: "chrome-extension://synthetic-extension/popup.html",
+      } as never;
+      const cards = {
+        "card-a": { number: "4242 4242 4242 7351", brand: "Visa" },
+        "card-b": { number: "5555 5555 5555 9876", brand: "Mastercard" },
+        "card-c": { number: "3530 1113 3330 9876", brand: "JCB" },
+      } as const;
+      type CardId = keyof typeof cards;
+      /** Stops at the code page with these card items in the vault, the page showing `hints`. */
+      async function stopped(
+        ids: CardId[],
+        hints: unknown,
+        overrides: Partial<LocalSettings> = {},
+      ) {
+        onClick({ login: { path: "/confirm", present: ["code", "confirm"] } });
+        fake.state.cardHints = hints;
+        const report = vi.fn<(entry: LoginReport) => void>();
+        const h = harness(overrides, { passkeys: noPasskey, report });
+        const original = h.store.handle.getMockImplementation()!;
+        h.store.handle.mockImplementation(async () => {
+          const response = await original();
+          if (response.ok)
+            response.catalog.connections[0]!.items.push(
+              ...ids.map((id) => ({
+                id,
+                label: `Synthetic ${id}`,
+                allowedOrigins: [],
+                groupIds: [],
+                fields: ["card.number", "card.code", "card.brand"].map((field) => ({
+                  id: field,
+                  label: field.slice(5),
+                  name: null,
+                  kind: "text" as const,
+                })),
+              })),
+            );
+          return response;
+        });
+        h.fields.mockImplementation(async (request) => {
+          const card = cards[request.account.itemId as CardId];
+          if (!card) return "synthetic-secret";
+          return request.fieldId === "card.number" ? card.number : card.brand;
+        });
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+        );
+        h.fields.mockClear();
+        return { h, report };
+      }
+      const offered = async (h: ReturnType<typeof harness>) => {
+        const answer = (await h.login.handle(
+          { version: 1, type: "login.detail.get", tabId: 1 },
+          popup,
+        )) as {
+          offer?: { details: { candidates: { itemId: string }[]; preselect?: false }[] };
+        };
+        const [detail] = answer.offer!.details;
+        return {
+          order: detail!.candidates.map((entry) => entry.itemId),
+          preselect: detail!.preselect,
+        };
+      };
+      const reads = (h: ReturnType<typeof harness>) =>
+        h.fields.mock.calls.map(([request]) => [request.account.itemId, request.fieldId]);
+
+      it("puts first and selects the one card ending in the last digits the page shows", async () => {
+        const { h, report } = await stopped(["card-a", "card-b"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+        // Each card's number and brand, one at a time, before any confirmation.
+        expect(reads(h)).toEqual([
+          ["card-a", "card.number"],
+          ["card-a", "card.brand"],
+          ["card-b", "card.number"],
+          ["card-b", "card.brand"],
+        ]);
+        expect(fake.state.messages).toContainEqual(
+          expect.objectContaining({ type: "login.detail.card", target: target("code") }),
+        );
+        // Neither the page's digits nor a card's leave the worker: not to a document, the
+        // log, the settings or the recipe service.
+        const out = JSON.stringify([
+          fake.state.messages,
+          report.mock.calls,
+          h.store.update.mock.calls,
+          h.recipes.recipe.mock.calls,
+          h.recipes.starts.mock.calls,
+        ]);
+        for (const digits of ["9876", "7351", "4242", "5555"]) expect(out).not.toContain(digits);
+      });
+
+      it("selects the only card of the brand the page names when no last digits match", async () => {
+        const { h } = await stopped(["card-a", "card-b"], {
+          ok: true,
+          last4: [],
+          brands: ["Mastercard"],
+        });
+        expect(await offered(h)).toEqual({ order: ["card-b", "card-a"], preselect: undefined });
+      });
+
+      it("selects none of two cards that end in the same digits", async () => {
+        const { h } = await stopped(["card-a", "card-b", "card-c"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        expect(await offered(h)).toEqual({
+          order: ["card-b", "card-c", "card-a"],
+          preselect: false,
+        });
+      });
+
+      it("never reads an excluded card or an excluded number", async () => {
+        const { h } = await stopped(
+          ["card-a", "card-b", "card-c"],
+          {
+            ok: true,
+            last4: ["9876"],
+            brands: [],
+          },
+          {
+            connections: [
+              {
+                connectionId,
+                enabled: true,
+                selection: { mode: "all", groupIds: [], itemIds: [] },
+                excludedItemIds: ["card-c"],
+                excludedFields: [{ itemId: "card-b", fieldId: "card.number" }],
+              },
+            ],
+          },
+        );
+        // Card B's number is not allowed, so nothing says it ends in 9876; card C is no
+        // candidate.
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toEqual([
+          ["card-a", "card.number"],
+          ["card-a", "card.brand"],
+          ["card-b", "card.brand"],
+        ]);
+      });
+
+      it("keeps the order by name when a read fails, and reads nothing for a page that shows nothing", async () => {
+        const { h } = await stopped(["card-a", "card-b"], {
+          ok: true,
+          last4: ["9876"],
+          brands: [],
+        });
+        h.fields.mockRejectedValueOnce(new Error("locked"));
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toEqual([["card-a", "card.number"]]);
+        h.fields.mockClear();
+        fake.state.cardHints = { ok: true, last4: [], brands: [] };
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        // A page's answer that is not hints is none.
+        fake.state.cardHints = { ok: true, last4: ["12345"], brands: [] };
+        expect(await offered(h)).toEqual({ order: ["card-a", "card-b"], preselect: undefined });
+        expect(reads(h)).toEqual([]);
+      });
+    });
   });
 
   describe("generation slots", () => {

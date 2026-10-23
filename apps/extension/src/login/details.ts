@@ -9,6 +9,7 @@ import {
   type VaultConnectionMetadata,
   type VaultItemMetadata,
 } from "@pateat/contracts";
+import type { CardBrand } from "../page/card-hints";
 import type { LoginSecretKind } from "./wire";
 
 // Personal details asked during a login (ADR 0061): which vault fields may give each
@@ -362,4 +363,81 @@ function nearPage(name: string, page: { host: string; title?: string | undefined
   return (
     title !== undefined && name.trim().length > 0 && title.includes(name.normalize("NFKC").trim())
   );
+}
+
+/** The most card items whose number and brand one guess reads (ADR 0061). */
+export const MAX_CARD_GUESS_READS = 20;
+/** What a page shows about the card it asks for (`login.detail.card`). */
+export type CardHints = { last4: readonly string[]; brands: readonly CardBrand[] };
+/** What a card item holds, as read for the guess: its number's last four digits and its brand. */
+export type CardFacts = { last4?: string | undefined; brand?: CardBrand | undefined };
+
+/** Whether `detail` is read only from a card item's built-in fields. */
+export const isCardDetail = (detail: LoginDetail) => cardDetails.includes(detail);
+
+/**
+ * The fields of a card item the guess may read (ADR 0061): its number and its brand, each
+ * only while the item may be used and the field is in it and allowed, as a fill reads it.
+ */
+export function cardGuessFields(
+  settings: LocalSettings,
+  catalog: VaultCatalog,
+  connection: VaultConnectionMetadata,
+  itemId: string,
+): ("card.number" | "card.brand")[] {
+  const item = connection.items.find((entry) => entry.id === itemId);
+  if (!item || item.inactive || connection.quarantinedItemIds?.includes(item.id)) return [];
+  const eligibility = getItemEligibility(settings, catalog, connection.id, item.id);
+  if (!eligibility.eligible) return [];
+  return (["card.number", "card.brand"] as const).filter(
+    (id) => eligibility.fieldIds.includes(id) && item.fields.some((entry) => entry.id === id),
+  );
+}
+
+/** A card number's last four digits, read as a `card-last-4` value is made. */
+export const cardLast4 = (number: string) => detailValue("card-last-4", undefined, number);
+
+/**
+ * The card candidates in the order the popup proposes them (ADR 0061, owner 2026-10-23
+ * 12:26 UTC), from what the page shows and what each card item holds (`facts`, by item):
+ * the one card whose last four digits the page shows first; among several such cards, the
+ * one whose brand the page names too, and otherwise those cards first with none selected,
+ * so a tie is never chosen. With no such card, the only card whose brand the page names
+ * comes first, leaving out a card whose last digits are known while the page shows other
+ * ones. Otherwise the order by name is kept.
+ */
+export function rankCards<T extends { itemId: string }>(
+  candidates: readonly T[],
+  facts: ReadonlyMap<string, CardFacts>,
+  hints: CardHints,
+): { candidates: T[]; preselect: boolean } {
+  const items = [...new Set(candidates.map((entry) => entry.itemId))];
+  const shows = (id: string) => {
+    const last4 = facts.get(id)?.last4;
+    return last4 !== undefined && hints.last4.includes(last4);
+  };
+  const named = (id: string) => {
+    const brand = facts.get(id)?.brand;
+    return brand !== undefined && hints.brands.includes(brand);
+  };
+  const byDigits = items.filter(shows);
+  let first: string[] = [];
+  let preselect = true;
+  if (byDigits.length === 1) first = byDigits;
+  else if (byDigits.length > 1) {
+    const both = byDigits.filter(named);
+    first = both.length === 1 ? both : byDigits;
+    preselect = both.length === 1;
+  } else {
+    const differs = (id: string) => hints.last4.length > 0 && facts.get(id)?.last4 !== undefined;
+    const byBrand = items.filter((id) => named(id) && !differs(id));
+    if (byBrand.length === 1) first = byBrand;
+  }
+  return {
+    candidates: [
+      ...candidates.filter((entry) => first.includes(entry.itemId)),
+      ...candidates.filter((entry) => !first.includes(entry.itemId)),
+    ],
+    preselect,
+  };
 }

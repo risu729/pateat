@@ -65,6 +65,11 @@ catalog ([feasibility note](../research/2026-10-12-card-security-code.md)).
    may Pateat fill automatically on a page after the submission?" with 全部:
    「割り当てのある値はカード番号や暗証番号も含めて自動で入れる」). So a page that asks
    for a whole card number or a PIN now has a detail; `manualDetails` stays empty.
+7. The guess of a card item also reads the last four digits of a masked card number and
+   a card brand that the page shows, and compares them with the vault's card items on
+   the device (2026-10-23 12:26 UTC, answering whether the guess may read them before
+   any confirmation: 「下 4 桁とブランドも見る」). See
+   [The card guess](#the-card-guess).
 
 ## Decision
 
@@ -301,10 +306,11 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    only such a field, so a link edited elsewhere never types another custom field, such
    as a PIN into a member ID's input, into the page. An item whose name holds a run of
    three or more ASCII letters or digits found in the page's host name, or which appears
-   whole in the page's title, comes first.
+   whole in the page's title, comes first; for a card detail, what the page shows about
+   its card ranks before that ([The card guess](#the-card-guess)).
 3. The popup's "This page" section shows what the page asks for and the candidates, the
-   first one selected, for example "This page asks for your birth year and month." and
-   "本人 › 生年月日", with **Fill**.
+   first one selected unless the guess is a tie, for example "This page asks for your
+   birth year and month." and "本人 › 生年月日", with **Fill**.
 4. **Fill** fills the input in the tab's current document, checking its choosing radio,
    when that document is the login's, the tab's login is still the one that stopped
    there, the site and the login item are still allowed, and the page still shows the
@@ -317,6 +323,42 @@ When a `detail` handler shows and no link has a value for any of its inputs:
 5. The popup also lists the site's saved links, each with **Remove**.
 
 The popup shows nothing more when there is no candidate; the person types the value.
+
+### The card guess
+
+Added on decided 7. When the popup asks for the proposal and a card detail
+(`card-last-4`, `card-code`, `card-number`, `card-expiry`) has two or more candidates,
+the worker asks the input's document (`login.detail.card`). The document reads the
+rendered text of the input's region, as for a secret question, and the page's title,
+after NFKC and without case, and answers only two lists: each four digits after a run of
+mask characters (`*`, `•`, `●`, `x`, `X`, `＊`; an `x`-only run needs two, and a run
+that starts with `x` follows no Latin letter or digit) or after 末尾, 下4桁, "ending
+in", "ends with" or "last 4 digits", and the brands it names, as Bitwarden's
+`card.brand` spells them (Visa, Mastercard, Amex, Diners Club, Discover, JCB, UnionPay).
+A page that shows neither reads nothing from the vault.
+
+Otherwise the worker reads, one at a time through the fill's vault read, the
+`card.number` and `card.brand` of the first 20 candidates, each only while its item may
+be used and the field is allowed, keeps the number's last four digits and the brand, and
+ranks:
+
+1. The one card whose last four digits the page shows comes first and is selected. Among
+   several, the one whose brand the page names too; otherwise they come first and none
+   is selected, so two cards ending in the same digits are never chosen.
+2. With no such card, the only card whose brand the page names, unless its known last
+   digits differ from those the page shows.
+3. Otherwise the order by name above.
+
+A failed read keeps the order by name. The page's answer and the values read are dropped
+after the ranking and are never logged or sent to the service or the AI.
+
+Security notes:
+
+- Every candidate card's whole number is read in the worker before any confirmation,
+  each time the popup opens on such a page; only its last four digits and its brand are
+  compared, and nothing leaves the device.
+- A page can steer the guess by showing digits or a brand, but only the order and the
+  selection in the popup change; the owner still confirms the card with **Fill**.
 
 ### Refused values
 
@@ -352,13 +394,7 @@ now). The judge's log keeps `details` with each ID that is not a candidate repla
 2. One confirmation per link, not per login: the owner's "records the choice once the
    owner confirms it".
 3. A link is per site and login item, so two accounts on one site are linked separately.
-4. The guess reads only item and field names and the page's host name and title. This
-   departs from the owner's example of what the guess may read (05:27 UTC: "a card name,
-   brand or masked last digits"): reading masked digits or a brand needs the page's text
-   and every card item's number in the worker before any confirmation, so it is left out
-   of this first version; an item name holding the card's name or last digits still
-   ranks it first.
-5. Birth dates split across year, month and day selects, and card expiry dates split
+4. Birth dates split across year, month and day selects, and card expiry dates split
    across month and year selects or inputs, are not filled: Pateat fills no selects, and
    a handler fills one input.
 
@@ -370,6 +406,7 @@ now). The judge's log keeps `details` with each ID that is not a candidate repla
 3. Links, the value rules, choice radios, the popup's proposal, and removal on refusal.
 4. Secret-question answers and member IDs.
 5. Whole card numbers, card expiry dates and PINs (decided 6).
+6. The card guess from the page's last digits and brands (decided 7).
 
 ## Not covered
 

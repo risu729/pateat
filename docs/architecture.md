@@ -1259,11 +1259,12 @@ whole card number or a PIN as its digits; every linked value is filled, a whole 
 number and a PIN included, by the owner's decision of 2026-10-23 11:41 UTC). A
 `detail` handler with no usable link ends the attempt `challenge` with
 `detail-unlinked`, and the popup then proposes the vault fields that could give each
-detail; its **Fill** fills the input without pressing the button and keeps the link for
-the tab, saved only once the watched login ends `authenticated`. A link whose value
-the site refused, as when the login is rejected or the handler's page shows again, is
-removed. A `password` handler shown
-but passed over, as when its button shows again after its press, ends the attempt
+detail, a card first when its last four digits or brand match those the page shows,
+compared in the service worker (owner, 2026-10-23 12:26 UTC); its **Fill** fills the
+input without pressing the button and keeps the link for the tab, saved only once the
+watched login ends `authenticated`. A link whose value the site refused, as when the
+login is rejected or the handler's page shows again, is removed. A `password` handler
+shown but passed over, as when its button shows again after its press, ends the attempt
 `challenge` instead of letting a handler beside it be entered, so a `password` login
 never presses a passkey button there. Otherwise one is passed over when it already
 ran, the item lacks its fact, or, for a `totp` handler, the login already types a TOTP

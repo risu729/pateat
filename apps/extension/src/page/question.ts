@@ -50,6 +50,14 @@ function questionRegion(input: HTMLInputElement): Element {
 }
 
 /**
+ * The rendered text of the part of the page that asks for `input` (`questionRegion`), at
+ * most 4,000 characters, or undefined when it is not shown.
+ */
+export function regionText(input: HTMLInputElement): string | undefined {
+  return renderedText(questionRegion(input), QUESTION_TEXT_LIMIT)?.slice(0, QUESTION_TEXT_LIMIT);
+}
+
+/**
  * Which of `names` is the question shown for `input`: the longest whose text appears in
  * the rendered text of the input's region, or undefined when none does or two of that
  * length do.
@@ -58,7 +66,7 @@ export function askedQuestion(
   input: HTMLInputElement,
   names: readonly string[],
 ): number | undefined {
-  const text = renderedText(questionRegion(input), QUESTION_TEXT_LIMIT);
+  const text = regionText(input);
   if (text === undefined) return undefined;
   const shown = questionText(text);
   let best: number | undefined;
