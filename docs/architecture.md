@@ -2628,34 +2628,39 @@ that may carry a session ID, a tenant or account ID or another token is replaced
 UTC), so `/<tenant UUID>/oauth2/authorize` is sent as `/[id]/oauth2/authorize` and the
 token never reaches the service or its request log. A segment counts when, as it is or
 percent-decoded, it holds a matrix parameter such as `;jsessionid=`, an ASP.NET
-cookieless part, `?`, `&` or `=`, a UUID, or a run of 16 or more letters and digits with
-a digit (or a base64url-like run of that length); the whole segment goes, so
-`/app/login;jsessionid=X` and `/app/register;jsessionid=Y` both read `/app/[id]`. A
-recipe is stored under that path, and the extension compares a live page with a recipe,
-an observation or a content-script report only through the same replacement, so every
-tenant's page shares one recipe and one retry window. On a page whose path had a segment
-replaced, an `id`, `name` or `data-testid` that may be a token locates nothing, as on a
-judged page, so a token the page also writes into such an attribute is not sent through
-a locator either. Text, labels and the title are not checked against the replaced
-segment, and a short token the rule does not flag is sent as it is, so this is a
-heuristic. A username in the path is looked for in the raw path, before the replacement.
-The local log's `url` keeps the raw path (owner decision 2026-10-13). Labels can contain
-private data too: sanitize and bound them, with privacy fixtures and an abstention path
-when a useful safe observation cannot be constructed. The owner chose on 2026-10-11 to
-redact observed text before it is sent: email-like strings, including masked ones,
-become `[email]`; runs of three or more `*`, `●`, `•` or `＊` become `[masked]`; and
-runs of four or more ASCII or fullwidth digits become `[number]` (`口座番号 ****1234`
-becomes `口座番号 [masked][number]`). Page text is read as it renders, both before
-redaction and before it is compared with an account: a `<wbr>` line-break opportunity
-separates nothing, and format characters (`\p{Cf}`, such as U+200B zero-width space and
-U+00AD soft hyphen) are left out, so `taro.yamada@<wbr>example.com` and
-`taro.yamada@&#8203;example.com` become `[email]`, and the sign-in state's E2, the
-entries of a list of accounts and the wrong-account check each read them as one address;
-usernames are compared without format characters too. Names cannot be detected and stay,
-except the account's own usernames: just before a page goes to the service (a recipe's
-first page, the page after an `advance` step, the page the completion judge gets and a
-signed-in page sample), the worker reads the `login.username` of the items that match
-the page as for the
+cookieless part, `?`, `&` or `=`, an email address (`/u/taro.yamada@example.com/signin`
+and `/reset/taro%40example.com` read `/u/[id]/signin` and `/reset/[id]`), a UUID, or a
+run of 16 or more letters and digits with a digit (or a base64url-like run of that
+length); the whole segment goes, so `/app/login;jsessionid=X` and
+`/app/register;jsessionid=Y` both read `/app/[id]`. A recipe is stored under that path,
+and the extension compares a live page with a recipe, an observation or a content-script
+report only through the same replacement, so every tenant's page shares one recipe and
+one retry window. On a page whose path had a segment replaced, an `id`, `name` or
+`data-testid` that may be a token locates nothing, as on a judged page, so a token the
+page also writes into such an attribute is not sent through a locator either. Text,
+labels and the title are not checked against the replaced segment, and a short token the
+rule does not flag is sent as it is, so this is a heuristic. A username in the path is
+looked for in the raw path, before the replacement. The local log's `url` keeps the raw
+path (owner decision 2026-10-13). Labels can contain private data too: sanitize and
+bound them, with privacy fixtures and an abstention path when a useful safe observation
+cannot be constructed. The owner chose on 2026-10-11 to redact observed text before it
+is sent: email-like strings, including masked ones, become `[email]`, whatever HTML's
+valid email address allows in the local part (such as `'` and `#`, but not `/`, `=`,
+`?` or `&`, so `youtube.com/@pateat` stays) and with internationalized domain labels
+before an ASCII last one (`taro@例え.jp`; `taro@example.comでログイン` becomes
+`[email]でログイン`); runs of three or more `*`, `●`, `•` or `＊`
+become `[masked]`; and runs of four or more ASCII or fullwidth digits become `[number]`
+(`口座番号 ****1234` becomes `口座番号 [masked][number]`). Page text is read as it
+renders, both before redaction and before it is compared with an account: a `<wbr>`
+line-break opportunity separates nothing, and format characters (`\p{Cf}`, such as
+U+200B zero-width space and U+00AD soft hyphen) are left out, so
+`taro.yamada@<wbr>example.com` and `taro.yamada@&#8203;example.com` become `[email]`,
+and the sign-in state's E2, the entries of a list of accounts and the wrong-account
+check each read them as one address; usernames are compared without format characters
+too. Names cannot be detected and stay, except the account's own usernames: just before
+a page goes to the service (a recipe's first page, the page after an `advance` step, the
+page the completion judge gets and a signed-in page sample), the worker reads the
+`login.username` of the items that match the page as for the
 [username shape](adr/0016-recipe-generation-trigger.md#username-shape), and for a judged
 page the login's own item's too, and hides each username of three or more characters
 (the minimum the sign-in state's E2 uses) where it shows as `[account]`, by
