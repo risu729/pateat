@@ -724,14 +724,9 @@ rewrites each stored recipe's `completion` into the list of signed-in markers of
 [ADR 0029](adr/0029-local-sign-in-state.md), so the owner's recipes keep working
 without being generated again.
 
-A second exception, made by the coordinating agent on 2026-10-23 and not yet confirmed
-by the owner: D1 migration 0027 adds an empty `passkeyBrowserSites` list to each stored
-settings document ([ADR 0007](adr/0007-existing-passkey-assertions.md), amended
-2026-10-23), so the owner's synced settings still validate. A device's local settings
-written before that build fail validation and are not migrated: the settings page
-reports "Stored settings are invalid. They were not replaced.", settings sync stops, and
-the extension must be reinstalled, its vault connected and the service paired again to
-pull the document.
+Proposed exception, awaiting the owner's answer: settings stored before the synced
+`passkeyBrowserSites` list existed read it as an empty list, in the service and in the
+extension's local snapshot ([ADR 0007](adr/0007-existing-passkey-assertions.md)).
 
 ## Platform features
 

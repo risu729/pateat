@@ -177,9 +177,9 @@ describe("passkey browser sites", () => {
       Array.from({ length: 1001 }, (_, index) => ({ hostname: `s${index}.example` })),
     ])
       expect(() => parseLocalSettings({ ...settings, passkeyBrowserSites })).toThrow();
-    // The list is part of every settings document.
+    // Settings written before the list existed read as listing no site.
     const { passkeyBrowserSites: _list, ...without } = settings;
-    expect(() => parseLocalSettings(without)).toThrow();
+    expect(parseLocalSettings(without)).toEqual(settings);
   });
 });
 
@@ -464,6 +464,18 @@ describe("serialized persistent settings store", () => {
       ok: true,
       snapshot: { revision: 1, settings: withDefault() },
     });
+  });
+
+  it("loads a snapshot written before passkeyBrowserSites with an empty list", async () => {
+    const { passkeyBrowserSites: _list, ...old } = withDefault();
+    const memory = memoryStorage({ version: 1, revision: 4, settings: old });
+    const store = createSettingsStore(memory.storage);
+    expect(await store.handle(get)).toMatchObject({
+      ok: true,
+      snapshot: { revision: 4, settings: { ...old, passkeyBrowserSites: [] } },
+    });
+    expect(memory.writes).toHaveLength(0);
+    expect(await store.handle(save(4))).toMatchObject({ ok: true, snapshot: { revision: 5 } });
   });
 
   it("fails closed for corrupt/version-mismatched storage and never overwrites it", async () => {

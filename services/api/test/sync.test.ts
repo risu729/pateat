@@ -261,47 +261,21 @@ describe("settings sync", () => {
     });
   });
 
-  it("reads a document stored before passkeyBrowserSites once migration 0027 ran", async () => {
+  it("reads a document stored before passkeyBrowserSites as listing no site", async () => {
     const device = await enrollOwner();
-    const kept = await enrollOwner();
     // A document as the previous schema wrote it, without the list.
     const { passkeyBrowserSites: _list, ...old } = settings();
-    const listed = {
-      ...settings("kept.example"),
-      passkeyBrowserSites: [{ hostname: "a.example" }],
-    };
-    const store = (by: Device, document: unknown) =>
-      env.DB.prepare(
-        "INSERT INTO settings (owner_id, revision, document, updated_at, updated_by_device_id) VALUES (?, 3, ?, 1000, NULL)",
-      ).bind(by.ownerId, JSON.stringify(document));
-    await env.DB.batch([store(device, old), store(kept, listed)]);
-    // Stored documents are validated on every read, so the old one fails closed.
-    expect((await api(device, "/v1/settings")).status).toBe(500);
-    const migration = (env as unknown as { TEST_MIGRATIONS: D1Migration[] }).TEST_MIGRATIONS.find(
-      ({ name }) => name.startsWith("0027_"),
-    );
-    const backfill = migration?.queries
-      .map((query) => query.replaceAll(/^--.*$/gm, "").trim())
-      .find((query) => query.startsWith("UPDATE"));
-    expect(backfill).toBeDefined();
-    // Scoped to these owners so it leaves other tests' rows alone.
-    for (const by of [device, kept])
-      // oxlint-disable-next-line no-await-in-loop -- one owner after the other
-      await env.DB.prepare(`${backfill!.replace(/;$/, "")} AND owner_id = ?`)
-        .bind(by.ownerId)
-        .run();
+    await env.DB.prepare(
+      "INSERT INTO settings (owner_id, revision, document, updated_at, updated_by_device_id) VALUES (?, 3, ?, 1000, NULL)",
+    )
+      .bind(device.ownerId, JSON.stringify(old))
+      .run();
     const read = await api(device, "/v1/settings");
     expect(read.status).toBe(200);
     expect(await read.json()).toEqual({
       version: 1,
       revision: 3,
       settings: { ...old, passkeyBrowserSites: [] },
-    });
-    // A document that already holds the list keeps it.
-    expect(await (await api(kept, "/v1/settings")).json()).toEqual({
-      version: 1,
-      revision: 3,
-      settings: listed,
     });
   });
 

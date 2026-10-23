@@ -420,12 +420,13 @@ settings page only needs to remove it, not add it.
 - The write waits up to two minutes for a running login, which a settings write would
   stop, as a settings sync does, and is then a settings save that is uploaded (the
   agent's addition, not confirmed by the owner). A full list of 1,000 keeps its entries.
-- D1 migration 0027 adds an empty list to every stored settings document; local
-  settings written before are not migrated
-  ([compatibility before release](../development.md#compatibility-before-release)).
 - Under [ADR 0024](0024-settings-profiles.md) the list is a profile part, like
   `excludedSites` (the agent's assignment, not confirmed by the owner); with one
   profile it syncs to every paired device.
+- Settings stored before the list existed read it as empty, in the service and in the
+  extension (a proposed exception to
+  [compatibility before release](../development.md#compatibility-before-release),
+  awaiting the owner's answer).
 
 Differences from Bitwarden are listed in
 [Differences from Bitwarden](../bitwarden-differences.md#passkeys). The earlier

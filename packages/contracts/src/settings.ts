@@ -179,14 +179,18 @@ export const localSettingsSchema = v.pipe(
     /**
      * Hostnames whose passkey requests Pateat hands on to the browser unanswered, added by
      * the chooser's "Always for this site" (ADR 0007). Exact hostnames, without subdomains.
+     * Settings written before the list existed lack it, and read as an empty list.
      */
-    passkeyBrowserSites: v.pipe(
-      v.array(v.strictObject({ hostname: hostnameSchema })),
-      v.maxLength(1000),
-      v.check(
-        (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
-        "Duplicate sites",
+    passkeyBrowserSites: v.optional(
+      v.pipe(
+        v.array(v.strictObject({ hostname: hostnameSchema })),
+        v.maxLength(1000),
+        v.check(
+          (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
+          "Duplicate sites",
+        ),
       ),
+      () => [],
     ),
     siteDefaults: v.pipe(
       v.array(siteDefaultSchema),
