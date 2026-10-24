@@ -439,6 +439,18 @@ describe("login badge", () => {
     expect(h.view(9)).toMatchObject(NONE);
   });
 
+  it("shows II for a site the allowed sites leave out, and says why (ADR 0077)", async () => {
+    const h = harness();
+    h.badge.paused(tabId, { rule: true, notAllowed: true });
+    await h.flush();
+    expect(h.view()).toEqual({
+      text: PAUSED_TEXT,
+      color: "#6b7280",
+      textColor: "#ffffff",
+      title: "Pateat: automatic login is paused here, as this is not an allowed site.",
+    });
+  });
+
   it("shows II until turned back on for a site an exclusion rule pauses (ADR 0062)", async () => {
     const h = harness();
     h.badge.paused(tabId, { rule: true });

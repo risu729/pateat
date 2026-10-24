@@ -378,7 +378,9 @@ export function createLoginBadge(deps: {
                 ? t("Pateat: automatic login is paused on this site until {{time}}.", {
                     time: localClock(paused.until),
                   })
-                : t("Pateat: automatic login is paused on this site until turned back on."),
+                : paused.notAllowed
+                  ? t("Pateat: automatic login is paused here, as this is not an allowed site.")
+                  : t("Pateat: automatic login is paused on this site until turned back on."),
       };
     const result = results.get(tabId);
     if (result && (result.until === undefined || result.until > now()))

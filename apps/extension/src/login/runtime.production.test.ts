@@ -1548,6 +1548,14 @@ describe("production login document admission", () => {
       "http://login.example/signin",
       { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
     ],
+    [
+      "a site the allowed sites leave out (ADR 0077)",
+      "https://login.example/signin",
+      {
+        allowedSitesEnabled: true,
+        allowedSites: [{ hostname: "other.example", includeSubdomains: false }],
+      },
+    ],
   ])("fills nothing on %s, which the rule pauses (ADR 0062)", async (_name, url, overrides) => {
     fake.state.pageUrl = url;
     const h = harness(overrides as Partial<LocalSettings>);
@@ -6671,6 +6679,18 @@ describe("production login document admission", () => {
       it("takes a pick on a site a rule pauses, as a pick on a paused site logs in", async () => {
         const h = await refused();
         h.settings.settings.excludedSites = [{ hostname: "example", includeSubdomains: true }];
+        expect(await pick(h)).toEqual({ ok: true });
+      });
+      it("keeps the choice and takes a pick on a site the allowed sites leave out (ADR 0077)", async () => {
+        const h = await refused();
+        h.settings.settings.allowedSitesEnabled = true;
+        h.settings.settings.allowedSites = [
+          { hostname: "other.example", includeSubdomains: false },
+        ];
+        h.login.settingsChanged("saved");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(fake.state.badges[1]?.text).toBe("2");
+        expect(await ask(h)).toEqual(offered);
         expect(await pick(h)).toEqual({ ok: true });
       });
       it("keeps the choice when another site is excluded", async () => {

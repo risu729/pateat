@@ -84,7 +84,7 @@ export function AllowedSites({
             });
           }}
         />
-        {t("Run only on allowed sites")}
+        {t("Log in automatically only on allowed sites")}
       </label>
       {rules.length > 0 && (
         <RowList id={`${idPrefix}allowed-site-list`}>
@@ -123,17 +123,21 @@ export function AllowedSites({
               ? {
                   tone: "idle",
                   icon: Info,
-                  text: t("Pateat runs only on these sites."),
+                  text: t(
+                    "Pateat logs in by itself only on these sites, and pauses automatic login on every other site.",
+                  ),
                 }
               : {
                   tone: "warn",
                   icon: TriangleAlert,
-                  text: t("No site is allowed, so Pateat logs in nowhere until you allow one."),
+                  text: t(
+                    "No site is allowed, so automatic login is paused everywhere until you allow one.",
+                  ),
                 }
             : {
                 tone: "idle",
                 icon: Info,
-                text: t("While this is off, Pateat runs on every site."),
+                text: t("While this is off, the list pauses nothing."),
               },
         ]}
       />

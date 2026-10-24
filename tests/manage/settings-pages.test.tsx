@@ -594,7 +594,9 @@ test("turns the allowed sites on, adds and removes one, and keeps the list when 
     settings: settingsOf({ siteDefaults: [bankDefault] }),
   });
   await mount(client, "/manage/sites");
-  const allowlist = page.getByRole("switch", { name: "Run only on allowed sites" });
+  const allowlist = page.getByRole("switch", {
+    name: "Log in automatically only on allowed sites",
+  });
   await expect.element(allowlist).not.toBeChecked();
   await allowlist.click();
   await expect.element(allowlist).toBeChecked();
@@ -605,7 +607,11 @@ test("turns the allowed sites on, adds and removes one, and keeps the list when 
   );
   // On with nothing allowed: the site row says it is left out.
   await expect
-    .element(page.getByText("No site is allowed, so Pateat logs in nowhere until you allow one"))
+    .element(
+      page.getByText(
+        "No site is allowed, so automatic login is paused everywhere until you allow one",
+      ),
+    )
     .toBeVisible();
   await expect.element(page.getByText("Not allowed")).toBeVisible();
 
@@ -660,8 +666,12 @@ test("a site the allowed sites leave out offers to allow its whole site (ADR 007
   });
   await mount(client, "/manage/sites/https/www.bank.example");
   await expect
-    .element(page.getByText("Not an allowed site, so devices do nothing here"))
+    .element(page.getByText("Not an allowed site, so automatic login is paused here"))
     .toBeVisible();
+  // Paused until allowed: the switch is off and only the Allow button turns it on.
+  const toggle = page.getByRole("switch", { name: "Automatic login on this site" });
+  await expect.element(toggle).not.toBeChecked();
+  await expect.element(toggle).toBeDisabled();
   await page.getByRole("button", { name: "Allow bank.example" }).click();
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     1,
@@ -678,8 +688,9 @@ test("a site the allowed sites leave out offers to allow its whole site (ADR 007
     .element(page.getByRole("status"))
     .toHaveTextContent("bank.example and subdomains are now allowed sites");
   await expect
-    .element(page.getByText("Not an allowed site, so devices do nothing here"))
+    .element(page.getByText("Not an allowed site, so automatic login is paused here"))
     .not.toBeInTheDocument();
+  await expect.element(toggle).toBeChecked();
 });
 
 test("a site the allowed sites cover offers no Allow button and still pauses", async () => {

@@ -294,17 +294,15 @@ export const settingsJa = {
   Import: "インポート",
   "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.":
     "設定をインポートしました。表示するには保存した設定を読み込み直してください。読み込み直すと、保存していない変更は失われます。",
-  "This site is not an allowed site, so this default is not used.":
-    "このサイトは許可サイトではないため、この既定のアカウントは使いません。",
-  "This site is not an allowed site.": "このサイトは許可サイトではありません。",
   "Allowed sites": "許可サイト",
-  "Run only on allowed sites": "許可サイトでだけ動かす",
+  "Log in automatically only on allowed sites": "許可サイトでだけ自動ログインする",
   "Remove {{name}} from the allowed sites": "{{name}} を許可サイトから外す",
-  "Pateat runs only on these sites.": "Pateat はこれらのサイトでだけ動きます。",
-  "No site is allowed, so Pateat logs in nowhere until you allow one.":
-    "許可サイトがないため、サイトを許可するまで Pateat はどこにもログインしません。",
-  "While this is off, Pateat runs on every site.":
-    "オフのあいだは、すべてのサイトで Pateat が動きます。",
+  "Pateat logs in by itself only on these sites, and pauses automatic login on every other site.":
+    "Pateat が自分でログインするのはこれらのサイトだけです。ほかのサイトでは自動ログインを一時停止します。",
+  "No site is allowed, so automatic login is paused everywhere until you allow one.":
+    "許可サイトがないため、サイトを許可するまで、どのサイトでも自動ログインは一時停止します。",
+  "While this is off, the list pauses nothing.":
+    "オフのあいだは、この一覧で一時停止するサイトはありません。",
   Site: "サイト",
   "Allow subdomains too": "サブドメインも許可する",
   "Allow site": "サイトを許可",

@@ -13,10 +13,13 @@ were chosen by an agent and are marked so.
 [ADR 0062](0062-log-in-again-after-a-logout.md) then made an exclusion a pause of
 automatic login and replaced the popup's switch with a pause row, and main renamed the
 button **Resume**, so the parts about the switch and the button were reworked on
-2026-10-24 (agent's choice, below; the owner was asked whether a site left out stops
-Pateat fully or only pauses automatic login, and this ADR assumes the full stop until
-the owner answers). Amends [ADR 0024](0024-settings-profiles.md) (a new profile part).
-Replaces the allowlist half of the proposal that was ADR 0042 on the
+2026-10-24. On 2026-10-24 at 22:40 UTC (07:40 JST) the owner chose that a site left out
+is paused like an excluded site rather than stopped fully
+(「一時停止でいいんじゃないの？」), after the agent compared the two: a pause already
+sends no page and fills nothing by itself, so what is left, a pick in the popup or a
+choice in the passkey window, needs the person's own action. Amends
+[ADR 0024](0024-settings-profiles.md) (a new profile part). Replaces the allowlist half
+of the proposal that was ADR 0042 on the
 [#614](https://github.com/risu729/pateat/pull/614) branch, whose vault timeout half
 became [ADR 0075](0075-vault-lock-and-timeout.md).
 
@@ -41,40 +44,44 @@ might visit.
   rules covers. While it is off, the list is kept and limits nothing. Both are optional
   in the document: absent is an empty list that is off, which is how every profile
   starts (owner).
-- A site the allowed sites leave out is a full stop (agent's choice, pending the owner):
-  Pateat does not admit its documents, logs in from no popup pick there, fills nothing
-  and answers no passkey request. An exclusion only pauses automatic login
-  ([ADR 0062](0062-log-in-again-after-a-logout.md)), so an allowed site can still be
-  paused, and a site that is both left out and excluded counts as left out. A rule names
-  a hostname only, so it covers every scheme and port, HTTP pages included.
-- `isSiteAllowed` in `packages/contracts/src/settings.ts` is the one check, next to
-  `isSiteExcluded`, which stays the pause alone. Every place that refuses a site checks
-  it: document admission (`site-not-allowed`), logins, sign-in entries and their
-  destinations (`destination-not-allowed`), recipe generation, personal-detail offers,
-  passkey answers, vault URI matches and the popup's account list. A login across hosts,
-  such as a frame of another host, needs each host allowed. `siteAccess` orders the
-  causes: an invalid address, then a site left out, then a paused one; the toolbar
-  badge says a site left out is not allowed, and the settings page says a default is not
-  used because its site is not allowed.
+- A site the allowed sites leave out is paused as an exclusion pauses it
+  ([ADR 0062](0062-log-in-again-after-a-logout.md); owner): Pateat starts nothing by
+  itself there, no automatic login, fill, sign-in entry press, page sent for a recipe or
+  conditional passkey answer, while what the person starts still runs: a pick in the
+  popup, a choice in the passkey window and an account switch. A rule names a hostname
+  only, so it covers every scheme and port, HTTP pages included.
+- `pausingRule` in `apps/extension/src/login/pause.ts` adds the allowed sites to the
+  rules that pause a page until the settings change, next to the exclusions, so every
+  place that reads a rule's pause reads them too: admission's pause, the badge, the
+  popup, recipe generation and samples, entry presses and passkey requests. The pausing
+  settings carry the allowed sites only while they are not empty or off, and a change to
+  them stops and announces again the logins and pages that a change of the exclusions
+  would. The places that refuse an excluded site outright refuse a site left out with
+  it: a personal detail offered after a stopped login and a sign-in entry whose link
+  leads to such a host (`destination-not-allowed`). `siteAccess` in
+  `packages/contracts/src/settings.ts` orders the causes for what a page says: an
+  invalid address, then an exclusion, then a site left out.
 - They are a profile part ([ADR 0024](0024-settings-profiles.md),
   [ADR 0076](0076-settings-profiles-delivered.md); owner): `profileDocument` stores
   them, leaving them out while the list is empty and off. The extension merges the list
   per hostname, like the exclusions, and the switch like one entry: the service's change
   since the last sync wins, then a local change
   ([ADR 0013](0013-service-held-recipes-and-settings.md)).
-- The extension's settings page has an **Allowed sites** section: a **Run only on
-  allowed sites** switch, the rules with **Remove**, and a form to allow a site,
-  optionally with its subdomains. The same section edits another profile from the
-  settings page's profile editor (agent's choice).
-- On a site the allowed sites leave out, the popup lists no accounts and has no pause
-  row. It says Pateat runs only on allowed sites and offers **Allow** with the site's
-  name, which adds the registrable site with its subdomains, the same site a pause
-  covers (agent's choice). Removing an allowed site is done in the settings.
+- The extension's settings page has an **Allowed sites** section: a
+  **Log in automatically only on allowed sites** switch, the rules with **Remove**, and
+  a form to allow a site, optionally with its subdomains. The same section edits another
+  profile from the settings page's profile editor (agent's choice).
+- On a site the allowed sites leave out, the popup lists its accounts as on a paused
+  site, and its pause row says "Paused, as this is not an allowed site" with **Allow**
+  and the site's name in place of **Resume**. It adds the registrable site with its
+  subdomains, the same site a pause covers (agent's choice). An exclusion of the site
+  shows first, with **Resume**. The badge shows the pause's gray `II` and says the site
+  is not an allowed site. Removing an allowed site is done in the settings.
 - The management page's Sites page has the same **Allowed sites** section for the
   profile it shows and marks a site the allowed sites leave out **Not allowed**, beside
-  any **Paused** mark. A site's page says such a site is not allowed and offers the same
-  **Allow** button; its **Automatic login on this site** switch only pauses and resumes
-  (agent's choice).
+  any **Paused** mark. A site's page says such a site is paused as it is not allowed and
+  offers the same **Allow** button; its **Automatic login on this site** switch shows it
+  off and is turned on only by allowing the site (agent's choice).
 - Diagnostics count the allowed sites and say whether they are on; the hostnames are
   only used to decide whether a log entry may keep a site's address, as excluded
   hostnames are.
@@ -82,8 +89,8 @@ might visit.
 
 ## Consequences
 
-- Turning the switch on with an empty list stops every login, fill and passkey answer on
-  the devices of that profile until a site is allowed. The settings page and the
+- Turning the switch on with an empty list pauses automatic login on every site for the
+  devices of that profile until a site is allowed. The settings page and the
   management page say so (agent's wording).
 - The official Bitwarden extension has nothing like the allowed sites; see
   [the differences](../bitwarden-differences.md#allowed-sites).

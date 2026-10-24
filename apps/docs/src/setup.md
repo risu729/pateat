@@ -76,8 +76,8 @@ These limits apply to Pateat only and do not change anything in Bitwarden.
    automatically in private windows, and devices that share a profile share them.
    Choosing an existing profile replaces this device's own lists with the profile's.
    Pateat asks first (**Pair and replace**) when this device has paused sites, allowed
-   sites or default accounts, or has **Run only on allowed sites** on, but not when it
-   has only sites that ask for the master password.
+   sites or default accounts, or has **Log in automatically only on allowed sites** on,
+   but not when it has only sites that ask for the master password.
 
 When pairing succeeds, the page says **This device is paired.** Pateat then syncs its
 profile's settings and the recipes from the service and keeps a copy on this device.
@@ -140,15 +140,16 @@ starts empty.
 
 ### Allowed sites
 
-To limit Pateat to a few sites, turn **Run only on allowed sites** on in the settings
-page's **Allowed sites** section and add each site with **Allow site**, where
-**Allow subdomains too** covers its subdomains. Pateat then logs in, fills and answers
-passkey requests only on those sites, and does nothing at all on any other site, not
-even from the toolbar popup. A paused site stays paused while it is allowed. With the
-switch on and no site allowed, Pateat does nothing anywhere. Turning the switch off
-keeps the list. On a site that is not allowed, the toolbar popup offers
-**Allow** followed by the site's name, which adds the site with its subdomains. The list
-starts empty and off, and belongs to the settings profile, like the paused sites.
+To let Pateat log in by itself on a few sites only, turn **Log in automatically only on
+allowed sites** on in the settings page's **Allowed sites** section and add each site
+with **Allow site**, where **Allow subdomains too** covers its subdomains. Every other
+site is then paused, as if you had paused it until turned back on: Pateat does not log
+in, fill or send its pages by itself there, but an account you pick in the toolbar popup
+still logs in. A paused site stays paused while it is allowed. With the switch on and no
+site allowed, automatic login is paused everywhere. Turning the switch off keeps the
+list. On a site that is not allowed, the toolbar popup offers **Allow** followed by the
+site's name, which adds the site with its subdomains. The list starts empty and off, and
+belongs to the settings profile, like the paused sites.
 
 ### Private windows
 

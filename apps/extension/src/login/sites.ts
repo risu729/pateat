@@ -1,19 +1,18 @@
-import { isSiteAllowed, isSupportedSite, type SettingsSnapshot } from "@pateat/contracts";
+import { isSupportedSite, type SettingsSnapshot } from "@pateat/contracts";
 import { browser } from "wxt/browser";
+import { allowlistOf } from "./pause";
 
 /** Why a document is not admitted; logged for a login-related page (ADR 0019). */
 export type SiteRefusal =
   | "not-web"
   /** A hostname policy inputs do not accept, where Pateat never runs. */
   | "unsupported-host"
-  /** The allowed sites are on and leave the site out, so Pateat does nothing (ADR 0077). */
-  | "site-not-allowed"
   | "no-site-access"
   | "settings-unavailable";
 
 export type PausingSettings = Pick<
   SettingsSnapshot["settings"],
-  "excludedSites" | "loginInPrivateWindows"
+  "excludedSites" | "allowedSites" | "allowedSitesEnabled" | "loginInPrivateWindows"
 >;
 
 export interface LoginSites {
@@ -21,14 +20,14 @@ export interface LoginSites {
   origins(): Promise<string[]>;
   /**
    * HTTP(S) documents with host access still granted, else why not. An exclusion rule
-   * admits the document: it pauses automatic login there (ADR 0062). A site outside the
-   * allowed sites is not admitted (ADR 0077).
+   * admits the document: it pauses automatic login there (ADR 0062), as a site outside the
+   * allowed sites does (ADR 0077).
    */
   admission(url: URL): Promise<"admitted" | SiteRefusal>;
   /**
    * What of the saved settings pauses automatic login (ADR 0062), read as admission reads
-   * the settings: the exclusion rules, which pause it until turned back on, and whether it
-   * runs in private windows.
+   * the settings: the exclusion rules, which pause it until turned back on, the allowed
+   * sites, outside which it is paused too, and whether it runs in private windows.
    */
   pausing(): Promise<PausingSettings>;
 }
@@ -52,12 +51,7 @@ export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }
       ...new Set(
         snapshot.settings.siteDefaults
           .map((entry) => entry.origin)
-          .filter(
-            (origin) =>
-              webOrigin(origin) &&
-              isSupportedSite(origin) &&
-              isSiteAllowed(snapshot.settings, origin),
-          ),
+          .filter((origin) => webOrigin(origin) && isSupportedSite(origin)),
       ),
     ];
     // Chrome lets the user withhold site access after install; respect that per origin.
@@ -73,19 +67,22 @@ export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }
   return {
     origins,
     async pausing() {
-      const { excludedSites, loginInPrivateWindows } = (await settings.read()).settings;
-      return { excludedSites, ...(loginInPrivateWindows ? { loginInPrivateWindows } : {}) };
+      const current = (await settings.read()).settings;
+      const { excludedSites, loginInPrivateWindows } = current;
+      return {
+        excludedSites,
+        ...allowlistOf(current),
+        ...(loginInPrivateWindows ? { loginInPrivateWindows } : {}),
+      };
     },
     async admission(url) {
       if (url.protocol !== "https:" && url.protocol !== "http:") return "not-web";
-      let current: SettingsSnapshot["settings"];
       try {
-        current = (await settings.read()).settings;
+        await settings.read();
       } catch {
         return "settings-unavailable";
       }
       if (!isSupportedSite(url.origin)) return "unsupported-host";
-      if (!isSiteAllowed(current, url.origin)) return "site-not-allowed";
       const granted = await browser.permissions
         .contains({ origins: [hostPattern(url)] })
         .catch(() => false);

@@ -356,8 +356,8 @@ owner 2026-10-23). Official code is pinned at
 Pateat's side is [ADR 0077](adr/0077-allowed-sites.md). The official extension has no
 list of the only sites it acts on; it excludes sites one by one. Pateat adds the list,
 off by default, as the owner chose for an extension that handles personal data. A site
-the list leaves out gets nothing from Pateat, while an excluded site only pauses
-automatic login ([ADR 0062](adr/0062-log-in-again-after-a-logout.md)).
+the list leaves out is paused like an excluded site: no automatic login there, while a
+pick in the popup still logs in ([ADR 0062](adr/0062-log-in-again-after-a-logout.md)).
 
 ## Vault timeout
 

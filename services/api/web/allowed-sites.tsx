@@ -12,8 +12,9 @@ import {
 import { Line, Lines, Panel, ROW_CLASSES, RowList, RowMain } from "./ui";
 
 /**
- * The profile's allowed sites (ADR 0077): while they are on, Pateat runs only on the sites
- * listed here, and exclusions still win. Turning them off keeps the list.
+ * The profile's allowed sites (ADR 0077): while they are on, automatic login runs only on
+ * the sites listed here and is paused on every other site, as an exclusion pauses it
+ * (ADR 0062). Turning them off keeps the list.
  */
 export function AllowedSites({
   settings,
@@ -76,7 +77,7 @@ export function AllowedSites({
           onChange={(event) => change(setAllowedSites(event.target.checked))}
           className="relative h-5 w-9 flex-none cursor-pointer appearance-none rounded-full bg-border-strong transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-surface after:transition-[left] after:content-[''] checked:bg-accent checked:after:left-[18px] disabled:cursor-default disabled:opacity-50"
         />
-        Run only on allowed sites
+        Log in automatically only on allowed sites
       </label>
       {rules.length > 0 && (
         <RowList id="allowed-sites">
@@ -108,7 +109,7 @@ export function AllowedSites({
             <Line icon={<Info size={16} aria-hidden />}>Pateat runs only on these sites</Line>
           ) : (
             <Line icon={<TriangleAlert size={16} aria-hidden />}>
-              No site is allowed, so Pateat logs in nowhere until you allow one
+              No site is allowed, so automatic login is paused everywhere until you allow one
             </Line>
           )
         ) : (

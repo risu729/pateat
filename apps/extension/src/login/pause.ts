@@ -3,7 +3,12 @@
 // `storage.session` in spanning mode but not cookies, so each keeps its own pause.
 import * as v from "valibot";
 import { domainKey } from "@pateat/bitwarden";
-import { isSiteExcluded, isSupportedSite, type LocalSettings } from "@pateat/contracts";
+import {
+  isSiteAllowed,
+  isSiteExcluded,
+  isSupportedSite,
+  type LocalSettings,
+} from "@pateat/contracts";
 import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
 import { PAUSE_LENGTHS, pauseLengthSchema, type PauseLength } from "./choice-wire";
 
@@ -42,8 +47,11 @@ export function pauseSite(value: string | URL): string | undefined {
 export type PauseState =
   /** A pause of a length the person chose, until then, in epoch milliseconds. */
   | { readonly until: number }
-  /** An exclusion rule of the settings covers the site: paused until turned back on. */
-  | { readonly rule: true }
+  /**
+   * An exclusion rule of the settings covers the site, or, with `notAllowed`, the allowed
+   * sites leave it out (ADR 0077): paused until the settings change.
+   */
+  | { readonly rule: true; readonly notAllowed?: true }
   /**
    * The page is in a private window, where automatic login is off until the setting is
    * turned on (ADR 0062).
@@ -55,12 +63,33 @@ export type PauseState =
    */
   | { readonly unreadable: true };
 
+type SiteRules = Pick<LocalSettings, "excludedSites" | "allowedSites" | "allowedSitesEnabled">;
+
+/** The allowed sites as the pausing settings carry them, left out while empty and off. */
+export function allowlistOf(settings: Pick<LocalSettings, "allowedSites" | "allowedSitesEnabled">) {
+  return {
+    ...(settings.allowedSites?.length ? { allowedSites: settings.allowedSites } : {}),
+    ...(settings.allowedSitesEnabled ? { allowedSitesEnabled: true } : {}),
+  };
+}
+
 /**
- * Whether an exclusion rule of the settings covers the page, which pauses automatic login
- * there until the rule is removed (ADR 0062). A page Pateat does not run on is not paused.
+ * Whether a rule of the settings pauses automatic login on the page until it changes
+ * (ADR 0062): an exclusion rule covers it, or the allowed sites are on and leave it out
+ * (ADR 0077). A page Pateat does not run on is not paused.
  */
-export function pausedByRule(settings: Pick<LocalSettings, "excludedSites">, url: string): boolean {
-  return isSupportedSite(url) && isSiteExcluded(settings, url);
+export function pausedByRule(settings: SiteRules, url: string): boolean {
+  return pausingRule(settings, url) !== undefined;
+}
+
+/** Which rule pauses the page, an exclusion before the allowed sites, if any. */
+export function pausingRule(
+  settings: SiteRules,
+  url: string,
+): "excluded" | "not-allowed" | undefined {
+  if (!isSupportedSite(url)) return undefined;
+  if (isSiteExcluded(settings, url)) return "excluded";
+  return isSiteAllowed(settings, url) ? undefined : "not-allowed";
 }
 
 /**

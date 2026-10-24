@@ -22,7 +22,7 @@ function withDefault() {
 }
 
 describe("allowed sites (ADR 0077)", () => {
-  it("limits Pateat to the allowed sites only while they are on, before any pause", () => {
+  it("lets automatic login run only on the allowed sites while they are on", () => {
     const settings = withDefault();
     settings.allowedSites = [
       { hostname: "bank.example", includeSubdomains: false },
@@ -38,20 +38,20 @@ describe("allowed sites (ADR 0077)", () => {
     expect(siteAccess(settings, "https://auth.bank.example")).toBe("not-allowed");
     expect(siteAccess(settings, "https://shop.example")).toBe("not-allowed");
     expect(isSiteAllowed(settings, "https://shop.example")).toBe(false);
-    // Leaving a site out is not a pause: exclusions alone pause automatic login (ADR 0062).
+    // A site left out is paused, not excluded, and a pick there still resolves its default.
     expect(isSiteExcluded(settings, "https://shop.example")).toBe(false);
-    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://shop.example")).toEqual({
-      ok: false,
-      reason: "site-not-allowed",
-    });
-    // An allowed site can still be paused, and a site left out is refused before its pause.
+    const leftOut = { ...settings, allowedSites: [] };
+    expect(resolveSiteAccount(leftOut, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual(
+      resolveSiteAccount(withDefault(), DUMMY_VAULT_CATALOG, "https://bank.example"),
+    );
+    // An exclusion names the pause before the allowed sites do.
     settings.excludedSites = [
       { hostname: "bank.example", includeSubdomains: false },
       { hostname: "shop.example", includeSubdomains: false },
     ];
     expect(siteAccess(settings, "https://bank.example")).toBe("excluded");
-    expect(siteAccess(settings, "https://shop.example")).toBe("not-allowed");
-    // On with nothing allowed, Pateat acts nowhere.
+    expect(siteAccess(settings, "https://shop.example")).toBe("excluded");
+    // On with nothing allowed, every site is paused.
     settings.allowedSites = [];
     expect(siteAccess(settings, "https://inbox.mail.example")).toBe("not-allowed");
     expect(siteAccess(settings, "not a url")).toBe("invalid");

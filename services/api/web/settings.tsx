@@ -61,7 +61,8 @@ export function exclusionsCovering(settings: LocalSettings | null, hostname: str
 
 /**
  * Whether the allowed sites leave a hostname out (ADR 0077): they are on and none covers
- * it. An exclusion still wins, so this says nothing about exclusions.
+ * it, which pauses automatic login there as an exclusion does. It says nothing about
+ * exclusions.
  */
 export function notAllowed(settings: LocalSettings | null, hostname: string): boolean {
   return (
@@ -154,7 +155,9 @@ export function removeAllowedSite(hostname: string, done: string): SettingsEdit 
 export function setAllowedSites(on: boolean): SettingsEdit {
   return {
     apply: (value) => ({ ...value, allowedSitesEnabled: on }),
-    done: on ? "Pateat now runs only on allowed sites" : "Pateat now runs on every site",
+    done: on
+      ? "Automatic login now runs only on allowed sites"
+      : "Automatic login now runs on every site that is not paused",
   };
 }
 

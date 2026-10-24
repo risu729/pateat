@@ -48,7 +48,7 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
   // the Sites list.
   const { rules, shared, pause, resume, site } = siteRules(current, origin);
   const broader = shared[0];
-  // Outside the allowed sites devices do nothing at all, paused or not (ADR 0077).
+  // Outside the allowed sites automatic login is paused until the site is allowed (ADR 0077).
   const leftOut = notAllowed(current, siteHostname(origin));
   const siteDefault = current?.siteDefaults.find((entry) => entry.origin === origin);
   const bindings = (current?.bindings ?? []).filter((entry) => entry.origin === origin);
@@ -74,9 +74,12 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
                 // A checkbox exposes its own checked state to the switch role.
                 // oxlint-disable-next-line jsx-a11y/role-has-required-aria-props
                 role="switch"
-                checked={rules.length === 0}
-                disabled={edit.isPending || broader !== undefined}
-                aria-describedby={broader ? reasonId : undefined}
+                // A site the allowed sites leave out is turned on with its Allow button.
+                checked={rules.length === 0 && !leftOut}
+                disabled={
+                  edit.isPending || broader !== undefined || (leftOut && rules.length === 0)
+                }
+                aria-describedby={broader ? reasonId : leftOut ? "site-not-allowed" : undefined}
                 onChange={(event) => change(event.target.checked ? resume : pause)}
                 className="relative h-5 w-9 flex-none cursor-pointer appearance-none rounded-full bg-border-strong transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-surface after:transition-[left] after:content-[''] checked:bg-accent checked:after:left-[18px] disabled:cursor-default disabled:opacity-50"
               />
@@ -92,7 +95,7 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
         {leftOut && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <p id="site-not-allowed" className="text-[13px]/5 text-ink-muted">
-              Not an allowed site, so devices do nothing here
+              Not an allowed site, so automatic login is paused here
             </p>
             <Button
               variant="outline"
