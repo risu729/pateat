@@ -110,8 +110,8 @@ export async function findSiteAccounts(input: {
     if (!found.complete) complete = false;
     for (const entry of found.candidates) add(entry.connectionId, entry.itemId, "passkey");
   }
-  // Only matched items, so same-named items can be told apart; no other value is read. All
-  // of them are read under one settings read, rather than one or two per item.
+  // Only matched items, so same-named items can be told apart; no other value is read. They
+  // are read together, so the settings and each vault are checked once for all of them.
   if (input.readFields) {
     const read = [];
     for (const account of accounts.values()) {

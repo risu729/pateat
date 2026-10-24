@@ -2,8 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CryptoHost } from "../crypto/host";
 import type { HostSessionRef } from "../crypto/wire";
 import type { VaultEntry } from "../vault/record";
-import { createDefaultSettings, type SettingsSnapshot, type VaultCatalog } from "@pateat/contracts";
-import { setAccountPolicy } from "../vault/__fixtures__/policy";
+import {
+  createDefaultSettings,
+  type SettingsResponse,
+  type SettingsSnapshot,
+  type VaultCatalog,
+} from "@pateat/contracts";
+import { excludeItem, setAccountPolicy } from "../vault/__fixtures__/policy";
 import { activeEntry, disabledEntry, lockedEntry } from "../vault/__fixtures__/vault";
 import { accountProfile } from "../../../../packages/bitwarden/src/__fixtures__/account";
 import { legacyItemKey } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
@@ -568,61 +573,136 @@ describe("vault timeout and lock (ADR 0075)", () => {
     expect(vaultTimeout.used).toHaveBeenCalledOnce();
   });
 
-  it("resolves several fields under one settings read, and refuses them all once the settings changed", async () => {
-    stored.entry = activeEntry();
-    const { host, runtime } = runtimeWith();
-    await runtime.current(id);
-    const handle = runtime.vaultFor(accountProfile).manager.status().handle!;
-    const items = [crypto.randomUUID(), crypto.randomUUID()];
-    const catalog: VaultCatalog = {
-      connections: [
-        {
-          id,
-          label: "Synthetic",
-          provider: "bitwarden",
-          server: "cloud-us",
-          userId: handle.userId,
-          snapshotId: handle.snapshotId,
-          state: "ready",
-          groups: [],
-          items: items.map((itemId) => ({
-            id: itemId,
-            label: "Synthetic login",
-            allowedOrigins: [],
-            groupIds: [],
-            fields: [{ id: "login.username", label: "Username", name: null, kind: "text" }],
-          })),
-        },
-      ],
-    };
-    const settings = createDefaultSettings(catalog);
-    setAccountPolicy(settings, catalog.connections[0]!);
-    const snapshot: SettingsSnapshot = { version: 1, revision: 3, settings };
-    // The mocked settings runtime has no store; this one answers a fixed snapshot.
-    const get = vi.fn(async () => ({ version: 1, ok: true, snapshot, catalog }));
-    const read = vi.fn(async () => snapshot);
-    Object.assign(runtime.settings, { handle: get, read });
-    const fields = items.map((itemId) => ({
-      connectionId: id,
-      ref: {
+  describe("several fields", () => {
+    async function batch(count: number) {
+      stored.entry = activeEntry();
+      const { host, runtime } = runtimeWith();
+      await runtime.current(id);
+      const handle = runtime.vaultFor(accountProfile).manager.status().handle!;
+      const items = Array.from({ length: count }, () => crypto.randomUUID());
+      const catalog: VaultCatalog = {
+        connections: [
+          {
+            id,
+            label: "Synthetic",
+            provider: "bitwarden",
+            server: "cloud-us",
+            userId: handle.userId,
+            snapshotId: handle.snapshotId,
+            state: "ready",
+            groups: [],
+            items: items.map((itemId) => ({
+              id: itemId,
+              label: "Synthetic login",
+              allowedOrigins: [],
+              groupIds: [],
+              fields: [{ id: "login.username", label: "Username", name: null, kind: "text" }],
+            })),
+          },
+        ],
+      };
+      const settings = createDefaultSettings(catalog);
+      setAccountPolicy(settings, catalog.connections[0]!);
+      const snapshot: SettingsSnapshot = { version: 1, revision: 3, settings };
+      // The mocked settings runtime has no store; this one answers a fixed snapshot.
+      const get = vi.fn(async (): Promise<SettingsResponse> => ({
+        version: 1,
+        ok: true,
+        snapshot,
+        catalog,
+      }));
+      Object.assign(runtime.settings, { handle: get });
+      const field = (itemId: string, snapshotId = handle.snapshotId) => ({
         connectionId: id,
-        userId: handle.userId,
-        snapshotId: handle.snapshotId,
-        itemId,
-        fieldId: "login.username",
-      },
-    }));
-    const resolved = await runtime.resolveFields(fields);
-    expect(resolved.map((result) => result.ok)).toEqual([true, true]);
-    expect(get).toHaveBeenCalledOnce();
-    // The check after compares the revision only, so it never reads the catalog again.
-    expect(read).toHaveBeenCalledOnce();
-    expect(host.resolveField).toHaveBeenCalledTimes(2);
-    read.mockResolvedValueOnce({ ...snapshot, revision: 4 });
-    expect(await runtime.resolveFields(fields)).toEqual([
-      { ok: false, error: { code: "field-denied" } },
-      { ok: false, error: { code: "field-denied" } },
-    ]);
+        ref: {
+          connectionId: id,
+          userId: handle.userId,
+          snapshotId,
+          itemId,
+          fieldId: "login.username",
+        },
+      });
+      return { host, runtime, items, catalog, snapshot, get, field };
+    }
+    const denied = { ok: false, error: { code: "field-denied" } };
+
+    it("checks each field under one settings read before and one after them all", async () => {
+      const h = await batch(2);
+      const resolved = await h.runtime.resolveFields(h.items.map((itemId) => h.field(itemId)));
+      expect(resolved.map((result) => result.ok)).toEqual([true, true]);
+      expect(h.get).toHaveBeenCalledTimes(2);
+      expect(h.host.resolveField).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps each answer at its field's place among refused ones", async () => {
+      const h = await batch(4);
+      const [first, excluded, quarantined, last] = h.items as [string, string, string, string];
+      const connection = h.catalog.connections[0]!;
+      excludeItem(h.snapshot.settings, connection, excluded);
+      connection.quarantinedItemIds = [quarantined];
+      const resolved = await h.runtime.resolveFields([
+        h.field(first),
+        h.field(excluded),
+        h.field(quarantined),
+        h.field(first, crypto.randomUUID()),
+        h.field(last),
+        { ...h.field(last), connectionId: crypto.randomUUID() },
+      ]);
+      expect(resolved.map((result) => result.ok)).toEqual([true, false, false, false, true, false]);
+      expect(resolved.slice(1, 4)).toEqual([denied, denied, denied]);
+      expect(h.host.resolveField).toHaveBeenCalledTimes(2);
+    });
+
+    it("refuses every field once the settings changed during the reads", async () => {
+      const h = await batch(2);
+      h.get.mockResolvedValueOnce({
+        version: 1,
+        ok: true,
+        snapshot: h.snapshot,
+        catalog: h.catalog,
+      });
+      h.get.mockResolvedValueOnce({
+        version: 1,
+        ok: true,
+        snapshot: { ...h.snapshot, revision: 4 },
+        catalog: h.catalog,
+      });
+      expect(await h.runtime.resolveFields(h.items.map((itemId) => h.field(itemId)))).toEqual([
+        denied,
+        denied,
+      ]);
+    });
+
+    it("refuses a field the catalog read after the reads no longer allows", async () => {
+      const h = await batch(2);
+      const later = structuredClone(h.catalog);
+      // A pairing's settings sync started, or the item now waits for a review.
+      later.connections[0]!.quarantinedItemIds = [h.items[1]!];
+      h.get.mockResolvedValueOnce({
+        version: 1,
+        ok: true,
+        snapshot: h.snapshot,
+        catalog: h.catalog,
+      });
+      h.get.mockResolvedValueOnce({ version: 1, ok: true, snapshot: h.snapshot, catalog: later });
+      const resolved = await h.runtime.resolveFields(h.items.map((itemId) => h.field(itemId)));
+      expect(resolved.map((result) => result.ok)).toEqual([true, false]);
+      expect(resolved[1]).toEqual(denied);
+    });
+
+    it("answers unreadable settings for every field", async () => {
+      const h = await batch(2);
+      h.get.mockResolvedValueOnce({
+        version: 1,
+        ok: false,
+        error: { code: "storage-unavailable", message: "Down." },
+      });
+      expect(await h.runtime.resolveFields(h.items.map((itemId) => h.field(itemId)))).toEqual([
+        { ok: false, error: { code: "storage-uncertain" } },
+        { ok: false, error: { code: "storage-uncertain" } },
+      ]);
+      expect(h.host.resolveField).not.toHaveBeenCalled();
+    });
   });
 
   describe("settings-page requests", () => {

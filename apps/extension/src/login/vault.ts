@@ -58,19 +58,27 @@ export function createVaultFieldSource(
   };
 }
 
-/** Resolve several bound fields at once; each answer is what `LoginFieldSource` would give. */
+/** Resolve several bound text fields at once; each answer is what `LoginFieldSource` would give. */
 export type LoginFieldBatch = (
-  requests: readonly LoginFieldRequest[],
+  requests: readonly Omit<LoginFieldRequest, "code">[],
 ) => Promise<(string | undefined)[]>;
 
 /**
- * Text values of several live fields under one settings read of the connection runtime,
- * with the checks of `createVaultFieldSource` for each; never a generated code.
+ * Text values of several live fields through one call to the connection runtime, with the
+ * checks of `createVaultFieldSource` for each; never a generated code.
  */
 export function createVaultFieldBatch(
   connections: Pick<ConnectionRuntime, "registry" | "vaultFor" | "resolveFields">,
 ): LoginFieldBatch {
   return async (requests) => {
+    const handles = new Map<string, Promise<{ userId: string; snapshotId: string } | undefined>>();
+    const openHandle = (connectionId: string) =>
+      handles.getOrInsertComputed(connectionId, async () => {
+        const configuration = await connections.registry.get(connectionId);
+        return configuration
+          ? connections.vaultFor(configuration.profile).manager.status().handle
+          : undefined;
+      });
     const refs: { index: number; connectionId: string; ref: LocalFieldReference }[] = [];
     for (const [index, { account, connection, fieldId }] of requests.entries()) {
       if (
@@ -79,10 +87,8 @@ export function createVaultFieldBatch(
         !connection.snapshotId
       )
         continue;
-      // oxlint-disable-next-line no-await-in-loop -- each request checks its own connection
-      const configuration = await connections.registry.get(account.connectionId);
-      if (!configuration) continue;
-      const handle = connections.vaultFor(configuration.profile).manager.status().handle;
+      // oxlint-disable-next-line no-await-in-loop -- each connection is looked up once
+      const handle = await openHandle(account.connectionId);
       // The authorizing catalog must describe the snapshot that is currently open.
       if (!handle || handle.snapshotId !== connection.snapshotId) continue;
       refs.push({

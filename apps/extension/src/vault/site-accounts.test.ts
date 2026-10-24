@@ -196,6 +196,21 @@ describe("findSiteAccounts", () => {
     ]);
   });
 
+  it("lists the matches without usernames when reading them fails", async () => {
+    const result = await findSiteAccounts({
+      saved: saved(),
+      settings: draft(),
+      origin,
+      matchUris: async () => ({ ok: true, data: uris() }),
+      findPasskeys: passkeys(),
+      readFields: async () => {
+        throw new Error("Synthetic read failure");
+      },
+    });
+    expect(result).toMatchObject({ ok: true, accounts: [{ itemId: uriItem }] });
+    expect(result.ok && result.accounts[0]).not.toHaveProperty("username");
+  });
+
   it("does not read a username the draft excludes", async () => {
     const value = saved();
     const settings = excludeField(
