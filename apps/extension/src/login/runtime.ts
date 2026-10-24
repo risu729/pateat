@@ -145,6 +145,7 @@ import {
 import { browser, type Browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
 import { sessionValue, trustedRecord } from "../storage";
+import { MAX_SETTINGS_DEFER_MS } from "../service/settings-sync";
 import type { ServiceTiming } from "../service/transport";
 import { createLoginBadge, memoryBadgeStorage, setActionBadge, type LoginBadge } from "./badge";
 import { domainKey } from "@pateat/bitwarden";
@@ -4922,13 +4923,31 @@ export function createLoginRuntime(
       outcome("account-changed");
       return;
     }
-    // Saving bumps the revision every attempt checks; never stop another login with it.
-    if (attempts.values().some((other) => other !== run && inProgress(other))) {
+    // Saving bumps the revision every attempt checks; never stop another login with it. A
+    // login between pages has no current run, as while its next page is admitted or after
+    // a worker restart, so its stored record counts too, as `active` counts it, but only
+    // while it changed within the settings sync's two-minute cap: an older one is likely
+    // left over, and saving may stop it `policy-changed` (owner, 2026-10-24).
+    const now = Date.now();
+    if (
+      attempts.values().some((other) => other !== run && inProgress(other)) ||
+      persisted.values().some((other) => {
+        const age = now - (other.changedAt ?? Number.NEGATIVE_INFINITY);
+        return (
+          other.id !== run.metadata.id &&
+          !terminal(other) &&
+          !idle(other) &&
+          // A clock set back ends the wait rather than prolonging it.
+          age >= 0 &&
+          age < MAX_SETTINGS_DEFER_MS
+        );
+      })
+    ) {
       outcome("login-in-progress");
       return;
     }
-    // A login another tab is admitting waits for this save, which no in-progress check above
-    // can see yet (see `admit`).
+    // A login another tab is admitting waits for this save, which the checks above may not
+    // see yet: it has no run or record before its first step (see `admit`).
     const { promise: saving, resolve: finish } = Promise.withResolvers<void>();
     savingChoices.add(saving);
     let writing = false;
