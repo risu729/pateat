@@ -2846,7 +2846,9 @@ export function createLoginRuntime(
   /**
    * By tab: when the attempt last delivered an effect step, the document it ran in, whether
    * the step submits (`submit`), whether it asks for a passkey itself (the `passkey` route,
-   * or a `passkey` handler's click), so S5 skips it, and the first other top document of the
+   * or a `passkey` handler's click; `request` for its own step only, so S5 counts its
+   * request only while no answer of Pateat's followed it), and the first other top
+   * document of the
    * tab announced after it, within `SITE_MOVE_MS` (`next`). After a password step's
    * submission, that first new document alone is read for a sign-in form shown again
    * (ADR 0029). `code`: when the attempt last submitted a TOTP code, or may have, as the
@@ -2861,6 +2863,17 @@ export function createLoginRuntime(
       document: LoginDocument;
       submits: boolean;
       passkey: boolean;
+      /**
+       * The step itself asks for a passkey: the `passkey` route's own step or a `passkey`
+       * handler's click, not a later handler's step on that route.
+       */
+      request: boolean;
+      /**
+       * When this attempt's latest step that asked for a passkey was delivered, kept by the
+       * later steps of a handler after it, which Pateat's answer must follow for an undecided
+       * page of the `passkey` route to complete it.
+       */
+      requestAt?: number;
       next?: string;
       code?: number;
     }
@@ -6575,9 +6588,14 @@ export function createLoginRuntime(
     if (!current(run) || terminal(run.metadata)) return undefined;
     const state = effectful(run.metadata) ? await signInState(run, advance) : undefined;
     if (!current(run) || terminal(run.metadata)) return undefined;
-    // Evidence of a sign-in completes the login without a model call, and a failure shown
-    // next to the sign-in fields rejects it (ADR 0029).
-    if (state?.confirmed && (state.decision === "signed-in" || state.decision === "rejected")) {
+    // Evidence of a sign-in completes the login without a model call, on the passkey route
+    // too (owner, 2026-10-24), and a failure shown next to the sign-in fields rejects it
+    // (ADR 0029); the passkey route rejects no credential, and goes on as before.
+    if (
+      state?.confirmed &&
+      (state.decision === "signed-in" ||
+        (state.decision === "rejected" && run.metadata.route !== "passkey"))
+    ) {
       await change(run, {
         type: "OBSERVED",
         result: state.decision === "signed-in" ? "authenticated" : "credential-rejected",
@@ -6701,6 +6719,20 @@ export function createLoginRuntime(
       )
       .catch(() => undefined);
   }
+  /**
+   * Whether Pateat's answer to the passkey request of this attempt's latest step that asked
+   * for one went back after that step, on the page's origin or the recipe's, also when a
+   * handler's steps ran after it (ADR 0029 amendment of 2026-10-24).
+   */
+  function passkeyStepAnswered(run: Execution): boolean {
+    const { tabId, origin: pageOrigin } = run.live.document;
+    const effect = effects.get(tabId);
+    const requestAt = effect?.attemptId === run.metadata.id ? effect.requestAt : undefined;
+    if (requestAt === undefined) return false;
+    return [pageOrigin, run.recipe.origin].some(
+      (from) => (passkeyAnswers.get(`${tabId} ${from}`)?.at ?? -1) >= requestAt,
+    );
+  }
   /** Whether the page has nothing a signed-in page's description could carry. */
   async function showsNothing(run: Execution): Promise<boolean> {
     const extracted = v.safeParse(
@@ -6712,10 +6744,9 @@ export function createLoginRuntime(
   /**
    * Reads and logs the sign-in state of ADR 0029 for a page no check explained: its signs
    * and what the ADR does with it. Returns the decision, `confirmed` only when a later
-   * reading, a second apart, agrees in the fully loaded document. On the passkey route,
-   * where anything the route's checks do not prove ends `challenge`, the reading is not
-   * read again and never confirmed, so it is logged only. A login in a frame is not read,
-   * as the ADR reads the top document.
+   * reading, a second apart, agrees in the fully loaded document, on the passkey route too
+   * (ADR 0029 amendment of 2026-10-24). A login in a frame is not read, as the ADR reads
+   * the top document.
    */
   async function signInState(
     run: Execution,
@@ -6730,27 +6761,26 @@ export function createLoginRuntime(
     // again with nothing else, on which the tab asks again (ADR 0021 D). Each reading
     // depends on the time passed since the last, so they run one after another.
     /* eslint-disable no-await-in-loop */
-    if (run.metadata.route !== "passkey")
-      for (
-        let recheck = 0;
-        reading !== undefined &&
-        (reading.decision !== "unknown" || formAgain(reading.signs)) &&
-        recheck < SIGN_IN_RECHECKS;
-        recheck++
-      ) {
-        await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
-        if (!current(run) || terminal(run.metadata)) return undefined;
-        const next = await readSignInState(run);
-        const agrees =
-          next?.decision === reading.decision &&
-          formAgain(next.signs) === formAgain(reading.signs) &&
-          next.loaded;
-        reading = next;
-        if (agrees) {
-          confirmed = true;
-          break;
-        }
+    for (
+      let recheck = 0;
+      reading !== undefined &&
+      (reading.decision !== "unknown" || formAgain(reading.signs)) &&
+      recheck < SIGN_IN_RECHECKS;
+      recheck++
+    ) {
+      await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
+      if (!current(run) || terminal(run.metadata)) return undefined;
+      const next = await readSignInState(run);
+      const agrees =
+        next?.decision === reading.decision &&
+        formAgain(next.signs) === formAgain(reading.signs) &&
+        next.loaded;
+      reading = next;
+      if (agrees) {
+        confirmed = true;
+        break;
       }
+    }
     /* eslint-enable no-await-in-loop */
     if (!reading) return undefined;
     report(run.live.document, {
@@ -6941,17 +6971,21 @@ export function createLoginRuntime(
     if (!parsed.success || !parsed.output.ok) return undefined;
     const page = parsed.output.signs;
     const requested = passkeyRequests.get(`${tabId} ${pageOrigin}`);
+    const answered = passkeyAnswers.get(`${tabId} ${pageOrigin}`)?.at;
     const signInUrl = signInUrls.get(tabId);
     const signs: SignInSigns = {
       s1,
       s2: page.password,
       s3: page.code,
       s4: page.captcha,
+      // After a step that asked for a passkey itself, its request counts only while no
+      // answer of Pateat's followed it: one still open, left to the browser, or another
+      // after the answer (ADR 0029 amendment of 2026-10-24).
       s5:
         effect?.attemptId === metadata.id &&
-        !effect.passkey &&
         requested !== undefined &&
-        requested >= effect.at,
+        requested >= effect.at &&
+        (!effect.request || answered === undefined || answered < requested),
       // A failure counts only next to the sign-in fields.
       f1: s1 && page.invalid,
       f2: s1 && page.alert,
@@ -8941,6 +8975,7 @@ export function createLoginRuntime(
       stopAt: run.metadata.stopAt,
       sent,
       inputLeftOut,
+      answered: passkeyStepAnswered(run),
     });
     let again: Awaited<ReturnType<typeof readSignInState>>;
     // The judge's answer can take a while: the page completes only if, once the answer is
@@ -10275,6 +10310,15 @@ export function createLoginRuntime(
           (operation.step.kind === "fill" && operation.step.effect !== "prepare")
         ) {
           const at = Date.now();
+          const request =
+            (run.metadata.route === "passkey" && ownHandler === undefined) ||
+            (ownHandler !== undefined && run.recipe.handlers?.[ownHandler]?.kind === "passkey");
+          const before = effects.get(tabId);
+          const requestAt = request
+            ? at
+            : before?.attemptId === run.metadata.id
+              ? before.requestAt
+              : undefined;
           effects.set(tabId, {
             attemptId: run.metadata.id,
             at,
@@ -10283,6 +10327,8 @@ export function createLoginRuntime(
             passkey:
               run.metadata.route === "passkey" ||
               (ownHandler !== undefined && run.recipe.handlers?.[ownHandler]?.kind === "passkey"),
+            request,
+            ...(requestAt === undefined ? {} : { requestAt }),
             ...(codeStep(run.recipe, run.metadata, operation.stepIndex) ? { code: at } : {}),
           });
           // A passkey handler's click asks for the passkey; it does not submit the password.
@@ -16517,12 +16563,15 @@ export function createLoginRuntime(
     }
     const { tabId } = run.live.document;
     run.delivered = true;
+    const deliveredAt = Date.now();
     effects.set(tabId, {
       attemptId: run.metadata.id,
-      at: Date.now(),
+      at: deliveredAt,
       document: run.live.document,
       submits: false,
       passkey: true,
+      request: true,
+      requestAt: deliveredAt,
     });
     const item = {
       connectionId: run.metadata.account.connectionId,
@@ -16637,23 +16686,28 @@ export function createLoginRuntime(
     }
     const { tabId } = run.live.document;
     if (bridged !== undefined) {
-      // The step that asked for a passkey is the answer's, so S5 skips it and a move to
-      // the passkey's site completes (ADR 0029, ADR 0022).
+      // The step that asked for a passkey is the answer's, so S5 skips its answered request
+      // and a move to the passkey's site completes (ADR 0029, ADR 0022).
       effects.set(tabId, {
         attemptId: run.metadata.id,
         at: bridged,
         document: run.live.document,
         submits: false,
         passkey: true,
+        request: true,
+        requestAt: bridged,
       });
       run.answeredAt = bridged;
     } else if (parked) {
+      const deliveredAt = Date.now();
       effects.set(tabId, {
         attemptId: run.metadata.id,
-        at: Date.now(),
+        at: deliveredAt,
         document: run.live.document,
         submits: false,
         passkey: true,
+        request: true,
+        requestAt: deliveredAt,
       });
       const item = {
         connectionId: run.metadata.account.connectionId,

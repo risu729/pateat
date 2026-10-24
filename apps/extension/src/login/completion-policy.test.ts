@@ -41,7 +41,6 @@ describe("undecidedCandidate", () => {
 
   it.each([
     { watched: true },
-    { route: "passkey" as const },
     { reading: undefined },
     { reading: { decision: "judge" as const, confirmed: false } },
     { reading: { decision: "continuing" as const, confirmed: true } },
@@ -66,15 +65,31 @@ describe("undecidedCandidate", () => {
     "judgement-limit",
     "daily-limit",
     "monthly-limit",
-  ])("never completes a watched or passkey page for reason %s", (reason) => {
+  ])("never completes a watched page for reason %s", (reason) => {
     expect(undecidedCandidate({ ...candidate, reason, watched: true })).toEqual({
       completes: false,
+      stopHeld: false,
+    });
+    // The passkey route completes as the password route does (owner, 2026-10-24), once
+    // Pateat's answer to its step's passkey request went back.
+    expect(undecidedCandidate({ ...candidate, reason, route: "passkey", answered: true })).toEqual({
+      completes: true,
       stopHeld: false,
     });
     expect(undecidedCandidate({ ...candidate, reason, route: "passkey" })).toEqual({
       completes: false,
       stopHeld: false,
     });
+    expect(
+      judgedCompletionResult({
+        verdict: "unclear",
+        reason,
+        reading: candidate.reading,
+        completes: true,
+        stopHeld: false,
+        route: "passkey",
+      }),
+    ).toEqual({ result: "authenticated", confirmed: reason === "judged-signed-in" });
   });
 
   it.each([
