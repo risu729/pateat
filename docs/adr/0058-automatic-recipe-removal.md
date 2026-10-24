@@ -142,7 +142,7 @@ missing route (`passkey` or `password`) in 3 days, so at most two claims per rec
 (owner, 2026-10-23 12:53 and 12:54 UTC: 30 days was too long, and one account's gap must
 not block another's). It is given back when the request never reached the model. The log
 event is `recipe.unfit`, and the request itself is `recipe.generate` with page `repair`.
-The Delivery section below describes part A before this amendment.
+The Delivery section below describes part A before this amendment, then after it.
 
 ## Consequences
 
@@ -152,13 +152,14 @@ The Delivery section below describes part A before this amendment.
 - A recipe sync that runs just as a login starts can revoke its recipe at about 90 days
   idle. That login's use report and records then get 404, and the next visit generates
   the recipe again.
-- Part A can repeat on a page whose regenerated recipe the item still cannot run, as a
-  page with no passkey button for an item that only has a passkey: each device then
-  revokes and generates it again once every 30 days, and each round loses the learned
-  handlers, markers and continuation pages, as above.
-- A revocation under part A tells the service that the chosen item could not run the
-  recipe, which hints at what the item lacks (its password, its TOTP secret or a
-  passkey). It sends no value or fact by name, and the service is the owner's own.
+- Part A can repeat on a page whose repaired recipe the item still cannot run, as a page
+  with no passkey button for an item that only has a passkey: each device then sends the
+  page for repair again at most once every 3 days for each missing route (amendment
+  above).
+- A repair under part A may hint to the service that the chosen item could not run the
+  recipe, and so at what the item lacks (its password, its TOTP secret or a passkey),
+  since the page it sends still matches the recipe. It sends no value or fact by name,
+  and the service is the owner's own.
 - An offline device keeps using its copy until it syncs, as after the owner's revoke.
 - The owner's `/manage` revoke stays as it was.
 
@@ -178,13 +179,27 @@ revocation in `pateat.recipe-replacements.v1`, sends `PUT /v1/recipes/:recipeId`
 `state: "revoked"` and pulls recipes. Once the recipe cache no longer starts that
 revision on the page, the document announces again and is offered for generation as a
 page where no recipe starts ([ADR 0016](0016-recipe-generation-trigger.md)); otherwise
-it is refused as before. Each revocation logs `recipe.revoke`. On `main` this covers an
-item with a discoverable passkey and no usable password, or without its TOTP secret, on
-a recipe without a passkey button. The owner's example, a recipe that only presses a
-passkey button for an item with only a password, needs the passkey-only recipe of
-[#663](https://github.com/risu729/pateat/pull/663), which the same check covers. A page
-whose document was already offered for generation once is generated only on its next
-visit.
+it is refused as before. Each revocation logs `recipe.revoke`. This covered an item with
+a discoverable passkey and no usable password, or without its TOTP secret, on a recipe
+without a passkey button. A page whose document was already offered for generation once
+is generated only on its next visit.
+
+Since the repair amendment, the login runtime asks the generation side's `claimRepair`
+(`apps/extension/src/service/generation.ts`) for the route `heldRouteMissing` names, and
+sends the start page for repair as a sign-in form, with the recipe and revision it
+repairs. For the owner's example, a passkey-only recipe
+([ADR 0053](0053-passkey-only-generation.md), merged in
+[#805](https://github.com/risu729/pateat/pull/805)) has no `password` variant, so an
+item with a password and no discoverable passkey refuses it with `no-route`, and the
+repair is claimed for the `password` route. The button is never pressed and no secret
+is read. Only a start page that now shows a sign-in input is sent, and can gain a
+layout with the `password` route. A page that still shows only the button, or the button
+beside an entry or a list, describes no sign-in field: after the extraction's reads
+(about 9 seconds) nothing is sent, the claim is given back and the page is refused with
+`no-route`, on every visit, so automatic login stays stopped there for that item. An
+item with a discoverable passkey takes the recipe's passkey route and claims nothing.
+Runtime tests in `apps/extension/src/login/runtime.production.test.ts` pin these
+cases.
 
 ## Alternatives
 
