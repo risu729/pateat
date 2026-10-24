@@ -314,6 +314,11 @@ export const LOG_EVENTS = {
       e1: "flag",
       e2: "flag",
       previousUrl: "url",
+      // For `first-step-missing`: the later steps on the page's path, how many start with
+      // their password alone, and the furthest check they reached (ADR 0049).
+      laterSteps: "count",
+      laterPartial: "count",
+      laterMiss: "code",
       frame: "flag",
       url: "url",
     },

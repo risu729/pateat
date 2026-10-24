@@ -185,7 +185,9 @@ import {
   START_TRY_WINDOW_MS,
   type ExecutionDetail,
   type InPlaceNext,
+  type LaterMiss,
   type LoginReadiness,
+  type ShownLater,
   type StartMiss,
   type TargetRequirement,
   type TargetState,
@@ -2028,6 +2030,14 @@ export type LoginReport = (
       e1?: boolean;
       e2?: boolean;
       previousUrl?: string;
+      /**
+       * For `not-started` with `first-step-missing`: the recipe whose first step missed, and
+       * the later steps on the page's path (ADR 0049): how many, how many with their password
+       * alone, and the furthest check they reached (`LaterMiss`).
+       */
+      laterSteps?: number;
+      laterPartial?: number;
+      laterMiss?: LaterMiss;
       /** The same reason was already logged for this page (ADR 0019). */
       repeat?: true;
       /**
@@ -12255,6 +12265,7 @@ export function createLoginRuntime(
     path: string;
     amount?: boolean | undefined;
     miss?: StartMiss | undefined;
+    later?: ShownLater | undefined;
     accounts?: true | undefined;
   };
   async function ready(
@@ -12608,7 +12619,16 @@ export function createLoginRuntime(
         ...(document.frameId === 0 ? {} : { frame: true as const }),
       };
       if (!visit) {
-        report(document, refused);
+        const later = shown?.later;
+        report(document, {
+          ...refused,
+          ...(detail === "first-step-missing" && recipe
+            ? { recipeId: recipe.id, recipeRevision: recipe.revision }
+            : {}),
+          ...(later
+            ? { laterSteps: later.steps, laterPartial: later.partial, laterMiss: later.miss }
+            : {}),
+        });
         return;
       }
       // A page Pateat does not fill also logs what it shows for the evaluation of page kinds

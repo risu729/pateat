@@ -234,6 +234,27 @@ export const unofferedReasons = [
  * match one shown element that is not usable yet, and the HTTP status of the document's
  * own load when the browser reports one.
  */
+/**
+ * Why a later step a login may start at did not (ADR 0049), in the order checked:
+ * `target`, a target matches no unique usable element; `identifier`, the page shows
+ * another identifier input; for a step started with its password alone, `absent`, a target
+ * it drops shows writable, `form-input`, another text input shares the password's form,
+ * or `new-password`, the form is marked for a new password.
+ */
+export const LATER_MISSES = [
+  "target",
+  "identifier",
+  "absent",
+  "form-input",
+  "new-password",
+] as const;
+export type LaterMiss = (typeof LATER_MISSES)[number];
+const shownLaterSchema = v.strictObject({
+  steps: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(32)),
+  partial: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(32)),
+  miss: v.picklist(LATER_MISSES),
+});
+export type ShownLater = v.InferOutput<typeof shownLaterSchema>;
 export const startMissSchema = v.strictObject({
   missing: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
   /**
@@ -293,6 +314,8 @@ export const helloSchema = v.strictObject({
       path,
       amount: v.optional(v.boolean()),
       miss: v.optional(startMissSchema),
+      /** The later steps on this path, for the log (`ShownLater`, ADR 0049). */
+      later: v.optional(shownLaterSchema),
       accounts: v.optional(v.literal(true)),
     }),
   ),

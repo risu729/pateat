@@ -99,6 +99,9 @@ import {
   reconnectSchema,
   type ExecutionDetail,
   type LoginReadiness,
+  LATER_MISSES,
+  type LaterMiss,
+  type ShownLater,
   type LoginSecretKind,
   type StartMiss,
   type TargetState,
@@ -201,43 +204,50 @@ function readyNow(readiness: LoginReadiness): boolean {
       ) ||
         listsAccounts(document))
     );
-  return (
-    readiness.targets.every((target) => {
-      const found = matches(target);
-      if (found.length !== 1) return false;
-      // A field entered on the page's keypad may be read-only (ADR 0067).
-      if (readiness.require === "writable")
-        return readiness.keypad?.some((other) => sameLoginTarget(other, target))
-          ? keyable(found[0])
-          : writable(found[0]);
-      if (readiness.require === "settable") return writable(found[0]) || choosable(found[0]);
-      // A control named by its accessible name may be a link to a fragment of its page.
-      if (readiness.require === "clickable")
-        return clickable(found[0], { fragment: target.by === "accessible-name" });
-      return true;
-    }) &&
-    // A later step is no start while the page also asks for an identifier the step does not
-    // fill, as a form for another account with its own email input (ADR 0049).
-    !(readiness.later && credentialInputs(readiness.targets).identifier) &&
-    !(readiness.absent && asksBeyondPassword(readiness.targets, readiness.absent))
-  );
+  return stepMiss(readiness) === undefined;
+}
+/**
+ * Why a step on this path is not ready (`LaterMiss`): a target that matches no unique
+ * usable element, or for a later step (ADR 0049) the page's other identifier input, or what
+ * else the page asks for beside a password started alone.
+ */
+function stepMiss(readiness: LoginReadiness): LaterMiss | undefined {
+  const usable = readiness.targets.every((target) => {
+    const found = matches(target);
+    if (found.length !== 1) return false;
+    // A field entered on the page's keypad may be read-only (ADR 0067).
+    if (readiness.require === "writable")
+      return readiness.keypad?.some((other) => sameLoginTarget(other, target))
+        ? keyable(found[0])
+        : writable(found[0]);
+    if (readiness.require === "settable") return writable(found[0]) || choosable(found[0]);
+    // A control named by its accessible name may be a link to a fragment of its page.
+    if (readiness.require === "clickable")
+      return clickable(found[0], { fragment: target.by === "accessible-name" });
+    return true;
+  });
+  if (!usable) return "target";
+  // A later step is no start while the page also asks for an identifier the step does not
+  // fill, as a form for another account with its own email input (ADR 0049).
+  if (readiness.later && credentialInputs(readiness.targets).identifier) return "identifier";
+  return readiness.absent ? passwordAloneMiss(readiness.targets, readiness.absent) : undefined;
 }
 /** Input types a person types an account identifier or a code into. */
 const textTypes = new Set(["text", "email", "tel", "number", "url"]);
 /**
- * Whether a page that shows a later step's password input also asks for more than the
- * password, so the step may not start with its password alone (ADR 0049): one of the
- * targets the step drops shows writable; another visible writable text input shares the
- * password input's form; or the password input or another input of its form (of the page
- * outside forms, without one) is marked `new-password`, as on a sign-up or password change
- * form.
+ * What a page that shows a later step's password input also asks for beside the password,
+ * so the step may not start with its password alone (ADR 0049): `absent`, one of the
+ * targets the step drops shows writable; `form-input`, another visible writable text input
+ * shares the password input's form; `new-password`, the password input or another input of
+ * its form (of the page outside forms, without one) is marked `new-password`, as on a
+ * sign-up or password change form.
  */
-function asksBeyondPassword(
+function passwordAloneMiss(
   targets: readonly LoginTarget[],
   absent: readonly LoginTarget[],
-): boolean {
+): "absent" | "form-input" | "new-password" | undefined {
   const shown = (element: Element) => writable(element) && presence(element) === "visible";
-  if (absent.some((target) => matches(target).some(shown))) return true;
+  if (absent.some((target) => matches(target).some(shown))) return "absent";
   const own = new Set(
     targets
       .flatMap((target) => matches(target))
@@ -247,13 +257,22 @@ function asksBeyondPassword(
   const forms = new Set([...own].map(formOf));
   const newPassword = (input: HTMLInputElement) =>
     autocompleteTokens(input).includes("new-password");
-  return queryAll<HTMLInputElement>(document, "input").some((input) => {
-    if (own.has(input)) return newPassword(input);
+  let miss: "form-input" | "new-password" | undefined;
+  for (const input of queryAll<HTMLInputElement>(document, "input")) {
     const form = formOf(input);
-    if (!forms.has(form)) return false;
+    if (own.has(input) ? newPassword(input) : forms.has(form) && newPassword(input))
+      return "new-password";
     // Outside a form, another text input, as a page's search box, tells nothing.
-    return newPassword(input) || (form !== null && textTypes.has(input.type) && shown(input));
-  });
+    if (
+      !own.has(input) &&
+      form !== null &&
+      forms.has(form) &&
+      textTypes.has(input.type) &&
+      shown(input)
+    )
+      miss = "form-input";
+  }
+  return miss;
 }
 /**
  * Whether the page shows a visible password input, or one marked for a username or a
@@ -855,6 +874,22 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     };
   }
   /**
+   * For the log, the later steps a login may start at on this path (ADR 0049): how many,
+   * how many with their password alone, and the furthest check any of them reached before
+   * it was refused (`LaterMiss`). Undefined where none is.
+   */
+  function laterReport(): ShownLater | undefined {
+    const path = pagePath();
+    const here = starts.filter((start) => start.later && start.path === path);
+    if (!here.length) return undefined;
+    const misses = here.map((start) => stepMiss(start) ?? "target");
+    return {
+      steps: here.length,
+      partial: here.filter((start) => start.absent).length,
+      miss: LATER_MISSES[Math.max(...misses.map((miss) => LATER_MISSES.indexOf(miss)))]!,
+    };
+  }
+  /**
    * Reports a sign-in input, or a list of accounts where a first step is watched, that
    * still shows without a ready first step after the step wait, once per path: for the log,
    * and with what the first steps missed, for a stale recipe's repair (ADR 0041). A page
@@ -878,6 +913,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (!asks && !listsHere()) return;
       shown.add(path);
       const miss = startMiss();
+      const later = laterReport();
       void sendMessage("login", {
         version: 1,
         type: "login.document.ready",
@@ -885,6 +921,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         shown: {
           ...shownReport(path),
           ...(miss ? { miss } : {}),
+          ...(later ? { later } : {}),
           ...(asks ? {} : { accounts: true as const }),
         },
       }).catch(() => undefined);
