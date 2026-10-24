@@ -426,9 +426,11 @@ the plan check's code (such as `incompatible-role`).
   A page that shows one of the route's fill fields, of any variant (on any path), or the
   completion marker answers `not-judgeable` before any model call. The login paths are
   the step paths of every variant of the route and the recipe's handler paths, from the
-  stored recipe. A `signed-in` marker passes `addCompletion` and is stored as
-  `completion` in the next revision; with a completion already stored, the answer is
-  `signed-in` without a change. A `challenge` verdict that names a security-key or
+  stored recipe. The judge is told which candidates the recipe's own elements are
+  (`stepElements`). A `signed-in` marker passes `addCompletion` and is stored as
+  `completion` in the next revision; one it refuses only for the marker (such as one of
+  the recipe's own elements, a fifth marker or one it has) answers `signed-in` without a
+  change. A `challenge` verdict that names a security-key or
   passkey button passes `addHandler` (a button of the page, not one that registers,
   adds, sets up, turns on or manages a passkey, not a step, switch, rejection or
   completion target, one handler per kind and path) and is stored as a `passkey` handler
@@ -450,8 +452,10 @@ the plan check's code (such as `incompatible-role`).
   no element of the page, or `not-input`, `text-locator`, `not-code-field`,
   `code-too-short`, `several-code-fields`, `submit-not-button`, `submit-other-form` or
   `href-locator` (an element located by a link's path, which only a marker may be). A
-  `signed-in` marker on a `totp` handler's path that shows its code field fails
-  `addCompletion` like one on the sign-in page, and the call answers `invalid-output`.
+  `signed-in` answer on a page that still shows the login's elements (an element a step
+  or handler uses on that path, such as a `totp` handler's code field or button, a field
+  any step fills, or the rejection) fails `addCompletion` as `login-page`, whatever the
+  marker: the call answers `invalid-output` and the path keeps `challenge`.
 - `stop: true` (only with the `password` route and a `branch` that names no chooser
   branch) marks the page of a
   `password` login's stop before its item's missing password

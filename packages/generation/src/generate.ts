@@ -61,6 +61,7 @@ import {
   completionBesideInstructions,
   completionBesidePromptVersion,
   createCompletionJudge,
+  recipeElements,
   createEntryGenerator,
   createRecipeGenerator,
   customSlotNames,
@@ -1297,6 +1298,7 @@ export async function judgeCompletion(
         observation,
         loginPaths,
         slots,
+        recipeElements: recipeElements(recipe),
         ...(stop ? { stop } : {}),
         ...(beside ? { beside } : {}),
       }),
@@ -1352,9 +1354,21 @@ export async function judgeCompletion(
   // A page beside the sign-in form keeps its verdict once its handlers are known. An
   // optional answer on a description that left out a disabled field is kept as
   // `partial`, as an abstention there is (ADR 0029, ADR 0065).
+  // A signed-in page's marker is checked before its verdict is kept: a page that still
+  // shows the login's own elements keeps `challenge`, so a later login of the revision
+  // never completes on it as judged signed in (ADR 0029 amendment of 2026-10-24).
+  const learned =
+    judgement.decision === "signed-in"
+      ? addCompletion(recipe, observation, judgement.target)
+      : undefined;
+  const loginPage = learned?.ok === false && learned.reason === "login-page";
   if (!beside)
     await keepVerdict(
-      partial && judgement.decision === "optional" ? "partial" : judgement.decision,
+      loginPage
+        ? "challenge"
+        : partial && judgement.decision === "optional"
+          ? "partial"
+          : judgement.decision,
     );
   if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
   // A page the person may put off is signed in, but nothing is learned there (ADR 0065):
@@ -1440,14 +1454,20 @@ export async function judgeCompletion(
     const change = written.ok ? answerable(written.change) : undefined;
     return { version: 1, status: "challenge", ...(change ? { change } : {}), ...questions };
   }
-  // A later signed-in page adds its marker, up to four (ADR 0029). A recipe that has a
-  // marker already is signed in whether or not this one can be added, as with four, a
-  // marker it has, or one that breaks the recipe's bounds. So is a page of another origin
-  // of the site (ADR 0022): a later request for it answers `judged-signed-in` anyway.
+  // A later signed-in page adds its marker, up to four (ADR 0029). A page whose marker
+  // cannot be added is still signed in, as with four, a marker the recipe has, one that
+  // breaks the recipe's bounds or one of the recipe's own elements that a site's
+  // signed-in page shows by the same locator (ADR 0029 amendment of 2026-10-24): only a
+  // page that still shows the login's own elements fails closed. A recipe that has a
+  // marker already, or a page of another origin of the site (ADR 0022), is signed in
+  // even when the revision cannot be stored.
   const signedInAnyway = recipe.completion !== undefined || moved;
-  const learned = addCompletion(recipe, observation, judgement.target);
   const signedIn = { version: 1, status: "signed-in" } as const;
-  if (!learned.ok) return signedInAnyway ? signedIn : failed("invalid-output");
+  if (!learned) return failed("invalid-output");
+  if (!learned.ok) {
+    console.info("Signed-in marker not learned", { recipeId, reason: learned.reason });
+    return loginPage ? failed("invalid-output") : signedIn;
+  }
   const learnedRecipe = stored(head.recipe, branch, learned.recipe);
   if (!learnedRecipe) return signedInAnyway ? signedIn : failed("recipe-invalid");
   // The marker learned is the route's last one.

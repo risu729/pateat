@@ -53,6 +53,7 @@ export {
 } from "./completion";
 export {
   addCompletion,
+  recipeElements,
   addHandler,
   appendPageSteps,
   entryRecipe,
