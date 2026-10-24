@@ -7,7 +7,7 @@ import {
   type VaultCatalog,
 } from "@pateat/contracts";
 import type { UriCandidates } from "../crypto/wire";
-import type { LoginFieldSource } from "../login/vault";
+import type { LoginFieldBatch } from "../login/vault";
 import type { PasskeyFinder } from "../passkeys/vault";
 import { vaultFailure } from "./record";
 import { excludeField, excludeItem, setAccountPolicy } from "./__fixtures__/policy";
@@ -153,8 +153,10 @@ describe("findSiteAccounts", () => {
     });
   });
   it("reads the login username of matched live items only", async () => {
-    const readField = vi.fn<LoginFieldSource>(async ({ account }) =>
-      account.itemId === uriItem ? "alice@example.test" : undefined,
+    const readFields = vi.fn<LoginFieldBatch>(async (requests) =>
+      requests.map(({ account }) =>
+        account.itemId === uriItem ? "alice@example.test" : undefined,
+      ),
     );
     const result = await findSiteAccounts({
       saved: saved(),
@@ -165,7 +167,7 @@ describe("findSiteAccounts", () => {
         data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
       }),
       findPasskeys: passkeys({ "bank.example": [uriItem, passkeyItem] }),
-      readField,
+      readFields,
     });
     expect(result).toMatchObject({
       ok: true,
@@ -180,12 +182,17 @@ describe("findSiteAccounts", () => {
         { connectionId: "live", itemId: passkeyItem, uri: false, passkey: true },
       ]),
     });
-    // The demo vaults' static matches and unmatched live items are never read.
+    // The demo vaults' static matches and unmatched live items are never read, and the
+    // matched ones are read together.
     expect(
-      readField.mock.calls.map(([request]) => [request.account.itemId, request.fieldId]),
+      readFields.mock.calls.map(([requests]) =>
+        requests.map((request) => [request.account.itemId, request.fieldId]),
+      ),
     ).toEqual([
-      [uriItem, "login.username"],
-      [passkeyItem, "login.username"],
+      [
+        [uriItem, "login.username"],
+        [passkeyItem, "login.username"],
+      ],
     ]);
   });
 
@@ -197,18 +204,20 @@ describe("findSiteAccounts", () => {
       uriItem,
       "login.username",
     );
-    const readField = vi.fn<LoginFieldSource>(async () => "alice@example.test");
+    const readFields = vi.fn<LoginFieldBatch>(async (requests) =>
+      requests.map(() => "alice@example.test"),
+    );
     const result = await findSiteAccounts({
       saved: saved(),
       settings,
       origin,
       matchUris: async () => ({ ok: true, data: uris() }),
       findPasskeys: passkeys(),
-      readField,
+      readFields,
     });
     expect(result).toMatchObject({ ok: true, accounts: [{ itemId: uriItem }] });
     expect(result.ok && result.accounts[0]).not.toHaveProperty("username");
-    expect(readField).not.toHaveBeenCalled();
+    expect(readFields).not.toHaveBeenCalled();
   });
 
   it("searches what the draft enables, not only the saved settings", async () => {
@@ -341,19 +350,21 @@ describe("createSiteAccountsHandler settings changes", () => {
       value.snapshot.revision = revision;
       return value;
     });
-    // A login saves its default while the first username is read, so that read is refused.
-    const readField = vi.fn<LoginFieldSource>(async ({ account }) => {
+    // A login saves its default while the usernames are read, so the reads are refused.
+    const readFields = vi.fn<LoginFieldBatch>(async (requests) => {
       if (revision === 3) {
         revision = 4;
-        return undefined;
+        return requests.map(() => undefined);
       }
-      return account.itemId === uriItem ? "alice@example.test" : "bob@example.test";
+      return requests.map(({ account }) =>
+        account.itemId === uriItem ? "alice@example.test" : "bob@example.test",
+      );
     });
     const handle = createSiteAccountsHandler({
       settings: { handle: settings },
       matchUris,
       findPasskeys: passkeys({ "bank.example": [uriItem, passkeyItem] }),
-      readField,
+      readFields,
     });
     expect(await handle(request())).toMatchObject({
       ok: true,
@@ -362,7 +373,7 @@ describe("createSiteAccountsHandler settings changes", () => {
         expect.objectContaining({ itemId: passkeyItem, username: "bob@example.test" }),
       ]),
     });
-    expect(readField).toHaveBeenCalledTimes(4);
+    expect(readFields).toHaveBeenCalledTimes(2);
   });
 
   it("answers after three searches while the settings keep changing", async () => {
@@ -379,7 +390,7 @@ describe("createSiteAccountsHandler settings changes", () => {
       matchUris,
       findPasskeys: passkeys({ "bank.example": [uriItem] }),
       // Every read is refused, so each search misses the username.
-      readField: async () => undefined,
+      readFields: async (requests) => requests.map(() => undefined),
     });
     expect(await handle(request())).toMatchObject({
       ok: true,
@@ -390,7 +401,9 @@ describe("createSiteAccountsHandler settings changes", () => {
   });
   it("keeps a search that read every username, though the settings changed", async () => {
     let revision = 3;
-    const readField = vi.fn<LoginFieldSource>(async () => "alice@example.test");
+    const readFields = vi.fn<LoginFieldBatch>(async (requests) =>
+      requests.map(() => "alice@example.test"),
+    );
     const handle = createSiteAccountsHandler({
       settings: {
         handle: async () => {
@@ -402,15 +415,15 @@ describe("createSiteAccountsHandler settings changes", () => {
       },
       matchUris,
       findPasskeys: passkeys({ "bank.example": [uriItem] }),
-      readField,
+      readFields,
     });
     expect(await handle(request())).toMatchObject({ ok: true });
-    expect(readField).toHaveBeenCalledOnce();
+    expect(readFields).toHaveBeenCalledOnce();
   });
 
   it("keeps a search whose settings can no longer be read to compare", async () => {
     let reads = 0;
-    const readField = vi.fn<LoginFieldSource>(async () => undefined);
+    const readFields = vi.fn<LoginFieldBatch>(async (requests) => requests.map(() => undefined));
     const handle = createSiteAccountsHandler({
       settings: {
         handle: async () => {
@@ -422,13 +435,13 @@ describe("createSiteAccountsHandler settings changes", () => {
       },
       matchUris,
       findPasskeys: passkeys({ "bank.example": [uriItem] }),
-      readField,
+      readFields,
     });
     expect(await handle(request())).toMatchObject({
       ok: true,
       accounts: expect.arrayContaining([expect.objectContaining({ itemId: uriItem })]),
     });
-    expect(readField).toHaveBeenCalledOnce();
+    expect(readFields).toHaveBeenCalledOnce();
   });
 });
 

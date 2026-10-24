@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CryptoHost } from "../crypto/host";
 import type { HostSessionRef } from "../crypto/wire";
 import type { VaultEntry } from "../vault/record";
-import type { SettingsSnapshot, VaultCatalog } from "@pateat/contracts";
+import { createDefaultSettings, type SettingsSnapshot, type VaultCatalog } from "@pateat/contracts";
+import { setAccountPolicy } from "../vault/__fixtures__/policy";
 import { activeEntry, disabledEntry, lockedEntry } from "../vault/__fixtures__/vault";
 import { accountProfile } from "../../../../packages/bitwarden/src/__fixtures__/account";
 import { legacyItemKey } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
@@ -565,6 +566,63 @@ describe("vault timeout and lock (ADR 0075)", () => {
     host.resolveField.mockResolvedValueOnce({ ok: false, error: { code: "field-denied" } });
     expect((await manager.resolveField(handle, ref, grant)).ok).toBe(false);
     expect(vaultTimeout.used).toHaveBeenCalledOnce();
+  });
+
+  it("resolves several fields under one settings read, and refuses them all once the settings changed", async () => {
+    stored.entry = activeEntry();
+    const { host, runtime } = runtimeWith();
+    await runtime.current(id);
+    const handle = runtime.vaultFor(accountProfile).manager.status().handle!;
+    const items = [crypto.randomUUID(), crypto.randomUUID()];
+    const catalog: VaultCatalog = {
+      connections: [
+        {
+          id,
+          label: "Synthetic",
+          provider: "bitwarden",
+          server: "cloud-us",
+          userId: handle.userId,
+          snapshotId: handle.snapshotId,
+          state: "ready",
+          groups: [],
+          items: items.map((itemId) => ({
+            id: itemId,
+            label: "Synthetic login",
+            allowedOrigins: [],
+            groupIds: [],
+            fields: [{ id: "login.username", label: "Username", name: null, kind: "text" }],
+          })),
+        },
+      ],
+    };
+    const settings = createDefaultSettings(catalog);
+    setAccountPolicy(settings, catalog.connections[0]!);
+    const snapshot: SettingsSnapshot = { version: 1, revision: 3, settings };
+    // The mocked settings runtime has no store; this one answers a fixed snapshot.
+    const get = vi.fn(async () => ({ version: 1, ok: true, snapshot, catalog }));
+    const read = vi.fn(async () => snapshot);
+    Object.assign(runtime.settings, { handle: get, read });
+    const fields = items.map((itemId) => ({
+      connectionId: id,
+      ref: {
+        connectionId: id,
+        userId: handle.userId,
+        snapshotId: handle.snapshotId,
+        itemId,
+        fieldId: "login.username",
+      },
+    }));
+    const resolved = await runtime.resolveFields(fields);
+    expect(resolved.map((result) => result.ok)).toEqual([true, true]);
+    expect(get).toHaveBeenCalledOnce();
+    // The check after compares the revision only, so it never reads the catalog again.
+    expect(read).toHaveBeenCalledOnce();
+    expect(host.resolveField).toHaveBeenCalledTimes(2);
+    read.mockResolvedValueOnce({ ...snapshot, revision: 4 });
+    expect(await runtime.resolveFields(fields)).toEqual([
+      { ok: false, error: { code: "field-denied" } },
+      { ok: false, error: { code: "field-denied" } },
+    ]);
   });
 
   describe("settings-page requests", () => {

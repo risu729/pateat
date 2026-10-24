@@ -75,6 +75,11 @@ function usedVaultManager(
       if (result.ok) used();
       return result;
     },
+    async resolveFields(...args: Parameters<LocalVaultManager["resolveFields"]>) {
+      const results = await manager.resolveFields(...args);
+      if (results.some((result) => result.ok)) used();
+      return results;
+    },
     async signPasskey(...args: Parameters<LocalVaultManager["signPasskey"]>) {
       const result = await manager.signPasskey(...args);
       if (result.ok) used();
@@ -575,43 +580,83 @@ export function createConnectionRuntime(
       ref: LocalFieldReference,
       grant: { code?: true } = {},
     ) {
-      const code = grant.code === true;
-      let captured: LocalFieldReference;
-      try {
-        captured = structuredClone(ref);
-      } catch {
-        return vaultFailure("invalid-request");
-      }
-      const saved = await settings.handle({ version: 1, type: "settings.get" });
-      if (!saved.ok) return vaultFailure("storage-uncertain");
+      const [resolved] = await resolveFields([{ connectionId, ref, grant }]);
+      return resolved!;
+    },
+    /**
+     * Internal only, as `resolveField`, for several fields under one settings read: each
+     * field is checked against that read and resolved one after another, and every value
+     * is refused once the settings changed meanwhile.
+     */
+    resolveFields,
+  };
+  async function resolveFields(
+    fields: readonly { connectionId: string; ref: LocalFieldReference; grant?: { code?: true } }[],
+  ) {
+    const failed = (code: Parameters<typeof vaultFailure>[0]) =>
+      fields.map(() => vaultFailure(code));
+    let captured: LocalFieldReference[];
+    try {
+      captured = fields.map((field) => structuredClone(field.ref));
+    } catch {
+      return failed("invalid-request");
+    }
+    const saved = await settings.handle({ version: 1, type: "settings.get" });
+    if (!saved.ok) return failed("storage-uncertain");
+    const results: Awaited<ReturnType<LocalVaultManager["resolveField"]>>[] = [];
+    // Each connection's fields go to its vault together, in one durable check.
+    const byConnection = new Map<
+      string,
+      {
+        index: number;
+        ref: LocalFieldReference;
+        grant: { snapshotId: string; allowedFieldIds: readonly string[]; code?: true };
+      }[]
+    >();
+    for (const [index, { connectionId, grant = {} }] of fields.entries()) {
+      const ref = captured[index]!;
       const connection = saved.catalog.connections.find((entry) => entry.id === connectionId);
       const eligibility = getItemEligibility(
         saved.snapshot.settings,
         saved.catalog,
         connectionId,
-        captured.itemId,
+        ref.itemId,
       );
       if (
         !eligibility.eligible ||
-        connection?.snapshotId !== captured.snapshotId ||
-        connection.quarantinedItemIds?.includes(captured.itemId)
-      )
-        return vaultFailure("field-denied");
+        connection?.snapshotId !== ref.snapshotId ||
+        connection.quarantinedItemIds?.includes(ref.itemId)
+      ) {
+        results[index] = vaultFailure("field-denied");
+        continue;
+      }
+      byConnection
+        .getOrInsertComputed(connectionId, () => [])
+        .push({
+          index,
+          ref,
+          grant: {
+            snapshotId: ref.snapshotId,
+            allowedFieldIds: eligibility.fieldIds,
+            ...(grant.code === true ? { code: true as const } : {}),
+          },
+        });
+    }
+    for (const [connectionId, wanted] of byConnection) {
+      // oxlint-disable-next-line no-await-in-loop -- vaults are read one after another
       const configuration = await registry.get(connectionId);
-      if (!configuration) return vaultFailure("invalid-request");
-      const vault = vaultFor(configuration.profile);
-      const handle = vault.manager.status().handle;
-      if (!handle) return vaultFailure("crypto-locked");
-      const resolved = await vault.manager.resolveField(handle, captured, {
-        snapshotId: captured.snapshotId,
-        allowedFieldIds: eligibility.fieldIds,
-        ...(code ? { code: true as const } : {}),
-      });
-      const latest = await settings.handle({ version: 1, type: "settings.get" });
-      return latest.ok && latest.snapshot.revision === saved.snapshot.revision
-        ? resolved
-        : vaultFailure("field-denied");
-    },
-  };
+      const handle = configuration && vaultFor(configuration.profile).manager.status().handle;
+      const resolved = !configuration
+        ? wanted.map(() => vaultFailure("invalid-request"))
+        : !handle
+          ? wanted.map(() => vaultFailure("crypto-locked"))
+          : // oxlint-disable-next-line no-await-in-loop -- vaults are read one after another
+            await vaultFor(configuration.profile).manager.resolveFields(handle, wanted);
+      for (const [at, { index }] of wanted.entries()) results[index] = resolved[at]!;
+    }
+    // Only the revision is compared, so the snapshot alone is read again, without the catalog.
+    const latest = await settings.read().catch(() => undefined);
+    return latest?.revision === saved.snapshot.revision ? results : failed("field-denied");
+  }
 }
 export type ConnectionRuntime = ReturnType<typeof createConnectionRuntime>;

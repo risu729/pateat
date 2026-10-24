@@ -1,3 +1,4 @@
+import type { LocalFieldReference } from "@pateat/bitwarden";
 import type { LoginAccount, VaultConnectionMetadata } from "@pateat/contracts";
 import type { ConnectionRuntime } from "../connections/runtime";
 import type { LiveUriMatcher } from "../vault/site-candidates";
@@ -54,6 +55,59 @@ export function createVaultFieldSource(
     return resolved.data.kind === "text" || resolved.data.kind === "otp"
       ? resolved.data.value
       : undefined;
+  };
+}
+
+/** Resolve several bound fields at once; each answer is what `LoginFieldSource` would give. */
+export type LoginFieldBatch = (
+  requests: readonly LoginFieldRequest[],
+) => Promise<(string | undefined)[]>;
+
+/**
+ * Text values of several live fields under one settings read of the connection runtime,
+ * with the checks of `createVaultFieldSource` for each; never a generated code.
+ */
+export function createVaultFieldBatch(
+  connections: Pick<ConnectionRuntime, "registry" | "vaultFor" | "resolveFields">,
+): LoginFieldBatch {
+  return async (requests) => {
+    const refs: { index: number; connectionId: string; ref: LocalFieldReference }[] = [];
+    for (const [index, { account, connection, fieldId }] of requests.entries()) {
+      if (
+        connection.provider !== "bitwarden" ||
+        connection.id !== account.connectionId ||
+        !connection.snapshotId
+      )
+        continue;
+      // oxlint-disable-next-line no-await-in-loop -- each request checks its own connection
+      const configuration = await connections.registry.get(account.connectionId);
+      if (!configuration) continue;
+      const handle = connections.vaultFor(configuration.profile).manager.status().handle;
+      // The authorizing catalog must describe the snapshot that is currently open.
+      if (!handle || handle.snapshotId !== connection.snapshotId) continue;
+      refs.push({
+        index,
+        connectionId: account.connectionId,
+        ref: {
+          connectionId: account.connectionId,
+          userId: handle.userId,
+          itemId: account.itemId,
+          snapshotId: connection.snapshotId,
+          fieldId,
+        },
+      });
+    }
+    const values: (string | undefined)[] = requests.map(() => undefined);
+    if (!refs.length) return values;
+    const resolved = await connections.resolveFields(
+      refs.map(({ connectionId, ref }) => ({ connectionId, ref })),
+    );
+    for (const [at, { index }] of refs.entries()) {
+      const result = resolved[at];
+      if (result?.ok && (result.data.kind === "text" || result.data.kind === "otp"))
+        values[index] = result.data.value;
+    }
+    return values;
   };
 }
 
