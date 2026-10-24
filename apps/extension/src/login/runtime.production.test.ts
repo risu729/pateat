@@ -34201,29 +34201,26 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
     steps: [{ kind: "click", path: "/signin", target: target("passkey-login"), purpose: "submit" }],
     maxSubmissions: 1,
   });
-  const sentTypes = () => fake.state.messages.map((entry) => entry.type);
-
   it.each([
     ["no passkey", { passkey: false, discoverable: false }],
     ["a passkey that is not discoverable", { passkey: true, discoverable: false }],
   ])(
-    "claims the password route for a passkey-only recipe and an item with a password and %s, and gives it back while the page shows no form (ADR 0053)",
+    "refuses a passkey-only recipe's page that shows no form at once for an item with a password and %s (ADR 0053)",
     async (_, passkey) => {
-      vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
       fake.state.present = new Set(["passkey-login"]);
-      // The page shows only the button, so the sign-in form describes no field.
+      // The page shows only the button, or the button beside an entry or a list.
+      fake.state.entry.check = { ok: true, signIn: false, start: false, signUp: false };
+      onTestFinished(() => {
+        fake.state.entry.check = { ok: true, signIn: true, start: false, signUp: false };
+      });
       const { h, reports, generation } = start({
         used: buttonOnly,
         password: true,
         passkey,
         claim: claimed(),
       });
-      // The page waits as for a generation, reading no secret.
       expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
-      await vi.waitFor(() => expect(sentTypes()).toContain("login.extract"));
-      await vi.advanceTimersByTimeAsync(9_000);
       await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
-      expect(generation.claimRepair).toHaveBeenCalledExactlyOnceWith(generatedId, "password");
       expect(unfits(reports)).toEqual([
         {
           type: "unfit",
@@ -34232,14 +34229,16 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
           recipeId: generatedId,
           recipeRevision: 3,
           route: "password",
-          outcome: "claimed",
+          outcome: "not-due",
+          reason: "no-form",
           // The recipe has no password variant, so the plan's refusal names no fact.
           detail: "no-route",
         },
       ]);
-      // Nothing reached the model, so the claim is given back and the page refused.
+      // Nothing to send: no claim, no description of the page, no model call.
+      expect(generation.claimRepair).not.toHaveBeenCalled();
+      expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
       expect(generation.generate).not.toHaveBeenCalled();
-      expect(release).toHaveBeenCalledOnce();
       expect(refusals(reports)[0]).toMatchObject({ reason: "no-route" });
       // The button is never pressed, and no secret is read.
       expect(executed()).toEqual([]);

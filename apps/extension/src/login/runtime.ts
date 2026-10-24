@@ -11618,9 +11618,24 @@ export function createLoginRuntime(
         return;
       }
     }
-    const claim = await Promise.resolve()
-      .then(() => generation!.claimRepair!(recipe.id, refusal.route))
-      .catch((): RecipeRepairClaim => ({ outcome: "not-sent", reason: "error" }));
+    // A passkey-only recipe's page (ADR 0053) is sent only as a sign-in form it shows by
+    // now: with the button alone, or beside an entry or a list, it gives the missing route
+    // nothing to send, so it is refused at once with no claim (owner, 2026-10-25).
+    const formShows =
+      recipe.passkeyOnly &&
+      v.safeParse(
+        entryCheckResultSchema,
+        await send(live, { type: "login.entry.check", starts: [], timeoutMs: 0 }).catch(
+          () => undefined,
+        ),
+      );
+    if (documents.get(key) !== live) return;
+    const claim: RecipeRepairClaim =
+      formShows && !(formShows.success && formShows.output.signIn)
+        ? { outcome: "not-due", reason: "no-form" }
+        : await Promise.resolve()
+            .then(() => generation!.claimRepair!(recipe.id, refusal.route))
+            .catch((): RecipeRepairClaim => ({ outcome: "not-sent", reason: "error" }));
     report(live.document, {
       type: "unfit",
       tabId: live.document.tabId,
