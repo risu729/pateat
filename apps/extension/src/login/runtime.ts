@@ -2864,6 +2864,12 @@ export function createLoginRuntime(
        * handler's click, not a later handler's step on that route.
        */
       request: boolean;
+      /**
+       * When this attempt's latest step that asked for a passkey was delivered, kept by the
+       * later steps of a handler after it, which Pateat's answer must follow for an undecided
+       * page of the `passkey` route to complete it.
+       */
+      requestAt?: number;
       next?: string;
       code?: number;
     }
@@ -6714,15 +6720,16 @@ export function createLoginRuntime(
   }
   /**
    * Whether Pateat's answer to the passkey request of this attempt's latest step that asked
-   * for one went back after that step, on the page's origin or the recipe's (ADR 0029
-   * amendment of 2026-10-24).
+   * for one went back after that step, on the page's origin or the recipe's, also when a
+   * handler's steps ran after it (ADR 0029 amendment of 2026-10-24).
    */
   function passkeyStepAnswered(run: Execution): boolean {
     const { tabId, origin: pageOrigin } = run.live.document;
     const effect = effects.get(tabId);
-    if (effect?.attemptId !== run.metadata.id || !effect.request) return false;
+    const requestAt = effect?.attemptId === run.metadata.id ? effect.requestAt : undefined;
+    if (requestAt === undefined) return false;
     return [pageOrigin, run.recipe.origin].some(
-      (from) => (passkeyAnswers.get(`${tabId} ${from}`)?.at ?? -1) >= effect.at,
+      (from) => (passkeyAnswers.get(`${tabId} ${from}`)?.at ?? -1) >= requestAt,
     );
   }
   /** Whether the page has nothing a signed-in page's description could carry. */
@@ -10308,6 +10315,15 @@ export function createLoginRuntime(
           (operation.step.kind === "fill" && operation.step.effect !== "prepare")
         ) {
           const at = Date.now();
+          const request =
+            (run.metadata.route === "passkey" && ownHandler === undefined) ||
+            (ownHandler !== undefined && run.recipe.handlers?.[ownHandler]?.kind === "passkey");
+          const before = effects.get(tabId);
+          const requestAt = request
+            ? at
+            : before?.attemptId === run.metadata.id
+              ? before.requestAt
+              : undefined;
           effects.set(tabId, {
             attemptId: run.metadata.id,
             at,
@@ -10316,9 +10332,8 @@ export function createLoginRuntime(
             passkey:
               run.metadata.route === "passkey" ||
               (ownHandler !== undefined && run.recipe.handlers?.[ownHandler]?.kind === "passkey"),
-            request:
-              (run.metadata.route === "passkey" && ownHandler === undefined) ||
-              (ownHandler !== undefined && run.recipe.handlers?.[ownHandler]?.kind === "passkey"),
+            request,
+            ...(requestAt === undefined ? {} : { requestAt }),
             ...(codeStep(run.recipe, run.metadata, operation.stepIndex) ? { code: at } : {}),
           });
           // A passkey handler's click asks for the passkey; it does not submit the password.
@@ -16554,13 +16569,15 @@ export function createLoginRuntime(
     }
     const { tabId } = run.live.document;
     run.delivered = true;
+    const deliveredAt = Date.now();
     effects.set(tabId, {
       attemptId: run.metadata.id,
-      at: Date.now(),
+      at: deliveredAt,
       document: run.live.document,
       submits: false,
       passkey: true,
       request: true,
+      requestAt: deliveredAt,
     });
     const item = {
       connectionId: run.metadata.account.connectionId,
@@ -16684,16 +16701,19 @@ export function createLoginRuntime(
         submits: false,
         passkey: true,
         request: true,
+        requestAt: bridged,
       });
       run.answeredAt = bridged;
     } else if (parked) {
+      const deliveredAt = Date.now();
       effects.set(tabId, {
         attemptId: run.metadata.id,
-        at: Date.now(),
+        at: deliveredAt,
         document: run.live.document,
         submits: false,
         passkey: true,
         request: true,
+        requestAt: deliveredAt,
       });
       const item = {
         connectionId: run.metadata.account.connectionId,

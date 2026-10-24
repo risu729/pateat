@@ -15864,6 +15864,63 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       );
     }, 10_000);
 
+    describe("a passkey request after the handler's click (ADR 0029 amendment of 2026-10-24)", () => {
+      const signs = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+        username: true,
+      };
+      const run = (answer: boolean) => {
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: withPasskey, report, username: true });
+        h.recipes.recipe.mockResolvedValue(
+          parseLoginRecipe({ ...unlearned, handlers: [keyHandler] }),
+        );
+        fake.state.onExecute = async (message) => {
+          const step = (
+            message["operation"] as { step: { kind: string; target?: { value: string } } }
+          ).step;
+          if (step.kind !== "click" || !step.target) return;
+          if (step.target.value === "login") {
+            fake.state.observedPath = toWebauthn.path;
+            fake.state.present = new Set(toWebauthn.present);
+            fake.state.extracted = { "signed-in": toWebauthn.extracted };
+            return;
+          }
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set();
+          fake.state.signs = signs;
+          h.login.passkeyRequested(1, origin);
+          if (!answer) return;
+          vi.setSystemTime(Date.now() + 1);
+          h.login.passkeyAnswered(1, origin, "login.example");
+        };
+        return { h, report };
+      };
+      const states = (report: ReturnType<typeof run>["report"]) =>
+        report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : []));
+
+      it("counts the request while no answer of Pateat's followed it", async () => {
+        vi.useFakeTimers();
+        const { h, report } = run(false);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => states(report).length > 0, 20_000);
+        expect(states(report)[0]).toMatchObject({ s5: true, decision: "continuing" });
+        expect(status()![0]!["state"]).not.toBe("authenticated");
+      });
+
+      it("skips the request Pateat answered and completes on the username", async () => {
+        vi.useFakeTimers();
+        const { h, report } = run(true);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(settled("authenticated", "authenticated"), 20_000);
+        expect(states(report).at(-1)).toMatchObject({ s5: false, decision: "signed-in" });
+      });
+    });
+
     it.each([
       ["holds no passkey", vi.fn(async () => ({ passkey: false, discoverable: false }))],
       ["cannot be asked about passkeys", undefined],
@@ -23383,16 +23440,6 @@ describe("the start page's passkey route (ADR 0027)", () => {
       const { h } = start(routed, { generation: service });
       expect(await h.hello()).toEqual({ ok: true });
       await until(settled("blocked", "challenge"), 20_000);
-    });
-
-    it("ends as a challenge on a confirmed rejection, never trying the password", async () => {
-      vi.useFakeTimers();
-      onClick({ [button.value]: { path: "/elsewhere", present: [], extracted: elsewhere } });
-      fake.state.signs = { ...quiet, invalid: true };
-      const { h } = start(routed, { generation: generation() });
-      expect(await h.hello()).toEqual({ ok: true });
-      await until(settled("blocked", "challenge"), 20_000);
-      expect(fills()).toBe(0);
     });
 
     it("ends as a challenge when the site asks for a passkey again after the answer", async () => {

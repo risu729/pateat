@@ -647,10 +647,12 @@ reviewed by a subagent against the code and the ADRs):
 - The agent's choices, from a review of the change: an undecided answer completes the
   route only once Pateat's answer to the passkey request of its step went back, since a
   quiet page before it may be the sign-in page still. A confirmed `signed-in` reading
-  completes a watched login on this route too, as on the `password` route. S5 skips the
-  answered request of a `passkey` handler's click on the `password` route as well, so
-  such a login may now complete on its signed-in page; before, that request alone made
-  the page `continuing`.
+  completes a watched login on this route too, as on the `password` route. On the
+  `password` route S5 is stricter after a `passkey` handler's click: it was never read
+  after one, and now a request there that Pateat has not answered since makes the page
+  `continuing`. The later steps of a handler after the route's own step (such as a TOTP
+  code) carry no request, so a request after them counts as on the `password` route, and
+  the undecided completion then still needs the answer to the route's own step.
 - The agent's choices, not part of the card: a confirmed failure next to the sign-in
   fields (`rejected`) still rejects no credential on this route and goes on as before;
   an `optional` page (ADR 0065) still never completes it, as no password or code was
