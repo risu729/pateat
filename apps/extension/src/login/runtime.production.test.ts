@@ -27311,6 +27311,26 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(choosers).toHaveBeenCalledTimes(1);
     });
 
+    it("ends a resumed login whose chooser revision dropped the route of its click", async () => {
+      fake.state.chosen = { ok: true, click: "other" };
+      const reports: LoginReport[] = [];
+      const h = onList(generation(), reports);
+      // The page holds the click forever, so the login is still running when it resumes.
+      fake.state.onExecute = () => new Promise(() => undefined);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks().length > 0);
+      h.recipes.chooser.mockResolvedValue({ ...listed, revision: 2, chooser: { path: "/signin" } });
+      expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({
+        ok: false,
+        reason: "recipe-not-found",
+      });
+      expect(status()![0]).toMatchObject({ state: "blocked", outcome: "policy-changed" });
+      expect(reports.filter((entry) => entry.type === "attempt").at(-1)).toMatchObject({
+        outcome: "policy-changed",
+        cause: "recipe-changed",
+      });
+    });
+
     it("presses the continue button beside the one shown account that fits", async () => {
       const proceed = { by: "text" as const, value: "Log back in" };
       fake.state.chosen = { ok: true, click: "continue" };

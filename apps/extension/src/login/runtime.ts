@@ -13681,6 +13681,9 @@ export function createLoginRuntime(
         previous &&
         !(probeMode && document.origin === origin) &&
         (replaced ||
+          // A chooser login's chooser no longer has the route of its click: a revision
+          // dropped it, as the one the login ran had it.
+          (previous.chooser !== undefined && chooser !== undefined && !recipe) ||
           (!recipe &&
             (await recipes
               .withdrawn?.(document.origin, previous.recipeId, previous.layout)
