@@ -55,10 +55,11 @@ implemented): condition 1 reads "the site is not paused": a timed pause, an excl
 rule, or a private window while automatic login is off there keeps the page from being
 sent (`recipe.generate` skipped `paused`).
 
-Amendment proposed on 2026-10-24, built ahead of the owner's decision as the owner asked
-on 2026-10-23 ("ある程度決め打ちで進め、後から判断"):
+Amended on 2026-10-24 (owner, 09:06 UTC, decision card "A: URL が変われば送る",
+implemented):
 [a same-document URL change is a new page](#amendment-2026-10-24-a-same-document-url-change-is-a-new-page)
 whose sign-in input may be sent within 10 seconds of the change.
+
 Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the owner on
 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe holds up
 to three layouts, a continuation and a page judgement name the layout they continue or
@@ -346,8 +347,9 @@ the 10 seconds.
 
 ## Amendment 2026-10-24: a same-document URL change is a new page
 
-Status: proposed. A decision card asks the owner to choose this (A), sending a form
-shown at any time once per path (B), or no change (C).
+Status: accepted by the owner on 2026-10-24 (09:06 UTC, decision card "A: URL
+が変われば送る"), over sending a form shown at any time once per path (B) or no change
+(C).
 
 Real Chrome on 2026-10-24 (08:25 UTC): Duolingo's landing page
 `https://www.duolingo.com/` routes to its sign-in form in place. The person presses "I
