@@ -609,7 +609,7 @@ export default defineBackground(() => {
     origin: string,
     rpId: string,
     signed: object,
-    facts?: { silent?: true; incognito: boolean },
+    facts?: { silent?: true; incognito: boolean; documentId: string },
   ) => {
     noteSignIn(tabId, origin, rpId);
     login.passkeyAnswered(

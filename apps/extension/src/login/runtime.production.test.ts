@@ -2633,6 +2633,197 @@ describe("production login document admission", () => {
       expect(executes()).toHaveLength(1);
     });
   });
+  describe("a page a passkey from Pateat signed in, outside any login", () => {
+    // In the owner's Chrome, Amazon's sign-in page asked for a passkey on load with
+    // `mediation: "required"`; the bridge answered it with no login in the tab, and a second
+    // later a password login started on the same page, which the passkey's navigation left
+    // as `unknown-submit`.
+    const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    /** The bridge returned an assertion to the tab's top document `documentId`. */
+    const answered = (h: ReturnType<typeof harness>, documentId = "synthetic-document") =>
+      h.login.passkeyAnswered(1, origin, "login.example", undefined, {
+        incognito: false,
+        documentId,
+      });
+    const refused = { type: "refused", tabId: 1, origin, reason: "passkey-signed-in" };
+    it("starts no login on the page the answer went to", async () => {
+      // The clock stands still, so the answer's window cannot end between the announcements.
+      vi.setTimerTickMode("manual");
+      const report = vi.fn<(entry: LoginReport) => void>();
+      const h = harness({}, { report });
+      answered(h);
+      expect(await h.hello()).toEqual({ ok: false, reason: "passkey-signed-in" });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+      expect(fake.state.storage["pateat.login-attempts.v5"] ?? []).toEqual([]);
+      expect(report).toHaveBeenCalledWith(refused);
+      // The form showing again on that page starts nothing either.
+      expect(await h.hello()).toEqual({ ok: false, reason: "passkey-signed-in" });
+      expect(executes()).toEqual([]);
+    });
+    it("starts no login when the answer comes while the page is admitted", async () => {
+      realTime();
+      const report = vi.fn<(entry: LoginReport) => void>();
+      const h = harness({}, { report });
+      const lookup = h.recipes.recipe.getMockImplementation()!;
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      h.recipes.recipe.mockImplementationOnce(async (...args) => {
+        await held;
+        return lookup(...args);
+      });
+      const admitted = h.hello();
+      await vi.waitFor(() => expect(h.recipes.recipe).toHaveBeenCalledOnce());
+      answered(h);
+      release();
+      expect(await admitted).toEqual({ ok: false, reason: "passkey-signed-in" });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+      expect(report).toHaveBeenCalledWith(refused);
+    });
+    it("logs in on the tab's next page after the answer went to its previous one", async () => {
+      const h = harness();
+      answered(h, "previous-document");
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+    });
+    it("logs in after an answer that names no page", async () => {
+      const h = harness();
+      h.login.passkeyAnswered(1, origin, "login.example", undefined, { incognito: false });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+    });
+    it("logs in on that page again once 15 seconds have passed since the answer", async () => {
+      vi.setTimerTickMode("manual");
+      const h = harness();
+      answered(h);
+      vi.setSystemTime(Date.now() + 14_000);
+      expect(await h.hello()).toEqual({ ok: false, reason: "passkey-signed-in" });
+      vi.setSystemTime(Date.now() + 1_000);
+      vi.setTimerTickMode("nextTimerAsync");
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+    });
+    it("asks the refused page to announce again when the answer's 15 seconds end", async () => {
+      vi.setTimerTickMode("manual");
+      const h = harness();
+      answered(h);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await h.hello()).toEqual({ ok: false, reason: "passkey-signed-in" });
+      // Counted from the answer, not from the refusal.
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(fake.state.reconnects).toEqual([]);
+      // The page's sign-in form still shows then: the site did not sign in with the passkey.
+      fake.state.onReconnect = () => h.hello();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fake.state.reconnects).toEqual([
+        { tabId: 1, frameId: 0, documentId: "synthetic-document" },
+      ]);
+      vi.setTimerTickMode("nextTimerAsync");
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+    });
+    it.each<[string, (h: ReturnType<typeof harness>) => Promise<unknown>]>([
+      [
+        "was replaced by the passkey's next page",
+        (h) => h.hello({ documentId: "home-document", url: `${origin}/home` }, false),
+      ],
+      [
+        "went away with its tab",
+        async () => {
+          for (const listener of fake.state.removed) listener(1);
+        },
+      ],
+    ])("asks nothing of the refused page once it %s", async (_name, change) => {
+      vi.setTimerTickMode("manual");
+      const h = harness();
+      answered(h);
+      expect(await h.hello()).toEqual({ ok: false, reason: "passkey-signed-in" });
+      await change(h);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(fake.state.reconnects).toEqual([]);
+      expect(executes()).toEqual([]);
+    });
+    it("lets the tab's running login follow its own answer, and log in again on its page", async () => {
+      let release!: () => void;
+      const clicked = new Promise<void>((resolve) => (release = resolve));
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: LoginStep }).step.kind === "click") await clicked;
+      };
+      const h = harness();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      // The bridge answers the page's request while the login submits on it.
+      const at = Date.now();
+      answered(h);
+      release();
+      await vi.waitFor(() =>
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          { state: "authenticated" },
+        ]),
+      );
+      await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
+      // Its first step showing again on that page, as after a logout, logs in again within
+      // the answer's window: that answer was the login's, not a sign-in of its own.
+      expect(Date.now() - at).toBeLessThan(15_000);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(4));
+    });
+    it("logs in with an account picked in the popup on that page", async () => {
+      const popup = {
+        id: "synthetic-extension",
+        url: "chrome-extension://synthetic-extension/popup.html",
+      } as never;
+      const h = harness(
+        { siteDefaults: [], bindings: [] },
+        {
+          allowedOrigins: [],
+          uris: async () => ({
+            ok: true,
+            data: uriMatch({
+              candidates: [
+                { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+                { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+              ],
+            }),
+          }),
+        },
+      );
+      expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+      fake.state.onReconnect = () => h.hello();
+      answered(h);
+      expect(
+        await h.login.handle(
+          {
+            version: 1,
+            type: "login.choice.pick",
+            tabId: 1,
+            documentId: "synthetic-document",
+            connectionId,
+            itemId: otherItemId,
+            makeDefault: false,
+          },
+          popup,
+        ),
+      ).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(h.fields.mock.calls[0]![0]).toMatchObject({ account: { itemId: otherItemId } });
+    });
+    it("starts no login in a frame of the page the answer went to", async () => {
+      const report = vi.fn<(entry: LoginReport) => void>();
+      const signin = fake.state.pageUrl;
+      const top = "https://login.example/elsewhere";
+      fake.state.pageUrl = top;
+      const h = harness({}, { report });
+      expect(await h.hello()).toMatchObject({ ok: false, reason: "recipe-not-found" });
+      answered(h);
+      fake.state.pageUrl = signin;
+      fake.state.tabUrls[1] = top;
+      const frame = { frameId: 3, documentId: "frame-document", tab: { id: 1, url: top } };
+      expect(await h.hello(frame)).toEqual({ ok: false, reason: "passkey-signed-in" });
+      expect(executes()).toEqual([]);
+      expect(report).toHaveBeenCalledWith({ ...refused, frame: true });
+    });
+  });
   describe("a frame's attempt when the tab changes page", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
     const framed = (top: string, overrides: Record<string, unknown> = {}) => {
@@ -32600,6 +32791,30 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     expect(reports.find((entry) => entry.type === "start")!).not.toHaveProperty("startStep");
   });
 
+  it("starts no login at the later step of a page a passkey from Pateat signed in until its window ends", async () => {
+    vi.setTimerTickMode("manual");
+    shows(["password", "login"]);
+    const { h } = start([twoPages()]);
+    h.login.passkeyAnswered(1, origin, "login.example", undefined, {
+      incognito: false,
+      documentId: "synthetic-document",
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "passkey-signed-in" });
+    expect(executed()).toEqual([]);
+    // The password page still shows once the 15 seconds end: it announces again and logs in
+    // from there.
+    fake.state.onReconnect = () => h.hello();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(fake.state.reconnects).toEqual([
+      { tabId: 1, frameId: 0, documentId: "synthetic-document" },
+    ]);
+    vi.setTimerTickMode("nextTimerAsync");
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "authenticated", startStep: 2 }]),
+    );
+    expect(executed()).toEqual(["fill:password", "click:login"]);
+  });
+
   it("starts neither recipe when two recipes' later steps show", async () => {
     shows(["password", "login"]);
     const { h } = start([twoPages(), twoPages("/signin/pwd", "synthetic-other")]);
@@ -34855,6 +35070,38 @@ describe("account switching from the popup (ADR 0063)", () => {
     fake.state.logoutClick = { ok: true };
     fake.state.onLogoutClick = undefined;
     fake.state.logoutLocal = { ok: false, reason: "none" };
+  });
+
+  it("logs in with the picked account on a sign-in page a passkey from Pateat signed in", async () => {
+    const logout = {
+      recipes: vi.fn(async () => [
+        logoutRecipe([{ target: target("sign-out"), purpose: "logout" }]),
+      ]),
+      generate: vi.fn<LogoutService["generate"]>(),
+    };
+    const { h } = await signedIn({ logout });
+    fake.state.onLogoutClick = (message) => {
+      if ((message["target"] as LoginTarget).value !== "sign-out") return;
+      fake.state.entry.check = { ok: true, signIn: true, start: true, signUp: false };
+      fake.state.pageUrl = signinUrl;
+      // The sign-in page asks for a passkey on load, and the bridge answers it before the
+      // page announces; the switch's own login still runs there.
+      h.login.passkeyAnswered(1, origin, "login.example", undefined, {
+        incognito: false,
+        documentId: "signin-again",
+      });
+      void h.hello({ documentId: "signin-again" });
+    };
+    expect(await switchTo(h)).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(attempts()).toMatchObject([
+        {
+          account: { itemId: otherItemId },
+          document: { documentId: "signin-again" },
+          state: "authenticated",
+        },
+      ]),
+    );
   });
 
   it("logs out with the stored recipe, logs in once with the picked account, then asks", async () => {

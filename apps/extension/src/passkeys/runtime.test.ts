@@ -286,8 +286,10 @@ describe("a document replaced while Pateat answers its request", () => {
     expect(tab.chooser.choose).not.toHaveBeenCalled();
     expect(tab.answered).toHaveBeenCalledOnce();
     // The person's click started it, so it is no sign-in Pateat made by itself (ADR 0062 C).
+    // The answer names the document it went to, not the one the tab had left.
     expect(tab.answered).toHaveBeenCalledWith(7, origin, "example.com", candidate, {
       incognito: false,
+      documentId: "document-b",
     });
     expect(tab.leave).toHaveBeenCalledTimes(2);
   });
@@ -427,7 +429,7 @@ describe("passkey runtime required mediation", () => {
     expect(backing.candidates).toHaveBeenCalledWith(origin, "example.com", expect.any(AbortSignal));
     expect(backing.sign).toHaveBeenCalledOnce();
     expect(answered.mock.calls).toEqual([
-      [7, origin, "example.com", candidate, { incognito: false }],
+      [7, origin, "example.com", candidate, { incognito: false, documentId: "document-a" }],
     ]);
     await vi.waitFor(() => expect(report).toHaveBeenCalledOnce());
     expect(report.mock.lastCall![0]).toMatchObject({
@@ -611,12 +613,16 @@ describe("passkey runtime reports", () => {
     expect(await runtime.handle(get(undefined, true), sender())).toMatchObject({
       kind: "assertion",
     });
-    expect(answered.mock.lastCall?.[4]).toEqual({ incognito: false });
+    expect(answered.mock.lastCall?.[4]).toEqual({ incognito: false, documentId: "document-a" });
     // The page started this one on load, with no activation: Pateat signed by itself.
     expect(await runtime.handle(get(undefined, false), sender())).toMatchObject({
       kind: "assertion",
     });
-    expect(answered.mock.lastCall?.[4]).toEqual({ silent: true, incognito: false });
+    expect(answered.mock.lastCall?.[4]).toEqual({
+      silent: true,
+      incognito: false,
+      documentId: "document-a",
+    });
   });
 
   it("tells a login of each assertion it returns, with its RP ID and passkey", async () => {
@@ -631,7 +637,7 @@ describe("passkey runtime reports", () => {
     expect(answered).not.toHaveBeenCalled();
     expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
     expect(answered.mock.calls).toEqual([
-      [7, origin, "example.com", candidate, { incognito: false }],
+      [7, origin, "example.com", candidate, { incognito: false, documentId: "document-a" }],
     ]);
     // A person-started passkey sign-in is not counted towards the relogin guard; one the
     // page started with no user activation, as on load after a logout, is (ADR 0062 C).
@@ -643,7 +649,7 @@ describe("passkey runtime reports", () => {
       origin,
       "example.com",
       candidate,
-      { silent: true, incognito: false },
+      { silent: true, incognito: false, documentId: "document-a" },
     ]);
     // A private window's request is told apart, for its own relogin count.
     expect(
@@ -654,7 +660,19 @@ describe("passkey runtime reports", () => {
       origin,
       "example.com",
       candidate,
-      { silent: true, incognito: true },
+      { silent: true, incognito: true, documentId: "document-a" },
+    ]);
+    // Each answer names the top document it went to: the assertion signed that page in, so
+    // the login runtime starts no login of its own there.
+    expect(await runtime.handle(get(), sender({ documentId: "document-c" }))).toMatchObject({
+      kind: "assertion",
+    });
+    expect(answered.mock.lastCall).toEqual([
+      7,
+      origin,
+      "example.com",
+      candidate,
+      { incognito: false, documentId: "document-c" },
     ]);
   });
 
@@ -801,7 +819,7 @@ describe("passkey chooser window", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(remember).not.toHaveBeenCalled();
     // The person chose it, so it is no sign-in Pateat made by itself (ADR 0062 C).
-    expect(answered.mock.lastCall?.[4]).toEqual({ incognito: false });
+    expect(answered.mock.lastCall?.[4]).toEqual({ incognito: false, documentId: "document-a" });
   });
 
   it.each(["browser", "closed", "unavailable"] as const)(
@@ -1569,7 +1587,7 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
       origin,
       "example.com",
       expect.objectContaining({ credentialId: "CCCC" }),
-      { incognito: false },
+      { incognito: false, documentId: "document-a" },
     );
     expect(report).toHaveBeenLastCalledWith(
       expect.objectContaining({ outcome: "assertion", mediation: "conditional" }),

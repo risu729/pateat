@@ -316,9 +316,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       signed: TCandidate,
       /**
        * `silent` when Pateat signed by itself, with no login of the tab and no choice in the
-       * chooser window, which the relogin guard counts (ADR 0062); the tab's window kind.
+       * chooser window, which the relogin guard counts (ADR 0062); the tab's window kind; the
+       * top document the assertion went to.
        */
-      facts?: { silent?: true; incognito: boolean },
+      facts?: { silent?: true; incognito: boolean; documentId: string },
     ) => void;
     /**
      * Whether a request of the origin treats the site's saved default as unset: the person's
@@ -838,6 +839,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           options.answered?.(sender.tab!.id!, origin, detail.rpId, after.signed, {
             ...(after.silent ? { silent: true } : {}),
             incognito: sender.tab?.incognito === true,
+            // senderOrigin() accepted only a top document with an ID.
+            documentId: sender.documentId!,
           });
         } catch {
           // Never changes the answer.
