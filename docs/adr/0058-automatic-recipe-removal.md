@@ -192,14 +192,16 @@ repairs. For the owner's example, a passkey-only recipe
 [#805](https://github.com/risu729/pateat/pull/805)) has no `password` variant, so an
 item with a password and no discoverable passkey refuses it with `no-route`, and the
 repair is claimed for the `password` route. The button is never pressed and no secret
-is read. Only a start page that now shows a sign-in input is sent, and can gain a
-layout with the `password` route. A page that still shows only the button, or the button
-beside an entry or a list, describes no sign-in field: after the extraction's reads
-(about 9 seconds) nothing is sent, the claim is given back and the page is refused with
-`no-route`, on every visit, so automatic login stays stopped there for that item. An
-item with a discoverable passkey takes the recipe's passkey route and claims nothing.
-Runtime tests in `apps/extension/src/login/runtime.production.test.ts` pin these
-cases.
+is read. Its start page is sent as the list of accounts it shows beside the button, so
+the chooser that replaces the recipe serves every matching item (ADR 0053 decision 7,
+ADR 0041 section 6), or as the sign-in form it shows by now, which can gain a layout
+with the `password` route. A page that still shows only the button, or the button
+beside an entry, gives nothing to send: after the extraction's reads (about 9 seconds)
+the claim is given back and the page is refused with `no-route`, on every visit, so
+automatic login stays stopped there for that item. An entry is not sent, since the
+service answers an entry repair of a login recipe with `recipe-conflict`. An item with
+a discoverable passkey takes the recipe's passkey route and claims nothing. Runtime
+tests in `apps/extension/src/login/runtime.production.test.ts` pin these cases.
 
 ## Alternatives
 

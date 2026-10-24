@@ -11544,7 +11544,13 @@ export function createLoginRuntime(
     });
     let answer: GenerationOutcome | EntryGenerationOutcome | undefined;
     if (claim.outcome === "claimed") {
-      answer = documents.get(key) === live ? await sendRepair(live, recipe) : undefined;
+      // A passkey-only recipe's page shows no sign-in form: the list of accounts it may show
+      // beside the button is sent instead, which every item can use, or a form the page shows
+      // by now (ADR 0053 decision 7).
+      answer =
+        documents.get(key) === live
+          ? await sendRepair(live, recipe, recipe.passkeyOnly ? { kind: "list" } : {})
+          : undefined;
       // Only a request that reached the model keeps its claim. A recipe more than one
       // revision on was answered without a call, as the cache was behind: it is tried as it
       // is, and repaired in turn if it still lacks the route.

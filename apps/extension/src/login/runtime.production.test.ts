@@ -33849,6 +33849,45 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
     },
   );
 
+  it("sends the list of accounts beside a passkey-only recipe's button for the password route (ADR 0053 decision 7)", async () => {
+    fake.state.present = new Set(["passkey-login"]);
+    const listPage = {
+      ok: true,
+      observation: {
+        version: 1,
+        origin,
+        path: "/signin",
+        language: "en",
+        complete: true,
+        accounts: ["[email]"],
+        candidates: [
+          { id: "c1", role: "button", target: target("other"), label: "Use another account" },
+        ],
+      },
+    };
+    fake.state.extracted = { accounts: listPage };
+    const { h, reports, generation } = start({
+      used: buttonOnly,
+      password: true,
+      passkey: { passkey: false, discoverable: false },
+      claim: claimed(),
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(generation.claimRepair).toHaveBeenCalledExactlyOnceWith(generatedId, "password");
+    // Sent as a list, which every matching item can use, not as the button.
+    expect(generation.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observation: listPage.observation,
+        repair: { recipeId: generatedId, revision: 3 },
+      }),
+      expect.any(Function),
+    );
+    expect(generation.generate.mock.calls[0]![0]).not.toHaveProperty("passkeyOnly");
+    expect(release).not.toHaveBeenCalled();
+    expect(executed()).toEqual([]);
+  });
+
   it("sends a passkey-only recipe's start page for the password route once it shows a form (ADR 0053)", async () => {
     fake.state.present = new Set(["passkey-login"]);
     fake.state.extracted = { login: formPage };

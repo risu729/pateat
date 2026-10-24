@@ -111,10 +111,11 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
   [ADR 0058](0058-automatic-recipe-removal.md) A, as amended by
   [ADR 0041](0041-repair-stale-recipes.md), claims a repair of a passkey-only recipe
   for the `password` route (once per device and route in 3 days). The start page is
-  sent only when it now shows a sign-in input. A page with only the button, or the
-  button beside an entry or a list, is refused with `no-route` and the claim given back,
-  so decision 7's entry or list is not yet used for such an item. The button is never
-  pressed.
+  sent as the list of accounts it shows beside the button, which a chooser then serves
+  for every item as decision 7 asks, or as a sign-in form it shows by now. A page with
+  only the button, or the button beside an entry, is refused with `no-route` and the
+  claim given back: decision 7's entry is not yet used for such an item. The button is
+  never pressed.
 
 ## Consequences
 
