@@ -107,11 +107,10 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
 - After a logout ([ADR 0021](0021-account-choice-outside-settings.md) D), the start page
   showing again in the tab asks for an account and presses nothing, as for any passkey
   route (covered by a runtime test).
-- After [ADR 0058](0058-automatic-recipe-removal.md) A revokes a passkey-only recipe
-  for an item that has only a password, the page's next announcement sends its entry
-  or list, since that item holds no passkey. A page with only the button is generated
-  as a passkey-only page again when another matching item holds one, and ADR 0058's
-  once in 30 days bounds that repeat.
+- For an item that has only a password, [ADR 0058](0058-automatic-recipe-removal.md) A,
+  as amended by [ADR 0041](0041-repair-stale-recipes.md), sends a passkey-only
+  recipe's start page for repair to add the `password` route, at most once per device
+  in 3 days. The button is never pressed.
 
 ## Consequences
 
