@@ -142,8 +142,10 @@ that logs out right after a login, or two tabs of a site that allows one session
   `relogin-limit` and asks, filling nothing. A popup pick or a switch's login logs in
   and is not counted.
 - A passkey sign-in Pateat answered by itself outside a login (one match or the site
-  default, with no chooser) counts as such a login, so a login page that calls
-  `navigator.credentials.get()` on load after each logout is held too. While the guard
+  default, with no chooser) for a request the page started without user activation
+  counts as such a login, so a login page that calls `navigator.credentials.get()` on
+  load after each logout is held too. A request started by the person's click is
+  theirs and is not counted. While the guard
   holds the site, its default counts as unset for the page's own passkey request
   ([ADR 0063](0063-switch-accounts-from-the-popup.md)): the chooser opens, or the
   request is handed on where it cannot.

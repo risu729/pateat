@@ -34502,6 +34502,23 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
     );
   });
 
+  it("reads the pause and the asking from settings the passkey runtime already read", async () => {
+    const { h } = paused();
+    fake.state.openTabs = [1];
+    const rule = { hostname: "login.example", includeSubdomains: true };
+    // The copy wins over the store, which holds no rule.
+    expect(
+      await h.login.defaultUnset(origin, false, { excludedSites: [rule], siteDefaults: [] }),
+    ).toBe("paused");
+    expect(await h.login.defaultUnset(origin, false, { excludedSites: [], siteDefaults: [] })).toBe(
+      false,
+    );
+    // Private windows still do not count for the person's own request (ADR 0062 E).
+    expect(await h.login.defaultUnset(origin, true, { excludedSites: [], siteDefaults: [] })).toBe(
+      false,
+    );
+  });
+
   it("tells the passkey runtime which window kind's site is paused", async () => {
     const { h } = paused();
     fake.state.openTabs = [1];

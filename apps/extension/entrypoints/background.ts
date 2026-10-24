@@ -592,6 +592,10 @@ export default defineBackground(() => {
     browserSites.changed(),
   );
   const passkeyBrowserSite = (origin: string) => browserSites.has(origin);
+  // Reads the settings copy kept ahead of requests, so the passkey request does not wait for
+  // the settings store; without one, the login runtime reads the store itself.
+  const passkeyDefaultUnset = async (origin: string, incognito: boolean) =>
+    login.defaultUnset(origin, incognito, await browserSites.settings().catch(() => undefined));
   const addBrowserSite = (origin: string) => browserSites.add(origin);
   const passkeyProbe =
     import.meta.env.MODE === "probe"
@@ -634,7 +638,7 @@ export default defineBackground(() => {
         answered: passkeyAnswered,
         // ADR 0063: a site that asks every time opens the chooser with no default; so does a
         // paused site's own request, and one the relogin guard holds (ADR 0062).
-        defaultUnset: login.defaultUnset,
+        defaultUnset: passkeyDefaultUnset,
         reverification: login.passkeyReverification,
         conditional: login.conditionalRequest,
         hold: () => vaultSync.enter(false),
@@ -659,7 +663,7 @@ export default defineBackground(() => {
         reverification: login.passkeyReverification,
         // ADR 0063: a site that asks every time opens the chooser with no default; so does a
         // paused site's own request, and one the relogin guard holds (ADR 0062).
-        defaultUnset: login.defaultUnset,
+        defaultUnset: passkeyDefaultUnset,
         // ADR 0034: the page's own conditional request waits for the login of its page.
         conditional: login.conditionalRequest,
         // The open vault is not replaced while a passkey request is looked up or signed.

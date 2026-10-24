@@ -484,6 +484,15 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       signal: AbortSignal,
     ): Promise<RuntimeResult> => {
       step = "passkey-lookup";
+      // Whether the site treats its default as unset (ADR 0062, ADR 0063), read alongside the
+      // lookup so the deadline runs as without it; asked only without a login, and a failed
+      // read counts as not unset.
+      const unsetRead =
+        !login && options.defaultUnset !== undefined
+          ? Promise.try(() => options.defaultUnset!(origin, context.incognito)).catch(
+              () => false as const,
+            )
+          : Promise.resolve(false as const);
       const candidates = await abortable(
         login
           ? source.candidates(origin, admission.request.rpId, signal, login)
@@ -505,13 +514,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       // every time (ADR 0063), or one whose automatic login is paused (ADR 0062). The stored
       // default stays as it is.
       const unsetBy =
-        !login &&
-        options.defaultUnset !== undefined &&
         (found.kind === "credential" || found.reason === "ambiguous-credential") &&
-        (await abortable(
-          Promise.try(() => options.defaultUnset!(origin, context.incognito)).catch(() => false),
-          signal,
-        ));
+        (await abortable(unsetRead, signal));
       const unset = unsetBy === true || unsetBy === "paused";
       const paused = unsetBy === "paused";
       if (unset) detail.defaultUnset = true;
@@ -568,8 +572,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         !login && selection.kind === "credential" && selection.credential.reprompt === true;
       if (selection.kind === "credential" && !reprompt) {
         credential = selection.credential;
-        // Signed with no login of the tab and no choice: a sign-in Pateat made by itself.
-        if (!login) after.silent = true;
+        // Signed with no login of the tab, no choice and no click of the person: a sign-in
+        // the page started and Pateat made by itself, as a login page that asks on load
+        // after each logout (ADR 0062 C). A request the person started is theirs.
+        if (!login && !message.userActivation) after.silent = true;
       }
       // A login's item answers alone; otherwise the browser or Bitwarden does, so Pateat
       // never signs in as another account.

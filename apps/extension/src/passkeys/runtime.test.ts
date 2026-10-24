@@ -285,9 +285,8 @@ describe("a document replaced while Pateat answers its request", () => {
     });
     expect(tab.chooser.choose).not.toHaveBeenCalled();
     expect(tab.answered).toHaveBeenCalledOnce();
-    // Pateat signed it by itself, with no login and no choice (ADR 0062 C).
+    // The person's click started it, so it is no sign-in Pateat made by itself (ADR 0062 C).
     expect(tab.answered).toHaveBeenCalledWith(7, origin, "example.com", candidate, {
-      silent: true,
       incognito: false,
     });
     expect(tab.leave).toHaveBeenCalledTimes(2);
@@ -428,7 +427,7 @@ describe("passkey runtime required mediation", () => {
     expect(backing.candidates).toHaveBeenCalledWith(origin, "example.com", expect.any(AbortSignal));
     expect(backing.sign).toHaveBeenCalledOnce();
     expect(answered.mock.calls).toEqual([
-      [7, origin, "example.com", candidate, { silent: true, incognito: false }],
+      [7, origin, "example.com", candidate, { incognito: false }],
     ]);
     await vi.waitFor(() => expect(report).toHaveBeenCalledOnce());
     expect(report.mock.lastCall![0]).toMatchObject({
@@ -605,6 +604,21 @@ describe("passkey runtime reports", () => {
     ]);
   });
 
+  it("does not count person-started passkey sign-ins towards the relogin guard (ADR 0062 C)", async () => {
+    const answered = vi.fn();
+    const runtime = createPasskeyRuntime(source(), { extensionId, answered });
+    // The person's click gives the request user activation; it is theirs, not Pateat's.
+    expect(await runtime.handle(get(undefined, true), sender())).toMatchObject({
+      kind: "assertion",
+    });
+    expect(answered.mock.lastCall?.[4]).toEqual({ incognito: false });
+    // The page started this one on load, with no activation: Pateat signed by itself.
+    expect(await runtime.handle(get(undefined, false), sender())).toMatchObject({
+      kind: "assertion",
+    });
+    expect(answered.mock.lastCall?.[4]).toEqual({ silent: true, incognito: false });
+  });
+
   it("tells a login of each assertion it returns, with its RP ID and passkey", async () => {
     const answered = vi.fn(() => {
       throw new Error("a failing listener changes nothing");
@@ -617,12 +631,24 @@ describe("passkey runtime reports", () => {
     expect(answered).not.toHaveBeenCalled();
     expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
     expect(answered.mock.calls).toEqual([
-      [7, origin, "example.com", candidate, { silent: true, incognito: false }],
+      [7, origin, "example.com", candidate, { incognito: false }],
     ]);
-    // A private window's request is told apart, for its own relogin count.
-    expect(await runtime.handle(get(), sender({ tab: { id: 7, incognito: true } }))).toMatchObject({
+    // A person-started passkey sign-in is not counted towards the relogin guard; one the
+    // page started with no user activation, as on load after a logout, is (ADR 0062 C).
+    expect(await runtime.handle(get(undefined, false), sender())).toMatchObject({
       kind: "assertion",
     });
+    expect(answered.mock.lastCall).toEqual([
+      7,
+      origin,
+      "example.com",
+      candidate,
+      { silent: true, incognito: false },
+    ]);
+    // A private window's request is told apart, for its own relogin count.
+    expect(
+      await runtime.handle(get(undefined, false), sender({ tab: { id: 7, incognito: true } })),
+    ).toMatchObject({ kind: "assertion" });
     expect(answered.mock.lastCall).toEqual([
       7,
       origin,
@@ -872,6 +898,24 @@ describe("passkey chooser window", () => {
       expect(choose.choose.mock.calls[1]![0].entries).toEqual([
         { item: "Work", userName: "alice", account: "Personal" },
       ]);
+    });
+
+    it("reads whether the default counts as unset alongside the lookup, so the deadline runs as without it", async () => {
+      const backing = withDefault();
+      const lookup = Promise.withResolvers<void>();
+      const candidates = backing.candidates;
+      backing.candidates = vi.fn(async (...args: Parameters<PasskeySource["candidates"]>) => {
+        await lookup.promise;
+        return candidates(...args);
+      });
+      const defaultUnset = vi.fn(async () => false);
+      const runtime = createPasskeyRuntime(backing, { extensionId, defaultUnset });
+      const answer = runtime.handle(get(), sender());
+      await vi.waitFor(() => expect(backing.candidates).toHaveBeenCalled());
+      // Asked while the lookup still runs.
+      await vi.waitFor(() => expect(defaultUnset).toHaveBeenCalledWith(origin, false));
+      lookup.resolve();
+      expect(await answer).toMatchObject({ kind: "assertion" });
     });
 
     it("hands the request on where no chooser can open, and signs with the default otherwise", async () => {

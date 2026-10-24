@@ -2684,10 +2684,13 @@ export function createLoginRuntime(
       topUrl?: string | undefined;
       incognito?: boolean | undefined;
     },
-    kinds: { private?: false } = {},
+    kinds: { private?: false; policy?: PausingSettings } = {},
   ): Promise<PauseState | undefined> => {
     // Both are read at once, so the pause costs a request no more time than before.
-    const [policy, until] = await Promise.all([pausingSettings(), pausedUntil(live)]);
+    const [policy, until] = await Promise.all([
+      kinds.policy ?? pausingSettings(),
+      pausedUntil(live),
+    ]);
     const ruled = settingsPause(
       policy && kinds.private === false ? { ...policy, loginInPrivateWindows: true } : policy,
       live,
@@ -4839,9 +4842,9 @@ export function createLoginRuntime(
   }
   /**
    * Counts a sign-in Pateat made by itself on the origin's registrable site towards the
-   * relogin guard (ADR 0062): a login that ended `authenticated`, or a passkey request it
-   * answered with no login and no choice, as a login page that asks on load after each
-   * logout.
+   * relogin guard (ADR 0062): a login that ended `authenticated`, or a passkey request the
+   * page started without user activation that it answered with no login and no choice, as
+   * a login page that asks on load after each logout.
    */
   function countSignIn(siteOrigin: string, incognito: boolean): void {
     const site = siteOf(siteOrigin);
@@ -14489,19 +14492,20 @@ export function createLoginRuntime(
     pageOrigin: string,
     incognito: boolean,
     snapshot?: Extract<SettingsResponse, { ok: true }>,
+    siteDefaults?: LocalSettings["siteDefaults"],
   ): Promise<boolean> {
     const site = siteOf(pageOrigin);
     if (site === undefined) return false;
-    const read =
-      snapshot ??
-      (await settings.handle({ version: 1, type: "settings.get" }).catch(() => undefined));
-    if (!read?.ok) return false;
+    let defaults = siteDefaults;
+    if (!defaults) {
+      const read =
+        snapshot ??
+        (await settings.handle({ version: 1, type: "settings.get" }).catch(() => undefined));
+      if (!read?.ok) return false;
+      defaults = read.snapshot.settings.siteDefaults;
+    }
     return accountPicks
-      .asksEveryTime(
-        site,
-        incognito,
-        siteDefaultsMark(read.snapshot.settings.siteDefaults, site, siteOf),
-      )
+      .asksEveryTime(site, incognito, siteDefaultsMark(defaults, site, siteOf))
       .catch(() => false);
   }
   /**
@@ -16702,12 +16706,36 @@ export function createLoginRuntime(
      * the default. Automatic login being off in private windows does not count: the person's
      * own request there is answered as in any window (ADR 0062 E).
      */
-    defaultUnset: async (pageOrigin: string, incognito: boolean): Promise<boolean | "paused"> => {
-      if ((await pauseOf({ url: pageOrigin, incognito }, { private: false })) !== undefined)
-        return "paused";
-      await sessionLoaded;
-      if (reloginLimited(pageOrigin, incognito)) return true;
-      return asksEveryTime(pageOrigin, incognito);
+    defaultUnset: async (
+      pageOrigin: string,
+      incognito: boolean,
+      /**
+       * The settings as the caller already read them, such as the passkey runtime's copy
+       * read ahead of requests, so the request need not wait for the settings store.
+       */
+      readAhead?: Pick<LocalSettings, "excludedSites" | "loginInPrivateWindows" | "siteDefaults">,
+    ): Promise<boolean | "paused"> => {
+      // Read at once, so a passkey request waits for the slowest read only.
+      const [pausedBy, limited, asking] = await Promise.all([
+        pauseOf(
+          { url: pageOrigin, incognito },
+          {
+            private: false,
+            ...(readAhead
+              ? {
+                  policy: {
+                    excludedSites: readAhead.excludedSites,
+                    ...(readAhead.loginInPrivateWindows ? { loginInPrivateWindows: true } : {}),
+                  },
+                }
+              : {}),
+          },
+        ),
+        sessionLoaded.then(() => reloginLimited(pageOrigin, incognito)),
+        asksEveryTime(pageOrigin, incognito, undefined, readAhead?.siteDefaults),
+      ]);
+      if (pausedBy !== undefined) return "paused";
+      return limited || asking;
     },
     /** A tab's page changed: a page of a paused site shows `II` on its badge (ADR 0062). */
     tabLoaded: (tab: Browser.tabs.Tab) => showTabPause(tab).catch(() => undefined),
