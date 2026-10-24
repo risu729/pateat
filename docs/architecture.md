@@ -3609,6 +3609,20 @@ these yet. Each says what a device does and how to recover.
   from this device, and one this device removed comes back from the service. An
   unreadable pairing record instead stops sync until the device is forgotten and paired
   again.
+- An upload that commits on the service after its request timed out (15 s). If the next
+  sync already treated it as not committed, it merges against the base before it; the
+  late write's entries then read as changes on the service, so it can put back a value
+  the person changed since or remove one the person added since, until the next write of
+  that entry. A device's first sync, which has no base to record its pending upload
+  beside, has the same gap when its upload's answer is lost. So has a download whose
+  final base was lost when more than 16 local changes followed it, since the local
+  change history no longer shows that write.
+- A sync whose last attempt wrote nothing locally, because local settings already
+  matched the merge, and whose base record at its end was lost (a storage failure or a
+  stopped service worker). The base then misses changes both sides made the same way, as
+  when two devices added the same entry or the person made locally what the service
+  already held, and a person's later reversal of such a change on this device reads as
+  no change, so the service's value comes back.
 - A device credential that could not be written after `POST /pair`. It is kept only in
   the worker's memory and saved on the next request; if the worker stops first, it is
   lost. The device stays active on the service until it is revoked on the management
@@ -3766,7 +3780,9 @@ field exclusions and custom-field review, which need the device's vault catalog
   A web write also stays within the 120 KiB document size devices upload. An identity
   with no paired device has no settings to edit and is told to pair one. Devices receive
   the change on their next settings or recipe sync. The device ID columns recording who
-  wrote a settings or recipe revision are nullable; null means the web UI wrote it. The
+  wrote a settings or recipe revision are nullable; null means the web UI wrote it. A
+  web write records no device's `settings_write_id`, which only a device's own winning
+  write sets ([plan](plan.md#service-sync-progress)). The
   Claude identifiers are written whole by `PUT /manage/api/claude` without a revision,
   since only the owner edits them and devices never do; an identity with no paired
   device has none either.
