@@ -10243,11 +10243,10 @@ export function createLoginRuntime(
           ...(list ? { list } : {}),
           // One switch per tab: an attempt that follows a switch never clicks another.
           // A fill-only login never clicks, not even a switch (ADR 0021 D).
-          ...(expected &&
-          run.recipe.accountSwitch &&
-          !run.metadata.accountSwitched &&
-          !run.metadata.fillOnly
-            ? { accountSwitch: run.recipe.accountSwitch }
+          ...(expected && !run.metadata.accountSwitched && !run.metadata.fillOnly
+            ? run.recipe.accountSwitch
+              ? { accountSwitch: run.recipe.accountSwitch }
+              : { otherSwitch: true as const }
             : {}),
           // A `totp` handler's code fill watches for the page submitting the code itself; a
           // handler's without a button types the code as its submission (ADR 0027).
@@ -10325,7 +10324,6 @@ export function createLoginRuntime(
       ) {
         const switched =
           result.output.switchable === true &&
-          run.recipe.accountSwitch !== undefined &&
           !run.metadata.accountSwitched &&
           !run.metadata.fillOnly;
         await change(run, {
@@ -12228,6 +12226,7 @@ export function createLoginRuntime(
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
+    switchedInPlace?: true,
   ): Promise<Readiness> {
     // Admission is async; a later hello from the same frame must not be overtaken by an older one.
     const helloKey = `${sender.tab?.id}:${sender.frameId}`;
@@ -12251,6 +12250,7 @@ export function createLoginRuntime(
           list,
           entryHello,
           unoffered,
+          switchedInPlace,
         );
       } finally {
         leave?.();
@@ -12280,6 +12280,7 @@ export function createLoginRuntime(
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
+    switchedInPlace?: true,
     tries = 0,
   ): Promise<Readiness> {
     const result = await admit(
@@ -12293,6 +12294,7 @@ export function createLoginRuntime(
       list,
       entryHello,
       unoffered,
+      switchedInPlace,
     );
     if (result.reason !== CHOICE_SAVED) return result;
     return tries < 2
@@ -12307,6 +12309,7 @@ export function createLoginRuntime(
           list,
           entryHello,
           unoffered,
+          switchedInPlace,
           tries + 1,
         )
       : { ok: false, reason: "stale-document" };
@@ -12328,6 +12331,7 @@ export function createLoginRuntime(
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
+    switchedInPlace?: true,
   ): Promise<Readiness> {
     await loaded;
     await sessionLoaded;
@@ -12456,8 +12460,9 @@ export function createLoginRuntime(
     const sameDocument = oldLive !== undefined && sameLoginDocument(oldLive.document, document);
     // A document may announce again when its form appears or its URL changes in place,
     // but never while it already carries an attempt, unless that login finished and the
-    // document now watches for its first step again (ADR 0062), or the login is watched and
-    // its first step shows in the document (ADR 0027).
+    // document now watches for its first step again (ADR 0062), the login is watched and
+    // its first step shows in the document (ADR 0027), or the login switched accounts and
+    // the document, changed in place, announces itself as a new page (ADR 0078).
     const carried = attempts.get(document.tabId);
     if (
       sameDocument &&
@@ -12466,6 +12471,9 @@ export function createLoginRuntime(
           !(
             document.frameId === 0 &&
             (finishedLogin(carried.metadata) ||
+              (switchedInPlace &&
+                carried.metadata.state === "blocked" &&
+                carried.metadata.outcome === "account-switched") ||
               (carried.metadata.watch !== undefined &&
                 start?.path === observedPath(new URL(url).pathname) &&
                 document.documentId !== carried.metadata.watch.documentId))
@@ -14929,6 +14937,7 @@ export function createLoginRuntime(
         hello.output.list,
         hello.output.entry,
         hello.output.unoffered,
+        hello.output.switched,
       );
       const tabId = sender.tab?.id;
       const { announced } = options;

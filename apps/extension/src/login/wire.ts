@@ -235,6 +235,11 @@ export const helloSchema = v.strictObject({
   /** The first step's elements are ready on this path; a new attempt may start. */
   start: v.optional(v.strictObject({ path })),
   /**
+   * The document changed in place after Pateat clicked an account switch in it, and is
+   * announced as a new page (ADR 0078).
+   */
+  switched: v.optional(v.literal(true)),
+  /**
    * A visible password, username or one-time-code input shows on this path, so a page
    * without a recipe may be sent for generation (ADR 0016); `identifier` when the page,
    * after the offer wait (ADR 0057), asks for an account identifier alone instead, or
@@ -561,6 +566,11 @@ export const commandSchema = v.variant("type", [
     account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
     /** The recipe's account switch, clicked when the page shows another account. */
     accountSwitch: v.optional(loginTargetSchema),
+    /**
+     * Without the recipe's switch: the page's own control for another account may be
+     * clicked when the page shows another account (ADR 0078).
+     */
+    otherSwitch: v.optional(v.literal(true)),
     /**
      * With a chooser's click on its list (ADR 0028): the click goes to the element the
      * list's choice names, and only when that choice is `click`.

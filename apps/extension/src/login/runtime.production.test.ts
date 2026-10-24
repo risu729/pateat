@@ -832,7 +832,7 @@ function harness(
   });
   // By default the document reports its first step ready, as the content script does
   // once the form appears; `start: false` sends the initial announcement instead.
-  const hello = (from: Record<string, unknown> = {}, start = true) =>
+  const hello = (from: Record<string, unknown> = {}, start = true, switched = false) =>
     login.handle(
       {
         version: 1,
@@ -841,6 +841,7 @@ function harness(
         ...(start
           ? { start: { path: reportedPath(String(from["url"] ?? fake.state.pageUrl)) } }
           : {}),
+        ...(switched ? { switched: true } : {}),
       },
       sender(from),
     );
@@ -1162,6 +1163,38 @@ describe("production login document admission", () => {
     );
     expect(executes()).toHaveLength(2);
     expect(executes()[1]!.accountSwitch).toBeUndefined();
+    expect(types().filter((type) => type === "login.switch")).toHaveLength(1);
+  });
+  it("asks for the page's own switch without a recipe target, and takes the same document again only when it switched in place (ADR 0078)", async () => {
+    fake.state.executeReply = { ok: false, reason: "wrong-account", switchable: true };
+    const h = harness({}, { username: true });
+    h.fields.mockImplementation(async ({ fieldId }) =>
+      fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
+    );
+    const attempts = () => fake.state.storage["pateat.login-attempts.v5"];
+    const types = () => fake.state.messages.map((entry) => entry.type);
+    const executes = () =>
+      fake.state.messages.filter((entry) => entry.type === "login.execute") as {
+        otherSwitch?: true;
+        accountSwitch?: unknown;
+      }[];
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(types()).toContain("login.switch"));
+    expect(executes()[0]).toMatchObject({ otherSwitch: true });
+    expect(executes()[0]!.accountSwitch).toBeUndefined();
+    expect(attempts()).toMatchObject([{ state: "blocked", outcome: "account-switched" }]);
+    // The same document announcing again without the mark, as a slow navigation's old
+    // page does, is not a new page.
+    expect(await h.hello()).toEqual({ ok: false, reason: "duplicate-document" });
+    expect(await h.hello({}, true, true)).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(attempts()).toMatchObject([
+        { state: "blocked", outcome: "wrong-account", accountSwitched: true },
+      ]),
+    );
+    expect(executes()).toHaveLength(2);
+    // The attempt carrying the switch never asks for another.
+    expect(executes()[1]!.otherSwitch).toBeUndefined();
     expect(types().filter((type) => type === "login.switch")).toHaveLength(1);
   });
   describe("a software keyboard that submits by itself (ADR 0067)", () => {

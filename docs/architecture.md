@@ -1147,13 +1147,17 @@ or a spent submission. A masked value consistent with the username (`m***@exampl
 `****1234`) proceeds, as does an item without a username, a username of another kind
 (`taro99`) or a page that shows no comparable identifier. A masked number that is not
 the account, such as a card number on a password page, still stops a digits-only
-username: a known limitation. A recipe can name an `accountSwitch` target: the button or
-`<a href>` link that switches to another account
+username: a known limitation. A recipe can name an `accountSwitch` target: the control
+that switches to another account
 (`{ "by": "text", "value": "Use another account" }`; text locators match link text only
 here and in a signed-in marker; the recipe must not use it for a click step, a handler,
 `rejection` or a signed-in marker). When the page shows another account, nothing was
-submitted in the attempt, and that target matches exactly one shown link or button that
-does not submit a form, the background first records the attempt as `account-switched`
+submitted in the attempt, and that target matches exactly one shown element that may be
+clicked by the one rule for a control for another account (entry-like as ADR 0028
+defines it, no address, masked text, four or more digits or word for another action in
+its text, and its click reaches no submit button of a form with a shown field;
+[ADR 0078](adr/0078-the-pages-own-account-switch.md), which a list's `other` button also
+follows), the background first records the attempt as `account-switched`
 (blocked, no submission spent) and then has the content script click it. The click
 happens only within 10 seconds, on the same path, while the target still matches exactly
 that element; otherwise the record becomes `wrong-account` and keeps holding that origin
@@ -1162,9 +1166,16 @@ starts a new attempt instead of resuming, so a recipe that starts on the page th
 leads to logs in, such as an email page at `/signin/id` after a password page at
 `/signin/pwd` that showed `myaccount@example.com` (owner decision, 2026-10-11). That
 attempt carries the switch and never clicks another: a page that still shows another
-account ends it `wrong-account`. Without the target, or when it is missing or ambiguous,
-the attempt ends `wrong-account` as above. A switch that changes the account in place,
-without loading a new document, does not continue the login. Before a fill step writes
+account ends it `wrong-account`. A recipe without the target clicks the page's own
+control for another account instead, when exactly one entry-like control outside page
+chrome has words for another account and passes the same rule
+([ADR 0078](adr/0078-the-pages-own-account-switch.md)). When the target is missing or
+ambiguous, or no single such control shows, the attempt ends `wrong-account` as above. A
+switch that changes the page in place, without loading a new document, continues once
+the page has settled (load and 1 second of DOM quiet, at most 5 seconds) and the switch
+no longer shows: the document announces itself again, marked as switched, so a recipe
+that starts on its path starts a new attempt and a page without one may be offered for
+generation once more. Before a fill step writes
 anything, the content script checks every value against its input
 ([ADR 0010](adr/0010-inference-field-hints.md)): non-empty, within the input's
 `maxlength` and `minlength` (ignored on `number` inputs), and a valid email or number

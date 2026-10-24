@@ -4454,7 +4454,7 @@ describe("extractAccountListObservation", () => {
     if (!repeated.ok) throw new Error(repeated.reason);
     const offered = summary(repeated.observation).map((candidate) => candidate.label);
     expect(offered.includes("Continue")).toBe(
-      listControls(document, { by: "text", value: "Continue" }).length === 1,
+      listControls(document, { by: "text", value: "Continue" }, "continue").length === 1,
     );
     // A footer-only switch is no control to send the list for.
     page(

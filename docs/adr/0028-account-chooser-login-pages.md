@@ -37,6 +37,11 @@ matching items and no default,
 [the value the page set in the account input](#amendment-2026-10-23-the-value-the-page-set-in-the-account-input)
 before anyone typed picks the item whose username equals it.
 
+Amended on 2026-10-24 by [ADR 0078](0078-the-pages-own-account-switch.md) (owner, 01:35
+UTC): the `other` button is
+[clicked by one rule](#amendment-2026-10-24-one-rule-for-a-control-for-another-account)
+with a recipe's switch and the page's own control for another account.
+
 Date: 2026-10-12
 
 Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window
@@ -220,7 +225,10 @@ AI does not pick a listed account. It may also name the list's button that conti
 without choosing a listed account, such as `{"by":"text","value":"Sign in with another
 profile"}`. The button is found by the [list entry](#list-entries) rule. The extension
 refuses it when its text holds an email address,
-`[masked]` or a run of four or more digits, or when it is inside a form with fields.
+`[masked]` or a run of four or more digits, or when it is inside a form with fields
+(since 2026-10-24,
+[one rule](#amendment-2026-10-24-one-rule-for-a-control-for-another-account) decides
+instead).
 The prompt gains one short, language-neutral line for this, which describes the
 other-account button by its meaning only, with no example text in any language. Only a
 request whose observation lists accounts gets it, after the generation role's
@@ -356,7 +364,9 @@ one of the buttons beside it, the `other` button, or nothing. A username that is
 email fits an entry-like control whose whole text equals it, or the one text beside
 buttons on the page whose whole text equals it. The `other` and `continue` buttons are
 never clicked when their text holds an email address, a masked text or four or more
-digits, or when they are inside a form with a shown field. The login runs the chooser's
+digits, or when they are inside a form with a shown field (for `other`, since
+2026-10-24, [one rule](#amendment-2026-10-24-one-rule-for-a-control-for-another-account)
+decides instead). The login runs the chooser's
 route for that click (`chooserRoute` in `packages/contracts/src/login.ts`): an `advance`
 click on the list, then the branch's steps. Just before the click, the content script
 makes the same choice again and refuses any other. Without the branch, the page after
@@ -643,3 +653,17 @@ This is an exception to the rule that logins never read what the person types
 ([architecture](../architecture.md)). It lets the page, not the person, choose which of
 the person's own matching items logs in; a credential still goes only to an item that
 matches the page.
+
+## Amendment 2026-10-24: one rule for a control for another account
+
+Amended by [ADR 0078](0078-the-pages-own-account-switch.md). The owner found it wrong
+that pages behave slightly differently (2026-10-24 01:35 UTC:
+"ページによって挙動が微妙に違うのおかしいからちゃんと直して"). A list's `other` button,
+a recipe's `accountSwitch` and the page's own control for another account are now
+clicked by one rule (`clickableSwitch` in `apps/extension/src/page/account-list.ts`):
+never when its text holds an email address, a masked text or a run of four or more
+digits, or words for another action ("Add another account", "Sign out of other
+accounts", 別のアカウントを追加), and never when its click would reach a native submit
+or image button of a form with a shown field. Any other control inside such a form
+counts, since a remembered account's own password form can hold it. The `continue`
+button keeps the rule above: it is refused inside a form with a shown field.

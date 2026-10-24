@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   accountEntries,
+  accountSwitchControls,
   accountEntryMiss,
   accountNames,
   besideAccounts,
@@ -300,6 +301,51 @@ describe("besideAccounts", () => {
   });
 });
 
+describe("accountSwitchControls", () => {
+  // Duolingo's remembered account (2026-10-23): a pointer-only element inside the password
+  // form, beside the shown address.
+  const remembered = `
+    <form><div><div><div>
+      <h1>Welcome Back!</h1><div>T</div><div>x@example.com</div>
+      <div data-test="use-another-account" style="cursor: pointer"><span>Use another account</span></div>
+    </div></div></div>
+    <input id="password" type="password" placeholder="Password"><button>Log in</button></form>`;
+
+  it("finds the page's one control for another account, also inside a form with a shown field", () => {
+    document.body.innerHTML = remembered;
+    expect(accountSwitchControls(document).map((element) => element.dataset["test"])).toEqual([
+      "use-another-account",
+    ]);
+    document.body.innerHTML = `<form><input type="password"><a href="/signin">別のアカウントでログイン</a></form>`;
+    expect(accountSwitchControls(document)).toHaveLength(1);
+  });
+
+  it("leaves out a submit button, page chrome, a long text, a text naming an account and another action", () => {
+    for (const html of [
+      `<form><input type="password"><button>Use another account</button></form>`,
+      `<header><a href="/switch">Switch accounts</a></header><input type="password">`,
+      `<input type="password"><a href="/x">${"Use another account ".repeat(4)}</a>`,
+      `<input type="password"><button type="button">Not x@example.com? Use another account</button>`,
+      `<input type="password"><button type="button">Use another account 1234</button>`,
+      `<input type="password"><span>Use another account</span>`,
+      `<input type="password"><button type="button">Add another account</button>`,
+      `<input type="password"><a href="/x">Sign out of other accounts</a>`,
+      `<input type="password"><a href="/x">別のアカウントを追加</a>`,
+      `<input type="password"><a href="/x">Sign-out of other accounts</a>`,
+      `<input type="password"><a href="/x">Log off other users</a>`,
+      `<input type="password"><a href="/x">Forget other accounts</a>`,
+      // A click on it would reach a button that submits the form with a shown field.
+      `<form><input type="password"><button><span style="cursor: pointer">Use another account</span></button></form>`,
+      `<form><input type="password"><button id="go" hidden></button></form><label for="go" style="cursor: pointer">Use another account</label>`,
+    ]) {
+      document.body.innerHTML = html;
+      expect(accountSwitchControls(document), html).toEqual([]);
+    }
+    document.body.innerHTML = `<form><input type="password"><button type="button">Use another account</button></form>`;
+    expect(accountSwitchControls(document)).toHaveLength(1);
+  });
+});
+
 describe("otherAccountMiss", () => {
   it("finds a control to sign in with another account by its words, whatever its element type", () => {
     for (const text of [
@@ -318,6 +364,26 @@ describe("otherAccountMiss", () => {
     expect(otherAccountMiss(document, ["ログイン"])).toBe("other-holds-name");
     document.body.innerHTML = `<div><span>taro</span><button>Go</button></div><div role="button" aria-label="Switch from taro">Switch accounts</div>`;
     expect(otherAccountMiss(document, ["taro"])).toBe("other-holds-name");
+  });
+
+  it("counts a control for another account by the rule a sign-in page's switch uses", () => {
+    // Inside a form with a shown field, as a remembered account's password form holds it.
+    document.body.innerHTML = `<div><span>taro</span><button>Continue</button></div><form><input type="password"><div style="cursor: pointer">Use another account</div></form>`;
+    expect(otherAccountMiss(document, ["taro"])).toBeUndefined();
+    expect(accountSwitchControls(document)).toHaveLength(1);
+    // Never one for another action, nor a button that would submit a form with a shown field.
+    for (const control of [
+      `<button type="button">Add another account</button>`,
+      `<form><input type="password"><button>Use another account</button></form>`,
+    ]) {
+      document.body.innerHTML = `<div><span>taro</span><button>Continue</button></div>${control}`;
+      expect(otherAccountMiss(document, ["taro"]), control).toBe("other-not-clickable");
+      expect(accountSwitchControls(document), control).toEqual([]);
+    }
+    // A form with no shown field sends nothing typed, so its submit button counts.
+    document.body.innerHTML = `<div><span>taro</span><button>Continue</button></div><form><input type="hidden"><button>Use another account</button></form>`;
+    expect(otherAccountMiss(document, ["taro"])).toBeUndefined();
+    expect(accountSwitchControls(document)).toHaveLength(1);
   });
 
   it("says why no control for another account counts, for the log", () => {
@@ -383,14 +449,16 @@ describe("account names and list controls", () => {
   it("finds a list's own buttons by their whole text, whatever their element type", () => {
     document.body.innerHTML = instagram;
     expect(
-      listControls(document, { by: "text", value: "Use another profile" }).map(
+      listControls(document, { by: "text", value: "Use another profile" }, "other").map(
         (element) => element.tagName,
       ),
     ).toEqual(["DIV"]);
-    expect(listControls(document, { by: "text", value: "Continue" })).toHaveLength(1);
-    expect(listControls(document, { by: "text", value: "Use another" })).toEqual([]);
+    expect(listControls(document, { by: "text", value: "Continue" }, "continue")).toHaveLength(1);
+    expect(listControls(document, { by: "text", value: "Use another" }, "other")).toEqual([]);
     document.body.innerHTML = wise;
-    expect(listControls(document, { by: "text", value: "Log back in" })).toHaveLength(1);
+    expect(listControls(document, { by: "text", value: "Log back in" }, "continue")).toHaveLength(
+      1,
+    );
   });
 });
 
