@@ -5374,6 +5374,89 @@ describe("production login document admission", () => {
       );
       expect(h.store.update).not.toHaveBeenCalled();
     });
+    describe("next to another login between pages after a worker restart", () => {
+      const second = "https://second.example";
+      const sites = {
+        siteDefaults: [
+          { origin: second, provider: "bitwarden" as const, server: "cloud-us", userId, itemId },
+        ],
+        bindings: [],
+      };
+      const records = () =>
+        (fake.state.storage["pateat.login-attempts.v5"] ?? []) as Record<string, unknown>[];
+      /**
+       * Drives tab 2 to its click and leaves it there, then restarts the worker: the new one
+       * has no run of tab 2 until its next page announces, and only its stored record says a
+       * password was submitted there. `age` makes that record older.
+       */
+      const restartBetweenPages = async (age: number) => {
+        const report = vi.fn<(report: LoginReport) => void>();
+        const setup = {
+          allowedOrigins: [second],
+          uris: async () => ({ ok: true as const, data: uriMatch() }),
+        };
+        const first = harness(sites, setup);
+        first.recipes.recipe.mockImplementation(async (at: string) =>
+          at === second ? { ...recipe, origin: second } : undefined,
+        );
+        fake.state.tabUrls[2] = `${second}/signin`;
+        let held = false;
+        fake.state.onExecute = async (message, tabId) => {
+          if (tabId !== 2 || (message["operation"] as { step: LoginStep }).step.kind !== "click")
+            return;
+          held = true;
+          await new Promise(() => undefined);
+        };
+        expect(await first.hello({ tab: { id: 2 }, url: `${second}/signin` })).toEqual({
+          ok: true,
+        });
+        await vi.waitFor(() => expect(held).toBe(true));
+        await vi.waitFor(() => expect(records()).toMatchObject([{ state: "submit-intent" }]));
+        fake.state.onExecute = undefined;
+        const [record] = records();
+        record!["changedAt"] = (record!["changedAt"] as number) - age;
+        // Both tabs are still open.
+        fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
+        const h = harness(sites, { ...setup, report });
+        h.recipes.recipe.mockImplementation(async (at: string) =>
+          at === origin ? recipe : at === second ? { ...recipe, origin: second } : undefined,
+        );
+        expect(await h.login.active()).toBe(true);
+        return { h, report };
+      };
+      const query = fake.browser.tabs.query;
+      afterEach(() => {
+        fake.browser.tabs.query = query;
+      });
+      it("saves nothing while that login changed within two minutes", async () => {
+        const { h, report } = await restartBetweenPages(60_000);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(report).toHaveBeenCalledWith({
+            type: "choice",
+            tabId: 1,
+            origin,
+            outcome: "login-in-progress",
+          }),
+        );
+        expect(h.store.update).not.toHaveBeenCalled();
+      });
+      it("saves the choice once that login has not changed for two minutes (owner, 2026-10-24)", async () => {
+        const { h, report } = await restartBetweenPages(2 * 60_000);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(report).toHaveBeenCalledWith({
+            type: "choice",
+            tabId: 1,
+            origin,
+            outcome: "saved",
+          }),
+        );
+        expect(h.settings.settings.siteDefaults).toContainEqual(
+          expect.objectContaining({ origin, itemId }),
+        );
+      });
+    });
     it("saves the choice next to a login whose result settled as unknown", async () => {
       const second = "https://second.example";
       const { completion: _unlearned, ...generated } = recipe;
