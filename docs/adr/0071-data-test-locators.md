@@ -6,6 +6,9 @@ proposal on a card; the owner picked the recommended option, 「採用してマ�
 
 Date: 2026-10-23
 
+Amended 2026-10-24: test attributes come before `id` and `name`
+([amendment](#amendment-2026-10-24-test-attributes-first)), accepted by the owner.
+
 ## Context
 
 A recipe step names its element with an allowlisted locator: an `id`, `name`,
@@ -75,3 +78,31 @@ page was incomplete (`unlocated-button`). Every control of the page carries
   works, but the owner did not choose a form-scoped `name` on 2026-10-22 (ADR 0037
   amendment, option C), and it changes the recipe format more than a new attribute.
 - **Keep it as is.** The page stays incomplete and is never generated.
+
+## Amendment 2026-10-24: test attributes first
+
+Status: accepted by the owner on 2026-10-24 (23:07 UTC, decision card
+"A: テスト用属性を先にする", recommended, over B, demoting counter IDs alone, and C, no
+change).
+
+Real Chrome on 2026-10-24: Duolingo's generated recipe `gen-d0ad348b…` (revision 2, read
+from the service's copy) names its fields `{ "by": "id", "value": "web-ui1" }` and
+`{ "by": "id", "value": "web-ui2" }`. Duolingo numbers these IDs per render: its
+remembered-account screen ("Welcome Back!") shows the password input alone as
+`id="web-ui3"`, with the same `data-test="password-input"`, so no login started there
+([ADR 0049](0049-start-at-a-later-step.md)'s password-alone start never found it).
+
+Decision 2 changes: the extractor tries `data-testid`, then `data-test`, then `id`, then
+`name`, each only when it names the element alone, before the other locators, as test
+tools such as Playwright, Cypress and Testing Library treat a test attribute as the
+stable hook. An element without a test attribute keeps its `id` or `name`.
+
+Consequences:
+
+- Recipes generated before keep their targets and work as before; Duolingo's must be
+  removed on the management page and generated again to get `data-test` targets.
+- A site that changes its test attributes between releases breaks its recipes, as one
+  that renames its IDs does.
+- Demoting only counter-like IDs (B) was not chosen: it guesses from the page (a stem
+  and digits shared by another element), demotes stable numbered IDs such as
+  `address1` and `address2`, and misses a counter alone on its page.
