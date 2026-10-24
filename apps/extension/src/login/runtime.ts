@@ -1206,6 +1206,12 @@ export interface LoginRecipes {
    * check reads all their signed-in markers (ADR 0060).
    */
   layoutsOf?(origin: string, recipeId: string): Promise<LoginRecipe[]>;
+  /**
+   * Whether the recipes, read without failure, no longer hold a layout of the recipe by ID
+   * that runs: the recipe or its layout was withdrawn. False when they cannot be read, so a
+   * resumed login whose lookup failed stays resumable (owner, 2026-10-23).
+   */
+  withdrawn?(origin: string, recipeId: string, layout?: string): Promise<boolean>;
   /** Where every recipe for the origin starts; a document watches for its first steps. */
   starts(origin: string): Promise<LoginRecipeStart[]>;
   /**
@@ -2476,8 +2482,8 @@ export type RouteChange =
  * What withdrew a running login's authorization (`POLICY_CHANGED`): a settings sync or a
  * save on the settings page; a settings revision other than the login's, or settings that
  * could not be read; a plan the
- * settings or vault no longer allow; a vault snapshot replaced before delivery; or a
- * vault field that could not be read.
+ * settings or vault no longer allow; a vault snapshot replaced before delivery; a
+ * vault field that could not be read; or a recipe that no longer runs a resumed login.
  */
 export type PolicyChangeCause =
   | "settings-synced"
@@ -2488,7 +2494,8 @@ export type PolicyChangeCause =
   | "vault-replaced"
   | "field-unavailable"
   // Automatic login of the site was paused (ADR 0062).
-  | "paused";
+  | "paused"
+  | "recipe-changed";
 type PolicyChange = { cause: PolicyChangeCause; reason?: string };
 /**
  * Why a login failed or was cancelled, for the log (ADR 0019): its step's elements did not
@@ -13645,6 +13652,7 @@ export function createLoginRuntime(
     // when this worker still holds the recorded one to compare (ADR 0027); after a restart
     // only the recorded revision resumes.
     let revised = false;
+    let replaced = false;
     if (
       previous &&
       recipe &&
@@ -13671,14 +13679,58 @@ export function createLoginRuntime(
         continuesRecipe(held, recipe)
       )
         recipe = held;
-      else recipe = undefined;
+      else {
+        recipe = undefined;
+        replaced = true;
+      }
     }
     if (
       !recipe ||
       recipe.origin !== document.origin ||
       (previous && previous.recipeId !== recipe.id)
-    )
+    ) {
+      // A resumed login its recipe no longer runs ends here: a revision replaced its own, or
+      // after a restart is one this worker cannot compare, or the recipe or its layout was
+      // withdrawn. Left running, every later page of the tab would resume it and be refused,
+      // the recipe's first step included, until the tab closed. It moves to this page and
+      // stops as under other settings, so it never submits again; the rules for a stopped
+      // login apply from the tab's next page on (ADR 0021 D, ADR 0022). A lookup that could
+      // not read the recipes leaves it to resume (owner, 2026-10-23).
+      const ends =
+        previous &&
+        !(probeMode && document.origin === origin) &&
+        (replaced ||
+          // A chooser login's chooser no longer has the route of its click: a revision
+          // dropped it, as the one the login ran had it.
+          (previous.chooser !== undefined && chooser !== undefined && !recipe) ||
+          (!recipe &&
+            (await recipes
+              .withdrawn?.(document.origin, previous.recipeId, previous.layout)
+              .catch(() => false))));
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      const latest = ends ? recordFor(document.tabId, document.origin) : undefined;
+      if (latest && latest.id === previous?.id && !terminal(latest)) {
+        const run = attempts.get(document.tabId);
+        const own = run?.metadata.id === latest.id ? run : undefined;
+        let ended = transitionLoginAttempt(own?.metadata ?? recoverLoginAttempt(latest), {
+          type: "NAVIGATED",
+          document,
+        });
+        if (!terminal(ended)) ended = transitionLoginAttempt(ended, { type: "POLICY_CHANGED" });
+        if (own) own.metadata = ended;
+        continuations.delete(ended.id);
+        reportAttempt(ended, own?.recipe, { cause: "recipe-changed" });
+        try {
+          await keep(ended);
+        } catch {
+          return refuse("storage-unavailable");
+        }
+        // A conditional request of the page waits for how this login ends (ADR 0034).
+        reviewRequests();
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      }
       return refuse("recipe-not-found");
+    }
     const savedBefore = remembered;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!snapshot.ok) return refuse(snapshot.error.code);

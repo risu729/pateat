@@ -788,6 +788,8 @@ function harness(
     recipe: vi.fn(async (at: string, path: string): Promise<typeof recipe | undefined> =>
       at === origin && path === "/signin" ? recipe : undefined,
     ),
+    // A recipe the lookup misses is one the cache could not read unless a test says.
+    withdrawn: vi.fn(async (_at: string, _id: string, _layout?: string) => false),
     starts: vi.fn(async (at: string) => (at === origin ? startsOf([recipe.steps[0]!]) : [])),
     chooser: vi.fn(async (): Promise<LoginChooserRecipe | undefined> => undefined),
     entries: vi.fn(async (at: string): Promise<LoginEntryRecipe[]> =>
@@ -7742,6 +7744,95 @@ describe("production login document admission", () => {
     );
     expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual(expected);
     expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/signin", recipe.id, undefined);
+  });
+  describe("a submitted login its recipe no longer runs", () => {
+    const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    const record = () =>
+      (
+        fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined
+      )?.[0];
+    /** Starts a login whose click never answers, so it waits for its next page. */
+    const clicked = async (report: (report: LoginReport) => void) => {
+      fake.state.onExecute = (message) =>
+        (message["operation"] as { step: { kind: string } }).step.kind === "click"
+          ? new Promise(() => undefined)
+          : Promise.resolve();
+      const h = harness({}, { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      return h;
+    };
+    // The record used to stay running: every later page of the tab resumed it and was
+    // refused, the recipe's first step included, until the tab closed. It now stops as a
+    // login stopped after a submission does (ADR 0021 D, ADR 0022).
+    it.each([
+      [
+        "its revision was replaced",
+        (h: ReturnType<typeof harness>) =>
+          h.recipes.recipe.mockResolvedValue({ ...recipe, revision: 2, maxSubmissions: 2 }),
+      ],
+      [
+        "it was withdrawn",
+        (h: ReturnType<typeof harness>) => {
+          h.recipes.recipe.mockResolvedValue(undefined);
+          h.recipes.withdrawn.mockResolvedValue(true);
+        },
+      ],
+    ])("ends when %s, so its tab asks again after the hold", async (_name, change) => {
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = await clicked(report);
+      const id = record()?.["id"];
+      change(h);
+      expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({
+        ok: false,
+        reason: "recipe-not-found",
+      });
+      expect(record()).toMatchObject({ id, state: "blocked", outcome: "policy-changed" });
+      expect(await h.login.active()).toBe(false);
+      expect(
+        report.mock.calls
+          .map(([entry]) => entry)
+          .filter((entry) => entry.type === "attempt")
+          .at(-1),
+      ).toMatchObject({ state: "blocked", outcome: "policy-changed", cause: "recipe-changed" });
+      // The refused page itself is never filled, also when it announces again.
+      expect(await h.hello({ documentId: "synthetic-document-2" })).toMatchObject({ ok: false });
+      expect(executes()).toHaveLength(2);
+      // The click may have reached the site, so the login holds it for 5 minutes (ADR 0022,
+      // owner 2026-10-24); after that, the tab's next page that shows the first step asks
+      // and only fills (ADR 0062).
+      h.recipes.recipe.mockResolvedValue(recipe);
+      const now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now + 6 * 60_000);
+      try {
+        expect(await h.hello({ documentId: "synthetic-document-3" })).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(3));
+        expect(
+          (executes()[2] as unknown as { operation: { step: LoginStep } }).operation.step.kind,
+        ).toBe("fill");
+        await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
+        expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+    it("stays resumable when the recipes could not be read (owner, 2026-10-23)", async () => {
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = await clicked(report);
+      const before = record();
+      h.recipes.recipe.mockResolvedValue(undefined);
+      expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({
+        ok: false,
+        reason: "recipe-not-found",
+      });
+      expect(h.recipes.withdrawn).toHaveBeenCalledWith(origin, recipe.id, undefined);
+      expect(record()).toMatchObject({ id: before?.["id"], state: before?.["state"] });
+      expect(record()?.["outcome"]).toBeUndefined();
+      expect(await h.login.active()).toBe(true);
+      expect(report).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "attempt", cause: "recipe-changed" }),
+      );
+    });
   });
   describe("a recipe with several layouts (ADR 0060)", () => {
     /** The older layout: the page's own password form. */
@@ -27305,6 +27396,26 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       await h.hello({ documentId: "synthetic-document-2" });
       expect(h.recipes.chooser).toHaveBeenLastCalledWith(origin, "/signin", listed.id, "1000");
       expect(choosers).toHaveBeenCalledTimes(1);
+    });
+
+    it("ends a resumed login whose chooser revision dropped the route of its click", async () => {
+      fake.state.chosen = { ok: true, click: "other" };
+      const reports: LoginReport[] = [];
+      const h = onList(generation(), reports);
+      // The page holds the click forever, so the login is still running when it resumes.
+      fake.state.onExecute = () => new Promise(() => undefined);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks().length > 0);
+      h.recipes.chooser.mockResolvedValue({ ...listed, revision: 2, chooser: { path: "/signin" } });
+      expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({
+        ok: false,
+        reason: "recipe-not-found",
+      });
+      expect(status()![0]).toMatchObject({ state: "blocked", outcome: "policy-changed" });
+      expect(reports.filter((entry) => entry.type === "attempt").at(-1)).toMatchObject({
+        outcome: "policy-changed",
+        cause: "recipe-changed",
+      });
     });
 
     it("presses the continue button beside the one shown account that fits", async () => {
