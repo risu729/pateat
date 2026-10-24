@@ -5429,7 +5429,7 @@ describe("production login document admission", () => {
         fake.browser.tabs.query = query;
       });
       it("saves nothing while that login changed within two minutes", async () => {
-        const { h, report } = await restartBetweenPages(60_000);
+        const { h, report } = await restartBetweenPages(10_000);
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
           expect(report).toHaveBeenCalledWith({
@@ -5441,8 +5441,12 @@ describe("production login document admission", () => {
         );
         expect(h.store.update).not.toHaveBeenCalled();
       });
-      it("saves the choice once that login has not changed for two minutes (owner, 2026-10-24)", async () => {
-        const { h, report } = await restartBetweenPages(2 * 60_000);
+      it.each([
+        ["has not changed for two minutes (owner, 2026-10-24)", 2 * 60_000],
+        // A clock set back ends the wait rather than prolonging it.
+        ["changed after the clock was set back", -60_000],
+      ])("saves the choice once that login %s", async (_name, age) => {
+        const { h, report } = await restartBetweenPages(age);
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
           expect(report).toHaveBeenCalledWith({

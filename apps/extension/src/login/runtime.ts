@@ -4946,8 +4946,8 @@ export function createLoginRuntime(
       outcome("login-in-progress");
       return;
     }
-    // A login another tab is admitting waits for this save, which no in-progress check above
-    // can see yet (see `admit`).
+    // A login another tab is admitting waits for this save, which the checks above may not
+    // see yet: it has no run or record before its first step (see `admit`).
     const { promise: saving, resolve: finish } = Promise.withResolvers<void>();
     savingChoices.add(saving);
     let writing = false;
