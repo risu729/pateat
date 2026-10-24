@@ -71,12 +71,12 @@ These limits apply to Pateat only and do not change anything in Bitwarden.
    **Try again** and **Open sign-in page** repeat either step.
 4. If the service already holds settings, choose a **Settings profile**: an existing
    one, or **New profile with this device's site settings** with a
-   **New profile name**. A profile holds the excluded sites, the sites that ask for the
-   master password and the default accounts, and devices that share a profile share
-   them. Choosing an existing profile replaces this device's own lists with the
-   profile's. Pateat asks first (**Pair and replace**) when this device has excluded
-   sites or default accounts, but not when it has only sites that ask for the master
-   password.
+   **New profile name**. A profile holds the sites paused until turned back on, the
+   sites that ask for the master password, the default accounts and whether Pateat logs
+   in automatically in private windows, and devices that share a profile share them.
+   Choosing an existing profile replaces this device's own lists with the profile's.
+   Pateat asks first (**Pair and replace**) when this device has paused sites or
+   default accounts, but not when it has only sites that ask for the master password.
 
 When pairing succeeds, the page says **This device is paired.** Pateat then syncs its
 profile's settings and the recipes from the service and keeps a copy on this device.
@@ -137,6 +137,13 @@ other. Re-prompt is checked on the login item only: a personal detail from a lin
 card or identity item is filled without asking, even when that item is marked. The list
 starts empty.
 
+### Private windows
+
+Pateat does not log in by itself in private (incognito) windows unless you turn on
+**Log in automatically in private windows** on the settings page. While it is off, a
+login page in a private window lists its matching accounts in the toolbar popup, and an
+account you pick there still logs in. The choice is part of the settings profile.
+
 ### AI key
 
 Under **AI key**, you can save an **Anthropic API key** from the Claude Console. While
@@ -173,9 +180,24 @@ the service, as the
 [service guide](https://github.com/risu729/pateat/blob/main/services/api/README.md#claude-credentials)
 describes; without either, the service still keeps the description it received.
 
-The toolbar popup shows what Pateat did on the current page. It also lets you choose the
-account to log in with when several match, turn **Pateat on this site** off or
+The toolbar popup shows what Pateat did on the current page, unless you uncheck
+**Show "This page" in the popup** on the settings page, which also hides
+**Switch account**; the pause stays. It also lets you choose the
+account to log in with when several match, pause automatic login on the site for
+**10 minutes**, **1 hour** or **Until turned back on** (**Resume** ends the pause), turn
 **Ask for the master password** on for a site, and, when a page asks for a personal
 detail such as a card's number, link the vault item that holds it and press **Fill**.
-The service's **Sites** page lists every site with a recipe, a default account or an
-exclusion, one settings profile at a time.
+The service's **Sites** page lists every site with a recipe, a default account or a
+pause, one settings profile at a time.
+
+On a site's page that waits for no account choice, **Switch account** in the popup lists
+the site's matching accounts. **Switch to this account** logs the tab out of the site,
+then logs in with that account; **Make it the default** keeps it as the site's default
+account. The first switch on a site asks your Pateat service which control logs out, and
+the clicks it finds are kept for the next switch. A site you log in to through another
+account, such as a company or Google sign-in, may log you out of that account too.
+
+When you log out of a site yourself, Pateat logs in again on the next login page, with
+the account it would use for an automatic login. To stay logged out, pause the site
+first. If Pateat logged in to a site twice in the last 10 minutes, it asks for an
+account instead of logging in a third time.

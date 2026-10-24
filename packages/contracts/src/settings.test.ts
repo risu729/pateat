@@ -9,6 +9,7 @@ import {
   getItemEligibility,
   isPasskeyBrowserSite,
   isSiteExcluded,
+  isSupportedSite,
   itemAsksForMasterPassword,
   normalizeHostname,
   parseLocalSettings,
@@ -452,15 +453,39 @@ describe("scoped metadata eligibility and next-login defaults", () => {
       ok: false,
       reason: "item-excluded",
     });
+    // An exclusion rule pauses automatic login only; a pick still resolves (ADR 0062).
+    settings.itemPolicies = [];
     settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: false }];
-    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
-      ok: false,
-      reason: "site-excluded",
-    });
+    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toMatchObject(
+      { ok: true, itemId: "primary" },
+    );
+  });
+
+  it("runs on HTTP(S) pages with a policy-valid hostname, whatever the rules", () => {
+    expect(isSupportedSite("https://bank.example/login")).toBe(true);
+    expect(isSupportedSite("http://127.0.0.1:8080/")).toBe(true);
+    expect(isSupportedSite("https://my_host.example/")).toBe(false);
+    expect(isSupportedSite("chrome://extensions/")).toBe(false);
+    const settings = createDefaultSettings();
+    settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: true }];
+    expect(isSiteExcluded(settings, "https://login.bank.example/")).toBe(true);
+    expect(isSupportedSite("https://login.bank.example/")).toBe(true);
   });
 });
 
 describe("strict settings schema", () => {
+  it("keeps automatic login in private windows off unless turned on (ADR 0062)", () => {
+    const settings = createDefaultSettings();
+    // Off is the absent field, so a document from before the setting means the same.
+    expect(settings).not.toHaveProperty("loginInPrivateWindows");
+    expect(parseLocalSettings(settings)).not.toHaveProperty("loginInPrivateWindows");
+    expect(parseLocalSettings({ ...settings, loginInPrivateWindows: true })).toMatchObject({
+      loginInPrivateWindows: true,
+    });
+    for (const value of [false, "true", 1, null])
+      expect(() => parseLocalSettings({ ...settings, loginInPrivateWindows: value })).toThrow();
+  });
+
   it("shows the popup's This page section unless the settings hide it", () => {
     const settings = createDefaultSettings();
     expect(popupPageSectionShown(settings)).toBe(true);

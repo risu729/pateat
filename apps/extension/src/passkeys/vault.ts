@@ -1,7 +1,7 @@
 import {
   connectionUse,
   getItemEligibility,
-  isSiteExcluded,
+  isSupportedSite,
   itemAsksForMasterPassword,
   siteDefaultConnection,
   type SettingsResponse,
@@ -55,7 +55,8 @@ export function passkeyEligible(
 
 /**
  * ADR 0007 item selection input: every eligible stored passkey with this RP ID across enabled
- * connections, marked `preferred` when it is the origin's site default. Excluded sites get none.
+ * connections, marked `preferred` when it is the origin's site default. Hostnames Pateat does not run on get
+ * none; an exclusion rule only pauses automatic login (ADR 0062).
  * With `only`, just that item's passkeys, none preferred, complete when its connection answered
  * and the item was searched (ADR 0027). Callers must not pass a per-request signal to the finder:
  * host cancellation retires the whole session.
@@ -70,7 +71,9 @@ export async function findVaultPasskeys(input: {
   const { settings, revision } = input.saved.snapshot;
   const { catalog } = input.saved;
   const { only } = input;
-  if (isSiteExcluded(settings, input.origin)) return undefined;
+  // An exclusion rule pauses automatic login only; the person's own request still asks
+  // in the chooser window (ADR 0062).
+  if (!isSupportedSite(input.origin)) return undefined;
   const siteDefault = only
     ? undefined
     : settings.siteDefaults.find((entry) => entry.origin === input.origin);
@@ -285,9 +288,10 @@ export function createVaultPasskeySource(
   return {
     async candidates(origin, rpId, _signal, only) {
       // Every HTTPS page can ask. Reading the catalog restores each registered vault, so an
-      // excluded site, or settings with no enabled connection, stop at the metadata read.
+      // unsupported hostname, or settings with no enabled connection, stop at the metadata
+      // read.
       const metadata = await connections.settings.read().catch(() => undefined);
-      if (!metadata || isSiteExcluded(metadata.settings, origin)) return undefined;
+      if (!metadata || !isSupportedSite(origin)) return undefined;
       if (!metadata.settings.accountPolicies.some((entry) => entry.enabled))
         return { candidates: [], complete: true };
       const saved = await read();
@@ -367,7 +371,7 @@ export async function rememberVaultPasskey(input: {
     !connection?.userId ||
     connection.snapshotId !== candidate.snapshotId ||
     connection.quarantinedItemIds?.includes(candidate.itemId) ||
-    isSiteExcluded(settings, origin) ||
+    !isSupportedSite(origin) ||
     !passkeyEligible(settings, saved.catalog, candidate.connectionId, candidate.itemId)
   )
     return false;

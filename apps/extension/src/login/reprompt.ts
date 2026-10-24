@@ -58,7 +58,6 @@ export function createLoginReprompt(deps: {
       entries: [{ item: input.item.label, account: input.connection.label, reprompt: true }],
       verify: (_index, password) => deps.check(input.connection, password),
       replacesDefault: false,
-      again: false,
       purpose: "login",
       signal,
     });

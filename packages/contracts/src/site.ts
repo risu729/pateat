@@ -39,3 +39,12 @@ export function loginMoveFits(
   const site = siteKey(loginOrigin);
   return site !== undefined && siteKey(pageOrigin) === site;
 }
+
+/**
+ * The registrable site a pause of `origin` covers (ADR 0062): its registrable domain, as
+ * the extension's popup pauses it with its subdomains. `undefined` for a bare public suffix
+ * or a value that is no URL.
+ */
+export function registrableSite(origin: string): string | undefined {
+  return siteKey(origin);
+}

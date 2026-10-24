@@ -78,6 +78,9 @@ function noChoice() {
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>().mockResolvedValue({ ok: true }),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    switchTo: vi.fn<ChoiceClient["switchTo"]>().mockResolvedValue({ ok: true }),
+    pause: vi.fn<ChoiceClient["pause"]>().mockResolvedValue({ ok: true }),
+    pauseState: vi.fn<ChoiceClient["pauseState"]>().mockResolvedValue({ ok: true }),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
 }
@@ -302,77 +305,86 @@ test("a default saved while the popup is open shows without reopening it", async
   expect(host.unwatched).toHaveBeenCalledOnce();
 });
 
-test("the switch excludes the site by its exact hostname, and turns it back on", async () => {
+/** A status for a page of `origin`, where a pause is offered. */
+function pageOf(origin: string, fields: Parameters<typeof onPage>[0] = {}) {
+  return onPage({ origin, recipe: "page", ...fields });
+}
+
+test("Until turned back on pauses the whole site with a rule, and Resume removes it (ADR 0062)", async () => {
   const { client, current } = store();
-  await mount(client, "https://login.bank.example/");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
-  await expect.element(toggle).toBeChecked();
-  await expect.element(toggle).toBeEnabled();
-  await userEvent.click(toggle);
-  await expect.element(page.getByText("login.bank.example is now excluded.")).toBeVisible();
-  await expect.element(toggle).not.toBeChecked();
-  // Saving does not disable the switch, so it keeps keyboard focus.
-  expect(document.activeElement).toBe(toggle.element());
+  const choices = pageOf("https://login.bank.example");
+  await mount(client, "https://login.bank.example/", choices);
+  const row = page.getByRole("group", { name: "Pause automatic login" });
+  await userEvent.click(row.getByRole("button", { name: "Until turned back on" }));
   await expect
-    .element(page.getByText("Pateat does not log in or answer passkey requests on this site."))
+    .element(page.getByText("Automatic login on this site is paused until turned back on."))
     .toBeVisible();
+  // One rule for the registrable site and its subdomains, as the pause covers the site.
   expect(current().snapshot.settings.excludedSites).toEqual([
-    { hostname: "login.bank.example", includeSubdomains: false },
+    { hostname: "bank.example", includeSubdomains: true },
   ]);
-  // An excluded site is not searched and offers no default.
+  expect(choices.pause).not.toHaveBeenCalled();
   await expect
-    .element(page.getByRole("group", { name: "Default account" }))
-    .not.toBeInTheDocument();
-  await expect.element(toggle).toBeEnabled();
-  await expect.element(toggle).not.toHaveAttribute("aria-describedby");
-  await userEvent.click(toggle);
-  await expect.element(page.getByText("login.bank.example is no longer excluded.")).toBeVisible();
-  await expect.element(toggle).toBeChecked();
-  expect(current().snapshot.settings.excludedSites).toEqual([]);
+    .element(page.getByText("Paused until turned back on", { exact: true }))
+    .toBeVisible();
+  // A paused site still lists its accounts: a pick logs in.
   await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Resume" }));
+  await expect.element(page.getByText("Automatic login on this site resumed.")).toBeVisible();
+  expect(current().snapshot.settings.excludedSites).toEqual([]);
+  // No pause of a length ran, so the worker is not asked to end one.
+  expect(choices.pause).not.toHaveBeenCalled();
+  await expect.element(row).toBeVisible();
 });
 
-test("a parent rule that includes subdomains is shown but changed only in settings", async () => {
+test("Resume removes the site's own covering rules and ends a pause of a length too", async () => {
   const settings = createDefaultSettings();
   settings.excludedSites.push(
     { hostname: "bank.example", includeSubdomains: true },
+    { hostname: "login.bank.example", includeSubdomains: false },
+    { hostname: "mail.bank.example", includeSubdomains: false },
+  );
+  const { client, current } = store(saved(3, settings));
+  const choices = pageOf("https://login.bank.example", { pause: { until: Date.now() + 60_000 } });
+  await mount(client, "https://login.bank.example/", choices);
+  // A rule wins over the pause of a length: it has no end.
+  await expect
+    .element(page.getByText("Paused until turned back on", { exact: true }))
+    .toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Resume" }));
+  await expect.poll(() => choices.pause.mock.calls.length).toBe(1);
+  expect(choices.pause).toHaveBeenCalledWith(7, { paused: false });
+  // A rule for another host of the site that does not cover this one stays.
+  expect(current().snapshot.settings.excludedSites).toEqual([
+    { hostname: "mail.bank.example", includeSubdomains: false },
+  ]);
+});
+
+test("a rule for other sites too is shown but changed only in settings", async () => {
+  const settings = createDefaultSettings();
+  settings.excludedSites.push(
+    { hostname: "example", includeSubdomains: true },
     { hostname: "login.bank.example", includeSubdomains: false },
     { hostname: "mail.example", includeSubdomains: false },
   );
   const { client } = store(saved(4, settings));
   const host = await mount(client, "https://login.bank.example/");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
-  await expect.element(toggle).not.toBeChecked();
-  // The site's own exact rule is not removed here either: the parent rule would still
-  // exclude the site.
-  await expect.element(toggle).toBeDisabled();
   await expect
-    .element(toggle)
-    .toHaveAccessibleDescription("Excluded by a rule that also covers other sites.");
-  await expect.element(page.getByText("bank.example", { exact: true })).toBeVisible();
+    .element(page.getByText("Paused until turned back on", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByText("Paused by a rule that also covers other sites."))
+    .toBeVisible();
+  await expect.element(page.getByText("example", { exact: true })).toBeVisible();
   await expect.element(page.getByText("and its subdomains")).toBeVisible();
   await expect.element(page.getByText("mail.example", { exact: false })).not.toBeInTheDocument();
-  await userEvent.click(page.getByRole("link", { name: "Change in settings for bank.example" }));
+  // Resume would leave the site paused by the shared rule, so none is offered.
+  await expect.element(page.getByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+  await userEvent.click(page.getByRole("link", { name: "Change in settings for example" }));
   expect(host.openSettings).toHaveBeenCalledOnce();
   expect(client.saveSettings).not.toHaveBeenCalled();
-  // The site is excluded, so no account is searched.
-  expect(client.findSiteAccounts).not.toHaveBeenCalled();
-});
-
-test("an exact rule that includes subdomains is changed only in settings", async () => {
-  const settings = createDefaultSettings();
-  settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: true });
-  const { client } = store(saved(2, settings));
-  await mount(client, "https://bank.example/");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
-  await expect.element(toggle).not.toBeChecked();
-  await expect.element(toggle).toBeDisabled();
-  await expect
-    .element(toggle)
-    .toHaveAccessibleDescription("Excluded by a rule that also covers other sites.");
-  await expect
-    .element(page.getByRole("link", { name: "Change in settings for bank.example" }))
-    .toBeVisible();
+  // A paused site still lists its matching accounts.
+  await expect.poll(() => client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
 });
 
 test("the master password switch asks on the site by its exact hostname, and stops", async () => {
@@ -396,9 +408,19 @@ test("the master password switch asks on the site by its exact hostname, and sto
     .element(page.getByText("login.bank.example no longer asks for the master password."))
     .toBeVisible();
   expect(current().snapshot.settings.repromptSites).toEqual([]);
-  // An excluded site runs nothing, so it has no master password switch.
-  await userEvent.click(page.getByRole("switch", { name: "Pateat on this site" }));
-  await expect.element(toggle).not.toBeInTheDocument();
+});
+
+test("a paused site keeps its master password switch, as a pick still logs in there (ADR 0062)", async () => {
+  const settings = createDefaultSettings();
+  settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: true });
+  const { client } = store(saved(2, settings));
+  await mount(client, "https://login.bank.example/");
+  await expect
+    .element(page.getByText("Paused until turned back on", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("switch", { name: "Ask for the master password" }))
+    .toBeEnabled();
 });
 
 test("a master password rule for a parent site is changed only in settings", async () => {
@@ -451,29 +473,28 @@ test("a page waiting for the master password offers to open its window again", a
   expect(choices.reprompt).toHaveBeenCalledWith(7);
 });
 
-test("a switch change that is not saved returns to the saved state", async () => {
+test("a pause that is not saved changes nothing", async () => {
   const { client, current } = store();
   client.saveSettings.mockResolvedValueOnce({
     version: 1,
     ok: false,
     error: { code: "storage-unavailable", message: "Unavailable." },
   });
-  await mount(client, "https://bank.example/");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
-  await expect.element(toggle).toBeEnabled();
-  await userEvent.click(toggle);
+  await mount(client, "https://bank.example/", pageOf("https://bank.example"));
+  const until = page.getByRole("button", { name: "Until turned back on" });
+  await userEvent.click(until);
   await expect
     .element(page.getByText("The change could not be saved. Reopen this popup and try again."))
     .toBeVisible();
-  await expect.element(toggle).toBeChecked();
+  await expect.element(until).toBeVisible();
   expect(current().snapshot.settings.excludedSites).toEqual([]);
   // A save lost in transit may still have been saved.
   client.saveSettings.mockRejectedValueOnce(new Error("Port closed"));
-  await userEvent.click(toggle);
+  await userEvent.click(until);
   await expect
     .element(page.getByText("The change may not have been saved.", { exact: false }))
     .toBeVisible();
-  await expect.element(toggle).toBeChecked();
+  await expect.element(until).toBeVisible();
 });
 
 /** Focuses a button and presses Enter, as a keyboard or screen reader user does. */
@@ -774,13 +795,13 @@ test("a waiting account choice shows its candidates when the site's matches do n
 
 test("a change saved elsewhere first is reloaded instead of overwritten", async () => {
   const state = store();
-  await mount(state.client, "https://bank.example/");
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" });
-  await expect.element(toggle).toBeEnabled();
+  await mount(state.client, "https://bank.example/", pageOf("https://bank.example"));
+  const until = page.getByRole("button", { name: "Until turned back on" });
+  await expect.element(until).toBeVisible();
   const elsewhere = createDefaultSettings();
   elsewhere.excludedSites.push({ hostname: "mail.example", includeSubdomains: false });
   state.replace(saved(7, elsewhere));
-  await userEvent.click(toggle);
+  await userEvent.click(until);
   await expect
     .element(
       page.getByText(
@@ -788,16 +809,71 @@ test("a change saved elsewhere first is reloaded instead of overwritten", async 
       ),
     )
     .toBeVisible();
-  // The switch returns to the reloaded state.
-  await expect.element(toggle).toBeChecked();
   expect(state.current().snapshot).toMatchObject({ revision: 7, settings: elsewhere });
-  await userEvent.click(toggle);
-  await expect.element(page.getByText("bank.example is now excluded.")).toBeVisible();
-  await expect.element(toggle).not.toBeChecked();
+  await userEvent.click(until);
+  await expect
+    .element(page.getByText("Automatic login on this site is paused until turned back on."))
+    .toBeVisible();
   expect(state.current().snapshot.settings.excludedSites).toEqual([
     { hostname: "mail.example", includeSubdomains: false },
-    { hostname: "bank.example", includeSubdomains: false },
+    { hostname: "bank.example", includeSubdomains: true },
   ]);
+});
+
+test("a private window says automatic login is off there and links to the setting (ADR 0062)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page" });
+  const host = await mount(client, "https://bank.example/login", choices, true);
+  await expect.element(page.getByText("Automatic login is off in private windows.")).toBeVisible();
+  // Neither a pause nor Resume is offered; the setting changes it.
+  expect(page.getByRole("group", { name: "Pause automatic login" }).query()).toBeNull();
+  expect(page.getByRole("button", { name: "Resume" }).query()).toBeNull();
+  await userEvent.click(
+    page.getByRole("link", { name: "Change automatic login in private windows in settings" }),
+  );
+  expect(host.openSettings).toHaveBeenCalledWith("private-windows");
+  expect(choices.pause).not.toHaveBeenCalled();
+});
+
+test("a private window offers the pause once automatic login is on there (ADR 0062)", async () => {
+  const settings = createDefaultSettings();
+  settings.loginInPrivateWindows = true;
+  const { client } = store(saved(0, settings));
+  await mount(client, "https://bank.example/login", onPage({ recipe: "page" }), true);
+  const row = page.getByRole("group", { name: "Pause automatic login" });
+  await expect.element(row).toBeVisible();
+  expect(page.getByText("Automatic login is off in private windows.").query()).toBeNull();
+  // A pause until turned back on is a synced rule that would pause normal windows too.
+  await expect.element(row.getByRole("button", { name: "10 minutes" })).toBeVisible();
+  await expect.element(row.getByRole("button", { name: "1 hour" })).toBeVisible();
+  expect(row.getByRole("button", { name: "Until turned back on" }).query()).toBeNull();
+});
+
+test("a private window's choice says automatic login is off there, and a passkey-only pick points to the page (ADR 0062)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page", page: { state: "denied", reason: "paused" } });
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "paused",
+    candidates: [{ connectionId: "demo-work", itemId: "primary" }],
+    paused: true,
+  });
+  await mount(client, "https://bank.example/", choices, true);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  expect(document.querySelector("#popup-choice-reason")?.textContent).toBe(
+    "Automatic login is off in private windows.",
+  );
+  await expect
+    .poll(() => lineText("login"))
+    .toBe(
+      "No login started: automatic login is off in private windows; choose an account to log in.",
+    );
+  choices.pick.mockResolvedValueOnce({ ok: false, reason: "paused-no-password" });
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  const said = page.getByText(/^Automatic login is off in private windows, and .+ has no password/);
+  await expect.element(said).toBeVisible();
+  expect(said.element().textContent).not.toContain("Pateat's window");
 });
 
 test("settings that cannot be loaded change nothing", async () => {
@@ -809,7 +885,7 @@ test("settings that cannot be loaded change nothing", async () => {
   });
   await mount(client, "https://bank.example/");
   await expect.element(page.getByText("Pateat's settings could not be loaded.")).toBeVisible();
-  expect(page.getByRole("switch").query()).toBeNull();
+  expect(page.getByRole("group", { name: "Pause automatic login" }).query()).toBeNull();
   await expect.element(page.getByRole("button", { name: "Open settings" })).toBeVisible();
   expect(client.saveSettings).not.toHaveBeenCalled();
 });
@@ -859,11 +935,11 @@ test("a login refused for several matches is restarted with the account picked h
   expect(current().snapshot.revision).toBe(0);
 });
 
-test("an excluded site offers no account choice, even one that waited before", async () => {
+test("a site an exclusion rule covers is paused until turned back on and still offers its choice", async () => {
   const settings = createDefaultSettings();
   settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: false });
   const { client } = store(saved(0, settings));
-  const choices = noChoice();
+  const choices = pageOf("https://bank.example");
   choices.get.mockResolvedValue({
     ok: true,
     origin: "https://bank.example",
@@ -875,28 +951,18 @@ test("an excluded site offers no account choice, even one that waited before", a
   });
   fakePolls();
   await mount(client, "https://bank.example/login", choices);
-  await expect
-    .element(page.getByText("Pateat does not log in or answer passkey requests on this site."))
-    .toBeVisible();
-  // Give the choice time to be asked for and drawn, as it would be on a site that is on,
-  // past the popup's next poll too.
-  await vi.advanceTimersByTimeAsync(POLL_MS);
-  expect(choices.get).not.toHaveBeenCalled();
-  // The worker keeps a choice from before the exclusion; Log in would only be refused.
-  await expect
-    .element(page.getByRole("heading", { name: "Choose an account" }))
-    .not.toBeInTheDocument();
-  await expect.element(page.getByRole("button", { name: "Log in" })).not.toBeInTheDocument();
-  await expect
-    .element(
-      page.getByText("Checking whether this page waits for an account choice", { exact: false }),
-    )
-    .not.toBeInTheDocument();
+  await expect.element(page.getByText("Paused until turned back on")).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Resume" })).toBeVisible();
+  // The pause offers no shorter lengths while it runs.
+  expect(page.getByRole("button", { name: "10 minutes" }).query()).toBeNull();
+  // A pick still logs in on a paused site, so the waiting choice is offered.
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Log in" })).toBeVisible();
 });
 
-test("turning Pateat off for the site hides a waiting account choice", async () => {
+test("pausing the site until turned back on keeps a waiting account choice (ADR 0062)", async () => {
   const { client } = store();
-  const choices = noChoice();
+  const choices = pageOf("https://bank.example");
   choices.get.mockResolvedValue({
     ok: true,
     origin: "https://bank.example",
@@ -908,15 +974,13 @@ test("turning Pateat off for the site hides a waiting account choice", async () 
   });
   await mount(client, "https://bank.example/login", choices);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
-  await userEvent.click(page.getByRole("switch", { name: "Pateat on this site" }));
-  await expect.element(page.getByText("bank.example is now excluded.")).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Until turned back on" }));
   await expect
-    .element(page.getByText("Pateat does not log in or answer passkey requests on this site."))
+    .element(page.getByText("Automatic login on this site is paused until turned back on."))
     .toBeVisible();
-  await expect
-    .element(page.getByRole("heading", { name: "Choose an account" }))
-    .not.toBeInTheDocument();
-  await expect.element(page.getByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+  // A pick still logs in on a paused site.
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Log in" })).toBeVisible();
 });
 
 test("a choice that starts waiting after the popup opened is shown while it stays open", async () => {
@@ -1096,7 +1160,7 @@ test("a pick that starts nothing says so, and the default list returns once the 
     .toHaveLength(3);
 });
 
-test("after a logout, the popup lists the saved default first", async () => {
+test("after two logins in 10 minutes, the popup lists the saved default first", async () => {
   const settings = createDefaultSettings();
   settings.siteDefaults.push({
     origin: "https://bank.example",
@@ -1115,11 +1179,16 @@ test("after a logout, the popup lists the saved default first", async () => {
       { connectionId: "demo-personal", itemId: "primary" },
       { connectionId: "demo-work", itemId: "primary" },
     ],
-    logout: "this-tab",
+    ask: "relogin-limit",
   });
   await mount(client, "https://bank.example/", choices);
   await expect
-    .element(page.getByText("You were logged out of this site in this tab.", { exact: true }))
+    .element(
+      page.getByText(
+        "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose.",
+        { exact: true },
+      ),
+    )
     .toBeVisible();
   const radios = page.getByRole("group", { name: "Account to log in with" }).getByRole("radio");
   await expect
@@ -1166,7 +1235,7 @@ test("while a choice waits, the saved default can still be removed, and one miss
       { connectionId: "demo-personal", itemId: "primary" },
       { connectionId: "demo-work", itemId: "primary" },
     ],
-    logout: "this-tab",
+    ask: "stopped-login",
   });
   await mount(client, "https://bank.example/", choices);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
@@ -1200,7 +1269,7 @@ test("after the site rejects a login, the popup says so and offers the accounts"
       { connectionId: "demo-personal", itemId: "primary" },
       { connectionId: "demo-work", itemId: "primary" },
     ],
-    logout: "rejected",
+    ask: "rejected",
   });
   await mount(client, "https://bank.example/", choices);
   await expect
@@ -1236,11 +1305,10 @@ test("after the site rejects a login in another tab, the popup chooses no accoun
       { connectionId: "demo-personal", itemId: "primary" },
       { connectionId: "demo-work", itemId: "primary" },
     ],
-    logout: "other-tab",
+    ask: "rejected-elsewhere",
     rejectedElsewhere: true,
   });
   await mount(client, "https://bank.example/", choices);
-  // The reason line names the rejection rather than the sentence that covers a logout too.
   await expect
     .element(page.getByText("The site did not accept a login in another tab.", { exact: true }))
     .toBeVisible();
@@ -1250,7 +1318,7 @@ test("after the site rejects a login in another tab, the popup chooses no accoun
   await expect.element(page.getByRole("button", { name: "Log in" })).toBeDisabled();
 });
 
-test("after a logout, the popup asks even with one account", async () => {
+test("after a stopped login, the popup asks even with one account", async () => {
   const { client } = store();
   const choices = noChoice();
   choices.get.mockResolvedValue({
@@ -1258,7 +1326,7 @@ test("after a logout, the popup asks even with one account", async () => {
     origin: "https://bank.example",
     documentId: "signed-out",
     candidates: [{ connectionId: "demo-work", itemId: "primary" }],
-    logout: "this-tab",
+    ask: "stopped-login",
   });
   await mount(client, "https://bank.example/", choices);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
@@ -1543,22 +1611,26 @@ test("the page section says why a page of a site whose recipe starts elsewhere w
   ]);
 });
 
-test("the page section follows a logout of the tab", async () => {
+test("the page section says why the tab waits for a choice", async () => {
   const { client } = store();
-  const choices = onPage({ recipe: "page", login: { state: "logged-out" } });
+  const choices = onPage({ recipe: "page", page: { state: "denied", reason: "relogin-limit" } });
   fakePolls();
   await mount(client, "https://bank.example/login", choices);
-  await expect.poll(() => lineText("login")).toBe("You were logged out of this site in this tab.");
+  await expect
+    .poll(() => lineText("login"))
+    .toBe(
+      "No login started: Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again.",
+    );
   choices.status.mockResolvedValue({
     ok: true,
     origin: "https://bank.example",
     recipe: "page",
-    login: { state: "logged-out", outcome: "rejected" },
+    page: { state: "denied", reason: "account-asked" },
   });
   await vi.advanceTimersByTimeAsync(POLL_MS);
   await expect
     .poll(() => lineText("login"))
-    .toBe("The site did not accept the last login; choose an account to try again.");
+    .toBe("No login started: Pateat waits for you to choose an account.");
 });
 
 test("the page section names the page's refusal over an older not-started reason", async () => {
@@ -1574,6 +1646,218 @@ test("the page section names the page's refusal over an older not-started reason
   await expect
     .poll(() => lineText("login"))
     .toBe("No login started: another tab's login to this site is running or did not succeed.");
+});
+
+test("each matching account can be switched to, the tab's account is marked, and a refusal is said (ADR 0063)", async () => {
+  const { client } = store();
+  const choices = onPage({
+    recipe: "page",
+    used: { connectionId: "demo-personal", itemId: "primary" },
+  });
+  choices.switchTo.mockResolvedValueOnce({ ok: false, reason: "site-held" });
+  await mount(client, "https://bank.example/home", choices);
+  await expect.element(page.getByRole("heading", { name: "Switch account" })).toBeVisible();
+  const buttons = page.getByRole("button", { name: /^Switch to this account/ });
+  await expect.poll(() => buttons.elements().length).toBe(3);
+  // The account of the tab's last login is marked in the default list too.
+  await expect
+    .element(
+      page.getByRole("radio", {
+        name: "Demo primary account, Demo personal vault, used in this tab",
+      }),
+    )
+    .toBeVisible();
+  const secondary = page.getByRole("button", {
+    name: "Switch to this account: Demo secondary account, Demo personal vault",
+  });
+  await userEvent.click(secondary);
+  await expect
+    .element(
+      page.getByText(
+        "Another tab's login or account switch on this site is running or waits for a code. Finish or close it, then try again.",
+      ),
+    )
+    .toBeVisible();
+  expect(choices.switchTo).toHaveBeenCalledWith({
+    tabId: 7,
+    connectionId: "demo-personal",
+    itemId: "secondary",
+    makeDefault: false,
+  });
+  // Made the default only when asked; the popup itself saves nothing.
+  await userEvent.click(
+    page.getByRole("checkbox", { name: "Make it the default for bank.example" }),
+  );
+  await userEvent.click(secondary);
+  expect(choices.switchTo).toHaveBeenLastCalledWith({
+    tabId: 7,
+    connectionId: "demo-personal",
+    itemId: "secondary",
+    makeDefault: true,
+  });
+  expect(client.saveSettings).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByText("may log you out of that account too", { exact: false }))
+    .toBeVisible();
+});
+
+test("the switch's line follows the worker, and a running switch takes no second press (ADR 0063)", async () => {
+  const { client } = store();
+  const choices = onPage({
+    switch: {
+      state: "failed",
+      reason: "no-logout-control",
+      connectionId: "demo-personal",
+      itemId: "secondary",
+    },
+  });
+  await mount(client, "https://bank.example/home", choices);
+  await expect
+    .element(
+      page.getByText(
+        "Pateat found no way to log out on this page, so it did not switch to Demo secondary account. Log out yourself, then choose the account.",
+      ),
+    )
+    .toBeVisible();
+  choices.status.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    recipe: "none",
+    switch: { state: "running", connectionId: "demo-work", itemId: "primary" },
+  });
+  await expect.element(page.getByText("Logging out to switch to Demo team account…")).toBeVisible();
+  for (const button of page.getByRole("button", { name: /^Switch to this account/ }).elements())
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("a page that waits for an account choice offers no switch (ADR 0063)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page" });
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await expect
+    .element(page.getByRole("heading", { name: "Switch account" }))
+    .not.toBeInTheDocument();
+});
+
+test("a site Pateat logs in to by itself can be paused for 10 minutes or an hour, then resumed (ADR 0062)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page" });
+  await mount(client, "https://bank.example/login", choices);
+  // The row sits in the header and offers each length.
+  const row = page.getByRole("group", { name: "Pause automatic login" });
+  await expect.element(row).toBeVisible();
+  let until = 0;
+  choices.pause.mockImplementation(async (_tabId, change) => {
+    until = Date.now() + (change.paused && change.length === "10m" ? 10 : 60) * 60_000;
+    choices.status.mockResolvedValue({
+      ok: true,
+      origin: "https://bank.example",
+      recipe: "page",
+      ...(change.paused ? { pause: { until } } : {}),
+    });
+    return change.paused ? { ok: true, until } : { ok: true };
+  });
+  const clock = () =>
+    new Date(until).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const pauseFor = async (label: string, length: "10m" | "1h", done: string) => {
+    await userEvent.click(row.getByRole("button", { name: label }));
+    expect(choices.pause).toHaveBeenLastCalledWith(7, { paused: true, length });
+    await expect.element(page.getByText(`Paused until ${clock()}`, { exact: true })).toBeVisible();
+    await expect
+      .element(page.getByText(`Automatic login on this site is paused ${done}.`))
+      .toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Resume" }));
+    expect(choices.pause).toHaveBeenLastCalledWith(7, { paused: false });
+    await expect.element(row).toBeVisible();
+    await expect.element(page.getByText("Automatic login on this site resumed.")).toBeVisible();
+  };
+  await pauseFor("10 minutes", "10m", "for 10 minutes");
+  await pauseFor("1 hour", "1h", "for an hour");
+});
+
+test("settings that hide the page section keep the pause row, read from the pause alone (ADR 0062)", async () => {
+  const hidden = { ...createDefaultSettings(), popupPageSection: false };
+  const { client, current } = store(saved(0, hidden));
+  const choices = onPage({
+    recipe: "page",
+    used: { connectionId: "demo-personal", itemId: "primary" },
+  });
+  let until = 0;
+  choices.pause.mockImplementation(async (_tabId, change) => {
+    until = change.paused ? Date.now() + 10 * 60_000 : 0;
+    choices.pauseState.mockResolvedValue(change.paused ? { ok: true, until } : { ok: true });
+    return change.paused ? { ok: true, until } : { ok: true };
+  });
+  await mount(client, "https://bank.example/home", choices);
+  const row = page.getByRole("group", { name: "Pause automatic login" });
+  await expect.element(row).toBeVisible();
+  await Promise.all(
+    ["10 minutes", "1 hour", "Until turned back on"].map((length) =>
+      expect.element(row.getByRole("button", { name: length })).toBeVisible(),
+    ),
+  );
+  // Switch account belongs to the hidden section, which reads the page status.
+  expect(page.getByRole("heading", { name: "Switch account" }).query()).toBeNull();
+  await userEvent.click(row.getByRole("button", { name: "10 minutes" }));
+  expect(choices.pause).toHaveBeenLastCalledWith(7, { paused: true, length: "10m" });
+  const clock = new Date(until).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  await expect.element(page.getByText(`Paused until ${clock}`, { exact: true })).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Resume" }));
+  expect(choices.pause).toHaveBeenLastCalledWith(7, { paused: false });
+  await expect.element(page.getByText("Automatic login on this site resumed.")).toBeVisible();
+  await userEvent.click(row.getByRole("button", { name: "Until turned back on" }));
+  await expect
+    .element(page.getByText("Paused until turned back on", { exact: true }))
+    .toBeVisible();
+  expect(current().snapshot.settings.excludedSites).toEqual([
+    { hostname: "bank.example", includeSubdomains: true },
+  ]);
+  expect(choices.pauseState).toHaveBeenCalledWith(7);
+  expect(choices.status).not.toHaveBeenCalled();
+});
+
+test("no pause is offered where nothing matches and the site has no recipe", async () => {
+  const { client } = store();
+  const choices = onPage({ origin: "https://nothing.example", recipe: "none" });
+  await mount(client, "https://nothing.example/", choices);
+  await expect
+    .element(page.getByText("No vault item matches this site", { exact: false }))
+    .toBeVisible();
+  expect(page.getByRole("group", { name: "Pause automatic login" }).query()).toBeNull();
+});
+
+test("a paused page offers even its only matching account (ADR 0062)", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page", pause: { until: Date.now() + 60_000 } });
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "paused",
+    candidates: [{ connectionId: "demo-work", itemId: "primary" }],
+    paused: true,
+  });
+  await mount(client, "https://bank.example/", choices);
+  await expect
+    .element(page.getByText("Automatic login is paused on this site.", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("group", { name: "Account to log in with" }).getByRole("radio"))
+    .toHaveLength(1);
+  await expect.element(page.getByRole("button", { name: "Resume" })).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  expect(choices.pick).toHaveBeenCalledWith(
+    expect.objectContaining({ documentId: "paused", connectionId: "demo-work" }),
+  );
 });
 
 // Personal details during a login (ADR 0061). Synthetic vault labels only; no value is
@@ -1737,17 +2021,16 @@ test("a secret question the AI paired with a field named otherwise is proposed f
   expect(client.saveSettings).not.toHaveBeenCalled();
 });
 
-test("an excluded site offers no fill, even one the worker still keeps", async () => {
+test("a paused site still offers a fill, as only a login picked in the popup stops there (ADR 0062)", async () => {
   const settings = createDefaultSettings();
-  settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: false });
+  settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: true });
   const { client } = store(saved(0, settings));
   const details = withDetails({ offer: birthOffer });
   await mount(client, "https://bank.example/login", noChoice(), false, undefined, details);
   await expect
-    .element(page.getByText("Pateat does not log in or answer passkey requests on this site."))
+    .element(page.getByText("Paused until turned back on", { exact: true }))
     .toBeVisible();
-  await expect.poll(() => details.get.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(1);
-  expect(page.getByRole("button", { name: "Fill" }).query()).toBeNull();
+  await expect.element(page.getByRole("button", { name: "Fill" })).toBeVisible();
 });
 
 test("the site's links are listed with their vault labels and removed", async () => {

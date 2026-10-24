@@ -116,6 +116,8 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0059: The latest Vaultwarden release is a supported server](adr/0059-latest-vaultwarden-server.md)
 - [0060: A recipe holds up to three layouts of its sign-in pages](adr/0060-recipe-layouts.md)
 - [0061: Personal details asked during a login, filled from a linked vault item](adr/0061-personal-details-during-a-login.md)
+- [0062: Log in again after a logout, and pause automatic login](adr/0062-log-in-again-after-a-logout.md)
+- [0063: Switch accounts from the popup](adr/0063-switch-accounts-from-the-popup.md)
 - [0064: A form that shows no button is submitted by Enter in its last field](adr/0064-enter-in-a-form-without-a-button.md)
 - [0065: Optional pages after a sign-in end the login as signed in](adr/0065-optional-pages-after-a-sign-in.md)
 - [0066: Warning, error and did-nothing log lines are sent to the service](adr/0066-problem-lines-sent-to-the-service.md)

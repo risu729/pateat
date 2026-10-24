@@ -41,7 +41,7 @@ const RANGES: [ManageDashboardRange, string][] = [
   ["7d", "7 days"],
   ["30d", "30 days"],
 ];
-const ROLE_LABELS = { generate: "Generate", judge: "Judge" } as const;
+const ROLE_LABELS = { generate: "Generate", judge: "Judge", logout: "Logout" } as const;
 
 const plural = (n: number, noun: string) =>
   `${n.toLocaleString("en")} ${noun}${n === 1 ? "" : "s"}`;

@@ -1,5 +1,5 @@
 import { normalizeHostname, parseSiteUrl } from "@pateat/contracts";
-import { Ban, ChevronRight, RefreshCw, User } from "lucide-react";
+import { ChevronRight, Info, Pause, RefreshCw, User } from "lucide-react";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
@@ -49,7 +49,7 @@ const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 /**
  * Every site the service holds something for: an origin with recipes, a default account
- * or bindings, each opening its own page, and the excluded hostnames.
+ * or bindings, each opening its own page, and the hostnames paused until turned back on.
  */
 export function SitesPage({ client }: { client: ManageClient }) {
   const settings = useSettings(client);
@@ -84,7 +84,7 @@ export function SitesPage({ client }: { client: ManageClient }) {
       (site) => site.hostname === normalized,
     );
     if (saved?.includeSubdomains === includeSubdomains) {
-      setInputError(`${normalized} is already excluded.`);
+      setInputError(`${normalized} is already paused.`);
       hostnameInput.current?.focus();
       return;
     }
@@ -165,8 +165,8 @@ export function SitesPage({ client }: { client: ManageClient }) {
                       )}
                       {excluded && (
                         <Badge tone="muted">
-                          <Ban size={12} aria-hidden />
-                          Excluded
+                          <Pause size={12} aria-hidden />
+                          Paused
                         </Badge>
                       )}
                     </span>
@@ -183,19 +183,19 @@ export function SitesPage({ client }: { client: ManageClient }) {
                 sub={
                   <span className="mt-1 flex flex-wrap gap-1.5">
                     <Badge tone="muted">
-                      <Ban size={12} aria-hidden />
-                      Excluded
+                      <Pause size={12} aria-hidden />
+                      Paused
                     </Badge>
                   </span>
                 }
               />
               <Button
                 variant="outline"
-                aria-label={`Allow ${exclusionLabel(site)}`}
+                aria-label={`Resume ${exclusionLabel(site)}`}
                 disabled={edit.isPending}
-                onClick={() => change(allowSite(site.hostname, `${exclusionLabel(site)} allowed`))}
+                onClick={() => change(allowSite(site.hostname, `${exclusionLabel(site)} resumed`))}
               >
-                Allow
+                Resume
               </Button>
             </li>
           ))}
@@ -229,10 +229,10 @@ export function SitesPage({ client }: { client: ManageClient }) {
               onChange={(event) => setIncludeSubdomains(event.target.checked)}
               className="size-[18px]"
             />
-            <label htmlFor={ids.subdomains}>Include subdomains</label>
+            <label htmlFor={ids.subdomains}>Pause subdomains too</label>
           </div>
           <Button type="submit" variant="outline" disabled={edit.isPending}>
-            Exclude site
+            Pause site
           </Button>
           {inputError && (
             <p role="alert" id={ids.hostnameError} className="w-full text-danger">
@@ -250,6 +250,10 @@ export function SitesPage({ client }: { client: ManageClient }) {
       <Lines>
         <Line icon={<RefreshCw size={16} aria-hidden />}>
           Devices apply a change on their next sync
+        </Line>
+        <Line icon={<Info size={16} aria-hidden />}>
+          A paused site stays paused until it is resumed; devices log in there only with an account
+          picked in their toolbar popup
         </Line>
       </Lines>
     </div>

@@ -106,6 +106,9 @@ test("is the first section and shows speed, stats and failures for 7 days", asyn
   const judge = page.getByRole("region", { name: "Judge · model time" });
   await expect.element(judge).toMatchTextContent("p50 2.6 s · p90 4.7 s · n 42");
   await expect.element(judge).not.toMatchTextContent("Values:");
+  // An account switch's logout requests have their own tile (ADR 0063).
+  const logout = page.getByRole("region", { name: "Logout · model time" });
+  await expect.element(logout).toMatchTextContent("p50 2.1 s · n 3");
 
   // Each chart has its numbers in a table; the charts load lazily and are hidden from
   // assistive technology.

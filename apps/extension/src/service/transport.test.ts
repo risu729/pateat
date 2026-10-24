@@ -1373,3 +1373,43 @@ describe("service timing", () => {
     ).toEqual({ kind: "failed", error: "unreachable", timing: { roundTripMs: 40 } });
   });
 });
+
+describe("logout generation (ADR 0063)", () => {
+  const request = {
+    version: 1 as const,
+    observation: {
+      version: 1 as const,
+      origin: "https://shop.example",
+      path: "/home",
+      language: "en" as const,
+      complete: true,
+      candidates: [
+        { id: "c1", role: "button" as const, target: { by: "id" as const, value: "sign-out" } },
+      ],
+    },
+  };
+
+  it("posts a signed-in page with the device credential and returns the service's answer", async () => {
+    const answer = { version: 1, status: "signed-out" };
+    const fetch = respond(200, answer);
+    expect(
+      await untimed(createServiceTransport({ fetch }).generateLogout(ORIGIN, CREDENTIAL, request)),
+    ).toEqual({ kind: "result", result: answer });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/recipes/logout`);
+    expect(init).toMatchObject({
+      method: "POST",
+      redirect: "error",
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${CREDENTIAL}`, "Content-Type": "application/json" },
+    });
+    expect(JSON.parse(init!.body as string)).toEqual(request);
+  });
+
+  it("refuses an answer that is no logout answer", async () => {
+    const fetch = respond(200, { version: 1, status: "abstained", reason: "no-login-form" });
+    expect(
+      await untimed(createServiceTransport({ fetch }).generateLogout(ORIGIN, CREDENTIAL, request)),
+    ).toEqual({ kind: "failed", error: "unexpected-response" });
+  });
+});

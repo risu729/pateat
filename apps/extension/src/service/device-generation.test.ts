@@ -188,6 +188,30 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
     expect(sent).toHaveLength(1);
   });
 
+  it("finds an account switch's logout control with this device's key and keeps it here (ADR 0063)", async () => {
+    const reply = JSON.stringify({
+      result: { decision: "logout", control: "c1", purpose: "logout" },
+    });
+    const { generation, recipes, sent } = setup({ replies: [reply] });
+    const answer = await generation.generateLogout(DEVICE_GENERATION_ORIGIN, "", {
+      version: 1,
+      observation: {
+        version: 1,
+        origin: "https://shop.example.test",
+        path: "/home",
+        language: "en",
+        complete: true,
+        candidates: [{ id: "c1", role: "button", target: { by: "text", value: "Sign out" } }],
+      },
+    });
+    if (answer.kind !== "result" || answer.result.status !== "recipe") throw new Error("no recipe");
+    expect(answer.result.change.recipe.logout.targets).toEqual([
+      expect.objectContaining({ path: "/home", target: { by: "text", value: "Sign out" } }),
+    ]);
+    expect(await recipes.list()).toEqual([answer.result.change.recipe]);
+    expect(sent).toHaveLength(1);
+  });
+
   it("holds a page whose call failed for the retry window", async () => {
     const { generation, sent } = setup({ replies: [500] });
     const answer = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);

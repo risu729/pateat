@@ -392,7 +392,8 @@ export const inferenceLog = sqliteTable(
     /**
      * For generation: `first` for a page that starts its recipe (a new one, one generated
      * again after its revocation, a list of accounts or an entry page), `continuation` for
-     * a page sent with a base (a later page, a chooser branch's pages included).
+     * a page sent with a base (a later page, a chooser branch's pages included), `logout` for
+     * any page of an account switch's logout (ADR 0063), which the dashboard counts apart.
      */
     recipePage: text("recipe_page", { enum: recipePages }),
     /**

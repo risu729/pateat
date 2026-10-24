@@ -599,10 +599,12 @@ site), not as text on the page, so the entries and texts above never see it. The
 UTC decision still holds otherwise: without a default and without such a value, the
 account is chosen in the toolbar popup.
 
-When several items match and none is the site default, outside the asking after a
-logout, the login asks the document's content script which matching item's username
-equals the value the page itself set in the recipe's inputs for the `username` slot on
-the document's path. The item it names logs in, for that document only:
+When several items match and none is the site default, on a site that is not paused and
+in a tab that does not ask ([ADR 0062](0062-log-in-again-after-a-logout.md): after a
+rejected or stopped login, after two logins in 10 minutes, or for a site that asks every
+time, ADR 0063), the login asks the document's content script which matching item's
+username equals the value the page itself set in the recipe's inputs for the `username`
+slot on the document's path. The item it names logs in, for that document only:
 
 - Only a value the page set before anyone could type counts. A content script that runs
   at `document_start` in every page and frame (`login-start`) records each text, email
@@ -628,7 +630,8 @@ the document's path. The item it names logs in, for that document only:
   after another to learn which accounts the vault holds.
 - The chosen item is kept as a popup pick for this document would be (ADR 0021), without
   "make default": the login it starts uses it on its later pages, such as the password
-  page that no longer shows the email.
+  page that no longer shows the email. Unlike the person's pick, it is dropped, and the
+  page asks, once the site is paused or the tab asks before that login starts.
 - The values and usernames stay in the extension and are never stored, logged or sent.
   The choice is never saved as the site default, unlike the single match, and the log's
   `login.start` names it as `account` `site-value` with the item's ID.

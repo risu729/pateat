@@ -26,8 +26,11 @@ import type { RecipeUnit } from "./units";
 export const ROLE_LIMITS = { timeoutMs: 10_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
 export const MAX_OUTPUT_TOKENS = 1_024;
 
-/** Whether the page a generation request sent starts its recipe (ADR 0012 log rows). */
-export const recipePages = ["first", "continuation"] as const;
+/**
+ * Whether the page a generation request sent starts its recipe, or is an account switch's
+ * logout page (ADR 0063), for the request log (ADR 0012).
+ */
+export const recipePages = ["first", "continuation", "logout"] as const;
 export type RecipePage = (typeof recipePages)[number];
 
 /**

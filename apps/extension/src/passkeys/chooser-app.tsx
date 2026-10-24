@@ -1,15 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import { Menu } from "@base-ui/react/menu";
-import {
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Info,
-  KeyRound,
-  LockKeyhole,
-  Star,
-} from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, KeyRound, LockKeyhole, Star } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
@@ -115,8 +107,8 @@ function Header({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Pateat's passkey chooser (ADR 0021): for several matches, or for any match after Pateat
- * signed in from the same tab. Choosing signs in with that passkey; "Use the browser"
+ * Pateat's passkey chooser (ADR 0021): for several matches, or for any match while automatic
+ * login of the site is paused (ADR 0062). Choosing signs in with that passkey; "Use the browser"
  * or closing the window hands the request to the browser or another extension. Its
  * "Always for this site" also hands on every later request of the site's hostname until
  * the site is removed in the settings (ADR 0007).
@@ -148,10 +140,12 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
       // One entry that asks for the master password needs no choice first.
       if (response.view.entries.length === 1 && response.view.entries[0]?.reprompt) setAsking(0);
       // Replacing an existing default is opt-in: it also changes the password login account.
-      // So is saving a passkey chosen after a sign-in in this tab, which may be a one-off switch.
-      // A password login's account is chosen elsewhere, so its window saves nothing.
+      // On a paused site a choice is for this sign-in only unless ticked (ADR 0062). A password
+      // login's account is chosen elsewhere, so its window saves nothing.
       setMakeDefault(
-        response.view.purpose !== "login" && !response.view.replacesDefault && !response.view.again,
+        response.view.purpose !== "login" &&
+          !response.view.replacesDefault &&
+          response.view.paused !== true,
       );
     };
     void load();
@@ -268,7 +262,7 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
   if (asking !== undefined && asked)
     return (
       <main className={MAIN}>
-        <Header>{t("Sign in to {{host}}", { host })}</Header>
+        <Header>{t("Log in to {{host}}", { host })}</Header>
         {view.entries.length > 1 && (
           <p className="m-0">
             <Button variant="ghost" disabled={sending} onClick={() => setAsking(undefined)}>
@@ -288,12 +282,12 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
   return (
     <main className={MAIN}>
       <Header>{t("Log in to {{host}}", { host })}</Header>
-      {view.again && (
-        <p className="m-0 flex items-center gap-1.5 text-[13px]/5 text-ink-muted">
-          <Info aria-hidden size={14} strokeWidth={2} className="shrink-0" />
-          {view.loggedOut
-            ? t("You were logged out of this site in this tab.")
-            : t("Pateat answered a passkey request from this site in this tab before.")}
+      {view.paused && (
+        <p className="m-0 text-[15px]/6 text-ink-muted">
+          {t(
+            "Automatic login is paused on {{host}}, so Pateat logs in only with the passkey you choose.",
+            { host },
+          )}
         </p>
       )}
       {/* Above the list, so it is seen before a choice is made. */}

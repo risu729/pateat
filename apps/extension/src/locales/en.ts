@@ -16,9 +16,6 @@ export const en = {
     "The site stopped waiting, or Pateat restarted. Close this window and try again.",
   Close: "Close",
   "Log in to {{host}}": "Log in to {{host}}",
-  "You were logged out of this site in this tab.": "You were logged out of this site in this tab.",
-  "Pateat answered a passkey request from this site in this tab before.":
-    "Pateat answered a passkey request from this site in this tab before.",
   "Replace the default account for {{host}} with this one":
     "Replace the default account for {{host}} with this one",
   "Use this account for {{host}} from now on": "Use this account for {{host}} from now on",
@@ -35,7 +32,6 @@ export const en = {
     "Bitwarden asks for your master password before this item is used.",
   "Other passkeys": "Other passkeys",
   "Asks for the master password": "Asks for the master password",
-  "Pateat on this site": "Pateat on this site",
   "{{item}}, ID {{id}}": "{{item}}, ID {{id}}",
   "Saving…": "Saving…",
   "The settings changed elsewhere, so this change was not saved. The popup now shows them.":
@@ -85,8 +81,6 @@ export const en = {
   "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.":
     "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.",
   "Pateat's settings could not be loaded.": "Pateat's settings could not be loaded.",
-  "{{hostname}} is no longer excluded.": "{{hostname}} is no longer excluded.",
-  "{{hostname}} is now excluded.": "{{hostname}} is now excluded.",
   "Vault account": "Vault account",
   "{{account}}, not available here": "{{account}}, not available here",
   "Finding the vault items that match this site…": "Finding the vault items that match this site…",
@@ -110,8 +104,6 @@ export const en = {
   "Choose an account": "Choose an account",
   matchingAccounts_one: "{{count}} account matches this page.",
   matchingAccounts_other: "{{count}} accounts match this page.",
-  "You were logged out of this site in another tab, or the site did not accept a login there.":
-    "You were logged out of this site in another tab, or the site did not accept a login there.",
   "The site did not accept a login in another tab.":
     "The site did not accept a login in another tab.",
   "The site did not accept the last login in this tab.":
@@ -134,13 +126,9 @@ export const en = {
     "Some vaults or items could not be checked, so this list may be incomplete.",
   "A default takes effect at the next login.": "A default takes effect at the next login.",
   "Use as default": "Use as default",
-  "Excluded by a rule that also covers other sites.":
-    "Excluded by a rule that also covers other sites.",
   "and its subdomains": "and its subdomains",
   "Change in settings for {{hostname}}": "Change in settings for {{hostname}}",
   "Change in settings": "Change in settings",
-  "Pateat does not log in or answer passkey requests on this site.":
-    "Pateat does not log in or answer passkey requests on this site.",
   "This tab": "This tab",
   "Open settings": "Open settings",
   "the site did not accept the password": "the site did not accept the password",
@@ -184,6 +172,73 @@ export const en = {
     "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
   "no recipe of this site starts on this page": "no recipe of this site starts on this page",
   "Pateat waits for you to choose an account": "Pateat waits for you to choose an account",
+  "Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again":
+    "Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again",
+  "automatic login is paused on this site; choose an account to log in":
+    "automatic login is paused on this site; choose an account to log in",
+  "automatic login is paused on this site": "automatic login is paused on this site",
+  "While this tab asks for an account, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.":
+    "While this tab asks for an account, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
+  "automatic login of this site was paused": "automatic login of this site was paused",
+  "Paused until {{time}}": "Paused until {{time}}",
+  "Pause automatic login": "Pause automatic login",
+  Resume: "Resume",
+  "Pausing…": "Pausing…",
+  "Resuming…": "Resuming…",
+  "Used in this tab": "Used in this tab",
+  "{{title}}, {{sub}}, used in this tab, default": "{{title}}, {{sub}}, used in this tab, default",
+  "{{title}}, {{sub}}, used in this tab": "{{title}}, {{sub}}, used in this tab",
+  "The switch could not be started. Reopen this popup and try again.":
+    "The switch could not be started. Reopen this popup and try again.",
+  "Automatic login on this site is paused for an hour.":
+    "Automatic login on this site is paused for an hour.",
+  "Automatic login on this site resumed.": "Automatic login on this site resumed.",
+  "This tab has no site to pause.": "This tab has no site to pause.",
+  "The pause could not be saved. Try again.": "The pause could not be saved. Try again.",
+  "The pause could not be changed. Reopen this popup and try again.":
+    "The pause could not be changed. Reopen this popup and try again.",
+  "the account": "the account",
+  "Switch account": "Switch account",
+  "Logs this tab out of {{hostname}}, then logs in with the account you choose.":
+    "Logs this tab out of {{hostname}}, then logs in with the account you choose.",
+  "Switch to this account: {{title}}, {{sub}}": "Switch to this account: {{title}}, {{sub}}",
+  "Switch to this account": "Switch to this account",
+  "A site you log in to through another account, such as a company or Google sign-in, may log you out of that account too.":
+    "A site you log in to through another account, such as a company or Google sign-in, may log you out of that account too.",
+  "Pateat: automatic login is off in private windows.":
+    "Pateat: automatic login is off in private windows.",
+  "Pateat: automatic login is off in private windows. Click to choose an account.":
+    "Pateat: automatic login is off in private windows. Click to choose an account.",
+  "Pateat: the paused sites could not be read, so automatic login is paused.":
+    "Pateat: the paused sites could not be read, so automatic login is paused.",
+  "automatic login is off in private windows; choose an account to log in":
+    "automatic login is off in private windows; choose an account to log in",
+  "automatic login is off in private windows": "automatic login is off in private windows",
+  "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.":
+    "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.",
+  "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.":
+    "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.",
+  "Pateat: automatic login is paused on this site until turned back on.":
+    "Pateat: automatic login is paused on this site until turned back on.",
+  "Automatic login is paused on this site, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button and choose {{name}} in Pateat's window.":
+    "Automatic login is paused on this site, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button and choose {{name}} in Pateat's window.",
+  "Automatic login is paused on this site, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button and choose {{name}} in Pateat's window.":
+    "Automatic login is paused on this site, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button and choose {{name}} in Pateat's window.",
+  "Automatic login is paused on {{host}}, so Pateat logs in only with the passkey you choose.":
+    "Automatic login is paused on {{host}}, so Pateat logs in only with the passkey you choose.",
+  "Automatic login is off in private windows.": "Automatic login is off in private windows.",
+  "Paused until turned back on": "Paused until turned back on",
+  "10 minutes": "10 minutes",
+  "1 hour": "1 hour",
+  "Until turned back on": "Until turned back on",
+  "Automatic login on this site is paused for 10 minutes.":
+    "Automatic login on this site is paused for 10 minutes.",
+  "Automatic login on this site is paused until turned back on.":
+    "Automatic login on this site is paused until turned back on.",
+  "Change automatic login in private windows in settings":
+    "Change automatic login in private windows in settings",
+  "Paused by a rule that also covers other sites.":
+    "Paused by a rule that also covers other sites.",
   "several accounts match; choose one to log in": "several accounts match; choose one to log in",
   "another tab's login to this site is running or did not succeed":
     "another tab's login to this site is running or did not succeed",
@@ -238,8 +293,6 @@ export const en = {
   "No login started: {{why}}.": "No login started: {{why}}.",
   "The login could not be confirmed.": "The login could not be confirmed.",
   "Logged in.": "Logged in.",
-  "The site did not accept the last login; choose an account to try again.":
-    "The site did not accept the last login; choose an account to try again.",
   "Waiting for you to finish the site's other step, such as a code.":
     "Waiting for you to finish the site's other step, such as a code.",
   "The result is not known yet; the next pages are checked for it.":
@@ -272,8 +325,6 @@ export const en = {
     "the vault item has no password, and this page asks for it",
   "the vault item has no password, and Pateat goes on without one only in the page itself, not in a frame":
     "the vault item has no password, and Pateat goes on without one only in the page itself, not in a frame",
-  "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.":
-    "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
   "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.":
     "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.",
   "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab, or wait up to 10 minutes, then choose again.":
@@ -332,18 +383,56 @@ export const en = {
     "Pateat: saved settings name a vault's account on another server, so this site's accounts were not counted.",
   "{{first}} {{next}}": "{{first}} {{next}}",
   "Pateat: asking the AI…": "Pateat: asking the AI…",
-  "Pateat: you were logged out of this site in this tab. Click to choose an account.":
-    "Pateat: you were logged out of this site in this tab. Click to choose an account.",
   "Pateat: the site did not accept the last login in this tab. Click to choose an account.":
     "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
   "Pateat: the last login on this site stopped in this tab. Click to choose an account.":
     "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
-  "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.":
-    "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.",
   "Pateat: {{count}} accounts match this page. Click to choose one.":
     "Pateat: {{count}} accounts match this page. Click to choose one.",
   "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.":
     "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.",
+  "Pateat: automatic login is paused on this site. Click to choose an account.":
+    "Pateat: automatic login is paused on this site. Click to choose an account.",
+  "Pateat: the site did not accept a login in another tab. Click to choose an account.":
+    "Pateat: the site did not accept a login in another tab. Click to choose an account.",
+  "Pateat logged in to this site twice in 10 minutes. Click to choose an account.":
+    "Pateat logged in to this site twice in 10 minutes. Click to choose an account.",
+  "Pateat: you chose an account here without making it the default, so Pateat asks until an account is made the default. Click to choose an account.":
+    "Pateat: you chose an account here without making it the default, so Pateat asks until an account is made the default. Click to choose an account.",
+  "Pateat: automatic login is paused on this site until {{time}}.":
+    "Pateat: automatic login is paused on this site until {{time}}.",
+  "Automatic login is paused on this site.": "Automatic login is paused on this site.",
+  "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose.":
+    "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose.",
+  "You chose an account here without making it the default, so Pateat asks each time until an account is made the default.":
+    "You chose an account here without making it the default, so Pateat asks each time until an account is made the default.",
+  "{{name}} does not match this page.": "{{name}} does not match this page.",
+  "Pateat is not running on this page yet. Reload it, then try again.":
+    "Pateat is not running on this page yet. Reload it, then try again.",
+  "This page waits for an account choice. Choose the account there.":
+    "This page waits for an account choice. Choose the account there.",
+  "An account switch is already running in this tab.":
+    "An account switch is already running in this tab.",
+  "A login is running in this tab. Wait for it to end, then try again.":
+    "A login is running in this tab. Wait for it to end, then try again.",
+  "Another tab's login or account switch on this site is running or waits for a code. Finish or close it, then try again.":
+    "Another tab's login or account switch on this site is running or waits for a code. Finish or close it, then try again.",
+  "Pateat settings could not be read. Try again.": "Pateat settings could not be read. Try again.",
+  "Pateat needs its service to find how to log out. Pair it in the settings.":
+    "Pateat needs its service to find how to log out. Pair it in the settings.",
+  "Logging out to switch to {{name}}…": "Logging out to switch to {{name}}…",
+  "Logged out. Pateat logs in with {{name}} on this site's login page in this tab.":
+    "Logged out. Pateat logs in with {{name}} on this site's login page in this tab.",
+  "Pateat found no way to log out on this page, so it did not switch to {{name}}. Log out yourself, then choose the account.":
+    "Pateat found no way to log out on this page, so it did not switch to {{name}}. Log out yourself, then choose the account.",
+  "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to {{name}}. Log out yourself, then choose the account.":
+    "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to {{name}}. Log out yourself, then choose the account.",
+  "Pateat stopped while logging out, so it did not switch to {{name}}. Check whether you are logged out, then choose the account.":
+    "Pateat stopped while logging out, so it did not switch to {{name}}. Check whether you are logged out, then choose the account.",
+  "The site still shows you logged in after 3 tries, so Pateat did not switch to {{name}}. Log out yourself, then choose the account.":
+    "The site still shows you logged in after 3 tries, so Pateat did not switch to {{name}}. Log out yourself, then choose the account.",
+  "Pateat could not log out to switch to {{name}}. Log out yourself, then choose the account.":
+    "Pateat could not log out to switch to {{name}}. Log out yourself, then choose the account.",
   "This page asks for {{detail}}.": "This page asks for {{detail}}.",
   Fill: "Fill",
   Remove: "Remove",

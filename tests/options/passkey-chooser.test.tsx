@@ -21,7 +21,6 @@ function view(overrides: Partial<ChooserView> = {}): ChooserView {
       {},
     ],
     replacesDefault: false,
-    again: false,
     ...overrides,
   };
 }
@@ -53,28 +52,10 @@ test("names the site and lists each passkey by its user name, item and connectio
     .toHaveTextContent("synthetic-user-2Example (work) in Probe");
   await expect.element(list.getByRole("button").nth(2)).toHaveTextContent("Unnamed item");
   await expect
-    .element(page.getByText("Pateat answered a passkey request from this site in this tab before."))
-    .not.toBeInTheDocument();
-  await expect
     .element(
       page.getByRole("checkbox", { name: "Use this account for login.example.test from now on" }),
     )
     .toBeChecked();
-});
-
-test("says why it asks again: Pateat's sign-in in the tab, or a logout clicked there", async () => {
-  await render(<ChooserApp client={client(view({ again: true }))} />);
-  await expect
-    .element(page.getByText("Pateat answered a passkey request from this site in this tab before."))
-    .toBeVisible();
-  await cleanup();
-  await render(<ChooserApp client={client(view({ again: true, loggedOut: true }))} />);
-  await expect
-    .element(page.getByText("You were logged out of this site in this tab."))
-    .toBeVisible();
-  await expect
-    .element(page.getByText("Pateat answered a passkey request from this site in this tab before."))
-    .not.toBeInTheDocument();
 });
 
 test("offers to replace an existing default, unticked", async () => {
@@ -105,6 +86,38 @@ test("hands the request to the browser just once", async () => {
     type: "passkey-chooser.answer",
     request: REQUEST,
     answer: { kind: "browser" },
+  });
+});
+
+test("on a paused site, says so and leaves the box unticked (ADR 0062)", async () => {
+  const value = client(
+    view({
+      entries: [
+        { item: "Example", userName: "synthetic-user-1", account: "Probe" },
+        { item: "Example (work)", userName: "synthetic-user-2", account: "Probe" },
+      ],
+      paused: true,
+    }),
+  );
+  await render(<ChooserApp client={value} />);
+  await expect
+    .element(
+      page.getByText(
+        "Automatic login is paused on login.example.test, so Pateat logs in only with the passkey you choose.",
+      ),
+    )
+    .toBeVisible();
+  const box = page.getByRole("checkbox", {
+    name: "Use this account for login.example.test from now on",
+  });
+  await expect.element(box).not.toBeChecked();
+  await expect.element(page.getByText("Default")).not.toBeInTheDocument();
+  await page.getByRole("button", { name: /synthetic-user-1/u }).click();
+  expect(value.send).toHaveBeenLastCalledWith({
+    version: 1,
+    type: "passkey-chooser.answer",
+    request: REQUEST,
+    answer: { kind: "chosen", index: 0, makeDefault: false },
   });
 });
 

@@ -2102,11 +2102,11 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
 
   it("stops a recorded sample that the last check before sending refuses", async () => {
     const h = sampleSetup();
-    // The site was excluded while the page was described and the sample recorded.
-    const sending = vi.fn(async () => "site-excluded");
+    // The site was paused while the page was described and the sample recorded.
+    const sending = vi.fn(async () => "paused");
     expect(await h.generation.samplePage!(sample, h.describePage, sending)).toEqual({
       outcome: "not-sent",
-      reason: "site-excluded",
+      reason: "paused",
     });
     expect(h.order).toEqual(["record"]);
     expect(h.samplePage).not.toHaveBeenCalled();

@@ -581,7 +581,9 @@ export type GeneratedPageRejection =
   /** An account-list answer that failed {@link validateAccountList} (ADR 0028). */
   | AccountListRejection
   /** A request with slots was answered with a sign-in entry (ADR 0031). */
-  | "unexpected-entry";
+  | "unexpected-entry"
+  /** A logout answer's control logs out elsewhere or ends the account (ADR 0063). */
+  | "unsafe-control";
 
 /**
  * A generated page plan reduced to what the request log may keep of it once the checks
@@ -866,7 +868,7 @@ export type AccountListRejection =
  * more digits; a control holding one may be an account, which is never clicked as `other`
  * or `continue`.
  */
-const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
+export const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
 
 /**
  * Validates an account-list answer (ADR 0028): the page must list accounts, and each named

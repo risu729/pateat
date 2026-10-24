@@ -58,7 +58,7 @@ export type ProblemFieldKind = keyof typeof PROBLEM_FIELD_KINDS;
  */
 export const LOCAL_ONLY_EVENTS = ["passkey.request", "passkey.create"] as const;
 /**
- * The flag each line of a fill-only login after a logout (ADR 0021 D) carries, which keeps
+ * The flag each line of a fill-only login of a tab that asks (ADR 0062 B) carries, which keeps
  * the line on the device (ADR 0066). No event of {@link PROBLEM_EVENT_FIELDS} carries it,
  * so the service refuses such a line too.
  */
@@ -236,21 +236,36 @@ export const PROBLEM_EVENT_FIELDS = {
     listContinue: "code",
     url: "path",
   },
-  "login.logout": {
+  "login.switch": {
     origin: "origin",
+    stage: "code",
+    outcome: "code",
+    reason: "code",
+    detail: "code",
+    purpose: "code",
+    source: "code",
+    learned: "flag",
+    clicks: "count",
     recipe: "recipe",
     recipeRevision: "count",
-    rejected: "flag",
-    clicked: "flag",
+    makeDefault: "flag",
     url: "path",
   },
   "login.ask-ended": { origin: "origin", ask: "code", cause: "code", elsewhere: "flag" },
   "login.choice": { origin: "origin", outcome: "code", url: "path" },
+  "login.pause": {
+    origin: "origin",
+    action: "code",
+    length: "code",
+    incognito: "flag",
+    url: "path",
+  },
   "login.popup": {
     origin: "origin",
     choice: "code",
     candidates: "count",
-    logout: "code",
+    ask: "code",
+    paused: "flag",
     held: "flag",
     rejectedElsewhere: "flag",
     recordState: "code",

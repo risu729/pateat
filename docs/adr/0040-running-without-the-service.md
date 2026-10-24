@@ -76,8 +76,9 @@ The service still runs its whole route: the recipe it already holds, the once-pe
 attempt record, the room for another recipe, the bindings carried over, revoked IDs,
 layout use and the checks of the model's answer. Only the model call moves to the
 device, so the model gets the same input either way. Recipe generation and entry
-requests (`POST /v1/recipes/generate`) and the judge
-(`POST /v1/recipes/:recipeId/completion`) take an optional
+requests (`POST /v1/recipes/generate`), an account switch's logout requests
+(`POST /v1/recipes/logout`, [ADR 0063](0063-switch-accounts-from-the-popup.md)) and the
+judge (`POST /v1/recipes/:recipeId/completion`) take an optional
 `deviceModel: { responses: [...] }`:
 
 1. The device sends the request with no responses.
@@ -116,11 +117,11 @@ The device uses the owner's model choices
 or fast mode makes that call fail; falling back to the defaults is left for later. The
 automatic stop of fast mode counts the device rows of all the owner's devices together,
 apart from the service's own rows, so one device whose key has no fast mode, or that is
-offline, can stop fast mode for the others for its window. Two devices that generate
-for the same page at the same time may both pay for a call; the second write is
-resolved as any write conflict is now. A service from before this change refuses
-`deviceModel` with 400, and the device's generation and judge requests then fail; they
-never fall back to the owner's credential.
+offline, can stop fast mode for the others for its window. Two devices that generate for
+the same page at the same time may both pay for a call; the second write is resolved as
+any write conflict is now. A service from before this change refuses `deviceModel` with
+400, and the device's generation, logout and judge requests then fail; they never fall
+back to the owner's credential.
 
 ### Log rows
 
@@ -170,7 +171,8 @@ paired, logins use only the service's recipes.
 
 ### Generation on an unpaired device
 
-Unpaired, the device runs the service's own generation and judge routes
+Unpaired, the device runs the service's own generation, account-switch logout
+([ADR 0063](0063-switch-accounts-from-the-popup.md)) and judge routes
 (`@pateat/generation`, `packages/generation`) against its own `GenerationBackend`
 (`apps/extension/src/service/device-generation.ts`); the service's is `d1Backend`. Both
 run the same checks, build the same model input and write the same recipes.

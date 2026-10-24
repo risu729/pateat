@@ -8,7 +8,11 @@ import {
 import * as v from "valibot";
 import { hasProfile } from "./profile-store";
 
-/** Profile parts are explicit so shared bindings cannot accidentally become policy. */
+/**
+ * Profile parts are explicit so shared bindings cannot accidentally become policy. Automatic
+ * login in private windows (ADR 0062) says how the profile's browsers log in, as its site
+ * rules do, so it is a profile part too; absent while off.
+ */
 export const profileDocument = (document: LocalSettings) => ({
   accountPolicies: document.accountPolicies,
   itemPolicies: document.itemPolicies,
@@ -17,6 +21,7 @@ export const profileDocument = (document: LocalSettings) => ({
   repromptSites: document.repromptSites,
   passkeyBrowserSites: document.passkeyBrowserSites,
   siteDefaults: document.siteDefaults,
+  ...(document.loginInPrivateWindows ? { loginInPrivateWindows: true as const } : {}),
   // Kept only while it hides the popup's page status; absent means shown.
   ...(document.popupPageSection === false && { popupPageSection: false }),
 });

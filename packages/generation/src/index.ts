@@ -4,5 +4,6 @@
 export * from "./backend";
 export * from "./choices";
 export * from "./generate";
+export * from "./logout";
 export * from "./repair";
 export * from "./units";

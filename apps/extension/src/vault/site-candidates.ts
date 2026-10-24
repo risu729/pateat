@@ -2,7 +2,7 @@ import { maxTargetUrlLength } from "@pateat/bitwarden";
 import {
   connectionUse,
   getItemEligibility,
-  isSiteExcluded,
+  isSupportedSite,
   parseSiteUrl,
   type LocalSettings,
   type VaultCatalog,
@@ -37,7 +37,7 @@ export type LiveSiteCandidates =
       /** Connections whose live snapshot could not answer; never treated as "no match". */
       unavailableConnections: { connectionId: string; reason: string }[];
     }
-  | { ok: false; reason: "invalid-url" | "url-too-long" | "site-excluded" };
+  | { ok: false; reason: "invalid-url" | "url-too-long" };
 
 /** Provider URI matches for one page, narrowed by local settings before anything else.
  * Matches are candidate scope only: they never become `allowedOrigins`, site defaults,
@@ -57,8 +57,9 @@ export async function findLiveSiteCandidates(input: {
   if (url.length > maxTargetUrlLength) return { ok: false, reason: "url-too-long" };
   const parsed = parseSiteUrl(url);
   if (!parsed) return { ok: false, reason: "invalid-url" };
-  // Excluded sites never reach vault matching.
-  if (isSiteExcluded(settings, url)) return { ok: false, reason: "site-excluded" };
+  // A hostname Pateat does not run on never reaches vault matching. An exclusion rule
+  // only pauses automatic login, so its pages still list their matches (ADR 0062).
+  if (!isSupportedSite(url)) return { ok: false, reason: "invalid-url" };
   const candidates: LiveSiteCandidate[] = [];
   const incompleteItems: IncompleteSiteItem[] = [];
   const unavailableConnections: { connectionId: string; reason: string }[] = [];

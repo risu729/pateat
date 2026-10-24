@@ -45,8 +45,8 @@ read it, and removing the extension deletes it.
   site asked for; the vault timeout, which stays on this device; and the pairing
   credential for the service.
 - **Login progress**: for each tab and site, how far a login went, which account you
-  picked, and whether you logged out or signed in with a passkey, kept so that a login
-  is not repeated or resumed by mistake.
+  picked, the sites you paused for 10 minutes or an hour, and when Pateat last logged in
+  to each site, kept so that a login is not repeated or resumed by mistake.
 - **Export files**, only when you export: Pateat saves the file where Chrome saves
   downloads. It holds what your Pateat service would keep of the settings, with the
   names of vault accounts and items, and the recipes, never vault keys or values, the
@@ -136,6 +136,13 @@ only by the person who runs it. The extension sends the service:
   service can judge whether the login worked. Once a site's recipe works, each device
   still sends its signed-in page at most once every 30 days, to check later that the
   recipe keeps signing in.
+- **Account switch pages**: when you switch accounts from the toolbar popup and the site
+  has no stored way to log out yet, the signed-in page is described with its title and
+  the labels and `id`, `name` and `data-testid` attributes of its buttons and links in
+  its header, navigation, account menu and any open dialog or menu, and elsewhere only
+  those whose name says it logs out, with every number removed and the same hiding as
+  above. No heading or other text of the page is sent. The service finds the control
+  that logs out, and keeps the clicks as the site's logout recipe.
 - **Recipe use**: when a login on a recipe starts, including one that only fills, the
   recipe, its revision and the layout used, so that the service knows the recipe is
   still in use.

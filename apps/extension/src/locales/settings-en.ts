@@ -91,7 +91,6 @@ export const settingsEn = {
   "Enter an origin such as https://bank.example, without a path or trailing slash.":
     "Enter an origin such as https://bank.example, without a path or trailing slash.",
   "The destination is invalid.": "The destination is invalid.",
-  "This site is excluded.": "This site is excluded.",
   "No default account is set.": "No default account is set.",
   "This account does not match the exact origin.": "This account does not match the exact origin.",
   "The vault connection is unavailable.": "The vault connection is unavailable.",
@@ -139,15 +138,7 @@ export const settingsEn = {
   " (not available here)": " (not available here)",
   " (unavailable)": " (unavailable)",
   "No default": "No default",
-  "Exclude {{origin}}, all schemes and ports": "Exclude {{origin}}, all schemes and ports",
-  Exclude: "Exclude",
-  Excluded: "Excluded",
-  "The default for {{origin}} is kept but not used while the site is excluded.":
-    "The default for {{origin}} is kept but not used while the site is excluded.",
   "Remove default for {{origin}}": "Remove default for {{origin}}",
-  "Allow {{name}}": "Allow {{name}}",
-  Allow: "Allow",
-  "No excluded sites or default accounts": "No excluded sites or default accounts",
   Origin: "Origin",
   "Also list items that do not match": "Also list items that do not match",
   "Save default": "Save default",
@@ -157,12 +148,30 @@ export const settingsEn = {
   "Include subdomains": "Include subdomains",
   "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.":
     "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.",
-  "Exclude site": "Exclude site",
-  "Excluding a site covers every scheme and port.":
-    "Excluding a site covers every scheme and port.",
   "A default account takes effect at the next login.":
     "A default account takes effect at the next login.",
   "{{item}} ({{method}})": "{{item}} ({{method}})",
+  "Pause automatic login on {{site}} and its subdomains, which includes {{origin}}":
+    "Pause automatic login on {{site}} and its subdomains, which includes {{origin}}",
+  Pause: "Pause",
+  Paused: "Paused",
+  "The default for {{origin}} is kept; while the site is paused it is only listed first in the popup.":
+    "The default for {{origin}} is kept; while the site is paused it is only listed first in the popup.",
+  "Resume {{name}}": "Resume {{name}}",
+  "No paused sites or default accounts": "No paused sites or default accounts",
+  "Pause site": "Pause site",
+  "A paused site stays paused on every scheme and port, on all your devices, until it is resumed.":
+    "A paused site stays paused on every scheme and port, on all your devices, until it is resumed.",
+  "On a paused site Pateat logs in only with an account picked in the toolbar popup.":
+    "On a paused site Pateat logs in only with an account picked in the toolbar popup.",
+  "Private windows": "Private windows",
+  "Log in automatically in private windows": "Log in automatically in private windows",
+  "Pateat logs in by itself in private windows as in other windows.":
+    "Pateat logs in by itself in private windows as in other windows.",
+  "Off: every site in a private window is paused, so Pateat logs in there only with an account picked in the toolbar popup.":
+    "Off: every site in a private window is paused, so Pateat logs in there only with an account picked in the toolbar popup.",
+  "Applies on all your devices; other windows are not affected.":
+    "Applies on all your devices; other windows are not affected.",
   "Sites whose passkey requests go to the browser":
     "Sites whose passkey requests go to the browser",
   'Added with "Always for this site" in Pateat\'s passkey window. Pateat answers no passkey request on these sites and logs in there only with a password. Remove a site to let Pateat answer again.':

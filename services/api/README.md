@@ -195,22 +195,24 @@ check is logged and the request goes on.
 `recipe_unit_sources` records which call made each unit of an active recipe
 ([ADR 0060](../../docs/adr/0060-recipe-layouts.md#generation-provenance)): service-only,
 never synced and never in the document. A unit is named within its layout (`layout`,
-null for an entry recipe) by `page:<n>` (the page whose steps start at index `n`),
-`handler:<i>` and `marker:<i>` (by index, as the judge only appends them), `list` (a
-chooser layout's buttons), `account/…` or `other/…` (a chooser branch's units) or
-`entry`; `packages/generation/src/units.ts` defines them and each unit's content. A row
-holds the unit's `digest` (32 hex digits of the SHA-256 of that content as canonical
-JSON), the recipe `revision` whose write recorded it, its `origin` (`generated`,
-`judged` or `device`), the model that answered (`provider`, `model`, `effort`, `speed`,
-from the call's `served` model), the prompt version, the build, the writer device the
-revision records, the request log row's ID (not a foreign key) and `created_at`, the
-time of the winning write. `writeRecipe` writes the rows in the batch of the write that
-adds the units, only when it wins: a generated first page or continuation page, each
-handler a judgement adds (several under one log ID) and the marker it learns, a
-chooser's list and branch pages, and an entry recipe. A device's active `PUT` splits
-each route at the recorded pages, keeps the rows of units whose digest is unchanged, and
-writes `device` rows for units it changed or added. The same batch deletes the rows of
-units and layouts the document dropped, and every row of a revoked recipe.
+null for an entry or logout recipe) by `page:<n>` (the page whose steps start at index
+`n`), `handler:<i>` and `marker:<i>` (by index, as the judge only appends them), `list`
+(a chooser layout's buttons), `account/…` or `other/…` (a chooser branch's units),
+`entry` or `logout` (a logout recipe's clicks,
+[ADR 0063](../../docs/adr/0063-switch-accounts-from-the-popup.md));
+`packages/generation/src/units.ts` defines them and each unit's content. A row holds the
+unit's `digest` (32 hex digits of the SHA-256 of that content as canonical JSON), the
+recipe `revision` whose write recorded it, its `origin` (`generated`, `judged` or
+`device`), the model that answered (`provider`, `model`, `effort`, `speed`, from the
+call's `served` model), the prompt version, the build, the writer device the revision
+records, the request log row's ID (not a foreign key) and `created_at`, the time of the
+winning write. `writeRecipe` writes the rows in the batch of the write that adds the
+units, only when it wins: a generated first page or continuation page, each handler a
+judgement adds (several under one log ID) and the marker it learns, a chooser's list and
+branch pages, and an entry recipe. A device's active `PUT` splits each route at the
+recorded pages, keeps the rows of units whose digest is unchanged, and writes `device`
+rows for units it changed or added. The same batch deletes the rows of units and layouts
+the document dropped, and every row of a revoked recipe.
 
 ## Claude credentials
 
@@ -253,7 +255,8 @@ values and the saved identifiers.
 ## Recipe generation
 
 [ADR 0018](../../docs/adr/0018-recipe-generation-route.md) routes, in
-`packages/generation/src/generate.ts` (`@pateat/generation`), which runs against D1
+`packages/generation/src/generate.ts` (`@pateat/generation`, with an account switch's
+logout route in `logout.ts`), which runs against D1
 through `src/recipes/backend.ts` and, for a device that holds its own key, will run
 against that device's storage
 ([ADR 0040](../../docs/adr/0040-running-without-the-service.md)). Both answer 200 with a

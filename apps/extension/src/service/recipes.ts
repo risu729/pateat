@@ -18,6 +18,7 @@ import {
   type LoginChooserDocument,
   type LoginChooserRecipe,
   type LoginEntryRecipe,
+  type LoginLogoutRecipe,
   type LoginStep,
   type LoginTarget,
   type StoredLoginRecipe,
@@ -825,6 +826,15 @@ export function createRecipeSync(options: {
       if (!cache) return [];
       return cache.recipes.filter(
         (recipe): recipe is LoginEntryRecipe => "entry" in recipe && recipe.origin === origin,
+      );
+    },
+    async logouts(origin: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return [];
+      const cache = await load(connection);
+      if (!cache) return [];
+      return cache.recipes.filter(
+        (recipe): recipe is LoginLogoutRecipe => "logout" in recipe && recipe.origin === origin,
       );
     },
   };

@@ -7,7 +7,7 @@ import {
 import type { PasskeySource } from "./runtime";
 import type { PasskeyCandidate } from "./select";
 import { createSignIns, type SignInRecord, type SignIns } from "./sign-ins";
-import type { SessionItem } from "./signed-tabs";
+import type { SessionItem } from "./sign-ins";
 
 const extensionId = "synthetic-extension";
 const origin = "https://login.example.com";

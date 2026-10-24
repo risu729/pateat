@@ -672,9 +672,11 @@ export function withoutUnusedLayouts(
 /**
  * Revokes the owner's active recipes unused for `RECIPE_IDLE_LIMIT_MS` (ADR 0058), at most
  * `MAX_IDLE_REVOCATIONS` per call and oldest first, as ordinary tombstone writes by the
- * service. Entry recipes (ADR 0031) stay: pressing an entry reports nothing to the service.
- * So do login recipes with a layout generated as `confirm` or `unclear` (ADR 0035, ADR
- * 0060), which never runs, so never reports use. A recipe used after this read keeps its head. Returns how many were
+ * service. Entry recipes (ADR 0031) and logout recipes (ADR 0063) stay: pressing an entry or
+ * signing out for an account switch reports nothing to the service. So do login recipes
+ * with a layout generated as `confirm` or `unclear` (ADR 0035, ADR 0060), which never
+ * runs, so never reports use. A recipe used after this read keeps its head. Returns how
+ * many were
  * revoked.
  */
 export async function revokeUnusedRecipes(
@@ -689,6 +691,7 @@ export async function revokeUnusedRecipes(
     eq(recipeHeads.state, "active"),
     lt(recipeHeads.lastUsedAt, unusedBefore),
     sql`json_extract(${recipeRevisions.document}, '$.entry') IS NULL`,
+    sql`json_extract(${recipeRevisions.document}, '$.logout') IS NULL`,
     // Every layout of a login recipe was generated as `sign-in` (ADR 0060).
     sql`NOT EXISTS (SELECT 1 FROM ${layoutRows("$.layouts")}
       WHERE json_extract(layout_row.value, '$.pageKind') <> 'sign-in')`,

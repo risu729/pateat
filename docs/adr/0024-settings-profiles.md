@@ -8,6 +8,11 @@ themselves are later work. Amended on 2026-10-12 by
 `sitePagePermissions` are profile parts. Amended on 2026-10-23: profiles are built for
 the parts that exist; see the amendment at the end.
 
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (owner,
+implemented): `loginInPrivateWindows` is a profile part, synced with `excludedSites`;
+and an `excludedSites` rule now pauses automatic login on its hosts until it is removed,
+instead of turning Pateat off there, so a popup pick still logs in.
+
 Date: 2026-10-11
 
 ## Context

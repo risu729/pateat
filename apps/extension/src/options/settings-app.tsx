@@ -12,6 +12,7 @@ import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bug,
+  EyeOff,
   FileDown,
   Globe,
   Info,
@@ -29,6 +30,8 @@ import { Logo } from "../logo";
 import { Button } from "./button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { VaultAccess, VaultRows } from "./connections";
+import { PRIVATE_WINDOWS_SECTION } from "../popup/pause";
+import { PrivateWindows } from "./private-windows";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
 import { DeviceModelPanel, type DeviceModelClient } from "./device-model";
@@ -375,6 +378,7 @@ export function SettingsApp({
     form.setFieldValue("passkeyBrowserSites", next.passkeyBrowserSites);
     form.setFieldValue("repromptSites", next.repromptSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
+    form.setFieldValue("loginInPrivateWindows", next.loginInPrivateWindows);
     form.setFieldValue("popupPageSection", next.popupPageSection);
     edits.current += 1;
     setDirty(true);
@@ -516,6 +520,7 @@ export function SettingsApp({
       ? [{ id: "vault-timeout", label: t("Vault timeout"), icon: Timer }]
       : []),
     { id: "sites", label: t("Sites"), icon: Globe },
+    { id: PRIVATE_WINDOWS_SECTION, label: t("Private windows"), icon: EyeOff },
     ...(serviceClient ? [{ id: "sync", label: t("Sync service"), icon: Link }] : []),
     ...(deviceModelClient ? [{ id: "ai-key", label: t("AI key"), icon: KeyRound }] : []),
     ...(transferClient ? [{ id: "transfer", label: t("Export and import"), icon: FileDown }] : []),
@@ -684,6 +689,7 @@ export function SettingsApp({
                 <ul id="site-list" className="hidden" />
               </Panel>
             )}
+            {accepted && <PrivateWindows draft={draft} edit={edit} />}
           </fieldset>
           {serviceClient && <ServiceConnection client={serviceClient} settingsClient={client} />}
           {deviceModelClient && <DeviceModelPanel client={deviceModelClient} />}

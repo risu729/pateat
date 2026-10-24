@@ -93,7 +93,6 @@ export const settingsJa = {
   "Enter an origin such as https://bank.example, without a path or trailing slash.":
     "https://bank.example のようなオリジンを、パスや末尾のスラッシュを含めずに入力してください。",
   "The destination is invalid.": "アクセス先が無効です。",
-  "This site is excluded.": "このサイトは除外されています。",
   "No default account is set.": "既定のアカウントは設定されていません。",
   "This account does not match the exact origin.": "このアカウントは正確なオリジンと一致しません。",
   "The vault connection is unavailable.": "保管庫の接続を利用できません。",
@@ -143,15 +142,7 @@ export const settingsJa = {
   " (not available here)": "（ここでは利用できません）",
   " (unavailable)": "（利用できません）",
   "No default": "既定なし",
-  "Exclude {{origin}}, all schemes and ports": "{{origin}} をすべてのスキームとポートで除外",
-  Exclude: "除外",
-  Excluded: "除外中",
-  "The default for {{origin}} is kept but not used while the site is excluded.":
-    "{{origin}} の既定のアカウントは保持されますが、サイトが除外されている間は使用されません。",
   "Remove default for {{origin}}": "{{origin}} の既定のアカウントを解除",
-  "Allow {{name}}": "{{name}} の除外を解除",
-  Allow: "除外を解除",
-  "No excluded sites or default accounts": "除外サイトも既定のアカウントもありません",
   Origin: "オリジン",
   "Also list items that do not match": "一致しないアイテムも表示する",
   "Save default": "既定のアカウントを保存",
@@ -161,12 +152,30 @@ export const settingsJa = {
   "Include subdomains": "サブドメインを含める",
   "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.":
     "マスターパスワードを求めるサイトでは、Bitwarden で「マスターパスワードの再入力」が有効なアイテムは、Pateat のウィンドウでマスターパスワードを入力してから使われます。ほかのサイトではほかのアイテムと同じように使われます。",
-  "Exclude site": "サイトを除外",
-  "Excluding a site covers every scheme and port.":
-    "サイトの除外は、すべてのスキームとポートに適用されます。",
   "A default account takes effect at the next login.":
     "既定のアカウントは次回のログインから有効になります。",
   "{{item}} ({{method}})": "{{item}}（{{method}}）",
+  "Pause automatic login on {{site}} and its subdomains, which includes {{origin}}":
+    "{{site}} とそのサブドメインの自動ログインを一時停止（{{origin}} を含む）",
+  Pause: "一時停止",
+  Paused: "一時停止中",
+  "The default for {{origin}} is kept; while the site is paused it is only listed first in the popup.":
+    "{{origin}} の既定は保持されます。一時停止中はポップアップで先頭に表示されるだけです。",
+  "Resume {{name}}": "{{name}} を再開",
+  "No paused sites or default accounts": "一時停止中のサイトも既定のアカウントもありません",
+  "Pause site": "サイトを一時停止",
+  "A paused site stays paused on every scheme and port, on all your devices, until it is resumed.":
+    "一時停止したサイトは、再開するまで、すべてのスキームとポート、すべてのデバイスで一時停止したままです。",
+  "On a paused site Pateat logs in only with an account picked in the toolbar popup.":
+    "一時停止中のサイトでは、Pateat はツールバーのポップアップで選んだアカウントでのみログインします。",
+  "Private windows": "プライベートウィンドウ",
+  "Log in automatically in private windows": "プライベートウィンドウでも自動でログインする",
+  "Pateat logs in by itself in private windows as in other windows.":
+    "Pateat はプライベートウィンドウでもほかのウィンドウと同じように自動でログインします。",
+  "Off: every site in a private window is paused, so Pateat logs in there only with an account picked in the toolbar popup.":
+    "オフ：プライベートウィンドウではすべてのサイトが一時停止となり、Pateat はツールバーのポップアップで選んだアカウントでのみログインします。",
+  "Applies on all your devices; other windows are not affected.":
+    "すべてのデバイスに適用されます。ほかのウィンドウには影響しません。",
   "Sites whose passkey requests go to the browser":
     "パスキーのリクエストをブラウザーに任せるサイト",
   'Added with "Always for this site" in Pateat\'s passkey window. Pateat answers no passkey request on these sites and logs in there only with a password. Remove a site to let Pateat answer again.':

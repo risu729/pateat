@@ -98,7 +98,7 @@ first written on 2026-10-12 (20:50 UTC); each row gives the date of its latest c
 | A list of saved accounts ([ADR 0028](adr/0028-account-chooser-login-pages.md)) | Cloudflare, Wise | Done. Cloudflare: on `cdfa420` (2026-10-12 20:59 UTC) Pateat pressed the default account's row, then the password and the passkey second factor, and the record ended `authenticated`. Wise: on `fdf57ef` (2026-10-13 02:25 UTC) a login from the list ended `authenticated` |
 | A sign-in entry button ([ADR 0031](adr/0031-sign-in-entry-pages.md)) | pixiv | Done |
 | A stored passkey | npm, pixiv | Done |
-| The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Signed in with the passkey on `1df2d38`; no Bitwarden "Save passkey" window followed on `fdf57ef` (below); recheck the choice after a logout |
+| The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Signed in with the passkey on `1df2d38`; no Bitwarden "Save passkey" window followed on `fdf57ef` (below); the choice after a logout was removed on 2026-10-23 by [ADR 0062](adr/0062-log-in-again-after-a-logout.md) |
 | A TOTP code from an authenticator app, the source said outside the code form or not at all | Resend | Done: on `2675f0f` with the service at `4ece681` (2026-10-13 05:06 UTC), Pateat went from `/login` through the email, Next and password, the judge answered `challenge`, Pateat typed the item's TOTP and submitted it, and the record ended `authenticated`; nobody typed the code. On `fdf57ef` the code had been dropped as `source-unknown`; a code page that says nothing about where the code comes from now keeps the code and types the item's TOTP once (ADR 0027, owner, 2026-10-13 04:01 UTC) |
 | A TOTP code split into one-digit inputs | ニコニコ | Candidate from its public code (six `maxlength` 1 inputs, [research](research/2026-10-12-split-totp-inputs.md)). In the owner's Chrome on 2026-10-13 at 04:56 UTC the code was typed and submitted, but the signed-in `www.nicovideo.jp/` was judged `unclear` and the login ended `left-origin`: its only signed-in link, to `/my`, shows the nickname. A marker may now name a link by its path (owner's 「リンク先で見分ける」, 05:17 UTC) ([ADR 0029](adr/0029-local-sign-in-state.md)). Done in two runs: on `2675f0f` (04:56 UTC) Pateat typed the item's TOTP into the six inputs, and on `7226178` (07:38 UTC) the moved-to `www.nicovideo.jp` page was judged `signed-in` and the record ended `authenticated`, with no code page that time. Both in one run is not yet seen. Resend has one input (real-Chrome check, 2026-10-12) |
 | Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
@@ -109,7 +109,7 @@ first written on 2026-10-12 (20:50 UTC); each row gives the date of its latest c
 | A signed-in page on another site after a passkey second factor | Oracle Cloud (security key after the password on an `oraclecloud.com` sign-in host, then `cloud.oracle.com`) | Ended `left-origin` on 2026-10-13 02:59 UTC, 3 seconds after Pateat answered the security key. A move to another site within 30 seconds of a passkey Pateat answered after the item's password now completes on the same checks (owner's 「同じ扱い」, 2026-10-13 03:13 UTC). Done: on `4deb95d` in the owner's Chrome (2026-10-13 08:58 UTC) the sign-in page that went away before it was read kept the login ([#484](https://github.com/risu729/pateat/pull/484)), the IDCS login answered the security key, `cloud.oracle.com` was judged `signed-in`, marked `moved`, and the account choice was saved ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
 | Google's own sign-in (email first, account choice) | Google | Done: on `8b60ff2` (2026-10-13 07:24 UTC), from `accounts.google.com/AddSession` without signing out, Pateat answered with the item's passkey, returned to `myaccount.google.com`, and the record ended `authenticated`; nobody pressed anything |
 | Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site, and that a pick of an item with a passkey signs in with it ([ADR 0034](adr/0034-answer-page-passkey-requests.md), local tests only) |
-| Fill only after a logout | アパホテル | Done |
+| Fill only after a logout | アパホテル | Done; replaced on 2026-10-23 by [ADR 0062](adr/0062-log-in-again-after-a-logout.md), which logs in again after a logout; the asks after a rejection or a stopped login still fill once |
 | Nothing on a site without a password or passkey sign-in | ABEMA | Done (judged from the code and the Grok Bot's log) |
 | Pages that stopped before generation | モッピー, LinkedIn | Done. モッピー: generated and `authenticated` on `fdf57ef` (2026-10-13 02:53 UTC, row above). LinkedIn: on `c3dc87a` (2026-10-13 06:30 UTC) a new tab on the remembered-account password page generated a recipe, filled and submitted it, the judge answered `signed-in` and the record ended `authenticated` ([ADR 0037](adr/0037-fields-by-visible-name.md)) |
 
@@ -426,7 +426,10 @@ than in this repository.
     makes the pick the default once that login succeeds, a saved default can still be
     removed, and one that is not among the choice's accounts is named. The "Pateat on
     this site" switch is a row of its own under the hostname, with its label on the left
-    and the switch on the right, and the sections use one spacing scale.
+    and the switch on the right, and the sections use one spacing scale. Since
+    2026-10-23 ([ADR 0062](adr/0062-log-in-again-after-a-logout.md)) the switch is
+    replaced by the pause row, and the Sites list and `/manage` name exclusion rules
+    Paused, with Pause and Resume.
   - Done: the passkey chooser window is restyled with the same behavior: "Log in to"
     the site, each passkey as a choice led by its user name, the site default marked
     **Default**, a one-line note after a Pateat passkey answer in the tab, and the save
@@ -488,10 +491,23 @@ than in this repository.
   local evaluation fields of `confirm-unsupported` pages and the counts of pages not
   sent following the same day. Covered by unit, Browser Mode, Worker and fake-model
   tests only; no real site or paid generation checked it.
+- Logging in again after a logout with a repeat guard, the asks that fill once, the
+  pause (10 minutes, 1 hour, or until turned back on, which is the site exclusion),
+  automatic login in private windows (off by default) and account switching, accepted by
+  the owner on 2026-10-23 (11:54 to 12:14 UTC) and built in
+  [PR #866](https://github.com/risu729/pateat/pull/866)
+  ([ADR 0062](adr/0062-log-in-again-after-a-logout.md),
+  [ADR 0063](adr/0063-switch-accounts-from-the-popup.md)). Covered by unit and runtime
+  tests only. Next, in the owner's Chrome: MyJCB
+  ([#833](https://github.com/risu729/pateat/issues/833)) logs in with its passkey after
+  a logout, a pause keeps a site logged out and a pick still logs in there, a private
+  window logs in only by a pick until the setting is on, and a switch on a site with two
+  items logs out (by the control's words or the model) and in with the other one.
 - Done: the toolbar badge counts the matching items on every HTTP(S) site (on an `http:`
   page only items saved with an `http://` URI;
   [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
-  gray when every match is excluded, amber while a login waits for a choice (owner,
+  gray when every match is excluded, gray `II` on a paused site ({A}), amber
+  while a login waits for a choice (owner,
   2026-10-13 14:42 UTC;
   [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)). Covered by
   unit tests and a synthetic Playwright test. Next: see it once in installed Chrome on a
@@ -556,7 +572,7 @@ than in this repository.
   - The passkey chooser staying open across a settings sync
     ([#232](https://github.com/risu729/pateat/pull/232)); see
     [passkey progress](#passkey-progress).
-  - Changing a site's exclusion or default in the toolbar popup.
+  - Pausing a site or changing its default in the toolbar popup.
   - A vault item edit picked up by the automatic sync
     ([#222](https://github.com/risu729/pateat/pull/222),
     [#224](https://github.com/risu729/pateat/pull/224)).
@@ -747,7 +763,9 @@ than in this repository.
   only). Before, only the popup hid it
   ([#683](https://github.com/risu729/pateat/pull/683)) and the badge kept asking until
   the page reloaded. Check in the owner's Chrome that excluding a site whose page shows
-  the choice badge clears the badge.
+  the choice badge clears the badge. Since 2026-10-23 an exclusion rule pauses instead
+  ([ADR 0062](adr/0062-log-in-again-after-a-logout.md)): the choice stays, offered as a
+  paused page's, and ends once the rule is removed.
 - Claude also watches the service's D1 records, such as the inference request log
   ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
   the device (owner, 2026-10-11 18:45 UTC). The owner later allowed reading logs and the
@@ -1244,7 +1262,8 @@ items the owner mentioned and gates still open on 2026-10-11.
   2026-10-12 19:18 UTC): a general page looks the same for both accounts, and a switch
   gives up the current account's plan and purchases, which may belong to another
   person. The account switch the person starts from the popup, kept for later in
-  [ADR 0021](adr/0021-account-choice-outside-settings.md#later), switches such an
+  [ADR 0021](adr/0021-account-choice-outside-settings.md#later) and built on 2026-10-23
+  ([ADR 0063](adr/0063-switch-accounts-from-the-popup.md)), switches such an
   account too, even where Pateat has not logged in (owner, 19:19 UTC). A sign-in form
   that a click opens on the same path stays unsent
   ([ADR 0031](adr/0031-sign-in-entry-pages.md#not-covered)); it is proposed on its own,
@@ -3386,63 +3405,51 @@ appearance asks again. "Make it the default for this site" (on by default, off i
 private window) saves the pick through the existing choice save after `authenticated`;
 it replaces another saved default only when the user picked it. The passkey chooser
 window is implemented: a request matching several passkeys, none of them the site
-default, opens `passkey-picker.html` to choose one once or as the default. After Pateat
-signed for an RP ID in a tab, a username-less request for it there opens the window even
-for one match or a default (part D, passkeys).
+default, opens `passkey-picker.html` to choose one once or as the default. Until
+2026-10-23, after Pateat signed for an RP ID in a tab, a username-less request for it
+there opened the window even for one match or a default (part D, passkeys); now it opens
+so only where the site default counts as unset: on a paused site or one that asks every
+time after a one-time pick ([ADR 0062](adr/0062-log-in-again-after-a-logout.md),
+[ADR 0063](adr/0063-switch-accounts-from-the-popup.md)).
 
-Choosing again after a logout (part D, passwords) is built. After a login in a tab ended
-as `authenticated`, or `blocked` with `credential-rejected`, `wrong-account`,
-`left-origin` or `interrupted`, a page of that origin in the tab's top frame answers
-`logged-in` with the first steps to watch, and the content script keeps watching, also
-in the document that logged in once its status reports the end; there a form that is
-still showing does not count until it shows again. When a first step then shows, the
-tab's record for that origin is released and the tab asks with reason `logged-out`: the
-badge and popup list the saved default first and every URI match, even a single one. The
-tab and origin are kept in `pateat.login-logouts.v1` in `chrome.storage.session`, so a
-reload or a restarted worker asks again until a pick logs in. Since 2026-10-12, when one
-account is to be used (the saved default or the only match), each such document is first
-filled once without pressing anything, and then asks; filled documents are kept in
-`pateat.login-logout-fills.v1` so a restarted worker does not fill them again. Another
-tab's record that still holds the site (running, or ended without success in a way that
-still holds, such as a refused password; 2026-10-12) blocks it with `origin-busy`, and
-the tab's tooltip says so; while that tab keeps its logout state, other tabs of the site
-that show a first step ask (and are filled) as well (2026-10-11). If the URI matches
-cannot be listed, the saved default alone is offered. A login whose result is still
-`reconciling` is resumed, not taken as a logout. Since 2026-10-12 a tab whose own login
-stopped after a submission asks the same way, in that tab only, once a later page shows
-the login form after the record's 5-minute hold on other tabs has ended
-(`pateat.login-stopped-asks.v1`). Since 2026-10-13 (owner, after Oracle Cloud and Sony
-Bank) a watched login (ADR 0027) whose first step shows again never signed in, so it is
-no logout: it ends `challenge-abandoned` or `watch-abandoned` and only its tab asks that
-way; since 2026-10-23 the site's other tabs sharing its cookies wait for the watch to
-end (local tests only). Since 2026-10-13 a tab asks at once, on any path, without
-filling that page again, when the site answers the password submission with its sign-in
-form again (its password input and no other sign, even when the result stays unknown) or
-the login ends `credential-rejected`; its record is released then, so other tabs of the
-site ask instead of being held, and the badge and popup say the site did not accept the
-login (`pateat.login-rejected-asks.v1`). Frame logins are not detected. Since 2026-10-18
-(owner, 01:40 UTC; [ADR 0049](adr/0049-start-at-a-later-step.md); local tests only, not
-yet on a real site) a later password step a login may start at counts as the first step
-does, so a site whose logout page shows only a password step is detected. By the owner's
-constraint (2026-10-12) a session that only expired never needs a manual press, so a
-logout of a session carried over from another tab's login or an earlier browser session
-is not detected by the form alone. Since 2026-10-16 (owner, after dash.cloudflare.com) a
-click on a control whose name or nearby text says log out makes the tab's next first
-step of that site within 10 minutes ask the same way (`pateat.login-logout-clicks.v1`,
-ADR 0021 D); otherwise Pateat logs in again there.
+Choosing again after a logout (part D, passwords) was built from 2026-10-11 to
+2026-10-18 and replaced on 2026-10-23 by
+[ADR 0062](adr/0062-log-in-again-after-a-logout.md)
+([PR #866](https://github.com/risu729/pateat/pull/866); local tests only): when a
+finished login's first step (or a later step a login may start at) shows again in its
+tab, the tab's record is released and an ordinary login starts, unless two automatic
+logins of the site ended `authenticated` in the last 10 minutes (`relogin-limit`,
+`pateat.login-relogins.v1`). The logout state, the fill after a logout and logout clicks
+are gone. What stays of part D asks for an account and, when one account is to be used,
+first fills each such document once on each path without pressing anything
+(`pateat.login-ask-fills.v1`): a tab whose own login stopped after a submission and
+whose login form shows again on a later page after the record's 5-minute hold on other
+tabs (2026-10-12, `pateat.login-stopped-asks.v1`); a watched login (ADR 0027) whose
+first step shows again, which never signed in and ends `challenge-abandoned` or
+`watch-abandoned`, asking in its tab only (2026-10-13, after Oracle Cloud and Sony
+Bank), while since 2026-10-23 the site's other tabs sharing its cookies wait for the
+watch to end; and a rejected login, when the site answers the password submission with
+its sign-in form again (its password input and no other sign, even when the result stays
+unknown) or the login ends `credential-rejected`: its tab asks at once on any path and
+is not filled again there, its record is released, and the site's other tabs ask too
+(2026-10-13, `pateat.login-rejected-asks.v1`). Another tab's record that still holds the
+site blocks the ask with `origin-busy`. If the URI matches cannot be listed, the saved
+default alone is offered. Frame logins are not detected. A pick not made the default
+makes its site ask every time, filling nothing, until the browser closes or a default is
+set ([ADR 0063](adr/0063-switch-accounts-from-the-popup.md)).
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
 API keys, SSO or device approval; signing in to sites through an identity provider
 (policy in ADR 0026); external email/SMS OTP and magic links; and separately authorized
-post-login actions, including transactions and approvals. UI extensions, automatic
-account switching (logging out and in again when another account is picked while logged
-in, recorded in ADR 0021), recipe sharing, additional service auth, E2EE settings
-sync, MCP and vaults other than Bitwarden are also deferred. They
-are extension points, not implicit permissions or initial acceptance requirements. A
-mode without the service and direct AI are planned for
-[phase 3](#phase-3-public-release); the [roadmap](#roadmap) says which of these deferred
-items become issues.
+post-login actions, including transactions and approvals. UI extensions, recipe sharing,
+additional service auth, E2EE settings sync, MCP and vaults other than Bitwarden are
+also deferred. They are extension points, not implicit permissions or initial acceptance
+requirements. Account switching from the popup (logging out and in again when another
+account is picked while logged in, recorded in ADR 0021) is no longer deferred: it is
+built since 2026-10-23 ([ADR 0063](adr/0063-switch-accounts-from-the-popup.md)). A mode
+without the service and direct AI are planned for [phase 3](#phase-3-public-release);
+the [roadmap](#roadmap) says which of these deferred items become issues.
 
 ## Ordered milestones
 
@@ -3596,11 +3603,11 @@ Future page UI must avoid extension iframes, preserve accessible keyboard/focus 
 and recheck policy locally. The service's HTTPS management UI and MCP must share the
 internal operation contracts. Before implementing MCP, verify that the target client can
 autonomously invoke allowed dummy operations after connection approval; MCP does not
-bypass client rules. One-time account choices and choosing again after logout (ADR 0021)
-need tests that cover several tabs on one origin; automatic logout/re-login also
-requires shared-session/race tests. Direct AI requires trusted extension key storage and
-provider compatibility tests. Alternative service auth and E2EE sync require their
-own interoperability/recovery evidence.
+bypass client rules. One-time account choices, the asks that remain and the login after
+a logout (ADR 0021, ADR 0062) need tests that cover several tabs on one origin; the
+account switch (ADR 0063) also requires shared-session/race tests. Direct AI requires
+trusted extension key storage and provider compatibility tests. Alternative service auth
+and E2EE sync require their own interoperability/recovery evidence.
 
 Extension releases on GitHub Releases, with their continuous delivery, are planned for
 [phase 3](#phase-3-public-release), with the Chrome Web Store if its policies allow;

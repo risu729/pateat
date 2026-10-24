@@ -7,6 +7,8 @@ import {
   loginOperationSchema,
   loginMarkerTargetSchema,
   loginTargetSchema,
+  logoutPurposeSchema,
+  logoutTargetSchema,
   type LoginStep,
   type LoginTarget,
 } from "@pateat/contracts";
@@ -182,6 +184,11 @@ export const START_TRY_WINDOW_MS = 2000;
 /** How long a started attempt waits for a fill or click step's elements (owner-approved). */
 export const LOGIN_STEP_WAIT_MS = 10000;
 /**
+ * How long an account switch waits for the page to react to a logout control it found by
+ * its words before the page goes to the model (ADR 0063, owner 2026-10-23).
+ */
+export const LOGOUT_REACTION_MS = 5000;
+/**
  * How long a page is left unjudged while a held click's button still shows (ADR 0027): a
  * handler's, such as "Use security key", or the `passkey` route's, such as "Sign in with a
  * passkey", during a WebAuthn exchange; the passkey chooser's limit.
@@ -318,15 +325,6 @@ export const submittedSchema = v.strictObject({
 export const personSubmittedSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.person-submitted"),
-  token: id,
-});
-/**
- * A control that logs out was clicked in this document by the person (ADR 0021 D, owner
- * 2026-10-16): nothing about the control or the page is sent.
- */
-export const logoutClickedSchema = v.strictObject({
-  version: v.literal(1),
-  type: v.literal("login.document.logout-clicked"),
   token: id,
 });
 /**
@@ -709,7 +707,7 @@ export const commandSchema = v.variant("type", [
     version: v.literal(1),
     type: v.literal("login.extract"),
     token: id,
-    page: v.picklist(["login", "signed-in", "accounts", "entry", "passkey"]),
+    page: v.picklist(["login", "signed-in", "accounts", "entry", "passkey", "logout"]),
     /**
      * For a list of accounts (ADR 0028): the shown texts that equal a matching item's
      * username that is not an email, hidden from the observation as `[account]`.
@@ -753,6 +751,41 @@ export const commandSchema = v.variant("type", [
     target: loginTargetSchema,
     href,
     url: href,
+  }),
+  /**
+   * Waits up to `timeoutMs` for a logout recipe's target (ADR 0063) to name a shown element
+   * and presses it when it names exactly one whose names say nothing more than `purpose`
+   * (`safeLogoutControl`), only while the page's URL is still the one the command found.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.logout.click"),
+    token: id,
+    target: loginTargetSchema,
+    /** What the click is for: a control whose name says more is never pressed (ADR 0063). */
+    purpose: logoutPurposeSchema,
+    timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(LOGIN_STEP_WAIT_MS)),
+    /**
+     * After the press, how long to watch the page for a reaction: the URL changing, a new
+     * open dialog or menu, or the control going away (ADR 0063, owner 2026-10-23).
+     */
+    watchMs: v.optional(
+      v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(LOGOUT_REACTION_MS)),
+    ),
+  }),
+  /**
+   * Finds the page's one control that says it logs out of this site, by its words, and
+   * answers its locator (ADR 0063); the page's text never leaves it otherwise.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.logout.local"),
+    token: id,
+    /**
+     * The hosts the worker found on the page's site among those `login.entry.hosts`
+     * listed: a logout link elsewhere is not this site's.
+     */
+    onSite: hostList,
   }),
   /**
    * Waits up to `timeoutMs` on the page after an entry press for a sign-in input or one of
@@ -950,6 +983,25 @@ export const entryPressResultSchema = v.strictObject({
   ok: v.boolean(),
   reason: v.optional(v.picklist(["page-changed", "target-changed", "cancelled"])),
 });
+/**
+ * The answer to `login.logout.click` (ADR 0063): whether the control was pressed, and why
+ * not: it named no shown element or several, its names say it logs out elsewhere or ends
+ * the account (`unsafe`), or the page changed or the command was cancelled first.
+ */
+export const logoutClickResultSchema = v.strictObject({
+  ok: v.boolean(),
+  reason: v.optional(v.picklist(["missing", "ambiguous", "unsafe", "page-changed", "cancelled"])),
+  /** With `watchMs`, how the page reacted within it: `none` when it did not. */
+  reacted: v.optional(v.picklist(["navigated", "dialog", "changed", "none"])),
+});
+/** The answer to `login.logout.local` (ADR 0063). */
+export const localLogoutResultSchema = v.variant("ok", [
+  v.strictObject({ ok: v.literal(true), target: logoutTargetSchema }),
+  v.strictObject({
+    ok: v.literal(false),
+    reason: v.picklist(["none", "ambiguous", "unlocated"]),
+  }),
+]);
 /**
  * The answer to `login.entry.check`, for the page after an entry press (ADR 0031). `signIn`
  * also holds for an input that asks for an account identifier alone (ADR 0016).

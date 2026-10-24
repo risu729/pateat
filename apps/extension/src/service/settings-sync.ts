@@ -53,6 +53,11 @@ export type SyncedSettings = {
   passkeyBrowserSites: PasskeyBrowserSite[];
   repromptSites: ExcludedSite[];
   siteDefaults: SiteDefault[];
+  /**
+   * Automatic login in private windows, absent while off (ADR 0062). Like the sites' rules
+   * it says how this profile's browsers log in, so it is synced (ADR 0024).
+   */
+  loginInPrivateWindows?: true;
   bindings: Binding[];
   detailLinks: DetailLink[];
   popupPageSection: boolean;
@@ -73,6 +78,7 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
     passkeyBrowserSites: settings.passkeyBrowserSites,
     repromptSites: settings.repromptSites,
     siteDefaults: settings.siteDefaults,
+    ...(settings.loginInPrivateWindows ? { loginInPrivateWindows: true } : {}),
     bindings: settings.bindings,
     detailLinks: settings.detailLinks ?? [],
     popupPageSection: popupPageSectionShown(settings),
@@ -225,6 +231,14 @@ const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.st
 export type SyncBase = { service: SyncedSettings; local: SyncedSettings };
 
 /**
+ * One value merged as an entry is: the service's copy wins when it changed since the
+ * base, else a local change, else the service's copy.
+ */
+function mergeValue<T>(base: { service: T; local: T }, local: T, service: T): T {
+  return same(service, base.service) && !same(local, base.local) ? local : service;
+}
+
+/**
  * Per entry, the service's copy wins when it changed since the base, because the service
  * is the source of truth (ADR 0013); otherwise a local change wins; otherwise the
  * service's copy stands, which also applies a merge not yet written locally. Removing
@@ -353,6 +367,13 @@ export function mergeSyncedSettings(
       service.siteDefaults,
       defaultKey,
     ),
+    ...(mergeValue(
+      part("loginInPrivateWindows"),
+      local.loginInPrivateWindows,
+      service.loginInPrivateWindows,
+    )
+      ? { loginInPrivateWindows: true }
+      : {}),
     bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
     detailLinks: mergeDetailLinks(part("detailLinks"), local.detailLinks, service.detailLinks),
     // One value, merged like one entry.
@@ -418,6 +439,7 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     same(sorted(left.passkeyBrowserSites, siteKey), sorted(right.passkeyBrowserSites, siteKey)) &&
     same(sorted(left.repromptSites, siteKey), sorted(right.repromptSites, siteKey)) &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
+    left.loginInPrivateWindows === right.loginInPrivateWindows &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey)) &&
     same(sorted(left.detailLinks, detailLinkKey), sorted(right.detailLinks, detailLinkKey)) &&
     left.popupPageSection === right.popupPageSection
@@ -426,11 +448,12 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
 
 /**
  * Local settings with the synced part replaced; the demo provider's policy stays. The
- * popup's choice is kept only while it hides the page's status, as in the documents.
+ * popup's choice is kept only while it hides the page's status, as in the documents, and
+ * a setting turned off is the absent field, so the local copy's field goes as well.
  */
 function applySynced(settings: LocalSettings, merged: SyncedSettings): LocalSettings {
   const { popupPageSection, ...lists } = merged;
-  const { popupPageSection: _replaced, ...rest } = settings;
+  const { popupPageSection: _replaced, loginInPrivateWindows: _off, ...rest } = settings;
   return {
     ...rest,
     ...lists,

@@ -149,14 +149,14 @@ export function callCostMicroUsd(body: string, response: DeviceModelResponse): n
 
 type DeviceModelRequests = Pick<
   ServiceTransport,
-  "generateRecipe" | "generateEntry" | "judgeCompletion"
+  "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion"
 >;
 const timed = ({ timing }: { timing?: ServiceTiming }) => (timing ? { timing } : {});
-/** Every answer of the three routes can say the service did not call the model. */
+/** Every answer of the four routes can say the service did not call the model. */
 type Unavailable = { version: 1; status: "unavailable"; reason: GenerationUnavailableReason };
 
 /**
- * The service's generation and judge requests, made with this device's key when one is
+ * The service's generation, logout (ADR 0063) and judge requests, made with this device's key when one is
  * saved (ADR 0040): each `model-call` answer is sent to Anthropic here and the request is
  * sent again with the responses so far, until the service answers otherwise. A spend stop
  * reached here answers as the service's own stops do. Without a key the requests go as
@@ -348,7 +348,7 @@ export function createDeviceModel(options: {
       send,
       charge,
     },
-    /** The three requests, made with this device's key when one is saved. */
+    /** The four requests, made with this device's key when one is saved. */
     wrap(transport: DeviceModelRequests): DeviceModelRequests {
       return {
         generateRecipe: (origin, credential, request) =>
@@ -365,6 +365,13 @@ export function createDeviceModel(options: {
               ...(deviceModel ? { deviceModel } : {}),
             }),
           ) as ReturnType<DeviceModelRequests["generateEntry"]>,
+        generateLogout: (origin, credential, request) =>
+          relay((deviceModel) =>
+            transport.generateLogout(origin, credential, {
+              ...request,
+              ...(deviceModel ? { deviceModel } : {}),
+            }),
+          ) as ReturnType<DeviceModelRequests["generateLogout"]>,
         judgeCompletion: (origin, credential, recipeId, request) =>
           relay((deviceModel) =>
             transport.judgeCompletion(origin, credential, recipeId, {

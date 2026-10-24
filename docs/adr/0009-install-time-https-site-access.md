@@ -25,6 +25,11 @@ scripts run on plain HTTP pages, and an `http:` page matches only items saved wi
 `http://` URI. Amended on 2026-10-19 by ADR 0050: the passkey bridge also runs on
 top-level `http://localhost` documents, as Bitwarden's does.
 
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (owner,
+implemented): an exclusion rule no longer stops admission; an excluded document is
+admitted and paused, so Pateat starts nothing there by itself while a popup pick still
+logs in. Only a hostname Pateat does not run on is refused (`unsupported-host`).
+
 Date: 2026-10-10
 
 ## Decision

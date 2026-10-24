@@ -6,6 +6,7 @@ import {
   deviceModelCallBody,
   deviceModelHeaderNames,
   entryGenerationRequestSchema,
+  logoutGenerationRequestSchema,
   recipeCompletionRequestSchema,
   recipeGenerationRequestSchema,
   syncRecipeIdSchema,
@@ -20,6 +21,7 @@ import {
   choiceAttempts,
   generateEntry,
   generateRecipe,
+  generateLogout,
   judgeCompletion,
   nextAttempt,
   pageJudgementVerdicts,
@@ -447,7 +449,10 @@ export function createDeviceGenerationBackend(options: {
   };
 }
 
-type Requests = Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "judgeCompletion">;
+type Requests = Pick<
+  ServiceTransport,
+  "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion"
+>;
 
 /**
  * The generation routes' answers for this device's own requests, as the transport gives
@@ -476,6 +481,11 @@ export function createDeviceGeneration(backend: GenerationBackend): Requests {
       run(async () => {
         const parsed = v.safeParse(entryGenerationRequestSchema, request);
         return parsed.success ? generateEntry(backend, parsed.output) : undefined;
+      }),
+    generateLogout: (_origin, _credential, request) =>
+      run(async () => {
+        const parsed = v.safeParse(logoutGenerationRequestSchema, request);
+        return parsed.success ? generateLogout(backend, parsed.output) : undefined;
       }),
     judgeCompletion: (_origin, _credential, recipeId, request) =>
       run(async () => {
