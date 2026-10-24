@@ -196,11 +196,17 @@ const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
 /** Every element `describe` may accept, script buttons included. */
 const observed = "input, select, textarea, button, a, [role]";
+/**
+ * The attributes an element is named by, in order: a test attribute first, as test tools
+ * do, since a site keeps it as a stable hook while an `id` may be a render counter
+ * (Duolingo's `web-ui1`, `web-ui2`, then `web-ui3` for the same password input on its
+ * remembered-account screen, 2026-10-24; ADR 0071 amendment).
+ */
 const locators = [
-  ["id", "id"],
-  ["name", "name"],
   ["test-id", "data-testid"],
   ["data-test", "data-test"],
+  ["id", "id"],
+  ["name", "name"],
 ] as const;
 /**
  * An ID React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`, a hydrated `:R1aH1:`, also

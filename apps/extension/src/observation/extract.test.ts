@@ -407,7 +407,7 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates[0]!.label).toBe("a".repeat(119));
   });
 
-  it("locates by name or test ID when the ID is missing, duplicated or unusable", () => {
+  it("locates by test ID, or by name when the ID is missing, duplicated or unusable", () => {
     page(
       `<form id="f"><input id="dup" name="user"><input id="dup" name="other" data-testid="t-other">
         <input id="has space" name="pin">
@@ -415,7 +415,7 @@ describe("extractLoginObservation", () => {
     );
     expect(summary(observe()).map((candidate) => candidate.target)).toEqual([
       { by: "name", value: "user" },
-      { by: "name", value: "other" },
+      { by: "test-id", value: "t-other" },
       { by: "name", value: "pin" },
       { by: "id", value: "go" },
     ]);
@@ -1036,7 +1036,7 @@ describe("extractLoginObservation", () => {
     expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
 
-  it("names a button by data-test when its text is not unique (Duolingo, 2026-10-23)", () => {
+  it("names each control by data-test before its counter ID (Duolingo, 2026-10-23 and 2026-10-24)", () => {
     // The page behind Duolingo's sign-in overlay keeps its own "ログイン" button.
     page(
       `<header><button data-test="have-account">ログイン</button></header>
@@ -1046,9 +1046,11 @@ describe("extractLoginObservation", () => {
     );
     const observation = observe();
     expect(observation.complete).toBe(true);
+    // Its IDs count renders: the remembered-account screen gives the password input
+    // `web-ui3`, while `data-test` stays.
     expect(observation.candidates.map((candidate) => candidate.target)).toEqual([
-      { by: "id", value: "web-ui1" },
-      { by: "id", value: "web-ui2" },
+      { by: "data-test", value: "email-input" },
+      { by: "data-test", value: "password-input" },
       { by: "data-test", value: "register-button" },
     ]);
     expect(findTargets(document, observation.candidates[2]!.target)).toEqual([
