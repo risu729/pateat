@@ -33801,34 +33801,17 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
     steps: [{ kind: "click", path: "/signin", target: target("passkey-login"), purpose: "submit" }],
     maxSubmissions: 1,
   });
-  /** The page the repair sends: only the passkey button. */
-  const buttonPage = {
-    ok: true,
-    observation: {
-      version: 1,
-      origin,
-      path: "/signin",
-      language: "en",
-      complete: true,
-      candidates: [
-        {
-          id: "c1",
-          role: "button",
-          target: target("passkey-login"),
-          label: "Sign in with a passkey",
-        },
-      ],
-    },
-  };
+  const sentTypes = () => fake.state.messages.map((entry) => entry.type);
 
   it.each([
     ["no passkey", { passkey: false, discoverable: false }],
     ["a passkey that is not discoverable", { passkey: true, discoverable: false }],
   ])(
-    "claims the password route's repair of a passkey-only recipe for an item with a password and %s (ADR 0053)",
+    "claims the password route for a passkey-only recipe and an item with a password and %s, and gives it back while the page shows no form (ADR 0053)",
     async (_, passkey) => {
+      vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
       fake.state.present = new Set(["passkey-login"]);
-      fake.state.extracted = { login: buttonPage };
+      // The page shows only the button, so the sign-in form describes no field.
       const { h, reports, generation } = start({
         used: buttonOnly,
         password: true,
@@ -33837,15 +33820,10 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
       });
       // The page waits as for a generation, reading no secret.
       expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(sentTypes()).toContain("login.extract"));
+      await vi.advanceTimersByTimeAsync(9_000);
       await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
       expect(generation.claimRepair).toHaveBeenCalledExactlyOnceWith(generatedId, "password");
-      expect(generation.generate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          observation: buttonPage.observation,
-          repair: { recipeId: generatedId, revision: 3 },
-        }),
-        expect.any(Function),
-      );
       expect(unfits(reports)).toEqual([
         {
           type: "unfit",
@@ -33859,6 +33837,10 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
           detail: "no-route",
         },
       ]);
+      // Nothing reached the model, so the claim is given back and the page refused.
+      expect(generation.generate).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalledOnce();
+      expect(refusals(reports)[0]).toMatchObject({ reason: "no-route" });
       // The button is never pressed, and no secret is read.
       expect(executed()).toEqual([]);
       expect(h.fields.mock.calls.map(([request]) => request.fieldId)).not.toContain(
@@ -33866,6 +33848,30 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
       );
     },
   );
+
+  it("sends a passkey-only recipe's start page for the password route once it shows a form (ADR 0053)", async () => {
+    fake.state.present = new Set(["passkey-login"]);
+    fake.state.extracted = { login: formPage };
+    const { h, reports, generation } = start({
+      used: buttonOnly,
+      password: true,
+      passkey: { passkey: false, discoverable: false },
+      claim: claimed(),
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(generation.claimRepair).toHaveBeenCalledExactlyOnceWith(generatedId, "password");
+    expect(generation.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        observation: formPage.observation,
+        repair: { recipeId: generatedId, revision: 3 },
+      }),
+      expect.any(Function),
+    );
+    // The model abstained, so the claim stays.
+    expect(release).not.toHaveBeenCalled();
+    expect(executed()).toEqual([]);
+  });
 
   describe("never for an item or recipe outside the trigger", () => {
     it("an item without its TOTP secret and no discoverable passkey", async () => {
@@ -33990,6 +33996,7 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
       // The item takes the recipe's passkey route, its only one.
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(executed()).toHaveLength(1));
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([{ route: "passkey" }]);
       expect(generation.claimRepair).not.toHaveBeenCalled();
       expect(unfits(reports)).toEqual([]);
     });
