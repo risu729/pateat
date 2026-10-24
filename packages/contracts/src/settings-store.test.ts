@@ -86,6 +86,51 @@ describe("settings an older build stored", () => {
     });
   });
 
+  it("leaves a connection that held items back for review unused", async () => {
+    const connection = {
+      connectionId: "bitwarden-held",
+      enabled: true,
+      selection: { mode: "all", groupIds: [], itemIds: [] },
+      excludedItemIds: [],
+      excludedFields: [],
+    };
+    const memory = memoryStorage({
+      version: 1,
+      revision: 2,
+      settings: { connections: [connection], excludedSites: [], siteDefaults: [], bindings: [] },
+      fieldPolicies: [
+        {
+          connectionId: "bitwarden-held",
+          snapshotId: "00000000-0000-4000-8000-000000000001",
+          quarantinedItemIds: ["item-1"],
+        },
+      ],
+    });
+    expect(
+      await createSettingsStore(memory.storage, { connections: [] }).handle(get),
+    ).toMatchObject({
+      ok: true,
+      snapshot: { settings: { connections: [{ connectionId: "bitwarden-held", enabled: false }] } },
+    });
+  });
+
+  it("stays refused for what no older build wrote", async () => {
+    const defaults = createDefaultSettings({ connections: [] });
+    const { excludedSites: _sites, ...withoutExclusions } = defaults;
+    const unreadablePolicy = {
+      ...defaults,
+      itemPolicies: [{ provider: "bitwarden", itemId: "i-1", excluded: "yes" }],
+    };
+    for (const settings of [withoutExclusions, unreadablePolicy]) {
+      const memory = memoryStorage({ version: 1, revision: 3, settings });
+      // oxlint-disable-next-line no-await-in-loop -- one store per case
+      expect(await createSettingsStore(memory.storage).handle(get)).toMatchObject({
+        ok: false,
+        error: { code: "storage-corrupt" },
+      });
+    }
+  });
+
   it("stays refused when an older snapshot's site exclusions do not read", async () => {
     const older = {
       version: 1,

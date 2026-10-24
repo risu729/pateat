@@ -3494,9 +3494,11 @@ any read or write, and the existing single-writer revision checks and fail-close
 handling of corrupt settings stay in Pateat's code. Settings an older build stored
 before the settings shape changed are not corrupt: the device's store and the service's
 settings read rebuild them from the parts that still read (`rebuiltSettings`), leaving
-out list entries that no longer read, such as an account reference without its server. A
-site exclusion or re-prompt list that does not read, a part this build does not know, or
-a list over its limits still keeps them refused.
+out entries of saved accounts, bindings and detail links that no longer read, such as an
+account reference without its server. A vault connection stays in use only when it used
+every item with nothing excluded or held for review. Missing or unreadable site
+exclusions, a part this build does not know, or any other part that does not read still
+keeps them refused.
 
 Approved for M4: Hono and Drizzle for the first substantive API/schema. Keep
 Valibot boundary validation, verify generated SQL and migrations, and test owner
