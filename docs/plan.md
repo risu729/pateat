@@ -3498,14 +3498,10 @@ restoring state must not blindly replay submission. Every Pateat record in
 `storage.local` and `storage.session`, including the login runtime's, is read and
 written through WXT storage; `storage.local` is restricted to trusted contexts before
 any read or write, and the existing single-writer revision checks and fail-closed
-handling of corrupt settings stay in Pateat's code. Settings an older build stored
-before the settings shape changed are not corrupt: the device's store and the service's
-settings read rebuild them from the parts that still read (`rebuiltSettings`), leaving
-out entries of saved accounts, bindings and detail links that no longer read, such as an
-account reference without its server. A vault connection stays in use only when it used
-every item with nothing excluded or held for review. Missing or unreadable site
-exclusions, a part this build does not know, or any other part that does not read still
-keeps them refused.
+handling of corrupt settings stay in Pateat's code. Settings stored in an older shape
+are corrupt like any other; no build rebuilds them (owner decision, 2026-10-24).
+Migration 0035 removed, once, the service's saved accounts, bindings and detail links
+whose account reference did not name its server.
 
 Approved for M4: Hono and Drizzle for the first substantive API/schema. Keep
 Valibot boundary validation, verify generated SQL and migrations, and test owner
