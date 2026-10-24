@@ -530,6 +530,26 @@ describe("recipe sync", () => {
     );
   });
 
+  it("tells a withdrawn recipe from recipes it cannot read", async () => {
+    const stored = {
+      version: 2,
+      origin: SERVICE,
+      deviceId: DEVICE,
+      cursor: 3,
+      recipes: [recipe("bank-signin", "/login")],
+    };
+    const { sync } = setup({ stored });
+    expect(await sync.recipes.withdrawn!(SITE, "bank-signin")).toBe(false);
+    expect(await sync.recipes.withdrawn!(SITE, "removed")).toBe(true);
+    expect(await sync.recipes.withdrawn!(SITE, "bank-signin", "missing-layout")).toBe(true);
+    // Another pairing's cache or one that does not parse is not read, so nothing is withdrawn.
+    for (const unread of [{ ...stored, deviceId: OTHER_DEVICE }, { version: 2 }]) {
+      const other = setup({ stored: unread });
+      // oxlint-disable-next-line no-await-in-loop -- independent setups
+      expect(await other.sync.recipes.withdrawn!(SITE, "removed")).toBe(false);
+    }
+  });
+
   it("keeps the last consistent copy when a page fails", async () => {
     const { sync, cache, service } = setup({
       pages: [
@@ -1561,6 +1581,9 @@ describe("recipe sync", () => {
     expect(await sync.recipes.chooser!("https://other.example", "/profiles")).toBeUndefined();
     // A chooser is never a login recipe, by path or by ID.
     expect(await sync.recipes.recipe(SITE, "/profiles", "bank-chooser")).toBeUndefined();
+    // A chooser login resumes on its chooser, which is withdrawn only without its layout.
+    expect(await sync.recipes.withdrawn!(SITE, "bank-chooser", "1000")).toBe(false);
+    expect(await sync.recipes.withdrawn!(SITE, "bank-chooser", "2000")).toBe(true);
     expect(await sync.recipes.starts(SITE)).toContainEqual({
       path: "/profiles",
       steps: [],

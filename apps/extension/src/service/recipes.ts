@@ -673,6 +673,15 @@ export function createRecipeSync(options: {
         : {}),
       createdAt: recipe.chooser.layouts[index]!.createdAt,
     }));
+  /** A resumed attempt's own recipe and layout, or else the newest layout. */
+  function resumedRecipe(cache: Held, origin: string, recipeId: string, layout?: string) {
+    const stored = documentOf(cache, origin, recipeId);
+    if (!stored) return undefined;
+    if (layout === undefined) return newestLayout(loginLayoutCandidates(stored))?.recipe;
+    // A layout generated as `confirm` or `unclear` never runs (ADR 0035).
+    const found = findLayoutRecipe(stored, layout);
+    return found && runsLogin(found) ? found : undefined;
+  }
   /** Steps and targets each once, in order. */
   const once = <T>(items: readonly T[]) => {
     const seen = new Set<string>();
@@ -693,16 +702,17 @@ export function createRecipeSync(options: {
       if (!cache) return undefined;
       // A resumed attempt asks for its own recipe and layout; the executor checks its
       // revision.
-      if (recipeId !== undefined) {
-        const stored = documentOf(cache, origin, recipeId);
-        if (!stored) return undefined;
-        if (layout === undefined) return newestLayout(loginLayoutCandidates(stored))?.recipe;
-        // A layout generated as `confirm` or `unclear` never runs (ADR 0035).
-        const found = findLayoutRecipe(stored, layout);
-        return found && runsLogin(found) ? found : undefined;
-      }
+      if (recipeId !== undefined) return resumedRecipe(cache, origin, recipeId, layout);
       const selection = selectLoginRecipe(cache.recipes, origin, path);
       return selection.ok ? selection.recipe : undefined;
+    },
+    async withdrawn(origin: string, recipeId: string, layout?: string) {
+      const cache = await current(false);
+      if (!cache) return false;
+      // A chooser login (ADR 0028) resumes on its chooser by ID.
+      const chooser = choosersOf(cache, origin).find((recipe) => recipe.id === recipeId);
+      if (chooser) return layout !== undefined && !findChooserLayout(chooser, layout);
+      return !resumedRecipe(cache, origin, recipeId, layout);
     },
     async layouts(origin: string, path: string) {
       const cache = await current(false);

@@ -12,7 +12,10 @@ or of another tab of the site (implemented). Amended on 2026-10-13 by ADR 0027 (
 asks (implemented, see the end of D). Amended on 2026-10-13 by the owner's
 [site count badge](#site-count-badge) decision (part B, implemented on 2026-10-23).
 Amended on 2026-10-16 by the owner: in D, a click on a control that logs out also makes
-the tab ask (implemented, see [logout clicks](#logout-clicks)).
+the tab ask (implemented, see [logout clicks](#logout-clicks)). Amended on 2026-10-24 by
+Claude as a fix, with the owner's choices of 2026-10-23 and 2026-10-24: in D, a resumed
+login its recipe no longer runs ends as a stopped one (implemented, see the end of the
+2026-10-12 stopped-login amendment).
 
 Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) and
 [ADR 0063](0063-switch-accounts-from-the-popup.md) (owner, accepted and implemented):
@@ -331,6 +334,20 @@ A record stopped before any submission is released as ADR 0022 describes; one st
 `reconciling` (its result not known yet) is resumed as before. The log shows the
 watching page as `login.refused` `not-started` with `stopped-login` and the asking as
 `logged-out` with `stopped-login`.
+
+Amended on 2026-10-24 by Claude as a fix (agent-written): a record still running or
+`reconciling` whose recipe no longer runs it was refused `recipe-not-found` on each
+later page and never ended, so the tab was stuck as on APA Hotel above, and vault syncs
+waited for it as for a running login. That is a cached revision that replaced the
+login's own (or, after a worker restart, any other revision), or a recipe or layout
+withdrawn from the cache. The page that resumes it now ends it `policy-changed` (cause
+`recipe-changed`) without filling anything there, and the rules above for a stopped
+record apply from the tab's next page on. The owner chose on 2026-10-23 (12:58 UTC) that
+only a recipe the cache, read without failure, holds as replaced or no longer holds ends
+the login: a lookup that cannot read the pairing or the recipe cache leaves it to
+resume. The owner chose on 2026-10-24 (21:58 UTC) to keep ADR 0022's 5-minute hold after
+such a stop when a fill or click may have reached the site, as for every other stopped
+login; after it, the tab's sign-in page fills once and presses nothing (ADR 0062).
 
 Constraint, set by the owner on 2026-10-12 (07:41 UTC): beyond the cases above, where
 this tab's own Pateat login of the site is known, a site session that only expired must
