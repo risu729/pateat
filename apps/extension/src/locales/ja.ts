@@ -164,6 +164,8 @@ export const ja = {
   "the settings or the vault changed during the login":
     "ログイン中に設定または保管庫が変更されました",
   "this site is already logged in": "このサイトにはすでにログインしています",
+  "a passkey Pateat returned to this page is signing it in":
+    "Pateat がこのページに返したパスキーでログインしています",
   "the last login on this site stopped in this tab":
     "このタブでのこのサイトへの前回のログインは中断されました",
   "the sign-in form shows, but the recipe's first step was not found":

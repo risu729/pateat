@@ -164,6 +164,8 @@ export const en = {
   "the settings or the vault changed during the login":
     "the settings or the vault changed during the login",
   "this site is already logged in": "this site is already logged in",
+  "a passkey Pateat returned to this page is signing it in":
+    "a passkey Pateat returned to this page is signing it in",
   "the last login on this site stopped in this tab":
     "the last login on this site stopped in this tab",
   "the sign-in form shows, but the recipe's first step was not found":

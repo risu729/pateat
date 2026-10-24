@@ -54,6 +54,7 @@ const RECIPE_FAILURES = new Set(["structural-mismatch", "timeout", "retry-limit"
 /** Why the page's sign-in did not start a login, in plain words. */
 const NOT_STARTED: Record<string, string> = {
   "logged-in": "this site is already logged in",
+  "passkey-signed-in": "a passkey Pateat returned to this page is signing it in",
   "stopped-login": "the last login on this site stopped in this tab",
   "first-step-missing": "the sign-in form shows, but the recipe's first step was not found",
   "no-recipe-on-path": "no recipe of this site starts on this page",

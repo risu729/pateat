@@ -361,6 +361,10 @@ describe("pageStatusLines", () => {
     expect(
       lines({ recipe: "page", page: { state: "denied", reason: "origin-busy" } })[1]?.[2],
     ).toBe("No login started: another tab's login to this site is running or did not succeed.");
+    // A passkey the bridge returned to the page signed it in, outside any login of it.
+    expect(
+      lines({ recipe: "page", page: { state: "denied", reason: "passkey-signed-in" } })[1]?.[2],
+    ).toBe("No login started: a passkey Pateat returned to this page is signing it in.");
     // The tab asks for an account (ADR 0021 D), or the site was logged in again too often
     // (ADR 0062).
     expect(
