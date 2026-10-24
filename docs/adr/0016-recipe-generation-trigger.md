@@ -54,6 +54,12 @@ Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (owner,
 implemented): condition 1 reads "the site is not paused": a timed pause, an exclusion
 rule, or a private window while automatic login is off there keeps the page from being
 sent (`recipe.generate` skipped `paused`).
+
+Amended on 2026-10-24 (owner, 09:06 UTC, decision card "A: URL が変われば送る",
+implemented):
+[a same-document URL change is a new page](#amendment-2026-10-24-a-same-document-url-change-is-a-new-page)
+whose sign-in input may be sent within 10 seconds of the change.
+
 Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the owner on
 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a recipe holds up
 to three layouts, a continuation and a page judgement name the layout they continue or
@@ -338,3 +344,30 @@ after ten seconds. "Only a page that shows such an input within 10 seconds of lo
 sent" is unchanged (an agent's addition, not confirmed by the owner): a page that showed
 nothing to send when that wait ended is still sent if it shows a sign-in input within
 the 10 seconds.
+
+## Amendment 2026-10-24: a same-document URL change is a new page
+
+Status: accepted by the owner on 2026-10-24 (09:06 UTC, decision card "A: URL
+が変われば送る"), over sending a form shown at any time once per path (B) or no change
+(C).
+
+Real Chrome on 2026-10-24 (08:25 UTC): Duolingo's landing page
+`https://www.duolingo.com/` routes to its sign-in form in place. The person presses "I
+already have an account", the page calls `history.pushState` to `/?isLoggingIn=true` and
+replaces its content with an email and a password input, in the same document. The
+page's 10-second window had long closed, so the form was never sent, and with a recipe
+only on another path the login was refused `not-started` `no-recipe-on-path`.
+
+Decision: when the document's URL, without its fragment, changes in the same document
+(`navigation`'s `currententrychange`, which `pushState` and `replaceState` fire, or
+`popstate`) after its window closed, the content script watches the page for a sign-in
+input for another 10 seconds. That needs the background to have answered that the page
+may be sent, with no login taking the document over since. When a password, username or
+one-time-code input shows within those 10 seconds and no recipe's first step is ready,
+the document announces it, once per change, and the background decides as for a new
+page: the vault match, the pause and the retry window per origin and path (condition 4)
+apply as before. A route that shows no such input sends nothing and costs the background
+nothing. A list of accounts, an identifier alone, a sign-in entry or a passkey button is
+still offered only after a load, and a form shown later without a URL change, such as a
+sign-in dialog, is still not sent. A document that carries a login keeps watching for it
+when announced again.

@@ -843,6 +843,8 @@ chosen, counted or trigger generation there
 admitted, and its account must match the tab's URL as well as the frame's
 ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe generation: a
 tab's own page on whose path no recipe starts that shows a login field within 10 seconds
+of loading, or of a same-document URL change after that window closed (owner,
+[amendment of 2026-10-24](adr/0016-recipe-generation-trigger.md#amendment-2026-10-24-a-same-document-url-change-is-a-new-page)),
 and has a vault URI match is observed and sent, and not again within 10 minutes per
 origin and path once a request for it reached the model, unless the tab holds an attempt
 record other than an account switch on that origin

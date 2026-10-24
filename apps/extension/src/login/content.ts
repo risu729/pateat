@@ -116,6 +116,8 @@ import { newId } from "@pateat/contracts/ids";
  * reads this, so a step on `/[id]/login` runs on the same page of any tenant.
  */
 const pagePath = () => observedPath(location.pathname);
+/** The page's URL without its fragment, which changes no page. */
+const pageUrl = () => location.href.split("#")[0]!;
 /** When a frame the worker asks about is read for a sign-in input or a secret answer. */
 const FRAME_READINGS_MS = [0, 1_000, 3_000, 6_000, LOGIN_STEP_WAIT_MS];
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
@@ -445,9 +447,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let announcedPath: string | undefined;
   // The background may generate a recipe for this page if it shows a sign-in input within
   // the step wait after it may be sent (ADR 0016); a form shown only later, for example
-  // after a click, is not sent.
+  // after a click, is not sent, unless the document's URL changed first.
   let generate = false;
   let offered = false;
+  // The background answered that this document may be sent (ADR 0016) and no login took
+  // it over since, and the URL, without its fragment, its window last opened at: a
+  // same-document URL change, as a single-page app's route to its sign-in form, opens a
+  // window for a sign-in input once more (`urlChanged`).
+  let mayOffer = false;
+  let offerUrl = pageUrl();
   // The path where this document last submitted a form with a password input, and the
   // next path it showed after it: that page is never offered as a list of accounts or as a
   // sign-in entry.
@@ -634,6 +642,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     entryWanted = generate && entryPage;
     if (!generate) clearOffer();
     else if (offerWindow === undefined) {
+      offerUrl = pageUrl();
       offerQuiet = setTimeout(decideOffer, offerQuietMs);
       offerCap = setTimeout(decideOffer, offerWaitMs);
       offerWindow = setTimeout(endOffer, LOGIN_STEP_WAIT_MS);
@@ -936,6 +945,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     entryPage = false,
     /** The document changed in place after an account switch (ADR 0078). */
     switched = false,
+    /** Announced again after a same-document URL change, to be offered once more. */
+    again = false,
   ): Promise<unknown> {
     announced = start;
     announcedPath = pagePath();
@@ -958,6 +969,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       ...(switched ? { switched: true as const } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
+    if (parsed.success && parsed.output.generate === true) mayOffer = true;
+    else if (!parsed.success || parsed.output.ok || parsed.output.reason === "generating")
+      mayOffer = false;
     if (parsed.success) {
       // A page Pateat does not fill stays one until an answer on another path (ADR 0035).
       if (parsed.output.confirm) confirmPage = parsed.output.confirm;
@@ -991,9 +1005,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       ["stale-document", "closed-tab", "runtime-unavailable"].includes(parsed.output.reason ?? "")
     ) {
       retry();
-    } else {
+    } else if (!(again && parsed.output.reason === "duplicate-document")) {
       // A policy refusal (no account, another tab owns the site, ...) holds until the page
-      // is loaded again; re-announcing on every re-render would only repeat it.
+      // is loaded again; re-announcing on every re-render would only repeat it. A document
+      // announced again that already carries a login keeps watching for it.
       unwatch();
     }
     return result;
@@ -2315,11 +2330,53 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       () => undefined,
     );
   };
+  /**
+   * A same-document URL change after the page's window to be sent closed, as Duolingo's
+   * "I already have an account" routing to its sign-in form in place (2026-10-24), opens a
+   * new window of the step wait for a sign-in input alone: one that shows within it is
+   * announced, once, and the background decides as for a new page. Nothing is sent for a
+   * route without one, and a list of accounts, an identifier alone or an entry is still
+   * offered only after a load. Only once the background answered that the page may be
+   * sent and no login took it over since, so a login under way is never announced over.
+   */
+  let urlWatch: (() => void) | undefined;
+  const urlChanged = () => {
+    if (cancelled || pageUrl() === offerUrl) return;
+    offerUrl = pageUrl();
+    if (!mayOffer || !offered || offerWindow !== undefined) return;
+    urlWatch?.();
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    const look = () => {
+      pending = undefined;
+      if (cancelled || !mayOffer) return stop();
+      if (!showsSignIn() || starts.some(ready) || afterSubmitted()) return;
+      stop();
+      void announce(false, true, undefined, false, false, true).catch(() => undefined);
+    };
+    const changes = new MutationObserver(() => {
+      pending ??= setTimeout(look, 100);
+    });
+    changes.observe(document, pageWatch);
+    const end = setTimeout(stop, LOGIN_STEP_WAIT_MS);
+    function stop(): void {
+      changes.disconnect();
+      clearTimeout(pending);
+      clearTimeout(end);
+      urlWatch = undefined;
+    }
+    urlWatch = stop;
+    pending = setTimeout(look, 100);
+  };
   document.addEventListener("submit", onSubmit, true);
+  addEventListener("popstate", urlChanged);
+  navigation?.addEventListener("currententrychange", urlChanged);
   browser.runtime.onMessage.addListener(listener);
   void announce(false).catch(() => undefined);
   return () => {
     cancelled = true;
+    removeEventListener("popstate", urlChanged);
+    navigation?.removeEventListener("currententrychange", urlChanged);
+    urlWatch?.();
     unwatch();
     frameWatch?.();
     followConfirmPath(undefined);
