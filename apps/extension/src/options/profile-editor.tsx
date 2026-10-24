@@ -9,6 +9,7 @@ import {
 } from "./service-client";
 import type { SettingsClient } from "./client";
 import { SitePolicy } from "./site-policy";
+import { AllowedSites } from "./allowed-sites";
 import { Button } from "./button";
 import { controlClass, fieldClass } from "./ui";
 
@@ -78,6 +79,13 @@ export function ProfileEditor({
       connections: metadata.snapshot.settings.connections,
     });
   }
+  function editDraft(update: (value: LocalSettings) => void) {
+    if (!draft) return false;
+    const next = structuredClone(draft);
+    update(next);
+    setDraft(next);
+    return true;
+  }
   return (
     <section aria-labelledby="profile-editor-heading" className="flex flex-col gap-3">
       <h3 id="profile-editor-heading" className="m-0 text-base font-semibold">
@@ -85,7 +93,7 @@ export function ProfileEditor({
       </h3>
       <p className="m-0 text-sm text-ink-muted">
         {t(
-          "Change another profile's site exclusions, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
+          "Change another profile's site exclusions, allowed sites, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
         )}
       </p>
       <div className="flex flex-wrap gap-2">
@@ -144,12 +152,13 @@ export function ProfileEditor({
             draft={draft}
             catalog={catalog}
             findSiteAccounts={local.findSiteAccounts}
-            edit={(update) => {
-              const next = structuredClone(draft);
-              update(next);
-              setDraft(next);
-              return true;
-            }}
+            edit={editDraft}
+          />
+          <AllowedSites
+            idPrefix="profile-"
+            key={`allowed-${profileId}`}
+            draft={draft}
+            edit={editDraft}
           />
           <Button
             type="button"

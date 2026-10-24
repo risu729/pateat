@@ -183,12 +183,14 @@ function choiceTitle(
 // Tooltip keys with `count`; `_one` and `_other` forms in the catalogs.
 const EXCLUDED_TITLES = {
   site: "badgeExcludedSite",
+  "not-allowed": "badgeNotAllowedSite",
   items: "badgeExcludedItems",
   review: "badgeExcludedReview",
   "items-review": "badgeExcludedItemsReview",
 } as const;
 const MORE_TITLES = {
   site: "badgeMoreExcluded",
+  "not-allowed": "badgeMoreExcluded",
   items: "badgeMoreExcluded",
   review: "badgeMoreReview",
   "items-review": "badgeMoreItemsReview",

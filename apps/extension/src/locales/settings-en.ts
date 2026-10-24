@@ -285,4 +285,21 @@ export const settingsEn = {
   Import: "Import",
   "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.":
     "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.",
+  "This site is not an allowed site, so this default is not used.":
+    "This site is not an allowed site, so this default is not used.",
+  "This site is not an allowed site.": "This site is not an allowed site.",
+  "Allowed sites": "Allowed sites",
+  "Run only on allowed sites": "Run only on allowed sites",
+  "Remove {{name}} from the allowed sites": "Remove {{name}} from the allowed sites",
+  "Pateat runs only on these sites.": "Pateat runs only on these sites.",
+  "No site is allowed, so Pateat logs in nowhere until you allow one.":
+    "No site is allowed, so Pateat logs in nowhere until you allow one.",
+  "While this is off, Pateat runs on every site.": "While this is off, Pateat runs on every site.",
+  Site: "Site",
+  "Allow subdomains too": "Allow subdomains too",
+  "Allow site": "Allow site",
+  "A site paused under Sites stays paused while it is allowed.":
+    "A site paused under Sites stays paused while it is allowed.",
+  "Turning this off keeps the list. The Pateat popup can allow the open site.":
+    "Turning this off keeps the list. The Pateat popup can allow the open site.",
 } as const;

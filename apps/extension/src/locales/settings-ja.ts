@@ -294,4 +294,22 @@ export const settingsJa = {
   Import: "インポート",
   "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.":
     "設定をインポートしました。表示するには保存した設定を読み込み直してください。読み込み直すと、保存していない変更は失われます。",
+  "This site is not an allowed site, so this default is not used.":
+    "このサイトは許可サイトではないため、この既定のアカウントは使いません。",
+  "This site is not an allowed site.": "このサイトは許可サイトではありません。",
+  "Allowed sites": "許可サイト",
+  "Run only on allowed sites": "許可サイトでだけ動かす",
+  "Remove {{name}} from the allowed sites": "{{name}} を許可サイトから外す",
+  "Pateat runs only on these sites.": "Pateat はこれらのサイトでだけ動きます。",
+  "No site is allowed, so Pateat logs in nowhere until you allow one.":
+    "許可サイトがないため、サイトを許可するまで Pateat はどこにもログインしません。",
+  "While this is off, Pateat runs on every site.":
+    "オフのあいだは、すべてのサイトで Pateat が動きます。",
+  Site: "サイト",
+  "Allow subdomains too": "サブドメインも許可する",
+  "Allow site": "サイトを許可",
+  "A site paused under Sites stays paused while it is allowed.":
+    "「サイト」で一時停止したサイトは、許可しても一時停止のままです。",
+  "Turning this off keeps the list. The Pateat popup can allow the open site.":
+    "オフにしても一覧は残ります。開いているサイトは、Pateat のポップアップから許可できます。",
 } satisfies Record<keyof typeof settingsEn, string>;

@@ -86,18 +86,19 @@ only by the person who runs it. The extension sends the service:
 - **The device name** you enter when pairing, and the settings profile you chose or the
   name of a new one. The service also records when the device paired and when it was
   last used, and identifies you by the account you signed in to the service with.
-- **Settings**: for each settings profile, the sites you excluded, the sites that ask
-  for the master password, the sites whose passkey requests you hand to the browser, the
-  default account for each site, which vault accounts, groups, items and fields Pateat
-  may use, a fingerprint (hash) of each item's encrypted custom fields when you last
-  reviewed them, and whether the popup shows **This page**; and, for all profiles, which
-  vault field fills which part of a site's login and which vault item and field gives
-  each personal detail a site asks for. Default accounts, item and field limits and
-  field choices are identified by vault item and account IDs, with the item's, the
-  connection's and the selected groups' names and the names of custom fields. A
-  personal-detail link is identified by item and account IDs and the field (a custom
-  field by its name) only, with no item name, and with the site's secret question in
-  normalized form when you confirmed one. No vault values are sent.
+- **Settings**: for each settings profile, the sites you excluded, the sites you allowed
+  and whether only they are used, the sites that ask for the master password, the sites
+  whose passkey requests you hand to the browser, the default account for each site,
+  which vault accounts, groups, items and fields Pateat may use, a fingerprint (hash) of
+  each item's encrypted custom fields when you last reviewed them, and whether the popup
+  shows **This page**; and, for all profiles, which vault field fills which part of a
+  site's login and which vault item and field gives each personal detail a site asks
+  for. Default accounts, item and field limits and field choices are identified by vault
+  item and account IDs, with the item's, the connection's and the selected groups' names
+  and the names of custom fields. A personal-detail link is identified by item and
+  account IDs and the field (a custom field by its name) only, with no item name, and
+  with the site's secret question in normalized form when you confirmed one. No vault
+  values are sent.
 - **Page descriptions**, when a site has no recipe yet, its recipe no longer matches
   the page, or a login needs the next page described. Pateat describes a login page, a
   page that lists accounts to choose from, a page that asks for a personal detail, and
@@ -240,19 +241,19 @@ there.
   extension from Chrome. Removing the extension does not revoke its device on the
   service; disconnect it on the settings page first, or revoke it on the service's
   **Devices** page.
-- **On the service**: its pages let you remove excluded sites, default accounts and
-  field choices, and revoke recipes and their layouts, though a revoked recipe leaves a
-  record that it was revoked. Sites that ask for the master password are removed in the
-  extension. **Delete all** on the **Request log** page deletes every stored page
-  description, login record and problem report, and removes the device and request from
-  the record of which model wrote each recipe part. A settings profile no device uses,
-  other than the last one, can be deleted on the **Profiles** page, which deletes its
-  site settings, default accounts and item and field limits; the profile's name stays
-  for the devices that used it. Disconnecting or revoking a device stops it from syncing
-  but keeps its record. These have no delete control: personal-detail links, device
-  records, deleted profiles' names, the records of judged pages and recipe repairs, the
-  record of which model wrote each recipe part, and the record of spending on Claude.
-  The service's owner can delete them from its database.
+- **On the service**: its pages let you remove excluded sites, allowed sites, default
+  accounts and field choices, and revoke recipes and their layouts, though a revoked
+  recipe leaves a record that it was revoked. Sites that ask for the master password are
+  removed in the extension. **Delete all** on the **Request log** page deletes every
+  stored page description, login record and problem report, and removes the device and
+  request from the record of which model wrote each recipe part. A settings profile no
+  device uses, other than the last one, can be deleted on the **Profiles** page, which
+  deletes its site settings, default accounts and item and field limits; the profile's
+  name stays for the devices that used it. Disconnecting or revoking a device stops it
+  from syncing but keeps its record. These have no delete control: personal-detail
+  links, device records, deleted profiles' names, the records of judged pages and recipe
+  repairs, the record of which model wrote each recipe part, and the record of spending
+  on Claude. The service's owner can delete them from its database.
 - **Your Anthropic API key**: **Remove key** on the settings page deletes the key from
   your device; its spend count stays until you remove the extension.
 - **On a lost device**: revoking it on the service stops it from reaching the service,

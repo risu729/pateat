@@ -1356,6 +1356,7 @@ const PRE_PRESS_ENTRY_REFUSALS: ReadonlySet<unknown> = new Set([
   "paused",
   "press-limit",
   "settings-unavailable",
+  "site-not-allowed",
   "no-vault-match",
   "storage-unavailable",
   "in-progress",
@@ -1373,6 +1374,7 @@ const PRE_PRESS_ENTRY_REFUSALS: ReadonlySet<unknown> = new Set([
   "link-query-off-site",
   "link-same-page",
   "destination-excluded",
+  "destination-not-allowed",
   "target-changed",
   "cancelled",
 ]);

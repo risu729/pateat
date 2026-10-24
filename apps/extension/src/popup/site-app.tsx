@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import {
+  isSiteAllowed,
   normalizeHostname,
   parseSiteUrl,
   popupPageSectionShown,
@@ -53,6 +54,7 @@ import {
   type DetailClient,
   type DetailResponse,
 } from "../login/detail-wire";
+import { pauseSite } from "../login/pause";
 import { PageStatusSection } from "./page-status";
 import {
   PAUSE_CHOICES,
@@ -674,8 +676,9 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
-  // Only the vault policies and each vault's sync, state and quarantine decide the matches,
-  // so saving a default or a pause keeps the listed accounts instead of listing them again.
+  // Only the vault policies, the allowed sites (ADR 0077) and each vault's sync, state and
+  // quarantine decide the matches, so saving a default or a pause keeps the listed accounts
+  // instead of listing them again.
   const accounts = useQuery({
     queryKey: [
       "popup",
@@ -686,6 +689,8 @@ export function SiteApp({
           saved.snapshot.settings.accountPolicies,
           saved.snapshot.settings.itemPolicies,
           saved.snapshot.settings.customFieldReviews,
+          saved.snapshot.settings.allowedSites ?? [],
+          saved.snapshot.settings.allowedSitesEnabled ?? false,
         ]),
       saved?.catalog.settingsSyncPending ?? false,
       saved?.catalog.connections.map((entry) => [
@@ -708,7 +713,8 @@ export function SiteApp({
         clearTimeout(timer);
       }
     },
-    enabled: Boolean(origin && saved),
+    // A site outside the allowed sites is not searched (ADR 0077).
+    enabled: Boolean(origin && saved && isSiteAllowed(saved.snapshot.settings, origin)),
     staleTime: 0,
     gcTime: 0,
   });
@@ -1057,7 +1063,39 @@ export function SiteApp({
         <span>{t("Pateat's settings could not be loaded.")}</span>
       </p>
     );
-  else {
+  else if (!isSiteAllowed(saved.snapshot.settings, origin)) {
+    // A site outside the allowed sites gets nothing from Pateat, so the popup only offers
+    // to allow it: the registrable site with its subdomains, as a pause covers it (ADR 0077).
+    const site = pauseSite(new URL(origin)) ?? hostnameOf(origin);
+    body = (
+      <div className="popup-section">
+        <p id="popup-site-not-allowed">
+          {t("Pateat runs only on allowed sites, and this site is not one of them.")}
+        </p>
+        <div className="popup-actions">
+          <Button
+            id="popup-allow-site"
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void change(
+                (value) => {
+                  value.allowedSites = [
+                    ...(value.allowedSites ?? []).filter((rule) => rule.hostname !== site),
+                    { hostname: site, includeSubdomains: true },
+                  ];
+                },
+                (translate) =>
+                  translate("{{site}} and its subdomains are now allowed sites.", { site }),
+              )
+            }
+          >
+            {t("Allow {{site}}", { site })}
+          </Button>
+        </div>
+      </div>
+    );
+  } else {
     const hostname = hostnameOf(origin);
     const rules = siteRules(saved.snapshot.settings, origin);
     const reprompt = repromptSwitch(saved.snapshot.settings, hostname);

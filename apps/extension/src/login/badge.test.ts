@@ -1777,6 +1777,7 @@ describe("site count", () => {
 
   it.each([
     ["site", "this site is excluded in settings"],
+    ["not-allowed", "this site is not an allowed site in settings"],
     ["items", "they are excluded in settings"],
     ["review", "they wait for a custom-field review in settings"],
   ] as const)("shows matches that are all excluded (%s) in gray", async (excluded, why) => {

@@ -619,11 +619,15 @@ store ([ADR 0021](adr/0021-account-choice-outside-settings.md),
 exclusion rule `{hostname: <registrable site>, includeSubdomains: true}`; Resume ends a
 timed pause or removes the site's own covering rules. When a rule for a parent of the
 site covers it, the row links each such rule to the settings page, and in a private
-window while automatic login is off there it links that setting. While the tab's page
-waits for an account choice, the choice is the popup's only list (the owner asked for
-one list on 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the
-default" checkbox makes the picked account the default once that login succeeds (a pick
-of another account that starts no login says it was not made the default), and a saved
+window while automatic login is off there it links that setting. While the allowed sites
+are on ([ADR 0077](adr/0077-allowed-sites.md)) and leave the tab's site out, the popup
+lists no accounts and has no pause row: it says Pateat runs only on allowed sites and
+offers "Allow <registrable site>", which adds the allow rule
+`{hostname: <registrable site>, includeSubdomains: true}`. While the tab's page waits
+for an account choice, the choice is the popup's only list (the owner asked for one list
+on 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the default"
+checkbox makes the picked account the default once that login succeeds (a pick of
+another account that starts no login says it was not made the default), and a saved
 default can still be removed there. A paused site offers its choice too: every matching
 account, also a single one, the saved default first, and a pick logs in once; once the
 site is no longer paused, a choice offered only because of the pause ends and the page
@@ -634,13 +638,12 @@ succeeds while it is open shows without reopening it. The popup waits up to 45 s
 for the site's matching vault items. When the search has not answered by then, as while
 the vault is busy right after the extension restarts, the popup stops waiting and says
 to reopen it a little later, while the worker finishes the search, and the saved default
-shows by its saved labels. Under the header, a "This page" section
-(its status and log link shown unless the synced `popupPageSection` setting is `false`,
-set by the settings page's **Show "This page" in the popup** checkbox under the Theme
-select, while the personal details a page asks for and the pause row, which then asks
-for the site's pause alone with `login.pause.get`, still show and the account switch is
-hidden with the section;
-[ADR 0038](adr/0038-login-status-badge.md#popup) and its 2026-10-23 amendment;
+shows by its saved labels. Under the header, a "This page" section (its status and log
+link shown unless the synced `popupPageSection` setting is `false`, set by the settings
+page's **Show "This page" in the popup** checkbox under the Theme select, while the
+personal details a page asks for and the pause row, which then asks for the site's pause
+alone with `login.pause.get`, still show and the account switch is hidden with the
+section; [ADR 0038](adr/0038-login-status-badge.md#popup) and its 2026-10-23 amendment;
 `apps/extension/src/popup/page-status.tsx`) asks the worker every second with
 `login.status.get` and says whether the site has a recipe that starts on the page (a
 later step a login may start at counts, ADR 0049), one on other paths only, or none; the
@@ -666,8 +669,8 @@ tab's closing drops them, and `chrome.storage.session` keeps them across a worke
 restart. Item selection, field exclusions and custom-field review are synced and stay on
 the extension's settings page ([ADR 0023](adr/0023-synced-vault-policy.md)); the popup
 does not report items waiting for review or repair bindings yet. The service keeps
-excluded sites, site defaults and the synced vault policy per settings profile, and
-bindings and personal-detail links (`detailLinks`,
+excluded sites, allowed sites, site defaults and the synced vault policy per settings
+profile, and bindings and personal-detail links (`detailLinks`,
 [ADR 0061](adr/0061-personal-details-during-a-login.md)) per owner, under one owner
 revision ([ADR 0024](adr/0024-settings-profiles.md),
 [ADR 0076](adr/0076-settings-profiles-delivered.md)). Each device uses one profile,
@@ -824,8 +827,9 @@ Checked against the code on 2026-10-17:
 - Exclusion rules name hostnames only: no wildcard patterns, paths or ports, subdomains
   only through the checkbox, and no warning for a rule on a public suffix such as `com`
   or for subdomains of an IP address.
-- At most 1000 exclusion rules, 1000 site defaults and 1000 IDs in each item selection
-  or exclusion list; a draft over a limit is not saved and says only that it is invalid.
+- At most 1000 exclusion rules, 1000 allowed sites, 1000 site defaults and 1000 IDs in
+  each item selection or exclusion list; a draft over a limit is not saved and says only
+  that it is invalid.
 - A settings edit that meets a revision conflict is not merged: reloading the saved
   settings discards it, and it has to be made again.
 - Accounts are told apart by an item ID's first 8 characters when their names read the
@@ -844,7 +848,8 @@ refused document, once the check applied a new snapshot within ten seconds
 ([ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches)). A static content
 script runs on every HTTP(S) page and frame; the background admits documents with host
 access on hostnames Pateat runs on (an exclusion rule pauses rather than refuses, ADR
-0062) and needs a cached recipe for the exact origin before any policy or vault access
+0062) and, while the allowed sites are on, only on allowed sites (ADR 0077) and needs a
+cached recipe for the exact origin before any policy or vault access
 ([ADR 0009](adr/0009-install-time-https-site-access.md)). On an `http:` page only a
 vault URI saved with an explicit `http://` scheme matches, so only those items can be
 chosen, counted or trigger generation there

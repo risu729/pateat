@@ -81,6 +81,11 @@ export const en = {
   "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.":
     "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.",
   "Pateat's settings could not be loaded.": "Pateat's settings could not be loaded.",
+  "Pateat runs only on allowed sites, and this site is not one of them.":
+    "Pateat runs only on allowed sites, and this site is not one of them.",
+  "Allow {{site}}": "Allow {{site}}",
+  "{{site}} and its subdomains are now allowed sites.":
+    "{{site}} and its subdomains are now allowed sites.",
   "Vault account": "Vault account",
   "{{account}}, not available here": "{{account}}, not available here",
   "Finding the vault items that match this site…": "Finding the vault items that match this site…",
@@ -356,6 +361,10 @@ export const en = {
     "Pateat: {{count}} account matches this site, but none can be used: this site is excluded in settings.",
   badgeExcludedSite_other:
     "Pateat: {{count}} accounts match this site, but none can be used: this site is excluded in settings.",
+  badgeNotAllowedSite_one:
+    "Pateat: {{count}} account matches this site, but none can be used: this site is not an allowed site in settings.",
+  badgeNotAllowedSite_other:
+    "Pateat: {{count}} accounts match this site, but none can be used: this site is not an allowed site in settings.",
   badgeExcludedItems_one:
     "Pateat: {{count}} account matches this site, but none can be used: they are excluded in settings.",
   badgeExcludedItems_other:

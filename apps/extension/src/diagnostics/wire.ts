@@ -203,6 +203,9 @@ export const diagnosticsStatusSchema = v.strictObject({
   settings: v.optional(
     v.strictObject({
       excludedSites: count,
+      /** The allowed sites (ADR 0077): how many, and whether they limit Pateat. */
+      allowedSites: count,
+      allowedSitesEnabled: v.boolean(),
       siteDefaults: count,
       bindings: count,
       passkeyBrowserSites: count,

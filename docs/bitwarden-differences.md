@@ -351,6 +351,14 @@ owner 2026-10-23). Official code is pinned at
   typed into a page as it is would give the second factor away, and a person who keeps a
   key in a custom field, as Bitwarden lets them, means it for codes.
 
+## Allowed sites
+
+Pateat's side is [ADR 0077](adr/0077-allowed-sites.md). The official extension has no
+list of the only sites it acts on; it excludes sites one by one. Pateat adds the list,
+off by default, as the owner chose for an extension that handles personal data. A site
+the list leaves out gets nothing from Pateat, while an excluded site only pauses
+automatic login ([ADR 0062](adr/0062-log-in-again-after-a-logout.md)).
+
 ## Vault timeout
 
 Pateat's side is [ADR 0075](adr/0075-vault-lock-and-timeout.md) and
@@ -370,7 +378,7 @@ Pateat's side is [ADR 0075](adr/0075-vault-lock-and-timeout.md) and
   ([main.background.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/background/main.background.ts#L889)).
   Pateat's is Never, so a vault keeps unlocking after a restart as the owner required
   before the setting existed ([ADR 0006](adr/0006-atomic-local-vault-cache.md)); an
-  agent's choice, to be reconsidered.
+  agent's choice, which the owner confirmed on 2026-10-23 (20:40 UTC).
 - The official extension counts the minutes from the last account activity it records
   ([vault-timeout.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/key-management/vault-timeout/services/vault-timeout.service.ts#L84-L126)).
   Pateat counts from the last field filled, passkey signed, unlock or sign-in, since it

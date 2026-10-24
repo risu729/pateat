@@ -86,6 +86,9 @@ const settingsOf = (parts: Partial<LocalSettings> = {}): LocalSettings => ({
   ...parts,
 });
 
+/** The synced settings name the allowed sites even while empty and off (ADR 0077). */
+const NO_ALLOWED_SITES = { allowedSites: [], allowedSitesEnabled: false };
+
 function setup(
   options: {
     settings?: LocalSettings;
@@ -162,6 +165,7 @@ describe("export and import", () => {
       version: 1,
       exportedAt: "2026-10-23T12:00:00.000Z",
       settings: settingsOf({
+        ...NO_ALLOWED_SITES,
         accountPolicies: [policy(owner, "risu")],
         excludedSites: [site("shop.example")],
         bindings: [binding(SITE)],
@@ -200,6 +204,7 @@ describe("export and import", () => {
     const snapshot = other.snapshot();
     expect(snapshot?.settings).toEqual(
       settingsOf({
+        ...NO_ALLOWED_SITES,
         connections: [{ connectionId: "connection-2", enabled: true }],
         accountPolicies: [policy(owner, "From the file"), policy(demo, "Demo")],
         excludedSites: [site("shop.example"), site("news.example")],

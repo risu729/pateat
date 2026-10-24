@@ -1,8 +1,10 @@
 import {
+  allowlistOn,
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
   normalizeHostname,
   settingsDocumentBytes,
+  siteRuleCovers,
   type LocalSettings,
 } from "@pateat/contracts";
 import { registrableSite } from "@pateat/contracts/site";
@@ -54,10 +56,18 @@ export function siteHostname(origin: string): string {
  * own, or a parent's that includes subdomains.
  */
 export function exclusionsCovering(settings: LocalSettings | null, hostname: string) {
-  return (settings?.excludedSites ?? []).filter(
-    (site) =>
-      hostname === site.hostname ||
-      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
+  return (settings?.excludedSites ?? []).filter((site) => siteRuleCovers(site, hostname));
+}
+
+/**
+ * Whether the allowed sites leave a hostname out (ADR 0077): they are on and none covers
+ * it. An exclusion still wins, so this says nothing about exclusions.
+ */
+export function notAllowed(settings: LocalSettings | null, hostname: string): boolean {
+  return (
+    settings !== null &&
+    allowlistOn(settings) &&
+    !(settings.allowedSites ?? []).some((site) => siteRuleCovers(site, hostname))
   );
 }
 
@@ -108,6 +118,43 @@ export function allowSite(hostname: string, done: string): SettingsEdit {
       excludedSites: value.excludedSites.filter((site) => site.hostname !== hostname),
     }),
     done,
+  };
+}
+
+/** Sets one hostname's allowed site, replacing any it had (ADR 0077). */
+export function addAllowedSite(
+  hostname: string,
+  includeSubdomains: boolean,
+  done: string,
+): SettingsEdit {
+  return {
+    apply: (value) => ({
+      ...value,
+      allowedSites: [
+        ...(value.allowedSites ?? []).filter((site) => site.hostname !== hostname),
+        { hostname, includeSubdomains },
+      ],
+    }),
+    done,
+  };
+}
+
+/** Removes one hostname's allowed site. */
+export function removeAllowedSite(hostname: string, done: string): SettingsEdit {
+  return {
+    apply: (value) => ({
+      ...value,
+      allowedSites: (value.allowedSites ?? []).filter((site) => site.hostname !== hostname),
+    }),
+    done,
+  };
+}
+
+/** Turns the allowed sites on or off; the list is kept either way. */
+export function setAllowedSites(on: boolean): SettingsEdit {
+  return {
+    apply: (value) => ({ ...value, allowedSitesEnabled: on }),
+    done: on ? "Pateat now runs only on allowed sites" : "Pateat now runs on every site",
   };
 }
 

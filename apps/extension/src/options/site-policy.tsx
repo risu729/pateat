@@ -26,6 +26,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as v from "valibot";
 import { pauseSite } from "../login/pause";
+import { unavailableReason } from "./unavailable-reason";
 import { Button } from "./button";
 import {
   Badge,
@@ -54,27 +55,6 @@ const originSchema = v.pipe(
   }, "Enter an origin such as https://bank.example, without a path or trailing slash."),
   v.transform((value) => new URL(value).origin),
 );
-
-function unavailableReason(reason: string): string {
-  const descriptions: Record<string, string> = {
-    "invalid-url": "The destination is invalid.",
-    "default-not-set": "No default account is set.",
-    "item-origin-mismatch": "This account does not match the exact origin.",
-    "connection-missing": "The vault connection is unavailable.",
-    "account-ambiguous":
-      "This vault account is connected more than once, or its user ID has settings for another server.",
-    "vault-unavailable": "The vault is locked or unavailable.",
-    "connection-disabled": "The vault connection is turned off.",
-    "item-missing": "This account is no longer in its vault.",
-    "item-excluded": "This account is excluded.",
-    "item-not-selected": "This account is outside the selected groups and items.",
-    "review-required": "This account's custom fields need review, or its vault needs a sync.",
-    "fields-excluded": "All fields in this account are excluded.",
-  };
-  return Object.hasOwn(descriptions, reason)
-    ? (descriptions[reason] ?? "This account is unavailable.")
-    : "This account is unavailable.";
-}
 
 type SiteAccountOption = {
   connectionId: string;
@@ -543,7 +523,10 @@ export function SitePolicy({
     accountNote = t("Enter an origin to list the accounts that match it.");
   else if (accountsPending) accountNote = t("Finding the vault items that match this origin…");
   else if (accounts.isError || (accounts.data && !accounts.data.ok))
-    accountNote = t("The matching accounts could not be listed.");
+    accountNote =
+      accounts.data?.ok === false && accounts.data.reason === "site-not-allowed"
+        ? t("This site is not an allowed site.")
+        : t("The matching accounts could not be listed.");
   else if (!matchedCount)
     accountNote = t(
       "No vault item matches this origin. Add the site's URI or passkey to the item in your vault, then sync.",
@@ -793,6 +776,7 @@ export function SitePolicy({
       order: `2 ${rule.hostname}`,
       row: () => repromptRow(rule),
     })),
+    // A default on a site the allowed sites leave out is listed, and says it is not used.
     ...draft.siteDefaults
       .filter((entry) => !isSiteExcluded(draft, entry.origin))
       .map((entry) => ({

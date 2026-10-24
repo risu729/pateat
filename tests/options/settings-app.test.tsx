@@ -1418,6 +1418,68 @@ test("the vault timeout has its own section only with a device setting to show",
   expect(vaultTimeoutClient.write).not.toHaveBeenCalled();
 });
 
+test("the allowed sites turn on, list sites and stay listed when turned off (ADR 0077)", async () => {
+  const client = mockClient();
+  await mount(client);
+  const allowlist = page.getByRole("switch", { name: "Run only on allowed sites" });
+  await expect.element(allowlist).not.toBeChecked();
+  await expect
+    .element(page.getByText("While this is off, Pateat runs on every site."))
+    .toBeVisible();
+  await userEvent.click(allowlist);
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 1).");
+  expect(client.saveSettings.mock.calls[0]?.[0].settings).toMatchObject({
+    allowedSitesEnabled: true,
+  });
+  await expect
+    .element(page.getByText("No site is allowed, so Pateat logs in nowhere until you allow one."))
+    .toBeVisible();
+  await control("allowed-site").fill("not a site");
+  await control("add-allowed-site").click();
+  await expect
+    .element(page.getByText("Enter a site such as https://bank.example or bank.example."))
+    .toBeVisible();
+  await expect.element(control("allowed-site")).toHaveFocus();
+  await control("allowed-site").fill("https://Bank.Example");
+  await control("allowed-site-subdomains").click();
+  await control("add-allowed-site").click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
+  expect(client.saveSettings.mock.calls[1]?.[0].settings.allowedSites).toEqual([
+    { hostname: "bank.example", includeSubdomains: true },
+  ]);
+  await expect.element(page.getByText("Pateat runs only on these sites.")).toBeVisible();
+  await expect.element(control("allowed-site")).toHaveValue("");
+  await userEvent.click(allowlist);
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 3).");
+  expect(client.saveSettings.mock.calls[2]?.[0].settings).toMatchObject({
+    allowedSitesEnabled: false,
+    allowedSites: [{ hostname: "bank.example", includeSubdomains: true }],
+  });
+  await page
+    .getByRole("button", { name: "Remove bank.example and subdomains from the allowed sites" })
+    .click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 4).");
+  expect(client.saveSettings.mock.calls[3]?.[0].settings.allowedSites).toEqual([]);
+});
+
+test("a default on a site the allowed sites leave out is listed and says it is not used", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  response.snapshot.settings.allowedSitesEnabled = true;
+  response.snapshot.settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    server: "cloud-us",
+    userId: "demo-personal-account",
+    itemId: "primary",
+  });
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  await expect
+    .element(page.getByText("This site is not an allowed site, so this default is not used."))
+    .toBeVisible();
+});
+
 test("the popup's This page checkbox sits under the theme and saves to the synced settings", async () => {
   const client = mockClient();
   await mount(client);

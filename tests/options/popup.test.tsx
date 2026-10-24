@@ -473,6 +473,50 @@ test("a page waiting for the master password offers to open its window again", a
   expect(choices.reprompt).toHaveBeenCalledWith(7);
 });
 
+test("a site the allowed sites leave out lists nothing and offers to allow its whole site (ADR 0077)", async () => {
+  const settings = createDefaultSettings();
+  settings.allowedSitesEnabled = true;
+  settings.allowedSites = [{ hostname: "shop.example", includeSubdomains: false }];
+  const { client, current } = store(saved(0, settings));
+  await mount(client, "https://login.bank.example/", pageOf("https://login.bank.example"));
+  await expect
+    .element(page.getByText("Pateat runs only on allowed sites, and this site is not one of them."))
+    .toBeVisible();
+  expect(client.findSiteAccounts).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByRole("group", { name: "Pause automatic login" }))
+    .not.toBeInTheDocument();
+  await userEvent.click(page.getByRole("button", { name: "Allow bank.example" }));
+  await expect
+    .element(page.getByText("bank.example and its subdomains are now allowed sites."))
+    .toBeVisible();
+  expect(current().snapshot.settings.allowedSites).toEqual([
+    { hostname: "shop.example", includeSubdomains: false },
+    { hostname: "bank.example", includeSubdomains: true },
+  ]);
+  expect(current().snapshot.settings.allowedSitesEnabled).toBe(true);
+  await expect.poll(() => client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+});
+
+test("allowed sites that are off, or that cover the site, leave the popup as it is", async () => {
+  const settings = createDefaultSettings();
+  settings.allowedSites = [{ hostname: "shop.example", includeSubdomains: false }];
+  const { client } = store(saved(0, settings));
+  await mount(client, "https://login.bank.example/");
+  await expect.poll(() => client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
+  await expect.element(page.getByRole("button", { name: /^Allow / })).not.toBeInTheDocument();
+  await cleanup();
+  settings.allowedSitesEnabled = true;
+  settings.allowedSites = [{ hostname: "bank.example", includeSubdomains: true }];
+  const covered = store(saved(0, settings));
+  await mount(covered.client, "https://login.bank.example/");
+  await expect.poll(() => covered.client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
+  await expect
+    .element(page.getByText("Pateat runs only on allowed sites, and this site is not one of them."))
+    .not.toBeInTheDocument();
+});
+
 test("a pause that is not saved changes nothing", async () => {
   const { client, current } = store();
   client.saveSettings.mockResolvedValueOnce({

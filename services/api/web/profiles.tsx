@@ -43,8 +43,9 @@ const INPUT_CLASSES =
   "min-h-10 rounded-lg border border-border-strong bg-surface px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-focus";
 
 /**
- * The owner's settings profiles (ADR 0076): each holds site exclusions, sites that ask
- * for the master password and saved accounts, and every device uses one. Bindings are the owner's, shared by all of them.
+ * The owner's settings profiles (ADR 0076): each holds site exclusions, allowed sites, sites
+ * that ask for the master password and saved accounts, and every device uses one. Bindings
+ * are the owner's, shared by all of them.
  */
 export function ProfilesPage({ client }: { client: ManageClient }) {
   const queryClient = useQueryClient();
@@ -104,9 +105,9 @@ export function ProfilesPage({ client }: { client: ManageClient }) {
         Profiles
       </h1>
       <p className="text-sm text-ink-muted">
-        A profile holds site exclusions, sites that ask for the master password and saved accounts.
-        Each device uses one, chosen when it pairs or on the Devices page. Account bindings and
-        personal-detail links are shared by every profile.
+        A profile holds site exclusions, allowed sites, sites that ask for the master password and
+        saved accounts. Each device uses one, chosen when it pairs or on the Devices page. Account
+        bindings and personal-detail links are shared by every profile.
       </p>
       <SuccessNotice id="profiles-notice" message={notice} />
       {failed?.error && (

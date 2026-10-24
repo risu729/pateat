@@ -1,15 +1,17 @@
 import { normalizeHostname, parseSiteUrl } from "@pateat/contracts";
-import { ChevronRight, Info, Pause, RefreshCw, User } from "lucide-react";
+import { Ban, ChevronRight, Info, Pause, RefreshCw, User } from "lucide-react";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
 import { isActive, RevokedRecipes, UnreadableRecipes, useRecipes } from "./recipes";
+import { AllowedSites } from "./allowed-sites";
 import {
   allowSite,
   defaultAccountLabel,
   exclusionLabel,
   exclusionsCovering,
   excludeSite,
+  notAllowed,
   siteHostname,
   useSettings,
   useSettingsEdit,
@@ -137,6 +139,8 @@ export function SitesPage({ client }: { client: ManageClient }) {
             const siteDefault = current?.siteDefaults.find((entry) => entry.origin === origin);
             const bindingCount = bindingsByOrigin.get(origin)?.length ?? 0;
             const excluded = exclusionsCovering(current, siteHostname(origin)).length > 0;
+            // Outside the allowed sites devices do nothing, paused or not (ADR 0077).
+            const leftOut = notAllowed(current, siteHostname(origin));
             return (
               // The whole row opens the site; the link is its only control.
               <li key={origin} className={`relative ${ROW_CLASSES} hover:bg-surface-sunken`}>
@@ -167,6 +171,12 @@ export function SitesPage({ client }: { client: ManageClient }) {
                         <Badge tone="muted">
                           <Pause size={12} aria-hidden />
                           Paused
+                        </Badge>
+                      )}
+                      {leftOut && (
+                        <Badge tone="muted">
+                          <Ban size={12} aria-hidden />
+                          Not allowed
                         </Badge>
                       )}
                     </span>
@@ -241,6 +251,7 @@ export function SitesPage({ client }: { client: ManageClient }) {
           )}
         </form>
       )}
+      {settings.data && <AllowedSites settings={current} busy={edit.isPending} change={change} />}
       {recipes.data && (
         <div className="space-y-8 pt-4">
           <UnreadableRecipes client={client} announce={setNotice} />

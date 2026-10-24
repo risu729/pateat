@@ -18,6 +18,7 @@ import {
   Info,
   KeyRound,
   Link,
+  ListChecks,
   Shield,
   Timer,
   TriangleAlert,
@@ -33,6 +34,7 @@ import { VaultAccess, VaultRows } from "./connections";
 import { PRIVATE_WINDOWS_SECTION } from "../popup/pause";
 import { PrivateWindows } from "./private-windows";
 import { SitePolicy } from "./site-policy";
+import { AllowedSites } from "./allowed-sites";
 import { BitwardenSetup } from "./bitwarden-setup";
 import { DeviceModelPanel, type DeviceModelClient } from "./device-model";
 import { TransferPanel, type TransferClient } from "./transfer";
@@ -297,6 +299,8 @@ export function SettingsApp({
     form.setFieldValue("itemPolicies", value.itemPolicies);
     form.setFieldValue("excludedSites", value.excludedSites);
     form.setFieldValue("repromptSites", value.repromptSites);
+    form.setFieldValue("allowedSites", value.allowedSites);
+    form.setFieldValue("allowedSitesEnabled", value.allowedSitesEnabled);
     form.setFieldValue("siteDefaults", value.siteDefaults);
     form.setFieldValue("bindings", value.bindings);
     form.setFieldValue("popupPageSection", value.popupPageSection);
@@ -377,6 +381,8 @@ export function SettingsApp({
     form.setFieldValue("excludedSites", next.excludedSites);
     form.setFieldValue("passkeyBrowserSites", next.passkeyBrowserSites);
     form.setFieldValue("repromptSites", next.repromptSites);
+    form.setFieldValue("allowedSites", next.allowedSites);
+    form.setFieldValue("allowedSitesEnabled", next.allowedSitesEnabled);
     form.setFieldValue("siteDefaults", next.siteDefaults);
     form.setFieldValue("loginInPrivateWindows", next.loginInPrivateWindows);
     form.setFieldValue("popupPageSection", next.popupPageSection);
@@ -520,6 +526,7 @@ export function SettingsApp({
       ? [{ id: "vault-timeout", label: t("Vault timeout"), icon: Timer }]
       : []),
     { id: "sites", label: t("Sites"), icon: Globe },
+    { id: "allowed-sites", label: t("Allowed sites"), icon: ListChecks },
     { id: PRIVATE_WINDOWS_SECTION, label: t("Private windows"), icon: EyeOff },
     ...(serviceClient ? [{ id: "sync", label: t("Sync service"), icon: Link }] : []),
     ...(deviceModelClient ? [{ id: "ai-key", label: t("AI key"), icon: KeyRound }] : []),
@@ -687,6 +694,17 @@ export function SettingsApp({
             ) : (
               <Panel id="sites" headingId="sites-heading" title={t("Sites")}>
                 <ul id="site-list" className="hidden" />
+              </Panel>
+            )}
+            {accepted ? (
+              <AllowedSites key={`allowed-${generation}`} draft={draft} edit={edit} />
+            ) : (
+              <Panel
+                id="allowed-sites"
+                headingId="allowed-sites-heading"
+                title={t("Allowed sites")}
+              >
+                <ul id="allowed-site-list" className="hidden" />
               </Panel>
             )}
             {accepted && <PrivateWindows draft={draft} edit={edit} />}

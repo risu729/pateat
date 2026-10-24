@@ -585,3 +585,126 @@ test("matches and writes a trailing-dot origin's hostname without the dot", asyn
     .element(page.getByRole("listitem").filter({ hasText: "https://bank.example." }))
     .toMatchTextContent("Paused");
 });
+
+test("turns the allowed sites on, adds and removes one, and keeps the list when off", async () => {
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 1,
+    settings: settingsOf({ siteDefaults: [bankDefault] }),
+  });
+  await mount(client, "/manage/sites");
+  const allowlist = page.getByRole("switch", { name: "Run only on allowed sites" });
+  await expect.element(allowlist).not.toBeChecked();
+  await allowlist.click();
+  await expect.element(allowlist).toBeChecked();
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    1,
+    settingsOf({ siteDefaults: [bankDefault], allowedSitesEnabled: true }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+  // On with nothing allowed: the site row says it is left out.
+  await expect
+    .element(page.getByText("No site is allowed, so Pateat logs in nowhere until you allow one"))
+    .toBeVisible();
+  await expect.element(page.getByText("Not allowed")).toBeVisible();
+
+  await page.getByLabelText("Hostname to allow").fill("Bank.Example");
+  await page.getByRole("button", { name: "Allow site" }).click();
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("bank.example is now an allowed site");
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    2,
+    settingsOf({
+      siteDefaults: [bankDefault],
+      allowedSitesEnabled: true,
+      allowedSites: [{ hostname: "bank.example", includeSubdomains: false }],
+    }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+  await expect.element(page.getByText("Not allowed")).not.toBeInTheDocument();
+
+  await allowlist.click();
+  await expect.element(allowlist).not.toBeChecked();
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    3,
+    settingsOf({
+      siteDefaults: [bankDefault],
+      allowedSitesEnabled: false,
+      allowedSites: [{ hostname: "bank.example", includeSubdomains: false }],
+    }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+
+  await page.getByRole("button", { name: "Remove bank.example from the allowed sites" }).click();
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("bank.example is no longer an allowed site");
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    4,
+    settingsOf({ siteDefaults: [bankDefault], allowedSitesEnabled: false, allowedSites: [] }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+});
+
+test("a site the allowed sites leave out offers to allow its whole site (ADR 0077)", async () => {
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 1,
+    settings: settingsOf({
+      allowedSitesEnabled: true,
+      allowedSites: [{ hostname: "shop.example", includeSubdomains: false }],
+    }),
+  });
+  await mount(client, "/manage/sites/https/www.bank.example");
+  await expect
+    .element(page.getByText("Not an allowed site, so devices do nothing here"))
+    .toBeVisible();
+  await page.getByRole("button", { name: "Allow bank.example" }).click();
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    1,
+    settingsOf({
+      allowedSitesEnabled: true,
+      allowedSites: [
+        { hostname: "shop.example", includeSubdomains: false },
+        { hostname: "bank.example", includeSubdomains: true },
+      ],
+    }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("bank.example and subdomains are now allowed sites");
+  await expect
+    .element(page.getByText("Not an allowed site, so devices do nothing here"))
+    .not.toBeInTheDocument();
+});
+
+test("a site the allowed sites cover offers no Allow button and still pauses", async () => {
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 1,
+    settings: settingsOf({
+      allowedSitesEnabled: true,
+      allowedSites: [{ hostname: "example", includeSubdomains: true }],
+    }),
+  });
+  await mount(client, BANK_PAGE);
+  await expect.element(page.getByRole("button", { name: /^Allow / })).not.toBeInTheDocument();
+  const toggle = page.getByRole("switch", { name: "Automatic login on this site" });
+  await toggle.click();
+  await expect.element(toggle).not.toBeChecked();
+  // A pause is an exclusion rule; the allowed site stays.
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    1,
+    settingsOf({
+      allowedSitesEnabled: true,
+      allowedSites: [{ hostname: "example", includeSubdomains: true }],
+      excludedSites: [{ hostname: "bank.example", includeSubdomains: true }],
+    }),
+    "00000000-0000-4000-8000-000000000001",
+  );
+});

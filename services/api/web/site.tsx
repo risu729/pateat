@@ -5,8 +5,11 @@ import { SiteBindings } from "./bindings";
 import { Button } from "./button";
 import { SiteRecipes } from "./recipes";
 import {
+  addAllowedSite,
   defaultAccountLabel,
   exclusionLabel,
+  notAllowed,
+  siteHostname,
   siteRules,
   useSettings,
   useSettingsEdit,
@@ -43,8 +46,10 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
   // turned back on, as the extension's popup does, or resumes it (ADR 0062); it adds or
   // removes only the site's own rules, and a rule that also covers other sites is changed on
   // the Sites list.
-  const { rules, shared, pause, resume } = siteRules(current, origin);
+  const { rules, shared, pause, resume, site } = siteRules(current, origin);
   const broader = shared[0];
+  // Outside the allowed sites devices do nothing at all, paused or not (ADR 0077).
+  const leftOut = notAllowed(current, siteHostname(origin));
   const siteDefault = current?.siteDefaults.find((entry) => entry.origin === origin);
   const bindings = (current?.bindings ?? []).filter((entry) => entry.origin === origin);
 
@@ -83,6 +88,22 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
           <p id={reasonId} className="text-[13px]/5 text-ink-muted">
             Paused with {exclusionLabel(broader)}; resume it on the Sites list
           </p>
+        )}
+        {leftOut && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <p id="site-not-allowed" className="text-[13px]/5 text-ink-muted">
+              Not an allowed site, so devices do nothing here
+            </p>
+            <Button
+              variant="outline"
+              disabled={edit.isPending}
+              onClick={() =>
+                change(addAllowedSite(site, true, `${site} and subdomains are now allowed sites`))
+              }
+            >
+              Allow {site}
+            </Button>
+          </div>
         )}
       </div>
       <SuccessNotice id="site-saved" message={notice} />

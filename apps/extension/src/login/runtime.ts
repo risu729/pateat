@@ -23,6 +23,7 @@ import {
   heldRouteMissing,
   isGeneratedRecipeId,
   isPasskeyBrowserSite,
+  isSiteAllowed,
   isSiteExcluded,
   loginFieldFacts,
   loginFieldSource,
@@ -5492,6 +5493,9 @@ export function createLoginRuntime(
     granted: VaultCatalog,
   ): Promise<{ reason: string } | undefined> {
     if (!live.topUrl) return undefined;
+    // A frame on a page outside the allowed sites gets nothing either (ADR 0077).
+    if (!isSiteAllowed(snapshot.snapshot.settings, live.topUrl))
+      return { reason: "site-not-allowed" };
     const connection = snapshot.catalog.connections.find(
       (entry) => entry.id === selected.connectionId,
     );
@@ -7628,6 +7632,7 @@ export function createLoginRuntime(
       !connection ||
       (connection.state !== "ready" && connection.state !== "review-required") ||
       isSiteExcluded(policy, offer.account.origin) ||
+      !isSiteAllowed(policy, offer.account.origin) ||
       !getItemEligibility(policy, catalog, connection.id, offer.account.itemId).eligible
     )
       return byName;
@@ -7904,6 +7909,7 @@ export function createLoginRuntime(
     // The site and the login item may have been excluded since the login stopped.
     if (
       isSiteExcluded(snapshot.snapshot.settings, offer.account.origin) ||
+      !isSiteAllowed(snapshot.snapshot.settings, offer.account.origin) ||
       !getItemEligibility(
         snapshot.snapshot.settings,
         snapshot.catalog,
@@ -8669,6 +8675,12 @@ export function createLoginRuntime(
     const excluded = async (): Promise<string | undefined> => {
       const snapshot = await settings.handle({ version: 1, type: "settings.get" });
       if (!snapshot.ok) return "settings-unavailable";
+      const saved = snapshot.snapshot.settings;
+      if (
+        !isSiteAllowed(saved, live.document.origin) ||
+        (live.topUrl !== undefined && !isSiteAllowed(saved, live.topUrl))
+      )
+        return "site-not-allowed";
       return (await pauseOf(live)) ? "paused" : undefined;
     };
     /** The page as the judge would get it, while it is still the one the login ended on. */
@@ -14818,6 +14830,7 @@ export function createLoginRuntime(
       .handle({ version: 1, type: "settings.get" })
       .catch(() => undefined);
     if (!snapshot?.ok) return "settings-unavailable";
+    if (!isSiteAllowed(snapshot.snapshot.settings, url)) return "site-not-allowed";
     const matched = await vaultMatches({ ...live, url }).catch(() => undefined);
     if (!matched?.items.length) return "no-vault-match";
     return undefined;
@@ -14889,6 +14902,8 @@ export function createLoginRuntime(
       if (!snapshot?.ok) return refuseEntry(live, recipe, "settings-unavailable");
       if (isSiteExcluded(snapshot.snapshot.settings, destination.href))
         return refuseEntry(live, recipe, "destination-excluded");
+      if (!isSiteAllowed(snapshot.snapshot.settings, destination.href))
+        return refuseEntry(live, recipe, "destination-not-allowed");
       if (!shown()) return;
       const press: EntryPress = {
         tabId,

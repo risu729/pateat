@@ -2,6 +2,7 @@ import {
   connectionUse,
   getItemEligibility,
   isFieldExcluded,
+  isSiteAllowed,
   siteAccountsRequestSchema,
   type LocalSettings,
   type SettingsRequest,
@@ -40,6 +41,9 @@ export async function findSiteAccounts(input: {
 }): Promise<SiteAccountsResponse> {
   const { settings } = input;
   const { catalog } = input.saved;
+  // A site outside the allowed sites lists nothing (ADR 0077).
+  if (!isSiteAllowed(settings, input.origin))
+    return { version: 1, ok: false, reason: "site-not-allowed" };
   const accounts = new Map<
     string,
     { connectionId: string; itemId: string; uri: boolean; passkey: boolean; username?: string }

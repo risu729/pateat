@@ -51,7 +51,7 @@ export const siteAccountsResponseSchema = v.variant("ok", [
   v.strictObject({
     version: v.literal(1),
     ok: v.literal(false),
-    reason: v.picklist(["invalid-request", "unavailable"]),
+    reason: v.picklist(["invalid-request", "site-not-allowed", "unavailable"]),
   }),
 ]);
 
