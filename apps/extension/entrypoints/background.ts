@@ -8,6 +8,7 @@ import { createRecipeRepairs } from "../src/login/repair";
 import { createLoginSites } from "../src/login/sites";
 import {
   combineFieldSources,
+  createVaultFieldBatch,
   createVaultFieldSource,
   createVaultUriMatcher,
   dummyFieldSource,
@@ -541,7 +542,7 @@ export default defineBackground(() => {
     settings,
     matchUris: vaultUris,
     findPasskeys: vaultPasskeyFinder,
-    readField: vaultFields,
+    readFields: createVaultFieldBatch(connections),
   });
   // ADR 0021: one Pateat window to choose among several matching passkeys.
   const passkeyChooser = createPasskeyChooser({

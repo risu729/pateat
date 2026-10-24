@@ -1092,6 +1092,51 @@ describe("durable authority across independent managers", () => {
     expect(await pending).toEqual(vaultFailure("stale-vault-handle"));
     expect(h.opened.size).toBe(0);
   });
+  it("resolves several fields with one durable check before and one after", async () => {
+    const h = harness();
+    const current = await accepted(h);
+    const listed = await h.manager.listFields(current.handle, itemId);
+    if (!listed.ok) throw new Error("Synthetic listing failed");
+    const ref = listed.data[0]!.ref;
+    const grant = { snapshotId: current.handle.snapshotId, allowedFieldIds: ["login.password"] };
+    h.store.read.mockClear();
+    const results = await h.manager.resolveFields(current.handle, [
+      { ref, grant },
+      { ref, grant: { ...grant, snapshotId: crypto.randomUUID() } },
+      { ref, grant },
+    ]);
+    expect(results.map((result) => result.ok)).toEqual([true, false, true]);
+    expect(results[1]).toEqual(vaultFailure("stale-field-reference"));
+    // The field with another snapshot never reaches the host.
+    expect(h.host.resolveField).toHaveBeenCalledTimes(2);
+    expect(h.store.read).toHaveBeenCalledTimes(2);
+  });
+  it("withholds every field of a batch once an external writer replaces the accepted revision", async () => {
+    const h = harness();
+    const current = await accepted(h);
+    const listed = await h.manager.listFields(current.handle, itemId);
+    if (!listed.ok) throw new Error("Synthetic listing failed");
+    const ref = listed.data[0]!.ref;
+    const grant = { snapshotId: current.handle.snapshotId, allowedFieldIds: ["login.password"] };
+    const held = gate();
+    h.host.resolveField.mockImplementationOnce(async () => {
+      await held.promise;
+      return { ok: true, data: { kind: "text", value: "synthetic-late-password" } };
+    });
+    const pending = h.manager.resolveFields(current.handle, [
+      { ref, grant },
+      { ref, grant },
+    ]);
+    await vi.waitFor(() => expect(h.host.resolveField).toHaveBeenCalledTimes(1));
+    const replaced = h.entry()!;
+    replaced.revision = crypto.randomUUID();
+    h.setEntry(replaced);
+    held.release();
+    expect(await pending).toEqual([
+      vaultFailure("stale-vault-handle"),
+      vaultFailure("stale-vault-handle"),
+    ]);
+  });
   it("detaches handle, reference, and allowed fields before a slow durable preflight read", async () => {
     const h = harness();
     const current = await accepted(h);

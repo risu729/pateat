@@ -1077,6 +1077,52 @@ export function createLocalVaultManager(options: {
         ? result
         : vaultFailure("stale-vault-handle");
     },
+    /**
+     * `resolveField` for several fields of the live snapshot, with one durable check before
+     * and one after all of them: every value is refused once the vault changed meanwhile.
+     */
+    async resolveFields(
+      handle: LocalVaultHandle,
+      fields: readonly {
+        ref: LocalFieldReference;
+        grant: { snapshotId: string; allowedFieldIds: readonly string[]; code?: true };
+      }[],
+      signal?: AbortSignal,
+    ) {
+      let captured: typeof fields;
+      try {
+        handle = structuredClone(handle);
+        captured = structuredClone(fields);
+      } catch {
+        return fields.map(() => vaultFailure("invalid-request"));
+      }
+      const all = (code: Parameters<typeof vaultFailure>[0]) =>
+        captured.map(() => vaultFailure(code));
+      if (!validHandle(handle) || !live) return all("stale-vault-handle");
+      const currentLive = live;
+      const before = await checkDurable(currentLive);
+      if (!before.ok) return all(before.error.code);
+      if (!validHandle(handle)) return all("stale-vault-handle");
+      const results = [];
+      for (const { ref, grant } of captured) {
+        if (grant.snapshotId !== currentLive.handle.snapshotId) {
+          results.push(vaultFailure("stale-field-reference"));
+          continue;
+        }
+        const { snapshotId: _snapshotId, ...rest } = grant;
+        // oxlint-disable-next-line no-await-in-loop -- the crypto Worker takes one job at a time
+        const result = await options.host.resolveField(
+          currentLive.opened.session,
+          ref,
+          rest,
+          signal,
+        );
+        results.push(result);
+      }
+      const after = await checkDurable(currentLive);
+      if (!after.ok) return all(after.error.code);
+      return validHandle(handle) && live === currentLive ? results : all("stale-vault-handle");
+    },
     status() {
       forgetEndedLive();
       return {

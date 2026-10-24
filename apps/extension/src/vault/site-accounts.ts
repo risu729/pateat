@@ -9,7 +9,7 @@ import {
   type SiteAccountsResponse,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import type { LoginFieldSource } from "../login/vault";
+import type { LoginFieldBatch } from "../login/vault";
 import { passkeyOrigin, rpIdsFor } from "../passkeys/rp-id";
 import { findVaultPasskeys, type PasskeyFinder } from "../passkeys/vault";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "./site-candidates";
@@ -35,8 +35,8 @@ export async function findSiteAccounts(input: {
   origin: string;
   matchUris: LiveUriMatcher;
   findPasskeys: PasskeyFinder;
-  /** Resolves a matched live item's field under the saved settings; never the demo vaults. */
-  readField?: LoginFieldSource;
+  /** Resolves matched live items' fields under the saved settings; never the demo vaults. */
+  readFields?: LoginFieldBatch;
 }): Promise<SiteAccountsResponse> {
   const { settings } = input;
   const { catalog } = input.saved;
@@ -106,8 +106,10 @@ export async function findSiteAccounts(input: {
     if (!found.complete) complete = false;
     for (const entry of found.candidates) add(entry.connectionId, entry.itemId, "passkey");
   }
-  // Only matched items, so same-named items can be told apart; no other value is read.
-  if (input.readField)
+  // Only matched items, so same-named items can be told apart; no other value is read. They
+  // are read together, so the settings and each vault are checked once for all of them.
+  if (input.readFields) {
+    const read = [];
     for (const account of accounts.values()) {
       const connection = live.connections.find((entry) => entry.id === account.connectionId);
       const excluded = isFieldExcluded(
@@ -117,21 +119,28 @@ export async function findSiteAccounts(input: {
         account.itemId,
         "login.username",
       );
-      if (!connection || excluded) continue;
-      // eslint-disable-next-line no-await-in-loop
-      const username = await input
-        .readField({
-          account: {
-            origin: input.origin,
-            connectionId: account.connectionId,
-            itemId: account.itemId,
-          },
-          connection,
-          fieldId: "login.username",
-        })
-        .catch(() => undefined);
+      if (connection && !excluded) read.push({ account, connection });
+    }
+    const usernames = read.length
+      ? await input
+          .readFields(
+            read.map(({ account, connection }) => ({
+              account: {
+                origin: input.origin,
+                connectionId: account.connectionId,
+                itemId: account.itemId,
+              },
+              connection,
+              fieldId: "login.username",
+            })),
+          )
+          .catch(() => [])
+      : [];
+    for (const [index, { account }] of read.entries()) {
+      const username = usernames[index];
       if (username) account.username = username.slice(0, 1024);
     }
+  }
   return { version: 1, ok: true, origin: input.origin, accounts: [...accounts.values()], complete };
 }
 
@@ -140,7 +149,7 @@ export function createSiteAccountsHandler(options: {
   settings: { handle(request: SettingsRequest): Promise<SettingsResponse> };
   matchUris: LiveUriMatcher;
   findPasskeys: PasskeyFinder;
-  readField?: LoginFieldSource;
+  readFields?: LoginFieldBatch;
 }) {
   const answer = async (message: unknown): Promise<SiteAccountsResponse> => {
     const request = v.safeParse(siteAccountsRequestSchema, message);
@@ -153,7 +162,7 @@ export function createSiteAccountsHandler(options: {
       // oxlint-disable-next-line no-await-in-loop -- each search reads the settings anew
       const saved = await options.settings.handle({ version: 1, type: "settings.get" });
       if (!saved.ok) return { version: 1, ok: false, reason: "unavailable" };
-      const { readField } = options;
+      const { readFields } = options;
       let missed = false;
       // oxlint-disable-next-line no-await-in-loop -- searches run one after another
       const found = await findSiteAccounts({
@@ -162,13 +171,13 @@ export function createSiteAccountsHandler(options: {
         origin: request.output.origin,
         matchUris: options.matchUris,
         findPasskeys: options.findPasskeys,
-        ...(readField
+        ...(readFields
           ? {
-              readField: (field) =>
-                readField(field).then(
-                  (value) => {
-                    if (value === undefined) missed = true;
-                    return value;
+              readFields: (fields) =>
+                readFields(fields).then(
+                  (values) => {
+                    if (values.some((value) => value === undefined)) missed = true;
+                    return values;
                   },
                   (error: unknown) => {
                     missed = true;

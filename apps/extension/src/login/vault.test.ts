@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { VaultConnectionMetadata } from "@pateat/contracts";
 import {
   combineFieldSources,
+  createVaultFieldBatch,
   createVaultFieldSource,
   createVaultUriMatcher,
   dummyFieldSource,
@@ -124,6 +125,57 @@ describe("live vault login field source", () => {
     ).resolves.toBeUndefined();
     expect(h.connections.registry.get).not.toHaveBeenCalled();
     expect(h.connections.resolveField).not.toHaveBeenCalled();
+  });
+  it("resolves several references in one connection runtime call, keeping their order", async () => {
+    const other = "80000000-0000-4000-8000-000000000002";
+    const h = harness();
+    const resolveFields = vi.fn(async (fields: { ref: { itemId: string } }[]) =>
+      fields.map(({ ref }) =>
+        ref.itemId === itemId
+          ? { ok: true, data: { kind: "text", value: "alice" } }
+          : { ok: false, error: { code: "field-denied" } },
+      ),
+    );
+    const batch = createVaultFieldBatch({
+      ...h.connections,
+      resolveFields,
+    } as unknown as Parameters<typeof createVaultFieldBatch>[0]);
+    await expect(
+      batch([
+        { account, connection: connection(), fieldId: "login.username" },
+        // Rejected before any vault access, so it is not sent to the runtime.
+        { account, connection: connection({ provider: "dummy" }), fieldId: "login.username" },
+        {
+          account: { ...account, itemId: other },
+          connection: connection(),
+          fieldId: "login.username",
+        },
+      ]),
+    ).resolves.toEqual(["alice", undefined, undefined]);
+    expect(resolveFields).toHaveBeenCalledOnce();
+    expect(resolveFields).toHaveBeenCalledWith([
+      {
+        connectionId,
+        ref: { connectionId, userId, itemId, snapshotId, fieldId: "login.username" },
+      },
+      {
+        connectionId,
+        ref: { connectionId, userId, itemId: other, snapshotId, fieldId: "login.username" },
+      },
+    ]);
+    expect(h.connections.resolveField).not.toHaveBeenCalled();
+  });
+  it("does not call the connection runtime when no reference is bound to the open snapshot", async () => {
+    const h = harness(undefined, null);
+    const resolveFields = vi.fn();
+    const batch = createVaultFieldBatch({
+      ...h.connections,
+      resolveFields,
+    } as unknown as Parameters<typeof createVaultFieldBatch>[0]);
+    await expect(
+      batch([{ account, connection: connection(), fieldId: "login.username" }]),
+    ).resolves.toEqual([undefined]);
+    expect(resolveFields).not.toHaveBeenCalled();
   });
   it("answers a code request from the synthetic source only for its TOTP field", async () => {
     const dummy = connection({ provider: "dummy" });
