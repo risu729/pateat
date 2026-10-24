@@ -526,11 +526,14 @@ new owner decision:
   treats the same document as a new one and ends `challenge`; a click whose delivery
   failed while the button still shows also ends `challenge`. Both fail closed.
 - **Settlement on the passkey route.** Every result on the route other than
-  `authenticated` ends `challenge`: the rejection marker, a final `unknown`, a
-  judgement of `rejected`, `unclear` or `challenge` without a handler, and a page that
-  could not be judged. A page after the click is still checked for handlers, so a
-  handler the recipe has (or the judge adds) runs as on the `password` route, and the
-  route never changes during the login.
+  `authenticated` ends `challenge`: the rejection marker, a final `unknown`, a judgement
+  of `rejected`, `unclear` or `challenge` without a handler, and a page that could not
+  be judged. Since 2026-10-24 (owner,
+  [ADR 0029 amendment](0029-local-sign-in-state.md#amendment-the-passkey-route-reads-the-sign-in-state-2026-10-24)),
+  a confirmed signed-in reading and an undecided judgement that completes a `password`
+  login complete this route's login as `authenticated` too. A page after the click is
+  still checked for handlers, so a handler the recipe has (or the judge adds) runs as on
+  the `password` route, and the route never changes during the login.
 - **Judging the passkey route.** The judge request names the `passkey` route. The
   route starts beside the password form, so a page that still shows that form is the
   sign-in page on this route too: the service answers `not-judgeable` for a page that

@@ -2842,7 +2842,8 @@ export function createLoginRuntime(
   /**
    * By tab: when the attempt last delivered an effect step, the document it ran in, whether
    * the step submits (`submit`), whether it asks for a passkey itself (the `passkey` route,
-   * or a `passkey` handler's click), so S5 skips it, and the first other top document of the
+   * or a `passkey` handler's click), so S5 counts only a request after Pateat's answer to
+   * it, and the first other top document of the
    * tab announced after it, within `SITE_MOVE_MS` (`next`). After a password step's
    * submission, that first new document alone is read for a sign-in form shown again
    * (ADR 0029). `code`: when the attempt last submitted a TOTP code, or may have, as the
@@ -6574,9 +6575,14 @@ export function createLoginRuntime(
     if (!current(run) || terminal(run.metadata)) return undefined;
     const state = effectful(run.metadata) ? await signInState(run, advance) : undefined;
     if (!current(run) || terminal(run.metadata)) return undefined;
-    // Evidence of a sign-in completes the login without a model call, and a failure shown
-    // next to the sign-in fields rejects it (ADR 0029).
-    if (state?.confirmed && (state.decision === "signed-in" || state.decision === "rejected")) {
+    // Evidence of a sign-in completes the login without a model call, on the passkey route
+    // too (owner, 2026-10-24), and a failure shown next to the sign-in fields rejects it
+    // (ADR 0029); the passkey route rejects no credential, and goes on as before.
+    if (
+      state?.confirmed &&
+      (state.decision === "signed-in" ||
+        (state.decision === "rejected" && run.metadata.route !== "passkey"))
+    ) {
       await change(run, {
         type: "OBSERVED",
         result: state.decision === "signed-in" ? "authenticated" : "credential-rejected",
@@ -6711,10 +6717,9 @@ export function createLoginRuntime(
   /**
    * Reads and logs the sign-in state of ADR 0029 for a page no check explained: its signs
    * and what the ADR does with it. Returns the decision, `confirmed` only when a later
-   * reading, a second apart, agrees in the fully loaded document. On the passkey route,
-   * where anything the route's checks do not prove ends `challenge`, the reading is not
-   * read again and never confirmed, so it is logged only. A login in a frame is not read,
-   * as the ADR reads the top document.
+   * reading, a second apart, agrees in the fully loaded document, on the passkey route too
+   * (ADR 0029 amendment of 2026-10-24). A login in a frame is not read, as the ADR reads
+   * the top document.
    */
   async function signInState(
     run: Execution,
@@ -6729,27 +6734,26 @@ export function createLoginRuntime(
     // again with nothing else, on which the tab asks again (ADR 0021 D). Each reading
     // depends on the time passed since the last, so they run one after another.
     /* eslint-disable no-await-in-loop */
-    if (run.metadata.route !== "passkey")
-      for (
-        let recheck = 0;
-        reading !== undefined &&
-        (reading.decision !== "unknown" || formAgain(reading.signs)) &&
-        recheck < SIGN_IN_RECHECKS;
-        recheck++
-      ) {
-        await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
-        if (!current(run) || terminal(run.metadata)) return undefined;
-        const next = await readSignInState(run);
-        const agrees =
-          next?.decision === reading.decision &&
-          formAgain(next.signs) === formAgain(reading.signs) &&
-          next.loaded;
-        reading = next;
-        if (agrees) {
-          confirmed = true;
-          break;
-        }
+    for (
+      let recheck = 0;
+      reading !== undefined &&
+      (reading.decision !== "unknown" || formAgain(reading.signs)) &&
+      recheck < SIGN_IN_RECHECKS;
+      recheck++
+    ) {
+      await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
+      if (!current(run) || terminal(run.metadata)) return undefined;
+      const next = await readSignInState(run);
+      const agrees =
+        next?.decision === reading.decision &&
+        formAgain(next.signs) === formAgain(reading.signs) &&
+        next.loaded;
+      reading = next;
+      if (agrees) {
+        confirmed = true;
+        break;
       }
+    }
     /* eslint-enable no-await-in-loop */
     if (!reading) return undefined;
     report(run.live.document, {
@@ -6940,17 +6944,21 @@ export function createLoginRuntime(
     if (!parsed.success || !parsed.output.ok) return undefined;
     const page = parsed.output.signs;
     const requested = passkeyRequests.get(`${tabId} ${pageOrigin}`);
+    const answered = passkeyAnswers.get(`${tabId} ${pageOrigin}`)?.at;
     const signInUrl = signInUrls.get(tabId);
     const signs: SignInSigns = {
       s1,
       s2: page.password,
       s3: page.code,
       s4: page.captcha,
+      // After a step that asked for a passkey itself, only a request after Pateat's answer
+      // to it counts: the site asks for another one (ADR 0029 amendment of 2026-10-24).
       s5:
         effect?.attemptId === metadata.id &&
-        !effect.passkey &&
         requested !== undefined &&
-        requested >= effect.at,
+        (effect.passkey
+          ? answered !== undefined && answered >= effect.at && requested > answered
+          : requested >= effect.at),
       // A failure counts only next to the sign-in fields.
       f1: s1 && page.invalid,
       f2: s1 && page.alert,

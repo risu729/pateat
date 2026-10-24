@@ -23332,6 +23332,86 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(h.fields).not.toHaveBeenCalled();
   });
 
+  describe("reads the page's sign-in state as the password route does (owner, 2026-10-24)", () => {
+    const quiet = { password: false, code: false, captcha: false, invalid: false, alert: false };
+
+    it("completes on the username in the header, without the judge", async () => {
+      vi.useFakeTimers();
+      onClick({ [button.value]: { path: "/elsewhere", present: [], extracted: elsewhere } });
+      fake.state.signs = { ...quiet, username: true };
+      const service = generation();
+      const { h, report } = start(routed, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated", "authenticated"), 20_000);
+      expect(service.judge).not.toHaveBeenCalled();
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "state",
+          route: "passkey",
+          e2: true,
+          decision: "signed-in",
+        }),
+      );
+      expect(fills()).toBe(0);
+    });
+
+    it("completes a quiet page the judge found signed in before", async () => {
+      vi.useFakeTimers();
+      onClick({ [button.value]: { path: "/elsewhere", present: [], extracted: elsewhere } });
+      fake.state.signs = quiet;
+      const service = generation(async () => ({ verdict: "unclear", reason: "judged-signed-in" }));
+      const { h } = start(routed, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated", "authenticated"), 20_000);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+    });
+
+    it("ends as a challenge when the site asks for a passkey again after the answer", async () => {
+      vi.useFakeTimers();
+      fake.state.signs = quiet;
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind !== "click" || step.target.value !== button.value) return;
+        fake.state.observedPath = "/elsewhere";
+        fake.state.present = new Set();
+        fake.state.extracted = { "signed-in": elsewhere };
+        // Pateat answers the button's request, then the site asks for another passkey.
+        h.login.passkeyAnswered(1, origin, "login.example");
+        vi.setSystemTime(Date.now() + 1);
+        h.login.passkeyRequested(1, origin);
+      };
+      const service = generation(async () => ({ verdict: "unclear", reason: "judged-signed-in" }));
+      const { h, report } = start(routed, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("blocked", "challenge"), 20_000);
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "state", s5: true, decision: "continuing" }),
+      );
+    });
+
+    it("counts no request before the answer, as the button's own", async () => {
+      vi.useFakeTimers();
+      fake.state.signs = { ...quiet, username: true };
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind !== "click" || step.target.value !== button.value) return;
+        fake.state.observedPath = "/elsewhere";
+        fake.state.present = new Set();
+        fake.state.extracted = { "signed-in": elsewhere };
+        h.login.passkeyRequested(1, origin);
+        vi.setSystemTime(Date.now() + 1);
+        h.login.passkeyAnswered(1, origin, "login.example");
+      };
+      const service = generation();
+      const { h, report } = start(routed, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated", "authenticated"), 20_000);
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "state", s5: false, decision: "signed-in" }),
+      );
+    });
+  });
+
   it("ends as a challenge on the rejection marker", async () => {
     onClick({ [button.value]: { path: "/signin", present: ["rejected"] } });
     const { h } = start(parseLoginRecipe({ ...learned, rejection: target("rejected") }));

@@ -75,6 +75,11 @@ cannot be stored stays `signed-in`, and a page that still shows the login's elem
 fails closed and keeps `challenge`; see
 [the amendment below](#amendment-a-marker-that-is-one-of-the-recipes-own-elements-2026-10-24).
 
+Amended on 2026-10-24 (owner, 22:45 UTC, option A of a decision card): the `passkey`
+route reads the sign-in state as the `password` route does; see
+[the amendment below](#amendment-the-passkey-route-reads-the-sign-in-state-2026-10-24).
+This also amends [ADR 0027](0027-per-account-login-routes.md).
+
 Date: 2026-10-12
 
 ## Context
@@ -220,8 +225,9 @@ background's memory, so a worker restart during the login leaves E3 and S5 unrea
 login with no fill, as on the `passkey` route, has no E3. For S5 the passkey bridge
 tells the login of each request of a top document that is not for conditional mediation,
 whether Pateat answers it or leaves it to the browser; one at or after the time the step
-was sent to the page counts, except after a step that asks for a passkey itself (the
-`passkey` route, or a `passkey` handler's click). S2 counts only shown password inputs
+was sent to the page counts; after a step that asks for a passkey itself (the
+`passkey` route, or a `passkey` handler's click), only one after Pateat's answer to it
+counts (amendment of 2026-10-24 below). S2 counts only shown password inputs
 for the two-or-more rule, and inputs outside any form as one form. F1 reads the step's
 sign-in inputs (the ones it filled, or those of the form it clicked in); F2 reads alerts
 anywhere and status regions inside a sign-in input's form or named by one, as the fill
@@ -287,37 +293,37 @@ model call, once such a reading is `signed-in` in a document that has finished l
 (`document.readyState` is `complete`). Otherwise the last reading is logged and the page
 goes on as before (to the judge, or unknown). Only one `login.state` entry is logged,
 from the last reading. It applies to a later page of an attempt that already settled as
-unknown too. On the `passkey` route the reading is still only logged, since the decision
-above keeps that route's rule that anything its checks do not prove ends `challenge`. E1
-does not count on the completion's own path while one of the completion's `absent`
-elements is there, even hidden, as the completion check counts it: a sign-in form that
-hides itself again after a failure on that path is not a sign-in.
+unknown too. On the `passkey` route the reading was only logged until 2026-10-24, when
+the owner had it read as on the `password` route (amendment below). E1 does not count on
+the completion's own path while one of the completion's `absent` elements is there, even
+hidden, as the completion check counts it: a sign-in form that hides itself again after
+a failure on that path is not a sign-in.
 
-The other rows act since 2026-10-12, on the `password` route only (the `passkey` route
-still logs them). Every decision but S1 alone is acted on only once a reading a second
-later agrees in the fully loaded document, read again while it loads as for evidence;
-otherwise the page is judged and settles as before. S1 with F1 or F2 ends the login
-`credential-rejected` without a model call. A page with S2 to S5 and no S1 is judged as
-before; when the judge does not decide, the login ends `challenge`, and when the page is
-not sent it stays unknown. A page with no sign and no evidence is judged, and the login
-completes when the judge cannot decide: the model abstains (`unclear` with no reason),
-the path was judged before (`already-judged`, `judged-signed-in`), or a limit applies
-(`judgement-limit`, `daily-limit`, `monthly-limit`), and the page still shows no sign
-and no evidence once the answer is back in the loaded document, unless its description
-left out a disabled field (below). Its `recipe.judge` entry is then a warning marked
-`completed`. A failed request, a conflict, a missing service or a page that cannot be
-described or was not sent leaves the login unknown, as before. The service keeps the
-model's verdict on the path's judgement row (`page_judgements.verdict`, `unclear` when
-it abstained) and answers a later request for that revision, origin and path
-`judged-signed-in` after `signed-in` and `already-judged` after `unclear`; both complete
-the login here. After `challenge` or `rejected` it
-answers `judged-challenge` or `judged-rejected`: the login then ends `challenge`, or
-stays unknown after `judged-rejected`, since an earlier rejection does not prove this
-one. A row with no verdict, after the request failed or while it is still being judged
-(owner's requests run up to five at a time since 2026-10-23,
-[ADR 0018](0018-recipe-generation-route.md#five-calls-at-a-time)), answers
-`judgement-unanswered`, and the login stays unknown. A watched login (below)
-never completes on an undecided answer.
+The other rows act since 2026-10-12, on the `password` route, and on the `passkey` route
+since 2026-10-24 (amendment below), except that a failure there rejects no credential.
+Every decision but S1 alone is acted on only once a reading a second later agrees in the
+fully loaded document, read again while it loads as for evidence; otherwise the page is
+judged and settles as before. S1 with F1 or F2 ends the login `credential-rejected`
+without a model call. A page with S2 to S5 and no S1 is judged as before; when the judge
+does not decide, the login ends `challenge`, and when the page is not sent it stays
+unknown. A page with no sign and no evidence is judged, and the login completes when the
+judge cannot decide: the model abstains (`unclear` with no reason), the path was judged
+before (`already-judged`, `judged-signed-in`), or a limit applies (`judgement-limit`,
+`daily-limit`, `monthly-limit`), and the page still shows no sign and no evidence once
+the answer is back in the loaded document, unless its description left out a disabled
+field (below). Its `recipe.judge` entry is then a warning marked `completed`. A failed
+request, a conflict, a missing service or a page that cannot be described or was not
+sent leaves the login unknown, as before. The service keeps the model's verdict on the
+path's judgement row (`page_judgements.verdict`, `unclear` when it abstained) and
+answers a later request for that revision, origin and path `judged-signed-in` after
+`signed-in` and `already-judged` after `unclear`; both complete the login here. After
+`challenge` or `rejected` it answers `judged-challenge` or `judged-rejected`: the login
+then ends `challenge`, or stays unknown after `judged-rejected`, since an earlier
+rejection does not prove this one. A row with no verdict, after the request failed or
+while it is still being judged (owner's requests run up to five at a time since
+2026-10-23, [ADR 0018](0018-recipe-generation-route.md#five-calls-at-a-time)), answers
+`judgement-unanswered`, and the login stays unknown. A watched login (below) never
+completes on an undecided answer.
 
 The header and navigation text (since 2026-10-12): the signed-in description carries
 `headerText`, the visible text of each outermost `header`, `nav`, banner and navigation
@@ -614,3 +620,30 @@ by the owner:
 - A path kept `signed-in` without a marker is not judged again for that revision and
   prompt version: later logins get `judged-signed-in`, which completes a `password`
   login on a quiet page but never a watched login, a `passkey` login or a stop.
+
+## Amendment: the passkey route reads the sign-in state (2026-10-24)
+
+After the Money Forward login of 2026-10-24 (the amendment above), whose `/me` page
+showed the person signed in on the `passkey` route but whose marker could not be stored,
+every later login of that revision would have ended `challenge`: the route's reading was
+only logged, and a page judged `signed-in` before (`judged-signed-in`) never completed
+it. The record above gives no reason of its own for that rule: it kept ADR 0027's
+settlement of the route, which is about never falling back to typing the password. The
+owner chose on 2026-10-24 at 22:45 UTC (option A, 「パスワードと同じ規則」; options
+reviewed by a subagent against the code and the ADRs):
+
+- On the `passkey` route the reading is read again a second apart as on the `password`
+  route, and a confirmed `signed-in` (E1 or E2; the route has no E3) completes the login
+  as `authenticated` without a model call.
+- An undecided judge answer completes the route's page under the `password` route's
+  rule: `unclear` with no reason, `already-judged`, `judged-signed-in` or a limit, on a
+  page with no sign and no evidence once the answer is back in the loaded document,
+  never for a watched login or a stop. Every other result still ends `challenge`, as ADR
+  0027 says.
+- S5 counts on this route too: after a step that asks for a passkey itself, a request of
+  the top document after Pateat's answer to it (as the bridge reports both) is the site
+  asking for another passkey, so the page is `continuing` and never completes.
+- The agent's choices, not part of the card: a confirmed failure next to the sign-in
+  fields (`rejected`) still rejects no credential on this route and goes on as before;
+  an `optional` page (ADR 0065) still never completes it, as no password or code was
+  sent.

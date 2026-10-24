@@ -58,13 +58,9 @@ export function undecidedCandidate({
       completes: quiet && sent && route !== "passkey" && !inputLeftOut && !stopHeld,
       stopHeld,
     };
-  const completes =
-    undecided &&
-    quiet &&
-    !watched &&
-    route !== "passkey" &&
-    UNDECIDED_COMPLETES.has(reason) &&
-    !stopHeld;
+  // The `passkey` route completes as the `password` route does (owner, 2026-10-24 22:45
+  // UTC, ADR 0029 amendment of 2026-10-24).
+  const completes = undecided && quiet && !watched && UNDECIDED_COMPLETES.has(reason) && !stopHeld;
   return { completes, stopHeld };
 }
 
