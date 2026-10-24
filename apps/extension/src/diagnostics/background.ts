@@ -431,6 +431,9 @@ export function createDiagnosticsLog(options: {
             e1: report.e1,
             e2: report.e2,
             previousUrl: report.previousUrl,
+            laterSteps: report.laterSteps,
+            laterPartial: report.laterPartial,
+            laterMiss: report.laterMiss,
             frame: report.frame,
           },
           {

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installLoginContent } from "./content";
+import { LOGIN_STEP_WAIT_MS } from "./wire";
 
 type Listener = (
   message: unknown,
@@ -146,6 +147,13 @@ describe("a one-page form shown with its password input alone (ADR 0049)", () =>
     expect(
       await announcedOn(`<input type="text" name="login" aria-label="Email">${password}`),
     ).toEqual([]);
+    // After the step wait, the page reports for the log which check refused it.
+    await vi.advanceTimersByTimeAsync(LOGIN_STEP_WAIT_MS);
+    const report = sent.find((message) => message["shown"]);
+    expect(report?.["shown"]).toMatchObject({
+      path: "/remembered",
+      later: { steps: 1, partial: 1, miss: "form-input" },
+    });
   });
 
   it("announces it beside a hidden or read-only input the step drops", async () => {

@@ -864,13 +864,14 @@ function harness(
 const shownHello = (
   h: { login: { handle(message: unknown, sender: unknown): Promise<unknown> } },
   from: Record<string, unknown> = {},
+  shown: Record<string, unknown> = {},
 ) =>
   h.login.handle(
     {
       version: 1,
       type: "login.document.ready",
       token: "synthetic-token",
-      shown: { path: reportedPath(fake.state.pageUrl) },
+      shown: { path: reportedPath(fake.state.pageUrl), ...shown },
     },
     sender(from),
   );
@@ -1847,6 +1848,8 @@ describe("production login document admission", () => {
         origin,
         reason: "not-started",
         detail: "first-step-missing",
+        recipeId: recipe.id,
+        recipeRevision: recipe.revision,
       },
     ]);
     // No recipe of the origin starts on this path.
@@ -1859,6 +1862,29 @@ describe("production login document admission", () => {
       detail: "no-recipe-on-path",
     });
     expect(h.fields).not.toHaveBeenCalled();
+  });
+  it("logs which check refused the later steps of a page whose first step is missing (ADR 0049)", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    expect(
+      await shownHello(h, {}, { later: { steps: 2, partial: 1, miss: "target" } }),
+    ).toMatchObject({ reason: "form-not-ready" });
+    expect(
+      report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
+    ).toEqual([
+      {
+        type: "refused",
+        tabId: 1,
+        origin,
+        reason: "not-started",
+        detail: "first-step-missing",
+        recipeId: recipe.id,
+        recipeRevision: recipe.revision,
+        laterSteps: 2,
+        laterPartial: 1,
+        laterMiss: "target",
+      },
+    ]);
   });
   it("does not log a sign-in input on an origin without a recipe", async () => {
     const report = vi.fn<(report: LoginReport) => void>();
