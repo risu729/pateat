@@ -98,6 +98,7 @@ describe("settings profile isolation", () => {
       connections: [],
       excludedSites: [{ hostname: "default-only.example", includeSubdomains: false }],
       repromptSites: [{ hostname: "default-bank.example", includeSubdomains: true }],
+      loginInPrivateWindows: true as const,
       passkeyBrowserSites: [{ hostname: "default-passkeys.example" }],
     };
     expect((await save(device.credential, settings.revision, shared)).status).toBe(200);
@@ -121,8 +122,10 @@ describe("settings profile isolation", () => {
       },
     });
     expect(state.profileId).not.toBe(settings.profileId);
+    expect(state.settings).not.toHaveProperty("loginInPrivateWindows");
+    const { loginInPrivateWindows: _on, ...off } = shared;
     const filled = await save(agent.credential, state.revision, {
-      ...shared,
+      ...off,
       excludedSites: [{ hostname: "agent-only.example", includeSubdomains: false }],
       repromptSites: [{ hostname: "agent-bank.example", includeSubdomains: false }],
       passkeyBrowserSites: [{ hostname: "agent-passkeys.example" }],
@@ -149,6 +152,9 @@ describe("settings profile isolation", () => {
     expect(original.settings?.repromptSites).toEqual([
       { hostname: "default-bank.example", includeSubdomains: true },
     ]);
+    // So is automatic login in private windows (ADR 0062), a profile part as well.
+    expect(original.settings?.loginInPrivateWindows).toBe(true);
+    expect(after.settings).not.toHaveProperty("loginInPrivateWindows");
     expect(original.settings?.passkeyBrowserSites).toEqual([
       { hostname: "default-passkeys.example" },
     ]);

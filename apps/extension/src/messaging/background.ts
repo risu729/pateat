@@ -17,6 +17,8 @@ export interface BackgroundAreas {
   settings(request: unknown): Promise<unknown>;
   /** `settings.site-accounts`. */
   siteAccounts(request: unknown): Promise<unknown>;
+  /** `settings.export` and `settings.import`, from the settings page only (ADR 0040). */
+  transfer(request: unknown): Promise<unknown>;
   service(request: unknown): Promise<unknown>;
   diagnostics(request: DiagnosticsRequest): Promise<unknown>;
   /** `undefined` when the sender is not the chooser window. */
@@ -73,6 +75,11 @@ export function listenForBackgroundMessages(areas: BackgroundAreas): void {
     const type = requestType(request);
     if (type === "settings.get" || type === "settings.save") return areas.settings(request);
     if (type === "settings.site-accounts") return areas.siteAccounts(request);
+    if (
+      (type === "settings.export" || type === "settings.import") &&
+      fromPage(sender, "/options.html")
+    )
+      return areas.transfer(request);
     return undefined;
   });
   answer("service", (request, sender) =>

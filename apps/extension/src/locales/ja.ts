@@ -18,9 +18,6 @@ export const ja = {
     "サイトの待機が終了したか、Pateat が再起動しました。このウィンドウを閉じて、もう一度お試しください。",
   Close: "閉じる",
   "Log in to {{host}}": "{{host}} にログイン",
-  "You were logged out of this site in this tab.": "このタブでこのサイトからログアウトされました。",
-  "Pateat answered a passkey request from this site in this tab before.":
-    "Pateat は以前、このタブでこのサイトのパスキーのリクエストに応答しました。",
   "Replace the default account for {{host}} with this one":
     "{{host}} の既定のアカウントをこのアカウントに変更する",
   "Use this account for {{host}} from now on": "今後 {{host}} ではこのアカウントを使う",
@@ -37,7 +34,6 @@ export const ja = {
     "このアイテムは、使う前にマスターパスワードの入力が必要です (Bitwarden の再入力の設定)。",
   "Other passkeys": "ほかのパスキー",
   "Asks for the master password": "マスターパスワードが必要",
-  "Pateat on this site": "このサイトで Pateat を使う",
   "{{item}}, ID {{id}}": "{{item}}、ID {{id}}",
   "Saving…": "保存中…",
   "The settings changed elsewhere, so this change was not saved. The popup now shows them.":
@@ -87,8 +83,6 @@ export const ja = {
   "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.":
     "Pateat はこのタブのアドレスを読み取れません。Pateat が動作するのは、サイトへのアクセスが許可されたウェブサイトです。読み込み中のページでもこの表示になります。",
   "Pateat's settings could not be loaded.": "Pateat の設定を読み込めませんでした。",
-  "{{hostname}} is no longer excluded.": "{{hostname}} の除外を解除しました。",
-  "{{hostname}} is now excluded.": "{{hostname}} を除外しました。",
   "Vault account": "保管庫のアカウント",
   "{{account}}, not available here": "{{account}}（ここでは利用できません）",
   "Finding the vault items that match this site…":
@@ -111,8 +105,6 @@ export const ja = {
     "このページがアカウントの選択を待っているか確認しています…",
   "Listing the accounts that match this page…": "このページに一致するアカウントを表示しています…",
   "Choose an account": "アカウントを選択",
-  "You were logged out of this site in another tab, or the site did not accept a login there.":
-    "別のタブでこのサイトからログアウトされたか、そのタブでのログインがサイトに受け付けられませんでした。",
   "The site did not accept a login in another tab.":
     "別のタブでのログインがサイトに受け付けられませんでした。",
   "The site did not accept the last login in this tab.":
@@ -136,13 +128,9 @@ export const ja = {
   "A default takes effect at the next login.":
     "既定のアカウントは次回のログインから有効になります。",
   "Use as default": "既定として使う",
-  "Excluded by a rule that also covers other sites.":
-    "ほかのサイトにも適用されるルールにより除外されています。",
   "and its subdomains": "とそのサブドメイン",
   "Change in settings for {{hostname}}": "{{hostname}} の設定を変更",
   "Change in settings": "設定で変更",
-  "Pateat does not log in or answer passkey requests on this site.":
-    "このサイトでは Pateat はログインもパスキーのリクエストへの応答も行いません。",
   "This tab": "このタブ",
   "Open settings": "設定を開く",
   "the site did not accept the password": "サイトがパスワードを受け付けませんでした",
@@ -185,6 +173,74 @@ export const ja = {
   "no recipe of this site starts on this page":
     "このページから始まるこのサイトのレシピがありません",
   "Pateat waits for you to choose an account": "Pateat はアカウントの選択を待っています",
+  "Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again":
+    "Pateat は直近 10 分間にこのサイトへ 2 回ログインしました。再度ログインするにはアカウントを選んでください",
+  "automatic login is paused on this site; choose an account to log in":
+    "このサイトの自動ログインは一時停止中です。ログインするにはアカウントを選んでください",
+  "automatic login is paused on this site": "このサイトの自動ログインは一時停止中です",
+  "While this tab asks for an account, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.":
+    "このタブがアカウントを確認している間、Pateat はログインフォームに入力するだけで、ボタンは押しません。準備ができたらログインしてください。",
+  "automatic login of this site was paused": "このサイトの自動ログインが一時停止されました",
+  "Paused until {{time}}": "{{time}} まで一時停止中",
+  "Pause automatic login": "自動ログインを一時停止",
+  Resume: "再開",
+  "Pausing…": "一時停止しています…",
+  "Resuming…": "再開しています…",
+  "Used in this tab": "このタブで使用中",
+  "{{title}}, {{sub}}, used in this tab, default": "{{title}}、{{sub}}、このタブで使用中、既定",
+  "{{title}}, {{sub}}, used in this tab": "{{title}}、{{sub}}、このタブで使用中",
+  "The switch could not be started. Reopen this popup and try again.":
+    "切り替えを開始できませんでした。このポップアップを開き直してもう一度お試しください。",
+  "Automatic login on this site is paused for an hour.":
+    "このサイトの自動ログインを 1 時間一時停止しました。",
+  "Automatic login on this site resumed.": "このサイトの自動ログインを再開しました。",
+  "This tab has no site to pause.": "このタブには一時停止するサイトがありません。",
+  "The pause could not be saved. Try again.":
+    "一時停止を保存できませんでした。もう一度お試しください。",
+  "The pause could not be changed. Reopen this popup and try again.":
+    "一時停止を変更できませんでした。このポップアップを開き直してもう一度お試しください。",
+  "the account": "そのアカウント",
+  "Switch account": "アカウントを切り替え",
+  "Logs this tab out of {{hostname}}, then logs in with the account you choose.":
+    "このタブで {{hostname}} からログアウトし、選んだアカウントでログインします。",
+  "Switch to this account: {{title}}, {{sub}}": "このアカウントに切り替え：{{title}}、{{sub}}",
+  "Switch to this account": "このアカウントに切り替え",
+  "A site you log in to through another account, such as a company or Google sign-in, may log you out of that account too.":
+    "会社や Google のログインなど、別のアカウントを通じてログインするサイトでは、そのアカウントからもログアウトされることがあります。",
+  "Pateat: automatic login is off in private windows.":
+    "Pateat：プライベートウィンドウでは自動ログインはオフです。",
+  "Pateat: automatic login is off in private windows. Click to choose an account.":
+    "Pateat：プライベートウィンドウでは自動ログインはオフです。クリックしてアカウントを選んでください。",
+  "Pateat: the paused sites could not be read, so automatic login is paused.":
+    "Pateat：一時停止中のサイトを読み取れなかったため、自動ログインを一時停止しています。",
+  "automatic login is off in private windows; choose an account to log in":
+    "プライベートウィンドウでは自動ログインはオフです。ログインするにはアカウントを選んでください",
+  "automatic login is off in private windows": "プライベートウィンドウでは自動ログインはオフです",
+  "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.":
+    "プライベートウィンドウでは自動ログインはオフで、{{name}} にはパスワードがないため、Pateat はログインしませんでした。パスキーでログインするには、ページのパスキーログインボタンを押してください。{{name}} がこのサイトの唯一のパスキーか既定のときは、Pateat がそこでログインします。",
+  "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.":
+    "プライベートウィンドウでは自動ログインはオフで、{{name}} にはパスワードがないため、Pateat はログインしませんでした。{{name}} は既定にしていません。パスキーでログインするには、ページのパスキーログインボタンを押してください。{{name}} がこのサイトの唯一のパスキーか既定のときは、Pateat がそこでログインします。",
+  "Pateat: automatic login is paused on this site until turned back on.":
+    "Pateat：このサイトの自動ログインは再開するまで一時停止中です。",
+  "Automatic login is paused on this site, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button and choose {{name}} in Pateat's window.":
+    "このサイトの自動ログインは一時停止中で、{{name}} にはパスワードがないため、Pateat はログインしませんでした。パスキーでログインするには、ページのパスキーログインボタンを押し、Pateat のウィンドウで {{name}} を選んでください。",
+  "Automatic login is paused on this site, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button and choose {{name}} in Pateat's window.":
+    "このサイトの自動ログインは一時停止中で、{{name}} にはパスワードがないため、Pateat はログインしませんでした。{{name}} は既定にしていません。パスキーでログインするには、ページのパスキーログインボタンを押し、Pateat のウィンドウで {{name}} を選んでください。",
+  "Automatic login is paused on {{host}}, so Pateat logs in only with the passkey you choose.":
+    "{{host}} の自動ログインは一時停止中のため、Pateat は選んだパスキーでのみログインします。",
+  "Automatic login is off in private windows.":
+    "プライベートウィンドウでは自動ログインはオフです。",
+  "Paused until turned back on": "再開するまで一時停止中",
+  "10 minutes": "10 分",
+  "1 hour": "1 時間",
+  "Until turned back on": "再開するまで",
+  "Automatic login on this site is paused for 10 minutes.":
+    "このサイトの自動ログインを 10 分間一時停止しました。",
+  "Automatic login on this site is paused until turned back on.":
+    "このサイトの自動ログインを再開するまで一時停止しました。",
+  "Change automatic login in private windows in settings":
+    "プライベートウィンドウでの自動ログインを設定で変更",
+  "Paused by a rule that also covers other sites.": "ほかのサイトも対象のルールで一時停止中です。",
   "several accounts match; choose one to log in":
     "複数のアカウントが一致します。ログインするアカウントを選んでください",
   "another tab's login to this site is running or did not succeed":
@@ -240,8 +296,6 @@ export const ja = {
   "No login started: {{why}}.": "ログインを開始しませんでした：{{why}}。",
   "The login could not be confirmed.": "ログインを確認できませんでした。",
   "Logged in.": "ログインしました。",
-  "The site did not accept the last login; choose an account to try again.":
-    "サイトが前回のログインを受け付けませんでした。再試行するにはアカウントを選んでください。",
   "Waiting for you to finish the site's other step, such as a code.":
     "確認コードなど、サイトの追加操作の完了を待っています。",
   "The result is not known yet; the next pages are checked for it.":
@@ -275,8 +329,6 @@ export const ja = {
     "保管庫のアイテムにパスワードがなく、このページはパスワードを求めています",
   "the vault item has no password, and Pateat goes on without one only in the page itself, not in a frame":
     "保管庫のアイテムにパスワードがなく、Pateat がパスワードなしで進むのはページ本体だけで、フレーム内では進みません",
-  "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.":
-    "ログアウト後は、Pateat はログインフォームに入力するだけで、ボタンは押しません。準備ができたらログインしてください。",
   "The page changed, so nothing was started. {{name}} was not made the default. Reload it to choose again.":
     "ページが変わったため、ログインを開始しませんでした。{{name}} は既定のアカウントになっていません。もう一度選ぶには、ページを再読み込みしてください。",
   "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. {{name}} was not made the default. Close that tab, or wait up to 10 minutes, then choose again.":
@@ -335,18 +387,57 @@ export const ja = {
     "Pateat：保存済みの設定が保管庫のアカウントを別のサーバーのものとして登録しているため、このサイトのアカウントを数えていません。",
   "{{first}} {{next}}": "{{first}}{{next}}",
   "Pateat: asking the AI…": "Pateat：AI に問い合わせています…",
-  "Pateat: you were logged out of this site in this tab. Click to choose an account.":
-    "Pateat：このタブでこのサイトからログアウトされました。クリックしてアカウントを選んでください。",
   "Pateat: the site did not accept the last login in this tab. Click to choose an account.":
     "Pateat：このタブでの前回のログインはサイトに受け付けられませんでした。クリックしてアカウントを選んでください。",
   "Pateat: the last login on this site stopped in this tab. Click to choose an account.":
     "Pateat：このタブでのこのサイトへの前回のログインは中断されました。クリックしてアカウントを選んでください。",
-  "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.":
-    "Pateat：別のタブでこのサイトからログアウトされたか、そのタブでのログインがサイトに受け付けられませんでした。クリックしてアカウントを選んでください。",
   "Pateat: {{count}} accounts match this page. Click to choose one.":
     "Pateat：{{count}} 件のアカウントがこのページに一致します。クリックして選んでください。",
   "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes and reload this page, to log in here.":
     "Pateat：別のタブでこのサイトへのログインが進行中か、成功していません。ここでログインするには、そのタブを閉じるか、最大 10 分待ってからこのページを再読み込みしてください。",
+  "Pateat: automatic login is paused on this site. Click to choose an account.":
+    "Pateat：このサイトの自動ログインは一時停止中です。クリックしてアカウントを選んでください。",
+  "Pateat: the site did not accept a login in another tab. Click to choose an account.":
+    "Pateat：別のタブでのログインがサイトに受け付けられませんでした。クリックしてアカウントを選んでください。",
+  "Pateat logged in to this site twice in 10 minutes. Click to choose an account.":
+    "Pateat はこのサイトに 10 分間で 2 回ログインしました。クリックしてアカウントを選んでください。",
+  "Pateat: you chose an account here without making it the default, so Pateat asks until an account is made the default. Click to choose an account.":
+    "Pateat：このサイトでは既定にせずにアカウントを選んだため、いずれかのアカウントが既定になるまで確認します。クリックしてアカウントを選んでください。",
+  "Pateat: automatic login is paused on this site until {{time}}.":
+    "Pateat：このサイトの自動ログインは {{time}} まで一時停止中です。",
+  "Automatic login is paused on this site.": "このサイトの自動ログインは一時停止中です。",
+  "Pateat logged in to this site twice in the last 10 minutes, so it waits for you to choose.":
+    "Pateat は直近 10 分間にこのサイトへ 2 回ログインしたため、アカウントの選択を待っています。",
+  "You chose an account here without making it the default, so Pateat asks each time until an account is made the default.":
+    "このサイトでは既定にせずにアカウントを選んだため、いずれかのアカウントが既定になるまで毎回確認します。",
+  "{{name}} does not match this page.": "{{name}} はこのページに一致しません。",
+  "Pateat is not running on this page yet. Reload it, then try again.":
+    "Pateat はまだこのページで動いていません。再読み込みしてからもう一度お試しください。",
+  "This page waits for an account choice. Choose the account there.":
+    "このページはアカウントの選択を待っています。そちらでアカウントを選んでください。",
+  "An account switch is already running in this tab.":
+    "このタブではすでにアカウントの切り替えが進行中です。",
+  "A login is running in this tab. Wait for it to end, then try again.":
+    "このタブでログインが進行中です。終わるのを待ってからもう一度お試しください。",
+  "Another tab's login or account switch on this site is running or waits for a code. Finish or close it, then try again.":
+    "別のタブでこのサイトへのログインかアカウントの切り替えが進行中か、確認コードを待っています。それを終えるか閉じてから、もう一度お試しください。",
+  "Pateat settings could not be read. Try again.":
+    "Pateat の設定を読み込めませんでした。もう一度お試しください。",
+  "Pateat needs its service to find how to log out. Pair it in the settings.":
+    "ログアウトの方法を探すには Pateat のサービスが必要です。設定でペアリングしてください。",
+  "Logging out to switch to {{name}}…": "{{name}} に切り替えるためにログアウトしています…",
+  "Logged out. Pateat logs in with {{name}} on this site's login page in this tab.":
+    "ログアウトしました。このタブのこのサイトのログインページで、Pateat が {{name}} でログインします。",
+  "Pateat found no way to log out on this page, so it did not switch to {{name}}. Log out yourself, then choose the account.":
+    "このページでログアウトの方法が見つからなかったため、Pateat は {{name}} に切り替えませんでした。ご自身でログアウトしてから、アカウントを選んでください。",
+  "The only control Pateat found to log out may also log out other devices or close the account, so it did not switch to {{name}}. Log out yourself, then choose the account.":
+    "Pateat が見つけたログアウトの操作は、他のデバイスからもログアウトするか、アカウントを閉じるおそれがあるため、{{name}} に切り替えませんでした。ご自身でログアウトしてから、アカウントを選んでください。",
+  "Pateat stopped while logging out, so it did not switch to {{name}}. Check whether you are logged out, then choose the account.":
+    "ログアウト中に Pateat が停止したため、{{name}} に切り替えませんでした。ログアウトしたかを確かめてから、アカウントを選んでください。",
+  "The site still shows you logged in after 3 tries, so Pateat did not switch to {{name}}. Log out yourself, then choose the account.":
+    "3 回試してもサイトにログインしたままと表示されるため、Pateat は {{name}} に切り替えませんでした。ご自身でログアウトしてから、アカウントを選んでください。",
+  "Pateat could not log out to switch to {{name}}. Log out yourself, then choose the account.":
+    "Pateat は {{name}} に切り替えるためのログアウトができませんでした。ご自身でログアウトしてから、アカウントを選んでください。",
   "This page asks for {{detail}}.": "このページは{{detail}}の入力を求めています。",
   Fill: "入力",
   Remove: "解除",
@@ -380,6 +471,8 @@ export const ja = {
   "Pateat cannot read that field now. Unlock the vault and try again.":
     "そのフィールドを今は読み取れません。保管庫のロックを解除して、もう一度お試しください。",
   "The page did not accept the value.": "ページが値を受け付けませんでした。",
+  "The master password was not entered, so nothing was read or filled.":
+    "マスターパスワードが入力されなかったため、何も読み取らず入力もしていません。",
   "the answer to your secret question": "秘密の質問の答え",
   "your member or customer number": "会員番号またはお客様番号",
   "This page asks \u201C{{question}}\u201D.": "このページは「{{question}}」と尋ねています。",

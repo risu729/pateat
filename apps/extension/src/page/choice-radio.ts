@@ -1,3 +1,5 @@
+import { formOf, queryAll } from "./shadow";
+
 /** Input types that take no typed text: a radio or any other non-text control. */
 const untyped = new Set([
   "hidden",
@@ -27,11 +29,11 @@ const typed = (element: Element) =>
 export function choosingRadio(
   input: HTMLInputElement | HTMLSelectElement,
 ): HTMLInputElement | undefined {
-  const form = input.form;
-  const scope = [...input.ownerDocument.querySelectorAll("input, textarea, select")].filter(
-    (element) =>
-      (element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).form === form,
-  );
+  const form = formOf(input);
+  const scope = queryAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+    input.ownerDocument,
+    "input, textarea, select",
+  ).filter((element) => formOf(element) === form);
   let radios: HTMLInputElement[] = [];
   for (const element of scope) {
     if (element === input) break;

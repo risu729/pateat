@@ -7,7 +7,7 @@ import { env } from "cloudflare:workers";
 import * as v from "valibot";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveWifCredential } from "../src/claude/credentials";
-import { roleChoices } from "../src/claude/models";
+import { roleChoices } from "@pateat/generation";
 import {
   deviceApi,
   installAccessKeys,

@@ -279,16 +279,25 @@ describe("findSiteAccounts", () => {
     expect(unevaluated).toMatchObject({ ok: true, accounts: [], complete: false });
   });
 
-  it("refuses an excluded site before asking any vault", async () => {
+  it("lists the accounts of a site a rule pauses, as a pick still logs in (ADR 0062)", async () => {
     const settings = draft();
     settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: true });
-    const matchUris = vi.fn<LiveUriMatcher>();
-    const findPasskeys = vi.fn<PasskeyFinder>();
-    expect(
-      await findSiteAccounts({ saved: saved(), settings, origin, matchUris, findPasskeys }),
-    ).toEqual({ version: 1, ok: false, reason: "site-excluded" });
-    expect(matchUris).not.toHaveBeenCalled();
-    expect(findPasskeys).not.toHaveBeenCalled();
+    const paused = await findSiteAccounts({
+      saved: saved(),
+      settings,
+      origin,
+      matchUris: vi.fn<LiveUriMatcher>().mockResolvedValue({ ok: true, data: uris() }),
+      findPasskeys: passkeys({ "bank.example": [passkeyItem] }),
+    });
+    const open = await findSiteAccounts({
+      saved: saved(),
+      settings: draft(),
+      origin,
+      matchUris: vi.fn<LiveUriMatcher>().mockResolvedValue({ ok: true, data: uris() }),
+      findPasskeys: passkeys({ "bank.example": [passkeyItem] }),
+    });
+    expect(paused).toEqual(open);
+    expect(paused).toMatchObject({ ok: true });
   });
 });
 

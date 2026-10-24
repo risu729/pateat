@@ -318,6 +318,14 @@ describe("problem reports (ADR 0066)", () => {
       // Only a line's own page may leave, never the tab's previous one.
       report({ ...refusal, fields: { ...refusal.fields, previousUrl: "/home" } }),
       report({ ...line(1), event: "login.unknown" }),
+      // Passkey reports and a fill-only login's lines stay on the device (ADR 0066).
+      report({
+        ...line(1),
+        event: "passkey.request",
+        fields: { origin: "https://bank.example", rpId: "bank.example", outcome: "failed" },
+      }),
+      report({ ...line(1), level: "error", event: "passkey.create", fields: {} }),
+      report(line(1, { fillOnly: true })),
       report(line(1, { nested: { value: "x" } })),
       report(line(1, { long: "a".repeat(513) })),
       report(line(1, { negative: -1 })),

@@ -9,10 +9,22 @@ import {
   type DeviceModel,
   type DeviceModelCall,
   type GenerationUnavailableReason,
-  type RecipeGenerationResult,
 } from "@pateat/contracts";
 import {
-  claudeModelRates,
+  choiceAttempts,
+  MAX_OUTPUT_TOKENS,
+  nextAttempt,
+  ROLE_LIMITS,
+  roleChoices,
+  servedModel,
+  type GenerationCall,
+  type GenerationCallResult,
+  type GenerationCallTimings,
+  type RoleChoice,
+  type UnsentOutcome,
+  type UnsentRequest,
+} from "@pateat/generation";
+import {
   claudeWorstCaseRates,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
@@ -25,7 +37,6 @@ import {
 } from "@pateat/inference";
 import * as v from "valibot";
 import { and, count, eq, gt, gte, inArray, isNull, lt, lte, ne, notExists, sql } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import {
   inferenceLocks,
@@ -35,23 +46,15 @@ import {
   loginTimings,
   owners,
   problemLog,
-  type inferenceLogRecipePages,
 } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
-import { fastFailingModels, readModelConfig, roleChoices, type RoleChoice } from "./models";
+import { fastFailingModels, readModelConfig } from "./models";
 import { newId } from "@pateat/contracts/ids";
 
-// Every Claude call the service makes goes through here (ADR 0018): one call at a time
-// per owner, the monthly and daily spend stops, and the ADR 0012 request
-// log with its one-year retention, which also keeps requests answered without a call.
-
-/**
- * Request bounds shared by both roles; the same as the benchmark. Every Opus 5.5 call in
- * the 2026-10-23 comparison that succeeded took under 7 s and wrote under 300 tokens
- * (owner decision, 2026-10-23 11:03 UTC).
- */
-export const ROLE_LIMITS = { timeoutMs: 10_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
-export const MAX_OUTPUT_TOKENS = 1_024;
+// Every Claude call the service makes goes through here (ADR 0018): at most
+// `CLAUDE_CALL_LIMITS.concurrentCalls` requests at a time per owner, the monthly and daily
+// spend stops, and the ADR 0012 request log with its one-year retention, which also keeps
+// requests answered without a call.
 
 export const CLAUDE_CALL_LIMITS = {
   /** $100 a month (ADR 0014), estimated from returned usage. */
@@ -59,8 +62,14 @@ export const CLAUDE_CALL_LIMITS = {
   /** $5 a day (UTC), counting generation and judgement alike (owner decision, 2026-10-11). */
   dailyMicroUsd: 5_000_000,
   /**
-   * Longer than the token exchange and the most calls one request makes in turn: up to
-   * three choices, each fast then standard, at the 10 s model timeout.
+   * Requests of one owner whose calls run at once, against abuse; more answer `busy`. Five
+   * stays acceptable once Pateat is public (owner decision, 2026-10-23 22:05-22:06 UTC).
+   */
+  concurrentCalls: 5,
+  /**
+   * How long a request holds its slot: longer than the token exchange and the most calls
+   * one request makes in turn, up to three choices, each fast then standard, at the 10 s
+   * model timeout.
    */
   lockMs: 90_000,
   /** Every request log row and login result code, for evaluation (owner decision, 2026-10-18). */
@@ -86,104 +95,9 @@ const worstCaseMicroUsd = ({ rates }: ClaudeModelChoice) => {
 type Db = DrizzleD1Database<Record<string, never>>;
 const DAY_MS = 24 * 60 * 60 * 1000;
 type CallEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
-type ClaudeModel = ReturnType<typeof createClaudeGenerationModel>;
-type RecipePage = (typeof inferenceLogRecipePages)[number];
-
-export type ClaudeCall<T> = {
-  role: "generate" | "judge";
-  /**
-   * The role's prompt version (`generationPromptVersion`, `entryGenerationPromptVersion`,
-   * `accountListGenerationPromptVersion`, `completionPromptVersion`).
-   */
-  promptVersion: string;
-  origin: string;
-  path: string;
-  /** What is sent: the instructions and the input, as ADR 0012 requires. */
-  request: { instructions: string; observation: unknown; [key: string]: unknown };
-  /**
-   * The recipe the call is for, logged beside the request: the head revision it starts
-   * from (0 for none) and, for generation, whether the page starts the recipe. `layout` is
-   * the key of the layout a first page's answer creates (ADR 0060); without it, the row's
-   * layout is the one `branch` names.
-   */
-  recipe: {
-    recipeId: string;
-    branch: string;
-    layout?: string;
-    baseRevision: number;
-    page?: RecipePage;
-  };
-  /** Checked under the owner's lock, before credentials are resolved. */
-  gate?: (db: Db, now: number) => Promise<GenerationUnavailableReason | undefined>;
-  /**
-   * Written just before the first model request is sent, so a request the role refuses
-   * before sending, as `input-too-large`, writes nothing (ADR 0016, ADR 0027).
-   */
-  beforeSend?: (db: Db, now: number) => BatchItem<"sqlite">[];
-  invoke: (model: ClaudeModel) => Promise<InferenceOutcome<T>>;
-  /** The structured result to log for an `ok` outcome. */
-  logValue: (value: T) => unknown;
-  /**
-   * The device makes the model calls with its own key (ADR 0040): the owner's credential
-   * and the spend stops take no part, and each call is one of `responses`, in order, or
-   * the call the device makes next.
-   */
-  device?: DeviceModel | undefined;
-};
-
-/** What the request log keeps of a request answered without a model call (ADR 0012). */
-export type UnsentRequest = Pick<
-  ClaudeCall<unknown>,
-  "role" | "promptVersion" | "origin" | "path" | "request" | "recipe"
->;
-
 /** The layout a request log row is for (ADR 0060): the one given, or the one `branch` names. */
 const loggedLayout = ({ layout, branch }: { layout?: string; branch: string }) =>
   layout ?? parseRecipeBranch(branch)?.layout ?? null;
-
-/**
- * The code a request answered without a model call is logged under: its unavailable
- * reason or failure code, or `recipe` for a recipe another request stored.
- */
-export type UnsentOutcome =
-  | GenerationUnavailableReason
-  | Extract<RecipeGenerationResult, { status: "failed" }>["error"]
-  | "recipe";
-
-/**
- * Milliseconds a call spent, as its request log row keeps them: from the request's start
- * to just before the model call, the credential's token exchange, and the model call.
- */
-export type ClaudeCallTimings = { preModelMs: number; tokenMs: number; modelMs: number };
-
-export type ClaudeCallResult<T> =
-  /** `tokenMs` once the credential step ran, as for a missing credential or a failed exchange. */
-  | { status: "unavailable"; reason: GenerationUnavailableReason; tokenMs?: number }
-  /**
-   * `logId` names the request log row. A call refused locally has none here: its route logs
-   * it with the answer it gives (`logUnsent`).
-   */
-  | {
-      status: "called";
-      outcome: InferenceOutcome<T>;
-      logId?: string;
-      timings: ClaudeCallTimings;
-      /** The model that gave `outcome`: the last one asked. */
-      served: ServedModel;
-    }
-  /**
-   * The device makes the next model call (ADR 0040): the route answers with it, and has
-   * written and logged nothing for it.
-   */
-  | { status: "device-call"; call: DeviceModelCall["call"] };
-
-/** The model a call asked, as the request log keeps it, for the route that made the call. */
-export type ServedModel = {
-  provider: "anthropic";
-  model: string;
-  effort: RoleChoice["effort"];
-  speed: RoleChoice["speed"];
-};
 
 /**
  * One request's timing: when the Worker received it, the call `callClaude` made for it,
@@ -199,7 +113,7 @@ export type RequestTrace = {
    * `waitUntil`), so a call already sent is still charged and logged.
    */
   waitUntil?: (promise: Promise<unknown>) => void;
-  call?: ClaudeCallResult<unknown>;
+  call?: GenerationCallResult<unknown>;
   logId?: string;
 };
 
@@ -221,20 +135,28 @@ function addSpend(db: Db, ownerId: string, period: string, calls: number, micro:
     });
 }
 
-async function acquireLock(db: Db, ownerId: string, now: number) {
+/**
+ * Takes the first of the owner's call slots that is free or abandoned (its request ended
+ * without releasing it), each with one conditional statement, so two requests never hold
+ * the same slot. Returns undefined while every slot is held.
+ */
+async function acquireSlot(db: Db, ownerId: string, now: number) {
   const lockId = newId();
   const expiresAt = now + CLAUDE_CALL_LIMITS.lockMs;
-  const result = await db
-    .insert(inferenceLocks)
-    .values({ ownerId, lockId, expiresAt })
-    .onConflictDoUpdate({
-      target: inferenceLocks.ownerId,
-      set: { lockId, expiresAt },
-      // An abandoned lock (its request ended without releasing it) is taken over.
-      setWhere: lte(inferenceLocks.expiresAt, now),
-    })
-    .run();
-  return result.meta.changes === 1 ? lockId : undefined;
+  for (let slot = 0; slot < CLAUDE_CALL_LIMITS.concurrentCalls; slot++) {
+    // oxlint-disable-next-line no-await-in-loop
+    const result = await db
+      .insert(inferenceLocks)
+      .values({ ownerId, slot, lockId, expiresAt })
+      .onConflictDoUpdate({
+        target: [inferenceLocks.ownerId, inferenceLocks.slot],
+        set: { lockId, expiresAt },
+        setWhere: lte(inferenceLocks.expiresAt, now),
+      })
+      .run();
+    if (result.meta.changes === 1) return { slot, lockId };
+  }
+  return undefined;
 }
 
 /** Whether the owner reached the monthly or daily spend stop. */
@@ -544,7 +466,7 @@ const answeredPlanSchema = v.object({
  * `refused` call the provider's refusal category code when it reported one (ADR 0014),
  * never its explanation.
  */
-function loggedResult<T>(call: ClaudeCall<T>, outcome: InferenceOutcome<T>): unknown {
+function loggedResult<T>(call: GenerationCall<T>, outcome: InferenceOutcome<T>): unknown {
   if (outcome.status === "ok") return call.logValue(outcome.value);
   if (outcome.status === "abstained") return { reason: outcome.reason };
   if (outcome.error === "refused" && outcome.refusalCategory !== undefined)
@@ -564,8 +486,8 @@ export async function callClaude<T>(
   env: CallEnv,
   ownerId: string,
   trace: RequestTrace,
-  call: ClaudeCall<T>,
-): Promise<ClaudeCallResult<T>> {
+  call: GenerationCall<T>,
+): Promise<GenerationCallResult<T>> {
   // A client that disconnects mid-call must not end the Worker before the call is charged
   // (ADR 0014): nothing is reserved before it.
   const running = runCall(env, ownerId, call, trace.startedAt);
@@ -576,7 +498,7 @@ export async function callClaude<T>(
   return result;
 }
 
-type Called<T> = Extract<ClaudeCallResult<T>, { status: "called" }>;
+type Called<T> = Extract<GenerationCallResult<T>, { status: "called" }>;
 
 /**
  * A request's `beforeSend` writes, run once before its first model request. `settled`
@@ -589,6 +511,15 @@ type Reservation = {
   ms: number;
   error?: unknown;
 };
+
+/** A request `beforeSend` stopped before its first model request, with the answer's reason. */
+class Unsent extends Error {
+  readonly reason: GenerationUnavailableReason;
+  constructor(reason: GenerationUnavailableReason) {
+    super("Model call not sent");
+    this.reason = reason;
+  }
+}
 
 function reserveOnce(write: () => Promise<void>): Reservation {
   let written: Promise<void> | undefined;
@@ -613,23 +544,6 @@ function reserveOnce(write: () => Promise<void>): Reservation {
   };
   return reservation;
 }
-
-/** The failures after which fast mode asks the same model at the standard speed. */
-const FAST_RETRY = new Set(["rate-limited", "provider-error", "timeout"]);
-
-/** A choice's calls in order: fast mode is followed by the same model at the standard speed. */
-function attempts(choice: RoleChoice): RoleChoice[] {
-  if (choice.speed !== "fast") return [choice];
-  const rates = claudeModelRates(choice.modelId);
-  return rates === undefined ? [choice] : [choice, { ...choice, rates, speed: "standard" }];
-}
-
-const servedModel = (choice: RoleChoice): ServedModel => ({
-  provider: "anthropic",
-  model: choice.modelId,
-  effort: choice.effort,
-  speed: choice.speed,
-});
 
 /** Whose key a request's calls use: the owner's credential, or the device's (ADR 0040). */
 type CallerKey =
@@ -685,19 +599,18 @@ function deviceRelay(
 async function runCall<T>(
   env: CallEnv,
   ownerId: string,
-  call: ClaudeCall<T>,
+  call: GenerationCall<T>,
   startedAt: number,
-): Promise<ClaudeCallResult<T>> {
+): Promise<GenerationCallResult<T>> {
   const db = drizzle(env.DB);
   const start = Date.now();
-  const lockId = await acquireLock(db, ownerId, start);
-  if (!lockId) return { status: "unavailable", reason: "busy" };
+  const held = await acquireSlot(db, ownerId, start);
+  if (!held) return { status: "unavailable", reason: "busy" };
   try {
     const { device } = call;
     // The spend stops count the owner's credential only; a device's key pays its own calls.
     const blocked =
-      (await call.gate?.(db, start)) ??
-      (device ? undefined : await limitReached(db, ownerId, start));
+      (await call.gate?.(start)) ?? (device ? undefined : await limitReached(db, ownerId, start));
     if (blocked) return { status: "unavailable", reason: blocked };
 
     let caller: CallerKey;
@@ -718,8 +631,8 @@ async function runCall<T>(
     ]);
     const choices = roleChoices(config, call.role, fastFailing);
     const reservation = reserveOnce(async () => {
-      const before = call.beforeSend?.(db, Date.now()) ?? [];
-      if (before.length > 0) await db.batch(before as [BatchItem<"sqlite">]);
+      const refused = await call.beforeSend?.(Date.now());
+      if (refused) throw new Unsent(refused);
     });
 
     // The role's choices in order (owner decision, 2026-10-23 11:31 UTC): a refusal asks
@@ -729,21 +642,17 @@ async function runCall<T>(
     // nothing: it only finds whether the device still has a call to make (ADR 0040).
     const run = async (
       dry: boolean,
-    ): Promise<Called<T> | Extract<ClaudeCallResult<T>, { status: "device-call" }>> => {
+    ): Promise<Called<T> | Extract<GenerationCallResult<T>, { status: "device-call" }>> => {
       let last: Called<T> | undefined;
       let key = caller;
-      for (const attempt of choices.flatMap(attempts)) {
+      for (const attempt of choices.flatMap(choiceAttempts)) {
         if (last !== undefined) {
-          const { outcome, served } = last;
-          if (outcome.status !== "failed") break;
-          const sameModel = attempt.modelId === served.model;
-          // A refusal skips the same model at the standard speed and asks the next choice.
-          if (outcome.error === "refused" && sameModel) continue;
-          const retry =
-            outcome.error === "refused" ||
-            (served.speed === "fast" && sameModel && FAST_RETRY.has(outcome.error));
+          const next = nextAttempt(last, attempt);
+          if (next === "skip") continue;
           // oxlint-disable-next-line no-await-in-loop
-          if (!retry || (!device && (await limitReached(db, ownerId, Date.now())))) break;
+          if (next === "stop" || (!device && (await limitReached(db, ownerId, Date.now())))) {
+            break;
+          }
         }
         // Later calls' time before the model includes the calls before; they run no exchange.
         // oxlint-disable-next-line no-await-in-loop
@@ -773,30 +682,45 @@ async function runCall<T>(
       const probe = await run(true);
       if (probe.status === "device-call") return probe;
     }
-    return await run(false);
+    try {
+      return await run(false);
+    } catch (error) {
+      // `beforeSend` stopped the request before its first model request was sent.
+      if (error instanceof Unsent) return { status: "unavailable", reason: error.reason };
+      throw error;
+    }
   } finally {
+    // Only this request's slot: one it lost after `lockMs` belongs to another request now.
     await db
       .delete(inferenceLocks)
-      .where(and(eq(inferenceLocks.ownerId, ownerId), eq(inferenceLocks.lockId, lockId)));
+      .where(
+        and(
+          eq(inferenceLocks.ownerId, ownerId),
+          eq(inferenceLocks.slot, held.slot),
+          eq(inferenceLocks.lockId, held.lockId),
+        ),
+      );
   }
 }
 
 /**
- * Sends one model call for `runCall`, under its lock, then charges it to the spend stops
+ * Sends one model call for `runCall`, in its slot, then charges it to the spend stops
  * from reported usage at its model's rates (the worst case when usage is unknown) and logs
- * it. Nothing is reserved before the call (owner, 2026-10-23 11:31 and 12:16 UTC): with
- * one call at a time per owner, a stop is overshot by at most the call that crossed it.
- * `callClaude` keeps the calls running past a client disconnect so each is charged. A request the role refused locally was
- * never sent, so it gets no log row here: its route logs it (ADR 0012).
+ * it. Nothing is reserved before the call (owner, 2026-10-23 11:31 and 12:16 UTC): with at
+ * most `concurrentCalls` requests at a time per owner, a stop is overshot by at most the
+ * calls running when it was crossed (owner, 2026-10-23 22:05 UTC).
+ * `callClaude` keeps the calls running past a client disconnect so each is charged. A
+ * request the role refused locally was never sent, so it gets no log row here: its route
+ * logs it (ADR 0012).
  */
 async function sendCall<T>(
   db: Db,
   ownerId: string,
-  call: ClaudeCall<T>,
+  call: GenerationCall<T>,
   model: { choice: RoleChoice; caller: CallerKey; reservation: Reservation; dry?: boolean },
   time: { startedAt: number; tokenMs: number },
 ): Promise<
-  | { outcome: InferenceOutcome<T>; logId?: string; timings: ClaudeCallTimings }
+  | { outcome: InferenceOutcome<T>; logId?: string; timings: GenerationCallTimings }
   | { deviceCall: DeviceModelCall["call"] }
 > {
   const { choice, caller, reservation, dry } = model;

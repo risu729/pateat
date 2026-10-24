@@ -26,6 +26,7 @@ import {
   loginAutocompleteTokens,
   loginChooserRecipeSchema,
   loginEntryRecipeSchema,
+  loginLogoutRecipeSchema,
   passkeyAnswersRequest,
   passwordStopOrMiss,
   passwordVariants,
@@ -47,6 +48,7 @@ import {
   loginFieldSource,
   loginRecipeSchema,
   loginTargetSchema,
+  sameLoginTarget,
   parseLoginAccountBinding,
   parseLoginOperation,
   parseLoginRecipe,
@@ -728,19 +730,21 @@ describe("saved login plan authorization", () => {
     ).toMatchObject({ ok: false });
   });
 
-  it("exclusion wins over a saved recipe, default and available field", () => {
-    const excluded = snapshot();
-    excluded.settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: true }];
+  it("a field exclusion wins over a saved recipe, default and available field", () => {
+    // A site exclusion rule only pauses automatic login, which the login runtime enforces;
+    // a pick there still plans its account (ADR 0062).
+    const paused = snapshot();
+    paused.settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: true }];
     expect(
       resolveLoginPlan(
-        excluded,
+        paused,
         DUMMY_VAULT_CATALOG,
         "https://bank.example/identity",
         recipe(),
         binding(),
         recipe().slots,
       ),
-    ).toMatchObject({ ok: false });
+    ).toMatchObject({ ok: true });
     const fieldExcluded = snapshot();
     fieldExcluded.settings.itemPolicies = [
       {
@@ -4102,5 +4106,154 @@ describe("the route a recipe lacks for the item (ADR 0058 A)", () => {
   it("names nothing for an item that holds neither", () => {
     expect(heldRouteMissing(plain(), facts(false, false), true)).toBeUndefined();
     expect(heldRouteMissing(button(), facts(false, false), true)).toBeUndefined();
+  });
+});
+
+describe("logout recipes (ADR 0063)", () => {
+  const click = (path: string, value: string, purpose: string) => ({
+    kind: "click",
+    path,
+    target: { by: "text", value },
+    purpose,
+  });
+  const logout = (targets: unknown[] = [click("/home", "Account", "menu")]) => ({
+    version: 1,
+    id: "gen-logout-01",
+    revision: 1,
+    origin: "https://www.example.test",
+    logout: { path: "/home", targets },
+  });
+
+  it("stores a recipe with only a logout, which starts no login and fills nothing", () => {
+    const stored = v.parse(storedLoginRecipeSchema, logout());
+    expect(stored).toEqual(logout());
+    expect(v.is(loginLogoutRecipeSchema, logout())).toBe(true);
+    expect(isLoginRouteRecipe(stored)).toBe(false);
+    expect(storedRecipeStartPath(stored)).toBe("/home");
+    expect(storedRecipeSlots(stored)).toEqual([]);
+    expect(v.is(loginRecipeSchema, logout())).toBe(false);
+    expect(v.is(loginEntryRecipeSchema, logout())).toBe(false);
+  });
+
+  it("holds the menu, the logout and its confirmation in order, at most three clicks", () => {
+    const full = [
+      click("/home", "Account", "menu"),
+      click("/home", "Sign out", "logout"),
+      click("/logout", "Yes, sign out", "confirm"),
+    ];
+    expect(v.is(storedLoginRecipeSchema, logout(full))).toBe(true);
+    expect(v.is(storedLoginRecipeSchema, logout([...full, click("/", "Again", "logout")]))).toBe(
+      false,
+    );
+    expect(v.is(storedLoginRecipeSchema, logout([]))).toBe(false);
+    // The first click is on the recipe's path.
+    expect(v.is(storedLoginRecipeSchema, logout([click("/other", "Account", "menu")]))).toBe(false);
+    // A confirmation only follows the logout, as the last click.
+    expect(
+      v.is(
+        storedLoginRecipeSchema,
+        logout([click("/home", "Account", "menu"), click("/home", "Yes", "confirm")]),
+      ),
+    ).toBe(false);
+    expect(
+      v.is(
+        storedLoginRecipeSchema,
+        logout([
+          click("/home", "Sign out", "logout"),
+          click("/home", "Yes", "confirm"),
+          click("/home", "Account", "menu"),
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it("names a control by id, name, test-id, text or accessible name, never an input locator", () => {
+    for (const target of [
+      { by: "id", value: "logout" },
+      { by: "name", value: "logout" },
+      { by: "test-id", value: "account-menu" },
+      // An icon-only menu named by its aria-label or title (ADR 0063).
+      { by: "accessible-name", value: "Account menu" },
+    ])
+      expect(
+        v.is(
+          storedLoginRecipeSchema,
+          logout([{ kind: "click", path: "/home", target, purpose: "logout" }]),
+        ),
+      ).toBe(true);
+    for (const target of [
+      { by: "autocomplete", value: "username" },
+      { by: "label", value: "Sign out" },
+      { by: "href", value: "/logout" },
+    ])
+      expect(
+        v.is(
+          storedLoginRecipeSchema,
+          logout([{ kind: "click", path: "/home", target, purpose: "logout" }]),
+        ),
+      ).toBe(false);
+  });
+
+  it("never holds a logout beside a login route or entry member", () => {
+    const { slots, steps } = recipe();
+    for (const extra of [
+      { slots },
+      { steps },
+      { entry: { path: "/home", target: { by: "text", value: "Login" } } },
+    ])
+      expect(v.is(storedLoginRecipeSchema, { ...logout(), ...extra })).toBe(false);
+  });
+});
+
+describe("locators inside shadow hosts (ADR 0070)", () => {
+  const field = { by: "id", value: "input", within: [{ by: "id", value: "login-password" }] };
+  it("takes up to three hosts named by id, name or test ID on field and attribute locators", () => {
+    for (const target of [
+      field,
+      { by: "data-test", value: "submit", within: [{ by: "data-test", value: "login" }] },
+      { by: "name", value: "password", within: [{ by: "test-id", value: "login.form" }] },
+      { by: "autocomplete", value: "username", within: [{ by: "name", value: "user" }] },
+      {
+        by: "label",
+        value: "Password",
+        within: [
+          { by: "id", value: "a" },
+          { by: "id", value: "b" },
+        ],
+      },
+      {
+        by: "test-id",
+        value: "submit",
+        within: [
+          { by: "id", value: "a" },
+          { by: "name", value: "b" },
+          { by: "test-id", value: "c" },
+        ],
+      },
+    ])
+      expect(v.is(loginTargetSchema, target), JSON.stringify(target)).toBe(true);
+  });
+
+  it("refuses hosts on text locators, too many hosts and hosts named by anything else", () => {
+    for (const target of [
+      { by: "text", value: "Log in", within: [{ by: "id", value: "a" }] },
+      { by: "accessible-name", value: "Select", within: [{ by: "id", value: "a" }] },
+      { by: "password-form-name", value: "acct", within: [{ by: "id", value: "a" }] },
+      { ...field, within: [] },
+      { ...field, within: [field.within[0], field.within[0], field.within[0], field.within[0]] },
+      { ...field, within: [{ by: "label", value: "Password" }] },
+      { ...field, within: [{ by: "id", value: "a b" }] },
+      { ...field, within: [{ by: "id", value: "a", within: [{ by: "id", value: "b" }] }] },
+    ])
+      expect(v.is(loginTargetSchema, target), JSON.stringify(target)).toBe(false);
+  });
+
+  it("tells locators in other hosts apart", () => {
+    const parsed = v.parse(loginTargetSchema, field);
+    expect(sameLoginTarget(parsed, v.parse(loginTargetSchema, field))).toBe(true);
+    expect(sameLoginTarget(parsed, { by: "id", value: "input" })).toBe(false);
+    expect(
+      sameLoginTarget(parsed, { ...parsed, within: [{ by: "id", value: "login-username" }] }),
+    ).toBe(false);
   });
 });

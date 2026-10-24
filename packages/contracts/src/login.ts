@@ -72,18 +72,47 @@ export const loginAutocompleteTokens = [
  * names need; the executor compares attribute strings, so the value never becomes a
  * selector.
  */
+const attributeValue = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(120),
+  v.regex(/^[\x21-\x7e]+$/u),
+);
+const testIdValue = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(120),
+  v.regex(/^[a-zA-Z0-9_.:-]+$/),
+);
+/**
+ * The shadow hosts a locator looks inside (ADR 0070), outermost first: each the one
+ * element whose `id`, `name`, `data-testid` or `data-test` equals its value, the first among the
+ * page's elements and each later one among those of the shadow tree of the host before
+ * it, nested trees included. The locator then names the one element among those of the
+ * last host's shadow tree. Only for an element of a shadow tree that no locator names
+ * once in the whole page, as an input every component of a page reuses its inner ID for.
+ */
+export const loginHostChainSchema = v.pipe(
+  v.array(
+    v.variant("by", [
+      v.strictObject({ by: v.picklist(["id", "name"]), value: attributeValue }),
+      v.strictObject({ by: v.picklist(["test-id", "data-test"]), value: testIdValue }),
+    ]),
+  ),
+  v.minLength(1),
+  v.maxLength(3),
+);
+const within = v.optional(loginHostChainSchema);
 export const loginAttributeTargetSchema = v.variant("by", [
-  v.strictObject({
-    by: v.picklist(["id", "name"]),
-    value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[\x21-\x7e]+$/u)),
-  }),
+  v.strictObject({ by: v.picklist(["id", "name"]), value: attributeValue, within }),
   // `data-test` is the test attribute some pages use instead (Duolingo's sign-in
   // submit, 2026-10-23; ADR 0071).
+  v.strictObject({ by: v.picklist(["test-id", "data-test"]), value: testIdValue, within }),
   v.strictObject({
-    by: v.picklist(["test-id", "data-test"]),
-    value: v.pipe(v.string(), v.minLength(1), v.maxLength(120), v.regex(/^[a-zA-Z0-9_.:-]+$/)),
+    by: v.literal("autocomplete"),
+    value: v.picklist(loginAutocompleteTokens),
+    within,
   }),
-  v.strictObject({ by: v.literal("autocomplete"), value: v.picklist(loginAutocompleteTokens) }),
 ]);
 /**
  * A button locator: the one button whose text equals the value. The text is a
@@ -120,6 +149,7 @@ export const loginTextTargetSchema = v.strictObject({
 export const loginLabelTargetSchema = v.strictObject({
   by: v.literal("label"),
   value: loginTextTargetSchema.entries.value,
+  within,
 });
 /**
  * A control locator by its accessible name (ADR 0048 amendment of 2026-10-19): the one
@@ -482,10 +512,7 @@ export const loginHandlerSchema = v.variant("kind", [
       target: v.optional(loginTargetSchema),
     }),
     v.check(
-      (handler) =>
-        handler.target === undefined ||
-        handler.field.by !== handler.target.by ||
-        handler.field.value !== handler.target.value,
+      (handler) => handler.target === undefined || !sameLoginTarget(handler.field, handler.target),
       "The code field cannot be its submit button",
     ),
   ),
@@ -1236,6 +1263,70 @@ export const loginChooserRecipeSchema = v.pipe(
     "A chooser branch cannot run after the click that leads to it",
   ),
 );
+/** How many clicks a logout recipe holds (ADR 0063): a switch runs at most 3 rounds. */
+export const MAX_LOGOUT_TARGETS = 3;
+/**
+ * What a logout recipe's click does (ADR 0063): `menu` opens a menu or panel that holds the
+ * logout control, `logout` signs the person out (a site may then ask to confirm), and
+ * `confirm` confirms a sign-out a dialog or page asks about.
+ */
+export const logoutPurposeSchema = v.picklist(["menu", "logout", "confirm"]);
+/**
+ * A logout click's locator: a control by `id`, `name`, `test-id`, its rendered text, or,
+ * for a control that shows no text of its own (an icon-only account menu, or a menu item),
+ * its `aria-label` or `title` (`accessible-name`); never `autocomplete` or `label`, which
+ * name only inputs.
+ */
+export const logoutTargetSchema = v.variant("by", [
+  loginAttributeTargetSchema.options[0],
+  loginAttributeTargetSchema.options[1],
+  loginTextTargetSchema,
+  loginAccessibleNameTargetSchema,
+]);
+/**
+ * A recipe whose only member is `logout` (ADR 0063): how a signed-in page of the origin
+ * signs out, for switching to another account from the toolbar popup. `path` is the page
+ * the first click is on; each target is a click on the path the page then shows, in order,
+ * such as the account menu, then "Sign out" in it, then the confirmation. It reads no vault
+ * field, starts no login and its path is never a path where a login recipe starts. The
+ * service keys it apart from a login, chooser or entry recipe of the same origin and path.
+ */
+export const loginLogoutRecipeSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    id: identifier,
+    revision,
+    origin: loginOriginSchema,
+    logout: v.strictObject({
+      path,
+      targets: v.pipe(
+        v.array(
+          v.strictObject({
+            kind: v.literal("click"),
+            path,
+            target: logoutTargetSchema,
+            purpose: logoutPurposeSchema,
+          }),
+        ),
+        v.minLength(1),
+        v.maxLength(MAX_LOGOUT_TARGETS),
+      ),
+    }),
+  }),
+  v.check(
+    ({ logout }) => logout.targets[0]!.path === logout.path,
+    "A logout recipe starts with a click on its path",
+  ),
+  v.check(
+    ({ logout }) =>
+      logout.targets.every(
+        (target, index) =>
+          target.purpose !== "confirm" ||
+          (index === logout.targets.length - 1 && logout.targets[index - 1]?.purpose === "logout"),
+      ),
+    "Only a last click right after the logout confirms it",
+  ),
+);
 /**
  * One layout of a stored chooser (ADR 0060): its list's buttons and the routes of its
  * branches, with its stable key, language and creation time. A list whose buttons are
@@ -1320,13 +1411,15 @@ export const loginChooserDocumentSchema = v.pipe(
 /**
  * Any recipe the service stores and devices sync: a login recipe with its layouts
  * (`loginRecipeDocumentSchema`, whose layouts every login runs as `loginRecipeSchema`), an
- * entry recipe (ADR 0031) or a chooser recipe (ADR 0028) with its layouts. Strict objects
- * keep them apart, so `entry` or `chooser` is never beside `layouts`.
+ * entry recipe (ADR 0031), a chooser recipe (ADR 0028) with its layouts, or a logout
+ * recipe (ADR 0063). Strict objects keep them apart, so `entry`, `chooser` or `logout` is
+ * never beside `layouts`.
  */
 export const storedLoginRecipeSchema = v.union([
   loginRecipeDocumentSchema,
   loginEntryRecipeSchema,
   loginChooserDocumentSchema,
+  loginLogoutRecipeSchema,
 ]);
 export const loginAccountSchema = v.strictObject({
   origin: loginOriginSchema,
@@ -1390,7 +1483,7 @@ export const loginOutcomeSchema = v.picklist([
   // another account; nothing was clicked (ADR 0028).
   "account-not-listed",
   // A watched login that never signed in (ADR 0027): the recipe's first step showed again
-  // in a new page, as after a code or an approval expired; not a logout (ADR 0021 D).
+  // in a new page, as after a code or an approval expired.
   // `challenge-abandoned` for a login stopped at `challenge`, `watch-abandoned` for one
   // whose result settled as unknown.
   "challenge-abandoned",
@@ -1412,9 +1505,25 @@ export const isStepTarget = (
   target: LoginMarkerTarget,
 ): target is Exclude<LoginTarget, { by: "accessible-name" }> =>
   target.by !== "href" && target.by !== "accessible-name";
-/** Whether two locators name the same element. */
+/** Whether two locators name the same element: the same kind and value, in the same hosts. */
 export const sameLoginTarget = (left: LoginMarkerTarget, right: LoginMarkerTarget) =>
-  left.by === right.by && left.value === right.value;
+  left.by === right.by &&
+  left.value === right.value &&
+  sameHosts(
+    "within" in left ? left.within : undefined,
+    "within" in right ? right.within : undefined,
+  );
+const sameHosts = (left?: LoginHostChain, right?: LoginHostChain) =>
+  (left?.length ?? 0) === (right?.length ?? 0) &&
+  (left ?? []).every(
+    (host, index) => host.by === right![index]!.by && host.value === right![index]!.value,
+  );
+export type LoginHostChain = v.InferOutput<typeof loginHostChainSchema>;
+/** A locator's value and the values of the hosts it looks inside (ADR 0070). */
+export const targetValues = (target: LoginMarkerTarget): string[] => [
+  target.value,
+  ...("within" in target ? (target.within ?? []) : []).map((host) => host.value),
+];
 export type LoginAttributeTarget = v.InferOutput<typeof loginAttributeTargetSchema>;
 export type LoginFieldTarget = v.InferOutput<typeof loginFieldTargetSchema>;
 export type LoginKeypadTarget = v.InferOutput<typeof loginKeypadTargetSchema>;
@@ -1434,6 +1543,9 @@ export type LoginEntryRecipe = v.InferOutput<typeof loginEntryRecipeSchema>;
 // Inferred from the members alone: the schema's own checks build `chooserRoute`, which
 // takes this type. Its checks change no member's type.
 export type LoginChooserRecipe = v.InferOutput<typeof chooserRecipeEntriesSchema>;
+export type LoginLogoutRecipe = v.InferOutput<typeof loginLogoutRecipeSchema>;
+export type LogoutPurpose = v.InferOutput<typeof logoutPurposeSchema>;
+export type LogoutTarget = LoginLogoutRecipe["logout"]["targets"][number];
 export type StoredLoginRecipe = v.InferOutput<typeof storedLoginRecipeSchema>;
 export type LoginLayout = v.InferOutput<typeof loginLayoutSchema>;
 export type LoginRecipeDocument = v.InferOutput<typeof loginRecipeDocumentSchema>;
@@ -1460,14 +1572,15 @@ export const isLoginRecipeDocument = (recipe: StoredLoginRecipe): recipe is Logi
 export const runsLogin = (recipe: Pick<LoginRecipe, "pageKind">): boolean =>
   recipe.pageKind === "sign-in";
 /**
- * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028)
- * or its layouts' first step's, which every layout shares (ADR 0060). The service keeps one
- * generated recipe per origin and start path either way. Each kind of stored recipe is
- * named, so a new kind has to say where it starts.
+ * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028),
+ * its logout's (ADR 0063) or its layouts' first step's, which every layout shares (ADR
+ * 0060). The service keeps one generated recipe per origin and start path either way.
+ * Each kind of stored recipe is named, so a new kind has to say where it starts.
  */
 export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
   if ("entry" in recipe) return recipe.entry.path;
   if ("chooser" in recipe) return recipe.chooser.path;
+  if ("logout" in recipe) return recipe.logout.path;
   if ("layouts" in recipe) return recipe.layouts[0]!.steps[0]!.path;
   const unknown: never = recipe;
   throw new Error(`Unknown stored recipe kind: ${JSON.stringify(unknown)}`);
@@ -1873,7 +1986,7 @@ function chooserClicks(recipe: LoginChooserRecipe): ChooserClick[] {
  * entry, its branches' for a chooser.
  */
 export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
-  if ("entry" in recipe) return [];
+  if ("entry" in recipe || "logout" in recipe) return [];
   const routes =
     "layouts" in recipe
       ? recipeLayouts(recipe)

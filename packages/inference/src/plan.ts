@@ -12,6 +12,7 @@ import {
   recipeSlotIdSchema,
   reservedSlotIds,
   sameLoginTarget,
+  targetValues,
   type LoginEntryRecipe,
   type LoginObservation,
   type LoginStep,
@@ -257,15 +258,19 @@ function fieldText(candidate: ObservedCandidate): string | undefined {
   const placeholder = candidate.placeholder && tidy(candidate.placeholder);
   const description = candidate.description && tidy(candidate.description);
   const { by, value } = candidate.target;
+  // An attribute a component reuses inside every host (ADR 0070), such as `input`, names
+  // no field; its host's would, but a slot is named by the field's own text first.
+  const within = "within" in candidate.target && candidate.target.within;
   const sources = [
     candidate.label && ownLabel(tidy(candidate.label), [placeholder, description]),
     placeholder,
     description,
-    by === "id" ||
-    by === "name" ||
-    by === "test-id" ||
-    by === "data-test" ||
-    by === "password-form-name"
+    (by === "id" ||
+      by === "name" ||
+      by === "test-id" ||
+      by === "data-test" ||
+      by === "password-form-name") &&
+    !within
       ? tidy(value)
       : undefined,
   ];
@@ -576,7 +581,9 @@ export type GeneratedPageRejection =
   /** An account-list answer that failed {@link validateAccountList} (ADR 0028). */
   | AccountListRejection
   /** A request with slots was answered with a sign-in entry (ADR 0031). */
-  | "unexpected-entry";
+  | "unexpected-entry"
+  /** A logout answer's control logs out elsewhere or ends the account (ADR 0063). */
+  | "unsafe-control";
 
 /**
  * A generated page plan reduced to what the request log may keep of it once the checks
@@ -861,7 +868,7 @@ export type AccountListRejection =
  * more digits; a control holding one may be an account, which is never clicked as `other`
  * or `continue`.
  */
-const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
+export const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
 
 /**
  * Validates an account-list answer (ADR 0028): the page must list accounts, and each named
@@ -889,7 +896,9 @@ export function validateAccountList(
     )
       return "incompatible-role";
     if (
-      [candidate.label, target.value].some((text) => text !== undefined && accountText.test(text))
+      [candidate.label, ...targetValues(target)].some(
+        (text) => text !== undefined && accountText.test(text),
+      )
     )
       return "account-text";
     return { candidate: candidate.id, target };
@@ -967,7 +976,11 @@ export function validateEntry(
     target.by === "password-form-name"
   )
     return { ok: false, reason: "incompatible-role" };
-  if ([candidate.label, target.value].some((text) => text !== undefined && accountText.test(text)))
+  if (
+    [candidate.label, ...targetValues(target)].some(
+      (text) => text !== undefined && accountText.test(text),
+    )
+  )
     return { ok: false, reason: "account-text" };
   return { ok: true, entry: { entry: candidate.id, target } };
 }

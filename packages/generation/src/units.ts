@@ -15,17 +15,19 @@ import type { ChooserBranch, LoginRouteBody, StoredLoginRecipe } from "@pateat/c
 // - `list` a chooser layout's list buttons (`other`, `continue`).
 // - `account/<unit>` and `other/<unit>` a unit of that chooser layout's branch's route.
 // - `entry` an entry recipe (ADR 0031), which has no layout.
+// - `logout` a logout recipe's clicks (ADR 0063), which has no layout either.
 //
 // Each unit has a digest of its content in the document (`documentUnits`), so a device's
 // write keeps the record of every unit it left unchanged.
 
-/** A unit of a stored recipe: its layout's key (null for an entry recipe) and its ID. */
+/** A unit of a stored recipe: its layout's key (null for an entry or logout recipe) and its ID. */
 export type RecipeUnit = { layout: string | null; unit: string };
 /** A unit with the digest of its content in a written document. */
 export type DigestedUnit = RecipeUnit & { digest: string };
 
 export const ENTRY_UNIT = "entry";
 export const LIST_UNIT = "list";
+export const LOGOUT_UNIT = "logout";
 /** A page of a route, by the index of its first step. */
 export const pageUnit = (firstStep: number) => `page:${firstStep}`;
 /** A route's handler, by its index in `handlers`. */
@@ -123,36 +125,38 @@ export async function documentUnits(
   const contents: { layout: string | null; unit: string; content: unknown }[] =
     "entry" in recipe
       ? [{ layout: null, unit: ENTRY_UNIT, content: recipe.entry }]
-      : "layouts" in recipe
-        ? recipe.layouts.flatMap((layout) =>
-            routeContents(layout, startsOf(layout.key), undefined, layout.language).map(
-              ([unit, content]) => ({ layout: layout.key, unit, content }),
-            ),
-          )
-        : recipe.chooser.layouts.flatMap((layout) =>
-            [
+      : "logout" in recipe
+        ? [{ layout: null, unit: LOGOUT_UNIT, content: recipe.logout }]
+        : "layouts" in recipe
+          ? recipe.layouts.flatMap((layout) =>
+              routeContents(layout, startsOf(layout.key), undefined, layout.language).map(
+                ([unit, content]) => ({ layout: layout.key, unit, content }),
+              ),
+            )
+          : recipe.chooser.layouts.flatMap((layout) =>
               [
-                LIST_UNIT,
-                { other: layout.other, continue: layout.continue, language: layout.language },
-              ] as [string, unknown],
-              ...(layout.afterAccount
-                ? routeContents(
-                    layout.afterAccount,
-                    startsOf(layout.key, "account"),
-                    "account",
-                    undefined,
-                  )
-                : []),
-              ...(layout.afterOther
-                ? routeContents(
-                    layout.afterOther,
-                    startsOf(layout.key, "other"),
-                    "other",
-                    undefined,
-                  )
-                : []),
-            ].map(([unit, content]) => ({ layout: layout.key, unit, content })),
-          );
+                [
+                  LIST_UNIT,
+                  { other: layout.other, continue: layout.continue, language: layout.language },
+                ] as [string, unknown],
+                ...(layout.afterAccount
+                  ? routeContents(
+                      layout.afterAccount,
+                      startsOf(layout.key, "account"),
+                      "account",
+                      undefined,
+                    )
+                  : []),
+                ...(layout.afterOther
+                  ? routeContents(
+                      layout.afterOther,
+                      startsOf(layout.key, "other"),
+                      "other",
+                      undefined,
+                    )
+                  : []),
+              ].map(([unit, content]) => ({ layout: layout.key, unit, content })),
+            );
   return Promise.all(
     contents.map(async ({ layout, unit, content }) => ({
       layout,

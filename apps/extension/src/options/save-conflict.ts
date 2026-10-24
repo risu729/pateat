@@ -10,6 +10,7 @@ const reasons = {
   "automatic-vault-sync": "a Bitwarden vault was synced automatically",
   "field-review": "custom fields were reviewed",
   "service-sync": "settings were merged with the Pateat sync service",
+  "settings-import": "settings were imported from a file",
   "account-choice": "an account used to log in on a site was saved for that site",
   "detail-link": "a vault field for a personal detail was linked or unlinked for a site",
   "passkey-browser-site": "a site was set to hand its passkey requests to the browser",
@@ -38,11 +39,14 @@ export function saveConflictMessage(
 
 /**
  * Whether only background work wrote the revisions a save did not expect, so the draft's
- * edits can be applied once to the newer revision (ADR 0025). A save from another page, or
- * a revision with no recorded cause, may hold edits the owner has not seen.
+ * edits can be applied once to the newer revision (ADR 0025). A save or an import from
+ * another page, or a revision with no recorded cause, may hold edits the owner has not seen.
  */
 export function backgroundOnlyConflict(causes: readonly SettingsConflictCause[] = []): boolean {
   return (
-    causes.length > 0 && causes.every((cause) => cause !== "settings-save" && cause !== "unknown")
+    causes.length > 0 &&
+    causes.every(
+      (cause) => cause !== "settings-save" && cause !== "settings-import" && cause !== "unknown",
+    )
   );
 }

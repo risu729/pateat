@@ -75,7 +75,12 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
       held: true,
     }),
     pick: vi.fn<ChoiceClient["pick"]>(),
-    status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    pause: vi.fn<ChoiceClient["pause"]>(),
+    pauseState: vi.fn<ChoiceClient["pauseState"]>(),
+    status: vi
+      .fn<ChoiceClient["status"]>()
+      .mockResolvedValue({ ok: true, origin: ORIGIN, recipe: "page" }),
+    switchTo: vi.fn<ChoiceClient["switchTo"]>().mockResolvedValue({ ok: true }),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
   await render(
@@ -106,9 +111,10 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
   const message = document.querySelector("#popup-message")!;
   expect(message.textContent).toBe("");
   expect(getComputedStyle(message).display).not.toBe("none");
-  // The switch keeps its size beside its label.
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" }).element();
-  expect(toggle.getBoundingClientRect()).toMatchObject({ width: 36, height: 20 });
+  // The pause row's three lengths fit inside the popup.
+  const row = page.getByRole("group", { name: "Pause automatic login" }).element();
+  expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(360);
+  expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
 });
 
 test("the page section's long log codes wrap inside the 360px popup", async () => {
@@ -133,6 +139,8 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
   const choices = {
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>(),
+    pause: vi.fn<ChoiceClient["pause"]>(),
+    pauseState: vi.fn<ChoiceClient["pauseState"]>(),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({
       ok: true,
       origin: ORIGIN,
@@ -151,6 +159,7 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
         page: "continuation",
       },
     }),
+    switchTo: vi.fn<ChoiceClient["switchTo"]>(),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
   await render(
@@ -198,6 +207,15 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
   }
   const link = document.querySelector("#popup-open-diagnostics")!;
   expect(link.getBoundingClientRect().right).toBeLessThanOrEqual(right);
+  // An account switch's rows (ADR 0063) keep their button inside the popup.
+  await expect.element(page.getByRole("button", { name: /^Switch to this account/ })).toBeVisible();
+  for (const row of document.querySelectorAll(".popup-switch-row")) {
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+    expect(row.getBoundingClientRect().right).toBeLessThanOrEqual(right);
+    expect(row.querySelector("button")!.getBoundingClientRect().right).toBeLessThanOrEqual(
+      row.getBoundingClientRect().right,
+    );
+  }
 });
 
 test("long vault labels of a page's personal details wrap inside the 360px popup", async () => {
@@ -223,6 +241,9 @@ test("long vault labels of a page's personal details wrap inside the 360px popup
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>(),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    switchTo: vi.fn<ChoiceClient["switchTo"]>(),
+    pause: vi.fn<ChoiceClient["pause"]>(),
+    pauseState: vi.fn<ChoiceClient["pauseState"]>(),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
   const source = {
@@ -275,7 +296,7 @@ test("long vault labels of a page's personal details wrap inside the 360px popup
   ).toMatchObject({ width: 32, height: 32 });
 });
 
-test("forced colors keep the selected account and the switch position visible", async () => {
+test("forced colors keep the selected account visible", async () => {
   await page.viewport(360, 800);
   const settings = createDefaultSettings();
   settings.siteDefaults.push({
@@ -310,6 +331,9 @@ test("forced colors keep the selected account and the switch position visible", 
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>(),
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+    switchTo: vi.fn<ChoiceClient["switchTo"]>(),
+    pause: vi.fn<ChoiceClient["pause"]>(),
+    pauseState: vi.fn<ChoiceClient["pauseState"]>(),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
   };
   await render(
@@ -353,38 +377,4 @@ test("forced colors keep the selected account and the switch position visible", 
   expect(look(checked!)).not.toBe(look(unchecked!));
   // The thicker border takes the place of padding, so the selected card keeps its size.
   expect(checked!.getBoundingClientRect().height).toBe(height);
-
-  // The track and its knob both use background colors, which forced colors make Canvas.
-  const toggle = page.getByRole("switch", { name: "Pateat on this site" }).element();
-  if (!(toggle instanceof HTMLInputElement)) throw new Error("the switch is not an input");
-  expect(toggle.checked).toBe(true);
-  const track = getComputedStyle(toggle);
-  const knob = getComputedStyle(toggle, "::after");
-  // The switch's row has an opaque Canvas background; the page body has none.
-  const canvas = getComputedStyle(toggle.parentElement!).backgroundColor;
-  expect(Number.parseFloat(track.borderTopWidth)).toBeGreaterThan(0);
-  expect(track.borderTopColor).not.toBe(canvas);
-  const on = { track: track.backgroundColor, knob: knob.backgroundColor };
-  expect(on.knob).not.toBe(on.track);
-  // React owns the switch's checked state, so read the off and disabled looks from an
-  // uncontrolled copy beside it.
-  const probe = document.createElement("input");
-  probe.type = "checkbox";
-  probe.setAttribute("role", "switch");
-  toggle.after(probe);
-  const probeTrack = getComputedStyle(probe);
-  const probeKnob = getComputedStyle(probe, "::after");
-  const off = { track: probeTrack.backgroundColor, knob: probeKnob.backgroundColor };
-  // Off, the track is Canvas like its row, so only its border outlines the switch.
-  expect(Number.parseFloat(probeTrack.borderTopWidth)).toBeGreaterThan(0);
-  expect(probeTrack.borderTopColor).not.toBe(canvas);
-  expect(off.knob).not.toBe(off.track);
-  expect(off.track).not.toBe(on.track);
-  probe.disabled = true;
-  const disabled = { track: probeTrack.backgroundColor, knob: probeKnob.backgroundColor };
-  expect(disabled.knob).not.toBe(disabled.track);
-  expect(disabled.knob).not.toBe(off.knob);
-  expect(probeTrack.opacity).toBe("1");
-  probe.remove();
-  expect(toggle.getBoundingClientRect()).toMatchObject({ width: 36, height: 20 });
 });

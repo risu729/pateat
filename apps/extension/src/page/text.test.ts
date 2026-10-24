@@ -5,6 +5,7 @@ import {
   controlName,
   isFragmentButton,
   isScriptButton,
+  readBehindModal,
   renderedText,
   shown,
 } from "./text";
@@ -34,6 +35,16 @@ describe("renderedText", () => {
     expect(read("<p>Customer</p><label>Number</label>")).toBe("Customer Number");
     expect(read("<span>Sign</span><b>in</b>")).toBe("Signin");
     expect(read("<span>Sign</span><b>in</b>", { everyElement: true })).toBe("Sign in");
+  });
+
+  it("reads a component's text as it renders: its shadow tree, with slotted nodes in place (ADR 0070)", () => {
+    document.body.innerHTML = `<div id="root"><x-card id="card"><a>in</a><i slot="end">now</i></x-card></div>`;
+    const card = document.getElementById("card")!;
+    const root = card.attachShadow({ mode: "closed" });
+    closedRoots.set(card, root);
+    root.innerHTML = `<b>Sign</b> <slot></slot> <slot name="end">fallback</slot> <slot name="none">here</slot>`;
+    const text = renderedText(document.getElementById("root")!, 4000, { everyElement: true });
+    expect(collapseText(text ?? "")).toBe("Sign in now here");
   });
 
   it("ignores hidden line breaks and skipped elements", () => {
@@ -133,6 +144,16 @@ describe("shown", () => {
       .animate([{ opacity: 0 }, { opacity: 1 }], 5000)
       .pause();
     expect(shown(by("text"))).toBe(true);
+  });
+
+  it("reads behind a modal at the top of a shadow tree (ADR 0070)", () => {
+    document.body.innerHTML = `<x-app id="host"></x-app>`;
+    const root = document.getElementById("host")!.attachShadow({ mode: "open" });
+    root.innerHTML = `<main aria-hidden="true"><b id="behind">Account</b></main>
+      <div role="dialog" aria-modal="true">Try the new plan</div>`;
+    const behind = root.getElementById("behind")!;
+    expect(shown(behind)).toBe(false);
+    expect(readBehindModal(document, () => shown(behind))).toBe(true);
   });
 
   it("counts an animation only while its current iteration still raises the opacity", () => {

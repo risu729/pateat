@@ -79,6 +79,15 @@ Amended on 2026-10-17: the bridge snapshot relays `timeout`, which only bounds t
 chooser window ([ADR 0021](0021-account-choice-outside-settings.md)); see the dated
 amendment below.
 
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (owner,
+implemented): an exclusion rule no longer hands every request of its site on. On a
+paused site (a timed pause, an exclusion rule, or a private window while automatic login
+is off there), a request the person starts opens the chooser with the site default
+treated as unset, and one that cannot open it is handed on as `paused`; a conditional
+request is handed on at once. By [ADR 0063](0063-switch-accounts-from-the-popup.md), a
+site that asks every time after a one-time pick does the same (`default-unset`). The
+chooser no longer opens because Pateat signed in from the tab.
+
 Amended on 2026-10-23 by the owner's request at 12:15 UTC: as in the official Bitwarden
 extension, the chooser can hand a site's passkey requests to the browser for good, and
 the person can undo that later on the settings page; Pateat then answers no passkey

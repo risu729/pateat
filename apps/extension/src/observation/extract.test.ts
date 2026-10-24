@@ -1,15 +1,36 @@
 import type { LoginObservation } from "@pateat/contracts";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listControls, otherAccountMiss } from "../page/account-list";
 import { findTargets } from "../page/targets";
 import {
   extractAccountListObservation,
   extractEntryObservation,
+  extractLocalLogout,
   extractLoginObservation,
+  extractLogoutObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
   fieldsMissDetail,
 } from "./extract";
+
+/** Closed shadow roots, which a content script reaches through `dom.openOrClosedShadowRoot`. */
+const closedRoots = vi.hoisted(() => new WeakMap<Element, ShadowRoot>());
+vi.mock("wxt/browser", () => ({
+  browser: {
+    dom: {
+      openOrClosedShadowRoot: (element: HTMLElement) =>
+        closedRoots.get(element) ?? element.shadowRoot,
+    },
+  },
+}));
+/** Gives the element `selector` names a shadow root holding `html`. */
+const shadow = (selector: string, html: string, mode: ShadowRootMode = "open") => {
+  const host = document.querySelector(selector)!;
+  const root = host.attachShadow({ mode });
+  if (mode === "closed") closedRoots.set(host, root);
+  root.innerHTML = html;
+  return root;
+};
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
 const page = (html: string, title = "") => {
@@ -1381,11 +1402,10 @@ describe("extractLoginObservation", () => {
       <form id="f"><input id="u"><input id="p" type="password" readonly><button id="go">Log in</button></form>`,
     );
     expect(observe().complete).toBe(false);
-    // A shadow-root control leaves out a form other than the login form.
+    // A control the executor cannot act on in a component's shadow tree flaws the form that
+    // holds the component, which is left out when it is not the login form (ADR 0070).
     page(`<form id="s"><input id="q"><div id="host"></div></form>${login}`);
-    document
-      .querySelector("#host")!
-      .attachShadow({ mode: "open" }).innerHTML = `<button>Voice</button>`;
+    shadow("#host", `<select><option>All</option></select>`);
     expect(observe().complete).toBe(true);
     expect(targets()).toEqual(["u", "p", "go"]);
     // Two login forms sharing field names leave both fields without a locator.
@@ -1646,10 +1666,9 @@ describe("extractLoginObservation", () => {
   });
 
   it("names the first cause of an incomplete observation, without page text (ADR 0019)", () => {
-    const gap = (html: string, shadow?: string) => {
+    const gap = (html: string, inShadow?: string) => {
       page(html);
-      if (shadow !== undefined)
-        document.querySelector("#host")!.attachShadow({ mode: "open" }).innerHTML = shadow;
+      if (inShadow !== undefined) shadow("#host", inShadow);
       const result = extractLoginObservation();
       if (!result.ok) throw new Error(`no observation: ${result.reason}`);
       return [result.observation.complete, result.gap];
@@ -1657,11 +1676,23 @@ describe("extractLoginObservation", () => {
     const form = (extra: string, button = `<button id="go">Log in</button>`) =>
       `<form id="f"><input id="u"><input id="p" type="password">${extra}${button}</form>`;
     expect(gap(form(""))).toEqual([true, undefined]);
-    for (const [html, shadow, expected] of [
-      // A fillable field in any shadow root.
-      [`${form("")}<div id="host"></div>`, `<input type="password">`, "shadow-field"],
-      // Another control in a shadow root inside the login form.
-      [form(`<div id="host"></div>`), `<button>Voice</button>`, "shadow-control"],
+    for (const [html, inShadow, expected] of [
+      // A shadow tree's controls count as the page's own (ADR 0070): a second password
+      // field outside every form, and a select in the login form.
+      [`${form("")}<div id="host"></div>`, `<input type="password">`, "unlocated-field"],
+      [form(`<div id="host"></div>`), `<select><option>A</option></select>`, "unsupported-control"],
+      // On a page without a form, a banner's required check box joins the login's fields
+      // wherever its markup sits, as one in the document's own tree does.
+      [
+        `<input id="u"><input id="p" type="password"><button id="go">Log in</button><div id="host"></div>`,
+        `<input type="checkbox" required>`,
+        "unlocated-checkbox",
+      ],
+      [
+        `<input id="u"><input id="p" type="password"><button id="go">Log in</button><div><input type="checkbox" required></div>`,
+        undefined,
+        "unlocated-checkbox",
+      ],
       [form(`<input id="pin" type="password" readonly>`), undefined, "unfillable-field"],
       [form(`<input id="pin" type="password" disabled>`), undefined, "unfillable-field"],
       [form(`<input id="pin" style="opacity:0">`), undefined, "unfillable-field"],
@@ -1695,9 +1726,14 @@ describe("extractLoginObservation", () => {
         undefined,
         "unfillable-field",
       ],
-      [`${form("<select id='k'></select>")}<div id="host"></div>`, `<input>`, "shadow-field"],
+      // A field outside the login form leaves its causes.
+      [
+        `${form("<select id='k'></select>")}<div id="host"></div>`,
+        `<input>`,
+        "unsupported-control",
+      ],
     ] as const)
-      expect(gap(html, shadow), html).toEqual([false, expected]);
+      expect(gap(html, inShadow), html).toEqual([false, expected]);
   });
 
   it("names a login form's button by its accessible name when nothing else does (ADR 0048 amendment of 2026-10-23)", () => {
@@ -2135,26 +2171,138 @@ describe("extractLoginObservation", () => {
     });
   });
 
-  it("marks a field in any shadow root incomplete", () => {
+  it("describes the fields of open and closed shadow roots as the page's own (ADR 0070)", () => {
+    // As Reddit's sign-in (2026-10-23): each input in its own component's shadow root,
+    // outside any form, every root reusing one inner ID and labelling by it.
+    const field = (name: string, type: string, tokens: string, label: string) =>
+      `<span id="label">${label}</span>
+      <input id="input" name="${name}" type="${type}" autocomplete="${tokens}" aria-labelledby="label">`;
     page(
-      `<form id="s"><input name="q" aria-label="検索"><button id="sb">検索</button></form>
-      <form id="login"><div id="host"></div></form>`,
+      `<h1>Log In</h1><text-field id="user"></text-field><text-field id="pass"></text-field>
+      <button id="login">Log In</button>`,
     );
-    document
-      .querySelector("#host")!
-      .attachShadow({ mode: "open" }).innerHTML = `<input id="u"><input id="p" type="password">`;
-    expect(observe().complete).toBe(false);
-    // A shadow host outside every form counts too.
-    page(`<input id="user"><div id="host"></div>`);
-    document
-      .querySelector("#host")!
-      .attachShadow({ mode: "open" }).innerHTML = `<input id="pw" type="password">`;
-    expect(observe().complete).toBe(false);
+    shadow("#user", field("username", "text", "username webauthn", "Email or username"));
+    const closed = shadow(
+      "#pass",
+      field("password", "password", "current-password", "Password"),
+      "closed",
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      {
+        role: "text",
+        target: { by: "name", value: "username" },
+        label: "Email or username",
+        autocomplete: "username",
+      },
+      {
+        role: "password",
+        target: { by: "name", value: "password" },
+        label: "Password",
+        autocomplete: "current-password",
+      },
+      { role: "button", target: { by: "id", value: "login" }, label: "Log In" },
+    ]);
+    // The executor's lookup finds what the description names, and counts every root's ID.
+    expect(findTargets(document, { by: "name", value: "password" })).toEqual([
+      closed.querySelector("input"),
+    ]);
+    expect(findTargets(document, { by: "id", value: "input" })).toHaveLength(2);
+
+    // A component's fields belong to the form that holds it, in the page's order: its
+    // shadow tree right where the component sits.
+    page(`<form id="f"><x-login id="host"></x-login><button id="go">Sign in</button></form>`);
+    shadow(
+      "#host",
+      `<label>User ID <input id="uid"></label><label>Password <input id="pw" type="password"></label>`,
+    );
+    expect(summary(observe())).toEqual([
+      { role: "text", target: { by: "id", value: "uid" }, label: "User ID", group: "f1" },
+      { role: "password", target: { by: "id", value: "pw" }, label: "Password", group: "f1" },
+      { role: "button", target: { by: "id", value: "go" }, label: "Sign in", group: "f1" },
+    ]);
+
+    // A button's text rendered by a component inside it names the button.
+    page(
+      `<input id="u"><input id="p" type="password"><button><x-label id="next"></x-label></button>`,
+    );
+    shadow("#next", `<span>Next</span>`);
+    expect(summary(observe()).map(({ target }) => target)).toEqual([
+      { by: "id", value: "u" },
+      { by: "id", value: "p" },
+      { by: "text", value: "Next" },
+    ]);
+
+    // A consent banner's check box in a shadow root outside every form changes nothing.
     page(`<form id="f"><input id="u"><button id="go">Go</button></form><div id="host"></div>`);
-    document.querySelector("#host")!.attachShadow({
-      mode: "open",
-    }).innerHTML = `<label>Analytics <input type="checkbox"></label>`;
+    shadow("#host", `<label>Analytics <input type="checkbox"></label>`);
     expect(observe().complete).toBe(true);
+    // Without a form, the sign-in fields' area reaches up through their components' hosts:
+    // a language picker far from it is not the sign-in's, one beside the fields is.
+    const nested = (depth: number, html: string) =>
+      "<div>".repeat(depth) + html + "</div>".repeat(depth);
+    for (const [beside, complete] of [
+      ["", true],
+      [`<select id="near"><option>EN</option></select>`, false],
+    ] as const) {
+      page(
+        nested(
+          5,
+          `<section><x-field id="host"></x-field><button id="go">Log In</button>${beside}</section>`,
+        ) + nested(6, `<select id="lang"><option>EN</option></select>`),
+      );
+      shadow("#host", `<input name="username"><input name="password" type="password">`);
+      expect(observe().complete, beside).toBe(complete);
+    }
+  });
+
+  it("names a shadow tree's field inside its host when nothing names it in the whole page (ADR 0070)", () => {
+    // Each component reuses its inner ID and has no name, token or label of its own.
+    page(
+      `<text-field id="user"></text-field><text-field id="pass"></text-field>
+      <button id="login">Log In</button>`,
+    );
+    shadow("#user", `<input id="input">`);
+    shadow("#pass", `<x-box><input id="input" type="password"></x-box>`, "closed");
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ target }) => target)).toEqual([
+      { by: "id", value: "input", within: [{ by: "id", value: "user" }] },
+      { by: "id", value: "input", within: [{ by: "id", value: "pass" }] },
+      { by: "id", value: "login" },
+    ]);
+    // The executor finds each one alone.
+    for (const { target } of observation.candidates)
+      expect(findTargets(document, target), JSON.stringify(target)).toHaveLength(1);
+
+    // A nested component without an ID of its own is looked inside through the nearest
+    // host that has one, the hosts nearest the field first.
+    page(
+      `<login-box id="box"></login-box><login-box id="other"></login-box><button id="go">Go</button>`,
+    );
+    for (const id of ["box", "other"])
+      shadow(`#${id}`, `<text-field></text-field>`)
+        .querySelector("text-field")!
+        .attachShadow({ mode: "open" }).innerHTML =
+        id === "box" ? `<input id="input" type="password">` : `<input id="input">`;
+    expect(summary(observe()).map(({ target }) => target)).toEqual([
+      { by: "id", value: "input", within: [{ by: "id", value: "box" }] },
+      { by: "id", value: "input", within: [{ by: "id", value: "other" }] },
+      { by: "id", value: "go" },
+    ]);
+
+    // Hosts that share their ID name no field.
+    page(
+      `<text-field id="f"></text-field><text-field id="f"></text-field><button id="go">Go</button>`,
+    );
+    for (const host of document.querySelectorAll("text-field"))
+      host.attachShadow({ mode: "open" }).innerHTML = `<input id="input" type="password">`;
+    expect(extractLoginObservation()).toMatchObject({
+      ok: true,
+      observation: { complete: false },
+      gap: "unlocated-field",
+    });
   });
 
   it("sends each path segment that may carry a session ID or token as [id] on every page (ADR 0039)", () => {
@@ -3758,9 +3906,14 @@ describe("extractSignedInObservation", () => {
       `<button id="logout">Sign out</button>${Array.from({ length: 49 }, (_, index) => `<input id="f${index}">`).join("")}`,
     );
     expect(gap()).toEqual([false, "too-many-fields"]);
+    // A shadow root's fields are the page's own (ADR 0070): a search box is left out, a
+    // password field without a locator is not.
     page(`<button id="logout">Sign out</button><div id="host"></div>`);
-    document.getElementById("host")!.attachShadow({ mode: "open" }).innerHTML = "<input>";
-    expect(gap()).toEqual([false, "shadow-field"]);
+    shadow("#host", "<input>");
+    expect(gap()).toEqual([true, undefined]);
+    page(`<button id="logout">Sign out</button><div id="host"></div>`);
+    shadow("#host", `<input type="password">`, "closed");
+    expect(gap()).toEqual([false, "unlocated-field"]);
     page(`<button id="logout">Sign out</button><input id="q">`);
     expect(gap()).toEqual([true, undefined]);
   });
@@ -4314,36 +4467,31 @@ describe("extractAccountListObservation", () => {
   });
 
   it("names the first cause of an incomplete list, without page text (ADR 0019)", () => {
-    const gap = (html: string, shadow?: string) => {
+    const gap = (html: string) => {
       page(html);
-      if (shadow !== undefined)
-        document.querySelector("#host")!.attachShadow({ mode: "open" }).innerHTML = shadow;
       const result = extractAccountListObservation();
       if (!result.ok) throw new Error(`no observation: ${result.reason}`);
       return [result.observation.complete, result.gap];
     };
     const continueButton = `<button>Continue</button>`;
     expect(gap(`<button>a@example.com</button>${continueButton}`)).toEqual([true, undefined]);
-    for (const [html, shadow, expected] of [
-      [
-        `<button>a@example.com</button>${continueButton}<div id="host"></div>`,
-        `<input type="password">`,
-        "shadow-field",
-      ],
+    for (const [html, expected] of [
       [
         `${Array.from({ length: 9 }, (_, at) => `<button>a${at}@example.com</button>`).join("")}${continueButton}`,
-        undefined,
         "too-many-accounts",
       ],
       // An address that survives redaction is never sent, so its account is left out.
-      [`<button>a@example.com @home</button>${continueButton}`, undefined, "unlisted-accounts"],
+      [`<button>a@example.com @home</button>${continueButton}`, "unlisted-accounts"],
       [
         `<button>a@example.com</button>${continueButton}<div>${"<i></i>".repeat(4001)}</div>`,
-        undefined,
         "too-many-elements",
       ],
     ] as const)
-      expect(gap(html, shadow), html).toEqual([false, expected]);
+      expect(gap(html), html).toEqual([false, expected]);
+    // A field in a shadow root is the page's own (ADR 0070): a page showing one is no list.
+    page(`<button>a@example.com</button>${continueButton}<div id="host"></div>`);
+    shadow("#host", `<input type="password">`);
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
 });
 
@@ -4518,6 +4666,192 @@ describe("passkey-only start observation", () => {
   ])("does not qualify registration, hidden buttons or a fill form: %s", (html) => {
     page(html);
     expect(extractPasskeyObservation(document).ok).toBe(false);
+  });
+});
+
+describe("extractLogoutObservation (ADR 0063)", () => {
+  const logout = () => {
+    const result = extractLogoutObservation();
+    if (!result.ok) throw new Error(`no observation: ${result.reason}`);
+    return result.observation;
+  };
+
+  it("lists a signed-in page's buttons and links, never a form's or a new window's", () => {
+    page(
+      `<header>
+        <a href="/home">Home</a>
+        <button type="button" id="account-menu">Account</button>
+        <a href="/logout">Log out</a>
+        <a href="/help" target="_blank">Help</a>
+        <a href="/export.csv" download>Export</a>
+        <button type="button">Inbox 12</button>
+        <button disabled>Disabled</button>
+        <form role="search"><input type="search" name="q"><button>Search</button></form>
+        <form><button>Form without fields</button></form>
+      </header>`,
+      "Inbox (12) - Synthetic mail",
+    );
+    const observation = logout();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => [candidate.role, candidate.label])).toEqual([
+      ["link", "Home"],
+      ["button", "Account"],
+      ["link", "Log out"],
+      ["button", "Form without fields"],
+    ]);
+    expect(observation.candidates[1]?.target).toEqual({ by: "id", value: "account-menu" });
+    // A count in the title is no part of a recipe's page.
+    expect(JSON.stringify(observation)).not.toContain("12");
+  });
+
+  it("reads controls inside open and closed shadow roots as part of the page (ADR 0070)", () => {
+    page(`<header><account-menu id="account"></account-menu></header><app-nav id="nav"></app-nav>`);
+    shadow("#account", `<button type="button" id="sign-out">Sign out</button>`, "closed");
+    shadow("#nav", `<ul role="menu"><li role="menuitem">Log out</li></ul>`);
+    const observation = logout();
+    expect(
+      observation.candidates.map((candidate) => [
+        candidate.role,
+        candidate.label,
+        candidate.target,
+      ]),
+    ).toEqual([
+      ["button", "Sign out", { by: "id", value: "sign-out" }],
+      ["button", "Log out", { by: "text", value: "Log out" }],
+    ]);
+  });
+
+  it("keeps an open dialog's and menu's controls first past the 48-candidate limit", () => {
+    const filler = Array.from(
+      { length: 60 },
+      (_, index) =>
+        `<button type="button" id="item-${"abcdefghij"[index % 10]}${index}">Item</button>`,
+    ).join("");
+    page(
+      `<header><button type="button" id="menu-button">Menu</button></header>
+      <nav>${filler}</nav>
+      <div role="menu"><a href="/logout" role="menuitem">Sign out</a></div>
+      <div role="dialog" aria-modal="true"><button type="button" id="confirm">Yes, sign out</button></div>`,
+    );
+    const observation = logout();
+    expect(observation.candidates).toHaveLength(48);
+    const labels = observation.candidates.map((candidate) => candidate.label);
+    expect(labels).toContain("Yes, sign out");
+    expect(labels).toContain("Sign out");
+    expect(labels).toContain("Menu");
+  });
+
+  it("sends only the controls that may lead to the logout, by their labels, and the title", () => {
+    page(
+      `<header><button type="button" id="account-menu" aria-describedby="greeting">Account</button>
+        <span id="greeting">Signed in as Taro, 3 orders on the way</span></header>
+      <h1>Your orders</h1>
+      <main>
+        <p>Order shipped to 1 Example Street</p>
+        <button type="button" id="track">Track order</button>
+        <a href="/orders/old">Older orders</a>
+        <div class="user-panel"><button type="button" id="prefs">Preferences</button></div>
+        <section><button type="button" id="leave">Sign out</button></section>
+      </main>`,
+      "Orders - Synthetic shop",
+    );
+    const observation = logout();
+    expect(observation.candidates.map((candidate) => [candidate.label, candidate.target])).toEqual([
+      ["Account", { by: "id", value: "account-menu" }],
+      ["Preferences", { by: "id", value: "prefs" }],
+      ["Sign out", { by: "id", value: "leave" }],
+    ]);
+    expect(observation.title).toBe("Orders - Synthetic shop");
+    expect(observation).not.toHaveProperty("headings");
+    expect(observation.candidates.some((candidate) => "description" in candidate)).toBe(false);
+    const sent = JSON.stringify(observation);
+    for (const text of ["Your orders", "Example Street", "Taro", "Track order", "Older orders"])
+      expect(sent).not.toContain(text);
+  });
+
+  it("refuses a page with no control to press", () => {
+    page(`<main><p>Nothing here</p><form><input name="q"><button>Search</button></form></main>`);
+    expect(extractLogoutObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
+  it("describes menu items and icon-only controls by their aria-label or title", () => {
+    page(
+      `<header>
+        <button type="button" aria-label="Account menu" aria-haspopup="menu"><svg></svg></button>
+        <a href="/help" title="Help"><svg></svg></a>
+        <button type="button" aria-label="Inbox 3 unread"><svg></svg></button>
+      </header>
+      <ul role="menu">
+        <li role="menuitem" tabindex="-1">Settings</li>
+        <li role="menuitem" tabindex="-1" aria-label="Sign out"><svg></svg></li>
+        <li role="menuitem" aria-disabled="true">Billing</li>
+      </ul>`,
+    );
+    const observation = logout();
+    expect(
+      observation.candidates.map((candidate) => [
+        candidate.role,
+        candidate.label,
+        candidate.target,
+      ]),
+    ).toEqual([
+      ["button", "Account menu", { by: "accessible-name", value: "Account menu" }],
+      ["button", "Help", { by: "accessible-name", value: "Help" }],
+      ["button", "Settings", { by: "text", value: "Settings" }],
+      ["button", "Sign out", { by: "accessible-name", value: "Sign out" }],
+    ]);
+  });
+});
+
+describe("extractLocalLogout (ADR 0063)", () => {
+  it("answers the locator of the one control that says it logs out", () => {
+    page(
+      `<header><a href="/home">Home</a><button type="button" id="bye">Log out</button></header>`,
+    );
+    expect(extractLocalLogout()).toEqual({ ok: true, target: { by: "id", value: "bye" } });
+    page(`<ul role="menu"><li role="menuitem" tabindex="-1">ログアウト</li></ul>`);
+    expect(extractLocalLogout()).toEqual({
+      ok: true,
+      target: { by: "text", value: "ログアウト" },
+    });
+    page(`<nav><button type="button" aria-label="Sign out"><svg></svg></button></nav>`);
+    expect(extractLocalLogout()).toEqual({
+      ok: true,
+      target: { by: "accessible-name", value: "Sign out" },
+    });
+  });
+
+  it("answers none, ambiguous or unlocated otherwise", () => {
+    page(`<header><button type="button">Sign out of all other sessions</button></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "none" });
+    page(`<header><button type="button">Log out</button><a href="/out">Log out</a></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "ambiguous" });
+    // A control named by the account it logs out has no locator a recipe could keep.
+    page(`<header><button type="button">Log out alice@example.test</button></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "unlocated" });
+  });
+
+  it("answers none for a logout link that leaves the site, opens a window or downloads", () => {
+    const onSite = (url: URL) => url.hostname === location.hostname;
+    for (const link of [
+      `<a href="https://elsewhere.example/logout">Log out</a>`,
+      `<a href="/logout?next=https%3A%2F%2Felsewhere.example%2F">Log out</a>`,
+      `<a href="/logout" target="_blank">Log out</a>`,
+      `<a href="/logout" download>Log out</a>`,
+    ]) {
+      page(`<header><a href="/home">Home</a>${link}</header>`);
+      expect(extractLocalLogout(document, onSite)).toEqual({ ok: false, reason: "none" });
+    }
+    // Without the worker's hosts no link is on the site.
+    page(`<header><a href="/logout">Log out</a></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "none" });
+    expect(extractLocalLogout(document, onSite)).toMatchObject({ ok: true });
+    // A link handled on the page, as `href="#"`, stays on it.
+    page(`<header><a href="#" id="bye">Sign out</a></header>`);
+    expect(extractLocalLogout(document, onSite)).toEqual({
+      ok: true,
+      target: { by: "id", value: "bye" },
+    });
   });
 });
 

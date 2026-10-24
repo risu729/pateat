@@ -3,6 +3,8 @@ import {
   deviceModelRequestHash,
   type DeviceModel,
   type DeviceModelCall,
+  type LogoutGenerationRequest,
+  type LogoutGenerationResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
 } from "@pateat/contracts";
@@ -102,8 +104,12 @@ function setup(
   const transport = model.wrap({
     generateRecipe,
     generateEntry: vi.fn(),
+    generateLogout: vi.fn(),
     judgeCompletion: vi.fn(),
-  } as unknown as Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "judgeCompletion">);
+  } as unknown as Pick<
+    ServiceTransport,
+    "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion"
+  >);
   return { transport, sent, fetch, spend: () => spend };
 }
 
@@ -155,6 +161,50 @@ describe("model calls with this device's own key (ADR 0040)", () => {
       }),
     );
     expect(currentSpend(spend(), NOW).dayMicroUsd).toBeGreaterThan(0);
+  });
+
+  it("makes an account switch's logout call with the key too (ADR 0063)", async () => {
+    const request = {
+      version: 1,
+      observation: { ...REQUEST.observation, path: "/home" },
+    } as LogoutGenerationRequest;
+    const signedOut = { version: 1, status: "signed-out" } as const;
+    const answers: LogoutGenerationResult[] = [CALL, signedOut];
+    const sent: (DeviceModel | undefined)[] = [];
+    const fetch = vi.fn(async () => new Response(ANSWER, { status: 200 }));
+    const model = createDeviceModel({
+      storage: { read: async () => SETTING, write: async () => {}, clear: async () => {} },
+      spend: { read: async () => undefined, write: async () => {} },
+      fetch,
+      now: () => NOW,
+    });
+    const transport = model.wrap({
+      generateRecipe: vi.fn(),
+      generateEntry: vi.fn(),
+      judgeCompletion: vi.fn(),
+      generateLogout: async (_origin, _credential, body) => {
+        sent.push(body.deviceModel);
+        return { kind: "result", result: answers.shift()! };
+      },
+    });
+    expect(await transport.generateLogout(ORIGIN, CREDENTIAL, request)).toEqual({
+      kind: "result",
+      result: signedOut,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(sent).toEqual([
+      { responses: [] },
+      {
+        responses: [
+          {
+            kind: "response",
+            request: await deviceModelRequestHash(BODY),
+            status: 200,
+            body: ANSWER,
+          },
+        ],
+      },
+    ]);
   });
 
   it("never sends the key to the service", async () => {

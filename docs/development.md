@@ -169,6 +169,11 @@ confidence or higher. A secret without a vendor prefix, such as a Bitwarden API
 task graph. `mise run fix` applies explicit formatting/lint fixes; the check task must
 not mutate source files. Renovate tracks the pinned dependencies and tooling.
 
+Oxlint's `max-lines` keeps every source and test file at 1,000 lines or fewer, blank
+lines and comments included (owner, 2026-10-23). Files that were already longer are
+listed in the last override of `.oxlintrc.json` with the rule off until each is split;
+remove a file from that list when its split lands, and do not add new ones.
+
 Focused tasks are available for diagnosis:
 
 | Task | Purpose |
@@ -263,7 +268,10 @@ chose on 2026-10-11 before its stable release
 ([decisions still requiring evidence](plan.md#decisions-still-requiring-evidence)).
 `vitepress` is pinned exactly to `2.0.0-alpha.20`, the npm `next` tag on 2026-10-15. Its
 English pages are in `apps/docs/src`: an introduction, installation, setup, permissions
-and a draft privacy policy with the Chrome Web Store Limited Use statement. The site
+and a draft privacy policy with the Chrome Web Store Limited Use statement. Their
+Japanese translations are at the same paths under `apps/docs/src/ja/`, served under
+`/ja/` with `hreflang` links when `PATEAT_DOCS_URL` is set
+([ADR 0047](adr/0047-japanese-user-docs-locales.md)). The site
 serves the extension's own `apps/extension/icons/icon.svg` through a small Vite plugin
 in `.vitepress/config.ts` instead of keeping a copy, and `.vitepress/theme/brand.css`
 sets VitePress's default theme to the icon's green, darkened where text needs 4.5:1
@@ -539,14 +547,16 @@ holds:
 - `origin`, `outcome` (`assertion`, `delegate`, `cancelled`, `not-allowed` when the
   chooser window was still open as the wait ran out, or `withheld` for a conditional
   request kept unanswered after a Pateat login of its page signed in, or after four
-  minutes of waiting for that login or for a pick after a logout) and the delegate
-  `reason`. Any request of a hostname listed under "Sites whose passkey requests go to
-  the browser" on the settings page is handed on first, as `browser-site`
+  minutes of waiting for that login or for a pick while its tab asks for an account) and
+  the delegate `reason`. Any request of a hostname listed under "Sites whose passkey
+  requests go to the browser" on the settings page is handed on first, as `browser-site`
   ([ADR 0007](adr/0007-existing-passkey-assertions.md), amended 2026-10-23).
   A conditional request is handed on as `no-recipe` (no recipe for the site),
   `no-login` (no login of its page started), `login-ended` (the login did not sign in)
-  or `no-pick` (the popup offered its page a choice of accounts outside a logout, with
-  an item that holds a passkey, and nothing was picked within four minutes)
+  or `no-pick` (the popup offered its page an ordinary choice of accounts, outside an
+  ask, with an item that holds a passkey, and nothing was picked within four minutes),
+  and at once as `paused` while automatic login of its site is paused
+  ([ADR 0062](adr/0062-log-in-again-after-a-logout.md))
   ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A request outside conditional
   mediation that names its credentials, in a tab whose Pateat login of the origin signed
   in with no logout detected since, is a re-verification while signed in and is handed
@@ -569,16 +579,19 @@ holds:
   the reason `chooser-` plus that value; a choice that the settings no longer offer when
   it is looked up again delegates with `settings-changed`, or `vault-incomplete` when
   the vault could not be searched in full;
-- `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
-  again, or `logoutClicked` when instead a control that logs out was clicked on the RP
-  ID's site in the tab and still waits for the site's first step (at most 10 minutes,
-  while the tab stays on the site), or, after such a click was used, the tab keeps a
-  logout state for an origin of the site (ADR 0021 D). Such a request that cannot open
-  the window is delegated with `chooser-unavailable`;
+- `defaultUnset` when the site's default counted as unset, so the chooser opened even
+  for one match or the default, with none preselected: with `paused` while automatic
+  login of the site is paused, by a pause or an exclusion rule
+  ([ADR 0062](adr/0062-log-in-again-after-a-logout.md); a private window whose setting
+  is off does not count here), else because the site asks every time after a one-time
+  pick ([ADR 0063](adr/0063-switch-accounts-from-the-popup.md)) or the ADR 0062 guard
+  against repeated logins holds it. Such a request that cannot
+  open the window, or finds no passkey to offer, is delegated with `paused` or
+  `default-unset`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
-  (`browser-site-lookup`, `login-wait`, `account-lookup`, `passkey-lookup`,
-  `signed-before-lookup`, `chooser` or `signing`);
+  (`browser-site-lookup`, `login-wait`, `account-lookup`, `passkey-lookup`, `chooser` or
+  `signing`);
 - `mediation`: the request's mediation when it names one (`optional`, `conditional`,
   `required`, `silent`, `immediate` or `other`), whatever the outcome;
 - `uiMode`: `immediate` for Chrome's Immediate UI, separately from mediation
@@ -633,10 +646,10 @@ The sign-ins the check reads are kept per tab in `chrome.storage.session`
   `not-signed-in` (no Pateat sign-in to that RP ID in the tab), `expired` (the latest
   one was more than five minutes ago), `not-listed` (no listed credential is a passkey
   Pateat could sign with there), `vault-incomplete` (none is, but a connection or item
-  could not be searched, as when the vault is locked), `not-configured` (the site is
-  excluded or the settings could not be read), `vault-unavailable` (the sign-in records
-  or the lookup failed) or `timeout` (the lookup took too long), `invalid-request`,
-  `invalid-origin`, `invalid-rp-id`, `rp-id-mismatch` or `busy`;
+  could not be searched, as when the vault is locked), `not-configured` (the hostname is
+  one Pateat does not run on, or the settings could not be read), `vault-unavailable`
+  (the sign-in records or the lookup failed) or `timeout` (the lookup took too long),
+  `invalid-request`, `invalid-origin`, `invalid-rp-id`, `rp-id-mismatch` or `busy`;
 - `rpId` once it is valid for the origin, and `excludeCredentials`: how many
   credentials the site listed;
 - `mediation`: `conditional` (Chrome's automatic passkey upgrade) or `other`, when the
@@ -925,7 +938,7 @@ build
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
 | Service and database | **Approved; implemented for sync:** Hono with Valibot validation through Hono's official `@hono/standard-validator` (`sValidator`, approved and implemented on 2026-10-13; `services/api/src/validation.ts` wraps it so that a failed check answers with a fixed error code and never echoes the rejected input or Valibot issues) and Drizzle for D1, with drizzle-kit (part of the Drizzle approval) generating migrations | M4 enrollment, sync and schema |
 | Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; **approved:** `@ai-sdk/anthropic` for Claude generation ([ADR 0014](adr/0014-claude-generation-provider.md)); per-owner Workload Identity Federation with `hono/utils/jwt` signing, a Valibot-checked `fetch` exchange and `authToken`, no added dependency ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) | M4 service route |
-| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants; **approved (2026-10-12) and implemented:** `@vitest/coverage-v8` for the CI coverage summary, merged with `@vitest/istanbul-lib-coverage`, a dependency of that provider ([test coverage](#test-coverage)) | M2 onward |
+| Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved, implemented for the settings sync (2026-10-23):** fast-check for policy/state invariants; **approved (2026-10-12) and implemented:** `@vitest/coverage-v8` for the CI coverage summary, merged with `@vitest/istanbul-lib-coverage`, a dependency of that provider ([test coverage](#test-coverage)) | M2 onward |
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
@@ -1046,7 +1059,13 @@ the environment are never read by the adapter. `@ai-sdk/anthropic` stays exact a
 version-matched to `ai`.
 
 Use the approved fast-check for invariants such as stronger exclusions never expanding
-eligibility and stale events never authorizing a new document. Component tests
+eligibility and stale events never authorizing a new document.
+`apps/extension/src/service/settings-sync.property.test.ts` uses its scheduler to run
+two devices' syncs and edits in random orders while uploads, their answers and storage
+writes fail. Where every state is small enough to list, walk them all instead of
+sampling: the `packages/contracts/src/*.orders-*.test.ts` files apply every event of a
+fixed set to every state a small login attempt reaches, and CI runs them in the
+`Event orders` job ([CI](delivery.md#current-foundation-workflows)). Component tests
 cover drafts, conflicts, validation and keyboard behavior; Playwright covers real
 extension boundaries and lifecycle. Automated accessibility checks supplement
 manual keyboard/focus inspection. Browser component tests do not establish

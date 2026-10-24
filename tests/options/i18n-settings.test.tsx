@@ -111,7 +111,7 @@ test("a save conflict arriving after a language change keeps the draft and trans
   );
   await mount(value);
   await page.getByRole("textbox", { name: "Origin", exact: true }).fill("draft.example");
-  await page.getByRole("button", { name: "Exclude site", exact: true }).click();
+  await page.getByRole("button", { name: "Pause site", exact: true }).click();
   await vi.waitFor(() => expect(value.saveSettings).toHaveBeenCalledOnce());
   await i18n.changeLanguage("ja");
   finish({

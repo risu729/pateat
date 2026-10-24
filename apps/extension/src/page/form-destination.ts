@@ -9,6 +9,8 @@
 // properties: the form's attribute through `Element.prototype`, the document through the
 // control, and the document's URL through `Document.prototype`.
 
+import { closestAcross, formOf, hostOf } from "./shadow";
+
 /** Why a form submission may not carry the executor's values. */
 export type FormRefusal = "form-off-origin";
 
@@ -23,14 +25,16 @@ export type FormDestination =
   | { kind: "refused" }
   | { kind: "other-origin"; url: string };
 
-/** Whether `element` submits its form when clicked: a submit button or an image input. */
-export function submitsForm(
-  element: Element,
-): element is (HTMLButtonElement | HTMLInputElement) & { form: HTMLFormElement } {
+/**
+ * Whether `element` submits its form when clicked: a submit button or an image input. One
+ * in a component's shadow tree inside a form counts as submitting that form ({@link formOf},
+ * ADR 0070): the component may submit it for its button.
+ */
+export function submitsForm(element: Element): element is HTMLButtonElement | HTMLInputElement {
   return (
     (element instanceof HTMLButtonElement || element instanceof HTMLInputElement) &&
     (element.type === "submit" || element.type === "image") &&
-    element.form !== null
+    formOf(element) !== null
   );
 }
 
@@ -41,18 +45,19 @@ export function submitsForm(
  * not take the click from a button around it, so both count.
  */
 function clickedControls(element: Element): Element[] {
-  const control = element.closest("a[href], area[href], button, input") ?? element;
-  const labelled = element.closest("label")?.control;
+  const control = closestAcross(element, "a[href], area[href], button, input") ?? element;
+  const labelled = (closestAcross(element, "label") as HTMLLabelElement | null)?.control;
   return labelled && labelled !== control ? [control, labelled] : [control];
 }
 
 /**
  * Where a click on `element` sends a form, once for each control it submits a form through
- * ({@link formDestination}). A click that submits no form sends nothing.
+ * and each form that control's value may go with ({@link formDestinations}). A click that
+ * submits no form sends nothing.
  */
 export function clickDestinations(element: Element): FormDestination[] {
-  return clickedControls(element).map((control) =>
-    submitsForm(control) ? formDestination(control, "click") : { kind: "allowed" },
+  return clickedControls(element).flatMap((control) =>
+    submitsForm(control) ? formDestinations(control, "click") : [{ kind: "allowed" as const }],
   );
 }
 
@@ -83,9 +88,10 @@ function destination(
   form: HTMLFormElement,
   submitter: boolean,
 ): URL | undefined {
-  // A button or an input names no properties of its own, unlike its form.
+  // A button or an input names no properties of its own, unlike its form. A `formaction`
+  // counts only for the form's own control, not one in a component's shadow tree.
   const value =
-    submitter && control.hasAttribute("formaction")
+    submitter && control.form === form && control.hasAttribute("formaction")
       ? control.getAttribute("formaction")
       : Element.prototype.getAttribute.call(form, "action");
   return URL.parse(value ? value : documentUrl(control), control.baseURI) ?? undefined;
@@ -100,16 +106,61 @@ function destination(
  * also another host of the same site, is `other-origin`; anything else, such as an
  * unparsable value, is `refused`. A `fill` sends nothing through the control, so only the
  * form's `action` counts there. A control outside any form has no submission to check.
+ * One in a component's shadow tree may go with its own form and with every form that holds
+ * the component ({@link formOf}, ADR 0070): each gets its own destination, so the
+ * background answers for every one off the origin, not only the first.
+ */
+export function formDestinations(
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
+  action: "fill" | "click",
+): FormDestination[] {
+  const forms = formsAround(control);
+  if (!forms.length) return [];
+  // An opaque origin reads "null" on both sides, which is no match.
+  const { origin } = new URL(documentUrl(control));
+  if (origin === "null") return [{ kind: "refused" }];
+  return forms.map((form) => submission(control, form, action, origin));
+}
+
+/**
+ * {@link formDestinations} as one answer: `refused` when any is, else the first
+ * `other-origin`, else `allowed`.
  */
 export function formDestination(
   control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
   action: "fill" | "click",
 ): FormDestination {
-  const { form } = control;
-  if (!form) return { kind: "allowed" };
-  // An opaque origin reads "null" on both sides, which is no match.
-  const { origin } = new URL(documentUrl(control));
-  if (origin === "null") return { kind: "refused" };
+  const all = formDestinations(control, action);
+  return (
+    all.find((entry) => entry.kind === "refused") ??
+    all.find((entry) => entry.kind === "other-origin") ?? { kind: "allowed" }
+  );
+}
+
+/**
+ * `control`'s form ({@link formOf}) and each further `<form>` around the hosts of the shadow
+ * trees that hold it, innermost first.
+ */
+function formsAround(
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
+): HTMLFormElement[] {
+  const forms: HTMLFormElement[] = [];
+  const own = formOf(control);
+  if (own) forms.push(own);
+  for (let host = hostOf(control); host; host = hostOf(host)) {
+    const form = host.closest("form");
+    if (form && !forms.includes(form)) forms.push(form);
+  }
+  return forms;
+}
+
+/** Where a submission of `form` sends `control`'s value ({@link formDestinations}). */
+function submission(
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
+  form: HTMLFormElement,
+  action: "fill" | "click",
+  origin: string,
+): FormDestination {
   const target = destination(control, form, action === "click");
   if (!target) return { kind: "refused" };
   // The parsed scheme: case, surrounding spaces and tabs inside do not matter. A `data:`

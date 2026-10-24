@@ -195,10 +195,12 @@ check is logged and the request goes on.
 `recipe_unit_sources` records which call made each unit of an active recipe
 ([ADR 0060](../../docs/adr/0060-recipe-layouts.md#generation-provenance)): service-only,
 never synced and never in the document. A unit is named within its layout (`layout`,
-null for an entry recipe) by `page:<n>` (the page whose steps start at index `n`),
-`handler:<i>` and `marker:<i>` (by index, as the judge only appends them), `list` (a
-chooser layout's buttons), `account/…` or `other/…` (a chooser branch's units) or
-`entry`; `src/recipe-units.ts` defines them and each unit's content. A row holds the
+null for an entry or logout recipe) by `page:<n>` (the page whose steps start at index
+`n`), `handler:<i>` and `marker:<i>` (by index, as the judge only appends them), `list`
+(a chooser layout's buttons), `account/…` or `other/…` (a chooser branch's units),
+`entry` or `logout` (a logout recipe's clicks,
+[ADR 0063](../../docs/adr/0063-switch-accounts-from-the-popup.md));
+`packages/generation/src/units.ts` defines them and each unit's content. A row holds the
 unit's `digest` (32 hex digits of the SHA-256 of that content as canonical JSON), the
 recipe `revision` whose write recorded it, its `origin` (`generated`, `judged` or
 `device`), the model that answered (`provider`, `model`, `effort`, `speed`, from the
@@ -253,15 +255,19 @@ values and the saved identifiers.
 ## Recipe generation
 
 [ADR 0018](../../docs/adr/0018-recipe-generation-route.md) routes, in
-`src/recipes/generate.ts`. Both answer 200 with a `status`: `recipe` or `signed-in`
-with the stored change, `abstained`, `rejected`, `challenge` or `unclear`, `failed` with
-a code, or `unavailable` with a reason when no model was called. A generation that fails
-`invalid-output` because a check refused the model's output also names it as
-`rejection`, in codes only: `{ check: "json" }` for output that was not JSON,
-`{ check: "schema", issue, path }` for the first issue of the output format (such as
-`max-length` at `result.alternatives`; `unknown-key` where the model added a key, with
-the path ending before it), or `{ check: "plan", reason }` with the plan check's code
-(such as `incompatible-role`).
+`packages/generation/src/generate.ts` (`@pateat/generation`, with an account switch's
+logout route in `logout.ts`), which runs against D1
+through `src/recipes/backend.ts` and, for a device that holds its own key, will run
+against that device's storage
+([ADR 0040](../../docs/adr/0040-running-without-the-service.md)). Both answer 200 with a
+`status`: `recipe` or `signed-in` with the stored change, `abstained`, `rejected`,
+`challenge` or `unclear`, `failed` with a code, or `unavailable` with a reason when no
+model was called. A generation that fails `invalid-output` because a check refused the
+model's output also names it as `rejection`, in codes only: `{ check: "json" }` for
+output that was not JSON, `{ check: "schema", issue, path }` for the first issue of the
+output format (such as `max-length` at `result.alternatives`; `unknown-key` where the
+model added a key, with the path ending before it), or `{ check: "plan", reason }` with
+the plan check's code (such as `incompatible-role`).
 
 - `POST /v1/recipes/generate` takes
   `{ version: 1, observation, slots, base?, branch?, signedIn? }`. Each origin and start
@@ -464,35 +470,40 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   code is logged as not kept (`stop`), and `signed-in` or `rejected` stores no marker
   and answers `unclear`.
 
-Judgements are limited under the lock, before credentials are resolved:
-`page_judgements` holds one row per recipe revision, page origin and path and judge
-prompt version (its instructions and output schema; a stop's page has its own), so a
-repeat answers `judged-signed-in` when the model answered `signed-in`, `already-judged`
-when it abstained (`unclear`), and `judged-challenge`, `judged-rejected` or
-`judgement-unanswered` when it judged the page `challenge` or `rejected` or the row has
-no verdict, as after the request failed or while it still runs past the owner's lock
-(the row's `verdict`, ADR 0029). An abstention on a `partial` request is kept as
-`partial`: another `partial` request for the path answers `already-judged`, and one
-without it is judged again on the same row, which counts in the day it was first taken;
-that adds at most one model call per path, as the new verdict is never `partial`. A
-recipe judged 20 times since the start of the UTC day answers `judgement-limit`. A row
-of another judge prompt version does not answer a repeat, so a changed prompt judges the
-page again, as one that can now name a handler an earlier prompt could not. A change to
-the local checks that keep a handler alone does not; it needs a prompt change to reach
-pages already judged. The row is written just before the first model request, so a
-request the role refuses locally (`input-too-large`) gives the page back
+Judgements are limited once the request holds a call slot, before credentials are
+resolved: `page_judgements` holds one row per recipe revision, page origin and path and
+judge prompt version (its instructions and output schema; a stop's page has its own), so
+a repeat answers `judged-signed-in` when the model answered `signed-in`,
+`already-judged` when it abstained (`unclear`), and `judged-challenge`,
+`judged-rejected` or `judgement-unanswered` when it judged the page `challenge` or
+`rejected` or the row has no verdict, as after the request failed or while it still runs
+(the row's `verdict`, ADR 0029). Of two requests for the same page that pass the gate at
+once, only the one that writes the row is sent; the other answers as the row does, or
+`judgement-unanswered`. An
+abstention on a `partial` request is kept as `partial`: another `partial` request for
+the path answers `already-judged`, and one without it is judged again on the same row,
+which counts in the day it was first taken; that adds at most one model call per path,
+as the new verdict is never `partial`. A recipe judged 20 times since the start of the
+UTC day answers `judgement-limit`. A row of another judge prompt version does not answer
+a repeat, so a changed prompt judges the page again, as one that can now name a handler
+an earlier prompt could not. A change to the local checks that keep a handler alone does
+not; it needs a prompt change to reach pages already judged. The row is written just
+before the first model request, so a request the role refuses locally
+(`input-too-large`) gives the page back
 ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). A stop's row is kept as
 `challenge` or undecided, so it answers only later stops' pages, and a stop's judgement
 counts toward the 20 a day. Rows of older revisions or of judge prompt versions other
 than the two current ones are deleted once their UTC day is over.
 
-`src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
-(`busy` otherwise), refuses past $100 of estimated spend a month or $5 a day (UTC, both
-roles counted), and only then resolves credentials: missing, refused or failed
-credentials answer `credentials-not-configured`, `credentials-rejected`,
-`issuer-unavailable` or `token-exchange-failed`. Generation also re-reads the recipe
-under the lock, answering with a recipe another device stored meanwhile, and refuses a
-page tried in the previous 10 minutes (ADR 0016), abstentions and failures included. The
+`src/claude/calls.ts` wraps every model call. Per owner it takes one of five call slots
+(`inference_locks`, freed after 90 seconds if never released; `busy` when all are held,
+[ADR 0018](../../docs/adr/0018-recipe-generation-route.md#five-calls-at-a-time)),
+refuses past $100 of estimated spend a month or $5 a day (UTC, both roles counted), and
+only then resolves credentials: missing, refused or failed credentials answer
+`credentials-not-configured`, `credentials-rejected`, `issuer-unavailable` or
+`token-exchange-failed`. Generation also re-reads the recipe once it holds the slot,
+answering with a recipe another device stored meanwhile, and refuses a page tried in the
+previous 10 minutes (ADR 0016), abstentions and failures included. The
 attempt key is the generated recipe ID, the path and the revision being continued (0 for
 a first page, the tombstone's revision for a revoked recipe generated again), so two
 recipes of one origin that lead to the same page do not block each other. A request that
@@ -503,9 +514,10 @@ role asks the owner's model choices in order
 0014; by default Claude Opus 5.5 then Claude Sonnet 5.5, both at effort `low`): a
 refusal asks the next choice, a fast mode call that fails `rate-limited`,
 `provider-error` or `timeout` asks the same model at the standard speed, and any other
-failure ends the request. Every call runs under the same lock, checks the spend stops
-first, and is charged and logged on its own. Nothing is reserved: a call is charged
-after it returns from reported usage, or at its upper bound (64 KiB of input as tokens
+failure ends the request. Every call runs in the same slot, checks the spend stops
+first, and is charged and logged on its own. Nothing is reserved, so a stop is passed by
+at most the calls running when it is crossed: a call is charged after it returns from
+reported usage, or at its upper bound (64 KiB of input as tokens
 plus 1,024 output tokens at its rates, about $0.28 for Opus 5.5) when usage is unknown.
 The `inference_log` row stores the provider, model, `effort` and `speed`, the role's
 prompt version
@@ -533,21 +545,21 @@ lost to a device leaves it null, and a failed update is logged as
 `Inference log revision not kept` and never fails the request. Since the
 [timings amendment](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-request-timings),
 `pre_model_ms` (from the Worker receiving the request to just before the model call:
-authentication, the request limit, the route's reads, the lock and checks, the model
-configuration and the credential; a later call of the same request includes the calls
-before it), `token_ms` (resolving the credential: its D1 read,
-signing the assertion and the token exchange, new on every call) and `model_ms` (the
-model call and its output checks) are written with the row. `server_ms` (to the
-response, the recipe write included) is set on every logged row, also one answered
-without a model call, by an owner-scoped update through `waitUntil` once the route
-answered, so it never delays the response. It stays null when that update failed,
-logged as `Inference log server time not kept`, or when releasing the owner's lock threw
+authentication, the request limit, the route's reads, the call slot and checks, the
+model configuration and the credential; a later call of the same request includes the
+calls before it), `token_ms` (resolving the credential: its D1 read, signing the
+assertion and the token exchange, new on every call) and `model_ms` (the model call and
+its output checks) are written with the row. `server_ms` (to the response, the recipe
+write included) is set on every logged row, also one answered without a model call, by
+an owner-scoped update through `waitUntil` once the route answered, so it never delays
+the response. It stays null when that update failed, logged as
+`Inference log server time not kept`, or when releasing the owner's call slot threw
 after the row was written, which fails the request. `src/request-timing.ts` does this
-and adds the call's `token` and `model` to `Server-Timing`. `answer` holds
-the model's own answer for every decision, `unclear` and refused output included, before
-the local checks: `{ "decision": "signed-in", "marker": "c7" }`, or a generated plan
-with a passkey button the plan check dropped. A candidate or slot it names that is not
-one of the request's IDs is `?`, as for a refused plan below; output the response format
+and adds the call's `token` and `model` to `Server-Timing`. `answer` holds the model's
+own answer for every decision, `unclear` and refused output included, before the local
+checks: `{ "decision": "signed-in", "marker": "c7" }`, or a generated plan with a
+passkey button the plan check dropped. A candidate or slot it names that is not one of
+the request's IDs is `?`, as for a refused plan below; output the response format
 refused has no answer. For `invalid-output`, the result is `{ rejection }` when a check
 named it (the judge role's check of its marker refuses without one, leaving the result
 empty) and, when the plan check refused a plan, that plan as `output`: a candidate or
@@ -662,25 +674,26 @@ to 100 entries `{ seq, time, level, event, fields }`: the calling device's `warn
 `extensionBuild` is the build that wrote every line, `logId` the device log's random ID
 (32 hex digits), `seq` the local log's key, `time` the device's, `level` `warn`, `error`
 or, for an event and outcome of `PROBLEM_INFO_LINES`, `info`, `event` a log event name
-of `PROBLEM_EVENT_FIELDS` (`packages/contracts/src/problems.ts`), and `fields` only the
-fields that event lists, each of its kind (`PROBLEM_FIELD_KINDS`): codes, error names,
-counts, flags, builds, recipe IDs, origins (a configured site's or an `origin:`
-pseudonym), RP IDs, script positions and page paths. No string but a stack holds
-whitespace, none `@`, `?` or `#`, only an origin `://`, and no path `;` or `=`, so free
-text, a URL with a query or parameters or an email address does not pass. Each entry is
-checked on its own (`problemReportEnvelopeSchema`): one that does not pass is left out
-and the others are kept, so a newer extension's line an older service does not know
-costs only that line; a report with no entry that passes, or whose envelope does not
-pass, answers 400, and a body over 64 KiB answers 413. Each kept line is one
-`problem_log` row: the owner, the device, the log ID, `seq`, the build, the level, the
-event, the fields as JSON, the device's time and the service's own time. A line whose
-device, log ID and `seq` are already stored is ignored and not counted, so a retry
-changes nothing, and a log made again on the device never collides with the old one's
-rows. A report whose new lines would take the owner past 2,000 lines received in the
-last 24 hours is refused whole with 429 and `Retry-After: 3600`; the count is read
-before the insert, so two reports at once may pass it by up to one report's lines. Rows
-are kept a year, like the request log (deleted with its expired rows, also on each
-report), and go with the request log's Delete all.
+of `PROBLEM_EVENT_FIELDS` (`packages/contracts/src/problems.ts`), never a passkey report
+(`LOCAL_ONLY_EVENTS`) or a fill-only login's line (`LOCAL_ONLY_FLAG`), and `fields` only
+the fields that event lists, each of its kind (`PROBLEM_FIELD_KINDS`): codes, error
+names, counts, flags, builds, recipe IDs, origins (a configured site's or an `origin:`
+pseudonym), script positions and page paths. No string but a stack holds whitespace,
+none `@`, `?` or `#`, only an origin `://`, and no path `;` or `=`, so free text, a URL
+with a query or parameters or an email address does not pass. Each entry is checked on
+its own (`problemReportEnvelopeSchema`): one that does not pass is left out and the
+others are kept, so a newer extension's line an older service does not know costs only
+that line; a report with no entry that passes, or whose envelope does not pass, answers
+400, and a body over 64 KiB answers 413. Each kept line is one `problem_log` row: the
+owner, the device, the log ID, `seq`, the build, the level, the event, the fields as
+JSON, the device's time and the service's own time. A line whose device, log ID and
+`seq` are already stored is ignored and not counted, so a retry changes nothing, and a
+log made again on the device never collides with the old one's rows. A report whose new
+lines would take the owner past 2,000 lines received in the last 24 hours is refused
+whole with 429 and `Retry-After: 3600`; the count is read before the insert, so two
+reports at once may pass it by up to one report's lines. Rows are kept a year, like the
+request log (deleted with its expired rows, also on each report), and go with the
+request log's Delete all.
 
 A Claude session reads them through the read-only D1 query tool, for example:
 

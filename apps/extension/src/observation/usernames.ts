@@ -145,7 +145,12 @@ export function withoutUsernames(
   const candidates: LoginObservation["candidates"] = [];
   for (const candidate of observation.candidates) {
     const { target, label, placeholder, description } = candidate;
-    if (target.by !== "autocomplete" && shows(target.value)) {
+    // A host a locator looks inside (ADR 0070) may carry the username as well.
+    const hosts = "within" in target ? (target.within ?? []) : [];
+    if (
+      (target.by !== "autocomplete" && shows(target.value)) ||
+      hosts.some((host) => shows(host.value))
+    ) {
       if (
         isField(candidate.role) ||
         ((candidate.role === "button" || candidate.role === "link") &&

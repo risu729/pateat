@@ -3,6 +3,7 @@ import { i18n } from "../i18n";
 import {
   conflictCauses,
   localSettingsSchema,
+  popupPageSectionShown,
   type LocalSettings,
   type SettingsConflictCause,
   type SettingsResponse,
@@ -11,6 +12,8 @@ import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bug,
+  EyeOff,
+  FileDown,
   Globe,
   Info,
   KeyRound,
@@ -21,15 +24,18 @@ import {
   Vault,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
 import { Button } from "./button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { VaultAccess, VaultRows } from "./connections";
+import { PRIVATE_WINDOWS_SECTION } from "../popup/pause";
+import { PrivateWindows } from "./private-windows";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
 import { DeviceModelPanel, type DeviceModelClient } from "./device-model";
+import { TransferPanel, type TransferClient } from "./transfer";
 import type { ConnectionClient } from "./connection-client";
 import { backgroundOnlyConflict, saveConflictMessage } from "./save-conflict";
 import type { ServiceClient } from "./service-client";
@@ -58,6 +64,7 @@ export function SettingsApp({
   serviceClient,
   vaultTimeoutClient,
   deviceModelClient,
+  transferClient,
 }: {
   client: SettingsClient;
   connectionClient?: ConnectionClient;
@@ -66,6 +73,8 @@ export function SettingsApp({
   vaultTimeoutClient?: VaultTimeoutClient;
   /** This device's own Anthropic API key (ADR 0040). */
   deviceModelClient?: DeviceModelClient;
+  /** Export and import of what a pairing shares (ADR 0040). */
+  transferClient?: TransferClient;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   const queryClient = useQueryClient();
@@ -290,6 +299,7 @@ export function SettingsApp({
     form.setFieldValue("repromptSites", value.repromptSites);
     form.setFieldValue("siteDefaults", value.siteDefaults);
     form.setFieldValue("bindings", value.bindings);
+    form.setFieldValue("popupPageSection", value.popupPageSection);
     rebased.current = true;
     return "rebased";
   }
@@ -368,6 +378,8 @@ export function SettingsApp({
     form.setFieldValue("passkeyBrowserSites", next.passkeyBrowserSites);
     form.setFieldValue("repromptSites", next.repromptSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
+    form.setFieldValue("loginInPrivateWindows", next.loginInPrivateWindows);
+    form.setFieldValue("popupPageSection", next.popupPageSection);
     edits.current += 1;
     setDirty(true);
     dirtyRef.current = true;
@@ -508,8 +520,10 @@ export function SettingsApp({
       ? [{ id: "vault-timeout", label: t("Vault timeout"), icon: Timer }]
       : []),
     { id: "sites", label: t("Sites"), icon: Globe },
+    { id: PRIVATE_WINDOWS_SECTION, label: t("Private windows"), icon: EyeOff },
     ...(serviceClient ? [{ id: "sync", label: t("Sync service"), icon: Link }] : []),
     ...(deviceModelClient ? [{ id: "ai-key", label: t("AI key"), icon: KeyRound }] : []),
+    ...(transferClient ? [{ id: "transfer", label: t("Export and import"), icon: FileDown }] : []),
   ];
   return (
     <div className="mx-auto flex max-w-[70rem] flex-col gap-8 px-6 pt-8 pb-12 max-sm:px-4">
@@ -545,7 +559,28 @@ export function SettingsApp({
         )}
       </output>
       <div className="flex flex-wrap items-start gap-8">
-        <SectionNav sections={sections} />
+        <SectionNav
+          sections={sections}
+          display={
+            <label className="checkbox-row m-0 text-sm">
+              <input
+                id="popup-page-section"
+                type="checkbox"
+                checked={popupPageSectionShown(draft)}
+                disabled={busy || !accepted}
+                onChange={(event) => {
+                  const shown = event.target.checked;
+                  // Stored only when hidden, as in the synced document.
+                  edit((value) => {
+                    if (shown) delete value.popupPageSection;
+                    else value.popupPageSection = false;
+                  });
+                }}
+              />
+              {t('Show "This page" in the popup')}
+            </label>
+          }
+        />
         <main className="flex min-w-0 flex-[999_1_560px] flex-col gap-6">
           {!connectionClient && (
             <StatusLines
@@ -654,9 +689,26 @@ export function SettingsApp({
                 <ul id="site-list" className="hidden" />
               </Panel>
             )}
+            {accepted && <PrivateWindows draft={draft} edit={edit} />}
           </fieldset>
           {serviceClient && <ServiceConnection client={serviceClient} settingsClient={client} />}
           {deviceModelClient && <DeviceModelPanel client={deviceModelClient} />}
+          {transferClient && (
+            <TransferPanel
+              client={transferClient}
+              blocked={dirty || busy || saving}
+              onImported={() => {
+                // Edits made while the file was imported stay until the owner reloads.
+                if (dirtyRef.current || operation.current)
+                  setMessage((translate) =>
+                    translate(
+                      "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.",
+                    ),
+                  );
+                else void reload();
+              }}
+            />
+          )}
           <footer className="flex flex-wrap gap-4 text-[0.8125rem] leading-5 text-ink-muted">
             <a href="legal.html" target="_blank" rel="noreferrer">
               {t("Licenses and source")}
@@ -673,8 +725,11 @@ type NavSection = { id: string; label: string; icon: LucideIcon };
 const navLinkClass =
   "flex min-h-10 items-center gap-2.5 rounded-lg px-3 text-sm font-medium text-ink no-underline hover:bg-surface aria-[current]:bg-surface aria-[current]:font-[650] aria-[current]:text-accent-ink aria-[current]:shadow-[inset_0_0_0_1px_var(--border)]";
 
-/** The page's sections, the diagnostics page and the theme; the section in view is marked. */
-function SectionNav({ sections }: { sections: NavSection[] }) {
+/**
+ * The page's sections, the diagnostics page, the theme, the popup's display choice and the
+ * language; the section in view is marked.
+ */
+function SectionNav({ sections, display }: { sections: NavSection[]; display: ReactNode }) {
   const { t } = useTranslation(undefined, { i18n });
   const [current, setCurrent] = useState(sections[0]?.id);
   const ids = sections.map((section) => section.id).join(" ");
@@ -755,8 +810,9 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
           </a>
         </li>
       </ul>
-      <div className="px-3">
+      <div className="flex flex-col gap-4 px-3">
         <ThemeSelect />
+        {display}
         <LanguageSelect />
       </div>
     </nav>

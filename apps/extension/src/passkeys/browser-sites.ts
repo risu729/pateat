@@ -196,6 +196,14 @@ export function createPasskeyBrowserSites(input: {
       if (hostname && pending.has(hostname)) return true;
       return isPasskeyBrowserSite(await (listed ?? refresh()), origin);
     },
+    /**
+     * The settings as last read ahead of requests, so a passkey request's other reads, such
+     * as whether its site's default counts as unset (ADR 0062, ADR 0063), need not wait for
+     * the store either.
+     */
+    settings(): Promise<LocalSettings> {
+      return listed ?? refresh();
+    },
     /** Whether the origin's hostname was chosen and its write has not ended yet. */
     pending(origin: string): boolean {
       const hostname = hostnameOf(origin);

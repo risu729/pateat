@@ -480,6 +480,13 @@ export const localSettingsSchema = v.pipe(
         "Duplicate origins",
       ),
     ),
+    /**
+     * Whether Pateat logs in by itself in private (incognito) windows; absent means off, the
+     * default. While off, every site in a private window is paused as a site is by the
+     * popup's pause (ADR 0062): Pateat logs in only with an account picked in the popup.
+     * Synced with the sites' rules, as part of the profile (ADR 0024).
+     */
+    loginInPrivateWindows: v.optional(v.literal(true)),
     /** Synced links to the items that hold a login's personal details (ADR 0061). */
     detailLinks: v.optional(
       v.pipe(
@@ -493,6 +500,7 @@ export const localSettingsSchema = v.pipe(
                 JSON.stringify([
                   link.origin,
                   link.provider,
+                  link.server,
                   link.userId,
                   link.itemId,
                   link.detail,
@@ -548,6 +556,12 @@ export const localSettingsSchema = v.pipe(
         "Duplicate account bindings",
       ),
     ),
+    /**
+     * Whether the toolbar popup shows its "This page" section (ADR 0038), synced like the
+     * other profile parts (ADR 0024). Shown unless this is `false`; read it with
+     * `popupPageSectionShown`.
+     */
+    popupPageSection: v.optional(v.boolean()),
   }),
 );
 
@@ -570,6 +584,8 @@ export const SETTINGS_CHANGE_CAUSES = [
   "field-review",
   /** Settings merged from the Pateat service. */
   "service-sync",
+  /** Settings merged from a file exported on another device (ADR 0040). */
+  "settings-import",
   /** An account used on a site, from a login or a passkey request, saved for it (ADR 0021). */
   "account-choice",
   /** A vault field linked to a personal detail on a site, or that link removed (ADR 0061). */
@@ -1102,6 +1118,10 @@ export function customFieldReviewState(
   return "review-required";
 }
 
+/** Whether the popup shows its "This page" section: unless the settings hide it. */
+export const popupPageSectionShown = (settings: Pick<LocalSettings, "popupPageSection">) =>
+  settings.popupPageSection !== false;
+
 export type EligibilityReason =
   | "connection-missing"
   | "connection-disabled"
@@ -1185,7 +1205,23 @@ function ruleMatches(rules: LocalSettings["excludedSites"], hostname: string): b
   );
 }
 
-export function isSiteExcluded(settings: LocalSettings, value: string): boolean {
+/**
+ * Whether Pateat runs on a page at all: an HTTP(S) URL whose hostname policy inputs accept.
+ * Exclusion rules do not decide this; they pause automatic login (ADR 0062).
+ */
+export function isSupportedSite(value: string): boolean {
+  const url = parseSiteUrl(value);
+  return Boolean(url && normalizeHostname(url.hostname));
+}
+
+/**
+ * Whether an exclusion rule covers the page, or the page is not one Pateat runs on. A rule
+ * pauses automatic login of the site until it is removed (ADR 0062).
+ */
+export function isSiteExcluded(
+  settings: Pick<LocalSettings, "excludedSites">,
+  value: string,
+): boolean {
   const url = parseSiteUrl(value);
   const hostname = url && normalizeHostname(url.hostname);
   // Invalid destinations are blocked, never treated as a permission grant.
@@ -1231,7 +1267,6 @@ export type SiteAccountResolution =
       ok: false;
       reason:
         | "invalid-url"
-        | "site-excluded"
         | "default-not-set"
         | "item-origin-mismatch"
         | "account-ambiguous"
@@ -1267,7 +1302,10 @@ export function siteDefaultConnection(
     : { ok: false, reason: "connection-missing" };
 }
 
-/** Pure next-login selection. This never switches a current browser session. */
+/**
+ * Pure next-login selection. This never switches a current browser session. An exclusion
+ * rule does not refuse it: on a paused site only a popup pick logs in (ADR 0062).
+ */
 export function resolveSiteAccount(
   settings: LocalSettings,
   catalog: VaultCatalog,
@@ -1275,7 +1313,7 @@ export function resolveSiteAccount(
 ): SiteAccountResolution {
   const url = parseSiteUrl(value);
   if (!url || !normalizeHostname(url.hostname)) return { ok: false, reason: "invalid-url" };
-  if (isSiteExcluded(settings, value)) return { ok: false, reason: "site-excluded" };
+  // An exclusion rule only pauses automatic login, and a pick still logs in (ADR 0062).
   const selected = settings.siteDefaults.find((entry) => entry.origin === url.origin);
   if (!selected) return { ok: false, reason: "default-not-set" };
   const connection = siteDefaultConnection(selected, catalog);

@@ -18,6 +18,9 @@ only a password step after a logout),
 releases a watched login) and [ADR 0028](0028-account-chooser-login-pages.md) (its
 branches never start mid-way).
 
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (accepted and
+implemented): a later step shown after a login in the tab starts an ordinary login, as
+the first step does, instead of asking.
 Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (accepted by the owner on
 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a later step is
 looked for in every layout of the origin's recipes, and among the layouts of the recipe

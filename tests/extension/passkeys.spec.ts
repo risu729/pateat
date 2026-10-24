@@ -584,7 +584,7 @@ test("Immediate UI requests are answered like other requests, chooser included (
   }
 });
 
-test("after Pateat signed in a tab, the next username-less request there asks again", async () => {
+test("after Pateat signed in a tab, the next username-less request there signs again (ADR 0062)", async () => {
   const { server, origin } = await startRelyingParty();
   try {
     await withLoginExtension(async (context, _worker, extensionId) => {
@@ -594,24 +594,11 @@ test("after Pateat signed in a tab, the next username-less request there asks ag
       const first = challengeHex();
       expectPateatAssertion(await clickRequest(page, { challenge: first }), origin, first);
 
-      // The single match is offered rather than used, since this may follow a logout.
+      // The single match signs again without a window, as after a logout (#833).
       const again = challengeHex();
-      const asked = await requestWithChooser(context, page, { challenge: again });
-      await expect(
-        asked.chooser.getByText(
-          "Pateat answered a passkey request from this site in this tab before.",
-        ),
-      ).toBeVisible();
-      const list = asked.chooser.getByRole("list", { name: "Matching passkeys" });
-      await expect(list.getByRole("button")).toHaveText([
-        "synthetic-user-1Synthetic passkey 1 in Probe",
-      ]);
-      // Saving it as the default is opt-in here: this may be a one-off switch.
-      await expect(asked.chooser.getByRole("checkbox")).not.toBeChecked();
-      await choose(list.getByRole("button", { name: /Synthetic passkey 1/u }));
-      expectPateatAssertion(await asked.settle(), origin, again);
+      expectPateatAssertion(await clickRequest(page, { challenge: again }), origin, again);
 
-      // A named request, as in a re-authentication, and a new tab both sign silently.
+      // A named request, as in a re-authentication, and a new tab sign silently too.
       const named = challengeHex();
       expectPateatAssertion(
         await clickRequest(page, { challenge: named, allow: [PROBE_PASSKEY.credentialId] }),

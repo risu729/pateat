@@ -230,8 +230,8 @@ export const attemptMetadataSchema = v.pipe(
      */
     changedAt: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
     /**
-     * After a logout (ADR 0021 D): the attempt fills the page's leading fields and stops
-     * before the first step with an effect, so it never clicks or submits.
+     * While its tab asks for an account (ADR 0021 D): the attempt fills the page's leading
+     * fields and stops before the first step with an effect, so it never clicks or submits.
      */
     fillOnly: v.optional(v.literal(true)),
     /**

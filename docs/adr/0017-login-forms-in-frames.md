@@ -4,6 +4,10 @@ Status: accepted by the owner on 2026-10-11 and implemented in the frame login P
 Amends [ADR 0009](0009-install-time-https-site-access.md). Tested on synthetic
 loopback fixtures only; no real site or account has been used.
 
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (owner,
+implemented): an exclusion rule on either side pauses the frame's login instead of
+refusing the frame: nothing starts by itself, while a popup pick still logs in.
+
 Date: 2026-10-11
 
 ## Context

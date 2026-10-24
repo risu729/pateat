@@ -11,7 +11,6 @@ import {
 import type { PasskeyCandidates } from "./select";
 import { CHOOSER_MAX_WAIT_MS, CHOOSER_MIN_WAIT_MS, RUNTIME_TIMEOUT_MS } from "./wire";
 import { snapshotGetOptions } from "./page";
-import type { SignedTabs } from "./signed-tabs";
 
 const extensionId = "synthetic-extension";
 const origin = "https://login.example.com";
@@ -228,16 +227,8 @@ describe("a document replaced while Pateat answers its request", () => {
   /** What the relay sends for each pending request on `pagehide`. */
   const cancel = (operationId: string) => ({ version: 1, type: "passkey.cancel", operationId });
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-  /** A runtime with every side effect of an assertion observed, and a recording SignedTabs. */
+  /** A runtime with every side effect of an assertion observed. */
   const setup = (backing: PasskeySource, choice?: PasskeyChoice) => {
-    const entries = new Set<string>();
-    const signedTabs = {
-      has: vi.fn<SignedTabs["has"]>(async (tabId, rpId) => entries.has(`${tabId} ${rpId}`)),
-      add: vi.fn<SignedTabs["add"]>(async (tabId, rpId) => {
-        entries.add(`${tabId} ${rpId}`);
-      }),
-      replaced: vi.fn<SignedTabs["replaced"]>(async () => undefined),
-    } satisfies SignedTabs;
     const chooser = {
       choose: vi.fn<PasskeyChooser["choose"]>(
         async () => choice ?? { kind: "chosen", index: 0, makeDefault: false },
@@ -253,10 +244,9 @@ describe("a document replaced while Pateat answers its request", () => {
     const runtime = createPasskeyRuntime(backing, {
       extensionId,
       chooser,
-      signedTabs,
       ...effects,
     });
-    return { runtime, entries, signedTabs, chooser, leave, ...effects };
+    return { runtime, chooser, leave, ...effects };
   };
 
   it("gets no assertion and records no sign-in when its signing ignores the cancel", async () => {
@@ -280,27 +270,25 @@ describe("a document replaced while Pateat answers its request", () => {
     await tick();
     await tick();
     expect(tab.answered).not.toHaveBeenCalled();
-    expect(tab.signedTabs.add).not.toHaveBeenCalled();
     expect(tab.remember).not.toHaveBeenCalled();
-    expect(tab.entries.size).toBe(0);
     expect(tab.leave).toHaveBeenCalledOnce();
     expect(tab.report).toHaveBeenCalledOnce();
     expect(tab.report).toHaveBeenCalledWith(
       expect.objectContaining({ tabId: 7, outcome: "cancelled", cause: "page-cancelled" }),
     );
 
-    // The tab's next document is answered silently: Pateat did not sign in from this tab.
+    // The tab's next document is answered as before.
     const next = sender({ documentId: "document-b" });
     expect(await tab.runtime.handle(get(), next)).toMatchObject({
       kind: "assertion",
       assertion: { credentialId: "AQID" },
     });
-    expect(tab.signedTabs.has).toHaveBeenLastCalledWith(7, "example.com");
     expect(tab.chooser.choose).not.toHaveBeenCalled();
     expect(tab.answered).toHaveBeenCalledOnce();
-    expect(tab.answered).toHaveBeenCalledWith(7, origin, "example.com", candidate);
-    await tick();
-    expect([...tab.entries]).toEqual(["7 example.com"]);
+    // The person's click started it, so it is no sign-in Pateat made by itself (ADR 0062 C).
+    expect(tab.answered).toHaveBeenCalledWith(7, origin, "example.com", candidate, {
+      incognito: false,
+    });
     expect(tab.leave).toHaveBeenCalledTimes(2);
   });
 
@@ -321,7 +309,6 @@ describe("a document replaced while Pateat answers its request", () => {
     await tick();
     expect(tab.remember).not.toHaveBeenCalled();
     expect(tab.answered).not.toHaveBeenCalled();
-    expect(tab.signedTabs.add).not.toHaveBeenCalled();
     expect(tab.leave).toHaveBeenCalledOnce();
     expect(tab.report).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: "cancelled", cause: "page-cancelled", chooser: "chosen" }),
@@ -343,7 +330,6 @@ describe("a document replaced while Pateat answers its request", () => {
     await tick();
     expect(backing.sign).not.toHaveBeenCalled();
     expect(tab.answered).not.toHaveBeenCalled();
-    expect(tab.signedTabs.add).not.toHaveBeenCalled();
     expect(tab.leave).toHaveBeenCalledOnce();
     expect(tab.report).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: "cancelled", cause: "page-cancelled" }),
@@ -440,7 +426,9 @@ describe("passkey runtime required mediation", () => {
     expect(result).toMatchObject({ kind: "assertion", assertion: { credentialId: "AQID" } });
     expect(backing.candidates).toHaveBeenCalledWith(origin, "example.com", expect.any(AbortSignal));
     expect(backing.sign).toHaveBeenCalledOnce();
-    expect(answered.mock.calls).toEqual([[7, origin, "example.com", candidate]]);
+    expect(answered.mock.calls).toEqual([
+      [7, origin, "example.com", candidate, { incognito: false }],
+    ]);
     await vi.waitFor(() => expect(report).toHaveBeenCalledOnce());
     expect(report.mock.lastCall![0]).toMatchObject({
       outcome: "assertion",
@@ -616,6 +604,21 @@ describe("passkey runtime reports", () => {
     ]);
   });
 
+  it("does not count person-started passkey sign-ins towards the relogin guard (ADR 0062 C)", async () => {
+    const answered = vi.fn();
+    const runtime = createPasskeyRuntime(source(), { extensionId, answered });
+    // The person's click gives the request user activation; it is theirs, not Pateat's.
+    expect(await runtime.handle(get(undefined, true), sender())).toMatchObject({
+      kind: "assertion",
+    });
+    expect(answered.mock.lastCall?.[4]).toEqual({ incognito: false });
+    // The page started this one on load, with no activation: Pateat signed by itself.
+    expect(await runtime.handle(get(undefined, false), sender())).toMatchObject({
+      kind: "assertion",
+    });
+    expect(answered.mock.lastCall?.[4]).toEqual({ silent: true, incognito: false });
+  });
+
   it("tells a login of each assertion it returns, with its RP ID and passkey", async () => {
     const answered = vi.fn(() => {
       throw new Error("a failing listener changes nothing");
@@ -627,7 +630,32 @@ describe("passkey runtime reports", () => {
     ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
     expect(answered).not.toHaveBeenCalled();
     expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
-    expect(answered.mock.calls).toEqual([[7, origin, "example.com", candidate]]);
+    expect(answered.mock.calls).toEqual([
+      [7, origin, "example.com", candidate, { incognito: false }],
+    ]);
+    // A person-started passkey sign-in is not counted towards the relogin guard; one the
+    // page started with no user activation, as on load after a logout, is (ADR 0062 C).
+    expect(await runtime.handle(get(undefined, false), sender())).toMatchObject({
+      kind: "assertion",
+    });
+    expect(answered.mock.lastCall).toEqual([
+      7,
+      origin,
+      "example.com",
+      candidate,
+      { silent: true, incognito: false },
+    ]);
+    // A private window's request is told apart, for its own relogin count.
+    expect(
+      await runtime.handle(get(undefined, false), sender({ tab: { id: 7, incognito: true } })),
+    ).toMatchObject({ kind: "assertion" });
+    expect(answered.mock.lastCall).toEqual([
+      7,
+      origin,
+      "example.com",
+      candidate,
+      { silent: true, incognito: true },
+    ]);
   });
 
   it("reports no request from an invalid sender or a cancellation", async () => {
@@ -683,7 +711,6 @@ describe("passkey chooser window", () => {
       rpId: "example.com",
       entries: [{ item: "Work", userName: "alice", account: "Personal" }, { item: "Passkey 2" }],
       replacesDefault: true,
-      again: false,
       signal: expect.any(AbortSignal),
     });
     expect(backing.sign).toHaveBeenCalledWith(
@@ -761,16 +788,20 @@ describe("passkey chooser window", () => {
 
   it("does not save a one-time choice", async () => {
     const remember = vi.fn(async () => {});
+    const answered = vi.fn();
     const runtime = createPasskeyRuntime(several(), {
       extensionId,
       chooser: chooser(async () => ({ kind: "chosen", index: 0, makeDefault: false })),
       remember,
+      answered,
     });
     expect(await runtime.handle(get(), sender())).toMatchObject({
       assertion: { credentialId: "AQID" },
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(remember).not.toHaveBeenCalled();
+    // The person chose it, so it is no sign-in Pateat made by itself (ADR 0062 C).
+    expect(answered.mock.lastCall?.[4]).toEqual({ incognito: false });
   });
 
   it.each(["browser", "closed", "unavailable"] as const)(
@@ -825,6 +856,114 @@ describe("passkey chooser window", () => {
       reason: "ambiguous-credential",
     });
     expect(choose.choose).not.toHaveBeenCalled();
+  });
+
+  describe("a site that treats its default as unset (ADR 0063)", () => {
+    const withDefault = (items = [{ ...pair[0]!, preferred: true }, pair[1]!]) =>
+      source({
+        candidates: vi.fn(async () => ({
+          candidates: items,
+          complete: true,
+          siteDefault: "searched" as const,
+        })),
+      });
+
+    it("opens the chooser with no default preselected, also for one passkey", async () => {
+      const choose = chooser(async () => ({ kind: "chosen", index: 0, makeDefault: false }));
+      const defaultUnset = vi.fn(async () => true);
+      const report = vi.fn();
+      const runtime = createPasskeyRuntime(withDefault(), {
+        extensionId,
+        chooser: choose,
+        defaultUnset,
+        report,
+      });
+      expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+      expect(defaultUnset).toHaveBeenCalledWith(origin, false);
+      expect(choose.choose.mock.calls[0]![0].entries).toEqual([
+        { item: "Work", userName: "alice", account: "Personal" },
+        { item: "Passkey 2" },
+      ]);
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultUnset: true, chooser: "chosen" }),
+      );
+      // One passkey, which would sign without asking, asks as well.
+      const single = createPasskeyRuntime(withDefault([{ ...pair[0]!, preferred: true }]), {
+        extensionId,
+        chooser: choose,
+        defaultUnset,
+      });
+      expect(await single.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+      expect(choose.choose).toHaveBeenCalledTimes(2);
+      expect(choose.choose.mock.calls[1]![0].entries).toEqual([
+        { item: "Work", userName: "alice", account: "Personal" },
+      ]);
+    });
+
+    it("reads whether the default counts as unset alongside the lookup, so the deadline runs as without it", async () => {
+      const backing = withDefault();
+      const lookup = Promise.withResolvers<void>();
+      const candidates = backing.candidates;
+      backing.candidates = vi.fn(async (...args: Parameters<PasskeySource["candidates"]>) => {
+        await lookup.promise;
+        return candidates(...args);
+      });
+      const defaultUnset = vi.fn(async () => false);
+      const runtime = createPasskeyRuntime(backing, { extensionId, defaultUnset });
+      const answer = runtime.handle(get(), sender());
+      await vi.waitFor(() => expect(backing.candidates).toHaveBeenCalled());
+      // Asked while the lookup still runs.
+      await vi.waitFor(() => expect(defaultUnset).toHaveBeenCalledWith(origin, false));
+      lookup.resolve();
+      expect(await answer).toMatchObject({ kind: "assertion" });
+    });
+
+    it("hands the request on where no chooser can open, and signs with the default otherwise", async () => {
+      const choose = chooser(async () => ({ kind: "closed" }));
+      const unset = createPasskeyRuntime(withDefault(), {
+        extensionId,
+        chooser: choose,
+        defaultUnset: () => true,
+      });
+      expect(await unset.handle(get(), sender({ tab: { id: 7, incognito: true } }))).toEqual({
+        kind: "delegate",
+        reason: "default-unset",
+      });
+      expect(choose.choose).not.toHaveBeenCalled();
+      const backing = withDefault();
+      const kept = createPasskeyRuntime(backing, {
+        extensionId,
+        chooser: choose,
+        defaultUnset: async () => false,
+      });
+      expect(await kept.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+      expect(choose.choose).not.toHaveBeenCalled();
+      expect(backing.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ credentialId: "AQID", preferred: true }),
+        expect.anything(),
+        expect.anything(),
+        expect.any(AbortSignal),
+      );
+    });
+
+    it("never asks the hook for a running login's item or a conditional request", async () => {
+      const defaultUnset = vi.fn(async () => true);
+      const login = createPasskeyRuntime(withDefault([{ ...pair[0]!, preferred: true }]), {
+        extensionId,
+        chooser: chooser(async () => ({ kind: "closed" })),
+        loginAccount: () => ({ connectionId: "connection-1", itemId: "item-1" }),
+        defaultUnset,
+      });
+      expect(await login.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+      const conditional = createPasskeyRuntime(withDefault(), { extensionId, defaultUnset });
+      expect(
+        await conditional.handle(
+          { ...get(), request: { ...request, mediation: "conditional" } },
+          sender(),
+        ),
+      ).toMatchObject({ kind: "delegate" });
+      expect(defaultUnset).not.toHaveBeenCalled();
+    });
   });
 
   it("closes the window when the page cancels", async () => {
@@ -1185,250 +1324,45 @@ describe("passkey requests during a login (ADR 0027)", () => {
   });
 });
 
-describe("asking again after Pateat signed in a tab", () => {
-  /** An in-memory record of where Pateat signed. */
-  const signedTabs = (...signed: Array<[number, string]>) => {
-    const entries = new Set(signed.map(([tabId, rpId]) => `${tabId} ${rpId}`));
-    return {
-      entries,
-      has: vi.fn<SignedTabs["has"]>(async (tabId, rpId) => entries.has(`${tabId} ${rpId}`)),
-      add: vi.fn<SignedTabs["add"]>(async (tabId, rpId) => {
-        entries.add(`${tabId} ${rpId}`);
-      }),
-      replaced: vi.fn<SignedTabs["replaced"]>(async () => undefined),
-    } satisfies SignedTabs & { entries: Set<string> };
-  };
-  const chosen = (index = 0, makeDefault = false) => ({
-    choose: vi.fn<PasskeyChooser["choose"]>(async () => ({ kind: "chosen", index, makeDefault })),
-  });
+describe("after Pateat signed in a tab (ADR 0062)", () => {
   const withDefault = [
     { ...candidate, credentialId: "BAUG", display: { item: "Home" } },
     { ...candidate, preferred: true, display: { item: "Work" } },
   ];
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-  it("asks for a single match after a logout clicked on the site in the tab", async () => {
-    const choose = chosen();
+  it("signs a single match again in that tab without asking, as after a logout", async () => {
+    const choose = vi.fn<PasskeyChooser["choose"]>();
     const report = vi.fn();
-    const logoutClicked = vi.fn(
-      async (tabId: number, rpId: string) => tabId === 7 && rpId === "example.com",
-    );
     const runtime = createPasskeyRuntime(source(), {
       extensionId,
-      chooser: choose,
-      signedTabs: signedTabs(),
-      logoutClicked,
+      chooser: { choose },
       report,
     });
-    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
-    expect(choose.choose).toHaveBeenCalledWith(
-      expect.objectContaining({ tabId: 7, again: true, loggedOut: true }),
-    );
-    expect(report).toHaveBeenLastCalledWith(
-      expect.objectContaining({ logoutClicked: true, chooser: "chosen" }),
-    );
-    expect(report.mock.lastCall?.[0]).not.toHaveProperty("signedBefore");
-    // Another tab did not log out.
-    expect(await runtime.handle(get(), sender({ tab: { id: 8 } }))).toMatchObject({
-      kind: "assertion",
-    });
-    expect(choose.choose).toHaveBeenCalledOnce();
+    // The tab's first request signs, and so does the next one after a logout.
+    const signed = { kind: "assertion", assertion: { credentialId: "AQID" } };
+    expect(await runtime.handle(get(), sender())).toMatchObject(signed);
+    expect(await runtime.handle(get(), sender())).toMatchObject(signed);
+    expect(choose).not.toHaveBeenCalled();
+    expect(report.mock.lastCall?.[0]).not.toHaveProperty("chooser");
   });
 
-  it("records the RP ID of each assertion, then asks for a single match in that tab", async () => {
-    const signed = signedTabs();
-    const choose = chosen();
-    const report = vi.fn();
-    const backing = source();
-    const runtime = createPasskeyRuntime(backing, {
-      extensionId,
-      chooser: choose,
-      signedTabs: signed,
-      report,
-    });
-    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
-    expect(choose.choose).not.toHaveBeenCalled();
-    await tick();
-    expect([...signed.entries]).toEqual(["7 example.com"]);
-
-    expect(await runtime.handle(get(), sender())).toMatchObject({
-      kind: "assertion",
-      assertion: { credentialId: "AQID" },
-    });
-    expect(choose.choose).toHaveBeenCalledWith(
-      expect.objectContaining({ tabId: 7, entries: [{ item: "Passkey 1" }], again: true }),
-    );
-    expect(report).toHaveBeenLastCalledWith(
-      expect.objectContaining({ signedBefore: true, chooser: "chosen" }),
-    );
-    // Another tab has not signed in yet.
-    expect(await runtime.handle(get(), sender({ tab: { id: 8 } }))).toMatchObject({
-      kind: "assertion",
-    });
-    expect(choose.choose).toHaveBeenCalledOnce();
-  });
-
-  it("does not ask again while a login runs in the tab (ADR 0027)", async () => {
-    const signed = signedTabs([7, "example.com"]);
-    const choose = chosen();
-    const loginItem = { connectionId: "personal", itemId: "login-item" };
-    const backing = source();
-    const runtime = createPasskeyRuntime(backing, {
-      extensionId,
-      chooser: choose,
-      signedTabs: signed,
-      loginAccount: async () => loginItem,
-    });
-    expect(await runtime.handle(get(), sender())).toMatchObject({
-      kind: "assertion",
-      assertion: { credentialId: "AQID" },
-    });
-    expect(backing.candidates).toHaveBeenCalledWith(
-      origin,
-      "example.com",
-      expect.any(AbortSignal),
-      loginItem,
-    );
-    expect(choose.choose).not.toHaveBeenCalled();
-  });
-
-  it("does not record a delegated request", async () => {
-    const signed = signedTabs();
-    const runtime = createPasskeyRuntime(source({ candidates: vi.fn(async () => undefined) }), {
-      extensionId,
-      chooser: chosen(),
-      signedTabs: signed,
-    });
-    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "delegate" });
-    await tick();
-    expect(signed.add).not.toHaveBeenCalled();
-  });
-
-  it("lists the site default first and saves only a different passkey", async () => {
-    const remember = vi.fn(async () => {});
-    const backing = source({
-      candidates: vi.fn(async () => ({
-        candidates: withDefault,
-        complete: true,
-        siteDefault: "searched" as const,
-      })),
-    });
-    const keep = chosen(0, true);
-    const runtime = createPasskeyRuntime(backing, {
-      extensionId,
-      chooser: keep,
-      remember,
-      signedTabs: signedTabs([7, "example.com"]),
-    });
-    expect(await runtime.handle(get(), sender())).toMatchObject({
-      assertion: { credentialId: "AQID" },
-    });
-    expect(keep.choose).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entries: [{ item: "Work", preferred: true }, { item: "Home" }],
-        replacesDefault: true,
-        again: true,
-      }),
-    );
-    await tick();
-    expect(remember).not.toHaveBeenCalled();
-
-    const replace = createPasskeyRuntime(backing, {
-      extensionId,
-      chooser: chosen(1, true),
-      remember,
-      signedTabs: signedTabs([7, "example.com"]),
-    });
-    expect(await replace.handle(get(), sender())).toMatchObject({
-      assertion: { credentialId: "BAUG" },
-    });
-    await tick();
-    expect(remember).toHaveBeenCalledWith(origin, withDefault[0]);
-  });
-
-  it("hands the request to the browser when the person asks for it", async () => {
-    const backing = source();
-    const runtime = createPasskeyRuntime(backing, {
-      extensionId,
-      chooser: { choose: vi.fn<PasskeyChooser["choose"]>(async () => ({ kind: "browser" })) },
-      signedTabs: signedTabs([7, "example.com"]),
-    });
-    expect(await runtime.handle(get(), sender())).toEqual({
-      kind: "delegate",
-      reason: "chooser-browser",
-    });
-    expect(backing.sign).not.toHaveBeenCalled();
-  });
-
-  it("signs named credentials silently, as in a re-authentication", async () => {
-    const choose = chosen();
-    const runtime = createPasskeyRuntime(source(), {
-      extensionId,
-      chooser: choose,
-      signedTabs: signedTabs([7, "example.com"]),
-    });
-    const named = {
-      ...get(),
-      request: { ...request, allowCredentials: [{ type: "public-key", id: "AQID" }] },
-    };
-    expect(await runtime.handle(named, sender())).toMatchObject({ kind: "assertion" });
-    expect(choose.choose).not.toHaveBeenCalled();
-  });
-
-  it("never signs unasked when no window can open or the vault was not fully searched", async () => {
-    const choose = chosen();
-    const backing = source();
-    const runtime = createPasskeyRuntime(backing, {
-      extensionId,
-      chooser: choose,
-      signedTabs: signedTabs([7, "example.com"]),
-    });
-    const unavailable = { kind: "delegate", reason: "chooser-unavailable" };
-    expect(await runtime.handle(get(undefined, true, false), sender())).toEqual(unavailable);
-    expect(await runtime.handle(get(), sender({ tab: { id: 7, incognito: true } }))).toEqual(
-      unavailable,
-    );
-    expect(await runtime.handle(get(), sender({ documentLifecycle: "prerender" }))).toEqual(
-      unavailable,
-    );
-    const hurried = { ...get(), request: { ...request, timeout: 1 } };
-    // The vault lookup uses up the wait before the window could open.
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      const slow = createPasskeyRuntime(
-        source({
-          candidates: vi.fn(async () => {
-            vi.setSystemTime(Date.now() + 9_000);
-            return { candidates: [candidate], complete: true };
-          }),
-        }),
-        { extensionId, chooser: choose, signedTabs: signedTabs([7, "example.com"]) },
-      );
-      expect(await slow.handle(hurried, sender())).toEqual(unavailable);
-    } finally {
-      vi.useRealTimers();
-    }
-    const incomplete = createPasskeyRuntime(
+  it("signs with the site default again without asking when several match", async () => {
+    const choose = vi.fn<PasskeyChooser["choose"]>();
+    const runtime = createPasskeyRuntime(
       source({
-        candidates: vi.fn(async () => ({ candidates: withDefault, complete: false })),
+        candidates: vi.fn(async () => ({
+          candidates: withDefault,
+          complete: true,
+          siteDefault: "searched" as const,
+        })),
       }),
-      { extensionId, chooser: choose, signedTabs: signedTabs([7, "example.com"]) },
+      { extensionId, chooser: { choose } },
     );
-    expect(await incomplete.handle(get(), sender())).toEqual({
-      kind: "delegate",
-      reason: "vault-incomplete",
-    });
-    const none = createPasskeyRuntime(source({ candidates: vi.fn(async () => undefined) }), {
-      extensionId,
-      chooser: choose,
-      signedTabs: signedTabs([7, "example.com"]),
-    });
-    expect(await none.handle(get(), sender())).toEqual({
-      kind: "delegate",
-      reason: "not-configured",
-    });
-    expect(choose.choose).not.toHaveBeenCalled();
-    expect(backing.sign).not.toHaveBeenCalled();
+    // The tab's first request signs, and so does the next one after a logout.
+    const signed = { kind: "assertion", assertion: { credentialId: "AQID" } };
+    expect(await runtime.handle(get(), sender())).toMatchObject(signed);
+    expect(await runtime.handle(get(), sender())).toMatchObject(signed);
+    expect(choose).not.toHaveBeenCalled();
   });
 });
 
@@ -1439,7 +1373,13 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
     request: { ...request, mediation: "conditional" },
   });
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-  type Input = { tabId: number; origin: string; documentId: string; signal: AbortSignal };
+  type Input = {
+    tabId: number;
+    origin: string;
+    documentId: string;
+    signal: AbortSignal;
+    incognito: boolean;
+  };
   /** A login runtime whose decisions the test gives, one per waiting request. */
   function decisions() {
     const waiting: Array<{ input: Input; decide(decision: ConditionalDecision): void }> = [];
@@ -1517,6 +1457,8 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
       origin,
       documentId: "document-a",
       signal: expect.any(AbortSignal),
+      // The sender's window kind, which keeps its own pauses (ADR 0062).
+      incognito: false,
     });
     // Nothing is read from the vault, and the vault is not held, while it waits.
     expect(backing.candidates).not.toHaveBeenCalled();
@@ -1536,6 +1478,35 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
         mediation: "conditional",
       }),
     );
+  });
+
+  it("hands a paused site's own request on at once, while a modal one is still answered (ADR 0062)", async () => {
+    const report = vi.fn();
+    const backing = source();
+    // The login runtime decides at once that the page's site is paused.
+    const conditional = vi.fn(async (): Promise<ConditionalDecision> => ({
+      kind: "delegate",
+      reason: "paused",
+    }));
+    const runtime = createPasskeyRuntime(backing, { extensionId, report, conditional });
+    expect(await runtime.handle(conditionalGet(), sender())).toEqual({
+      kind: "delegate",
+      reason: "paused",
+    });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          outcome: "delegate",
+          reason: "paused",
+          mediation: "conditional",
+        }),
+      ),
+    );
+    // A request the person started on the page never asks the login runtime; without a
+    // pause hook it is answered as before.
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(conditional).toHaveBeenCalledTimes(1);
   });
 
   it("withholds the request after the login signed in", async () => {
@@ -1592,11 +1563,13 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
     );
     expect(events).toEqual(["hold", "answered", "leave"]);
     // The login's item signed it.
+    // A login's answer is not a sign-in Pateat made by itself.
     expect(answeredTab).toHaveBeenCalledWith(
       7,
       origin,
       "example.com",
       expect.objectContaining({ credentialId: "CCCC" }),
+      { incognito: false },
     );
     expect(report).toHaveBeenLastCalledWith(
       expect.objectContaining({ outcome: "assertion", mediation: "conditional" }),
@@ -1824,6 +1797,209 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
   });
 });
 
+describe("a paused site's own modal and Immediate UI requests (ADR 0062)", () => {
+  const work = { ...candidate, credentialId: "BAUG", display: { item: "Work", userName: "bob" } };
+  const home = { ...candidate, display: { item: "Home", userName: "alice" } };
+  const vault = (
+    candidates: PasskeyCandidates["candidates"],
+    { complete = true, siteDefault }: { complete?: boolean; siteDefault?: "searched" } = {},
+  ) =>
+    source({
+      candidates: vi.fn(async () => ({
+        candidates,
+        complete,
+        ...(siteDefault ? { siteDefault } : {}),
+      })),
+    });
+  const answering = (choice: PasskeyChoice = { kind: "chosen", index: 0, makeDefault: false }) =>
+    vi.fn<PasskeyChooser["choose"]>(async () => choice);
+  const immediate = () => ({ ...get(), request: { ...request, uiMode: "immediate" } });
+
+  it("opens the chooser for a single match and signs only with the chosen passkey", async () => {
+    const backing = vault([home]);
+    const choose = answering();
+    const paused = vi.fn(async () => "paused" as const);
+    const remember = vi.fn(async () => {});
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      defaultUnset: paused,
+      remember,
+      report,
+    });
+    expect(await runtime.handle(get(), sender({ tab: { id: 7, incognito: false } }))).toMatchObject(
+      { kind: "assertion", assertion: { credentialId: "AQID" } },
+    );
+    expect(paused).toHaveBeenCalledWith(origin, false);
+    expect(choose).toHaveBeenCalledWith({
+      tabId: 7,
+      origin,
+      rpId: "example.com",
+      entries: [{ item: "Home", userName: "alice" }],
+      replacesDefault: false,
+      paused: true,
+      signal: expect.any(AbortSignal),
+    });
+    expect(backing.sign).toHaveBeenCalledOnce();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // A one-off pick saves nothing.
+    expect(remember).not.toHaveBeenCalled();
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "assertion", paused: true, chooser: "chosen" }),
+    );
+  });
+
+  it("treats the site default as unset: listed in place, not marked, and kept", async () => {
+    const backing = vault([work, { ...home, preferred: true }], { siteDefault: "searched" });
+    const choose = answering({ kind: "chosen", index: 0, makeDefault: false });
+    const remember = vi.fn(async () => {});
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      defaultUnset: () => "paused",
+      remember,
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({
+      kind: "assertion",
+      assertion: { credentialId: "BAUG" },
+    });
+    expect(choose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // Not moved first and not `preferred`; ticking the box would replace the default.
+        entries: [
+          { item: "Work", userName: "bob" },
+          { item: "Home", userName: "alice" },
+        ],
+        replacesDefault: true,
+        paused: true,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(remember).not.toHaveBeenCalled();
+  });
+
+  it("opens the chooser for a lone site default and signs nothing when it is closed", async () => {
+    const backing = vault([{ ...home, preferred: true }], { siteDefault: "searched" });
+    const choose = answering({ kind: "closed" });
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      defaultUnset: async () => "paused" as const,
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "chooser-closed",
+    });
+    expect(choose).toHaveBeenCalledWith(
+      expect.objectContaining({ entries: [{ item: "Home", userName: "alice" }] }),
+    );
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+
+  it("saves a choice as the default only when the box was ticked", async () => {
+    const backing = vault([work, { ...home, preferred: true }], { siteDefault: "searched" });
+    const remember = vi.fn(async () => {});
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose: answering({ kind: "chosen", index: 0, makeDefault: true }) },
+      defaultUnset: () => "paused",
+      remember,
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(remember).toHaveBeenCalledWith(origin, work);
+  });
+
+  it("hands the request on where the chooser cannot open, and never signs", async () => {
+    const backing = vault([{ ...home, preferred: true }]);
+    const choose = answering();
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      defaultUnset: () => "paused",
+      report,
+    });
+    const handed = { kind: "delegate", reason: "paused" };
+    expect(await runtime.handle(get(), sender({ tab: { id: 7, incognito: true } }))).toEqual(
+      handed,
+    );
+    expect(await runtime.handle(get(undefined, true, false), sender())).toEqual(handed);
+    expect(await runtime.handle(get(), sender({ documentLifecycle: "prerender" }))).toEqual(handed);
+    const windowless = createPasskeyRuntime(backing, { extensionId, defaultUnset: () => "paused" });
+    expect(await windowless.handle(get(), sender())).toEqual(handed);
+    expect(choose).not.toHaveBeenCalled();
+    expect(backing.sign).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: "delegate", reason: "paused", paused: true }),
+      ),
+    );
+  });
+
+  it("hands on a site default while another vault could not be searched", async () => {
+    const backing = vault([{ ...home, preferred: true }], { complete: false });
+    const choose = answering();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      defaultUnset: () => "paused",
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "vault-incomplete",
+    });
+    expect(choose).not.toHaveBeenCalled();
+  });
+
+  it("opens the chooser for an Immediate UI request, and hands it on in incognito", async () => {
+    const backing = vault([home]);
+    const choose = answering();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      defaultUnset: () => "paused",
+    });
+    expect(await runtime.handle(immediate(), sender())).toMatchObject({ kind: "assertion" });
+    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ paused: true }));
+    expect(await runtime.handle(immediate(), sender({ tab: { id: 7, incognito: true } }))).toEqual({
+      kind: "delegate",
+      reason: "immediate-incognito",
+    });
+    expect(choose).toHaveBeenCalledOnce();
+    expect(backing.sign).toHaveBeenCalledOnce();
+  });
+
+  it("answers with the item of a login a popup pick started (ADR 0027)", async () => {
+    const backing = vault([home]);
+    const choose = answering();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      defaultUnset: () => "paused",
+      loginAccount: () => ({ connectionId: "personal", itemId: "login-item" }),
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(choose).not.toHaveBeenCalled();
+  });
+
+  it("answers as before when the site is not paused or its pause cannot be read", async () => {
+    const choose = answering();
+    for (const defaultUnset of [() => false, () => Promise.reject(new Error("unreadable"))]) {
+      const backing = vault([home]);
+      const runtime = createPasskeyRuntime(backing, {
+        extensionId,
+        chooser: { choose },
+        defaultUnset,
+      });
+      // oxlint-disable-next-line no-await-in-loop -- each case runs alone
+      expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    }
+    expect(choose).not.toHaveBeenCalled();
+  });
+});
+
 describe("Immediate UI requests (ADR 0052)", () => {
   afterEach(() => vi.useRealTimers());
   const immediate = (overrides: Record<string, unknown> = {}) => ({
@@ -1932,7 +2108,7 @@ describe("Immediate UI requests (ADR 0052)", () => {
       kind: "assertion",
       assertion: { credentialId: "BAUG" },
     });
-    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ again: false }));
+    expect(choose).toHaveBeenCalledOnce();
   });
 
   it("delegates several passkeys while another vault could not be searched", async () => {
@@ -1945,35 +2121,12 @@ describe("Immediate UI requests (ADR 0052)", () => {
     expect(choose).not.toHaveBeenCalled();
   });
 
-  it("asks again in a tab that already signed in, as a normal request does", async () => {
-    const backing = source();
-    const signedTabs = { has: vi.fn(async () => true), add: vi.fn(async () => undefined) };
-    const choose = vi.fn<PasskeyChooser["choose"]>(async () => ({
-      kind: "chosen",
-      index: 0,
-      makeDefault: false,
-    }));
-    const runtime = createPasskeyRuntime(backing, {
-      extensionId,
-      chooser: { choose },
-      signedTabs: signedTabs as unknown as SignedTabs,
-    });
+  it("signs again in a tab that already signed in, as a normal request does (ADR 0062)", async () => {
+    const choose = vi.fn<PasskeyChooser["choose"]>();
+    const runtime = createPasskeyRuntime(source(), { extensionId, chooser: { choose } });
     expect(await runtime.handle(immediate(), sender())).toMatchObject({ kind: "assertion" });
-    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ again: true }));
-  });
-
-  it("asks again after a logout click, as a normal request does", async () => {
-    const choose = vi.fn<PasskeyChooser["choose"]>(async () => ({ kind: "closed" }));
-    const runtime = createPasskeyRuntime(source(), {
-      extensionId,
-      chooser: { choose },
-      logoutClicked: async () => true,
-    });
-    expect(await runtime.handle(immediate(), sender())).toEqual({
-      kind: "delegate",
-      reason: "chooser-closed",
-    });
-    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ again: true, loggedOut: true }));
+    expect(await runtime.handle(immediate(), sender())).toMatchObject({ kind: "assertion" });
+    expect(choose).not.toHaveBeenCalled();
   });
 
   it("keeps the normal lookup budget", async () => {

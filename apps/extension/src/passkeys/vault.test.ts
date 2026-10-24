@@ -410,15 +410,27 @@ describe("vault passkey candidates", () => {
     }
   });
 
-  it("skips disabled connections and answers nothing on an excluded site", async () => {
+  it("skips disabled connections and answers nothing for a hostname Pateat does not run on", async () => {
     const find = finder({ ok: true, data: matches([first]) });
     expect(
       await findVaultPasskeys({ saved: saved({ enabled: false }), origin, rpId, find }),
     ).toEqual({ candidates: [], complete: true, siteDefault: "unset" });
     expect(
-      await findVaultPasskeys({ saved: saved({ excludedSite: "github.com" }), origin, rpId, find }),
+      await findVaultPasskeys({ saved: saved(), origin: "https://my_host.github.com", rpId, find }),
     ).toBeUndefined();
     expect(find).not.toHaveBeenCalled();
+  });
+
+  it("answers a site a rule pauses as any other, for the chooser window (ADR 0062)", async () => {
+    const find = finder({ ok: true, data: matches([first]) });
+    const paused = await findVaultPasskeys({
+      saved: saved({ excludedSite: "github.com" }),
+      origin,
+      rpId,
+      find,
+    });
+    expect(paused).toEqual(await findVaultPasskeys({ saved: saved(), origin, rpId, find }));
+    expect(paused?.candidates).toHaveLength(1);
   });
 });
 
@@ -499,9 +511,10 @@ describe("a login item's passkeys (ADR 0027)", () => {
         { connectionId: "gone", itemId: first },
       ),
     ).toEqual({ candidates: [], complete: false });
+    // A rule only pauses automatic login; the person's own request still finds the item.
     expect(
       await search({ ok: true, data: matches([first]) }, { excludedSite: "github.com" }),
-    ).toBeUndefined();
+    ).toEqual(await search({ ok: true, data: matches([first]) }));
   });
 
   it("reads the item's passkey facts for each RP ID the origin may use", async () => {
@@ -784,14 +797,14 @@ describe("vault passkey source", () => {
     },
   );
 
-  it("reads no vault catalog for an excluded site or without an enabled connection", async () => {
-    for (const [settings, expected] of [
-      [saved({ excludedSite: "github.com" }), undefined],
-      [saved({ enabled: false }), { candidates: [], complete: true }],
+  it("reads no vault catalog for an unsupported hostname or without an enabled connection", async () => {
+    for (const [settings, page, expected] of [
+      [saved(), "https://my_host.github.com", undefined],
+      [saved({ enabled: false }), origin, { candidates: [], complete: true }],
     ] as const) {
       const { source, connections, manager } = runtime([settings]);
       // eslint-disable-next-line no-await-in-loop
-      expect(await source.candidates(origin, rpId, signal)).toEqual(expected);
+      expect(await source.candidates(page, rpId, signal)).toEqual(expected);
       expect(connections.settings.handle).not.toHaveBeenCalled();
       expect(manager.findPasskeys).not.toHaveBeenCalled();
     }
@@ -874,12 +887,19 @@ describe("saving a chosen passkey as the site default", () => {
     expect(replaced.update.mock.calls[0]?.[1]).toBe("account-choice");
   });
 
+  it("saves a default chosen in the window on a site a rule pauses (ADR 0062)", async () => {
+    const paused = store(saved({ excludedSite: "github.com" }));
+    expect(
+      await rememberVaultPasskey({ settings: paused.settings, origin, candidate: chosen() }),
+    ).toBe(true);
+    expect(paused.defaults()).toEqual([expect.objectContaining({ origin, itemId: second })]);
+  });
+
   it.each([
     ["a newer settings revision", saved({ revision: 4 }), chosen()],
     ["a newer snapshot", saved({ snapshot: otherSnapshotId }), chosen()],
     ["a quarantined item", saved(), chosen(quarantined)],
     ["an excluded item", saved(), chosen(excluded)],
-    ["an excluded site", saved({ excludedSite: "github.com" }), chosen()],
     // Both connections name the same account, so the default would not lead back to one.
     ["an account connected twice", saved({ other: "ready", sameAccount: true }), chosen()],
   ])("saves nothing after %s", async (_name, response, candidate) => {

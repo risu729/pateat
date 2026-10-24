@@ -2,6 +2,7 @@ import {
   createDefaultSettings,
   DEVICE_IDLE_LIMIT_MS,
   MAX_ACTIVE_RECIPE_BYTES,
+  MAX_SETTINGS_DOCUMENT_BYTES,
   type LocalSettings,
   type LoginRecipeDocument,
   type SyncRecipeChanges,
@@ -18,6 +19,7 @@ import {
   RECIPE_IDLE_LIMIT_MS,
 } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
+import { writeSettings } from "../src/settings-store";
 import { documentBytes, seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
 import { OWNER_LIMIT, withLimiter } from "./limiter";
 
@@ -78,6 +80,29 @@ function settings(hostname = "excluded.example"): LocalSettings {
     ...createDefaultSettings(),
     connections: [],
     excludedSites: [{ hostname, includeSubdomains: true }],
+  };
+}
+
+/** A link to the field that holds a login's personal detail (ADR 0061); references only. */
+function detailLink(origin = "https://bank.example", custom = "Birth date") {
+  return {
+    origin,
+    provider: "bitwarden",
+    server: "cloud-us",
+    userId: "00000000-0000-4000-8000-000000000001",
+    itemId: "item-1",
+    detail: "birth-date" as const,
+    source: { itemId: "identity-1", field: { custom } },
+  };
+}
+
+/** A secret question's answer, linked with the question the owner confirmed. */
+function answerLink(custom = "Answer 1") {
+  return {
+    ...detailLink(),
+    detail: "secret-answer" as const,
+    source: { itemId: "item-1", field: { custom } },
+    question: "what was your first pet",
   };
 }
 
@@ -302,6 +327,229 @@ describe("settings sync", () => {
     });
   });
 
+  it("reads settings an older build stored, leaving out entries that no longer read", async () => {
+    // Account references stored before they named their server (ADR 0023).
+    const device = await enrollOwner();
+    expect(
+      (await put(device, "/v1/settings", { version: 1, expectedRevision: 0, settings: settings() }))
+        .status,
+    ).toBe(200);
+    const older = {
+      origin: "https://shop.example",
+      provider: "bitwarden",
+      userId: "u-1",
+      itemId: "i-1",
+    };
+    await env.DB.prepare(
+      "UPDATE profiles SET document = ? WHERE id = (SELECT profile_id FROM devices WHERE id = ?)",
+    )
+      .bind(
+        JSON.stringify({
+          excludedSites: [{ hostname: "bank.example", includeSubdomains: true }],
+          repromptSites: [],
+          siteDefaults: [older],
+        }),
+        device.deviceId,
+      )
+      .run();
+    const read = await api(device, "/v1/settings");
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({
+      revision: 1,
+      settings: {
+        excludedSites: [{ hostname: "bank.example", includeSubdomains: true }],
+        siteDefaults: [],
+        accountPolicies: [],
+      },
+    });
+  });
+
+  it("tells each device the write ID of its own last stored write, and only its own", async () => {
+    // A device whose write got no answer learns from it whether the write committed.
+    const laptop = await enrollOwner();
+    const phone = await addDevice(laptop.ownerId);
+    const read = async (device: Device) =>
+      (await (await api(device, "/v1/settings")).json()) as {
+        revision: number;
+        written?: string;
+      };
+    expect(await read(laptop)).not.toHaveProperty("written");
+
+    const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    const write = (device: Device, expectedRevision: number, writeId?: string) =>
+      put(device, "/v1/settings", {
+        version: 1,
+        expectedRevision,
+        settings: settings(),
+        ...(writeId === undefined ? {} : { writeId }),
+      });
+    const first = await write(laptop, 0, id(1));
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ revision: 1, written: id(1) });
+    expect((await write(phone, 1, id(2))).status).toBe(200);
+    // A losing write changes neither the settings nor the writer's `written`, and its
+    // conflict answer names the write that did commit.
+    const lost = await write(laptop, 1, id(3));
+    expect(lost.status).toBe(409);
+    expect(await lost.json()).toMatchObject({ current: { revision: 2, written: id(1) } });
+    expect(await read(laptop)).toMatchObject({ revision: 2, written: id(1) });
+    expect(await read(phone)).toMatchObject({ revision: 2, written: id(2) });
+
+    // The owner's web UI writes as no device.
+    const profile = await env.DB.prepare("SELECT profile_id FROM devices WHERE id = ?")
+      .bind(laptop.deviceId)
+      .first<{ profile_id: string }>();
+    const managed = await writeSettings(
+      env.DB,
+      laptop.ownerId,
+      profile!.profile_id,
+      { version: 1, expectedRevision: 2, settings: settings() },
+      null,
+    );
+    expect(managed).toMatchObject({ ok: true, state: { revision: 3 } });
+    expect(managed.ok && managed.state).not.toHaveProperty("written");
+    expect(await read(laptop)).toMatchObject({ revision: 3, written: id(1) });
+    // A write without an ID clears the device's last one.
+    expect((await write(phone, 3)).status).toBe(200);
+    expect(await read(phone)).not.toHaveProperty("written");
+  });
+
+  it("stores personal-detail links with the owner's bindings, shared by every profile", async () => {
+    // Links name vault items and fields per site, as bindings do (ADR 0061, ADR 0076).
+    const laptop = await enrollOwner();
+    const agentProfile = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO profiles (owner_id, id, name) VALUES (?, ?, 'Agent')")
+      .bind(laptop.ownerId, agentProfile)
+      .run();
+    const agent = await addDevice(laptop.ownerId);
+    await env.DB.prepare("UPDATE devices SET profile_id = ? WHERE id = ?")
+      .bind(agentProfile, agent.deviceId)
+      .run();
+    const written = { ...settings(), detailLinks: [detailLink(), answerLink()] };
+    const created = await put(laptop, "/v1/settings", {
+      version: 1,
+      expectedRevision: 0,
+      settings: written,
+    });
+    expect(created.status).toBe(200);
+    expect(await (await api(laptop, "/v1/settings")).json()).toMatchObject({
+      revision: 1,
+      settings: written,
+    });
+
+    const shared = await env.DB.prepare("SELECT document FROM settings WHERE owner_id = ?")
+      .bind(laptop.ownerId)
+      .first<{ document: string }>();
+    expect(JSON.parse(shared!.document)).toEqual({
+      bindings: [],
+      detailLinks: written.detailLinks,
+    });
+    const profile = await env.DB.prepare(
+      "SELECT document FROM profiles WHERE owner_id = ? AND id = ?",
+    )
+      .bind(laptop.ownerId, laptop.ownerId)
+      .first<{ document: string }>();
+    expect(JSON.parse(profile!.document)).not.toHaveProperty("detailLinks");
+
+    // A device on another profile gets the owner's links but not the profile's sites.
+    expect(await (await api(agent, "/v1/settings")).json()).toEqual({
+      version: 1,
+      profileId: agentProfile,
+      revision: 1,
+      newProfile: true,
+      settings: {
+        connections: [],
+        accountPolicies: [],
+        itemPolicies: [],
+        customFieldReviews: [],
+        excludedSites: [],
+        repromptSites: [],
+        passkeyBrowserSites: [],
+        siteDefaults: [],
+        bindings: [],
+        detailLinks: written.detailLinks,
+      },
+    });
+
+    // Removing a link is a write like any other, from any profile.
+    const removed = await put(agent, "/v1/settings", {
+      version: 1,
+      expectedRevision: 1,
+      settings: { ...createDefaultSettings(), connections: [], detailLinks: [answerLink()] },
+    });
+    expect(removed.status).toBe(200);
+    expect(await (await api(laptop, "/v1/settings")).json()).toMatchObject({
+      revision: 2,
+      settings: { excludedSites: written.excludedSites, detailLinks: [answerLink()] },
+    });
+  });
+
+  it("keeps the stored detail links when a write leaves the key out", async () => {
+    const device = await enrollOwner();
+    const linked = { ...settings(), detailLinks: [detailLink()] };
+    expect(
+      (await put(device, "/v1/settings", { version: 1, expectedRevision: 0, settings: linked }))
+        .status,
+    ).toBe(200);
+    // A write without the key, as from a client that does not know it, changes the rest.
+    const omitted = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 1,
+      settings: settings("other.example"),
+    });
+    expect(omitted.status).toBe(200);
+    const expected = { ...settings("other.example"), detailLinks: [detailLink()] };
+    expect(await omitted.json()).toMatchObject({ revision: 2, settings: expected });
+    expect(await (await api(device, "/v1/settings")).json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 2,
+      settings: expected,
+    });
+    // An empty list is a removal.
+    const cleared = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 2,
+      settings: { ...settings("other.example"), detailLinks: [] },
+    });
+    expect(cleared.status).toBe(200);
+    expect(await (await api(device, "/v1/settings")).json()).toMatchObject({
+      revision: 3,
+      settings: { detailLinks: [] },
+    });
+    // A stale write without the key still loses its compare-and-swap.
+    const stale = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 2,
+      settings: settings(),
+    });
+    expect(stale.status).toBe(409);
+    expect(await (await api(device, "/v1/settings")).json()).toMatchObject({
+      revision: 3,
+      settings: { excludedSites: settings("other.example").excludedSites, detailLinks: [] },
+    });
+  });
+
+  it("refuses detail links that push the document over its limit", async () => {
+    const device = await enrollOwner();
+    // Under the request body limit, over the settings document's.
+    const detailLinks = Array.from({ length: 325 }, (_, index) =>
+      detailLink(`https://site-${index}.example`, `${"F".repeat(160)}${index}`),
+    );
+    const write = {
+      version: 1,
+      expectedRevision: 0,
+      settings: { ...settings(), detailLinks },
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(write)).byteLength;
+    expect(bytes).toBeGreaterThan(MAX_SETTINGS_DOCUMENT_BYTES);
+    expect(bytes).toBeLessThan(128 * 1024);
+    const response = await put(device, "/v1/settings", write);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "bad_request" });
+    expect(await (await api(device, "/v1/settings")).json()).toMatchObject({ revision: 0 });
+  });
+
   it("reads a profile document stored before passkeyBrowserSites as listing no site", async () => {
     const device = await enrollOwner();
     // A profile document as the previous schema wrote it, without the list (ADR 0076).
@@ -323,6 +571,28 @@ describe("settings sync", () => {
       revision: 3,
       settings: { ...settings(), passkeyBrowserSites: [] },
     });
+  });
+
+  it("keeps the popup's hidden page status in the profile and drops a shown one", async () => {
+    const device = await enrollOwner();
+    const hidden = { ...settings(), popupPageSection: false };
+    const saved = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 0,
+      settings: hidden,
+    });
+    expect(await saved.json()).toMatchObject({ revision: 1, settings: hidden });
+    expect(await (await api(device, "/v1/settings")).json()).toMatchObject({ settings: hidden });
+    // Shown is the default, so it is stored as no field at all.
+    const shown = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 1,
+      settings: { ...settings(), popupPageSection: true },
+    });
+    expect(shown.status).toBe(200);
+    const read = (await (await api(device, "/v1/settings")).json()) as { settings: LocalSettings };
+    expect(read.settings).toEqual(settings());
+    expect(read.settings).not.toHaveProperty("popupPageSection");
   });
 
   it("never lets a stale device overwrite a newer restriction", async () => {
@@ -403,6 +673,61 @@ describe("settings sync", () => {
       },
     ],
     ["a negative revision", { version: 1, expectedRevision: -1, settings: settings() }],
+    [
+      "a detail link that carries a value",
+      {
+        version: 1,
+        expectedRevision: 0,
+        settings: {
+          ...settings(),
+          detailLinks: [{ ...detailLink(), value: "synthetic-forbidden-value" }],
+        },
+      },
+    ],
+    [
+      "two detail links of one login item for the same detail",
+      {
+        version: 1,
+        expectedRevision: 0,
+        settings: {
+          ...settings(),
+          detailLinks: [detailLink(), detailLink("https://bank.example", "Other date")],
+        },
+      },
+    ],
+    [
+      "two answers that store the same question",
+      {
+        version: 1,
+        expectedRevision: 0,
+        settings: {
+          ...settings(),
+          detailLinks: [answerLink("Answer 1"), answerLink("Answer 2")],
+        },
+      },
+    ],
+    [
+      "a stored question on a detail other than an answer",
+      {
+        version: 1,
+        expectedRevision: 0,
+        settings: {
+          ...settings(),
+          detailLinks: [{ ...detailLink(), question: "what is your birth date" }],
+        },
+      },
+    ],
+    [
+      "a stored question not in its compared form",
+      {
+        version: 1,
+        expectedRevision: 0,
+        settings: {
+          ...settings(),
+          detailLinks: [{ ...answerLink(), question: "What Was Your First Pet?" }],
+        },
+      },
+    ],
   ])("rejects %s", async (_, body) => {
     const device = await enrollOwner();
     const response = await put(device, "/v1/settings", body);

@@ -30,7 +30,10 @@ export const isActive = (entry: ManageRecipe): entry is ActiveRecipe =>
 
 type Step = LoginRecipe["steps"][number];
 
-const describeTarget = (target: LoginMarkerTarget) => `${target.by} "${target.value}"`;
+const describeTarget = (target: LoginMarkerTarget) =>
+  [...("within" in target ? (target.within ?? []) : []), target]
+    .map(({ by, value }) => `${by} "${value}"`)
+    .join(" > ");
 
 /**
  * A `detail` handler's field: its input with the detail and format, or a value split over
@@ -244,6 +247,22 @@ function RecipeDetails({
             [
               "Sign-in entry",
               `Click ${describeTarget(recipe.entry.target)} on ${recipe.entry.path} to open the site's login page. Devices do not click it yet.`,
+            ],
+          ]}
+        />
+      ) : "logout" in recipe ? (
+        // A recipe that signs out for an account switch (ADR 0063); it has no layouts.
+        <KeyValues
+          entries={[
+            revisionFact,
+            [
+              "Logout",
+              recipe.logout.targets
+                .map(
+                  (target) =>
+                    `Click ${describeTarget(target.target)} on ${target.path} (${target.purpose})`,
+                )
+                .join(", then "),
             ],
           ]}
         />
