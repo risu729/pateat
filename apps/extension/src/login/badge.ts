@@ -5,8 +5,10 @@
 import type { TFunction } from "i18next";
 import * as v from "valibot";
 import { browser } from "wxt/browser";
+import { localClock } from "../time";
+import { pauseSite, type PauseState } from "./pause";
 import { i18n } from "../i18n";
-import type { LogoutReason } from "./choice-wire";
+import type { AskReason } from "./choice-wire";
 import type { LoginReport } from "./runtime";
 import type { SiteCount, SiteCountState, UncheckedReason } from "./site-count";
 
@@ -87,10 +89,9 @@ export type PageStatus = {
   /** The tab's top page origin when they were recorded, else the reporting document's. */
   origin: string;
   /**
-   * `started` until the login's first state change, then its state and outcome;
-   * `logged-out` once its first step showed again, with outcome `rejected` when the site
-   * rejected it (ADR 0021 D). `fillOnly` for a login that only fills the form after a
-   * logout and never presses anything (ADR 0021 D).
+   * `started` until the login's first state change, then its state and outcome. `fillOnly`
+   * for a login that only fills the form while its tab asks for an account and never
+   * presses anything (ADR 0021 D).
    */
   login?: {
     state: string;
@@ -113,8 +114,11 @@ export type PageStatus = {
 };
 
 type Shown = Required<Omit<BadgeDetails, "tabId">>;
-/** A waiting account choice: how many accounts match, and why the tab asks after a logout. */
-type Choice = { count: number; logout?: LogoutReason };
+/**
+ * A waiting account choice: how many accounts match, why the tab asks (ADR 0021 D, ADR
+ * 0062, ADR 0063), and whether its site is paused (ADR 0062).
+ */
+type Choice = { count: number; ask?: AskReason; paused?: true };
 type Stored = v.InferOutput<typeof storedSchema>;
 
 const STYLES = {
@@ -123,9 +127,12 @@ const STYLES = {
   failed: { color: "#b91c1c", textColor: "#ffffff" },
   succeeded: { color: "#15803d", textColor: "#ffffff" },
   unsettled: { color: "#facc15", textColor: "#1e293b" },
+  paused: { color: "#6b7280", textColor: "#ffffff" },
   usable: { color: "#115e59", textColor: "#ffffff" },
   excluded: { color: "#cbd5e1", textColor: "#1e293b" },
 } as const;
+/** The badge text of a tab whose site has automatic login paused (ADR 0062). */
+export const PAUSED_TEXT = "II";
 
 const RESULT_TEXT = { failed: "!", succeeded: "✓", unsettled: "!" } as const;
 
@@ -145,19 +152,30 @@ function resultTitle(result: BadgeResult, t: TFunction): string {
  * reason line (`choiceReason`), then what a click does. The badge never knows whether
  * another tab's login was rejected, so `other-tab` keeps the sentence that covers both.
  */
-function choiceTitle({ count, logout }: Choice, t: TFunction): string {
-  return logout
+function choiceTitle(
+  { count, ask, paused }: Choice,
+  pause: PauseState | undefined,
+  t: TFunction,
+): string {
+  // In a private window the pause is the private-window setting, not the site's (ADR 0062).
+  if (paused && pause && "private" in pause)
+    return t("Pateat: automatic login is off in private windows. Click to choose an account.");
+  if (paused)
+    return t("Pateat: automatic login is paused on this site. Click to choose an account.");
+  return ask
     ? t(
         {
-          "this-tab":
-            "Pateat: you were logged out of this site in this tab. Click to choose an account.",
           rejected:
             "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
+          "rejected-elsewhere":
+            "Pateat: the site did not accept a login in another tab. Click to choose an account.",
           "stopped-login":
             "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
-          "other-tab":
-            "Pateat: you were logged out of this site in another tab, or the site did not accept a login there. Click to choose an account.",
-        }[logout],
+          "relogin-limit":
+            "Pateat logged in to this site twice in 10 minutes. Click to choose an account.",
+          "one-time-pick":
+            "Pateat: you chose an account here without making it the default, so Pateat asks until an account is made the default. Click to choose an account.",
+        }[ask],
       )
     : t("Pateat: {{count}} accounts match this page. Click to choose one.", { count });
 }
@@ -306,6 +324,9 @@ export function createLoginBadge(deps: {
   const choices = new Map<number, Choice>();
   // Each tab's tooltip key, translated when drawn.
   const notes = new Map<number, string>();
+  // The pause of each tab's site (ADR 0062), and the timers that redraw when one ends.
+  const pauses = new Map<number, PauseState>();
+  const pauseTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const results = new Map<number, BadgeResult>();
   // Each tab's site count, for the origin it was counted for (ADR 0021).
   const counts = new Map<number, { origin: string; state: SiteCountState }>();
@@ -335,9 +356,30 @@ export function createLoginBadge(deps: {
   function wanted(tabId: number): Shown {
     const choice = choices.get(tabId);
     if (choice)
-      return { text: String(choice.count), ...STYLES.choice, title: choiceTitle(choice, t) };
+      return {
+        text: String(choice.count),
+        ...STYLES.choice,
+        title: choiceTitle(choice, pauses.get(tabId), t),
+      };
     if (spinning(tabId))
       return { text: BUSY_FRAMES[frame] ?? "", ...STYLES.busy, title: t("Pateat: asking the AI…") };
+    // A waiting choice and a running model request show over a pause (ADR 0062).
+    const paused = pauses.get(tabId);
+    if (paused && (!("until" in paused) || paused.until > now()))
+      return {
+        text: PAUSED_TEXT,
+        ...STYLES.paused,
+        title:
+          "private" in paused
+            ? t("Pateat: automatic login is off in private windows.")
+            : "unreadable" in paused
+              ? t("Pateat: the paused sites could not be read, so automatic login is paused.")
+              : "until" in paused
+                ? t("Pateat: automatic login is paused on this site until {{time}}.", {
+                    time: localClock(paused.until),
+                  })
+                : t("Pateat: automatic login is paused on this site until turned back on."),
+      };
     const result = results.get(tabId);
     if (result && (result.until === undefined || result.until > now()))
       return {
@@ -436,10 +478,6 @@ export function createLoginBadge(deps: {
   function record(report: LoginReport): boolean {
     let change: Partial<Omit<PageStatus, "origin">> | undefined;
     if (report.type === "start") change = { login: { state: "started" } };
-    else if (report.type === "logout")
-      change = {
-        login: { state: "logged-out", ...(report.rejected ? { outcome: "rejected" } : {}) },
-      };
     else if (
       report.type === "refused" &&
       !report.repeat &&
@@ -505,9 +543,33 @@ export function createLoginBadge(deps: {
     for (const tabId of new Set([...spins].map((spin) => spin.tabId)))
       if (!writes.has(tabId)) draw(tabId);
   }
+  function setPause(tabId: number, pause: PauseState | undefined): boolean {
+    clearTimeout(pauseTimers.get(tabId));
+    pauseTimers.delete(tabId);
+    const until = pause && "until" in pause ? pause.until : undefined;
+    const live = pause !== undefined && (until === undefined || until > now());
+    const before = pauses.get(tabId);
+    const changed = live ? JSON.stringify(before) !== JSON.stringify(pause) : before !== undefined;
+    if (live) {
+      pauses.set(tabId, pause);
+      // A pause of a chosen length ends by itself; the badge is drawn again then.
+      if (until !== undefined)
+        pauseTimers.set(
+          tabId,
+          setTimeout(() => {
+            pauseTimers.delete(tabId);
+            if (pauses.get(tabId) !== pause) return;
+            pauses.delete(tabId);
+            draw(tabId);
+          }, until - now()),
+        );
+    } else pauses.delete(tabId);
+    return changed;
+  }
   function forget(tabId: number): void {
     touched.add(tabId);
     tops.delete(tabId);
+    setPause(tabId, undefined);
     choices.delete(tabId);
     notes.delete(tabId);
     counts.delete(tabId);
@@ -523,6 +585,15 @@ export function createLoginBadge(deps: {
       if (choice) choices.set(tabId, choice);
       else if (!choices.delete(tabId)) return;
       draw(tabId);
+    },
+    /**
+     * The pause of the tab's site (ADR 0062), or undefined when its site is not paused; the
+     * badge shows a gray `II` while it runs.
+     */
+    paused(tabId: number, pause: PauseState | undefined): void {
+      // A tab not drawn since the worker started may still show the `II` of a pause that
+      // ended while the worker was stopped, so it is drawn whatever changed.
+      if (setPause(tabId, pause) || !shown.has(tabId)) draw(tabId);
     },
     /**
      * A tooltip for a tab that shows no badge, such as why its login is held, as a catalog
@@ -591,8 +662,9 @@ export function createLoginBadge(deps: {
     /**
      * A page or frame of the tab loaded or committed: Chrome may have reset the tab's
      * badge, so it is written again. When the top page's origin changed since the last
-     * load, the result, tooltip and choice of the page before no longer apply. `url` is
-     * the top page's, absent for a page Pateat cannot read, which counts as another origin.
+     * load, the result, tooltip and choice of the page before no longer apply, and its
+     * pause once the site changed. `url` is the top page's, absent for a page Pateat cannot
+     * read, which counts as another origin.
      */
     loaded(tabId: number, url?: string): void {
       const origin = (url ? URL.parse(url)?.origin : undefined) ?? "unreadable";
@@ -602,6 +674,9 @@ export function createLoginBadge(deps: {
       if (before !== undefined && before !== origin) {
         choices.delete(tabId);
         notes.delete(tabId);
+        // A pause covers the whole site (ADR 0062); another site's pause, if any, is set
+        // again once the runtime reads it.
+        if (pauseSite(before) !== pauseSite(origin)) setPause(tabId, undefined);
         // A restore still reading the stored results must not bring back this tab's.
         touched.add(tabId);
         if (dropResult(tabId)) save();
@@ -611,6 +686,7 @@ export function createLoginBadge(deps: {
       // still in flight could land on the new page after that reset.
       if (
         choices.has(tabId) ||
+        pauses.has(tabId) ||
         notes.has(tabId) ||
         counts.has(tabId) ||
         results.has(tabId) ||
@@ -638,6 +714,7 @@ export function createLoginBadge(deps: {
     replaced(added: number, removed: number): void {
       if (added === removed) return;
       const choice = choices.get(removed);
+      const paused = pauses.get(removed);
       const note = notes.get(removed);
       const count = counts.get(removed);
       const result = results.get(removed);
@@ -650,6 +727,7 @@ export function createLoginBadge(deps: {
       if (top !== undefined) tops.set(added, top);
       if (status) statuses.set(added, status);
       if (choice) choices.set(added, choice);
+      setPause(added, paused);
       if (note) notes.set(added, note);
       if (count) counts.set(added, count);
       for (const spin of moved) {

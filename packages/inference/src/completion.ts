@@ -9,6 +9,8 @@ import {
   isLoginTarget,
   isStepTarget,
   loginDetailSchema,
+  loginMarkerTargetSchema,
+  sameLoginTarget,
   totpCodeRefusal,
   loginObservationSchema,
   splitCodeInputs,
@@ -150,6 +152,8 @@ export const completionInstructions = [
   "is by text is stored with that text, so the text must read the same everywhere: never",
   "the person's name, a count or a balance. A link by href is stored with its path, so",
   "the path must read the same for every account too: never one that names the person.",
+  "stepElements are the candidate IDs whose locator the sign-in's own steps also use; a",
+  "signed-in page may show them too, but the marker is never one of them.",
   "passkeyButton is a button that continues with a security key or passkey, never one",
   "that registers, creates, adds or sets up one, enters or sends a code, uses SMS, email",
   "or a recovery code, remembers the device, tries another way or cancels.",
@@ -602,6 +606,12 @@ export type CompletionRequest = {
    */
   slots?: unknown;
   /**
+   * The elements the recipe's own steps and handlers use (`recipeElements`): the model is
+   * told which of the page's candidates they are, since none is ever a marker. Absent or
+   * empty, it is told of none.
+   */
+  recipeElements?: unknown;
+  /**
    * The page is a login's stop before a password it does not fill (ADR 0036): judged with
    * `completionStopInstructions`.
    */
@@ -658,15 +668,25 @@ export function createCompletionJudge(config: {
       v.union([semanticSlotsSchema, v.strictTuple([])]),
       request.slots ?? [],
     );
-    if (!observation.success || !loginPaths.success || !slots.success)
+    const elements = v.safeParse(v.array(loginMarkerTargetSchema), request.recipeElements ?? []);
+    if (!observation.success || !loginPaths.success || !slots.success || !elements.success)
       return { status: "failed", error: "invalid-request", calls: 0, usage: noUsage };
     if (!observation.output.complete)
       return { status: "failed", error: "incomplete-observation", calls: 0, usage: noUsage };
 
+    // A site may give one locator to elements of several pages, as a sign-in button and a
+    // signed-in page's own button: such a marker would read the sign-in page as signed in,
+    // so `addCompletion` refuses it, and the model is told which candidates they are.
+    const stepElements = observation.output.candidates
+      .filter((candidate) =>
+        elements.output.some((element) => sameLoginTarget(element, candidate.target)),
+      )
+      .map((candidate) => candidate.id);
     const prompt = JSON.stringify({
       task: "judge-sign-in",
       loginPaths: loginPaths.output,
       slots: slots.output,
+      stepElements,
       observation: observation.output,
     });
     if (request.stop && request.beside)

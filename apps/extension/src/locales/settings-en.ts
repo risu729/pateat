@@ -25,6 +25,7 @@ export const settingsEn = {
   "custom fields were reviewed": "custom fields were reviewed",
   "settings were merged with the Pateat sync service":
     "settings were merged with the Pateat sync service",
+  "settings were imported from a file": "settings were imported from a file",
   "an account used to log in on a site was saved for that site":
     "an account used to log in on a site was saved for that site",
   "a vault field for a personal detail was linked or unlinked for a site":
@@ -90,7 +91,6 @@ export const settingsEn = {
   "Enter an origin such as https://bank.example, without a path or trailing slash.":
     "Enter an origin such as https://bank.example, without a path or trailing slash.",
   "The destination is invalid.": "The destination is invalid.",
-  "This site is excluded.": "This site is excluded.",
   "No default account is set.": "No default account is set.",
   "This account does not match the exact origin.": "This account does not match the exact origin.",
   "The vault connection is unavailable.": "The vault connection is unavailable.",
@@ -138,15 +138,7 @@ export const settingsEn = {
   " (not available here)": " (not available here)",
   " (unavailable)": " (unavailable)",
   "No default": "No default",
-  "Exclude {{origin}}, all schemes and ports": "Exclude {{origin}}, all schemes and ports",
-  Exclude: "Exclude",
-  Excluded: "Excluded",
-  "The default for {{origin}} is kept but not used while the site is excluded.":
-    "The default for {{origin}} is kept but not used while the site is excluded.",
   "Remove default for {{origin}}": "Remove default for {{origin}}",
-  "Remove exclusion for {{name}}": "Remove exclusion for {{name}}",
-  "Remove exclusion": "Remove exclusion",
-  "No excluded sites or default accounts": "No excluded sites or default accounts",
   Origin: "Origin",
   "Also list items that do not match": "Also list items that do not match",
   "Save default": "Save default",
@@ -156,12 +148,30 @@ export const settingsEn = {
   "Include subdomains": "Include subdomains",
   "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.":
     "On a site that asks for the master password, a vault item with Bitwarden's master password re-prompt is used only after you enter it in Pateat's window. Elsewhere it is used like any other item.",
-  "Exclude site": "Exclude site",
-  "Excluding a site covers every scheme and port.":
-    "Excluding a site covers every scheme and port.",
   "A default account takes effect at the next login.":
     "A default account takes effect at the next login.",
   "{{item}} ({{method}})": "{{item}} ({{method}})",
+  "Pause automatic login on {{site}} and its subdomains, which includes {{origin}}":
+    "Pause automatic login on {{site}} and its subdomains, which includes {{origin}}",
+  Pause: "Pause",
+  Paused: "Paused",
+  "The default for {{origin}} is kept; while the site is paused it is only listed first in the popup.":
+    "The default for {{origin}} is kept; while the site is paused it is only listed first in the popup.",
+  "Resume {{name}}": "Resume {{name}}",
+  "No paused sites or default accounts": "No paused sites or default accounts",
+  "Pause site": "Pause site",
+  "A paused site stays paused on every scheme and port, on all your devices, until it is resumed.":
+    "A paused site stays paused on every scheme and port, on all your devices, until it is resumed.",
+  "On a paused site Pateat logs in only with an account picked in the toolbar popup.":
+    "On a paused site Pateat logs in only with an account picked in the toolbar popup.",
+  "Private windows": "Private windows",
+  "Log in automatically in private windows": "Log in automatically in private windows",
+  "Pateat logs in by itself in private windows as in other windows.":
+    "Pateat logs in by itself in private windows as in other windows.",
+  "Off: every site in a private window is paused, so Pateat logs in there only with an account picked in the toolbar popup.":
+    "Off: every site in a private window is paused, so Pateat logs in there only with an account picked in the toolbar popup.",
+  "Applies on all your devices; other windows are not affected.":
+    "Applies on all your devices; other windows are not affected.",
   "Sites whose passkey requests go to the browser":
     "Sites whose passkey requests go to the browser",
   'Added with "Always for this site" in Pateat\'s passkey window. Pateat answers no passkey request on these sites and logs in there only with a password. Remove a site to let Pateat answer again.':
@@ -215,12 +225,66 @@ export const settingsEn = {
   "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.":
     "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.",
   "The saved key could not be read.": "The saved key could not be read.",
-  "Without a key, the paired sync service asks Claude with its owner's credentials.":
-    "Without a key, the paired sync service asks Claude with its owner's credentials.",
+  "Without a key, the paired sync service asks Claude with its owner's credentials, and a device without a pairing makes no recipes.":
+    "Without a key, the paired sync service asks Claude with its owner's credentials, and a device without a pairing makes no recipes.",
   "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.":
     "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.",
-  "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.":
-    "The key stays on this device and is sent to Anthropic only, never to the sync service. For now, recipes are made with it only while a sync service is paired.",
+  "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.":
+    "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.",
+  "Export and import": "Export and import",
+  "Export to a file": "Export to a file",
+  "Import from a file": "Import from a file",
+  "Pateat export file": "Pateat export file",
+  "Exporting…": "Exporting…",
+  "Importing…": "Importing…",
+  "Exported the settings and {{count}} recipe.": "Exported the settings and {{count}} recipe.",
+  "Exported the settings and {{count}} recipe._one": "Exported the settings and {{count}} recipe.",
+  "Exported the settings and {{count}} recipe._other":
+    "Exported the settings and {{count}} recipes.",
+  "Imported the settings and {{count}} new or newer recipe.":
+    "Imported the settings and {{count}} new or newer recipe.",
+  "Imported the settings and {{count}} new or newer recipe._one":
+    "Imported the settings and {{count}} new or newer recipe.",
+  "Imported the settings and {{count}} new or newer recipe._other":
+    "Imported the settings and {{count}} new or newer recipes.",
+  "The settings or recipes are larger than an export file holds.":
+    "The settings or recipes are larger than an export file holds.",
+  "This is not a Pateat export file, or its settings do not fit with these.":
+    "This is not a Pateat export file, or its settings do not fit with these.",
+  "The file's settings or recipes do not fit with the ones on this device. Nothing was imported.":
+    "The file's settings or recipes do not fit with the ones on this device. Nothing was imported.",
+  "Pateat could not read or write its storage. Try again.":
+    "Pateat could not read or write its storage. Try again.",
+  "Save or reload the settings above before you import.":
+    "Save or reload the settings above before you import.",
+  "The file holds what a paired sync service keeps: the site settings, the vault policies with their account and item names, the accounts chosen for sites, and the recipes logins use. It never holds vault keys or values, the sync service's sign-in or the AI key.":
+    "The file holds what a paired sync service keeps: the site settings, the vault policies with their account and item names, the accounts chosen for sites, and the recipes logins use. It never holds vault keys or values, the sync service's sign-in or the AI key.",
+  "Importing keeps everything this device has; where both hold the same entry, the file's wins. A recipe replaces one kept here only at a newer revision. A paired device uploads the imported ones at its next sync, unless its service already holds a recipe of that ID.":
+    "Importing keeps everything this device has; where both hold the same entry, the file's wins. A recipe replaces one kept here only at a newer revision. A paired device uploads the imported ones at its next sync, unless its service already holds a recipe of that ID.",
+  "Reading the file…": "Reading the file…",
+  "This file changes nothing here.": "This file changes nothing here.",
+  "Importing this file will:": "Importing this file will:",
+  "Choose which of your vault items Pateat uses on {{count}} site:":
+    "Choose which of your vault items Pateat uses on {{count}} site:",
+  "Choose which of your vault items Pateat uses on {{count}} site:_one":
+    "Choose which of your vault items Pateat uses on {{count}} site:",
+  "Choose which of your vault items Pateat uses on {{count}} site:_other":
+    "Choose which of your vault items Pateat uses on {{count}} sites:",
+  "and {{count}} more": "and {{count}} more",
+  "Change {{count}} vault limit.": "Change {{count}} vault limit.",
+  "Change {{count}} vault limit._one": "Change {{count}} vault limit.",
+  "Change {{count}} vault limit._other": "Change {{count}} vault limits.",
+  "Change {{count}} site rule.": "Change {{count}} site rule.",
+  "Change {{count}} site rule._one": "Change {{count}} site rule.",
+  "Change {{count}} site rule._other": "Change {{count}} site rules.",
+  "Keep {{count}} new or newer recipe.": "Keep {{count}} new or newer recipe.",
+  "Keep {{count}} new or newer recipe._one": "Keep {{count}} new or newer recipe.",
+  "Keep {{count}} new or newer recipe._other": "Keep {{count}} new or newer recipes.",
+  "Import only a file you exported yourself or got from someone you trust: it can let Pateat use your vault items on the sites it names.":
+    "Import only a file you exported yourself or got from someone you trust: it can let Pateat use your vault items on the sites it names.",
+  Import: "Import",
+  "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.":
+    "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.",
   "This site is not an allowed site, so this default is not used.":
     "This site is not an allowed site, so this default is not used.",
   "This site is not an allowed site.": "This site is not an allowed site.",
@@ -230,13 +294,12 @@ export const settingsEn = {
   "Pateat runs only on these sites.": "Pateat runs only on these sites.",
   "No site is allowed, so Pateat logs in nowhere until you allow one.":
     "No site is allowed, so Pateat logs in nowhere until you allow one.",
-  "While this is off, Pateat runs on every site that is not excluded.":
-    "While this is off, Pateat runs on every site that is not excluded.",
+  "While this is off, Pateat runs on every site.": "While this is off, Pateat runs on every site.",
   Site: "Site",
   "Allow subdomains too": "Allow subdomains too",
   "Allow site": "Allow site",
-  "Exclusions under Sites win over allowed sites.":
-    "Exclusions under Sites win over allowed sites.",
+  "A site paused under Sites stays paused while it is allowed.":
+    "A site paused under Sites stays paused while it is allowed.",
   "Turning this off keeps the list. The Pateat popup can allow the open site.":
     "Turning this off keeps the list. The Pateat popup can allow the open site.",
 } as const;

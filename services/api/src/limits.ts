@@ -5,8 +5,7 @@ import { apiError } from "./http";
 
 // Per-owner limits sized for a few people's own use (docs/architecture.md#service-limits).
 
-/** Active recipes per owner; revoking one frees its place. */
-export const MAX_ACTIVE_RECIPES = 1_000;
+export { MAX_ACTIVE_RECIPES } from "@pateat/contracts";
 /** Revisions kept per recipe; older ones are deleted, and a revoked recipe keeps only its tombstone. */
 export const KEPT_RECIPE_REVISIONS = 10;
 /** An active recipe neither written nor reported in a login for this long is revoked (ADR 0058). */

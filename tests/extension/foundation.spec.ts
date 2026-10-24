@@ -144,7 +144,8 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   // Owner-approved install-time access (ADR 0009, HTTP since ADR 0050; passkeys stay on
   // HTTPS and `http://localhost`); the login script also runs in frames, which need the tab's page admitted too (ADR 0017). The MAIN-world scripts are
   // the ADR 0007 passkey bridge and, wherever the login script runs, the click on
-  // `javascript:` links.
+  // `javascript:` links. `login-start` records the values the page sets in account inputs
+  // before anyone types (ADR 0028 amendment of 2026-10-23).
   expect(
     [...manifest.content_scripts].sort((a: { js: string[] }, b: { js: string[] }) =>
       a.js[0]!.localeCompare(b.js[0]!),
@@ -156,6 +157,12 @@ test("production package permits local storage, the crypto host and the HTTPS lo
       all_frames: true,
       world: "MAIN",
       js: ["content-scripts/login-main.js"],
+    },
+    {
+      matches: ["http://*/*", "https://*/*"],
+      run_at: "document_start",
+      all_frames: true,
+      js: ["content-scripts/login-start.js"],
     },
     {
       matches: ["http://*/*", "https://*/*"],
@@ -202,7 +209,7 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   // only there: its own login script covers loopback HTTP.
   for (const script of probeManifest.content_scripts as Array<{ matches: string[]; js: string[] }>)
     expect(script.matches).toEqual(
-      /^content-scripts\/(?:login|login-main|passkey-main|passkey-isolated)\.js$/u.test(
+      /^content-scripts\/(?:login|login-main|login-start|passkey-main|passkey-isolated)\.js$/u.test(
         script.js.join(),
       )
         ? ["https://*/*"]
@@ -284,9 +291,7 @@ test("probe options support keyboard policy validation and pass accessibility ch
     await expect(page.locator("#site-list")).toContainText("keyboard.example");
     await expect(page.locator("#site-origin")).toHaveValue("");
     await expect(page.locator("#site-origin")).toBeFocused();
-    await page
-      .getByRole("button", { name: "Remove exclusion for keyboard.example", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Resume keyboard.example", exact: true }).click();
     await expect(page.locator("#site-origin")).toBeFocused();
 
     await page
@@ -514,19 +519,12 @@ test("the toolbar popup edits the active tab's site through the settings store",
       reason: "no-choice",
     });
     await expect(site.locator("#popup-choice-heading")).toHaveCount(0);
-    const toggle = site.getByRole("switch", { name: "Pateat on this site" });
-    await expect(toggle).toBeChecked();
-    await toggle.click();
-    await expect(toggle).not.toBeChecked();
-    await expect(site.locator("#popup-site-status")).toHaveText(
-      "Pateat does not log in or answer passkey requests on this site.",
-    );
+    // Nothing matches and the site has no recipe, so Pateat would not log in there by
+    // itself, and no pause is offered (ADR 0062).
+    await expect(site.getByRole("group", { name: "Pause automatic login" })).toHaveCount(0);
     expect(await get(site)).toMatchObject({
       ok: true,
-      snapshot: {
-        revision: 1,
-        settings: { excludedSites: [{ hostname: "bank.example", includeSubdomains: false }] },
-      },
+      snapshot: { revision: 0, settings: { excludedSites: [] } },
     });
   });
 });

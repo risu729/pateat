@@ -5,7 +5,9 @@ import { findTargets } from "../page/targets";
 import {
   extractAccountListObservation,
   extractEntryObservation,
+  extractLocalLogout,
   extractLoginObservation,
+  extractLogoutObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
   fieldsMissDetail,
@@ -4452,7 +4454,7 @@ describe("extractAccountListObservation", () => {
     if (!repeated.ok) throw new Error(repeated.reason);
     const offered = summary(repeated.observation).map((candidate) => candidate.label);
     expect(offered.includes("Continue")).toBe(
-      listControls(document, { by: "text", value: "Continue" }).length === 1,
+      listControls(document, { by: "text", value: "Continue" }, "continue").length === 1,
     );
     // A footer-only switch is no control to send the list for.
     page(
@@ -4664,6 +4666,192 @@ describe("passkey-only start observation", () => {
   ])("does not qualify registration, hidden buttons or a fill form: %s", (html) => {
     page(html);
     expect(extractPasskeyObservation(document).ok).toBe(false);
+  });
+});
+
+describe("extractLogoutObservation (ADR 0063)", () => {
+  const logout = () => {
+    const result = extractLogoutObservation();
+    if (!result.ok) throw new Error(`no observation: ${result.reason}`);
+    return result.observation;
+  };
+
+  it("lists a signed-in page's buttons and links, never a form's or a new window's", () => {
+    page(
+      `<header>
+        <a href="/home">Home</a>
+        <button type="button" id="account-menu">Account</button>
+        <a href="/logout">Log out</a>
+        <a href="/help" target="_blank">Help</a>
+        <a href="/export.csv" download>Export</a>
+        <button type="button">Inbox 12</button>
+        <button disabled>Disabled</button>
+        <form role="search"><input type="search" name="q"><button>Search</button></form>
+        <form><button>Form without fields</button></form>
+      </header>`,
+      "Inbox (12) - Synthetic mail",
+    );
+    const observation = logout();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => [candidate.role, candidate.label])).toEqual([
+      ["link", "Home"],
+      ["button", "Account"],
+      ["link", "Log out"],
+      ["button", "Form without fields"],
+    ]);
+    expect(observation.candidates[1]?.target).toEqual({ by: "id", value: "account-menu" });
+    // A count in the title is no part of a recipe's page.
+    expect(JSON.stringify(observation)).not.toContain("12");
+  });
+
+  it("reads controls inside open and closed shadow roots as part of the page (ADR 0070)", () => {
+    page(`<header><account-menu id="account"></account-menu></header><app-nav id="nav"></app-nav>`);
+    shadow("#account", `<button type="button" id="sign-out">Sign out</button>`, "closed");
+    shadow("#nav", `<ul role="menu"><li role="menuitem">Log out</li></ul>`);
+    const observation = logout();
+    expect(
+      observation.candidates.map((candidate) => [
+        candidate.role,
+        candidate.label,
+        candidate.target,
+      ]),
+    ).toEqual([
+      ["button", "Sign out", { by: "id", value: "sign-out" }],
+      ["button", "Log out", { by: "text", value: "Log out" }],
+    ]);
+  });
+
+  it("keeps an open dialog's and menu's controls first past the 48-candidate limit", () => {
+    const filler = Array.from(
+      { length: 60 },
+      (_, index) =>
+        `<button type="button" id="item-${"abcdefghij"[index % 10]}${index}">Item</button>`,
+    ).join("");
+    page(
+      `<header><button type="button" id="menu-button">Menu</button></header>
+      <nav>${filler}</nav>
+      <div role="menu"><a href="/logout" role="menuitem">Sign out</a></div>
+      <div role="dialog" aria-modal="true"><button type="button" id="confirm">Yes, sign out</button></div>`,
+    );
+    const observation = logout();
+    expect(observation.candidates).toHaveLength(48);
+    const labels = observation.candidates.map((candidate) => candidate.label);
+    expect(labels).toContain("Yes, sign out");
+    expect(labels).toContain("Sign out");
+    expect(labels).toContain("Menu");
+  });
+
+  it("sends only the controls that may lead to the logout, by their labels, and the title", () => {
+    page(
+      `<header><button type="button" id="account-menu" aria-describedby="greeting">Account</button>
+        <span id="greeting">Signed in as Taro, 3 orders on the way</span></header>
+      <h1>Your orders</h1>
+      <main>
+        <p>Order shipped to 1 Example Street</p>
+        <button type="button" id="track">Track order</button>
+        <a href="/orders/old">Older orders</a>
+        <div class="user-panel"><button type="button" id="prefs">Preferences</button></div>
+        <section><button type="button" id="leave">Sign out</button></section>
+      </main>`,
+      "Orders - Synthetic shop",
+    );
+    const observation = logout();
+    expect(observation.candidates.map((candidate) => [candidate.label, candidate.target])).toEqual([
+      ["Account", { by: "id", value: "account-menu" }],
+      ["Preferences", { by: "id", value: "prefs" }],
+      ["Sign out", { by: "id", value: "leave" }],
+    ]);
+    expect(observation.title).toBe("Orders - Synthetic shop");
+    expect(observation).not.toHaveProperty("headings");
+    expect(observation.candidates.some((candidate) => "description" in candidate)).toBe(false);
+    const sent = JSON.stringify(observation);
+    for (const text of ["Your orders", "Example Street", "Taro", "Track order", "Older orders"])
+      expect(sent).not.toContain(text);
+  });
+
+  it("refuses a page with no control to press", () => {
+    page(`<main><p>Nothing here</p><form><input name="q"><button>Search</button></form></main>`);
+    expect(extractLogoutObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
+  it("describes menu items and icon-only controls by their aria-label or title", () => {
+    page(
+      `<header>
+        <button type="button" aria-label="Account menu" aria-haspopup="menu"><svg></svg></button>
+        <a href="/help" title="Help"><svg></svg></a>
+        <button type="button" aria-label="Inbox 3 unread"><svg></svg></button>
+      </header>
+      <ul role="menu">
+        <li role="menuitem" tabindex="-1">Settings</li>
+        <li role="menuitem" tabindex="-1" aria-label="Sign out"><svg></svg></li>
+        <li role="menuitem" aria-disabled="true">Billing</li>
+      </ul>`,
+    );
+    const observation = logout();
+    expect(
+      observation.candidates.map((candidate) => [
+        candidate.role,
+        candidate.label,
+        candidate.target,
+      ]),
+    ).toEqual([
+      ["button", "Account menu", { by: "accessible-name", value: "Account menu" }],
+      ["button", "Help", { by: "accessible-name", value: "Help" }],
+      ["button", "Settings", { by: "text", value: "Settings" }],
+      ["button", "Sign out", { by: "accessible-name", value: "Sign out" }],
+    ]);
+  });
+});
+
+describe("extractLocalLogout (ADR 0063)", () => {
+  it("answers the locator of the one control that says it logs out", () => {
+    page(
+      `<header><a href="/home">Home</a><button type="button" id="bye">Log out</button></header>`,
+    );
+    expect(extractLocalLogout()).toEqual({ ok: true, target: { by: "id", value: "bye" } });
+    page(`<ul role="menu"><li role="menuitem" tabindex="-1">ログアウト</li></ul>`);
+    expect(extractLocalLogout()).toEqual({
+      ok: true,
+      target: { by: "text", value: "ログアウト" },
+    });
+    page(`<nav><button type="button" aria-label="Sign out"><svg></svg></button></nav>`);
+    expect(extractLocalLogout()).toEqual({
+      ok: true,
+      target: { by: "accessible-name", value: "Sign out" },
+    });
+  });
+
+  it("answers none, ambiguous or unlocated otherwise", () => {
+    page(`<header><button type="button">Sign out of all other sessions</button></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "none" });
+    page(`<header><button type="button">Log out</button><a href="/out">Log out</a></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "ambiguous" });
+    // A control named by the account it logs out has no locator a recipe could keep.
+    page(`<header><button type="button">Log out alice@example.test</button></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "unlocated" });
+  });
+
+  it("answers none for a logout link that leaves the site, opens a window or downloads", () => {
+    const onSite = (url: URL) => url.hostname === location.hostname;
+    for (const link of [
+      `<a href="https://elsewhere.example/logout">Log out</a>`,
+      `<a href="/logout?next=https%3A%2F%2Felsewhere.example%2F">Log out</a>`,
+      `<a href="/logout" target="_blank">Log out</a>`,
+      `<a href="/logout" download>Log out</a>`,
+    ]) {
+      page(`<header><a href="/home">Home</a>${link}</header>`);
+      expect(extractLocalLogout(document, onSite)).toEqual({ ok: false, reason: "none" });
+    }
+    // Without the worker's hosts no link is on the site.
+    page(`<header><a href="/logout">Log out</a></header>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "none" });
+    expect(extractLocalLogout(document, onSite)).toMatchObject({ ok: true });
+    // A link handled on the page, as `href="#"`, stays on it.
+    page(`<header><a href="#" id="bye">Sign out</a></header>`);
+    expect(extractLocalLogout(document, onSite)).toEqual({
+      ok: true,
+      target: { by: "id", value: "bye" },
+    });
   });
 });
 

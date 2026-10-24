@@ -52,6 +52,8 @@ implemented.
 Amended on 2026-10-22 by the owner (11:36 UTC, #834): a generated page stored without
 alternatives takes its action's `advance` or `submit` from its fields, not from the
 model's answer ([the action's purpose](#the-actions-purpose)); implemented.
+Amended on 2026-10-23 by the owner (22:05 and 22:06 UTC): an owner's requests make
+[at most five model calls at a time](#five-calls-at-a-time) instead of one; implemented.
 
 Date: 2026-10-11
 
@@ -137,7 +139,8 @@ The route follows from these and from ADRs 0013 to 0016:
   reads the stored bindings' slot names and field references while generating, never
   their item IDs: [slot names from the bindings](#slot-names-from-the-bindings)).
 - Limits per owner: $100 a month (the ADR 0014 default, estimated from returned usage
-  and a versioned price table), $5 a day (UTC), one call at a time, and the ADR 0016
+  and a versioned price table), $5 a day (UTC), one call at a time (five since
+  [2026-10-23](#five-calls-at-a-time)), and the ADR 0016
   retry window per origin and path (24 hours until 2026-10-12, now 10 minutes),
   enforced again on the service. The owner replaced
   the first limit of 50 calls a day with the daily amount on 2026-10-11.
@@ -384,6 +387,37 @@ sets it when the plan is checked:
 The model still answers a purpose, which the request log keeps. A stored recipe changes
 only when it is generated again. A site that only mails a link after the email is still
 sent on as the page after an advance.
+
+### Five calls at a time
+
+The owner chose on 2026-10-23 at 22:05 UTC to lift the one-call limit, since a login
+started in tabs of two sites at once was answered `busy` while the other recipe was
+generated, and at 22:06 UTC to keep a limit of five against abuse, which stays
+acceptable once Pateat is public. Each request holds one of the owner's five call slots
+(`inference_locks`, one row per slot) for all its calls, until it ends or 90 seconds
+after it took the slot, when another request may take it over; a sixth request is
+answered `busy`. The checks before a call run as before, without excluding each other,
+and the owner accepted that:
+
+- a spend stop can be overshot by the calls running when it was crossed, up to five
+  (about $0.02 each typically);
+- the same page sent at once from several devices passes the ADR 0016 retry window up
+  to five times and is charged each time, while the recipe's revision claim keeps one
+  write; one device sends a page only once at a time (the extension claims it) and never
+  runs two logins of an origin at once
+  ([ADR 0022](0022-login-attempts-per-tab-and-origin.md));
+- the ADR 0041 repair limit is per recipe and device, so devices never shared it, but a
+  second device's repair of the recipe at once is no longer turned away by the head
+  check after the first one's write: both are charged, and one write is kept;
+- the ADR 0027 limit of 20 judgements a recipe a day counts across its pages: five pages
+  of one recipe judged at once at 19 all pass, ending at 24;
+- at 999 active recipes, five new recipes generated at once all pass the recipe room
+  check and are charged, and four end `recipe-limit` at the write.
+
+A page is still judged once per revision and path: a request whose gate passed but
+that finds another request's judgement row when it writes its own stops before sending
+and answers as that row does, or `judgement-unanswered` while it is judged or when the
+row could be taken again, so two verdicts for one page cannot race the recipe write.
 
 ## Consequences
 

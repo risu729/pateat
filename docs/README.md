@@ -102,6 +102,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0040: A device's own Anthropic API key, and running without the service](adr/0040-running-without-the-service.md)
 - [0041: A generated recipe is repaired by adding a layout (accepted)](adr/0041-repair-stale-recipes.md)
 - [0043: Extension language preference](adr/0043-extension-language-preference.md)
+- [0047: Japanese docs pages under `/ja/`, with no language redirect](adr/0047-japanese-user-docs-locales.md)
 - [0048: A learned button goes on to the password on a page that asks how to verify](adr/0048-password-method-button.md)
 - [0049: A login may start at a later step its page shows](adr/0049-start-at-a-later-step.md)
 - [0050: Plain HTTP pages log in with items saved for `http://`](adr/0050-http-pages-for-http-items.md)
@@ -115,6 +116,8 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0059: The latest Vaultwarden release is a supported server](adr/0059-latest-vaultwarden-server.md)
 - [0060: A recipe holds up to three layouts of its sign-in pages](adr/0060-recipe-layouts.md)
 - [0061: Personal details asked during a login, filled from a linked vault item](adr/0061-personal-details-during-a-login.md)
+- [0062: Log in again after a logout, and pause automatic login](adr/0062-log-in-again-after-a-logout.md)
+- [0063: Switch accounts from the popup](adr/0063-switch-accounts-from-the-popup.md)
 - [0064: A form that shows no button is submitted by Enter in its last field](adr/0064-enter-in-a-form-without-a-button.md)
 - [0065: Optional pages after a sign-in end the login as signed in](adr/0065-optional-pages-after-a-sign-in.md)
 - [0066: Warning, error and did-nothing log lines are sent to the service](adr/0066-problem-lines-sent-to-the-service.md)
@@ -125,6 +128,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0075: Lock, log out and the vault timeout](adr/0075-vault-lock-and-timeout.md)
 - [0076: Settings profiles, delivered](adr/0076-settings-profiles-delivered.md)
 - [0077: Allowed sites](adr/0077-allowed-sites.md)
+- [0078: A page's own control for another account switches without a recipe target](adr/0078-the-pages-own-account-switch.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

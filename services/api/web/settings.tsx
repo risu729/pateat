@@ -7,6 +7,7 @@ import {
   siteRuleCovers,
   type LocalSettings,
 } from "@pateat/contracts";
+import { registrableSite } from "@pateat/contracts/site";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as v from "valibot";
 import { ManageApiError, type ManageClient } from "./api";
@@ -50,9 +51,10 @@ export function siteHostname(origin: string): string {
   return normalizeHostname(hostname) ?? hostname;
 }
 
-type SiteRule = LocalSettings["excludedSites"][number];
-
-/** The rules that exclude a hostname: its own, or a parent's that includes subdomains. */
+/**
+ * The rules that pause automatic login on a hostname until turned back on (ADR 0062): its
+ * own, or a parent's that includes subdomains.
+ */
 export function exclusionsCovering(settings: LocalSettings | null, hostname: string) {
   return (settings?.excludedSites ?? []).filter((site) => siteRuleCovers(site, hostname));
 }
@@ -69,13 +71,47 @@ export function notAllowed(settings: LocalSettings | null, hostname: string): bo
   );
 }
 
-/** A site rule as shown: its hostname, and whether it also covers subdomains. */
-export function exclusionLabel(site: SiteRule): string {
+/**
+ * The rules that pause an origin's site (ADR 0062). A pause covers the registrable site with
+ * its subdomains, as the extension's popup adds it; Resume removes the covering rules that
+ * name the site or a host in it, and a covering rule for a parent of the site, such as a
+ * public suffix, covers other sites too, so only the Sites list changes it.
+ */
+export function siteRules(settings: LocalSettings | null, origin: string) {
+  const hostname = siteHostname(origin);
+  const site = registrableSite(origin) ?? hostname;
+  type Rule = LocalSettings["excludedSites"][number];
+  const within = (rule: Rule) => rule.hostname === site || rule.hostname.endsWith(`.${site}`);
+  const covers = (rule: Rule) =>
+    hostname === rule.hostname ||
+    (rule.includeSubdomains && hostname.endsWith(`.${rule.hostname}`));
+  const rules = exclusionsCovering(settings, hostname);
+  return {
+    site,
+    /** The rules that cover the origin's hostname. */
+    rules,
+    /** The covering rules that also cover other sites. */
+    shared: rules.filter((rule) => !within(rule)),
+    /** Pauses the site with its subdomains until turned back on. */
+    pause: excludeSite(site, true),
+    /** Removes the site's own covering rules. */
+    resume: {
+      apply: (value: LocalSettings) => ({
+        ...value,
+        excludedSites: value.excludedSites.filter((rule) => !(covers(rule) && within(rule))),
+      }),
+      done: `${site} resumed`,
+    } satisfies SettingsEdit,
+  };
+}
+
+/** A pause rule as shown: its hostname, and whether it also covers subdomains. */
+export function exclusionLabel(site: LocalSettings["excludedSites"][number]): string {
   return site.includeSubdomains ? `${site.hostname} and subdomains` : site.hostname;
 }
 
-/** Removes one hostname's exclusion rule. */
-export function removeExclusion(hostname: string, done: string): SettingsEdit {
+/** Removes one hostname's pause rule, which resumes automatic login there. */
+export function allowSite(hostname: string, done: string): SettingsEdit {
   return {
     apply: (value) => ({
       ...value,
@@ -85,8 +121,8 @@ export function removeExclusion(hostname: string, done: string): SettingsEdit {
   };
 }
 
-/** Sets one hostname's allowed site, replacing any it had. */
-export function allowSite(
+/** Sets one hostname's allowed site, replacing any it had (ADR 0077). */
+export function addAllowedSite(
   hostname: string,
   includeSubdomains: boolean,
   done: string,
@@ -118,72 +154,14 @@ export function removeAllowedSite(hostname: string, done: string): SettingsEdit 
 export function setAllowedSites(on: boolean): SettingsEdit {
   return {
     apply: (value) => ({ ...value, allowedSitesEnabled: on }),
-    done: on
-      ? "Pateat now runs only on allowed sites"
-      : "Pateat now runs on every site not excluded",
+    done: on ? "Pateat now runs only on allowed sites" : "Pateat now runs on every site",
   };
 }
 
 /**
- * The site switch for one hostname, as in the extension's popup: on unless an exclusion
- * covers the hostname or the allowed sites leave it out. It changes only the hostname's
- * own exact rules. Turning it on removes the hostname's own exclusion and, while the
- * allowed sites are on and none covers it, allows it; turning it off removes the
- * hostname's own allowed site when only that one allows it, else excludes the hostname.
+ * Sets one hostname's pause rule, replacing any it had: automatic login there is paused until
+ * turned back on, and devices log in only with an account picked in their popup (ADR 0062).
  */
-export function siteSwitch(settings: LocalSettings | null, hostname: string) {
-  const covers = (site: SiteRule) => siteRuleCovers(site, hostname);
-  const own = (site: SiteRule) => site.hostname === hostname && !site.includeSubdomains;
-  // Allowed only by the hostname's own rule: turning the switch off removes that rule.
-  const removesAllowed = (value: LocalSettings) => {
-    const allowing = allowlistOn(value) ? (value.allowedSites ?? []).filter(covers) : [];
-    return allowing.length > 0 && allowing.every(own);
-  };
-  const rules = exclusionsCovering(settings, hostname);
-  const leftOut = notAllowed(settings, hostname);
-  return {
-    on: rules.length === 0 && !leftOut,
-    /** A covering exclusion that also covers other sites, which the switch leaves alone. */
-    broader: rules.find((rule) => !own(rule)),
-    notAllowed: leftOut,
-    /** Applied to the settings as the write reads them, not the page's copy. */
-    edit(on: boolean): SettingsEdit {
-      if (on)
-        return {
-          apply: (value) => {
-            const next = {
-              ...value,
-              excludedSites: value.excludedSites.filter((site) => !own(site)),
-            };
-            if (notAllowed(next, hostname))
-              next.allowedSites = [
-                ...(value.allowedSites ?? []),
-                { hostname, includeSubdomains: false },
-              ];
-            return next;
-          },
-          done: leftOut
-            ? `${hostname} is now an allowed site`
-            : `${hostname} is no longer excluded`,
-        };
-      return {
-        apply: (value) =>
-          removesAllowed(value)
-            ? {
-                ...value,
-                allowedSites: (value.allowedSites ?? []).filter((site) => !own(site)),
-              }
-            : excludeSite(hostname, false).apply(value),
-        done:
-          settings && removesAllowed(settings)
-            ? `${hostname} is no longer an allowed site`
-            : `${hostname} excluded`,
-      };
-    },
-  };
-}
-
-/** Sets one hostname's exclusion rule, replacing any it had. */
 export function excludeSite(hostname: string, includeSubdomains: boolean): SettingsEdit {
   return {
     apply: (value) => ({
@@ -193,7 +171,7 @@ export function excludeSite(hostname: string, includeSubdomains: boolean): Setti
         { hostname, includeSubdomains },
       ],
     }),
-    done: `${hostname} excluded`,
+    done: `${hostname} paused`,
   };
 }
 

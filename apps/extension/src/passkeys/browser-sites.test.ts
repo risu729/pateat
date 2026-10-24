@@ -253,6 +253,21 @@ describe("the sites the passkey runtime hands on", () => {
     expect(settings.read).toHaveBeenCalledTimes(2);
   });
 
+  it("lends its copy of the settings to the request's other reads, read again once changed", async () => {
+    const { settings } = store([{ hostname: "bank.example" }]);
+    const sites = createPasskeyBrowserSites({ settings, pending: sessionValue() });
+    expect((await sites.settings()).passkeyBrowserSites).toEqual([{ hostname: "bank.example" }]);
+    expect(settings.read).toHaveBeenCalledOnce();
+    settings.read.mockResolvedValueOnce({
+      version: 1,
+      revision: 4,
+      settings: createDefaultSettings({ connections: [] }),
+    });
+    sites.changed();
+    expect((await sites.settings()).passkeyBrowserSites ?? []).toEqual([]);
+    expect(settings.read).toHaveBeenCalledTimes(2);
+  });
+
   it("reads again after a failed read, which hands on", async () => {
     const { settings } = store();
     // The read ahead of the first request fails, and so does the one it makes.

@@ -17,6 +17,7 @@ import {
   RECIPE_SYNC_RATE_LIMIT_MS,
   RECIPE_SYNC_STALE_MS,
 } from "./recipes";
+import { laterReadiness } from "../login/wire";
 import type { ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
 import type { RecipeChangesResult, ServiceTransport } from "./transport";
@@ -1399,7 +1400,11 @@ describe("recipe sync", () => {
     const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
     expect(await sync.recipes.starts(SITE)).toEqual([
       // The password page after the login page, where a login may also start (ADR 0049).
-      { path: "/login", steps: [single.steps[0]], later: [single.steps[1]] },
+      {
+        path: "/login",
+        steps: [single.steps[0]],
+        later: [laterReadiness({ step: single.steps[1]! })],
+      },
       { path: "/app/login", steps: [varied.steps[0], varied.alternatives![0]!.steps[0]] },
     ]);
     expect(await sync.recipes.later!(SITE, "/password")).toEqual([{ ...single, layout: "1000" }]);
@@ -1450,7 +1455,7 @@ describe("recipe sync", () => {
       {
         path: "/login",
         steps: [first.steps[0], second.steps[0]],
-        later: [first.steps[1], second.steps[1]],
+        later: [first.steps[1], second.steps[1]].map((step) => laterReadiness({ step: step! })),
       },
     ]);
     // A later step of either layout lists that layout alone.
@@ -1971,7 +1976,11 @@ describe("cached recipe lookup", () => {
     expect(await sync.recipes.recipe(SITE, "/")).toBeUndefined();
     expect(await sync.recipes.recipe(SITE, "/", "bank-home")).toBeUndefined();
     expect(await sync.recipes.starts(SITE)).toEqual([
-      { path: "/login", steps: [projected(signin).steps[0]], later: [projected(signin).steps[1]] },
+      {
+        path: "/login",
+        steps: [projected(signin).steps[0]],
+        later: [laterReadiness({ step: projected(signin).steps[1]! })],
+      },
     ]);
   });
 
@@ -2024,6 +2033,52 @@ describe("cached recipe lookup", () => {
           rejected: false,
         },
       }).sync.recipes.entries(SITE),
+    ).toEqual([]);
+  });
+
+  it("lists an origin's own logout recipes (ADR 0063), apart from its login recipes", async () => {
+    const logout: StoredLoginRecipe = {
+      version: 1,
+      id: "bank-logout",
+      revision: 1,
+      origin: SITE,
+      logout: {
+        path: "/login",
+        targets: [
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "text", value: "Sign out" },
+            purpose: "logout",
+          },
+        ],
+      },
+    };
+    const other = { ...logout, id: "other-logout", origin: "https://other.example" };
+    const { sync } = setup({
+      pages: [
+        page(
+          [logout, other].map((value) => ({
+            recipeId: value.id,
+            revision: 1,
+            state: "active" as const,
+            recipe: value,
+          })),
+          3,
+        ),
+      ],
+      stored,
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(await sync.recipes.logouts!(SITE)).toEqual([logout]);
+    expect(await sync.recipes.logouts!("https://unknown.example")).toEqual([]);
+    // On the login recipe's start path, it neither replaces it nor starts a login.
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(signin));
+    expect((await sync.recipes.starts(SITE)).map((start) => start.path)).toEqual(["/login"]);
+    expect(await sync.recipes.entries(SITE)).toEqual([]);
+    expect(
+      await setup({ stored: { ...stored, recipes: [logout] }, connection: undefined }).sync.recipes
+        .logouts!(SITE),
     ).toEqual([]);
   });
 

@@ -69,6 +69,12 @@ may put off; once the password or a second factor was sent, with no sign and no
 evidence, it completes the login as signed in, confirmed, and learns no marker,
 otherwise it ends `challenge` (implemented, local tests only).
 
+Amended on 2026-10-24 (agent change, not yet confirmed by the owner): the judge is told
+which candidates are the recipe's own elements, a `signed-in` answer whose marker only
+cannot be stored stays `signed-in`, and a page that still shows the login's elements
+fails closed and keeps `challenge`; see
+[the amendment below](#amendment-a-marker-that-is-one-of-the-recipes-own-elements-2026-10-24).
+
 Date: 2026-10-12
 
 ## Context
@@ -308,8 +314,9 @@ the login here. After `challenge` or `rejected` it
 answers `judged-challenge` or `judged-rejected`: the login then ends `challenge`, or
 stays unknown after `judged-rejected`, since an earlier rejection does not prove this
 one. A row with no verdict, after the request failed or while it is still being judged
-once the owner's lock has expired (until then a second request is answered `busy`),
-answers `judgement-unanswered`, and the login stays unknown. A watched login (below)
+(owner's requests run up to five at a time since 2026-10-23,
+[ADR 0018](0018-recipe-generation-route.md#five-calls-at-a-time)), answers
+`judgement-unanswered`, and the login stays unknown. A watched login (below)
 never completes on an undecided answer.
 
 The header and navigation text (since 2026-10-12): the signed-in description carries
@@ -577,3 +584,33 @@ fields, as the judge does, so a sign-in page never holds off the recipe's next s
 The sampled rows do not count toward the service's daily cap of 500 rows answered
 without a model call, and that cap does not stop them: the 30-day rule already bounds
 them to one per recipe and branch.
+
+## Amendment: a marker that is one of the recipe's own elements (2026-10-24)
+
+On 2026-10-24 at 01:37 UTC a Money Forward login on build `43a1ac4` ended `challenge`
+though the judge answered `signed-in`: its marker was the signed-in `/me` page's button
+with `id="submitto"`, the id the site also gives its sign-in button, which the recipe's
+click step names. `addCompletion` refused it as `step-target`, rightly, since that
+marker would read the sign-in page as signed in, and the service answered that refusal
+on a recipe without a marker as `invalid-output`, which the extension reads as a judge
+that could not decide. An agent change, as a general rule (ADR 0033), not yet confirmed
+by the owner:
+
+- The judge's request names the candidates whose locator one of the recipe's elements
+  uses (`recipeElements`: its steps of every variant, its passkey button, handlers,
+  account switch and rejection) as `stepElements`, and the instructions say the marker
+  is never one of them, so the model names another one. This changes the judge's prompt
+  version, so each page judged before is judged once more. The change was not measured
+  on the judge's corpus.
+- `addCompletion` checks the page before the marker: a page that still shows an element
+  a step or handler uses on that path, a field any step fills, or the rejection is
+  `login-page`, whatever the marker. The account switch is not checked there, since a
+  signed-in page's account menu may read like it; as a marker it is still refused.
+- A `signed-in` answer whose marker only cannot be stored is still `signed-in`, without
+  a new revision. A `login-page` answer fails closed as `invalid-output`, also for a
+  recipe that has a marker already, and the path keeps `challenge` instead of
+  `signed-in`, so a later login of the revision ends `judged-challenge` there. The
+  service logs the refusal's code (`Signed-in marker not learned`).
+- A path kept `signed-in` without a marker is not judged again for that revision and
+  prompt version: later logins get `judged-signed-in`, which completes a `password`
+  login on a quiet page but never a watched login, a `passkey` login or a stop.

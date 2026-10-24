@@ -11,7 +11,7 @@ import { defineExtensionMessaging } from "@webext-core/messaging";
  * `window.postMessage`, which the library does not carry.
  */
 export interface BackgroundProtocol {
-  /** `settings.*`, from the settings page and the popup. */
+  /** `settings.*`, from the settings page and the popup; export and import from the page. */
   settings(request: unknown): unknown;
   /** `service.*`, from the settings page. */
   service(request: unknown): unknown;

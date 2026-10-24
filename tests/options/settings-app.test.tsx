@@ -165,6 +165,30 @@ test("each change is saved at once and refreshes never replace a pending draft",
   });
 });
 
+test("automatic login in private windows starts off and is saved at once when turned on or off (ADR 0062)", async () => {
+  const client = mockClient();
+  await mount(client);
+  const toggle = page.getByRole("checkbox", { name: "Log in automatically in private windows" });
+  await expect.element(toggle).not.toBeChecked();
+  await expect
+    .element(page.getByText(/^Off: every site in a private window is paused/))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("navigation", { name: "Sections" }).getByText("Private windows"))
+    .toBeVisible();
+  await toggle.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 1).");
+  expect(client.saveSettings.mock.calls[0]?.[0]).toMatchObject({
+    expectedRevision: 0,
+    settings: { loginInPrivateWindows: true },
+  });
+  await expect.element(toggle).toBeChecked();
+  await toggle.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
+  expect(client.saveSettings.mock.calls[1]?.[0].settings.loginInPrivateWindows).toBeUndefined();
+  await expect.element(toggle).not.toBeChecked();
+});
+
 test("an unknown save outcome is never retried and requires a successful explicit reload", async () => {
   const client = mockClient();
   client.saveSettings.mockRejectedValue(new Error("Synthetic transport lost its response"));
@@ -490,9 +514,7 @@ test("the add form validates locally and keeps focus on the origin after adds an
   await expect.element(control("site-list")).toMatchTextContent("keyboard.example");
   await expect.element(control("site-origin")).toHaveValue("");
   await expect.element(control("site-origin")).toHaveFocus();
-  await page
-    .getByRole("button", { name: "Remove exclusion for keyboard.example", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Resume keyboard.example", exact: true }).click();
   await expect.element(control("site-origin")).toHaveFocus();
   await expect.element(control("site-list")).not.toMatchTextContent("keyboard.example");
 
@@ -762,11 +784,11 @@ test("an origin row changes its default only on Save, and No default removes it"
   await expect.element(control("site-origin")).toHaveFocus();
 });
 
-test("excluding an origin keeps its default unused under the rule until it is allowed", async () => {
+test("pausing an origin keeps its default unused by itself under the rule until it is resumed", async () => {
   const client = mockClient();
   const response = saved(1);
   response.snapshot.settings.siteDefaults.push({
-    origin: "https://bank.example",
+    origin: "https://www.bank.example",
     provider: "dummy",
     server: "cloud-us",
     userId: "demo-personal-account",
@@ -775,27 +797,30 @@ test("excluding an origin keeps its default unused under the rule until it is al
   client.getSettings.mockResolvedValue(response);
   await mount(client);
   await page
-    .getByRole("button", { name: "Exclude https://bank.example, all schemes and ports" })
+    .getByRole("button", {
+      name: "Pause automatic login on bank.example and its subdomains, which includes https://www.bank.example",
+    })
     .click();
   await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
+  // As the popup pauses it: the registrable site with its subdomains (ADR 0062).
   expect(client.saveSettings.mock.calls[0]?.[0].settings).toMatchObject({
-    excludedSites: [{ hostname: "bank.example", includeSubdomains: false }],
-    siteDefaults: [{ origin: "https://bank.example" }],
+    excludedSites: [{ hostname: "bank.example", includeSubdomains: true }],
+    siteDefaults: [{ origin: "https://www.bank.example" }],
   });
   await expect
-    .element(page.getByRole("combobox", { name: "Default account for https://bank.example" }))
+    .element(page.getByRole("combobox", { name: "Default account for https://www.bank.example" }))
     .not.toBeInTheDocument();
   await expect
     .element(control("site-list"))
     .toMatchTextContent(
-      "The default for https://bank.example is kept but not used while the site is excluded.",
+      "The default for https://www.bank.example is kept; while the site is paused it is only listed first in the popup.",
     );
   await page
-    .getByRole("button", { name: "Remove exclusion for bank.example", exact: true })
+    .getByRole("button", { name: "Resume bank.example and subdomains", exact: true })
     .click();
   await expect.element(control("settings-status")).toMatchTextContent("saved (revision 3).");
   await expect
-    .element(page.getByRole("combobox", { name: "Default account for https://bank.example" }))
+    .element(page.getByRole("combobox", { name: "Default account for https://www.bank.example" }))
     .toBeVisible();
 });
 
@@ -886,16 +911,18 @@ test("an origin with a trailing dot is excluded by its hostname without the dot"
   client.getSettings.mockResolvedValue(response);
   await mount(client);
   await page
-    .getByRole("button", { name: "Exclude https://bank.example., all schemes and ports" })
+    .getByRole("button", {
+      name: "Pause automatic login on bank.example and its subdomains, which includes https://bank.example.",
+    })
     .click();
   await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
   expect(client.saveSettings.mock.calls[0]?.[0].settings.excludedSites).toEqual([
-    { hostname: "bank.example", includeSubdomains: false },
+    { hostname: "bank.example", includeSubdomains: true },
   ]);
   await expect
     .element(control("site-list"))
     .toMatchTextContent(
-      "The default for https://bank.example. is kept but not used while the site is excluded.",
+      "The default for https://bank.example. is kept; while the site is paused it is only listed first in the popup.",
     );
   await expect
     .element(page.getByRole("button", { name: "Remove default for https://bank.example." }))
@@ -930,11 +957,11 @@ test("the add form makes the entered site ask for the master password, then stop
   await expect.element(control("site-origin")).toHaveFocus();
 });
 
-test("the add form excludes the entered origin's host, with its subdomains when asked", async () => {
+test("the add form pauses the entered origin's host, with its subdomains when asked", async () => {
   const client = mockClient();
   await mount(client);
   await expect
-    .element(page.getByText("No excluded sites or default accounts", { exact: true }))
+    .element(page.getByText("No paused sites or default accounts", { exact: true }))
     .toBeVisible();
   await control("site-origin").fill("http://localhost:8080");
   await control("add-site").click();
@@ -956,15 +983,10 @@ test("the add form excludes the entered origin's host, with its subdomains when 
     )
     .toEqual(["bank.example and subdomains", "localhost"]);
   await expect
-    .element(page.getByText("No excluded sites or default accounts", { exact: true }))
+    .element(page.getByText("No paused sites or default accounts", { exact: true }))
     .not.toBeInTheDocument();
   await expect
-    .element(
-      page.getByRole("button", {
-        name: "Remove exclusion for bank.example and subdomains",
-        exact: true,
-      }),
-    )
+    .element(page.getByRole("button", { name: "Resume bank.example and subdomains", exact: true }))
     .toBeVisible();
   await expect.element(control("site-subdomains")).not.toBeChecked();
 });
@@ -1054,9 +1076,7 @@ test("a draft that fails local validation is saved by the change that fixes it",
     .element(control("settings-status"))
     .toMatchTextContent("These settings are not valid");
   expect(client.saveSettings).not.toHaveBeenCalled();
-  await page
-    .getByRole("button", { name: "Remove exclusion for site0.example", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Resume site0.example", exact: true }).click();
   await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
   const excluded = client.saveSettings.mock.calls[0]?.[0].settings.excludedSites;
@@ -1404,7 +1424,7 @@ test("the allowed sites turn on, list sites and stay listed when turned off (ADR
   const allowlist = page.getByRole("switch", { name: "Run only on allowed sites" });
   await expect.element(allowlist).not.toBeChecked();
   await expect
-    .element(page.getByText("While this is off, Pateat runs on every site that is not excluded."))
+    .element(page.getByText("While this is off, Pateat runs on every site."))
     .toBeVisible();
   await userEvent.click(allowlist);
   await expect.element(control("settings-status")).toMatchTextContent("saved (revision 1).");

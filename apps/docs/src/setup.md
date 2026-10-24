@@ -70,12 +70,14 @@ These limits apply to Pateat only and do not change anything in Bitwarden.
    tab. Sign in there, then return to the settings page; Pateat tries again by itself.
    **Try again** and **Open sign-in page** repeat either step.
 4. If the service already holds settings, choose a **Settings profile**: an existing
-   one, or **New profile with this device's site settings** with a
-   **New profile name**. A profile holds the excluded sites, the allowed sites, the
-   sites that ask for the master password and the default accounts, and devices that
-   share a profile share them. Choosing an existing profile replaces this device's own
-   lists with the profile's. Pateat asks first (**Pair and replace**) when this device
-   has any of them, or has **Run only on allowed sites** on.
+   one, or **New profile with this device's site settings** with a **New profile name**.
+   A profile holds the sites paused until turned back on, the allowed sites, the sites
+   that ask for the master password, the default accounts and whether Pateat logs in
+   automatically in private windows, and devices that share a profile share them.
+   Choosing an existing profile replaces this device's own lists with the profile's.
+   Pateat asks first (**Pair and replace**) when this device has paused sites, allowed
+   sites or default accounts, or has **Run only on allowed sites** on, but not when it
+   has only sites that ask for the master password.
 
 When pairing succeeds, the page says **This device is paired.** Pateat then syncs its
 profile's settings and the recipes from the service and keeps a copy on this device.
@@ -141,11 +143,19 @@ starts empty.
 To limit Pateat to a few sites, turn **Run only on allowed sites** on in the settings
 page's **Allowed sites** section and add each site with **Allow site**, where
 **Allow subdomains too** covers its subdomains. Pateat then logs in, fills and answers
-passkey requests only on those sites; an excluded site stays excluded even when it is
-allowed. With the switch on and no site allowed, Pateat does nothing anywhere. Turning
-the switch off keeps the list. In the toolbar popup, turning **Pateat on this site** on
-for a site that is not allowed adds it. The list starts empty and off, and belongs to
-the settings profile, like the excluded sites.
+passkey requests only on those sites, and does nothing at all on any other site, not
+even from the toolbar popup. A paused site stays paused while it is allowed. With the
+switch on and no site allowed, Pateat does nothing anywhere. Turning the switch off
+keeps the list. On a site that is not allowed, the toolbar popup offers
+**Allow** followed by the site's name, which adds the site with its subdomains. The list
+starts empty and off, and belongs to the settings profile, like the paused sites.
+
+### Private windows
+
+Pateat does not log in by itself in private (incognito) windows unless you turn on
+**Log in automatically in private windows** on the settings page. While it is off, a
+login page in a private window lists its matching accounts in the toolbar popup, and an
+account you pick there still logs in. The choice is part of the settings profile.
 
 ### AI key
 
@@ -153,8 +163,25 @@ Under **AI key**, you can save an **Anthropic API key** from the Claude Console.
 this device is paired, it asks Claude with this key instead of the service's
 credentials: the service writes each request, and the extension sends it to Anthropic
 itself. The key stays on this device and is sent to Anthropic only, never to the
-service. **Daily limit (USD)** and **Monthly limit (USD)**, $5 and $100 unless you
-change them, stop requests at either limit. **Remove key** deletes the key.
+service. While no service is paired, the extension writes recipes with this key itself,
+with Claude's default models, and keeps them on this device. **Daily limit (USD)** and
+**Monthly limit (USD)**, $5 and $100 unless you change them, stop requests at either
+limit. **Remove key** deletes the key.
+
+### Export and import
+
+Under **Export and import**, **Export to a file** saves a JSON file with what a paired
+Pateat service would keep: the site settings, the item and field limits of each vault
+with the vault's account and item names, the account chosen for each site, and the
+recipes this device uses. It never holds vault keys or values, the service's sign-in or
+the AI key. **Import from a file** on another device first shows what the file would
+change, among them the sites where it decides which of your vault items Pateat uses;
+press **Import** to import it. Import only a file you exported yourself or got from
+someone you trust. Importing adds the file's settings to the device's own: everything
+the device has stays, and where both hold the same entry, the file's wins. A recipe
+replaces one the device keeps only when the file's is newer. A paired device uploads the
+imported recipes to its service at its next sync, except those the service already
+holds. Save or reload the settings page before you import.
 
 ## Using Pateat
 
@@ -166,9 +193,24 @@ the service, as the
 [service guide](https://github.com/risu729/pateat/blob/main/services/api/README.md#claude-credentials)
 describes; without either, the service still keeps the description it received.
 
-The toolbar popup shows what Pateat did on the current page. It also lets you choose the
-account to log in with when several match, turn **Pateat on this site** off or
+The toolbar popup shows what Pateat did on the current page, unless you uncheck
+**Show "This page" in the popup** on the settings page, which also hides
+**Switch account**; the pause stays. It also lets you choose the
+account to log in with when several match, pause automatic login on the site for
+**10 minutes**, **1 hour** or **Until turned back on** (**Resume** ends the pause), turn
 **Ask for the master password** on for a site, and, when a page asks for a personal
 detail such as a card's number, link the vault item that holds it and press **Fill**.
-The service's **Sites** page lists every site with a recipe, a default account or an
-exclusion, one settings profile at a time.
+The service's **Sites** page lists every site with a recipe, a default account or a
+pause, one settings profile at a time.
+
+On a site's page that waits for no account choice, **Switch account** in the popup lists
+the site's matching accounts. **Switch to this account** logs the tab out of the site,
+then logs in with that account; **Make it the default** keeps it as the site's default
+account. The first switch on a site asks your Pateat service which control logs out, and
+the clicks it finds are kept for the next switch. A site you log in to through another
+account, such as a company or Google sign-in, may log you out of that account too.
+
+When you log out of a site yourself, Pateat logs in again on the next login page, with
+the account it would use for an automatic login. To stay logged out, pause the site
+first. If Pateat logged in to a site twice in the last 10 minutes, it asks for an
+account instead of logging in a third time.

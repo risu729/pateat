@@ -107,7 +107,7 @@ export function ProfilesPage({ client }: { client: ManageClient }) {
       <p className="text-sm text-ink-muted">
         A profile holds site exclusions, allowed sites, sites that ask for the master password and
         saved accounts. Each device uses one, chosen when it pairs or on the Devices page. Account
-        bindings are shared by every profile.
+        bindings and personal-detail links are shared by every profile.
       </p>
       <SuccessNotice id="profiles-notice" message={notice} />
       {failed?.error && (
@@ -174,7 +174,7 @@ export function ProfilesPage({ client }: { client: ManageClient }) {
                   <>
                     <RowMain
                       title={`Delete ${profile.name}?`}
-                      sub="Its site settings and saved accounts are deleted from the service. Account bindings stay."
+                      sub="Its site settings and saved accounts are deleted from the service. Account bindings and personal-detail links stay."
                     />
                     <Button
                       variant="danger"

@@ -315,11 +315,12 @@ describe("judged completion", () => {
   it("refuses a step's own fill, click or text target on any path", () => {
     const at = (path: string, marker: LoginTarget) =>
       addCompletion(recipe, { origin, path, candidates: [candidate("m", marker)] }, marker);
-    expect(at("/login", target("username"))).toEqual({ ok: false, reason: "step-target" });
-    expect(at("/login", target("username-next"))).toEqual({ ok: false, reason: "step-target" });
+    // On a step's own path, the page is the login's own before the marker is looked at.
+    expect(at("/login", target("username"))).toEqual({ ok: false, reason: "login-page" });
+    expect(at("/login", target("username-next"))).toEqual({ ok: false, reason: "login-page" });
     expect(at("/pw", { by: "text", value: "Sign in" })).toEqual({
       ok: false,
-      reason: "step-target",
+      reason: "login-page",
     });
     // A marker proves a sign-in wherever it shows, the step's own page included.
     expect(at("/home", target("username-next"))).toEqual({ ok: false, reason: "step-target" });
@@ -377,10 +378,11 @@ describe("judged completion beside the account switch", () => {
     const home = { origin, path: "/home", candidates: [candidate("switch", other)] };
     expect(addCompletion(switched, home, other)).toEqual({ ok: false, reason: "step-target" });
     const rejected = { ...switched, rejection: target("error") };
+    // A page that shows the rejection is a failed sign-in, whatever the marker.
     const failed = { origin, path: "/home", candidates: [candidate("error", target("error"))] };
     expect(addCompletion(rejected, failed, target("error"))).toEqual({
       ok: false,
-      reason: "step-target",
+      reason: "login-page",
     });
   });
 
@@ -566,6 +568,14 @@ describe("judged passkey handler (ADR 0027)", () => {
     if (!added.ok) throw new Error(added.reason);
     expect(
       addCompletion(added.recipe, webauthn(candidate("logout", target("logout"))), securityKey),
+    ).toEqual({ ok: false, reason: "login-page" });
+    // Nor anywhere else: the button is the handler's.
+    expect(
+      addCompletion(
+        added.recipe,
+        { origin, path: "/home", candidates: [candidate("key", securityKey)] },
+        securityKey,
+      ),
     ).toEqual({ ok: false, reason: "step-target" });
     const home = { origin, path: "/home", candidates: [candidate("logout", target("logout"))] };
     const learned = addCompletion(added.recipe, home, target("logout"));
@@ -1307,7 +1317,7 @@ describe("password route variants in generated recipes (ADR 0027)", () => {
     });
     expect(addCompletion(recipe, shown("contract-number"), target("contract-number"))).toEqual({
       ok: false,
-      reason: "step-target",
+      reason: "login-page",
     });
     // On the start path, the completion lists every variant's fill fields as absent.
     const learned = addCompletion(recipe, shown("welcome"), target("welcome"));
@@ -1415,7 +1425,7 @@ describe("the passkey route in generated recipes (ADR 0027)", () => {
       path: "/login",
       candidates: [candidate("passkey", button), ...candidates],
     });
-    expect(addCompletion(recipe, login(), button)).toEqual({ ok: false, reason: "step-target" });
+    expect(addCompletion(recipe, login(), button)).toEqual({ ok: false, reason: "login-page" });
     expect(
       addCompletion(recipe, login(candidate("logout", target("logout"))), target("logout")),
     ).toEqual({ ok: false, reason: "login-page" });

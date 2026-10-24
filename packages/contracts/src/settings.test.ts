@@ -9,6 +9,7 @@ import {
   getItemEligibility,
   isPasskeyBrowserSite,
   isSiteExcluded,
+  isSupportedSite,
   itemAsksForMasterPassword,
   normalizeHostname,
   parseLocalSettings,
@@ -17,9 +18,7 @@ import {
   popupPageSectionShown,
   resolveSiteAccount,
   SETTINGS_CHANGE_HISTORY,
-  siteAccess,
   siteDefaultConnection,
-  siteRefusal,
   vaultCatalogSchema,
   type SettingsSnapshot,
   type ItemPolicy,
@@ -102,58 +101,6 @@ describe("host policy and URL validation", () => {
           { hostname: "bank.example", includeSubdomains: false },
           { hostname: "bank.example", includeSubdomains: true },
         ],
-      }),
-    ).toThrow();
-  });
-
-  it("limits Pateat to the allowed sites only while they are on, and exclusions still win", () => {
-    const settings = withDefault();
-    settings.allowedSites = [
-      { hostname: "bank.example", includeSubdomains: false },
-      { hostname: "mail.example", includeSubdomains: true },
-    ];
-    // Off by default: the list is kept but limits nothing (ADR 0077).
-    expect(siteAccess(settings, "https://shop.example")).toBe("allowed");
-    settings.allowedSitesEnabled = true;
-    expect(siteAccess(settings, "https://bank.example/login")).toBe("allowed");
-    expect(siteAccess(settings, "http://bank.example:8080")).toBe("allowed");
-    expect(siteAccess(settings, "https://inbox.mail.example")).toBe("allowed");
-    expect(siteAccess(settings, "https://auth.bank.example")).toBe("not-allowed");
-    expect(siteAccess(settings, "https://shop.example")).toBe("not-allowed");
-    expect(isSiteExcluded(settings, "https://shop.example")).toBe(true);
-    expect(siteRefusal(settings, "https://shop.example")).toBe("site-not-allowed");
-    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://shop.example")).toEqual({
-      ok: false,
-      reason: "site-not-allowed",
-    });
-    settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: false }];
-    expect(siteAccess(settings, "https://bank.example")).toBe("excluded");
-    expect(siteRefusal(settings, "https://bank.example")).toBe("site-excluded");
-    // On with nothing allowed, Pateat acts nowhere.
-    settings.allowedSites = [];
-    expect(siteAccess(settings, "https://inbox.mail.example")).toBe("not-allowed");
-    expect(siteAccess(settings, "not a url")).toBe("invalid");
-    expect(siteRefusal(settings, "not a url")).toBe("site-excluded");
-  });
-
-  it("parses allowed sites as a list of unique rules beside an on or off switch", () => {
-    const base = createDefaultSettings();
-    expect(
-      parseLocalSettings({ ...base, allowedSitesEnabled: true, allowedSites: [] }),
-    ).toMatchObject({ allowedSitesEnabled: true, allowedSites: [] });
-    expect(() =>
-      parseLocalSettings({
-        ...base,
-        allowedSites: [
-          { hostname: "bank.example", includeSubdomains: false },
-          { hostname: "bank.example", includeSubdomains: true },
-        ],
-      }),
-    ).toThrow();
-    expect(() =>
-      parseLocalSettings({
-        ...base,
-        allowedSites: [{ hostname: "https://bank.example", includeSubdomains: false }],
       }),
     ).toThrow();
   });
@@ -506,15 +453,39 @@ describe("scoped metadata eligibility and next-login defaults", () => {
       ok: false,
       reason: "item-excluded",
     });
+    // An exclusion rule pauses automatic login only; a pick still resolves (ADR 0062).
+    settings.itemPolicies = [];
     settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: false }];
-    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
-      ok: false,
-      reason: "site-excluded",
-    });
+    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toMatchObject(
+      { ok: true, itemId: "primary" },
+    );
+  });
+
+  it("runs on HTTP(S) pages with a policy-valid hostname, whatever the rules", () => {
+    expect(isSupportedSite("https://bank.example/login")).toBe(true);
+    expect(isSupportedSite("http://127.0.0.1:8080/")).toBe(true);
+    expect(isSupportedSite("https://my_host.example/")).toBe(false);
+    expect(isSupportedSite("chrome://extensions/")).toBe(false);
+    const settings = createDefaultSettings();
+    settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: true }];
+    expect(isSiteExcluded(settings, "https://login.bank.example/")).toBe(true);
+    expect(isSupportedSite("https://login.bank.example/")).toBe(true);
   });
 });
 
 describe("strict settings schema", () => {
+  it("keeps automatic login in private windows off unless turned on (ADR 0062)", () => {
+    const settings = createDefaultSettings();
+    // Off is the absent field, so a document from before the setting means the same.
+    expect(settings).not.toHaveProperty("loginInPrivateWindows");
+    expect(parseLocalSettings(settings)).not.toHaveProperty("loginInPrivateWindows");
+    expect(parseLocalSettings({ ...settings, loginInPrivateWindows: true })).toMatchObject({
+      loginInPrivateWindows: true,
+    });
+    for (const value of [false, "true", 1, null])
+      expect(() => parseLocalSettings({ ...settings, loginInPrivateWindows: value })).toThrow();
+  });
+
   it("shows the popup's This page section unless the settings hide it", () => {
     const settings = createDefaultSettings();
     expect(popupPageSectionShown(settings)).toBe(true);
@@ -578,6 +549,8 @@ describe("personal-detail links (ADR 0061)", () => {
       // The same detail of another login item, or of the same item on another site.
       { ...link, itemId: "secondary" },
       { ...link, origin: "https://shop.example" },
+      // The same user ID on another server is another account.
+      { ...link, server: "cloud-eu" },
       {
         ...link,
         userId: "demo-family-account",

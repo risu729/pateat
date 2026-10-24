@@ -18,6 +18,7 @@ import {
   type LoginChooserDocument,
   type LoginChooserRecipe,
   type LoginEntryRecipe,
+  type LoginLogoutRecipe,
   type LoginStep,
   type LoginTarget,
   type StoredLoginRecipe,
@@ -26,7 +27,7 @@ import {
 import * as v from "valibot";
 import type { LoginRecipes } from "../login/runtime";
 import type { DeviceRecipeUpload } from "./device-recipes";
-import { loginReadiness } from "../login/wire";
+import { laterReadiness, loginReadiness } from "../login/wire";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
 import {
@@ -754,7 +755,7 @@ export function createRecipeSync(options: {
           const layouts = loginLayoutCandidates(stored).map((candidate) => candidate.recipe);
           // A later step a login may start at when no first step shows (ADR 0049).
           const later = once(
-            layouts.flatMap((recipe) => laterStartSteps(recipe).map(({ step }) => step)),
+            layouts.flatMap((recipe) => laterStartSteps(recipe).map(laterReadiness)),
           );
           return {
             path: stored.layouts[0]!.steps[0]!.path,
@@ -827,7 +828,21 @@ export function createRecipeSync(options: {
         (recipe): recipe is LoginEntryRecipe => "entry" in recipe && recipe.origin === origin,
       );
     },
+    async logouts(origin: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return [];
+      const cache = await load(connection);
+      if (!cache) return [];
+      return cache.recipes.filter(
+        (recipe): recipe is LoginLogoutRecipe => "logout" in recipe && recipe.origin === origin,
+      );
+    },
   };
 
-  return { sync, refreshIfStale, clear, synced, recipes };
+  /** The recipes logins use now, as an export holds them (ADR 0040); none when unreadable. */
+  async function inUse(): Promise<readonly StoredLoginRecipe[] | undefined> {
+    return (await current(false))?.recipes;
+  }
+
+  return { sync, refreshIfStale, clear, synced, inUse, recipes };
 }

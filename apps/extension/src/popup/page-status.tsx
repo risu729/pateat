@@ -57,10 +57,15 @@ const NOT_STARTED: Record<string, string> = {
   "stopped-login": "the last login on this site stopped in this tab",
   "first-step-missing": "the sign-in form shows, but the recipe's first step was not found",
   "no-recipe-on-path": "no recipe of this site starts on this page",
+  "account-asked": "Pateat waits for you to choose an account",
+  "relogin-limit":
+    "Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again",
   "confirm-unsupported":
     "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
-  "logged-out": "Pateat waits for you to choose an account",
   "account-ambiguous": "several accounts match; choose one to log in",
+  paused: "automatic login is paused on this site; choose an account to log in",
+  // In a private window whose automatic login is off (ADR 0062).
+  "paused-private": "automatic login is off in private windows; choose an account to log in",
   "origin-busy": "another tab's login to this site is running or did not succeed",
   "tab-busy": "another login runs in this tab",
   "attempt-limit": "Pateat already holds as many login records as it can",
@@ -84,6 +89,8 @@ const NOT_SENT: Record<string, string> = {
   "connection-disabled": "the vault connection is turned off",
   "after-sign-in": "this page came right after a sign-in",
   "nothing-offered": "the page showed no sign-in form",
+  paused: "automatic login is paused on this site",
+  "paused-private": "automatic login is off in private windows",
 };
 
 const plain = (table: Record<string, string>, code: string, t: TFunction) =>
@@ -265,17 +272,6 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
         ? { id: "login", tone: "warn", text: t("The login could not be confirmed.") }
         : { id: "login", tone: "ok", text: t("Logged in.") },
     ];
-  if (login.state === "logged-out")
-    return [
-      {
-        id: "login",
-        tone: "idle",
-        text:
-          login.outcome === "rejected"
-            ? t("The site did not accept the last login; choose an account to try again.")
-            : t("You were logged out of this site in this tab."),
-      },
-    ];
   const outcome = login.outcome ?? "";
   // A result that settled as unknown is watched as after a `challenge` (ADR 0027).
   if (login.state === "watching" || (login.state === "reconciling" && login.settled))
@@ -290,26 +286,32 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
       },
     ];
   if (login.state !== "blocked") return [{ id: "login", tone: "busy", text: t("Logging in…") }];
-  // A login that only fills the form after a logout ends by design before anything that
-  // would press a button (ADR 0021 D); a page or person that cancelled it first ends the
-  // same way, so the line names the mode rather than claiming a filled form.
+  // A login that only fills the form while the tab asks for an account ends by design
+  // before anything that would press a button (ADR 0021 D); a page or person that cancelled
+  // it first ends the same way, so the line names the mode rather than claiming a filled
+  // form.
   if (login.fillOnly && outcome === "cancelled" && !login.cause)
     return [
       {
         id: "login",
         tone: "idle",
         text: t(
-          "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
+          "While this tab asks for an account, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
         ),
       },
     ];
-  const why = outcome
-    ? plain(
-        login.cause === "keypad-pressed" && outcome in KEYPAD_OUTCOMES ? KEYPAD_OUTCOMES : OUTCOMES,
-        outcome,
-        t,
-      )
-    : t("no reason was recorded");
+  const why =
+    outcome === "policy-changed" && login.cause === "paused"
+      ? t("automatic login of this site was paused") // ADR 0062
+      : outcome
+        ? plain(
+            login.cause === "keypad-pressed" && outcome in KEYPAD_OUTCOMES
+              ? KEYPAD_OUTCOMES
+              : OUTCOMES,
+            outcome,
+            t,
+          )
+        : t("no reason was recorded");
   const lines: StatusLine[] = [
     QUIET.has(outcome)
       ? { id: "login", tone: "idle", text: t("The login stopped: {{why}}.", { why }) }
@@ -346,8 +348,33 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
  * for it, then the tab's last login on the page. Codes without a plain sentence show as the
  * log names them; no value, recipe step or query ever shows.
  */
-export function pageStatusLines(status: Status, t: TFunction = i18n.t.bind(i18n)): StatusLine[] {
-  return [...recipeLines(status, t), ...loginLines(status, t)];
+export function pageStatusLines(
+  status: Status,
+  t: TFunction = i18n.t.bind(i18n),
+  inPrivate = false,
+): StatusLine[] {
+  const shown = inPrivate ? privateStatus(status) : status;
+  return [...recipeLines(shown, t), ...loginLines(shown, t)];
+}
+
+/**
+ * In a private window whose automatic login is off, a `paused` page is paused by that
+ * setting, not by a pause of the site (ADR 0062), so its lines say so.
+ */
+function privateStatus(status: Status): Status {
+  const swap = (code: string | undefined) => (code === "paused" ? "paused-private" : code);
+  const { page, refused } = status;
+  const swapped: Status = { ...status };
+  if (page) {
+    const next: NonNullable<Status["page"]> = { ...page };
+    for (const key of ["reason", "notStarted", "generationSkip"] as const) {
+      const code = swap(page[key]);
+      if (code !== undefined) next[key] = code;
+    }
+    swapped.page = next;
+  }
+  if (refused) swapped.refused = { ...refused, reason: swap(refused.reason) ?? refused.reason };
+  return swapped;
 }
 
 const ICONS = {
@@ -365,11 +392,14 @@ const ICONS = {
  */
 export function PageStatusSection({
   status,
+  inPrivate = false,
   children,
   onOpenDiagnostics,
 }: {
   status: Status | undefined;
   children?: ReactNode;
+  /** The tab is in a private window whose automatic login is off (ADR 0062). */
+  inPrivate?: boolean;
   onOpenDiagnostics?: (() => void) | undefined;
 }) {
   const { t } = useTranslation(undefined, { i18n });
@@ -378,7 +408,7 @@ export function PageStatusSection({
       <h2 id="popup-page-heading">{t("This page")}</h2>
       {status && (
         <ul id="popup-page-status" className="popup-lines" aria-live="polite">
-          {pageStatusLines(status, t).map((line) => {
+          {pageStatusLines(status, t, inPrivate).map((line) => {
             const Icon = ICONS[line.tone];
             return (
               <li

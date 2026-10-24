@@ -8,9 +8,10 @@ want to put their key on my service"), that files can export and import everythi
 pairing shares (12:49 UTC), and, on cards between 12:36 and 13:04 UTC, the upload rule,
 the key field, the spend stops, the log rows and the choice on unpairing below. The
 details marked "chosen by an agent" were not asked. The
-[paired part](#a-paired-device-with-its-own-key) and the
-[recipes a device keeps](#recipes-a-device-keeps) are implemented; generation on an
-unpaired device and export and import come in later pull requests. On a card at 21:11
+[paired part](#a-paired-device-with-its-own-key), the
+[recipes a device keeps](#recipes-a-device-keeps) and
+[generation on an unpaired device](#generation-on-an-unpaired-device) and
+[export and import](#export-and-import) are implemented. On a card at 21:11
 UTC the owner decided to build generation on an unpaired device and to settle the Chrome
 Web Store question when the extension is submitted. Amends
 [ADR 0012](0012-inference-request-log.md),
@@ -37,7 +38,7 @@ is paired decides only where recipes are kept and shared.
 
 | | Key on this device | No key on this device |
 | --- | --- | --- |
-| Not paired | This device calls the model and keeps the recipes (later) | No new recipes; recipes already on the device still run |
+| Not paired | This device calls the model and keeps the recipes | No new recipes; recipes already on the device still run |
 | Paired | This device calls the model; the service checks and stores the result | The service calls the model with the owner's credential, as before |
 
 ### The key on the settings page
@@ -75,8 +76,9 @@ The service still runs its whole route: the recipe it already holds, the once-pe
 attempt record, the room for another recipe, the bindings carried over, revoked IDs,
 layout use and the checks of the model's answer. Only the model call moves to the
 device, so the model gets the same input either way. Recipe generation and entry
-requests (`POST /v1/recipes/generate`) and the judge
-(`POST /v1/recipes/:recipeId/completion`) take an optional
+requests (`POST /v1/recipes/generate`), an account switch's logout requests
+(`POST /v1/recipes/logout`, [ADR 0063](0063-switch-accounts-from-the-popup.md)) and the
+judge (`POST /v1/recipes/:recipeId/completion`) take an optional
 `deviceModel: { responses: [...] }`:
 
 1. The device sends the request with no responses.
@@ -115,11 +117,11 @@ The device uses the owner's model choices
 or fast mode makes that call fail; falling back to the defaults is left for later. The
 automatic stop of fast mode counts the device rows of all the owner's devices together,
 apart from the service's own rows, so one device whose key has no fast mode, or that is
-offline, can stop fast mode for the others for its window. Two devices that generate
-for the same page at the same time may both pay for a call; the second write is
-resolved as any write conflict is now. A service from before this change refuses
-`deviceModel` with 400, and the device's generation and judge requests then fail; they
-never fall back to the owner's credential.
+offline, can stop fast mode for the others for its window. Two devices that generate for
+the same page at the same time may both pay for a call; the second write is resolved as
+any write conflict is now. A service from before this change refuses `deviceModel` with
+400, and the device's generation, logout and judge requests then fail; they never fall
+back to the owner's credential.
 
 ### Log rows
 
@@ -167,17 +169,104 @@ paired, logins use only the service's recipes.
   ([ADR 0027](0027-per-account-login-routes.md)) uploads nothing, and a device
   disconnected during the upload removes nothing from its store.
 
-### Running without the service (later pull requests)
+### Generation on an unpaired device
 
-- **Generation on the device**: unpaired, the device runs the same checks and builds
-  the same model input with code shared with the service, and keeps its recipes in its
-  own store. Without a key no recipe is made, and recipes already on the device still
-  run. There is no editor for recipes or bindings.
+Unpaired, the device runs the service's own generation, account-switch logout
+([ADR 0063](0063-switch-accounts-from-the-popup.md)) and judge routes
+(`@pateat/generation`, `packages/generation`) against its own `GenerationBackend`
+(`apps/extension/src/service/device-generation.ts`); the service's is `d1Backend`. Both
+run the same checks, build the same model input and write the same recipes.
+
+- **When**: while no service is paired and a key is saved, generation runs under a
+  connection of this device's own (`pateat-device:`), whose requests never leave it.
+  Without a key no recipe is made, and recipes already on the device still run. A paired
+  device always uses the service as above, whatever the key.
+- **Recipes**: read from and written to the device's own store
+  (`pateat.device-recipes.v1`, [above](#recipes-a-device-keeps)), only over the revision
+  a write expects. Only the head of each recipe is kept. The service's limits apply:
+  1,000 recipes and 1.5 MiB of recipe documents, and the store's own 2 MiB. A write that
+  lands once a service is paired is refused as one another writer beat, and the upload
+  reads the store in turn with the writes, so a pairing during a request never loses a
+  revision to the upload.
+- **Limits**: the retry window (ADR 0016), the daily repair (ADR 0041), the judgement
+  per page and the 20 a day per recipe (ADR 0027), and each layout's last use (ADR 0060)
+  are kept in `pateat.device-generation.v1` in trusted local storage, 2,000 entries per
+  list at most, the oldest dropped first. A login that starts on a layout marks it used,
+  once an hour, as the service's use report does (ADR 0058). The record is deleted when
+  the recipes it describes are replaced or deleted (keeping the synced recipes on
+  unpairing, or deleting the kept ones), since a recipe made again starts at revision 1.
+  Chosen by an agent: a record that cannot be read counts as empty, as the other local
+  records do; the key's spend limits still bound the cost. One request's model calls run
+  at a time, until each call it sent has ended; a second answers `busy`, as the
+  service's lock does.
+- **Models**: the default choices (`DEFAULT_MODEL_CONFIG`), in the same order and with
+  the same move to the next model after a refusal as the service
+  (`roleChoices`, `nextAttempt`). There is no model picker on the device (12:38 UTC).
+- **Key and spend**: each call goes to `https://api.anthropic.com/v1/messages` with the
+  key, after the same checks of the request as the paired relay makes, and counts toward
+  the key's daily and monthly limits as a paired call does; a limit reached before the
+  first call answers `daily-limit` or `monthly-limit`. An answer whose spend cannot be
+  written is still used, and its cost stays counted in memory. A key that cannot be read
+  makes no recipes.
+- **Bindings**: the slots a new layout carries come from the bindings in this device's
+  settings.
+- **Nothing logged** (owner, Q4): no request log, no page samples and no unit
+  provenance (ADR 0060); a repeat login sends no sample.
+
+Chosen by an agent: the backend is plain JavaScript over `storage.local` rather than
+SQLite in WebAssembly, which needs no content security policy change and no second copy
+of the D1 queries.
+
+### Export and import
+
 - **Export and import** (12:49 UTC): a file can carry everything pairing shares
   (settings, recipes and bindings) to another device, never vault data, the sync
   service's sign-in or the AI key. How this meets settings profiles is decided when
   profiles gain inheritance, since one device may switch between, for example, letting
   the model work and logging in by hand.
+
+How it works (chosen by an agent unless noted):
+
+- **The file** is JSON (`pateat-transfer`, version 1, `transferFileSchema` in
+  `packages/contracts/src/transfer.ts`). It holds the settings document a service would
+  hold, without vault connections and without the demo provider's policy, and the
+  recipes logins use now: the synced cache while paired, or the recipes the device
+  keeps. Like the service's copy, the settings name vault accounts and items by their
+  labels. The same limits apply as on the service: a settings document of at most 120
+  KiB and at most 1,000 recipes. Nothing on the device that pairing does not share goes
+  into it: not the vault timeout, the request limits record, the diagnostics log or a
+  recipe's provenance.
+- **Confirming first.** A file may come from someone else, and its entries can let the
+  owner's vault items be used on more sites: a binding, a default account or a
+  personal-detail link names a site and one of the owner's items, and the file's entry
+  wins. So the page first asks the background what the import would change
+  (`settings.import` with `apply: false`) and shows it: the sites where the file decides
+  which vault item Pateat uses (ten named, the rest counted), how many vault limits and
+  site rules it changes (an item's policy and its custom-field review merge as one
+  entry, so a file can also drop one held here, which counts too), and how many recipes
+  it keeps, with a warning to import only a file the owner made or trusts. Nothing
+  changes until the owner presses **Import**.
+- **Importing settings** merges the file into the device's settings as a first pairing
+  merges a service's: every entry of both is kept, and the file's entry wins where both
+  hold one. Vault connections stay. A merge that breaks a settings limit is refused
+  (`invalid-file`), and so is one whose synced document would be larger than the
+  service holds (`too-large`), since a paired device could no longer sync it. The write
+  is recorded as `settings-import` (ADR 0025), and the device syncs at once when paired.
+  A page with unsaved changes cannot import; edits made while an import runs stay, and
+  the page asks for a reload. A save from another page that meets an import is a
+  conflict that is not reapplied automatically.
+- **Importing recipes** keeps them as the device's own recipes (see
+  [recipes a device keeps](#recipes-a-device-keeps)): a recipe replaces one kept under
+  its ID only at a newer revision, so a login that resumes on a revision never finds
+  other content under it, and the device keeps at most 1,000. A paired device leaves out
+  a recipe whose ID its synced recipes hold, since the service's copy wins under the
+  upload rule above, and uploads the rest at its next full sync; while its synced
+  recipes cannot be read, it imports nothing. Recipes that would not
+  fit are refused, and then nothing is imported. The recipes are kept before the
+  settings are written: if that write then fails, the recipes stay and importing the
+  file again finishes the settings.
+- **Only the settings page** exports and imports, through `settings.export` and
+  `settings.import`; the popup cannot.
 
 ## Consequences
 

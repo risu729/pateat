@@ -133,7 +133,7 @@ export function AllowedSites({
             : {
                 tone: "idle",
                 icon: Info,
-                text: t("While this is off, Pateat runs on every site that is not excluded."),
+                text: t("While this is off, Pateat runs on every site."),
               },
         ]}
       />
@@ -187,7 +187,11 @@ export function AllowedSites({
       <StatusLines
         muted
         lines={[
-          { tone: "idle", icon: Ban, text: t("Exclusions under Sites win over allowed sites.") },
+          {
+            tone: "idle",
+            icon: Ban,
+            text: t("A site paused under Sites stays paused while it is allowed."),
+          },
           {
             tone: "idle",
             icon: Info,

@@ -61,8 +61,8 @@ export type CompletionRejection =
   /** The marker is not an element of the judged page. */
   | "not-on-page"
   /**
-   * The page still shows an element a step uses on that path, or a field any step
-   * fills: it is a login page again.
+   * The page still shows an element a step or handler uses on that path, a field any step
+   * fills, or the rejection: it is a login page again.
    */
   | "login-page"
   /** The marker would break the recipe contract, such as its observation bound. */
@@ -78,11 +78,6 @@ const stepTargets = (step: LoginStep) =>
 /** Every element a handler of the recipe uses on `path`: buttons, code and detail inputs. */
 const handlerElements = (recipe: LoginRecipe, path: string) =>
   (recipe.handlers ?? []).filter((handler) => handler.path === path).flatMap(handlerTargets);
-/** The code fields of the recipe's `totp` handlers on `path`. */
-const codeFields = (recipe: LoginRecipe, path: string) =>
-  (recipe.handlers ?? []).flatMap((handler) =>
-    handler.kind === "totp" && handler.path === path ? [handler.field] : [],
-  );
 /**
  * Every element a route's step uses on `path`: each password variant's, and the passkey
  * route's button (ADR 0027).
@@ -206,14 +201,33 @@ export function appendPageSteps(
 }
 
 /**
+ * The elements a recipe's steps, passkey route, handlers, account switch and rejection use
+ * on any path, which are never its signed-in marker (`addCompletion`): a sign-in page shows
+ * them too. The judge is told which of a page's candidates they are, so it names another
+ * marker where a site gives one locator to elements of several pages.
+ */
+export function recipeElements(base: LoginRecipe): LoginMarkerTarget[] {
+  // Every variant's steps count, whichever one the judged login ran, and the passkey
+  // route's button (ADR 0027).
+  return [
+    ...passwordVariants(base).flatMap((variant) => variant.steps.flatMap(stepTargets)),
+    ...(base.passkey ? [base.passkey.target] : []),
+    ...(base.handlers ?? []).flatMap(handlerTargets),
+    // A login page that shows the switch or the rejection must not read as signed in.
+    ...(base.accountSwitch ? [base.accountSwitch] : []),
+    ...(base.rejection ? [base.rejection] : []),
+  ];
+}
+
+/**
  * Adds the judged signed-in marker to a generated recipe in its next revision (ADR 0029):
  * the first one, or one more after those learned before, up to four. A marker proves a
  * sign-in on any path, so it must be an element of the judged page and none of the
  * elements the recipe's steps, passkey route or handlers use on any path, nor its account
- * switch or rejection. The page must
- * not still show any element a step uses on its own path, nor a field any step fills on
- * any path: a failed sign-in that shows the login form again, on its own path or where
- * the form posted, is not learned as signed in. On a step's own path the marker also
+ * switch or rejection. The page must not still show any element a step or handler uses
+ * on its own path, a field any step fills on any path, or the rejection: a failed sign-in
+ * that shows the login form again, on its own path or where the form posted, is not
+ * learned as signed in. On a step's own path the marker also
  * lists that path's fill fields as `absent`, since the executor checks it after every
  * step and counts hidden elements. A page of another HTTPS origin, which a login's tab
  * moved to (ADR 0022), stores that origin with its marker; the recipe's paths
@@ -238,25 +252,18 @@ export function addCompletion(
     return { ok: false, reason: "origin-mismatch" };
   if (!page.candidates.some((candidate) => sameTarget(candidate.target, target)))
     return { ok: false, reason: "not-on-page" };
-  // Every variant's steps count, whichever one the judged login ran, and the passkey
-  // route's button (ADR 0027).
   const steps = passwordVariants(base).flatMap((variant) => variant.steps);
-  const own = [
-    ...steps.flatMap(stepTargets),
-    ...(base.passkey ? [base.passkey.target] : []),
-    ...(base.handlers ?? []).flatMap(handlerTargets),
-    // A login page that shows the switch or the rejection must not read as signed in.
-    ...(base.accountSwitch ? [base.accountSwitch] : []),
-    ...(base.rejection ? [base.rejection] : []),
-  ];
-  if (own.some((element) => sameTarget(element, target)))
-    return { ok: false, reason: "step-target" };
   // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not. A
-  // `totp` handler's code field on this path shows its code page (ADR 0027).
+  // handler's element on this path shows its page, as a `totp` handler's code field does
+  // (ADR 0027), and the rejection a failed sign-in. The account switch is not checked: a
+  // signed-in page's account menu may read like it. Checked before the marker itself, so a
+  // page that is still the login's never passes as one whose marker only could not be
+  // stored.
   const loginElements = [
     ...(moved ? [] : routeTargets(base, page.path)),
     ...routeFillTargets(base, "password"),
-    ...(moved ? [] : codeFields(base, page.path)),
+    ...(moved ? [] : handlerElements(base, page.path)),
+    ...(!moved && base.rejection ? [base.rejection] : []),
   ];
   if (
     page.candidates.some((candidate) =>
@@ -264,6 +271,8 @@ export function addCompletion(
     )
   )
     return { ok: false, reason: "login-page" };
+  if (recipeElements(base).some((element) => sameTarget(element, target)))
+    return { ok: false, reason: "step-target" };
   const absent = steps
     .filter((step) => !moved && step.path === page.path && step.kind === "fill")
     .flatMap(stepTargets)

@@ -5,10 +5,12 @@ import { SiteBindings } from "./bindings";
 import { Button } from "./button";
 import { SiteRecipes } from "./recipes";
 import {
+  addAllowedSite,
   defaultAccountLabel,
   exclusionLabel,
+  notAllowed,
   siteHostname,
-  siteSwitch,
+  siteRules,
   useSettings,
   useSettingsEdit,
   type SettingsEdit,
@@ -33,7 +35,6 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
   const [notice, setNotice] = useState("");
   const reasonId = useId();
   const { host } = new URL(origin);
-  const hostname = siteHostname(origin);
 
   function change(next: SettingsEdit) {
     setNotice("");
@@ -41,10 +42,14 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
   }
 
   const current = settings.data?.settings ?? null;
-  // As in the popup, the switch adds or removes only this hostname's own rules; a rule that
-  // also covers other sites is changed on the Sites list.
-  const site = siteSwitch(current, hostname);
-  const { broader } = site;
+  // The switch pauses automatic login on the registrable site with its subdomains until
+  // turned back on, as the extension's popup does, or resumes it (ADR 0062); it adds or
+  // removes only the site's own rules, and a rule that also covers other sites is changed on
+  // the Sites list.
+  const { rules, shared, pause, resume, site } = siteRules(current, origin);
+  const broader = shared[0];
+  // Outside the allowed sites devices do nothing at all, paused or not (ADR 0077).
+  const leftOut = notAllowed(current, siteHostname(origin));
   const siteDefault = current?.siteDefaults.find((entry) => entry.origin === origin);
   const bindings = (current?.bindings ?? []).filter((entry) => entry.origin === origin);
 
@@ -69,26 +74,36 @@ export function SitePage({ client, origin }: { client: ManageClient; origin: str
                 // A checkbox exposes its own checked state to the switch role.
                 // oxlint-disable-next-line jsx-a11y/role-has-required-aria-props
                 role="switch"
-                checked={site.on}
+                checked={rules.length === 0}
                 disabled={edit.isPending || broader !== undefined}
-                aria-describedby={broader || site.notAllowed ? reasonId : undefined}
-                onChange={(event) => change(site.edit(event.target.checked))}
+                aria-describedby={broader ? reasonId : undefined}
+                onChange={(event) => change(event.target.checked ? resume : pause)}
                 className="relative h-5 w-9 flex-none cursor-pointer appearance-none rounded-full bg-border-strong transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-surface after:transition-[left] after:content-[''] checked:bg-accent checked:after:left-[18px] disabled:cursor-default disabled:opacity-50"
               />
-              Pateat on this site
+              Automatic login on this site
             </label>
           )}
         </div>
-        {broader ? (
+        {broader && (
           <p id={reasonId} className="text-[13px]/5 text-ink-muted">
-            Excluded with {exclusionLabel(broader)}; remove that exclusion on the Sites list
+            Paused with {exclusionLabel(broader)}; resume it on the Sites list
           </p>
-        ) : (
-          site.notAllowed && (
-            <p id={reasonId} className="text-[13px]/5 text-ink-muted">
-              Not an allowed site; turning Pateat on allows it
+        )}
+        {leftOut && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <p id="site-not-allowed" className="text-[13px]/5 text-ink-muted">
+              Not an allowed site, so devices do nothing here
             </p>
-          )
+            <Button
+              variant="outline"
+              disabled={edit.isPending}
+              onClick={() =>
+                change(addAllowedSite(site, true, `${site} and subdomains are now allowed sites`))
+              }
+            >
+              Allow {site}
+            </Button>
+          </div>
         )}
       </div>
       <SuccessNotice id="site-saved" message={notice} />

@@ -492,6 +492,13 @@ export const localSettingsSchema = v.pipe(
         "Duplicate origins",
       ),
     ),
+    /**
+     * Whether Pateat logs in by itself in private (incognito) windows; absent means off, the
+     * default. While off, every site in a private window is paused as a site is by the
+     * popup's pause (ADR 0062): Pateat logs in only with an account picked in the popup.
+     * Synced with the sites' rules, as part of the profile (ADR 0024).
+     */
+    loginInPrivateWindows: v.optional(v.literal(true)),
     /** Synced links to the items that hold a login's personal details (ADR 0061). */
     detailLinks: v.optional(
       v.pipe(
@@ -505,6 +512,7 @@ export const localSettingsSchema = v.pipe(
                 JSON.stringify([
                   link.origin,
                   link.provider,
+                  link.server,
                   link.userId,
                   link.itemId,
                   link.detail,
@@ -588,6 +596,8 @@ export const SETTINGS_CHANGE_CAUSES = [
   "field-review",
   /** Settings merged from the Pateat service. */
   "service-sync",
+  /** Settings merged from a file exported on another device (ADR 0040). */
+  "settings-import",
   /** An account used on a site, from a login or a passkey request, saved for it (ADR 0021). */
   "account-choice",
   /** A vault field linked to a personal detail on a site, or that link removed (ADR 0061). */
@@ -1207,54 +1217,66 @@ export function siteRuleCovers(rule: SiteRule, hostname: string): boolean {
   );
 }
 
-type SiteRules = Pick<LocalSettings, "excludedSites" | "allowedSites" | "allowedSitesEnabled">;
+/**
+ * Whether Pateat runs on a page at all: an HTTP(S) URL whose hostname policy inputs accept.
+ * Exclusion rules do not decide this; they pause automatic login (ADR 0062). The allowed
+ * sites do: see `isSiteAllowed`.
+ */
+export function isSupportedSite(value: string): boolean {
+  const url = parseSiteUrl(value);
+  return Boolean(url && normalizeHostname(url.hostname));
+}
+
+/**
+ * Whether an exclusion rule covers the page, or the page is not one Pateat runs on. A rule
+ * pauses automatic login of the site until it is removed (ADR 0062).
+ */
+export function isSiteExcluded(
+  settings: Pick<LocalSettings, "excludedSites">,
+  value: string,
+): boolean {
+  const url = parseSiteUrl(value);
+  const hostname = url && normalizeHostname(url.hostname);
+  // Invalid destinations are blocked, never treated as a permission grant.
+  if (!hostname) return true;
+  return settings.excludedSites.some((site) => siteRuleCovers(site, hostname));
+}
+
+type AllowedSites = Pick<LocalSettings, "allowedSites" | "allowedSitesEnabled">;
 
 /** Whether the allowed sites are on, which limits Pateat to them (ADR 0077). */
-export function allowlistOn(settings: SiteRules): boolean {
+export function allowlistOn(settings: AllowedSites): boolean {
   return settings.allowedSitesEnabled === true;
 }
 
 /**
- * How the site rules treat a URL: `excluded` when an exclusion covers it, which wins over
- * the allowed sites; `not-allowed` while the allowed sites are on and none covers it;
- * `invalid` for a URL that is no policy input.
+ * Whether Pateat may act on a page at all (ADR 0077): it is a page Pateat runs on and,
+ * while the allowed sites are on, one of them covers it. Unlike an exclusion, which only
+ * pauses automatic login, a page outside the allowed sites gets nothing from Pateat: no
+ * admission, no login from a popup pick, no fill and no passkey answer.
  */
-export function siteAccess(
-  settings: SiteRules,
-  value: string,
-): "allowed" | "excluded" | "not-allowed" | "invalid" {
+export function isSiteAllowed(settings: AllowedSites, value: string): boolean {
   const url = parseSiteUrl(value);
   const hostname = url && normalizeHostname(url.hostname);
-  // Invalid destinations are blocked, never treated as a permission grant.
-  if (!hostname) return "invalid";
-  if (settings.excludedSites.some((site) => siteRuleCovers(site, hostname))) return "excluded";
-  if (
-    allowlistOn(settings) &&
-    !(settings.allowedSites ?? []).some((site) => siteRuleCovers(site, hostname))
-  )
-    return "not-allowed";
-  return "allowed";
+  if (!hostname) return false;
+  return (
+    !allowlistOn(settings) ||
+    (settings.allowedSites ?? []).some((site) => siteRuleCovers(site, hostname))
+  );
 }
 
 /**
- * Why Pateat must not act on a URL, for a log line: `site-not-allowed` when only the
- * allowed sites leave it out, else `site-excluded`, which also covers an invalid URL.
+ * How the site rules treat a URL, for what a page says: `invalid` for a URL Pateat does
+ * not run on, `not-allowed` while the allowed sites are on and none covers it, `excluded`
+ * (paused, ADR 0062) when an exclusion covers it, else `allowed`.
  */
-export function siteRefusal(
-  settings: SiteRules,
+export function siteAccess(
+  settings: Pick<LocalSettings, "excludedSites"> & AllowedSites,
   value: string,
-): "site-excluded" | "site-not-allowed" | undefined {
-  const access = siteAccess(settings, value);
-  if (access === "allowed") return undefined;
-  return access === "not-allowed" ? "site-not-allowed" : "site-excluded";
-}
-
-/**
- * Whether Pateat must not act on a URL: it is invalid, an exclusion covers it, or the
- * allowed sites are on and leave it out. Every login, passkey and vault match checks this.
- */
-export function isSiteExcluded(settings: SiteRules, value: string): boolean {
-  return siteAccess(settings, value) !== "allowed";
+): "allowed" | "excluded" | "not-allowed" | "invalid" {
+  if (!isSupportedSite(value)) return "invalid";
+  if (!isSiteAllowed(settings, value)) return "not-allowed";
+  return isSiteExcluded(settings, value) ? "excluded" : "allowed";
 }
 
 /**
@@ -1295,7 +1317,6 @@ export type SiteAccountResolution =
       ok: false;
       reason:
         | "invalid-url"
-        | "site-excluded"
         | "site-not-allowed"
         | "default-not-set"
         | "item-origin-mismatch"
@@ -1332,7 +1353,10 @@ export function siteDefaultConnection(
     : { ok: false, reason: "connection-missing" };
 }
 
-/** Pure next-login selection. This never switches a current browser session. */
+/**
+ * Pure next-login selection. This never switches a current browser session. An exclusion
+ * rule does not refuse it: on a paused site only a popup pick logs in (ADR 0062).
+ */
 export function resolveSiteAccount(
   settings: LocalSettings,
   catalog: VaultCatalog,
@@ -1340,8 +1364,9 @@ export function resolveSiteAccount(
 ): SiteAccountResolution {
   const url = parseSiteUrl(value);
   if (!url || !normalizeHostname(url.hostname)) return { ok: false, reason: "invalid-url" };
-  const refusal = siteRefusal(settings, value);
-  if (refusal) return { ok: false, reason: refusal };
+  // An exclusion rule only pauses automatic login, and a pick still logs in (ADR 0062);
+  // a site outside the allowed sites gets nothing (ADR 0077).
+  if (!isSiteAllowed(settings, value)) return { ok: false, reason: "site-not-allowed" };
   const selected = settings.siteDefaults.find((entry) => entry.origin === url.origin);
   if (!selected) return { ok: false, reason: "default-not-set" };
   const connection = siteDefaultConnection(selected, catalog);

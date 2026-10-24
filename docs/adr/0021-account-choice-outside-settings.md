@@ -14,6 +14,17 @@ asks (implemented, see the end of D). Amended on 2026-10-13 by the owner's
 Amended on 2026-10-16 by the owner: in D, a click on a control that logs out also makes
 the tab ask (implemented, see [logout clicks](#logout-clicks)).
 
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) and
+[ADR 0063](0063-switch-accounts-from-the-popup.md) (owner, accepted and implemented):
+D's logout state, fill-only login after a logout, logout clicks and passkey chooser
+after a sign-in are removed, so a logout is followed by an ordinary login; its
+rejected-password, stopped-login and abandoned-watch asks stay and still fill the page
+once without pressing; [Later](#later)'s account switch is built, and a pick not made
+the default makes the site ask every time until the browser closes or a default is set.
+An exclusion rule now pauses automatic login instead of turning Pateat off: the popup
+lists the accounts and offers a choice there, and its "Pateat on this site" switch is
+replaced by the pause row.
+
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet). Amended on 2026-10-11
 by [ADR 0027](0027-per-account-login-routes.md): a passkey request during a login that
@@ -218,6 +229,11 @@ not be searched in full). A lookup or signing after a choice that fails is tried
 more.
 
 ### D. After a logout, choose again (detection L1)
+
+Replaced on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md): only the
+rejected-password, stopped-login and abandoned-watch asks below remain, each still
+filling the page once without pressing. The text below records the rule as built until
+then.
 
 Once a Pateat login in a tab has finished, the next appearance of a recipe's first step
 for the same origin in that same tab counts as a logout. "Finished" includes
@@ -479,6 +495,8 @@ expires within 10 minutes after such a click.
 
 ## Later
 
+Built on 2026-10-23 by [ADR 0063](0063-switch-accounts-from-the-popup.md).
+
 The owner asked on 2026-10-11 to record, not build, a follow-up. Choosing another
 account in the popup while logged in would log out and log in again automatically. This
 is the "automatic logout/re-login" operation that the [plan](../plan.md) keeps for
@@ -664,6 +682,11 @@ outside incognito), asks for it:
   passkey; in a list of passkeys, such a passkey asks for the password once it is
   chosen. A passkey request inside a login that already started with the item does not
   ask again.
+- A personal detail from another item with re-prompt, as an identity or a card, is read
+  as usual in a login started this way. In a login that did not, the window asks for
+  the password with that item before the read, from the login's detail page or the
+  popup's **Fill** (owner, 2026-10-23 21:50 UTC). The card guess never asks
+  ([ADR 0061](0061-personal-details-during-a-login.md#items-with-bitwardens-re-prompt)).
 - The background checks the password offline, one at a time, and never aborts a check
   midway; five wrong passwords end the request. The window's answer for such an entry is
   only accepted through the check (implemented).

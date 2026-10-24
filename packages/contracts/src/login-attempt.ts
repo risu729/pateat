@@ -18,6 +18,7 @@ import {
   passwordVariants,
   routeSlots,
   routeSteps,
+  passwordOnly,
   sameLoginDocument,
   TOTP_HANDLER_SLOT,
   type ChooserClick,
@@ -230,8 +231,8 @@ export const attemptMetadataSchema = v.pipe(
      */
     changedAt: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
     /**
-     * After a logout (ADR 0021 D): the attempt fills the page's leading fields and stops
-     * before the first step with an effect, so it never clicks or submits.
+     * While its tab asks for an account (ADR 0021 D): the attempt fills the page's leading
+     * fields and stops before the first step with an effect, so it never clicks or submits.
      */
     fillOnly: v.optional(v.literal(true)),
     /**
@@ -256,18 +257,29 @@ export const attemptMetadataSchema = v.pipe(
      * showed that step and none of the recipe's first steps (ADR 0049): that step's index,
      * where the route starts again after an answered passkey request falls back to it.
      */
-    startStep: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
+    startStep: v.optional(integer(MAX_ATTEMPT_STEPS)),
+    /**
+     * The login started at `startStep` with that step's password fields alone, as the page
+     * showed its password input without the account identifier, as for an account the
+     * site remembers (ADR 0049).
+     */
+    startPartial: v.optional(v.literal(true)),
     /** How long the login has taken so far (`attemptTimes`), never with any value. */
     timing: attemptTimingSchema,
   }),
   v.check(
     (metadata) =>
       metadata.startStep === undefined ||
-      (metadata.variant !== undefined &&
+      ((metadata.startStep > 0 || metadata.startPartial === true) &&
+        metadata.variant !== undefined &&
         metadata.chooser === undefined &&
         (metadata.route !== "password" || metadata.startStep < metadata.stepCount) &&
         (metadata.stopAt === undefined || metadata.startStep < metadata.stopAt)),
     "A later start needs a password variant, inside its plan and before any stop",
+  ),
+  v.check(
+    (metadata) => metadata.startPartial === undefined || metadata.startStep !== undefined,
+    "A start with the password alone needs its step",
   ),
   v.check(
     (metadata) =>
@@ -1519,6 +1531,8 @@ export function createAttemptMetadata(input: {
    * shows that step and none of the recipe's first steps (ADR 0049).
    */
   startAt?: number;
+  /** The login starts at `startAt` with that step's password fields alone (ADR 0049). */
+  startPartial?: boolean;
   /** The time the login took before it started, from when its first page was seen. */
   timing: Omit<AttemptTiming, "personSince" | "pageSince">;
 }): LoginAttemptMetadata {
@@ -1566,6 +1580,7 @@ export function createAttemptMetadata(input: {
     ...(input.chooser ? { chooser: { click: input.chooser } } : {}),
     ...(input.stopAt === undefined ? {} : { stopAt: input.stopAt }),
     ...(input.startAt === undefined ? {} : { startStep: input.startAt }),
+    ...(input.startAt !== undefined && input.startPartial ? { startPartial: true } : {}),
     timing: input.timing,
   });
 }
@@ -1822,18 +1837,29 @@ export function attemptUsesCode(
  */
 export function attemptPlan(
   recipe: LoginRecipe,
-  metadata: Pick<LoginAttemptMetadata, "route" | "variant" | "handlers" | "startStep">,
+  metadata: Pick<
+    LoginAttemptMetadata,
+    "route" | "variant" | "handlers" | "startStep" | "startPartial"
+  >,
 ): { step: LoginStep; handler?: number }[] | undefined {
+  // A login that started with its step's password alone fills only that there.
+  const started = (step: LoginStep | undefined): LoginStep | undefined =>
+    metadata.startPartial && step?.kind === "fill" ? passwordOnly(step) : step;
   // A page's own passkey request answered on a later start stands on that step (ADR 0049).
   const from =
     metadata.route === "passkey" && metadata.startStep !== undefined
-      ? passwordVariants(recipe)[metadata.variant ?? 0]?.steps[metadata.startStep]
+      ? started(passwordVariants(recipe)[metadata.variant ?? 0]?.steps[metadata.startStep])
       : undefined;
   const plan: { step: LoginStep; handler?: number }[] = routeSteps(
     recipe,
     attemptRouteChoice(metadata),
     from,
   ).map((step) => ({ step }));
+  if (metadata.route === "password" && metadata.startStep !== undefined && metadata.startPartial) {
+    const step = started(plan[metadata.startStep]?.step);
+    if (!step) return undefined;
+    plan[metadata.startStep] = { step };
+  }
   for (const entry of metadata.handlers) {
     const handler = recipe.handlers?.[entry.index];
     if (!handler || entry.start > plan.length) return undefined;

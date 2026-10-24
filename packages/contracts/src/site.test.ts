@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loginMoveFits } from "./site";
+import { loginMoveFits, registrableSite } from "./site";
 
 describe("loginMoveFits", () => {
   it("takes another HTTPS host of the registrable domain", () => {
@@ -53,5 +53,16 @@ describe("loginMoveFits", () => {
     expect(loginMoveFits("https://login.example", "https://two.github.io", true)).toBe(true);
     expect(loginMoveFits("https://login.example", "http://www.example", true)).toBe(false);
     expect(loginMoveFits("https://login.example", "https://co.uk", true)).toBe(false);
+  });
+});
+
+describe("registrableSite", () => {
+  it("names the site a pause covers, as the extension's popup pauses it", () => {
+    expect(registrableSite("https://www.bank.example")).toBe("bank.example");
+    expect(registrableSite("https://shop.example.co.uk")).toBe("example.co.uk");
+    expect(registrableSite("https://alice.github.io")).toBe("alice.github.io");
+    expect(registrableSite("http://localhost:8080")).toBe("localhost");
+    expect(registrableSite("https://co.uk")).toBeUndefined();
+    expect(registrableSite("not a url")).toBeUndefined();
   });
 });

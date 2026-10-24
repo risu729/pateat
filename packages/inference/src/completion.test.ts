@@ -43,8 +43,46 @@ describe("sign-in judge", () => {
       value: { decision: "signed-in", target: { by: "id", value: "logout" } },
     });
     expect(sent).toEqual([
-      { task: "judge-sign-in", loginPaths: ["/login"], slots: [], observation: signedIn },
+      {
+        task: "judge-sign-in",
+        loginPaths: ["/login"],
+        slots: [],
+        stepElements: [],
+        observation: signedIn,
+      },
     ]);
+  });
+
+  it("names the candidates the recipe's own steps use, which are never a marker", async () => {
+    const { judge, sent } = judgeReturning({ decision: "signed-in", marker: "help" });
+    expect(
+      await judge({
+        ...request,
+        // The sign-in button's id, which the signed-in page's Sign out shares, and an
+        // element the page does not show.
+        recipeElements: [
+          { by: "id", value: "logout" },
+          { by: "id", value: "email" },
+        ],
+      }),
+    ).toMatchObject({ status: "ok", value: { target: { by: "id", value: "help" } } });
+    expect(sent).toEqual([
+      {
+        task: "judge-sign-in",
+        loginPaths: ["/login"],
+        slots: [],
+        stepElements: ["logout"],
+        observation: signedIn,
+      },
+    ]);
+    expect(completionInstructions).toContain("stepElements");
+    // A malformed list is refused before any call.
+    expect(
+      await judgeReturning({ decision: "unclear" }).judge({
+        ...request,
+        recipeElements: [{ by: "css", value: "#x" }],
+      }),
+    ).toMatchObject({ status: "failed", error: "invalid-request", calls: 0 });
   });
 
   it("passes rejection and challenge through and abstains when unclear", async () => {
@@ -679,7 +717,7 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
       value: { decision: "challenge", totp: kept },
     });
     expect(sent).toEqual([
-      { task: "judge-sign-in", loginPaths: ["/login"], slots: [], observation },
+      { task: "judge-sign-in", loginPaths: ["/login"], slots: [], stepElements: [], observation },
     ]);
   });
 
@@ -1874,7 +1912,7 @@ describe("the account's slots for the judge (owner 2026-10-23)", () => {
     const { sent, outcome } = judgedWith({ decision: "unclear" });
     await outcome;
     expect(sent).toEqual([
-      { task: "judge-sign-in", loginPaths: ["/login"], slots, observation: page },
+      { task: "judge-sign-in", loginPaths: ["/login"], slots, stepElements: [], observation: page },
     ]);
   });
 

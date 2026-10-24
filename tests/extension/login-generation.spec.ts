@@ -1169,6 +1169,87 @@ for (const footer of [false, true])
     }
   });
 
+for (const mode of ["url", "recipe-elsewhere", "same-url"] as const)
+  test(`a sign-in form the person opens in place ${
+    mode === "same-url"
+      ? "without a URL change is not sent"
+      : `after a same-document URL change is sent${mode === "recipe-elsewhere" ? " while the site has a recipe on another path" : ""}`
+  } (ADR 0016)`, async () => {
+    const fixture = await startLoginFixture(0, { password, accountName: username });
+    const claude = syntheticClaude();
+    const service = await startSyncService({ claude: claude.answer });
+    // A landing page whose "I already have an account" button, pressed long after the page
+    // settled, shows the sign-in form in the same document, as Duolingo's does
+    // (2026-10-24): with pushState to `/?isLoggingIn=true`, or without a URL change.
+    const top = "https://www.synthetic.example.test";
+    try {
+      await withVaultProfile(
+        async (open) => {
+          const browser = await open();
+          await serveSite(browser.context, fixture);
+          await browser.context.route(`${top}/**`, (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              body:
+                new URL(route.request().url()).pathname === "/account"
+                  ? `<!doctype html><html lang="en"><head><title>Synthetic account</title></head><body>
+            <main><h1>Enter your password</h1><form><input id="password" type="password">
+            <button id="login" type="button">Log in</button></form></main></body></html>`
+                  : `<!doctype html><html lang="en"><head><title>Synthetic</title></head><body>
+            <main id="main"><h1>Learn for free</h1><button id="get-started" type="button">Get started</button>
+            <button id="have-account" type="button">I already have an account</button></main>
+            <script>document.querySelector("#have-account").addEventListener("click", () => {
+              ${mode === "same-url" ? "" : 'history.pushState({}, "", "/?isLoggingIn=true");'}
+              document.querySelector("#main").innerHTML =
+                '<form><h1>Log in</h1><input id="email" placeholder="Email or username">' +
+                '<input id="password" type="password" placeholder="Password">' +
+                '<button id="login" type="button">Log in</button></form>';
+            });</script>
+          </body></html>`,
+            }),
+          );
+          await connect(browser, service);
+
+          if (mode === "recipe-elsewhere") {
+            const account = await browser.context.newPage();
+            await account.goto(`${top}/account`);
+            await expect.poll(() => claude.prompts.length, { timeout: 20_000 }).toBe(1);
+            await expect
+              .poll(
+                async () =>
+                  ((await (await service.request("/v1/recipes")).json()) as RecipeChanges).changes
+                    .length,
+              )
+              .toBe(1);
+            await account.close();
+          }
+          const sent = claude.prompts.length;
+          const page = await browser.context.newPage();
+          await page.goto(`${top}/`);
+          // Well past the page's step wait, the person opens the form.
+          await page.waitForTimeout(12_000);
+          expect(claude.prompts).toHaveLength(sent);
+          await page.locator("#have-account").click();
+          await expect(page.locator("#password")).toBeVisible();
+          if (mode === "same-url") {
+            await page.waitForTimeout(12_000);
+            expect(claude.prompts).toHaveLength(sent);
+            return;
+          }
+          await expect.poll(() => claude.prompts.length, { timeout: 20_000 }).toBeGreaterThan(sent);
+          expect(claude.prompts[sent]).toMatchObject({
+            task: "generate",
+            observation: { path: "/" },
+          });
+        },
+        { args: ["--ignore-certificate-errors"] },
+      );
+    } finally {
+      await service.close();
+      await fixture.close();
+    }
+  });
+
 test("a generated recipe whose start page changed gets a layout for it on the first load, never for a maintenance page (ADR 0041)", async () => {
   // Each page that misses its first step reports after the ten-second step wait.
   test.setTimeout(180_000);

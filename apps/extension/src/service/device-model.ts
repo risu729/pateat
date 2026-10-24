@@ -149,14 +149,14 @@ export function callCostMicroUsd(body: string, response: DeviceModelResponse): n
 
 type DeviceModelRequests = Pick<
   ServiceTransport,
-  "generateRecipe" | "generateEntry" | "judgeCompletion"
+  "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion"
 >;
 const timed = ({ timing }: { timing?: ServiceTiming }) => (timing ? { timing } : {});
-/** Every answer of the three routes can say the service did not call the model. */
+/** Every answer of the four routes can say the service did not call the model. */
 type Unavailable = { version: 1; status: "unavailable"; reason: GenerationUnavailableReason };
 
 /**
- * The service's generation and judge requests, made with this device's key when one is
+ * The service's generation, logout (ADR 0063) and judge requests, made with this device's key when one is
  * saved (ADR 0040): each `model-call` answer is sent to Anthropic here and the request is
  * sent again with the responses so far, until the service answers otherwise. A spend stop
  * reached here answers as the service's own stops do. Without a key the requests go as
@@ -221,6 +221,8 @@ export function createDeviceModel(options: {
     apiKey: string,
     call: DeviceModelCall["call"],
     body: string,
+    /** Ends the call early, as the role's own time limit does on a device without a pairing. */
+    signal?: AbortSignal,
   ): Promise<{ response: DeviceModelResponse; cost: number }> {
     const request = await deviceModelRequestHash(call.body);
     const headers = new Headers();
@@ -233,6 +235,9 @@ export function createDeviceModel(options: {
     headers.set("anthropic-dangerous-direct-browser-access", "true");
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(), DEVICE_MODEL_TIMEOUT_MS);
+    const stop = () => timeout.abort();
+    signal?.addEventListener("abort", stop);
+    if (signal?.aborted) stop();
     const failed = (kind: "timeout" | "unreachable") => ({ kind, request }) as const;
     try {
       let response: Response;
@@ -266,6 +271,7 @@ export function createDeviceModel(options: {
       return { response: answered, cost };
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", stop);
     }
   }
 
@@ -326,7 +332,23 @@ export function createDeviceModel(options: {
   }
 
   return {
-    /** The three requests, made with this device's key when one is saved. */
+    /**
+     * The key's own calls, for generation on a device without a pairing (ADR 0040): the
+     * saved setting (none without one; rejects for a record that cannot be read or is no
+     * key), the spend stop it reached, one call to Anthropic, and its cost.
+     */
+    direct: {
+      async setting(): Promise<DeviceModelSetting | undefined> {
+        const stored = await storage.read();
+        const setting = parseDeviceModelSetting(stored);
+        if (!setting && stored !== undefined) throw new Error("The saved key is unreadable");
+        return setting;
+      },
+      stopped,
+      send,
+      charge,
+    },
+    /** The four requests, made with this device's key when one is saved. */
     wrap(transport: DeviceModelRequests): DeviceModelRequests {
       return {
         generateRecipe: (origin, credential, request) =>
@@ -343,6 +365,13 @@ export function createDeviceModel(options: {
               ...(deviceModel ? { deviceModel } : {}),
             }),
           ) as ReturnType<DeviceModelRequests["generateEntry"]>,
+        generateLogout: (origin, credential, request) =>
+          relay((deviceModel) =>
+            transport.generateLogout(origin, credential, {
+              ...request,
+              ...(deviceModel ? { deviceModel } : {}),
+            }),
+          ) as ReturnType<DeviceModelRequests["generateLogout"]>,
         judgeCompletion: (origin, credential, recipeId, request) =>
           relay((deviceModel) =>
             transport.judgeCompletion(origin, credential, recipeId, {

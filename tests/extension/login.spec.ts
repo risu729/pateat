@@ -157,11 +157,11 @@ async function expectInputOutcome(
     await expect
       .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
       .toMatchObject({ attempts: [], asks: ["rejected"] });
-    // The released page announced again and was refused as logged out: it never logs in
-    // again.
+    // The released page announced again and was refused while the tab asks: it never logs
+    // in again.
     await expect
       .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
-      .toMatchObject({ documents: [{ state: "denied", reason: "logged-out" }] });
+      .toMatchObject({ documents: [{ state: "denied", reason: "account-asked" }] });
     expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
       attempts: [],
       asks: ["rejected"],
@@ -1789,7 +1789,38 @@ test("a page showing another account is not filled, and its account switch is cl
       expect(await clicks(loop)).toBe(0);
       await loop.close();
       await expect.poll(status).not.toContain("wrong-account");
-      // A switch that would submit a form is never clicked.
+      // Without the recipe's switch, the page's own control for another account is
+      // clicked: here an element with only a pointer cursor.
+      const pointer = await context.newPage();
+      await pointer.goto(`${fixture.origin}/delayed-result?shown=****9999&switch-pointer=****1234`);
+      await expect(pointer.locator("#authenticated")).toBeVisible({ timeout: 10_000 });
+      expect(new URL(pointer.url()).searchParams.get("shown")).toBe("****1234");
+      await pointer.close();
+      await expect.poll(status).not.toContain("authenticated");
+      // One whose next page is slow to load is clicked once, and that page logs in.
+      const slow = await context.newPage();
+      await slow.goto(
+        `${fixture.origin}/delayed-result?shown=****9999&switch-pointer=****1234&switch-slow`,
+      );
+      await expect(slow.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+      expect(new URL(slow.url()).searchParams.get("shown")).toBe("****1234");
+      await slow.close();
+      await expect.poll(status).not.toContain("authenticated");
+      // One that shows the other account in place, as a single-page app, continues there.
+      const inPlace = await context.newPage();
+      let inPlaceLoads = 0;
+      inPlace.on("load", () => {
+        inPlaceLoads += 1;
+      });
+      await inPlace.goto(
+        `${fixture.origin}/delayed-result?shown=****9999&switch-pointer=****1234&switch-in-place`,
+      );
+      await expect(inPlace.locator("#authenticated")).toBeVisible({ timeout: 10_000 });
+      await expect(inPlace.locator("#shown")).toHaveText("Signed in as ****1234");
+      expect(inPlaceLoads).toBe(1);
+      await inPlace.close();
+      await expect.poll(status).not.toContain("authenticated");
+      // A switch that would submit a form with a shown field is never clicked.
       const submit = await context.newPage();
       let submitLoads = 0;
       submit.on("load", () => {
@@ -1910,11 +1941,11 @@ test("waits for delayed same-page success and rejection without resubmitting", a
             outcome === "credential-rejected" ? '"asks":["rejected"]' : `"outcome":"${outcome}"`,
           );
         // A released rejection must not log in again in its page: its announcement after
-        // the release was refused as logged out.
+        // the release was refused while the tab asks.
         if (outcome === "credential-rejected")
           await expect
             .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
-            .toMatchObject({ documents: [{ state: "denied", reason: "logged-out" }] });
+            .toMatchObject({ documents: [{ state: "denied", reason: "account-asked" }] });
         expect(await clicks(page)).toBe(1);
         await page.close();
         // Closing the tab ends its record and its ask, so the next page logs in afresh.
@@ -2138,10 +2169,10 @@ test("credential rejection and unknown outcome each stop after one submission", 
         )
         .toContain('"asks":["rejected"]');
       // A released rejection must not log in again in its page: its announcement after the
-      // release was refused as logged out.
+      // release was refused while the tab asks.
       await expect
         .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
-        .toMatchObject({ documents: [{ state: "denied", reason: "logged-out" }] });
+        .toMatchObject({ documents: [{ state: "denied", reason: "account-asked" }] });
       expect(await clicks(rejected)).toBe(1);
       await rejected.close();
       // Closing the tab ends its ask, so the next page logs in afresh.

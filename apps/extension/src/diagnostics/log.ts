@@ -5,6 +5,7 @@ import {
   PROBLEM_EVENT_FIELDS,
   PROBLEM_PAGE_FIELDS,
   problemInfoLine,
+  problemLocalOnly,
   REDACTED_PATH_SEGMENT,
   type ProblemFieldKind,
 } from "@pateat/contracts";
@@ -193,6 +194,8 @@ export const LOG_EVENTS = {
       unconfirmed: "flag",
       // Nothing submitted yet, in the document the login began in (ADR 0066).
       unsubmitted: "flag",
+      // A fill-only login of a tab that asks (ADR 0062 B), whose lines stay local (ADR 0066).
+      fillOnly: "flag",
       routeChange: "code",
       layout: "code",
       layoutFrom: "code",
@@ -216,6 +219,25 @@ export const LOG_EVENTS = {
       outcome: "code",
       reason: "code",
       detail: "code",
+      url: "url",
+    },
+  },
+  // An account switch from the popup (ADR 0063): its start, each logout click, and its end.
+  "login.switch": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      stage: "code",
+      outcome: "code",
+      reason: "code",
+      detail: "code",
+      purpose: "code",
+      source: "code",
+      learned: "flag",
+      clicks: "count",
+      recipe: "recipe",
+      recipeRevision: "count",
+      makeDefault: "flag",
       url: "url",
     },
   },
@@ -326,6 +348,7 @@ export const LOG_EVENTS = {
       item: "item",
       fillOnly: "flag",
       startStep: "count",
+      startPartial: "flag",
       list: "code",
       listUsername: "code",
       listEntries: "count",
@@ -340,31 +363,27 @@ export const LOG_EVENTS = {
       url: "url",
     },
   },
-  "login.logout": {
-    level: "info",
-    fields: {
-      origin: "origin",
-      recipe: "recipe",
-      recipeRevision: "count",
-      rejected: "flag",
-      clicked: "flag",
-      url: "url",
-    },
-  },
-  // A tab that asked after a logout closed; other tabs that asked only because of it stop
-  // asking (ADR 0021 D).
+  // A tab that asked for an account closed; other tabs that asked only because the site
+  // rejected its login stop asking (ADR 0021 D).
   "login.ask-ended": {
     level: "info",
     fields: { origin: "origin", ask: "code", cause: "code", elsewhere: "flag" },
   },
   "login.choice": { level: "info", fields: { origin: "origin", outcome: "code", url: "url" } },
+  // Automatic login of a site paused or resumed in the popup, or ended by a picked login
+  // that authenticated (ADR 0062).
+  "login.pause": {
+    level: "info",
+    fields: { origin: "origin", action: "code", length: "code", incognito: "flag", url: "url" },
+  },
   "login.popup": {
     level: "info",
     fields: {
       origin: "origin",
       choice: "code",
       candidates: "count",
-      logout: "code",
+      ask: "code",
+      paused: "flag",
       held: "flag",
       rejectedElsewhere: "flag",
       recordState: "code",
@@ -383,6 +402,7 @@ export const LOG_EVENTS = {
       state: "code",
       step: "count",
       unsubmitted: "flag",
+      fillOnly: "flag",
       name: "name",
       message: "code",
       stack: "stack",
@@ -503,11 +523,11 @@ export const LOG_EVENTS = {
       siteDefaultItem: "code",
       complete: "flag",
       chooser: "code",
-      signedBefore: "flag",
-      logoutClicked: "flag",
+      defaultUnset: "flag",
       mediation: "code",
       uiMode: "code",
       duringLogin: "flag",
+      paused: "flag",
       answerFailed: "code",
       cause: "code",
       invalid: "code",
@@ -1298,9 +1318,11 @@ function emailSegment(segment: string): boolean {
 
 /**
  * Whether an entry goes to the service (ADR 0066): every `warn` and `error` entry, and an
- * `info` entry that says why Pateat did nothing on a page (`PROBLEM_INFO_LINES`).
+ * `info` entry that says why Pateat did nothing on a page (`PROBLEM_INFO_LINES`), except a
+ * passkey report or a fill-only login's line, which stay local (`problemLocalOnly`).
  */
 export function sentToService(entry: Pick<LogEntry, "level" | "event" | "fields">): boolean {
+  if (problemLocalOnly(entry.event, entry.fields)) return false;
   if (entry.level === "warn" || entry.level === "error") return true;
   return entry.level === "info" && problemInfoLine(entry.event, entry.fields);
 }
@@ -1331,11 +1353,9 @@ const PRE_PRESS_ENTRY_REFUSALS: ReadonlySet<unknown> = new Set([
   "no-site",
   "site-record",
   "site-held",
-  "logged-out",
-  "logout-clicked",
+  "paused",
   "press-limit",
   "settings-unavailable",
-  "site-excluded",
   "site-not-allowed",
   "no-vault-match",
   "storage-unavailable",
@@ -1354,6 +1374,7 @@ const PRE_PRESS_ENTRY_REFUSALS: ReadonlySet<unknown> = new Set([
   "link-query-off-site",
   "link-same-page",
   "destination-excluded",
+  "destination-not-allowed",
   "target-changed",
   "cancelled",
 ]);
@@ -1436,9 +1457,11 @@ function problemPath(stored: string): string {
  */
 export function problemLine(entry: LogEntry): ProblemLine | undefined {
   if (!sentToService(entry) || entry.level === "debug") return undefined;
+  const events: Readonly<Record<string, Readonly<Record<string, ProblemFieldKind>>>> =
+    PROBLEM_EVENT_FIELDS;
   const kinds: Readonly<Record<string, ProblemFieldKind>> = {
     ...PROBLEM_PAGE_FIELDS,
-    ...(Object.hasOwn(PROBLEM_EVENT_FIELDS, entry.event) ? PROBLEM_EVENT_FIELDS[entry.event] : {}),
+    ...(Object.hasOwn(events, entry.event) ? events[entry.event] : {}),
   };
   const fields: Record<string, FieldValue> = {};
   for (const [key, value] of Object.entries(exportedFields(entry))) {

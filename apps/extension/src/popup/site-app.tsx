@@ -2,9 +2,7 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import {
-  allowlistOn,
-  isSiteExcluded,
-  siteRuleCovers,
+  isSiteAllowed,
   normalizeHostname,
   parseSiteUrl,
   popupPageSectionShown,
@@ -16,7 +14,6 @@ import {
 } from "@pateat/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Ban,
   CalendarDays,
   CircleCheck,
   CircleX,
@@ -29,6 +26,7 @@ import {
   Lock,
   LockKeyhole,
   LogIn,
+  LogOut,
   MessageCircleQuestionMark,
   Settings2,
   Smartphone,
@@ -42,14 +40,30 @@ import { Button } from "../options/button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
 import { Logo } from "../logo";
-import { choiceReason, pickFailure, type ChoiceClient } from "../login/choice-wire";
+import {
+  choiceReason,
+  pickFailure,
+  switchRefusal,
+  switchStatus,
+  type ChoiceClient,
+  type PauseLength,
+} from "../login/choice-wire";
 import {
   detailFillFailure,
   detailName,
   type DetailClient,
   type DetailResponse,
 } from "../login/detail-wire";
+import { pauseSite } from "../login/pause";
 import { PageStatusSection } from "./page-status";
+import {
+  PAUSE_CHOICES,
+  PauseControl,
+  pauseShown,
+  privatePaused,
+  siteRules,
+  type SitePause,
+} from "./pause";
 
 /**
  * How long the popup waits for the site's matches. Each vault lookup of the search is
@@ -66,7 +80,8 @@ export interface PopupHost {
   currentTab(): Promise<
     { id: number | undefined; url: string | undefined; incognito: boolean } | undefined
   >;
-  openSettings(): void;
+  /** Opens the settings page, at the section of that ID when given. */
+  openSettings(section?: string): void;
   /** Opens the diagnostics page with the detailed log. */
   openDiagnostics(): void;
   /** Closes the popup, as once a picked login has started. */
@@ -79,9 +94,9 @@ export interface PopupHost {
 }
 
 type Saved = Extract<SettingsResponse, { ok: true }>;
-type SiteRule = LocalSettings["excludedSites"][number];
 type Tone = "progress" | "success" | "error";
 type NoticeText = (translate: TFunction) => string;
+type ExcludedSite = LocalSettings["excludedSites"][number];
 
 /** The tab's origin when Pateat can run there: an HTTP(S) page with a valid hostname. */
 export function popupOrigin(url: string | undefined): string | undefined {
@@ -97,77 +112,29 @@ function hostnameOf(origin: string): string {
 }
 
 /** Which rules of a site list cover a hostname, and how the popup changes its own. */
-function siteRules(rules: SiteRule[], hostname: string) {
-  const covering = rules.filter((site) => siteRuleCovers(site, hostname));
-  const own = (site: SiteRule) => site.hostname === hostname && !site.includeSubdomains;
+function hostRules(rules: ExcludedSite[], hostname: string) {
+  const covering = rules.filter(
+    (site) =>
+      hostname === site.hostname ||
+      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
+  );
+  const own = (site: ExcludedSite) => site.hostname === hostname && !site.includeSubdomains;
   return {
     listed: covering.length > 0,
     editable: covering.every(own),
     /** The covering rules the popup cannot change; each includes subdomains. */
     shared: covering.filter((site) => !own(site)),
     /** The list with or without the hostname's own rule. */
-    with: (list: SiteRule[], listed: boolean) =>
+    with: (list: ExcludedSite[], listed: boolean) =>
       listed
         ? [...list.filter((site) => !own(site)), { hostname, includeSubdomains: false }]
         : list.filter((site) => !own(site)),
   };
 }
 
-/**
- * The "Pateat on this site" switch. It is on unless an exclusion rule covers the
- * hostname or, while the allowed sites are on, none of them does (ADR 0077). The popup
- * changes only the hostname's own exact rules: a rule for a parent domain, or one that
- * includes subdomains, also covers other sites, so only the settings page changes it.
- * While the allowed sites are on, turning the switch on allows the hostname, and turning
- * it off removes the hostname's own allowed site, or excludes the hostname when a shared
- * allowed site covers it.
- */
-export function siteSwitch(settings: LocalSettings, hostname: string) {
-  const covers = (site: SiteRule) => siteRuleCovers(site, hostname);
-  const own = (site: SiteRule) => site.hostname === hostname && !site.includeSubdomains;
-  const rules = settings.excludedSites.filter(covers);
-  const allowed = !allowlistOn(settings) || (settings.allowedSites ?? []).some(covers);
-  // Allowed only by the hostname's own rule: turning it off removes that rule.
-  const removesAllowed = (value: LocalSettings) => {
-    const covering = allowlistOn(value) ? (value.allowedSites ?? []).filter(covers) : [];
-    return covering.length > 0 && covering.every(own);
-  };
-  return {
-    on: rules.length === 0 && allowed,
-    editable: rules.every(own),
-    /** The covering rules the popup cannot change; each includes subdomains. */
-    shared: rules.filter((site) => !own(site)),
-    /** The allowed sites are on and leave the hostname out. */
-    notAllowed: !allowed,
-    /** The notice once the change is saved. */
-    done(on: boolean): NoticeText {
-      if (on)
-        return allowed
-          ? (translate) => translate("{{hostname}} is no longer excluded.", { hostname })
-          : (translate) => translate("{{hostname}} is now an allowed site.", { hostname });
-      return removesAllowed(settings)
-        ? (translate) => translate("{{hostname}} is no longer an allowed site.", { hostname })
-        : (translate) => translate("{{hostname}} is now excluded.", { hostname });
-    },
-    /** Turns Pateat on or off for the hostname in a copy of the settings. */
-    set(value: LocalSettings, on: boolean) {
-      if (on) {
-        value.excludedSites = value.excludedSites.filter((site) => !own(site));
-        if (allowlistOn(value) && !(value.allowedSites ?? []).some(covers))
-          value.allowedSites = [
-            ...(value.allowedSites ?? []),
-            { hostname, includeSubdomains: false },
-          ];
-      } else if (removesAllowed(value))
-        value.allowedSites = (value.allowedSites ?? []).filter((site) => !own(site));
-      else value.excludedSites.push({ hostname, includeSubdomains: false });
-    },
-  };
-}
-
 /** Whether the site asks for the master password before a re-prompt item is used. */
 export function repromptSwitch(settings: LocalSettings, hostname: string) {
-  const rules = siteRules(settings.repromptSites, hostname);
+  const rules = hostRules(settings.repromptSites, hostname);
   return {
     on: rules.listed,
     editable: rules.editable,
@@ -176,45 +143,6 @@ export function repromptSwitch(settings: LocalSettings, hostname: string) {
       value.repromptSites = rules.with(value.repromptSites, on);
     },
   };
-}
-
-/**
- * The header switch; a rule it cannot change disables it and names the reason. While a
- * change is saved it is only marked disabled, since Chrome moves focus away from a
- * focused control that becomes disabled.
- */
-function SiteSwitch({
-  site,
-  pending,
-  busy,
-  onChange,
-}: {
-  site: ReturnType<typeof siteSwitch>;
-  /** The position being saved, shown until the save ends. */
-  pending: boolean | undefined;
-  busy: boolean;
-  onChange: (on: boolean) => void;
-}) {
-  const { t } = useTranslation(undefined, { i18n });
-  const checked = pending ?? site.on;
-  return (
-    <label className="popup-switch">
-      <span>{t("Pateat on this site")}</span>
-      <input
-        id="popup-site-switch"
-        type="checkbox"
-        role="switch"
-        checked={checked}
-        aria-checked={checked}
-        disabled={!site.editable}
-        aria-disabled={busy || undefined}
-        aria-describedby={site.editable ? undefined : "popup-site-shared"}
-        onChange={(event) => {
-          if (!busy) onChange(event.target.checked);
-        }}
-      />
-    </label>
-  );
 }
 
 /**
@@ -285,6 +213,8 @@ type AccountCard = {
   title: string;
   sub: string;
   isDefault: boolean;
+  /** The account of the tab's last login on the site (ADR 0063). */
+  isUsed?: boolean;
 };
 
 type AccountOption = ReturnType<typeof siteAccountOptions>[number];
@@ -305,6 +235,7 @@ function accountCards(
   options: AccountOption[],
   accounts: MatchedAccounts,
   currentValue: string | undefined,
+  usedValue?: string,
 ): AccountCard[] {
   const t = i18n.t.bind(i18n);
   const cards = options.map((option) => {
@@ -317,6 +248,7 @@ function accountCards(
         ? t("{{item}} in {{account}}", { item: option.itemName, account: option.connectionLabel })
         : option.connectionLabel,
       isDefault: option.value === currentValue,
+      ...(option.value === usedValue ? { isUsed: true } : {}),
     };
   });
   const seen = new Map<string, number>();
@@ -346,6 +278,7 @@ function DefaultBadge() {
 }
 
 function CardBody({ card }: { card: Omit<AccountCard, "value"> }) {
+  const { t } = useTranslation(undefined, { i18n });
   return (
     <>
       <span className="popup-avatar">
@@ -355,6 +288,7 @@ function CardBody({ card }: { card: Omit<AccountCard, "value"> }) {
         <span className="popup-choice-title">{card.title}</span>
         <span className="popup-choice-sub">{card.sub}</span>
       </span>
+      {card.isUsed && <span className="popup-badge">{t("Used in this tab")}</span>}
       {card.isDefault && <DefaultBadge />}
     </>
   );
@@ -385,10 +319,16 @@ function AccountChoices({
             value={card.value}
             checked={checked === card.value}
             disabled={disabled}
-            aria-label={t(card.isDefault ? "{{title}}, {{sub}}, default" : "{{title}}, {{sub}}", {
-              title: card.title,
-              sub: card.sub,
-            })}
+            aria-label={t(
+              card.isUsed
+                ? card.isDefault
+                  ? "{{title}}, {{sub}}, used in this tab, default"
+                  : "{{title}}, {{sub}}, used in this tab"
+                : card.isDefault
+                  ? "{{title}}, {{sub}}, default"
+                  : "{{title}}, {{sub}}",
+              { title: card.title, sub: card.sub },
+            )}
             onChange={() => onChange(card.value)}
           />
           <CardBody card={card} />
@@ -613,7 +553,8 @@ function Line({
 
 /**
  * The toolbar popup edits two settings of the active tab's site, its default account and
- * its exclusion, through the same worker-owned store as the settings page (ADR 0021).
+ * its exclusion rule, which pauses automatic login until turned back on (ADR 0062), through
+ * the same worker-owned store as the settings page (ADR 0021).
  */
 export function SiteApp({
   client,
@@ -637,8 +578,8 @@ export function SiteApp({
   const [chosen, setChosen] = useState("");
   const [picked, setPicked] = useState("");
   const [makeDefault, setMakeDefault] = useState<boolean>();
-  // The switch shows its new position while that change is saved.
-  const [switching, setSwitching] = useState<boolean>();
+  // An account switch's pick is kept for this browser session unless made the default.
+  const [switchDefault, setSwitchDefault] = useState(false);
   const [reprompting, setReprompting] = useState<boolean>();
   const say = (text: NoticeText, tone: Tone) => setNotice({ text, tone });
   // Buttons that start a change are only marked disabled while it runs, since Chrome moves
@@ -675,13 +616,15 @@ export function SiteApp({
   const origin = tab.data === undefined ? undefined : popupOrigin(tab.data?.url);
   const tabId = tab.data?.id;
   const saved = settings.data?.ok ? settings.data : undefined;
-  const excluded = Boolean(origin && saved && isSiteExcluded(saved.snapshot.settings, origin));
-  // A login refused because several accounts match waits for a pick (ADR 0021). An excluded
-  // site runs no login, so a choice the worker still keeps from before is not offered.
+  // In a private window automatic login is off unless turned on in the settings (ADR 0062).
+  const inPrivate =
+    saved !== undefined && privatePaused(saved.snapshot.settings, tab.data?.incognito);
+  // A login refused because several accounts match, or on a paused site, waits for a pick
+  // (ADR 0021, ADR 0062).
   const choice = useQuery({
     queryKey: ["popup", "choice", tabId],
     queryFn: () => choices.get(tabId!),
-    enabled: tabId !== undefined && origin !== undefined && saved !== undefined && !excluded,
+    enabled: tabId !== undefined && origin !== undefined && saved !== undefined,
     // The page may be refused only after the popup opened, or announce again after a
     // restarted worker; asking again while open shows the choice once it waits, and
     // once another tab's login no longer holds the site.
@@ -692,6 +635,8 @@ export function SiteApp({
   // The settings may hide the section; it waits for them so a hidden one never flashes.
   const pageSectionShown = saved !== undefined && popupPageSectionShown(saved.snapshot.settings);
   // What Pateat did on the page (ADR 0038), read again while the popup is open and shown.
+  // While the settings hide the section it is not asked for, so the account switch (ADR
+  // 0063), part of the section, is not offered either.
   const pageStatus = useQuery({
     // Keyed by the choice, so a status read before the section was hidden never shows when
     // it is shown again.
@@ -702,6 +647,25 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
+  // The site's timed pause (ADR 0062) while the page section is hidden: the pause row needs
+  // only the tab's site and its pause, never the page's status.
+  const pauseState = useQuery({
+    queryKey: ["popup", "pause-state", tabId],
+    queryFn: () => choices.pauseState(tabId!),
+    enabled: saved !== undefined && !pageSectionShown && tabId !== undefined && !!origin,
+    refetchInterval: 1000,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  /** Reads the pause again from where the popup shows it: the page status, or the pause alone. */
+  const refreshPause = () => (pageSectionShown ? pageStatus.refetch() : pauseState.refetch());
+  const timedPause = pageSectionShown
+    ? pageStatus.data?.ok && pageStatus.data.origin === origin
+      ? pageStatus.data.pause?.until
+      : undefined
+    : pauseState.data?.ok
+      ? pauseState.data.until
+      : undefined;
   // The personal details the page asks for and the site's links (ADR 0061), read again
   // while the popup is open, since the login may stop at the page after it opened.
   const pageDetails = useQuery({
@@ -712,8 +676,9 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
-  // Only the vault policies, exclusions and each vault's sync, state and quarantine decide
-  // the matches, so saving a default keeps the listed accounts instead of listing them again.
+  // Only the vault policies, the allowed sites (ADR 0077) and each vault's sync, state and
+  // quarantine decide the matches, so saving a default or a pause keeps the listed accounts
+  // instead of listing them again.
   const accounts = useQuery({
     queryKey: [
       "popup",
@@ -724,7 +689,6 @@ export function SiteApp({
           saved.snapshot.settings.accountPolicies,
           saved.snapshot.settings.itemPolicies,
           saved.snapshot.settings.customFieldReviews,
-          saved.snapshot.settings.excludedSites,
           saved.snapshot.settings.allowedSites ?? [],
           saved.snapshot.settings.allowedSitesEnabled ?? false,
         ]),
@@ -749,16 +713,20 @@ export function SiteApp({
         clearTimeout(timer);
       }
     },
-    enabled: Boolean(origin && saved && !excluded),
+    // A site outside the allowed sites is not searched (ADR 0077).
+    enabled: Boolean(origin && saved && isSiteAllowed(saved.snapshot.settings, origin)),
     staleTime: 0,
     gcTime: 0,
   });
 
-  async function change(update: (value: LocalSettings) => void, done: NoticeText) {
+  /** Saves a change to the settings; false when it was not saved. */
+  async function change(
+    update: (value: LocalSettings) => void,
+    done: NoticeText,
+  ): Promise<boolean> {
     if (!saved || busy) {
-      setSwitching(undefined);
       setReprompting(undefined);
-      return;
+      return false;
     }
     const next = structuredClone(saved.snapshot.settings);
     update(next);
@@ -776,7 +744,9 @@ export function SiteApp({
         say(done, "success");
         // A default saved for the site can end a waiting choice; the background clears it.
         if (choice.isEnabled) void choice.refetch();
-      } else if (response.error.code === "revision-conflict") {
+        return true;
+      }
+      if (response.error.code === "revision-conflict") {
         await settings.refetch();
         say(
           (translate) =>
@@ -802,9 +772,9 @@ export function SiteApp({
       );
     } finally {
       setBusy(false);
-      setSwitching(undefined);
       setReprompting(undefined);
     }
+    return false;
   }
 
   async function pick(
@@ -845,7 +815,13 @@ export function SiteApp({
       // not to have become the default.
       say(
         (translate) =>
-          pickFailure(response.reason, selected.name, asDefault && !isDefault, translate),
+          pickFailure(
+            response.reason,
+            selected.name,
+            asDefault && !isDefault,
+            translate,
+            inPrivate,
+          ),
         "error",
       );
       await choice.refetch();
@@ -853,6 +829,106 @@ export function SiteApp({
       say(
         (translate) =>
           translate("The login could not be started. Reopen this popup and try again."),
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function switchTo(
+    selected: { connectionId: string; itemId: string; name: string },
+    asDefault: boolean,
+  ) {
+    if (tabId === undefined || busy) return;
+    setBusy(true);
+    say(
+      (translate) => translate("Logging out to switch to {{name}}…", { name: selected.name }),
+      "progress",
+    );
+    try {
+      const response = await choices.switchTo({
+        tabId,
+        connectionId: selected.connectionId,
+        itemId: selected.itemId,
+        makeDefault: asDefault,
+      });
+      // The page section follows the switch from here.
+      if (response.ok) setNotice({ tone: "success" });
+      else say((translate) => switchRefusal(response.reason, selected.name, translate), "error");
+      await refreshPause();
+    } catch {
+      say(
+        (translate) =>
+          translate("The switch could not be started. Reopen this popup and try again."),
+        "error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Pauses automatic login of the tab's site for `length`, until turned back on with an
+   * exclusion rule, or resumes it, also removing the site's own rules (ADR 0062).
+   */
+  async function setPause(length: PauseLength | "rule" | undefined) {
+    if (tabId === undefined || busy || !origin) return;
+    const rules = saved && siteRules(saved.snapshot.settings, origin);
+    if (length === "rule") {
+      if (
+        rules &&
+        (await change(
+          (value) => rules.pause(value),
+          (translate) => translate("Automatic login on this site is paused until turned back on."),
+        ))
+      )
+        void refreshPause();
+      return;
+    }
+    // Resume removes the site's own rule first; a pause of a length then ends too.
+    if (length === undefined && rules?.rules.length) {
+      const removed = await change(
+        (value) => rules.resume(value),
+        (translate) => translate("Automatic login on this site resumed."),
+      );
+      if (!removed || timedPause === undefined) {
+        void refreshPause();
+        return;
+      }
+    }
+    setBusy(true);
+    say((translate) => translate(length ? "Pausing…" : "Resuming…"), "progress");
+    try {
+      const response = await choices.pause(
+        tabId,
+        length ? { paused: true, length } : { paused: false },
+      );
+      if (response.ok) {
+        const lengthChosen = PAUSE_CHOICES.find((entry) => entry.length === length);
+        say(
+          (translate) =>
+            lengthChosen
+              ? lengthChosen.done(translate)
+              : translate("Automatic login on this site resumed."),
+          "success",
+        );
+        await refreshPause();
+        if (choice.isEnabled) void choice.refetch();
+      } else
+        say(
+          (translate) =>
+            translate(
+              response.reason === "no-site"
+                ? "This tab has no site to pause."
+                : "The pause could not be saved. Try again.",
+            ),
+          "error",
+        );
+    } catch {
+      say(
+        (translate) =>
+          translate("The pause could not be changed. Reopen this popup and try again."),
         "error",
       );
     } finally {
@@ -965,7 +1041,7 @@ export function SiteApp({
     event?.preventDefault();
     host.openSettings();
   };
-  let switchControl;
+  let pauseControl;
   let body;
   if (tab.isPending || settings.isPending) body = <p className="popup-muted">{t("Loading…")}</p>;
   else if (!origin)
@@ -987,21 +1063,42 @@ export function SiteApp({
         <span>{t("Pateat's settings could not be loaded.")}</span>
       </p>
     );
-  else {
-    const hostname = hostnameOf(origin);
-    const site = siteSwitch(saved.snapshot.settings, hostname);
-    const reprompt = repromptSwitch(saved.snapshot.settings, hostname);
-    switchControl = (
-      <SiteSwitch
-        site={site}
-        pending={switching}
-        busy={busy}
-        onChange={(on) => {
-          setSwitching(on);
-          void change((value) => site.set(value, on), site.done(on));
-        }}
-      />
+  else if (!isSiteAllowed(saved.snapshot.settings, origin)) {
+    // A site outside the allowed sites gets nothing from Pateat, so the popup only offers
+    // to allow it: the registrable site with its subdomains, as a pause covers it (ADR 0077).
+    const site = pauseSite(new URL(origin)) ?? hostnameOf(origin);
+    body = (
+      <div className="popup-section">
+        <p id="popup-site-not-allowed">
+          {t("Pateat runs only on allowed sites, and this site is not one of them.")}
+        </p>
+        <div className="popup-actions">
+          <Button
+            id="popup-allow-site"
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void change(
+                (value) => {
+                  value.allowedSites = [
+                    ...(value.allowedSites ?? []).filter((rule) => rule.hostname !== site),
+                    { hostname: site, includeSubdomains: true },
+                  ];
+                },
+                (translate) =>
+                  translate("{{site}} and its subdomains are now allowed sites.", { site }),
+              )
+            }
+          >
+            {t("Allow {{site}}", { site })}
+          </Button>
+        </div>
+      </div>
     );
+  } else {
+    const hostname = hostnameOf(origin);
+    const rules = siteRules(saved.snapshot.settings, origin);
+    const reprompt = repromptSwitch(saved.snapshot.settings, hostname);
     const { catalog } = saved;
     const current = saved.snapshot.settings.siteDefaults.find((entry) => entry.origin === origin);
     const found = accounts.data?.ok && accounts.data.origin === origin ? accounts.data : undefined;
@@ -1016,9 +1113,7 @@ export function SiteApp({
     const shown = options.some((entry) => entry.value === chosen)
       ? chosen
       : (currentOption?.value ?? "");
-    // A disabled query keeps its last answer, so the exclusion is checked here too.
-    const offered =
-      !excluded && choice.data?.ok && choice.data.origin === origin ? choice.data : undefined;
+    const offered = choice.data?.ok && choice.data.origin === origin ? choice.data : undefined;
     // The choice shows once the site's matches are listed, so each account is named by its
     // username from the first frame rather than by a shortened item ID.
     const labelled = !accounts.isEnabled || !accounts.isPending;
@@ -1037,7 +1132,7 @@ export function SiteApp({
           ) ?? { ...entry, uri: true, passkey: false },
       ),
     };
-    // After a logout the saved default is listed first (ADR 0021 D).
+    // While the tab asks, the saved default is listed first (ADR 0021 D).
     const pickOptions = siteAccountOptions(catalog, matches, false, saved.snapshot.settings).sort(
       (a, b) => Number(b.value === currentValue) - Number(a.value === currentValue),
     );
@@ -1046,11 +1141,12 @@ export function SiteApp({
     // itself (ADR 0021).
     const shownPick = pickOptions.some((entry) => entry.value === picked)
       ? picked
-      : offered?.logout === "rejected" || offered?.rejectedElsewhere
+      : offered?.ask === "rejected" || offered?.rejectedElsewhere
         ? ""
         : (pickOptions[0]?.value ?? "");
+    // A tab that asks, and a paused site (ADR 0062), offer a single account too.
     const showChoice = Boolean(
-      offered && labelled && pickOptions.length > (offered.logout ? 0 : 1),
+      offered && labelled && pickOptions.length > (offered.ask || offered.paused ? 0 : 1),
     );
     // A pick in a private window is used for this login only unless the user says otherwise.
     const asDefault = makeDefault ?? !tab.data?.incognito;
@@ -1164,10 +1260,115 @@ export function SiteApp({
       pageSectionShown && pageStatus.data?.ok && pageStatus.data.origin === origin
         ? pageStatus.data
         : undefined;
+    const usedValue = status?.used
+      ? JSON.stringify([status.used.connectionId, status.used.itemId])
+      : undefined;
+    const accountSwitch = status?.switch;
+    const switchName = (() => {
+      if (!accountSwitch) return undefined;
+      const option = options.find(
+        (entry) =>
+          entry.connectionId === accountSwitch.connectionId &&
+          entry.itemId === accountSwitch.itemId,
+      );
+      return option ? accountName(option, found?.accounts) : t("the account");
+    })();
+    // An account switch (ADR 0063): each matching account on a page that waits for no choice.
+    const switchSection = status && options.length > 0 && (
+      <section className="popup-section" aria-labelledby="popup-switch-heading">
+        <div className="popup-section-head">
+          <h2 id="popup-switch-heading">{t("Switch account")}</h2>
+          <p className="popup-muted popup-reason">
+            {t("Logs this tab out of {{hostname}}, then logs in with the account you choose.", {
+              hostname,
+            })}
+          </p>
+        </div>
+        <ul className="popup-choices popup-switch-list">
+          {accountCards(options, found?.accounts, currentValue, usedValue).map((card) => {
+            const option = options.find((entry) => entry.value === card.value)!;
+            return (
+              <li key={card.value} className="popup-choice popup-choice--static popup-switch-row">
+                <CardBody card={card} />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="popup-switch-button"
+                  disabled={busy || accountSwitch?.state === "running"}
+                  aria-label={t("Switch to this account: {{title}}, {{sub}}", {
+                    title: card.title,
+                    sub: card.sub,
+                  })}
+                  onClick={() =>
+                    void switchTo(
+                      { ...option, name: accountName(option, found?.accounts) },
+                      switchDefault,
+                    )
+                  }
+                >
+                  <LogOut size={16} strokeWidth={2} aria-hidden="true" />
+                  {t("Switch to this account")}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+        <label className="checkbox-row popup-check">
+          <input
+            id="popup-switch-default"
+            type="checkbox"
+            checked={switchDefault}
+            disabled={busy}
+            onChange={(event) => setSwitchDefault(event.target.checked)}
+          />
+          {t("Make it the default for {{hostname}}", { hostname })}
+        </label>
+        <ul className="popup-lines" aria-live="polite">
+          {accountSwitch && switchName && (
+            <Line tone={accountSwitch.state === "failed" ? "err" : "idle"} id="popup-switch-status">
+              {switchStatus(accountSwitch.state, accountSwitch.reason, switchName, t)}
+            </Line>
+          )}
+          <Line tone="idle" id="popup-switch-provider">
+            {t(
+              "A site you log in to through another account, such as a company or Google sign-in, may log you out of that account too.",
+            )}
+          </Line>
+        </ul>
+      </section>
+    );
+    // Only a site Pateat runs on can be paused (ADR 0062). In a private window automatic
+    // login is off until turned on in the settings, which wins over the rest; a rule pauses
+    // the site until turned back on, and wins over a pause of a length.
+    const pause: SitePause = inPrivate
+      ? { kind: "private" }
+      : rules.shared.length
+        ? { kind: "shared", rules: rules.shared }
+        : rules.rules.length
+          ? { kind: "rule" }
+          : timedPause !== undefined
+            ? { kind: "until", until: timedPause }
+            : { kind: "running" };
+    // With the page section hidden, any tab with a site to pause shows the row.
+    const ruled = inPrivate || rules.rules.length > 0;
+    if (
+      pageSectionShown
+        ? pauseShown(status, Boolean(found?.accounts.length), ruled)
+        : ruled || pauseState.data?.ok === true
+    )
+      pauseControl = (
+        <PauseControl
+          pause={pause}
+          incognito={tab.data?.incognito === true}
+          busy={busy}
+          onPause={(length) => void setPause(length)}
+          onResume={() => void setPause(undefined)}
+          onOpenSettings={(section) => host.openSettings(section)}
+        />
+      );
     const detailState =
       pageDetails.data?.ok && pageDetails.data.origin === origin ? pageDetails.data : undefined;
-    // An excluded site runs no login, so an offer the worker still keeps is not filled.
-    const detailOffer = excluded ? undefined : detailState?.offer;
+    const detailOffer = detailState?.offer;
     const detailLinks = detailState?.links ?? [];
     const detailSection = (detailOffer || detailLinks.length > 0) && (
       <DetailSection
@@ -1186,6 +1387,7 @@ export function SiteApp({
         {(status || detailSection) && (
           <PageStatusSection
             status={status}
+            inPrivate={inPrivate}
             onOpenDiagnostics={pageSectionShown ? () => host.openDiagnostics() : undefined}
           >
             {detailSection}
@@ -1220,7 +1422,12 @@ export function SiteApp({
             <div className="popup-section-head">
               <h2 id="popup-choice-heading">{t("Choose an account")}</h2>
               <p id="popup-choice-reason" className="popup-muted popup-reason">
-                {choiceReason(offered.logout, pickOptions.length, t, offered.rejectedElsewhere)}
+                {choiceReason(
+                  offered.ask,
+                  pickOptions.length,
+                  t,
+                  offered.paused === true && (inPrivate ? "private" : true),
+                )}
               </p>
             </div>
             {offered.held && (
@@ -1237,7 +1444,7 @@ export function SiteApp({
               <legend className="visually-hidden">{t("Account to log in with")}</legend>
               <AccountChoices
                 name="popup-pick"
-                cards={accountCards(pickOptions, found?.accounts, currentValue)}
+                cards={accountCards(pickOptions, found?.accounts, currentValue, usedValue)}
                 checked={shownPick}
                 disabled={busy}
                 onChange={setPicked}
@@ -1276,7 +1483,7 @@ export function SiteApp({
             </Button>
           </section>
         )}
-        {offered && site.on && (showChoice || !labelled) ? (
+        {offered && (showChoice || !labelled) ? (
           // The account choice is the only list while the page waits for it: its cards
           // mark the saved default, and a saved default can still be removed here.
           showChoice && (
@@ -1310,123 +1517,89 @@ export function SiteApp({
               {removeDefaultButton && <div className="popup-actions">{removeDefaultButton}</div>}
             </div>
           )
-        ) : site.on ? (
-          <fieldset className="popup-fieldset popup-section">
-            <legend id="popup-default-heading" className="popup-legend">
-              {t("Default account")}
-            </legend>
-            {missingDefault && (
-              <div id="popup-default" className="popup-choice popup-choice--static">
-                <CardBody card={missingDefault} />
-              </div>
-            )}
-            {options.length > 0 && (
-              <AccountChoices
-                name="popup-default"
-                cards={accountCards(options, found?.accounts, currentValue)}
-                checked={shown}
-                disabled={busy}
-                onChange={setChosen}
-              />
-            )}
-            <ul className="popup-lines" aria-live="polite">
-              {accountsNote && (
-                <Line tone={accountsNote.tone} id="popup-accounts-note">
-                  {accountsNote.text}
-                </Line>
-              )}
-              {!current && (
-                <Line tone="idle" id="popup-no-default">
-                  {t("No default account. With exactly one matching item, Pateat uses that item.")}
-                </Line>
-              )}
-              {found && !found.complete && (
-                <Line tone="warn" id="popup-accounts-incomplete">
-                  {t("Some vaults or items could not be checked, so this list may be incomplete.")}
-                </Line>
-              )}
-              <li className="popup-line popup-line--idle">
-                <Clock size={16} strokeWidth={2} aria-hidden="true" />
-                <span>{t("A default takes effect at the next login.")}</span>
-              </li>
-            </ul>
-            {(options.length > 0 || current) && (
-              <div className="popup-actions">
-                {options.length > 0 && (
-                  <Button
-                    id="popup-set-default"
-                    type="button"
-                    disabled={busy || !shown || shown === currentValue}
-                    focusableWhenDisabled={busy}
-                    onClick={setDefault}
-                  >
-                    {t("Use as default")}
-                  </Button>
-                )}
-                {removeDefaultButton}
-              </div>
-            )}
-          </fieldset>
         ) : (
-          <div className="popup-section">
-            {!site.editable && (
-              <>
-                <p id="popup-site-shared">
-                  {t("Excluded by a rule that also covers other sites.")}
-                </p>
-                <ul className="popup-rules">
-                  {site.shared.map((rule) => (
-                    <li key={`${rule.hostname} ${rule.includeSubdomains}`}>
-                      <span className="popup-choice-main">
-                        <span className="popup-choice-title">{rule.hostname}</span>
-                        <span className="popup-choice-sub">{t("and its subdomains")}</span>
-                      </span>
-                      <a
-                        href="options.html"
-                        className="popup-link"
-                        aria-label={t("Change in settings for {{hostname}}", {
-                          hostname: rule.hostname,
-                        })}
-                        onClick={openSettings}
-                      >
-                        {t("Change in settings")}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-            {site.editable && site.notAllowed && (
-              <p id="popup-site-not-allowed">
-                {t("Pateat runs only on allowed sites, and this site is not one of them.")}
-              </p>
-            )}
-            <p id="popup-site-status" className="popup-muted popup-status">
-              <Ban size={16} strokeWidth={2} aria-hidden="true" />
-              {t("Pateat does not log in or answer passkey requests on this site.")}
-            </p>
-          </div>
+          <>
+            <fieldset className="popup-fieldset popup-section">
+              <legend id="popup-default-heading" className="popup-legend">
+                {t("Default account")}
+              </legend>
+              {missingDefault && (
+                <div id="popup-default" className="popup-choice popup-choice--static">
+                  <CardBody card={missingDefault} />
+                </div>
+              )}
+              {options.length > 0 && (
+                <AccountChoices
+                  name="popup-default"
+                  cards={accountCards(options, found?.accounts, currentValue, usedValue)}
+                  checked={shown}
+                  disabled={busy}
+                  onChange={setChosen}
+                />
+              )}
+              <ul className="popup-lines" aria-live="polite">
+                {accountsNote && (
+                  <Line tone={accountsNote.tone} id="popup-accounts-note">
+                    {accountsNote.text}
+                  </Line>
+                )}
+                {!current && (
+                  <Line tone="idle" id="popup-no-default">
+                    {t(
+                      "No default account. With exactly one matching item, Pateat uses that item.",
+                    )}
+                  </Line>
+                )}
+                {found && !found.complete && (
+                  <Line tone="warn" id="popup-accounts-incomplete">
+                    {t(
+                      "Some vaults or items could not be checked, so this list may be incomplete.",
+                    )}
+                  </Line>
+                )}
+                <li className="popup-line popup-line--idle">
+                  <Clock size={16} strokeWidth={2} aria-hidden="true" />
+                  <span>{t("A default takes effect at the next login.")}</span>
+                </li>
+              </ul>
+              {(options.length > 0 || current) && (
+                <div className="popup-actions">
+                  {options.length > 0 && (
+                    <Button
+                      id="popup-set-default"
+                      type="button"
+                      disabled={busy || !shown || shown === currentValue}
+                      focusableWhenDisabled={busy}
+                      onClick={setDefault}
+                    >
+                      {t("Use as default")}
+                    </Button>
+                  )}
+                  {removeDefaultButton}
+                </div>
+              )}
+            </fieldset>
+            {switchSection}
+          </>
         )}
-        {site.on && (
-          <RepromptSwitch
-            site={reprompt}
-            pending={reprompting}
-            busy={busy}
-            onOpenSettings={openSettings}
-            onChange={(on) => {
-              setReprompting(on);
-              void change(
-                (value) => reprompt.set(value, on),
-                (translate) =>
-                  on
-                    ? translate("{{hostname}} now asks for the master password.", { hostname })
-                    : translate("{{hostname}} no longer asks for the master password.", {
-                        hostname,
-                      }),
-              );
-            }}
-          />
-        )}
+        <RepromptSwitch
+          site={reprompt}
+          pending={reprompting}
+          busy={busy}
+          onOpenSettings={openSettings}
+          onChange={(on) => {
+            setReprompting(on);
+            void change(
+              (value) => reprompt.set(value, on),
+              (translate) =>
+                on
+                  ? translate("{{hostname}} now asks for the master password.", { hostname })
+                  : translate("{{hostname}} no longer asks for the master password.", {
+                      hostname,
+                    }),
+            );
+          }}
+        />
       </>
     );
   }
@@ -1451,7 +1624,7 @@ export function SiteApp({
             <Settings2 size={20} strokeWidth={2} aria-hidden="true" />
           </button>
         </div>
-        {switchControl}
+        {pauseControl}
       </header>
       <output
         id="popup-message"

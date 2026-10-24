@@ -2,7 +2,10 @@
   "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
   "plugins": ["typescript", "import", "promise", "react", "jsx-a11y"],
   "categories": { "correctness": "error", "suspicious": "error", "perf": "error" },
-  "rules": { "react/react-in-jsx-scope": "off" },
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "max-lines": ["error", { "max": 1000 }]
+  },
   "ignorePatterns": [
     "**/.wxt/**",
     "**/.output/**",
@@ -13,13 +16,76 @@
   ],
   "overrides": [
     {
-      "files": ["services/**", "packages/contracts/**", "packages/inference/**"],
+      "files": [
+        "services/**",
+        "packages/contracts/**",
+        "packages/generation/**",
+        "packages/inference/**"
+      ],
       "rules": {
         "no-restricted-globals": [
           "error",
-          { "name": "Temporal", "message": "workerd has no Temporal; use Date on the server" }
+          {
+            "name": "Temporal",
+            "message": "workerd has no Temporal; use Date on the server"
+          }
         ]
       }
+    },
+    {
+      // Files already over max-lines. Remove a file from this list once it is split under
+      // the limit; never add one.
+      "files": [
+        "apps/extension/src/connections/runtime.test.ts",
+        "apps/extension/src/connections/setup.test.ts",
+        "apps/extension/src/connections/setup.ts",
+        "apps/extension/src/crypto/host.test.ts",
+        "apps/extension/src/diagnostics/log.test.ts",
+        "apps/extension/src/diagnostics/log.ts",
+        "apps/extension/src/login/badge.test.ts",
+        "apps/extension/src/login/content.ts",
+        "apps/extension/src/login/runtime.production.test.ts",
+        "apps/extension/src/login/runtime.ts",
+        "apps/extension/src/login/wire.ts",
+        "apps/extension/src/observation/extract.test.ts",
+        "apps/extension/src/observation/extract.ts",
+        "apps/extension/src/options/bitwarden-setup.tsx",
+        "apps/extension/src/passkeys/page.test.ts",
+        "apps/extension/src/passkeys/runtime.test.ts",
+        "apps/extension/src/popup/site-app.tsx",
+        "apps/extension/src/service/generation.test.ts",
+        "apps/extension/src/service/recipes.test.ts",
+        "apps/extension/src/service/settings-sync.test.ts",
+        "apps/extension/src/service/transport.test.ts",
+        "apps/extension/src/vault/manager.test.ts",
+        "apps/extension/src/vault/manager.ts",
+        "packages/bitwarden/src/account.test.ts",
+        "packages/bitwarden/src/local-crypto.test.ts",
+        "packages/bitwarden/src/uri.test.ts",
+        "packages/contracts/src/login-attempt.test.ts",
+        "packages/contracts/src/login-attempt.ts",
+        "packages/contracts/src/login.test.ts",
+        "packages/contracts/src/login.ts",
+        "packages/contracts/src/recipes.test.ts",
+        "packages/contracts/src/settings.ts",
+        "packages/contracts/src/vault-policy.test.ts",
+        "packages/generation/src/generate.ts",
+        "packages/inference/src/assemble.test.ts",
+        "packages/inference/src/completion.test.ts",
+        "packages/inference/src/corpus/judge.ts",
+        "packages/inference/src/plan.test.ts",
+        "services/api/test/generation.test.ts",
+        "services/api/test/owner.test.ts",
+        "services/api/test/sync.test.ts",
+        "tests/extension/login-generation.spec.ts",
+        "tests/extension/login-server.ts",
+        "tests/extension/login.spec.ts",
+        "tests/extension/passkeys.spec.ts",
+        "tests/options/connection-setup.test.tsx",
+        "tests/options/popup.test.tsx",
+        "tests/options/settings-app.test.tsx"
+      ],
+      "rules": { "max-lines": "off" }
     }
   ]
 }

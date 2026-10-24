@@ -3,7 +3,7 @@ import { Check, Info, TriangleAlert } from "lucide-react";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "./button";
 import {
-  allowSite,
+  addAllowedSite,
   exclusionLabel,
   removeAllowedSite,
   setAllowedSites,
@@ -53,10 +53,13 @@ export function AllowedSites({
       return;
     }
     setInputError("");
-    change(allowSite(normalized, includeSubdomains, `${normalized} is now an allowed site`), () => {
-      setHostname("");
-      setIncludeSubdomains(false);
-    });
+    change(
+      addAllowedSite(normalized, includeSubdomains, `${normalized} is now an allowed site`),
+      () => {
+        setHostname("");
+        setIncludeSubdomains(false);
+      },
+    );
   }
 
   return (
@@ -110,7 +113,7 @@ export function AllowedSites({
           )
         ) : (
           <Line icon={<Info size={16} aria-hidden />}>
-            While this is off, Pateat runs on every site that is not excluded
+            While this is off, Pateat runs on every site
           </Line>
         )}
       </Lines>
@@ -157,7 +160,9 @@ export function AllowedSites({
         )}
       </form>
       <Lines>
-        <Line icon={<Info size={16} aria-hidden />}>Exclusions win over allowed sites</Line>
+        <Line icon={<Info size={16} aria-hidden />}>
+          A site paused on the Sites list stays paused while it is allowed
+        </Line>
       </Lines>
     </Panel>
   );

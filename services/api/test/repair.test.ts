@@ -8,7 +8,7 @@ import {
   type LoginRecipe,
   type LoginRecipeDocument,
 } from "@pateat/contracts";
-import { chooserRepairWrite, repairBase, repairWrite } from "../src/recipes/repair";
+import { chooserRepairWrite, repairBase, repairWrite } from "@pateat/generation";
 
 // Synthetic recipes only (ADR 0041).
 

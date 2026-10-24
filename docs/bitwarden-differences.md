@@ -213,7 +213,12 @@ chooser window before a login starts or a passkey signs; elsewhere it uses such 
 like any other, and it never asks per field
 ([vault adapter](architecture.md#vault-adapter); owner's decision, 2026-10-23 at 12:46
 UTC). Logging in without a person is what Pateat is for, and re-prompt protects the
-interface rather than the vault data.
+interface rather than the vault data. On such a site a personal detail from another
+re-prompt item, as an identity or a card, is read in a login started after that window;
+in another login the window asks before the read, and the card guess never reads such a
+card
+([ADR 0061](adr/0061-personal-details-during-a-login.md#items-with-bitwardens-re-prompt);
+owner, 2026-10-23 21:50 UTC).
 
 ## Decrypted items in memory
 
@@ -298,6 +303,35 @@ pinned at
   when the sign-in timed out, or that it ended early because Pateat's background
   stopped, since its waiting sign-in lives in a service worker Chrome can stop.
 
+## After a logout, pausing and switching accounts
+
+Decided by the owner on 2026-10-23
+([ADR 0062](adr/0062-log-in-again-after-a-logout.md),
+[ADR 0063](adr/0063-switch-accounts-from-the-popup.md)).
+
+- The official extension never presses a button, and its "Autofill on page load" fills
+  on every load without telling a logout apart
+  ([Bitwarden help](https://bitwarden.com/help/auto-fill-browser/)). Pateat logs in
+  again after a logout, unless the same site has logged in automatically twice in the
+  last 10 minutes.
+- The official extension's blocked domains turn autofill off on a site, and its excluded
+  domains stop it offering to save or use passkeys there, until removed
+  ([Bitwarden help](https://bitwarden.com/help/auto-fill-browser/#set-up-autofill)); it
+  has no timed pause. Pateat's popup pauses a registrable site's automatic login for 10
+  minutes or an hour on the device, or until turned back on, which is the synced site
+  exclusion. A paused or excluded site is not turned off: an account picked in the popup
+  still logs in, and a passkey request the person starts is answered through Pateat's
+  chooser with the site default treated as unset.
+- In a private window that Chrome lets the extension run in ("Allow in Incognito"),
+  Pateat logs in by itself only once its own "Log in automatically in private windows"
+  is turned on; until then private windows behave as paused, except that a passkey
+  request the person starts is answered as in a normal window, since Pateat's chooser
+  cannot open there. Pateat has not checked
+  whether the official extension has such a setting.
+- The official extension does not log out of sites. Pateat's popup switch logs a site
+  out, clicking a logout control the page names in plain words or one its model finds,
+  then logs in with the picked item.
+
 ## TOTP keys in custom fields
 
 Pateat's side is `isTotpSeed` in `packages/bitwarden/src/totp.ts` and
@@ -321,7 +355,9 @@ owner 2026-10-23). Official code is pinned at
 
 Pateat's side is [ADR 0077](adr/0077-allowed-sites.md). The official extension has no
 list of the only sites it acts on; it excludes sites one by one. Pateat adds the list,
-off by default, as the owner chose for an extension that handles personal data.
+off by default, as the owner chose for an extension that handles personal data. A site
+the list leaves out gets nothing from Pateat, while an excluded site only pauses
+automatic login ([ADR 0062](adr/0062-log-in-again-after-a-logout.md)).
 
 ## Vault timeout
 

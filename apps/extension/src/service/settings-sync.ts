@@ -15,6 +15,7 @@ import {
   type SyncSettingsState,
   type VaultCatalog,
 } from "@pateat/contracts";
+import { newId } from "@pateat/contracts/ids";
 import * as v from "valibot";
 import type { ServiceConnection } from "./runtime";
 import type { ServiceTiming, ServiceTransport, TransportFailure } from "./transport";
@@ -34,12 +35,15 @@ type Binding = LocalSettings["bindings"][number];
 type AccountPolicy = LocalSettings["accountPolicies"][number];
 type ItemPolicy = LocalSettings["itemPolicies"][number];
 type CustomFieldReview = LocalSettings["customFieldReviews"][number];
+type DetailLink = NonNullable<LocalSettings["detailLinks"]>[number];
 
 /**
  * The part of the settings that means the same on every device (ADR 0013): site
- * exclusions, defaults and bindings, and each provider account's vault policy and
- * custom-field reviews (ADR 0023). Vault connections stay on this device, and so does the
- * policy of the unsynced demo provider.
+ * exclusions, defaults and bindings, each provider account's vault policy and
+ * custom-field reviews (ADR 0023), and the links to the vault fields that hold a login's
+ * personal details (ADR 0061). Bindings and detail links belong to the owner; the rest to
+ * a profile (ADR 0076). Vault connections stay on this device, and so does the policy of
+ * the unsynced demo provider.
  */
 export type SyncedSettings = {
   accountPolicies: AccountPolicy[];
@@ -52,7 +56,13 @@ export type SyncedSettings = {
   allowedSites: SiteRule[];
   allowedSitesEnabled: boolean;
   siteDefaults: SiteDefault[];
+  /**
+   * Automatic login in private windows, absent while off (ADR 0062). Like the sites' rules
+   * it says how this profile's browsers log in, so it is synced (ADR 0024).
+   */
+  loginInPrivateWindows?: true;
   bindings: Binding[];
+  detailLinks: DetailLink[];
   popupPageSection: boolean;
 };
 
@@ -73,7 +83,9 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
     allowedSites: settings.allowedSites ?? [],
     allowedSitesEnabled: settings.allowedSitesEnabled ?? false,
     siteDefaults: settings.siteDefaults,
+    ...(settings.loginInPrivateWindows ? { loginInPrivateWindows: true } : {}),
     bindings: settings.bindings,
+    detailLinks: settings.detailLinks ?? [],
     popupPageSection: popupPageSectionShown(settings),
   };
 }
@@ -89,22 +101,53 @@ const emptySynced: SyncedSettings = {
   allowedSitesEnabled: false,
   siteDefaults: [],
   bindings: [],
+  detailLinks: [],
   popupPageSection: true,
 };
 
 // The base of the next three-way merge. Normally both copies are the same; after an
 // upload whose local write has not happened yet, `local` is still the local copy the
 // merge started from, so the merged entries it lacks are not mistaken for local edits.
+// The base is written before each write it describes, never only after: a write whose
+// base is lost would make the next merge take an entry this device already uploaded or
+// downloaded for an edit not yet sent, and put back what another device changed since.
+const baseRevision = v.pipe(v.number(), v.integer(), v.minValue(0));
 const baseSchema = v.strictObject({
   version: v.literal(1),
   origin: serviceOriginSchema,
   deviceId: deviceIdSchema,
   profileId: profileIdSchema,
-  revision: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  revision: baseRevision,
   /** The service document at `revision`, which has no connections. */
   settings: localSettingsSchema,
   /** The synced part of the local settings that `settings` already accounts for. */
   local: localSettingsSchema,
+  /**
+   * This sync's write of `settings` to the local settings: the local revision it takes,
+   * and the profile whose entries it puts in place. Once the local change history shows
+   * that write, the local copy holds `settings` and that profile's entries, also when the
+   * base recorded after it was lost.
+   */
+  localWrite: v.optional(
+    v.strictObject({
+      revision: v.pipe(baseRevision, v.minValue(1)),
+      profileId: profileIdSchema,
+    }),
+  ),
+  /**
+   * An upload, recorded before it is sent, as the base it makes once it commits. The
+   * service's `written` (the `writeId` of this device's last stored write) tells the next
+   * sync whether it did, also when its answer was lost.
+   */
+  pending: v.optional(
+    v.strictObject({
+      writeId: v.pipe(v.string(), v.uuid()),
+      profileId: profileIdSchema,
+      revision: v.pipe(baseRevision, v.minValue(1)),
+      settings: localSettingsSchema,
+      local: localSettingsSchema,
+    }),
+  ),
 });
 type SettingsBase = v.InferOutput<typeof baseSchema>;
 
@@ -164,10 +207,43 @@ const accountKey = (entry: AccountPolicy) =>
   JSON.stringify([entry.provider, entry.server, entry.userId]);
 const itemKey = (entry: ItemPolicy | CustomFieldReview) =>
   JSON.stringify([entry.provider, entry.server, entry.userId, entry.itemId]);
+/**
+ * The settings' duplicate check for detail links, so a merge never pairs two links the
+ * schema refuses together: one per field for an answer (ADR 0061).
+ */
+const detailLinkKey = (link: DetailLink) =>
+  JSON.stringify([
+    link.origin,
+    link.provider,
+    link.userId,
+    link.itemId,
+    link.detail,
+    link.detail === "secret-answer" ? link.source.field : null,
+  ]);
+/** A stored question belongs to one answer of a login item (ADR 0061), as the schema checks. */
+const detailQuestionKey = (link: DetailLink) =>
+  link.question === undefined
+    ? undefined
+    : JSON.stringify([
+        link.origin,
+        link.provider,
+        link.server,
+        link.userId,
+        link.itemId,
+        link.question,
+      ]);
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 /** What each side last agreed to: the service's copy and the local copy it accounts for. */
 export type SyncBase = { service: SyncedSettings; local: SyncedSettings };
+
+/**
+ * One value merged as an entry is: the service's copy wins when it changed since the
+ * base, else a local change, else the service's copy.
+ */
+function mergeValue<T>(base: { service: T; local: T }, local: T, service: T): T {
+  return same(service, base.service) && !same(local, base.local) ? local : service;
+}
 
 /**
  * Per entry, the service's copy wins when it changed since the base, because the service
@@ -192,9 +268,42 @@ function mergeEntries<T>(
   return merged;
 }
 
-/** One value merged like an entry: the service's change wins, then a local one. */
-function mergeValue<T>(base: { service: T; local: T }, local: T, service: T): T {
-  return same(service, base.service) && !same(local, base.local) ? local : service;
+/**
+ * Detail links merge per link like bindings. Two answers of one login item may also not
+ * store the same question; when a local link takes a question the service's copy already
+ * gives another field, the service's link stands, and that local link falls back to the
+ * service's copy of it, or is left out when the service has none.
+ */
+function mergeDetailLinks(
+  base: { service: DetailLink[]; local: DetailLink[] },
+  local: DetailLink[],
+  service: DetailLink[],
+): DetailLink[] {
+  const merged = mergeEntries(base, local, service, detailLinkKey);
+  const serviceLinks = new Map(service.map((link) => [detailLinkKey(link), link]));
+  const fromService = (link: DetailLink) => same(link, serviceLinks.get(detailLinkKey(link)));
+  const claimed = new Set<string>();
+  /** Claims the link's question; false when another link already holds it. */
+  const claim = (link: DetailLink) => {
+    const question = detailQuestionKey(link);
+    if (question === undefined) return true;
+    if (claimed.has(question)) return false;
+    claimed.add(question);
+    return true;
+  };
+  // The service's links are valid together, so they claim their questions first.
+  for (const link of merged.filter(fromService)) claim(link);
+  const settled = new Map<DetailLink, DetailLink | undefined>();
+  for (const link of merged.filter((entry) => !fromService(entry))) {
+    if (claim(link)) continue;
+    const fallback = serviceLinks.get(detailLinkKey(link));
+    settled.set(link, fallback && claim(fallback) ? fallback : undefined);
+  }
+  return merged.flatMap((link) => {
+    if (!settled.has(link)) return [link];
+    const fallback = settled.get(link);
+    return fallback ? [fallback] : [];
+  });
 }
 
 /**
@@ -276,7 +385,15 @@ export function mergeSyncedSettings(
       service.siteDefaults,
       defaultKey,
     ),
+    ...(mergeValue(
+      part("loginInPrivateWindows"),
+      local.loginInPrivateWindows,
+      service.loginInPrivateWindows,
+    )
+      ? { loginInPrivateWindows: true }
+      : {}),
     bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
+    detailLinks: mergeDetailLinks(part("detailLinks"), local.detailLinks, service.detailLinks),
     popupPageSection: mergeValue(
       part("popupPageSection"),
       local.popupPageSection,
@@ -341,18 +458,21 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     same(sorted(left.allowedSites, siteKey), sorted(right.allowedSites, siteKey)) &&
     left.allowedSitesEnabled === right.allowedSitesEnabled &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
+    left.loginInPrivateWindows === right.loginInPrivateWindows &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey)) &&
+    same(sorted(left.detailLinks, detailLinkKey), sorted(right.detailLinks, detailLinkKey)) &&
     left.popupPageSection === right.popupPageSection
   );
 }
 
 /**
  * Local settings with the synced part replaced; the demo provider's policy stays. The
- * popup's choice is kept only while it hides the page's status, as in the documents.
+ * popup's choice is kept only while it hides the page's status, as in the documents, and
+ * a setting turned off is the absent field, so the local copy's field goes as well.
  */
 function applySynced(settings: LocalSettings, merged: SyncedSettings): LocalSettings {
   const { popupPageSection, ...lists } = merged;
-  const { popupPageSection: _replaced, ...rest } = settings;
+  const { popupPageSection: _replaced, loginInPrivateWindows: _off, ...rest } = settings;
   return {
     ...rest,
     ...lists,
@@ -369,6 +489,24 @@ const serviceDocument = ({ popupPageSection, ...lists }: SyncedSettings): LocalS
   ...lists,
   ...(popupPageSection ? {} : { popupPageSection: false }),
 });
+
+/** The synced part of the local settings as an exported file holds it (ADR 0040). */
+export function exportedSettings(settings: LocalSettings): LocalSettings {
+  return serviceDocument(syncedSettings(settings));
+}
+
+/**
+ * Local settings with an exported file's settings merged in as a first pairing merges a
+ * service's (ADR 0040): every entry of both is kept, and the file's wins where both hold
+ * one. Vault connections and the demo provider's policy stay as they are.
+ */
+export function importedSettings(settings: LocalSettings, file: LocalSettings): LocalSettings {
+  const base = { service: emptySynced, local: emptySynced };
+  return applySynced(
+    settings,
+    mergeSyncedSettings(base, syncedSettings(settings), syncedSettings(file)),
+  );
+}
 
 export function createSettingsSync(options: {
   transport: Pick<ServiceTransport, "settings" | "saveSettings">;
@@ -430,15 +568,21 @@ export function createSettingsSync(options: {
     const { origin, credential, deviceId } = connection;
     // A wait that started for an earlier login does not shorten the wait for a later one.
     if (!(await options.deferred?.())) await release();
-    const stored = await loadBase(connection);
+    const loaded = await loadBase(connection);
     // A missing base would let an existing profile replace this device's entries.
-    if (stored === "unreadable") return "storage-unavailable";
+    if (loaded === "unreadable") return "storage-unavailable";
     const fetched = await transport.settings(origin, credential);
     timed?.(fetched.timing);
     if (fetched.kind === "rejected") return "rejected";
     if (fetched.kind === "failed") return fetched.error;
     if (fetched.kind !== "state") return "unexpected-response";
     let service: SyncSettingsState = fetched.state;
+    // An upload recorded as pending is the base once the service stored it, and is
+    // dropped otherwise. Every base written below starts from this one, so a committed
+    // upload is not forgotten by a later write that fails.
+    const stored = loaded && resolvePending(loaded, service.written);
+    /** The base last recorded, which a pending upload's record starts from. */
+    let recorded = stored;
     // Read only when an entry lacks a name: building the catalog restores the vaults.
     let catalog: Promise<VaultCatalog | undefined> | undefined;
     const serviceCopy = (state: SyncSettingsState) =>
@@ -446,36 +590,56 @@ export function createSettingsSync(options: {
     // A matching profile base preserves local edits. A new pairing or a profile switch
     // adopts the profile's own parts below (ADR 0076); only a profile no device has
     // written yet (`newProfile`, or the owner's first settings) starts from local policy.
-    // Bindings belong to the owner, not a profile, so they keep merging either way.
-    let base: SyncBase = { service: emptySynced, local: emptySynced };
-    let bindingBase = base;
+    // Bindings and detail links belong to the owner, not a profile, so they keep merging
+    // either way.
+    const base0: SyncBase = { service: emptySynced, local: emptySynced };
+    let base = base0;
+    let ownerBase = base;
     if (
       stored &&
       (service.revision > stored.revision ||
         (service.revision === stored.revision &&
           equalSynced(serviceCopy(service), syncedSettings(stored.settings))))
     ) {
-      bindingBase = {
+      ownerBase = {
         service: syncedSettings(stored.settings),
         local: syncedSettings(stored.local),
       };
-      if (stored.profileId === service.profileId) base = bindingBase;
+      if (stored.profileId === service.profileId) base = ownerBase;
     }
-    async function record(next: SyncBase) {
-      if (stale()) return;
-      // Best effort: a lost write leaves the older base, which merges to the same result
-      // unless this device edits the same entries again before the next sync.
-      await storage
-        .write({
-          version: 1,
-          origin,
-          deviceId,
-          profileId: service.profileId,
-          revision: service.revision,
-          settings: serviceDocument(next.service),
-          local: serviceDocument(next.local),
-        })
-        .catch(() => undefined);
+    /** Whether `next` was written; nothing is written for a device that is gone. */
+    async function save(next: SettingsBase): Promise<boolean> {
+      if (stale()) return false;
+      try {
+        await storage.write(next);
+        recorded = next;
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    // While a profile switch is not yet applied locally, a base keeps the profile it
+    // switches from, so the next sync still replaces the old profile's cache rather than
+    // merging it as edits (ADR 0076). Without a stored base there is none to keep.
+    const baseProfile = (): string | undefined =>
+      switchingProfile ? stored?.profileId : service.profileId;
+    /** Records `next` at the service's revision; false when it was not written. */
+    async function record(
+      next: SyncBase,
+      localWrite?: NonNullable<SettingsBase["localWrite"]>,
+    ): Promise<boolean> {
+      const profileId = baseProfile();
+      if (profileId === undefined) return false;
+      return save({
+        version: 1,
+        origin,
+        deviceId,
+        profileId,
+        revision: service.revision,
+        settings: serviceDocument(next.service),
+        local: serviceDocument(next.local),
+        ...(localWrite === undefined ? {} : { localWrite }),
+      });
     }
     // A profile switch must never reinterpret the previous profile cache as edits.
     const adopts = (state: SyncSettingsState) =>
@@ -493,12 +657,31 @@ export function createSettingsSync(options: {
         return "storage-unavailable";
       }
       const localSynced = syncedSettings(local.settings);
+      // The stored base's own local write landed before the base recorded after it was
+      // lost: the local copy holds the base's service copy and that write's profile, and
+      // only later local changes differ from it. A profile switch it made is applied.
+      // Older than the kept change history, it counts as not written.
+      const landed = stored?.localWrite;
+      if (
+        attempt === 0 &&
+        ownerBase !== base0 &&
+        landed !== undefined &&
+        local.changes?.some(
+          (change) => change.revision === landed.revision && change.cause === "service-sync",
+        )
+      ) {
+        ownerBase = { service: ownerBase.service, local: ownerBase.service };
+        switchingProfile = !service.newProfile && landed.profileId !== service.profileId;
+        base = landed.profileId === service.profileId ? ownerBase : base0;
+      }
       const serviceSynced = serviceCopy(service);
+      const ownerParts = mergeSyncedSettings(ownerBase, localSynced, serviceSynced);
       const mergedEntries = {
         ...(switchingProfile
           ? serviceSynced
           : mergeSyncedSettings(base, localSynced, serviceSynced)),
-        bindings: mergeSyncedSettings(bindingBase, localSynced, serviceSynced).bindings,
+        bindings: ownerParts.bindings,
+        detailLinks: ownerParts.detailLinks,
       };
       // Named after the merge, so the names are uploaded and written like any change.
       if (unnamed(mergedEntries)) catalog ??= options.catalog?.().catch(() => undefined);
@@ -513,11 +696,31 @@ export function createSettingsSync(options: {
         return "too-large";
       if (stale()) return "busy";
       if (upload) {
+        // Recorded before it is sent: an upload whose answer is lost may have committed.
+        const pendingProfile = baseProfile();
+        const writeId = newId();
+        if (
+          recorded &&
+          pendingProfile !== undefined &&
+          // oxlint-disable-next-line no-await-in-loop -- the upload waits for its record
+          !(await save({
+            ...recorded,
+            pending: {
+              writeId,
+              profileId: pendingProfile,
+              revision: service.revision + 1,
+              settings: serviceDocument(merged),
+              local: serviceDocument(localSynced),
+            },
+          }))
+        )
+          return stale() ? "busy" : "storage-unavailable";
         // oxlint-disable-next-line no-await-in-loop -- a conflict retries with its state
         const saved = await transport.saveSettings(origin, credential, {
           version: 1,
           expectedRevision: service.revision,
           settings: serviceDocument(merged),
+          writeId,
         });
         timed?.(saved.timing);
         if (saved.kind === "rejected") return "rejected";
@@ -535,9 +738,10 @@ export function createSettingsSync(options: {
         service = saved.state;
         // The service holds the merge; local settings still hold `localSynced`.
         base = { service: merged, local: localSynced };
-        bindingBase = base;
+        ownerBase = base;
+        // Best effort: the pending upload recorded above already makes this base.
         // oxlint-disable-next-line no-await-in-loop -- recorded before the local write
-        if (!switchingProfile) await record(base);
+        await record(base);
       }
       if (stale()) return "busy";
       if (!equalSynced(merged, localSynced)) {
@@ -545,6 +749,16 @@ export function createSettingsSync(options: {
         // oxlint-disable-next-line no-await-in-loop -- decides this attempt's write
         if (await holdForLogin(stale)) return "busy";
         if (stale()) return "busy";
+        // Recorded before the local write, which takes the next local revision: whether
+        // or not it lands, the next merge then sees which side changed since.
+        base = { service: merged, local: localSynced };
+        ownerBase = base;
+        if (
+          baseProfile() !== undefined &&
+          // oxlint-disable-next-line no-await-in-loop -- the local write waits for its record
+          !(await record(base, { revision: local.revision + 1, profileId: service.profileId }))
+        )
+          return stale() ? "busy" : "storage-unavailable";
         try {
           // oxlint-disable-next-line no-await-in-loop -- the write must follow the merge
           await settings.update(local.revision, "service-sync", (snapshot) => ({
@@ -558,6 +772,8 @@ export function createSettingsSync(options: {
         }
         options.applied?.();
       }
+      // Both sides now hold the merge, so a profile switch is applied.
+      switchingProfile = false;
       // oxlint-disable-next-line no-await-in-loop -- both sides now hold the merge
       await Promise.all([record({ service: merged, local: merged }), release()]);
       return "synced";
@@ -600,4 +816,18 @@ export function createSettingsSync(options: {
   }
 
   return { run, clear };
+}
+
+/**
+ * `stored` with its pending upload settled: the base that upload makes when `written`,
+ * the write ID of this device's last write the service stored, is the upload's, and the
+ * base before it otherwise.
+ */
+function resolvePending(stored: SettingsBase, written: string | undefined): SettingsBase {
+  const { pending, localWrite, ...rest } = stored;
+  if (!pending) return stored;
+  if (written !== pending.writeId)
+    return { ...rest, ...(localWrite === undefined ? {} : { localWrite }) };
+  const { writeId: _, ...made } = pending;
+  return { ...rest, ...made };
 }

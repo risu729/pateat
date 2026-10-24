@@ -1263,6 +1263,70 @@ export const loginChooserRecipeSchema = v.pipe(
     "A chooser branch cannot run after the click that leads to it",
   ),
 );
+/** How many clicks a logout recipe holds (ADR 0063): a switch runs at most 3 rounds. */
+export const MAX_LOGOUT_TARGETS = 3;
+/**
+ * What a logout recipe's click does (ADR 0063): `menu` opens a menu or panel that holds the
+ * logout control, `logout` signs the person out (a site may then ask to confirm), and
+ * `confirm` confirms a sign-out a dialog or page asks about.
+ */
+export const logoutPurposeSchema = v.picklist(["menu", "logout", "confirm"]);
+/**
+ * A logout click's locator: a control by `id`, `name`, `test-id`, its rendered text, or,
+ * for a control that shows no text of its own (an icon-only account menu, or a menu item),
+ * its `aria-label` or `title` (`accessible-name`); never `autocomplete` or `label`, which
+ * name only inputs.
+ */
+export const logoutTargetSchema = v.variant("by", [
+  loginAttributeTargetSchema.options[0],
+  loginAttributeTargetSchema.options[1],
+  loginTextTargetSchema,
+  loginAccessibleNameTargetSchema,
+]);
+/**
+ * A recipe whose only member is `logout` (ADR 0063): how a signed-in page of the origin
+ * signs out, for switching to another account from the toolbar popup. `path` is the page
+ * the first click is on; each target is a click on the path the page then shows, in order,
+ * such as the account menu, then "Sign out" in it, then the confirmation. It reads no vault
+ * field, starts no login and its path is never a path where a login recipe starts. The
+ * service keys it apart from a login, chooser or entry recipe of the same origin and path.
+ */
+export const loginLogoutRecipeSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    id: identifier,
+    revision,
+    origin: loginOriginSchema,
+    logout: v.strictObject({
+      path,
+      targets: v.pipe(
+        v.array(
+          v.strictObject({
+            kind: v.literal("click"),
+            path,
+            target: logoutTargetSchema,
+            purpose: logoutPurposeSchema,
+          }),
+        ),
+        v.minLength(1),
+        v.maxLength(MAX_LOGOUT_TARGETS),
+      ),
+    }),
+  }),
+  v.check(
+    ({ logout }) => logout.targets[0]!.path === logout.path,
+    "A logout recipe starts with a click on its path",
+  ),
+  v.check(
+    ({ logout }) =>
+      logout.targets.every(
+        (target, index) =>
+          target.purpose !== "confirm" ||
+          (index === logout.targets.length - 1 && logout.targets[index - 1]?.purpose === "logout"),
+      ),
+    "Only a last click right after the logout confirms it",
+  ),
+);
 /**
  * One layout of a stored chooser (ADR 0060): its list's buttons and the routes of its
  * branches, with its stable key, language and creation time. A list whose buttons are
@@ -1347,13 +1411,15 @@ export const loginChooserDocumentSchema = v.pipe(
 /**
  * Any recipe the service stores and devices sync: a login recipe with its layouts
  * (`loginRecipeDocumentSchema`, whose layouts every login runs as `loginRecipeSchema`), an
- * entry recipe (ADR 0031) or a chooser recipe (ADR 0028) with its layouts. Strict objects
- * keep them apart, so `entry` or `chooser` is never beside `layouts`.
+ * entry recipe (ADR 0031), a chooser recipe (ADR 0028) with its layouts, or a logout
+ * recipe (ADR 0063). Strict objects keep them apart, so `entry`, `chooser` or `logout` is
+ * never beside `layouts`.
  */
 export const storedLoginRecipeSchema = v.union([
   loginRecipeDocumentSchema,
   loginEntryRecipeSchema,
   loginChooserDocumentSchema,
+  loginLogoutRecipeSchema,
 ]);
 export const loginAccountSchema = v.strictObject({
   origin: loginOriginSchema,
@@ -1417,7 +1483,7 @@ export const loginOutcomeSchema = v.picklist([
   // another account; nothing was clicked (ADR 0028).
   "account-not-listed",
   // A watched login that never signed in (ADR 0027): the recipe's first step showed again
-  // in a new page, as after a code or an approval expired; not a logout (ADR 0021 D).
+  // in a new page, as after a code or an approval expired.
   // `challenge-abandoned` for a login stopped at `challenge`, `watch-abandoned` for one
   // whose result settled as unknown.
   "challenge-abandoned",
@@ -1477,6 +1543,9 @@ export type LoginEntryRecipe = v.InferOutput<typeof loginEntryRecipeSchema>;
 // Inferred from the members alone: the schema's own checks build `chooserRoute`, which
 // takes this type. Its checks change no member's type.
 export type LoginChooserRecipe = v.InferOutput<typeof chooserRecipeEntriesSchema>;
+export type LoginLogoutRecipe = v.InferOutput<typeof loginLogoutRecipeSchema>;
+export type LogoutPurpose = v.InferOutput<typeof logoutPurposeSchema>;
+export type LogoutTarget = LoginLogoutRecipe["logout"]["targets"][number];
 export type StoredLoginRecipe = v.InferOutput<typeof storedLoginRecipeSchema>;
 export type LoginLayout = v.InferOutput<typeof loginLayoutSchema>;
 export type LoginRecipeDocument = v.InferOutput<typeof loginRecipeDocumentSchema>;
@@ -1503,14 +1572,15 @@ export const isLoginRecipeDocument = (recipe: StoredLoginRecipe): recipe is Logi
 export const runsLogin = (recipe: Pick<LoginRecipe, "pageKind">): boolean =>
   recipe.pageKind === "sign-in";
 /**
- * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028)
- * or its layouts' first step's, which every layout shares (ADR 0060). The service keeps one
- * generated recipe per origin and start path either way. Each kind of stored recipe is
- * named, so a new kind has to say where it starts.
+ * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028),
+ * its logout's (ADR 0063) or its layouts' first step's, which every layout shares (ADR
+ * 0060). The service keeps one generated recipe per origin and start path either way.
+ * Each kind of stored recipe is named, so a new kind has to say where it starts.
  */
 export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
   if ("entry" in recipe) return recipe.entry.path;
   if ("chooser" in recipe) return recipe.chooser.path;
+  if ("logout" in recipe) return recipe.logout.path;
   if ("layouts" in recipe) return recipe.layouts[0]!.steps[0]!.path;
   const unknown: never = recipe;
   throw new Error(`Unknown stored recipe kind: ${JSON.stringify(unknown)}`);
@@ -1916,7 +1986,7 @@ function chooserClicks(recipe: LoginChooserRecipe): ChooserClick[] {
  * entry, its branches' for a chooser.
  */
 export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
-  if ("entry" in recipe) return [];
+  if ("entry" in recipe || "logout" in recipe) return [];
   const routes =
     "layouts" in recipe
       ? recipeLayouts(recipe)
@@ -2055,20 +2125,51 @@ export function recipeStartSteps(recipe: LoginRecipe): LoginStep[] {
  * The later steps a new login may start at when none of the recipe's first steps shows
  * (ADR 0049): each `password` variant's `fill` steps after its first, other than one that
  * fills only a TOTP code, which a running login's handler or route step answers. `index`
- * is the step's position in its variant.
+ * is the step's position in its variant. A `fill` step that fills the password together
+ * with an account identifier, first or later, may also start with its password alone
+ * (`partial`), as a site that remembers the account shows its sign-in form with the
+ * password input alone (Duolingo, 2026-10-24); `absent` lists the targets it drops, which
+ * must not show then.
  */
-export function laterStartSteps(
-  recipe: LoginRecipe,
-): { variant: number; index: number; step: Extract<LoginStep, { kind: "fill" }> }[] {
+export function laterStartSteps(recipe: LoginRecipe): {
+  variant: number;
+  index: number;
+  step: Extract<LoginStep, { kind: "fill" }>;
+  partial?: true;
+  absent?: LoginTarget[];
+}[] {
   return passwordVariants(recipe).flatMap((variant, variantIndex) =>
-    variant.steps.flatMap((step, index) =>
-      index > 0 &&
-      step.kind === "fill" &&
-      step.fields.some((field) => field.slot !== TOTP_HANDLER_SLOT)
-        ? [{ variant: variantIndex, index, step }]
-        : [],
-    ),
+    variant.steps.flatMap((step, index) => {
+      if (step.kind !== "fill") return [];
+      const whole =
+        index > 0 && step.fields.some((field) => field.slot !== TOTP_HANDLER_SLOT)
+          ? [{ variant: variantIndex, index, step }]
+          : [];
+      const partial = passwordOnly(step);
+      if (!partial) return whole;
+      const absent = step.fields
+        .filter((field) => field.slot !== "password")
+        .map((field) => field.target);
+      return [
+        ...whole,
+        { variant: variantIndex, index, step: partial, partial: true as const, absent },
+      ];
+    }),
   );
+}
+/**
+ * A `fill` step with only its password fields (ADR 0049), when it also fills an account
+ * identifier, such as the username or a branch and account number; otherwise undefined.
+ * A TOTP field it fills is dropped too.
+ */
+export function passwordOnly(
+  step: Extract<LoginStep, { kind: "fill" }>,
+): Extract<LoginStep, { kind: "fill" }> | undefined {
+  const kept = step.fields.filter((field) => field.slot === "password");
+  return kept.length > 0 &&
+    step.fields.some((field) => field.slot !== "password" && field.slot !== TOTP_HANDLER_SLOT)
+    ? { ...step, fields: kept }
+    : undefined;
 }
 /**
  * Whether the recipe offers the route. A passkey-only recipe has no password route

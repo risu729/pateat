@@ -50,7 +50,6 @@ async function open(
     rpId: "example.com",
     entries,
     replacesDefault: false,
-    again: false,
     signal,
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -97,7 +96,6 @@ describe("passkey chooser window", () => {
         rpId: "example.com",
         entries,
         replacesDefault: false,
-        again: false,
       },
     });
 
@@ -120,16 +118,16 @@ describe("passkey chooser window", () => {
     });
   });
 
-  it("shows one passkey with its default mark when asking again", async () => {
+  it("tells the window that the site is paused (ADR 0062)", async () => {
     const { browser } = fakeBrowser();
     const chooser = createPasskeyChooser(browser);
     void chooser.choose({
       tabId: 7,
       origin: "https://login.example.com",
       rpId: "example.com",
-      entries: [{ item: "Work", preferred: true }],
+      entries: [entries[0]!],
       replacesDefault: true,
-      again: true,
+      paused: true,
       signal: new AbortController().signal,
     });
     await vi.waitFor(() => expect(browser.createWindow).toHaveBeenCalledOnce());
@@ -145,35 +143,11 @@ describe("passkey chooser window", () => {
       view: {
         origin: "https://login.example.com",
         rpId: "example.com",
-        entries: [{ item: "Work", preferred: true }],
+        entries: [entries[0]],
         replacesDefault: true,
-        again: true,
+        paused: true,
       },
     });
-  });
-
-  it("says when asking again follows a logout clicked in the tab", async () => {
-    const { browser } = fakeBrowser();
-    const chooser = createPasskeyChooser(browser);
-    void chooser.choose({
-      tabId: 7,
-      origin: "https://login.example.com",
-      rpId: "example.com",
-      entries: [{ item: "Work", preferred: true }],
-      replacesDefault: true,
-      again: true,
-      loggedOut: true,
-      signal: new AbortController().signal,
-    });
-    await vi.waitFor(() => expect(browser.createWindow).toHaveBeenCalledOnce());
-    const url = openedUrl(browser);
-    const request = new URL(url).searchParams.get("request");
-    expect(
-      await chooser.handle(
-        { version: 1, type: "passkey-chooser.load", request },
-        { url, tab: { windowId: 41 } },
-      ),
-    ).toMatchObject({ ok: true, view: { again: true, loggedOut: true } });
   });
 
   it("refuses an index outside the list", async () => {
@@ -341,7 +315,6 @@ describe("passkey chooser window", () => {
         rpId: "example.com",
         entries,
         replacesDefault: false,
-        again: false,
         signal: new AbortController().signal,
       });
       await vi.waitFor(() => expect(browser.createWindow).toHaveBeenCalledOnce());
@@ -375,7 +348,6 @@ describe("master password re-prompt in the chooser window", () => {
       entries: [{ item: "Work", reprompt: true }, { item: "Home" }],
       ...(verify ? { verify } : {}),
       replacesDefault: false,
-      again: false,
       ...(purpose ? { purpose } : {}),
       signal: new AbortController().signal,
     });

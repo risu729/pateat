@@ -40,10 +40,6 @@ export const PROBLEM_FIELD_KINDS = {
         pseudonym("origin").test(value),
     ),
   ),
-  rpId: v.pipe(
-    v.string(),
-    v.check((value) => /^[a-z0-9.-]{1,253}$/u.test(value) || pseudonym("rp").test(value)),
-  ),
   stack: v.pipe(v.string(), v.regex(/^[\w.-]+\.js:\d+:\d+(?: [\w.-]+\.js:\d+:\d+){0,4}$/u)),
   path: v.pipe(
     v.string(),
@@ -56,8 +52,32 @@ export const PROBLEM_FIELD_KINDS = {
 export type ProblemFieldKind = keyof typeof PROBLEM_FIELD_KINDS;
 
 /**
+ * Local log events that never leave the device (ADR 0066): passkey reports, whose RP IDs
+ * name the sites a passkey was asked for or made on. {@link PROBLEM_EVENT_FIELDS} lists
+ * none of them, so the service refuses them too.
+ */
+export const LOCAL_ONLY_EVENTS = ["passkey.request", "passkey.create"] as const;
+/**
+ * The flag each line of a fill-only login of a tab that asks (ADR 0062 B) carries, which keeps
+ * the line on the device (ADR 0066). No event of {@link PROBLEM_EVENT_FIELDS} carries it,
+ * so the service refuses such a line too.
+ */
+export const LOCAL_ONLY_FLAG = "fillOnly";
+
+/** Whether a local log line stays on the device whatever its level (ADR 0066). */
+export function problemLocalOnly(
+  event: string,
+  fields: Readonly<Record<string, unknown>>,
+): boolean {
+  return (
+    (LOCAL_ONLY_EVENTS as readonly string[]).includes(event) || fields[LOCAL_ONLY_FLAG] === true
+  );
+}
+
+/**
  * The fields each local log event may carry to the service, by kind. The extension's test
- * holds it equal to its log's events, less item and connection pseudonyms.
+ * holds it equal to its log's events, less {@link LOCAL_ONLY_EVENTS}, item and connection
+ * pseudonyms and {@link LOCAL_ONLY_FLAG}.
  */
 export const PROBLEM_EVENT_FIELDS = {
   "runtime.started": { build: "revision" },
@@ -202,8 +222,8 @@ export const PROBLEM_EVENT_FIELDS = {
     variant: "count",
     account: "code",
     candidates: "count",
-    fillOnly: "flag",
     startStep: "count",
+    startPartial: "flag",
     list: "code",
     listUsername: "code",
     listEntries: "count",
@@ -217,21 +237,36 @@ export const PROBLEM_EVENT_FIELDS = {
     listContinue: "code",
     url: "path",
   },
-  "login.logout": {
+  "login.switch": {
     origin: "origin",
+    stage: "code",
+    outcome: "code",
+    reason: "code",
+    detail: "code",
+    purpose: "code",
+    source: "code",
+    learned: "flag",
+    clicks: "count",
     recipe: "recipe",
     recipeRevision: "count",
-    rejected: "flag",
-    clicked: "flag",
+    makeDefault: "flag",
     url: "path",
   },
   "login.ask-ended": { origin: "origin", ask: "code", cause: "code", elsewhere: "flag" },
   "login.choice": { origin: "origin", outcome: "code", url: "path" },
+  "login.pause": {
+    origin: "origin",
+    action: "code",
+    length: "code",
+    incognito: "flag",
+    url: "path",
+  },
   "login.popup": {
     origin: "origin",
     choice: "code",
     candidates: "count",
-    logout: "code",
+    ask: "code",
+    paused: "flag",
     held: "flag",
     rejectedElsewhere: "flag",
     recordState: "code",
@@ -322,39 +357,6 @@ export const PROBLEM_EVENT_FIELDS = {
     reason: "code",
     url: "path",
   },
-  "passkey.request": {
-    origin: "origin",
-    rpId: "rpId",
-    outcome: "code",
-    reason: "code",
-    allowCredentials: "count",
-    stored: "count",
-    accepted: "count",
-    siteDefault: "count",
-    siteDefaultAccepted: "count",
-    siteDefaultItem: "code",
-    complete: "flag",
-    chooser: "code",
-    signedBefore: "flag",
-    logoutClicked: "flag",
-    mediation: "code",
-    uiMode: "code",
-    duringLogin: "flag",
-    answerFailed: "code",
-    cause: "code",
-    invalid: "code",
-    invalidLength: "count",
-  },
-  "passkey.create": {
-    origin: "origin",
-    rpId: "rpId",
-    outcome: "code",
-    reason: "code",
-    mediation: "code",
-    excludeCredentials: "count",
-    listed: "flag",
-    sinceSignIn: "count",
-  },
   "error.unhandled": { source: "code", name: "name", message: "code", stack: "stack" },
   "log.dropped": { origin: "origin", dropped: "code", count: "count" },
   "log.debug": { enabled: "flag", until: "time" },
@@ -432,6 +434,7 @@ export const problemEntrySchema = v.pipe(
     fields: problemFieldsSchema,
   }),
   v.check((entry) => problemFieldsAllowed(entry.event, entry.fields)),
+  v.check((entry) => !problemLocalOnly(entry.event, entry.fields)),
   v.check((entry) => entry.level !== "info" || problemInfoLine(entry.event, entry.fields)),
 );
 /**

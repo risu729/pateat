@@ -108,6 +108,8 @@ export const detailFillResponseSchema = v.variant("ok", [
       "not-filled",
       /** The page shows another account than the login item's. */
       "other-account",
+      /** The item has Bitwarden's re-prompt and its master password was not entered. */
+      "no-master-password",
     ]),
   }),
 ]);
@@ -166,6 +168,8 @@ export function detailFillFailure(
     unavailable: () => t("Pateat cannot read that field now. Unlock the vault and try again."),
     "not-filled": () => t("The page did not accept the value."),
     "other-account": () => t("This page shows another account, so nothing was filled."),
+    "no-master-password": () =>
+      t("The master password was not entered, so nothing was read or filled."),
   }[reason]();
 }
 

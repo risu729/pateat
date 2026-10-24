@@ -73,7 +73,7 @@ describe("a single-page sign-in that shows its next step in place (ADR 0049)", (
     history.replaceState(null, "", "/signin");
     document.body.innerHTML = emailPage;
     // The first announcement learns the starts; the email step's login then runs and ends,
-    // as a fill-only login after a logout does, and the page announces again with no start.
+    // as a login stopped there does, and the page announces again with no start.
     replies.push(refused, () => ({ ok: true }), refused);
     uninstall = installLoginContent();
     await vi.advanceTimersByTimeAsync(200);
@@ -106,6 +106,87 @@ describe("a single-page sign-in that shows its next step in place (ADR 0049)", (
     document.querySelector("label")!.append(" ");
     await vi.advanceTimersByTimeAsync(300);
     expect(announced()).toEqual(["/signin/password"]);
+  });
+});
+
+describe("a one-page form shown with its password input alone (ADR 0049)", () => {
+  const partialStarts = [
+    {
+      path: "/remembered",
+      require: "writable",
+      targets: [{ by: "name", value: "password" }],
+      later: true,
+      absent: [{ by: "name", value: "identifier" }],
+    },
+  ];
+  const password = `<label>Password <input type="password" name="password"
+    autocomplete="current-password"></label>`;
+  /** The paths announced as ready on a page with `form` inside its form and `outside` after it. */
+  async function announcedOn(form: string, outside = "") {
+    history.replaceState(null, "", "/remembered");
+    document.body.innerHTML = `<main><h1>Welcome back</h1><form>${form}
+      <button type="submit">Log in</button></form>${outside}</main>`;
+    replies.push(() => ({ ok: false, reason: "form-not-ready", starts: partialStarts }));
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(300);
+    return announced();
+  }
+
+  it("announces the password input alone, beside the account the site shows", async () => {
+    expect(await announcedOn(`<p>me@example.com</p>${password}`)).toEqual(["/remembered"]);
+  });
+
+  it("does not announce it while the input the step drops shows writable", async () => {
+    expect(
+      await announcedOn(password, `<input type="text" name="identifier" aria-label="Email">`),
+    ).toEqual([]);
+  });
+
+  it("does not announce it while another text input shares the password's form", async () => {
+    expect(
+      await announcedOn(`<input type="text" name="login" aria-label="Email">${password}`),
+    ).toEqual([]);
+  });
+
+  it("announces it beside a hidden or read-only input the step drops", async () => {
+    expect(
+      await announcedOn(`<input type="hidden" name="identifier" value="me@example.com">
+        <input type="text" name="identifier" readonly value="me@example.com">${password}`),
+    ).toEqual(["/remembered"]);
+  });
+
+  it("announces a password input outside any form beside a page's search box", async () => {
+    history.replaceState(null, "", "/remembered");
+    document.body.innerHTML = `<header><input type="search" aria-label="Search">
+      <input type="text" name="q" aria-label="Search courses"></header>
+      <main><p>me@example.com</p>${password}<button>Log in</button></main>`;
+    replies.push(() => ({ ok: false, reason: "form-not-ready", starts: partialStarts }));
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(announced()).toEqual(["/remembered"]);
+  });
+
+  it("does not announce it on a form marked for a new password", async () => {
+    expect(
+      await announcedOn(`<input type="password" name="password" autocomplete="new-password"
+        aria-label="Password">`),
+    ).toEqual([]);
+    uninstall?.();
+    sent.length = 0;
+    expect(
+      await announcedOn(`${password}<input type="password" name="confirm"
+        autocomplete="new-password" aria-label="Confirm password">`),
+    ).toEqual([]);
+    // Without a form, a new-password input elsewhere outside a form stops it too.
+    uninstall?.();
+    sent.length = 0;
+    history.replaceState(null, "", "/remembered");
+    document.body.innerHTML = `<main>${password}<input type="password" name="confirm"
+      autocomplete="new-password" aria-label="Confirm password"></main>`;
+    replies.push(() => ({ ok: false, reason: "form-not-ready", starts: partialStarts }));
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(announced()).toEqual([]);
   });
 });
 

@@ -463,6 +463,7 @@ export function createDiagnosticsLog(options: {
             item: report.itemId,
             fillOnly: report.fillOnly,
             startStep: report.startStep,
+            startPartial: report.startPartial,
             list: report.click,
             listUsername: report.listMiss?.username,
             listEntries: report.listMiss?.entries,
@@ -474,19 +475,6 @@ export function createDiagnosticsLog(options: {
             listNamed: report.listMiss?.named,
             listOther: report.listMiss?.other,
             listContinue: report.listMiss?.continue,
-          },
-          { source },
-        );
-      else if (report.type === "logout")
-        void logger.log(
-          "login.logout",
-          {
-            origin: report.origin,
-            recipe: report.recipeId,
-            recipeRevision: report.recipeRevision,
-            rejected: report.rejected,
-            clicked: report.clicked,
-            url: report.url,
           },
           { source },
         );
@@ -522,7 +510,8 @@ export function createDiagnosticsLog(options: {
             origin: report.origin,
             choice: report.choice,
             candidates: report.candidates,
-            logout: report.logout,
+            ask: report.ask,
+            paused: report.paused,
             held: report.held,
             rejectedElsewhere: report.rejectedElsewhere,
             recordState: report.recordState,
@@ -556,6 +545,7 @@ export function createDiagnosticsLog(options: {
             state: report.state,
             step: report.stepIndex,
             unsubmitted: report.unsubmitted,
+            fillOnly: report.fillOnly,
             name: report.name,
             // Engine messages can quote input; only Pateat's own codes are kept.
             message:
@@ -753,6 +743,41 @@ export function createDiagnosticsLog(options: {
                   : "info",
           },
         );
+      else if (report.type === "switch")
+        void logger.log(
+          "login.switch",
+          {
+            origin: report.origin,
+            url: report.url,
+            stage: report.stage,
+            outcome: report.outcome,
+            reason: report.reason,
+            detail: report.detail,
+            purpose: report.purpose,
+            source: report.source,
+            learned: report.learned,
+            clicks: report.clicks,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            makeDefault: report.makeDefault,
+          },
+          // A switch that could not log out is a problem the person sees in the popup too.
+          { source, level: report.outcome === "failed" ? "warn" : "info" },
+        );
+      else if (report.type === "pause")
+        // The person paused or resumed automatic login of a site, or a login picked in the
+        // popup ended its pause (ADR 0062).
+        void logger.log(
+          "login.pause",
+          {
+            origin: report.origin,
+            action: report.action,
+            length: report.length,
+            incognito: report.incognito,
+            url: report.url,
+          },
+          { source },
+        );
       else if (report.type === "repair")
         void logger.log(
           "recipe.repair",
@@ -817,6 +842,7 @@ export function createDiagnosticsLog(options: {
             settled: report.settled,
             unconfirmed: report.unconfirmed,
             unsubmitted: report.unsubmitted,
+            fillOnly: report.fillOnly,
             routeChange: report.routeChange,
             // A switch of layouts names both (ADR 0060).
             layout: report.layoutFrom === undefined ? undefined : report.branch,
@@ -828,8 +854,8 @@ export function createDiagnosticsLog(options: {
             source,
             // A login that stopped, or whose result settled as unknown, did not finish. A resumed
             // attempt that changed nothing repeats what was already logged.
-            // A fill-only login after a logout ends by design without pressing anything. A
-            // route change is kept for the log too (ADR 0034).
+            // A fill-only login while its tab asks for an account ends by design without
+            // pressing anything. A route change is kept for the log too (ADR 0034).
             level: report.repeat
               ? "debug"
               : (report.state === "blocked" &&

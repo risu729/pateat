@@ -6,7 +6,6 @@ import {
   normalizeHostname,
   parseSiteUrl,
   resolveSiteAccount,
-  siteAccess,
   siteDefaultConnection,
   type LocalSettings,
   type SiteAccountsResponse,
@@ -16,16 +15,18 @@ import {
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import {
-  Ban,
   CircleCheck,
   Clock,
   Info,
   LockKeyhole,
+  Pause,
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as v from "valibot";
+import { pauseSite } from "../login/pause";
+import { unavailableReason } from "./unavailable-reason";
 import { Button } from "./button";
 import {
   Badge,
@@ -54,29 +55,6 @@ const originSchema = v.pipe(
   }, "Enter an origin such as https://bank.example, without a path or trailing slash."),
   v.transform((value) => new URL(value).origin),
 );
-
-function unavailableReason(reason: string): string {
-  const descriptions: Record<string, string> = {
-    "invalid-url": "The destination is invalid.",
-    "site-excluded": "This site is excluded.",
-    "site-not-allowed": "This site is not an allowed site, so this default is not used.",
-    "default-not-set": "No default account is set.",
-    "item-origin-mismatch": "This account does not match the exact origin.",
-    "connection-missing": "The vault connection is unavailable.",
-    "account-ambiguous":
-      "This vault account is connected more than once, or its user ID has settings for another server.",
-    "vault-unavailable": "The vault is locked or unavailable.",
-    "connection-disabled": "The vault connection is turned off.",
-    "item-missing": "This account is no longer in its vault.",
-    "item-excluded": "This account is excluded.",
-    "item-not-selected": "This account is outside the selected groups and items.",
-    "review-required": "This account's custom fields need review, or its vault needs a sync.",
-    "fields-excluded": "All fields in this account are excluded.",
-  };
-  return Object.hasOwn(descriptions, reason)
-    ? (descriptions[reason] ?? "This account is unavailable.")
-    : "This account is unavailable.";
-}
 
 type SiteAccountOption = {
   connectionId: string;
@@ -546,10 +524,8 @@ export function SitePolicy({
   else if (accountsPending) accountNote = t("Finding the vault items that match this origin…");
   else if (accounts.isError || (accounts.data && !accounts.data.ok))
     accountNote =
-      accounts.data && !accounts.data.ok && accounts.data.reason === "site-excluded"
-        ? siteAccess(draft, accountOrigin) === "not-allowed"
-          ? t("This site is not an allowed site.")
-          : t("This site is excluded.")
+      accounts.data?.ok === false && accounts.data.reason === "site-not-allowed"
+        ? t("This site is not an allowed site.")
         : t("The matching accounts could not be listed.");
   else if (!matchedCount)
     accountNote = t(
@@ -631,7 +607,7 @@ export function SitePolicy({
       })),
       { value: NO_DEFAULT, text: t("No default") },
     ];
-    const hostname = hostOf(origin);
+    const site = pauseSite(origin) ?? hostOf(origin);
     return (
       <SiteRow
         key={`origin ${origin}`}
@@ -664,19 +640,23 @@ export function SitePolicy({
             <Button
               type="button"
               variant="outline"
-              aria-label={t("Exclude {{origin}}, all schemes and ports", { origin })}
+              aria-label={t(
+                "Pause automatic login on {{site}} and its subdomains, which includes {{origin}}",
+                { site, origin },
+              )}
               onClick={() => {
+                // As the popup pauses it: the registrable site with its subdomains (ADR 0062).
                 edit((settings) => {
                   settings.excludedSites = settings.excludedSites.filter(
-                    (entry) => entry.hostname !== hostname,
+                    (entry) => entry.hostname !== site,
                   );
-                  settings.excludedSites.push({ hostname, includeSubdomains: false });
+                  settings.excludedSites.push({ hostname: site, includeSubdomains: true });
                 });
                 originInput.current?.focus();
               }}
             >
-              <Ban aria-hidden size={16} strokeWidth={2} />
-              {t("Exclude")}
+              <Pause aria-hidden size={16} strokeWidth={2} />
+              {t("Pause")}
             </Button>
           </>
         }
@@ -684,7 +664,10 @@ export function SitePolicy({
     );
   }
 
-  /** An exclusion rule, with the defaults it keeps from being used. */
+  /**
+   * An exclusion rule, which pauses automatic login of its hosts until it is removed
+   * (ADR 0062), with the defaults it keeps from being used by themselves.
+   */
   function ruleRow(rule: ExcludedSite) {
     const name = ruleName(rule);
     const kept = draft.siteDefaults.filter(
@@ -695,8 +678,8 @@ export function SitePolicy({
         key={`rule ${rule.hostname}`}
         title={name}
         badges={
-          <Badge muted icon={Ban}>
-            {t("Excluded")}
+          <Badge muted icon={Pause}>
+            {t("Paused")}
           </Badge>
         }
         lines={kept.map((entry) => (
@@ -708,10 +691,8 @@ export function SitePolicy({
                   tone: "idle",
                   icon: Info,
                   text: t(
-                    "The default for {{origin}} is kept but not used while the site is excluded.",
-                    {
-                      origin: entry.origin,
-                    },
+                    "The default for {{origin}} is kept; while the site is paused it is only listed first in the popup.",
+                    { origin: entry.origin },
                   ),
                 },
               ]}
@@ -733,7 +714,7 @@ export function SitePolicy({
           <Button
             type="button"
             variant="outline"
-            aria-label={t("Remove exclusion for {{name}}", { name })}
+            aria-label={t("Resume {{name}}", { name })}
             onClick={() => {
               edit((settings) => {
                 settings.excludedSites = settings.excludedSites.filter(
@@ -743,7 +724,7 @@ export function SitePolicy({
               originInput.current?.focus();
             }}
           >
-            {t("Remove exclusion")}
+            {t("Resume")}
           </Button>
         }
       />
@@ -797,7 +778,7 @@ export function SitePolicy({
     })),
     // A default on a site the allowed sites leave out is listed, and says it is not used.
     ...draft.siteDefaults
-      .filter((entry) => !ruleFor(draft.excludedSites, entry.origin))
+      .filter((entry) => !isSiteExcluded(draft, entry.origin))
       .map((entry) => ({
         hostname: hostOf(entry.origin),
         order: `1 ${entry.origin}`,
@@ -814,7 +795,7 @@ export function SitePolicy({
       {!rows.length && (
         <StatusLines
           muted
-          lines={[{ tone: "idle", icon: Info, text: t("No excluded sites or default accounts") }]}
+          lines={[{ tone: "idle", icon: Info, text: t("No paused sites or default accounts") }]}
         />
       )}
       <form
@@ -950,8 +931,8 @@ export function SitePolicy({
             variant="outline"
             onClick={() => addEntered("excludedSites")}
           >
-            <Ban aria-hidden size={16} strokeWidth={2} />
-            {t("Exclude site")}
+            <Pause aria-hidden size={16} strokeWidth={2} />
+            {t("Pause site")}
           </Button>
           <Button
             id={`${idPrefix}add-reprompt-site`}
@@ -967,7 +948,20 @@ export function SitePolicy({
       <StatusLines
         muted
         lines={[
-          { tone: "idle", icon: Ban, text: t("Excluding a site covers every scheme and port.") },
+          {
+            tone: "idle",
+            icon: Pause,
+            text: t(
+              "A paused site stays paused on every scheme and port, on all your devices, until it is resumed.",
+            ),
+          },
+          {
+            tone: "idle",
+            icon: Info,
+            text: t(
+              "On a paused site Pateat logs in only with an account picked in the toolbar popup.",
+            ),
+          },
           {
             tone: "idle",
             icon: LockKeyhole,
