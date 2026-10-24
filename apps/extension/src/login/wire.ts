@@ -229,12 +229,6 @@ export const unofferedReasons = [
   "frame",
 ] as const;
 /**
- * What the first steps watched on a path missed after the step wait (ADR 0041): the
- * targets that match no element, several, or one that is not rendered, not those that
- * match one shown element that is not usable yet, and the HTTP status of the document's
- * own load when the browser reports one.
- */
-/**
  * Why a later step a login may start at did not (ADR 0049), in the order checked:
  * `target`, a target matches no unique usable element; `identifier`, the page shows
  * another identifier input; for a step started with its password alone, `absent`, a target
@@ -255,6 +249,12 @@ const shownLaterSchema = v.strictObject({
   miss: v.picklist(LATER_MISSES),
 });
 export type ShownLater = v.InferOutput<typeof shownLaterSchema>;
+/**
+ * What the first steps watched on a path missed after the step wait (ADR 0041): the
+ * targets that match no element, several, or one that is not rendered, not those that
+ * match one shown element that is not usable yet, and the HTTP status of the document's
+ * own load when the browser reports one.
+ */
 export const startMissSchema = v.strictObject({
   missing: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
   /**

@@ -304,7 +304,8 @@ export const LOG_EVENTS = {
       detail: "code",
       candidates: "count",
       // For `not-started` with `confirm-unsupported`: the recipe generated as a
-      // verification that starts on the page, and its kind (ADR 0035).
+      // verification that starts on the page, and its kind (ADR 0035); with
+      // `first-step-missing`, the recipe whose first step missed.
       recipe: "recipe",
       recipeRevision: "count",
       pageKind: "code",
@@ -314,7 +315,7 @@ export const LOG_EVENTS = {
       e1: "flag",
       e2: "flag",
       previousUrl: "url",
-      // For `first-step-missing`: the later steps on the page's path, how many start with
+      // For `not-started`: the later steps watched on the page's path, how many start with
       // their password alone, and the furthest check they reached (ADR 0049).
       laterSteps: "count",
       laterPartial: "count",

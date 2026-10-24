@@ -2013,7 +2013,8 @@ export type LoginReport = (
       candidates?: number;
       /**
        * For `not-started` with `confirm-unsupported`: the recipe generated as `confirm` or
-       * `unclear` that starts on the page, and its kind (ADR 0035).
+       * `unclear` that starts on the page, and its kind (ADR 0035); with
+       * `first-step-missing`, the recipe whose first step missed.
        */
       recipeId?: string;
       recipeRevision?: number;
@@ -2031,9 +2032,9 @@ export type LoginReport = (
       e2?: boolean;
       previousUrl?: string;
       /**
-       * For `not-started` with `first-step-missing`: the recipe whose first step missed, and
-       * the later steps on the page's path (ADR 0049): how many, how many with their password
-       * alone, and the furthest check they reached (`LaterMiss`).
+       * For `not-started`: the later steps watched on the page's path (ADR 0049), how many,
+       * how many with their password alone, and the furthest check they reached
+       * (`LaterMiss`).
        */
       laterSteps?: number;
       laterPartial?: number;
