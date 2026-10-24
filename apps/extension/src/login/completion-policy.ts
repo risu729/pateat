@@ -36,6 +36,7 @@ export function undecidedCandidate({
   stopAt,
   sent = false,
   inputLeftOut = false,
+  answered = false,
 }: {
   verdict: JudgeVerdict;
   reason?: string | undefined;
@@ -45,6 +46,11 @@ export function undecidedCandidate({
   stopAt?: number | undefined;
   sent?: boolean;
   inputLeftOut?: boolean;
+  /**
+   * On the passkey route: whether Pateat's answer to the passkey request of its step went
+   * back, without which an undecided page never completes it.
+   */
+  answered?: boolean;
 }): { completes: boolean; stopHeld: boolean } {
   const optional = verdict === "optional";
   const undecided = verdict === "unclear";
@@ -60,7 +66,13 @@ export function undecidedCandidate({
     };
   // The `passkey` route completes as the `password` route does (owner, 2026-10-24 22:45
   // UTC, ADR 0029 amendment of 2026-10-24).
-  const completes = undecided && quiet && !watched && UNDECIDED_COMPLETES.has(reason) && !stopHeld;
+  const completes =
+    undecided &&
+    quiet &&
+    !watched &&
+    (route !== "passkey" || answered) &&
+    UNDECIDED_COMPLETES.has(reason) &&
+    !stopHeld;
   return { completes, stopHeld };
 }
 

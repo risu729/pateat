@@ -215,19 +215,19 @@ Delivery 1 (2026-10-12) reads the page once, when the attempt's result would set
 unknown today (3 seconds after a submission, 10 after an advance; after an answer to the
 page's own passkey request, not before 15 seconds pass while the page is on its start
 path, or two minutes while it shows nothing to describe there:
-[ADR 0034](0034-answer-page-passkey-requests.md)), just before the judge
-is asked; the re-check comes with delivery 2. It writes one `login.state` entry with the
-signs that show and the ADR's outcome ([architecture](../architecture.md)). A login in a
-frame is not read. The sign-in page's URL for E3 is the URL of the document the
-attempt's first fill ran in, compared with the document's current path, so a single-page
-site's route change after the submission counts. It and S5's times are kept in the
-background's memory, so a worker restart during the login leaves E3 and S5 unread; a
-login with no fill, as on the `passkey` route, has no E3. For S5 the passkey bridge
-tells the login of each request of a top document that is not for conditional mediation,
-whether Pateat answers it or leaves it to the browser; one at or after the time the step
-was sent to the page counts; after a step that asks for a passkey itself (the
-`passkey` route, or a `passkey` handler's click), only one after Pateat's answer to it
-counts (amendment of 2026-10-24 below). S2 counts only shown password inputs
+[ADR 0034](0034-answer-page-passkey-requests.md)), just before the judge is asked; the
+re-check comes with delivery 2. It writes one `login.state` entry with the signs that
+show and the ADR's outcome ([architecture](../architecture.md)). A login in a frame is
+not read. The sign-in page's URL for E3 is the URL of the document the attempt's first
+fill ran in, compared with the document's current path, so a single-page site's route
+change after the submission counts. It and S5's times are kept in the background's
+memory, so a worker restart during the login leaves E3 and S5 unread; a login with no
+fill, as on the `passkey` route, has no E3. For S5 the passkey bridge tells the login of
+each request of a top document that is not for conditional mediation, whether Pateat
+answers it or leaves it to the browser; one at or after the time the step was sent to
+the page counts; after a step that asks for a passkey itself (the `passkey` route, or a
+`passkey` handler's click), one that Pateat's answer followed does not count, since it
+is the step's own (amendment of 2026-10-24 below). S2 counts only shown password inputs
 for the two-or-more rule, and inputs outside any form as one form. F1 reads the step's
 sign-in inputs (the ones it filled, or those of the form it clicked in); F2 reads alerts
 anywhere and status regions inside a sign-in input's form or named by one, as the fill
@@ -619,7 +619,8 @@ by the owner:
   service logs the refusal's code (`Signed-in marker not learned`).
 - A path kept `signed-in` without a marker is not judged again for that revision and
   prompt version: later logins get `judged-signed-in`, which completes a `password`
-  login on a quiet page but never a watched login, a `passkey` login or a stop.
+  login on a quiet page but never a watched login, a `passkey` login (until the
+  amendment below) or a stop.
 
 ## Amendment: the passkey route reads the sign-in state (2026-10-24)
 
@@ -641,8 +642,15 @@ reviewed by a subagent against the code and the ADRs):
   never for a watched login or a stop. Every other result still ends `challenge`, as ADR
   0027 says.
 - S5 counts on this route too: after a step that asks for a passkey itself, a request of
-  the top document after Pateat's answer to it (as the bridge reports both) is the site
-  asking for another passkey, so the page is `continuing` and never completes.
+  the top document that Pateat has not answered since (as the bridge reports both) is
+  the site asking for a passkey still, so the page is `continuing` and never completes.
+- The agent's choices, from a review of the change: an undecided answer completes the
+  route only once Pateat's answer to the passkey request of its step went back, since a
+  quiet page before it may be the sign-in page still. A confirmed `signed-in` reading
+  completes a watched login on this route too, as on the `password` route. S5 skips the
+  answered request of a `passkey` handler's click on the `password` route as well, so
+  such a login may now complete on its signed-in page; before, that request alone made
+  the page `continuing`.
 - The agent's choices, not part of the card: a confirmed failure next to the sign-in
   fields (`rejected`) still rejects no credential on this route and goes on as before;
   an `optional` page (ADR 0065) still never completes it, as no password or code was

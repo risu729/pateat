@@ -23355,15 +23355,44 @@ describe("the start page's passkey route (ADR 0027)", () => {
       expect(fills()).toBe(0);
     });
 
-    it("completes a quiet page the judge found signed in before", async () => {
+    it("completes a quiet page the judge found signed in before, after Pateat's answer", async () => {
+      vi.useFakeTimers();
+      fake.state.signs = quiet;
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind !== "click" || step.target.value !== button.value) return;
+        fake.state.observedPath = "/elsewhere";
+        fake.state.present = new Set();
+        fake.state.extracted = { "signed-in": elsewhere };
+        h.login.passkeyRequested(1, origin);
+        vi.setSystemTime(Date.now() + 1);
+        h.login.passkeyAnswered(1, origin, "login.example");
+      };
+      const service = generation(async () => ({ verdict: "unclear", reason: "judged-signed-in" }));
+      const { h } = start(routed, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated", "authenticated"), 20_000);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves a quiet page undecided when no passkey answer went back", async () => {
       vi.useFakeTimers();
       onClick({ [button.value]: { path: "/elsewhere", present: [], extracted: elsewhere } });
       fake.state.signs = quiet;
       const service = generation(async () => ({ verdict: "unclear", reason: "judged-signed-in" }));
       const { h } = start(routed, { generation: service });
       expect(await h.hello()).toEqual({ ok: true });
-      await until(settled("authenticated", "authenticated"), 20_000);
-      expect(service.judge).toHaveBeenCalledTimes(1);
+      await until(settled("blocked", "challenge"), 20_000);
+    });
+
+    it("ends as a challenge on a confirmed rejection, never trying the password", async () => {
+      vi.useFakeTimers();
+      onClick({ [button.value]: { path: "/elsewhere", present: [], extracted: elsewhere } });
+      fake.state.signs = { ...quiet, invalid: true };
+      const { h } = start(routed, { generation: generation() });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("blocked", "challenge"), 20_000);
+      expect(fills()).toBe(0);
     });
 
     it("ends as a challenge when the site asks for a passkey again after the answer", async () => {

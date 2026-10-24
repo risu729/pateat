@@ -70,9 +70,14 @@ describe("undecidedCandidate", () => {
       completes: false,
       stopHeld: false,
     });
-    // The passkey route completes as the password route does (owner, 2026-10-24).
-    expect(undecidedCandidate({ ...candidate, reason, route: "passkey" })).toEqual({
+    // The passkey route completes as the password route does (owner, 2026-10-24), once
+    // Pateat's answer to its step's passkey request went back.
+    expect(undecidedCandidate({ ...candidate, reason, route: "passkey", answered: true })).toEqual({
       completes: true,
+      stopHeld: false,
+    });
+    expect(undecidedCandidate({ ...candidate, reason, route: "passkey" })).toEqual({
+      completes: false,
       stopHeld: false,
     });
     expect(

@@ -2842,8 +2842,9 @@ export function createLoginRuntime(
   /**
    * By tab: when the attempt last delivered an effect step, the document it ran in, whether
    * the step submits (`submit`), whether it asks for a passkey itself (the `passkey` route,
-   * or a `passkey` handler's click), so S5 counts only a request after Pateat's answer to
-   * it, and the first other top document of the
+   * or a `passkey` handler's click; `request` for its own step only, so S5 counts its
+   * request only while no answer of Pateat's followed it), and the first other top
+   * document of the
    * tab announced after it, within `SITE_MOVE_MS` (`next`). After a password step's
    * submission, that first new document alone is read for a sign-in form shown again
    * (ADR 0029). `code`: when the attempt last submitted a TOTP code, or may have, as the
@@ -2858,6 +2859,11 @@ export function createLoginRuntime(
       document: LoginDocument;
       submits: boolean;
       passkey: boolean;
+      /**
+       * The step itself asks for a passkey: the `passkey` route's own step or a `passkey`
+       * handler's click, not a later handler's step on that route.
+       */
+      request: boolean;
       next?: string;
       code?: number;
     }
@@ -6706,6 +6712,19 @@ export function createLoginRuntime(
       )
       .catch(() => undefined);
   }
+  /**
+   * Whether Pateat's answer to the passkey request of this attempt's latest step that asked
+   * for one went back after that step, on the page's origin or the recipe's (ADR 0029
+   * amendment of 2026-10-24).
+   */
+  function passkeyStepAnswered(run: Execution): boolean {
+    const { tabId, origin: pageOrigin } = run.live.document;
+    const effect = effects.get(tabId);
+    if (effect?.attemptId !== run.metadata.id || !effect.request) return false;
+    return [pageOrigin, run.recipe.origin].some(
+      (from) => (passkeyAnswers.get(`${tabId} ${from}`)?.at ?? -1) >= effect.at,
+    );
+  }
   /** Whether the page has nothing a signed-in page's description could carry. */
   async function showsNothing(run: Execution): Promise<boolean> {
     const extracted = v.safeParse(
@@ -6951,14 +6970,14 @@ export function createLoginRuntime(
       s2: page.password,
       s3: page.code,
       s4: page.captcha,
-      // After a step that asked for a passkey itself, only a request after Pateat's answer
-      // to it counts: the site asks for another one (ADR 0029 amendment of 2026-10-24).
+      // After a step that asked for a passkey itself, its request counts only while no
+      // answer of Pateat's followed it: one still open, left to the browser, or another
+      // after the answer (ADR 0029 amendment of 2026-10-24).
       s5:
         effect?.attemptId === metadata.id &&
         requested !== undefined &&
-        (effect.passkey
-          ? answered !== undefined && answered >= effect.at && requested > answered
-          : requested >= effect.at),
+        requested >= effect.at &&
+        (!effect.request || answered === undefined || answered < requested),
       // A failure counts only next to the sign-in fields.
       f1: s1 && page.invalid,
       f2: s1 && page.alert,
@@ -8954,6 +8973,7 @@ export function createLoginRuntime(
       stopAt: run.metadata.stopAt,
       sent,
       inputLeftOut,
+      answered: passkeyStepAnswered(run),
     });
     let again: Awaited<ReturnType<typeof readSignInState>>;
     // The judge's answer can take a while: the page completes only if, once the answer is
@@ -10295,6 +10315,9 @@ export function createLoginRuntime(
             submits: loginStepEffect(operation.step) === "submit",
             passkey:
               run.metadata.route === "passkey" ||
+              (ownHandler !== undefined && run.recipe.handlers?.[ownHandler]?.kind === "passkey"),
+            request:
+              (run.metadata.route === "passkey" && ownHandler === undefined) ||
               (ownHandler !== undefined && run.recipe.handlers?.[ownHandler]?.kind === "passkey"),
             ...(codeStep(run.recipe, run.metadata, operation.stepIndex) ? { code: at } : {}),
           });
@@ -16537,6 +16560,7 @@ export function createLoginRuntime(
       document: run.live.document,
       submits: false,
       passkey: true,
+      request: true,
     });
     const item = {
       connectionId: run.metadata.account.connectionId,
@@ -16651,14 +16675,15 @@ export function createLoginRuntime(
     }
     const { tabId } = run.live.document;
     if (bridged !== undefined) {
-      // The step that asked for a passkey is the answer's, so S5 skips it and a move to
-      // the passkey's site completes (ADR 0029, ADR 0022).
+      // The step that asked for a passkey is the answer's, so S5 skips its answered request
+      // and a move to the passkey's site completes (ADR 0029, ADR 0022).
       effects.set(tabId, {
         attemptId: run.metadata.id,
         at: bridged,
         document: run.live.document,
         submits: false,
         passkey: true,
+        request: true,
       });
       run.answeredAt = bridged;
     } else if (parked) {
@@ -16668,6 +16693,7 @@ export function createLoginRuntime(
         document: run.live.document,
         submits: false,
         passkey: true,
+        request: true,
       });
       const item = {
         connectionId: run.metadata.account.connectionId,
