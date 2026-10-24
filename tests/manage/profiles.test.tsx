@@ -97,8 +97,8 @@ test("selecting another profile clears the old policy view and writes only to th
     .element(page.getByText("local-only.example", { exact: true }))
     .not.toBeInTheDocument();
   await page.getByLabelText("Hostname").fill("new-agent.example");
-  await page.getByRole("button", { name: "Exclude site" }).click();
-  await expect.element(page.getByRole("status")).toHaveTextContent("new-agent.example excluded");
+  await page.getByRole("button", { name: "Pause site" }).click();
+  await expect.element(page.getByRole("status")).toHaveTextContent("new-agent.example paused");
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     3,
     expect.objectContaining({

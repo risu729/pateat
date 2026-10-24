@@ -1,4 +1,7 @@
 import {
+  createDefaultSettings,
+  localSettingsSchema,
+  rebuiltSettings,
   syncSettingsStateSchema,
   type LocalSettings,
   type SavedLoginBinding,
@@ -8,7 +11,11 @@ import {
 import * as v from "valibot";
 import { hasProfile } from "./profile-store";
 
-/** Profile parts are explicit so shared bindings cannot accidentally become policy. */
+/**
+ * Profile parts are explicit so shared bindings cannot accidentally become policy. Automatic
+ * login in private windows (ADR 0062) says how the profile's browsers log in, as its site
+ * rules do, so it is a profile part too; absent while off.
+ */
 export const profileDocument = (document: LocalSettings) => ({
   accountPolicies: document.accountPolicies,
   itemPolicies: document.itemPolicies,
@@ -17,26 +24,49 @@ export const profileDocument = (document: LocalSettings) => ({
   repromptSites: document.repromptSites,
   passkeyBrowserSites: document.passkeyBrowserSites,
   siteDefaults: document.siteDefaults,
+  ...(document.loginInPrivateWindows ? { loginInPrivateWindows: true as const } : {}),
+  // Kept only while it hides the popup's page status; absent means shown.
+  ...(document.popupPageSection === false && { popupPageSection: false }),
 });
 
 /**
- * Reads the profile and the shared bindings at the owner's revision in one statement. A
+ * The owner's parts, shared by every profile (ADR 0076): account bindings and the links
+ * to the items that hold a login's personal details (ADR 0061), which name vault items
+ * and fields per site as bindings do.
+ */
+export const ownerDocument = (document: LocalSettings) => ({
+  bindings: document.bindings,
+  detailLinks: document.detailLinks,
+});
+
+/**
+ * Reads the profile and the owner's shared parts at the owner's revision in one statement. A
  * profile with no document of its own yet answers `newProfile`, so the first device to
- * sync it keeps its own entries (ADR 0076).
+ * sync it keeps its own entries (ADR 0076). For a paired device, `written` is the
+ * `writeId` of its own last stored write, read in the same statement.
  */
 export async function readSettings(
   db: D1Database,
   ownerId: string,
   profileId: string,
+  deviceId: string | null = null,
 ): Promise<SyncSettingsState> {
   const row = await db
-    .prepare(`SELECT s.revision, s.document AS shared, p.document
+    .prepare(`SELECT s.revision, s.document AS shared, p.document,
+      (SELECT settings_write_id FROM devices WHERE id = ? AND owner_id = p.owner_id) AS written
     FROM profiles p LEFT JOIN settings s ON s.owner_id = p.owner_id
     WHERE p.owner_id = ? AND p.id = ? AND p.deleted_at IS NULL`)
-    .bind(ownerId, profileId)
-    .first<{ revision: number | null; shared: string | null; document: string | null }>();
+    .bind(deviceId, ownerId, profileId)
+    .first<{
+      revision: number | null;
+      shared: string | null;
+      document: string | null;
+      written: string | null;
+    }>();
   if (!row) throw new Error("profile-not-found");
-  const shared = row.shared ? JSON.parse(row.shared) : { bindings: [] };
+  const shared: Partial<ReturnType<typeof ownerDocument>> = row.shared
+    ? JSON.parse(row.shared)
+    : { bindings: [] };
   const profile = {
     accountPolicies: [],
     itemPolicies: [],
@@ -46,12 +76,23 @@ export async function readSettings(
     siteDefaults: [],
     ...(row.document ? JSON.parse(row.document) : {}),
   };
+  const stored = {
+    connections: [],
+    ...profile,
+    bindings: shared.bindings,
+    ...(shared.detailLinks ? { detailLinks: shared.detailLinks } : {}),
+  };
+  // Documents an older build stored are read without the entries that no longer read.
+  const settings = v.is(localSettingsSchema, stored)
+    ? stored
+    : (rebuiltSettings(stored, createDefaultSettings({ connections: [] })) ?? stored);
   return v.parse(syncSettingsStateSchema, {
     version: 1,
     profileId,
     revision: row.revision ?? 0,
-    settings: row.revision ? { connections: [], ...profile, bindings: shared.bindings } : null,
+    settings: row.revision ? settings : null,
     ...(row.revision && !row.document ? { newProfile: true } : {}),
+    ...(row.written === null ? {} : { written: row.written }),
   });
 }
 
@@ -79,7 +120,10 @@ export async function recipeBindingSlots(
   );
 }
 
-/** One owner revision covers shared bindings and every profile. D1 batches are atomic. */
+/**
+ * One owner revision covers the owner's shared parts and every profile. D1 batches are
+ * atomic.
+ */
 export async function writeSettings(
   db: D1Database,
   ownerId: string,
@@ -91,8 +135,16 @@ export async function writeSettings(
   /** `current` is missing when the profile was deleted meanwhile. */
   | { ok: false; current: SyncSettingsState | undefined }
 > {
+  // A write without `detailLinks` keeps the stored ones: the key is optional, so a client
+  // that predates it (or leaves it out) must not delete every device's links. They are
+  // read at the expected revision; any later write changes the revision, so the batch
+  // below then loses its compare-and-swap and stores nothing.
+  const settings = write.settings.detailLinks
+    ? write.settings
+    : await withStoredDetailLinks(db, ownerId, write.expectedRevision, write.settings);
   // Both statements use the exact same compare-and-swap predicate. The profile write
-  // runs first; changes() gates the revision write so losing writers update neither.
+  // runs first; changes() gates the revision write so losing writers update neither, and
+  // the revision write's changes() gates the writing device's record of it (`written`).
   const results = await db.batch([
     db
       .prepare(`UPDATE profiles SET document = ? WHERE owner_id = ? AND id = ? AND deleted_at IS NULL
@@ -118,10 +170,15 @@ export async function writeSettings(
       .bind(
         ownerId,
         write.expectedRevision + 1,
-        JSON.stringify({ bindings: write.settings.bindings }),
+        JSON.stringify(ownerDocument(settings)),
         Date.now(),
         writer,
       ),
+    db
+      .prepare(
+        "UPDATE devices SET settings_write_id = ? WHERE id = ? AND owner_id = ? AND changes() = 1",
+      )
+      .bind(write.writeId ?? null, writer, ownerId),
   ]);
   if (results[1]?.meta.changes !== 1) {
     const currentProfile = writer
@@ -134,7 +191,7 @@ export async function writeSettings(
     return {
       ok: false,
       current: (await hasProfile(db, ownerId, target))
-        ? await readSettings(db, ownerId, target)
+        ? await readSettings(db, ownerId, target, writer)
         : undefined,
     };
   }
@@ -144,7 +201,25 @@ export async function writeSettings(
       version: 1,
       profileId,
       revision: write.expectedRevision + 1,
-      settings: write.settings,
+      settings,
+      ...(writer === null || write.writeId === undefined ? {} : { written: write.writeId }),
     },
   };
+}
+
+/** `settings` with the owner's stored detail links at `revision`, when it has any. */
+async function withStoredDetailLinks(
+  db: D1Database,
+  ownerId: string,
+  revision: number,
+  settings: LocalSettings,
+): Promise<LocalSettings> {
+  const row = await db
+    .prepare("SELECT document FROM settings WHERE owner_id = ? AND revision = ?")
+    .bind(ownerId, revision)
+    .first<{ document: string }>();
+  const stored: Partial<ReturnType<typeof ownerDocument>> | undefined = row
+    ? JSON.parse(row.document)
+    : undefined;
+  return stored?.detailLinks ? { ...settings, detailLinks: stored.detailLinks } : settings;
 }

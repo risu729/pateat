@@ -50,10 +50,12 @@ test("the HTTPS login script admits non-excluded sites and stops without a recip
     const other = await context.newPage();
     await other.goto("https://other.example/signin");
     await expect(other.locator("#password")).toBeVisible();
-    // The excluded site's hello is refused before a document entry is created.
+    // A rule only pauses automatic login there (ADR 0062): the page is admitted, and with
+    // no recipe it stops before observation, as the other site's page does.
     await other.waitForTimeout(500);
     const status = (await send(options, { version: 1, type: "login.probe.status" })) as Status;
-    expect(status.documents.map((entry) => entry.origin)).toEqual(["https://login.example"]);
+    expect(status.documents.map((entry) => entry.origin)).toContain("https://login.example");
+    expect(status.documents.map((entry) => entry.state)).not.toContain("executing");
     await expect(admitted.locator("#password")).toHaveValue("");
     await expect(other.locator("#password")).toHaveValue("");
   });

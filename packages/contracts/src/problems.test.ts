@@ -1,7 +1,10 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
+  LOCAL_ONLY_EVENTS,
+  PROBLEM_EVENT_FIELDS,
   problemFieldsAllowed,
+  problemLocalOnly,
   problemInfoLine,
   problemReportEnvelopeSchema,
   problemReportSchema,
@@ -48,7 +51,7 @@ describe("problem report contract (ADR 0066)", () => {
         { source: "error", name: "TypeError", stack: "background.js:1:2 chunk-a.js:3:4" },
       ],
       ["login.ask-ended", { origin: "origin:7d2b91aa", ask: "logout", elsewhere: false }],
-      ["passkey.request", { origin: "http://localhost:8080", rpId: "rp:0123abcd" }],
+      ["login.popup", { origin: "http://localhost:8080", choice: "none" }],
       ["login.choice", { origin: "http://[::1]:3000", url: "/" }],
       ["login.exception", { message: "storage-failed", url: "/a%2Fb/[id]/sign_in.php" }],
     ] as const)
@@ -84,7 +87,6 @@ describe("problem report contract (ADR 0066)", () => {
       ["login.attempt", { origin: "https://alice@bank.example" }],
       ["login.attempt", { origin: "javascript://x" }],
       ["login.attempt", { origin: "origin:alice" }],
-      ["passkey.request", { rpId: "rp:alice@example.com" }],
       // Whitespace only in a stack.
       ["login.exception", { stack: "at alice (background.js:1:2)" }],
       // Fields the event does not carry, or of another kind.
@@ -158,6 +160,27 @@ describe("problem report contract (ADR 0066)", () => {
     );
     expect(accepts(problemReportSchema, info("login.start", { route: "password" }))).toBe(false);
     expect(problemInfoLine("toString", {})).toBe(false);
+  });
+
+  it("refuses passkey reports and fill-only logins' lines, which stay on the device", () => {
+    for (const level of ["warn", "error"])
+      for (const [event, fields] of [
+        ["passkey.request", { origin: "https://bank.example", rpId: "bank.example" }],
+        ["passkey.create", { origin: "https://bank.example", outcome: "failed" }],
+        ["passkey.request", {}],
+      ] as const)
+        expect(
+          accepts(problemReportSchema, report({ ...line, level, event, fields })),
+          `${level} ${event}`,
+        ).toBe(false);
+    for (const event of LOCAL_ONLY_EVENTS)
+      expect(Object.hasOwn(PROBLEM_EVENT_FIELDS, event)).toBe(false);
+    expect(accepts(problemReportSchema, withFields("login.attempt", { fillOnly: true }))).toBe(
+      false,
+    );
+    expect(accepts(problemReportSchema, withFields("login.start", { fillOnly: true }))).toBe(false);
+    expect(problemLocalOnly("passkey.create", {})).toBe(true);
+    expect(problemLocalOnly("login.attempt", { fillOnly: true })).toBe(true);
   });
 
   it("checks each field by the kind its event gives it", () => {

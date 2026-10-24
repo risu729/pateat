@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDefaultSettings, PROBLEM_EVENT_FIELDS, problemEntrySchema } from "@pateat/contracts";
+import {
+  createDefaultSettings,
+  LOCAL_ONLY_EVENTS,
+  LOCAL_ONLY_FLAG,
+  PROBLEM_EVENT_FIELDS,
+  problemEntrySchema,
+} from "@pateat/contracts";
 import { createDiagnosticsLog } from "./background";
 import {
   DEBUG_LOGGING_MS,
@@ -14,6 +20,7 @@ import {
   formatLogExport,
   problemLine,
   recentLog,
+  sentToService,
   stackPositions,
   type KnownSites,
   type LogEntry,
@@ -76,7 +83,7 @@ describe("diagnostics log", () => {
     });
     await logger.log("login.refused", {
       origin: "https://login.excluded.example",
-      reason: "site-excluded",
+      reason: "paused",
     });
     await logger.log("vault.state", {
       connection: "c0a3f8e2-raw-connection-id",
@@ -100,7 +107,7 @@ describe("diagnostics log", () => {
         rpId: expect.stringMatching(/^rp:[0-9a-f]{8}$/u),
         outcome: "assertion",
       },
-      { origin: "https://login.excluded.example", reason: "site-excluded" },
+      { origin: "https://login.excluded.example", reason: "paused" },
       { connection: expect.stringMatching(/^bitwarden:[0-9a-f]{6}$/u), state: "ready" },
       { origin: "https://bank.example", reason: TRUNCATED },
     ]);
@@ -1627,7 +1634,7 @@ describe("unhandled errors", () => {
     log.login({ ...page, outcome: "recent" });
     log.login({ ...page, outcome: "gone" });
     log.login({ ...page, outcome: "refused" });
-    log.login({ ...page, outcome: "not-sent", reason: "site-excluded" });
+    log.login({ ...page, outcome: "not-sent", reason: "paused" });
     log.login({ ...page, outcome: "failed", reason: "unreachable" });
     await vi.waitFor(async () =>
       expect(
@@ -1642,7 +1649,7 @@ describe("unhandled errors", () => {
       ["debug", { ...fields, route: "password", outcome: "recent" }],
       ["debug", { ...fields, route: "password", outcome: "gone" }],
       ["info", { ...fields, route: "password", outcome: "refused" }],
-      ["debug", { ...fields, route: "password", outcome: "not-sent", reason: "site-excluded" }],
+      ["debug", { ...fields, route: "password", outcome: "not-sent", reason: "paused" }],
       ["warn", { ...fields, route: "password", outcome: "failed", reason: "unreachable" }],
     ]);
     vi.restoreAllMocks();
@@ -2285,7 +2292,8 @@ describe("unhandled errors", () => {
     });
     log.login({ type: "refused", ...site, reason: "tab-busy", frame: true });
     log.login({ type: "refused", ...site, reason: "tab-busy" });
-    // Filling the form after a logout ends without pressing anything by design.
+    // Filling the form while the tab asks for an account ends without pressing anything by
+    // design.
     log.login({
       type: "attempt",
       ...site,
@@ -2584,8 +2592,8 @@ describe("unhandled errors", () => {
       vi.spyOn(console, level).mockImplementation(() => undefined);
     await log.logger.enableDebug();
     const site = { tabId: 4, origin: "https://login.example" };
-    log.login({ type: "refused", ...site, reason: "site-excluded" });
-    log.login({ type: "refused", ...site, reason: "site-excluded", repeat: true });
+    log.login({ type: "refused", ...site, reason: "paused" });
+    log.login({ type: "refused", ...site, reason: "paused", repeat: true });
     log.login({ type: "refused", ...site, reason: "recipe-not-found", unrelated: true });
     log.login({ type: "refused", ...site, reason: "stale-document" });
     log.login({ type: "refused", ...site, reason: "stale-document", detail: "gave-up" });
@@ -2615,8 +2623,8 @@ describe("unhandled errors", () => {
         entry.fields["reason"] ?? entry.fields["message"],
       ]),
     ).toEqual([
-      ["login.refused", "info", "site-excluded"],
-      ["login.refused", "debug", "site-excluded"],
+      ["login.refused", "info", "paused"],
+      ["login.refused", "debug", "paused"],
       ["login.refused", "debug", "recipe-not-found"],
       ["login.refused", "debug", "stale-document"],
       ["login.refused", "info", "stale-document"],
@@ -2693,7 +2701,7 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs a closed tab that stops asking after a logout, with each entry's tab (ADR 0021 D)", async () => {
+  it("logs a closed tab that stops asking, with each entry's tab (ADR 0021 D)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -2706,8 +2714,7 @@ describe("unhandled errors", () => {
     });
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     const origin = "https://login.example";
-    log.login({ type: "logout", tabId: 4, origin, clicked: true });
-    log.login({ type: "ask-ended", tabId: 4, origin, ask: "logout", cause: "tab-closed" });
+    log.login({ type: "ask-ended", tabId: 4, origin, ask: "stopped-login", cause: "tab-closed" });
     log.login({
       type: "ask-ended",
       tabId: 5,
@@ -2716,14 +2723,13 @@ describe("unhandled errors", () => {
       cause: "tab-closed",
       elsewhere: true,
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
-      ["login.logout", "info", { origin: expect.any(String), clicked: true, tab: 4 }],
       [
         "login.ask-ended",
         "info",
-        { origin: expect.any(String), ask: "logout", cause: "tab-closed", tab: 4 },
+        { origin: expect.any(String), ask: "stopped-login", cause: "tab-closed", tab: 4 },
       ],
       [
         "login.ask-ended",
@@ -2748,7 +2754,7 @@ describe("unhandled errors", () => {
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>)
       .filter((line) => line["event"] !== undefined);
-    expect(exported.map((line) => line["tab"])).toEqual([4, 4, 5]);
+    expect(exported.map((line) => line["tab"])).toEqual([4, 5]);
     vi.restoreAllMocks();
   });
 
@@ -2854,7 +2860,7 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs what the popup was told about a tab's account choice, and a rejected logout", async () => {
+  it("logs what the popup was told about a tab's account choice and why the tab asks", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -2876,19 +2882,12 @@ describe("unhandled errors", () => {
       pageReason: "logged-in",
     });
     log.login({
-      type: "logout",
-      ...site,
-      recipeId: "synthetic-recipe",
-      recipeRevision: 4,
-      rejected: true,
-    });
-    log.login({
       type: "popup",
       ...site,
       choice: "offered",
       candidates: 3,
-      logout: "rejected",
-      pageReason: "logged-out",
+      ask: "rejected",
+      pageReason: "account-asked",
     });
     // Another tab of the site, whose popup chooses no account after that rejection.
     log.login({
@@ -2897,14 +2896,13 @@ describe("unhandled errors", () => {
       origin: site.origin,
       choice: "offered",
       candidates: 3,
-      logout: "other-tab",
+      ask: "rejected-elsewhere",
       rejectedElsewhere: true,
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(4));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level])).toEqual([
       ["login.popup", "info"],
-      ["login.logout", "info"],
       ["login.popup", "info"],
       ["login.popup", "info"],
     ]);
@@ -2914,18 +2912,20 @@ describe("unhandled errors", () => {
       recordOutcome: "unknown-submit",
       pageReason: "logged-in",
     });
-    expect(entries[1]?.fields).toMatchObject({ rejected: true });
-    expect(entries[2]?.fields).toMatchObject({
+    expect(entries[1]?.fields).toMatchObject({
       choice: "offered",
       candidates: 3,
-      logout: "rejected",
-      pageReason: "logged-out",
+      ask: "rejected",
+      pageReason: "account-asked",
     });
-    expect(entries[3]?.fields).toMatchObject({ logout: "other-tab", rejectedElsewhere: true });
+    expect(entries[2]?.fields).toMatchObject({
+      ask: "rejected-elsewhere",
+      rejectedElsewhere: true,
+    });
     vi.restoreAllMocks();
   });
 
-  it("logs a login's start, what a chooser's list showed, the account choice and a logout at info", async () => {
+  it("logs a login's start, what a chooser's list showed and the account choice at info", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -2951,7 +2951,6 @@ describe("unhandled errors", () => {
       itemId,
     });
     log.login({ type: "choice", ...site, outcome: "saved" });
-    log.login({ type: "logout", ...site, recipeId: "synthetic-recipe", recipeRevision: 4 });
     // A chooser's list on which nothing fits logs what it showed, as counts and codes.
     const chooser = {
       type: "start",
@@ -2988,12 +2987,11 @@ describe("unhandled errors", () => {
         continue: "many",
       },
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(5));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(4));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level])).toEqual([
       ["login.start", "info"],
       ["login.choice", "info"],
-      ["login.logout", "info"],
       ["login.start", "info"],
       ["login.start", "info"],
     ]);
@@ -3005,9 +3003,8 @@ describe("unhandled errors", () => {
       candidates: 1,
       item: expect.stringMatching(/^item:[0-9a-f]{8}$/),
     });
-    expect(entries[2]?.fields).toMatchObject({ recipeRevision: 4 });
     expect(Object.keys(entries[0]!.fields).filter((key) => key.startsWith("list"))).toEqual([]);
-    expect(entries[3]?.fields).toMatchObject({
+    expect(entries[2]?.fields).toMatchObject({
       account: "default",
       list: "none",
       listUsername: "email",
@@ -3020,8 +3017,8 @@ describe("unhandled errors", () => {
       listOther: "missing",
       listContinue: "none",
     });
-    expect(entries[3]?.fields).not.toHaveProperty("listNamed");
-    expect(entries[4]?.fields).toMatchObject({
+    expect(entries[2]?.fields).not.toHaveProperty("listNamed");
+    expect(entries[3]?.fields).toMatchObject({
       list: "none",
       listUsername: "name",
       listEntries: 3,
@@ -3031,7 +3028,7 @@ describe("unhandled errors", () => {
       listContinue: "many",
     });
     for (const key of ["listMasked", "listSameDomain", "listFits", "listEntryMiss"])
-      expect(entries[4]?.fields).not.toHaveProperty(key);
+      expect(entries[3]?.fields).not.toHaveProperty(key);
     expect(JSON.stringify(entries)).not.toContain(itemId);
     vi.restoreAllMocks();
   });
@@ -3240,6 +3237,7 @@ describe("problem lines (ADR 0066)", () => {
         { ...page, state: "executing", step: 0, unsubmitted: true, name: "TypeError" },
       ],
       ["login.entry", { ...page, outcome: "refused", reason: "target-missing" }],
+      ["login.entry", { ...page, outcome: "refused", reason: "paused" }],
       [
         "login.refused",
         {
@@ -3295,12 +3293,12 @@ describe("problem lines (ADR 0066)", () => {
       ["login.refused", { ...page, reason: "not-started", detail: "stopped-login" }],
       ["login.refused", { ...page, reason: "not-started", detail: "confirm-unsupported" }],
       ["login.refused", { ...page, reason: "not-started", detail: "no-recipe-on-path" }],
-      ["login.refused", { ...page, reason: "logged-out", detail: "rejected" }],
+      ["login.refused", { ...page, reason: "account-asked", detail: "rejected" }],
       ["login.refused", { ...page, reason: "tab-busy" }],
       ["login.refused", { ...page, reason: "account-ambiguous", candidates: 2 }],
       ["login.refused", { ...page, reason: "no-route", detail: "password-empty" }],
       ["login.refused", { ...page, reason: "entry-blocked" }],
-      ["login.refused", { ...page, reason: "site-excluded" }],
+      ["login.refused", { ...page, reason: "paused" }],
       ["login.entry", { ...page, outcome: "blocked", reason: "no-sign-in" }],
       ["login.entry", { ...page, outcome: "refused", reason: "unconfirmed" }],
       ["login.entry", { ...page, outcome: "refused", reason: "exception" }],
@@ -3321,7 +3319,7 @@ describe("problem lines (ADR 0066)", () => {
       ["recipe.sample", { ...page, outcome: "failed" }],
       ["login.state", { ...page, decision: "signed-in" }],
       ["login.move", { ...page, reason: "left" }],
-      ["login.logout", { ...page, clicked: true }],
+      ["login.switch", { ...page, stage: "click", clicks: 1 }],
       ["login.popup", { ...page, choice: "offered" }],
       ["login.handler", { ...page, kind: "totp", outcome: "entered" }],
     ];
@@ -3412,11 +3410,112 @@ describe("problem lines (ADR 0066)", () => {
           Object.entries(definition.fields as Record<string, string>)
             .filter(([, kind]) => kind !== "item" && kind !== "connection")
             .filter(([field, kind]) => kind !== "url" || field === "url")
+            // The flag of a fill-only login, whose lines stay on the device.
+            .filter(([field]) => field !== LOCAL_ONLY_FLAG)
             .map(([field, kind]) => [field, kind === "url" ? "path" : kind]),
         ),
       ]),
     );
+    // Passkey reports never leave, so the contract does not list them.
+    for (const event of LOCAL_ONLY_EVENTS) {
+      expect(fromLog).toHaveProperty([event]);
+      delete fromLog[event];
+    }
     expect(fromLog).toEqual(PROBLEM_EVENT_FIELDS);
+  });
+
+  it("keeps passkey reports and a fill-only login's lines on the device", async () => {
+    const onProblem = vi.fn();
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      onProblem,
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    const { logger } = log;
+    const site = { origin: "https://bank.example", url: "https://bank.example/login" };
+    await logger.log(
+      "passkey.request",
+      { origin: site.origin, rpId: "bank.example", outcome: "failed" },
+      { level: "warn" },
+    );
+    await logger.log(
+      "passkey.create",
+      { origin: site.origin, rpId: "bank.example", outcome: "failed" },
+      { level: "error" },
+    );
+    const attempt = {
+      type: "attempt",
+      tabId: 3,
+      origin: site.origin,
+      url: site.url,
+      recipeId: "gen-0123",
+      recipeRevision: 2,
+      route: "password",
+      state: "blocked",
+      stepIndex: 0,
+      stepCount: 2,
+      outcome: "timeout",
+      cause: "elements-timeout",
+    } as const;
+    // A fill-only login's warning, also one whose stop named another reason.
+    log.login({ ...attempt, fillOnly: true, reason: "fill-only" });
+    log.login({ ...attempt, fillOnly: true, reason: "password-empty" });
+    log.login({
+      type: "exception",
+      tabId: 3,
+      origin: site.origin,
+      recipeId: "gen-0123",
+      recipeRevision: 2,
+      route: "password",
+      state: "blocked",
+      stepIndex: 0,
+      fillOnly: true,
+      name: "TypeError",
+    });
+    // The same warning of a login that is not fill-only leaves.
+    log.login(attempt);
+    await vi.waitFor(async () => expect(await logger.entries()).toHaveLength(6));
+    const entries = await logger.entries();
+    expect(entries.map(({ level, event }) => `${level} ${event}`)).toEqual([
+      "warn passkey.request",
+      "error passkey.create",
+      "warn login.attempt",
+      "warn login.attempt",
+      "warn login.exception",
+      "warn login.attempt",
+    ]);
+    // The local log keeps the mark that keeps them local.
+    for (const entry of entries.slice(2, 5)) expect(entry.fields["fillOnly"]).toBe(true);
+    expect(entries.map((entry) => sentToService(entry))).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+    ]);
+    expect(entries.map(problemLine).map((line) => line?.event)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "login.attempt",
+    ]);
+    expect(onProblem).toHaveBeenCalledTimes(1);
+    const { entries: found } = await logger.problemsAfter(0, 10);
+    expect(found.map(({ entry }) => entry.fields["fillOnly"] ?? entry.event)).toEqual([
+      "login.attempt",
+    ]);
+    vi.restoreAllMocks();
   });
 
   it("logs a send at debug when kept and at info otherwise, never as a problem", async () => {

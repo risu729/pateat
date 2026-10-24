@@ -76,7 +76,7 @@ describe("recipeUseOf", () => {
         reason: "signed-in",
       } as LoginReport,
       { type: "refused", tabId: 7, origin: "https://bank.example", reason: "no-recipe" },
-      { type: "logout" } as LoginReport,
+      { type: "ask-ended" } as LoginReport,
       // No layout (ADR 0060).
       started({ layout: undefined }),
       // No service recipe revision.
@@ -96,6 +96,7 @@ function setup(
     connection?: () => Promise<ServiceConnection | undefined>;
     answer?: () => Promise<OutcomeResult>;
     report?: (sent: RecipeUseSent) => void;
+    local?: (recipeId: string, layout: string) => Promise<void>;
   } = {},
 ) {
   let now = NOW;
@@ -110,6 +111,7 @@ function setup(
       ((sent) => {
         logged.push(sent);
       }),
+    ...(options.local ? { local: options.local } : {}),
     now: () => now,
   });
   return { use, reportUse, logged, advance: (ms: number) => (now += ms) };
@@ -276,10 +278,26 @@ describe("createRecipeUse", () => {
     expect(reportUse.mock.calls.at(-1)?.[2]).toBe("gen-second");
   });
 
+  it("marks the layout used on this device without a paired service, once an hour (ADR 0040)", async () => {
+    const local = vi.fn(async () => {});
+    const h = setup({ connection: async () => undefined, local });
+    h.use.observe(started());
+    await settle();
+    h.use.observe(started());
+    await settle();
+    expect(local).toHaveBeenCalledTimes(1);
+    expect(h.reportUse).not.toHaveBeenCalled();
+    expect(h.logged).toEqual([]);
+    h.advance(RECIPE_USE_REPEAT_MS);
+    h.use.observe(started());
+    await settle();
+    expect(local).toHaveBeenCalledTimes(2);
+  });
+
   it("sends nothing for reports without a use, without a paired service or with a rejected device", async () => {
     const quiet = setup();
     quiet.use.observe(started({ recipeRevision: 0 }));
-    quiet.use.observe({ type: "logout" } as LoginReport);
+    quiet.use.observe({ type: "ask-ended" } as LoginReport);
     const unpaired = setup({ connection: async () => undefined });
     unpaired.use.observe(started());
     const rejected = setup({ connection: async () => ({ ...CONNECTION, rejected: true }) });

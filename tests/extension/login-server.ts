@@ -782,11 +782,11 @@ export async function startLoginFixture(
             shown !== null && masked.test(shown) ? `<p id="shown">Signed in as ${shown}</p>` : ""
           }${shownLate !== null && masked.test(shownLate) ? `<p id="account" data-shown="Signed in as ${shownLate}">Loading</p>` : ""}${
             // `switch` names the account the "Use another account" link shows next;
-            // `switch-submit` makes it the submit button of its own form instead.
+            // `switch-submit` makes it the submit button of its own form, with a shown field.
             switchTo === null || !masked.test(switchTo)
               ? ""
               : fixtureUrl.searchParams.has("switch-submit")
-                ? `<form action="/single"><input type="hidden" name="shown" value="${switchTo}"><button>Use another account</button></form>`
+                ? `<form action="/single"><input type="hidden" name="shown" value="${switchTo}"><label><input type="checkbox" name="remember"> Remember me</label><button>Use another account</button></form>`
                 : `<a href="/single?${new URLSearchParams({ shown: switchTo, switch: switchTo }).toString().replace(/&/gu, "&amp;")}">Use another account</a>`
           }${
             // `?reject-fill=shown` shows an alert before any fill, and re-renders it on input.

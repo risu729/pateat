@@ -415,30 +415,74 @@ const filledFields =
   "input:not([type='hidden' i], [type='submit' i], [type='button' i], [type='image' i], [type='reset' i]), textarea, select";
 
 /**
- * Whether a list's `other` or `continue` control may be clicked (ADR 0028): not when its
- * text holds an email address, a masked text or a run of four or more digits, which may
- * name an account, nor when it is inside a form with a shown field.
+ * Whether a list's `continue` control may be clicked (ADR 0028): not when its text holds an
+ * email address, a masked text or a run of four or more digits, which may name an
+ * account, nor when it is inside a form with a shown field.
  */
-function clickableListControl(element: HTMLElement): boolean {
-  const text = listControlText(element);
-  if (shownAccounts(text).some((shownAccount) => shownAccount.includes("@"))) return false;
-  if (/[*●•]|\p{N}{4}/u.test(text)) return false;
-  const form = closestAcross(element, "form");
-  return !form || !queryAll(form, filledFields).some((field) => shown(field));
+function clickableContinue(element: HTMLElement): boolean {
+  if (namesAccount(listControlText(element))) return false;
+  return !holdsShownField(closestAcross(element, "form"));
+}
+
+/** Whether a form holds a field the person can see, and so may fill. */
+function holdsShownField(form: Element | null | undefined): boolean {
+  return !!form && queryAll(form, filledFields).some((field) => shown(field));
+}
+
+/** Whether a control's text holds an email address, a masked text or four or more digits. */
+function namesAccount(text: string): boolean {
+  return (
+    shownAccounts(text).some((shownAccount) => shownAccount.includes("@")) ||
+    /[*●•]|\p{N}{4}/u.test(text)
+  );
+}
+
+/**
+ * Whether a control for another account may be clicked, by one rule wherever Pateat clicks
+ * one: a list's `other` control (ADR 0028), a recipe's `accountSwitch` and the page's own
+ * control on a page showing another account (ADR 0078). Not when its text holds an email
+ * address, a masked text or a run of four or more digits, which may name an account, nor
+ * words for another action, such as "Add another account" or "Sign out of other
+ * accounts"; never when the click would reach a native button that submits a form with a
+ * shown field, which would send what is typed there: the control itself, a button around
+ * it, or a label's button. Any other control inside such a form counts: a remembered
+ * account's own password form holds it.
+ */
+export function clickableSwitch(element: HTMLElement): boolean {
+  const text = listControlText(element).normalize("NFKC");
+  if (namesAccount(text) || namesOtherAction(text)) return false;
+  const label = closestAcross(element, "label");
+  const reached = [
+    closestAcross(element, "button, input"),
+    label instanceof HTMLLabelElement ? label.control : null,
+  ];
+  return !reached.some((target) => target && submitsShownField(target));
+}
+
+/** Whether a click on `element` would submit a form with a shown field. */
+function submitsShownField(element: Element): boolean {
+  if (!isButton(element)) return false;
+  const submits = element.type === "submit" || element.type === "image";
+  return submits && holdsShownField(formOf(element));
 }
 
 /**
  * The elements a chooser's `other` or `continue` locator names (ADR 0028): for a `text`
  * locator, the innermost entry-like elements outside page chrome whose whole text is its
  * value, as the observation named them; otherwise the locator's own elements that are
- * entry-like. A control that {@link clickableListControl} refuses is left out.
+ * entry-like. An `other` control {@link clickableSwitch} refuses, or a `continue` control
+ * {@link clickableContinue} refuses, is left out.
  */
-export function listControls(document: Document, target: LoginTarget): HTMLElement[] {
+export function listControls(
+  document: Document,
+  target: LoginTarget,
+  kind: "other" | "continue",
+): HTMLElement[] {
   const found =
     target.by === "text"
       ? entryControls(document).filter((element) => listControlText(element) === target.value)
       : findTargets(document, target).filter((element) => entryLike(element));
-  return found.filter(clickableListControl);
+  return found.filter(kind === "other" ? clickableSwitch : clickableContinue);
 }
 
 /**
@@ -520,7 +564,7 @@ export function otherAccountMiss(
     }
     const label = (element.getAttribute("aria-label") ?? "").normalize("NFKC");
     if (holds && (holds.test(text) || holds.test(label))) miss = "other-holds-name";
-    else if (!clickableListControl(element)) {
+    else if (!clickableSwitch(element)) {
       if (miss !== "other-holds-name") miss = "other-not-clickable";
     } else return undefined;
   }
@@ -554,47 +598,61 @@ export function otherAccountMiss(
 
 /**
  * Words of a control for another account that does something else than sign in with one,
- * as "Add another account" or "Sign out of other accounts", which a switch never clicks.
+ * as "Add another account" or "Sign out of other accounts", which is never clicked.
  */
 const otherActionWords = new Set([
   "add",
   "create",
   "delete",
+  "forget",
+  "logoff",
   "logout",
   "manage",
   "register",
   "remove",
+  "signoff",
   "signout",
+  "signup",
+  "unlink",
 ]);
-const otherActionPhrases = /\b(?:log|sign)\s*(?:out|up)\b/iu;
-const otherActionParts = ["ログアウト", "サインアウト", "追加", "作成", "削除", "登録", "管理"];
+const otherActionPhrases = /\b(?:log|sign)[\s-]*(?:off|out|up)\b/iu;
+const otherActionParts = [
+  "ログアウト",
+  "ログオフ",
+  "サインアウト",
+  "サインアップ",
+  "追加",
+  "作成",
+  "削除",
+  "登録",
+  "管理",
+];
+
+function namesOtherAction(text: string): boolean {
+  const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u);
+  return (
+    words.some((word) => otherActionWords.has(word)) ||
+    otherActionPhrases.test(text) ||
+    otherActionParts.some((part) => text.includes(part))
+  );
+}
 
 /**
- * The page's controls that sign in with another account, as a sign-in page showing
- * another account than the login's offers them: the innermost entry-like elements outside
- * page chrome whose whole text, at most 64 characters, names another account by the words
- * {@link otherAccountMiss} reads, and holds no email address, masked text or run of four or
- * more digits, nor words for another action, such as adding an account or signing out.
- * Unlike a list's control, one inside a form with a shown field counts: the
- * remembered account's own password form holds it. A native button that would submit its
- * form never counts.
+ * The page's controls that sign in with another account, by the rule
+ * {@link otherAccountMiss} counts one by on a list (ADR 0028), so a sign-in page showing
+ * another account than the login's switches with the control a list would (ADR 0078): the
+ * innermost entry-like elements outside page chrome whose whole text, at most 64
+ * characters, names another account, and that {@link clickableSwitch} allows.
  */
 export function accountSwitchControls(document: Document): HTMLElement[] {
   return entryControls(document).filter((element) => {
     const text = listControlText(element).normalize("NFKC");
-    if (!text || text.length > otherTextLimit || !namesOtherAccount(text)) return false;
-    const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u);
-    if (
-      words.some((word) => otherActionWords.has(word)) ||
-      otherActionPhrases.test(text) ||
-      otherActionParts.some((part) => text.includes(part))
-    )
-      return false;
-    if (shownAccounts(text).some((shownAccount) => shownAccount.includes("@"))) return false;
-    if (/[*●•]|\p{N}{4}/u.test(text)) return false;
-    if (!isButton(element)) return true;
-    const submits = element.type === "submit" || element.type === "image";
-    return !(submits && formOf(element));
+    return (
+      text.length > 0 &&
+      text.length <= otherTextLimit &&
+      namesOtherAccount(text) &&
+      clickableSwitch(element)
+    );
   });
 }
 
@@ -743,11 +801,11 @@ export function listChoice(
     continue?: LoginTarget | undefined;
   },
 ): ListChoice {
-  const only = (target: LoginTarget | undefined) => {
-    const found = target ? listControls(document, target) : [];
+  const only = (target: LoginTarget | undefined, kind: "other" | "continue") => {
+    const found = target ? listControls(document, target, kind) : [];
     return found.length === 1 ? found[0] : undefined;
   };
-  const proceed = only(input.continue);
+  const proceed = only(input.continue, "continue");
   const masked = { masked: input.othersComplete };
   if (emailUsername(input.username)) {
     const entries = accountEntries(document);
@@ -784,7 +842,7 @@ export function listChoice(
     )
       return { click: "continue", element: proceed };
   }
-  const other = only(input.other);
+  const other = only(input.other, "other");
   return other
     ? { click: "other", element: other }
     : { click: "none", miss: listMiss(document, input) };
@@ -795,12 +853,15 @@ function listMiss(
   document: Document,
   input: { username: string; other?: LoginTarget | undefined; continue?: LoginTarget | undefined },
 ): ListMiss {
-  const found = (target: LoginTarget | undefined): ButtonFound => {
+  const found = (target: LoginTarget | undefined, kind: "other" | "continue"): ButtonFound => {
     if (!target) return "none";
-    const count = listControls(document, target).length;
+    const count = listControls(document, target, kind).length;
     return count === 0 ? "missing" : count === 1 ? "one" : "many";
   };
-  const buttons = { other: found(input.other), continue: found(input.continue) };
+  const buttons = {
+    other: found(input.other, "other"),
+    continue: found(input.continue, "continue"),
+  };
   if (emailUsername(input.username)) {
     const entries = accountEntries(document);
     const domain = parts(input.username)?.domain;

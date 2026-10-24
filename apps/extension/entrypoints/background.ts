@@ -30,7 +30,6 @@ import { createPasskeyCreateHandler } from "../src/passkeys/create";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
-import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
 import { SETTINGS_STORAGE_KEY } from "../src/settings";
 import { sessionValue, trustedRecord } from "../src/storage";
 import {
@@ -64,13 +63,22 @@ import {
   DEVICE_MODEL_KEY,
   DEVICE_MODEL_SPEND_KEY,
 } from "../src/service/device-model";
+import {
+  createDeviceGeneration,
+  createDeviceGenerationBackend,
+  DEVICE_GENERATION_KEY,
+  DEVICE_GENERATION_ORIGIN,
+  generationConnection,
+} from "../src/service/device-generation";
 import { createLoginGeneration } from "../src/service/generation";
+import { createLogoutService } from "../src/service/logout";
 import { createLoginRecords } from "../src/service/login-records";
 import { createLoginOutcomes } from "../src/service/outcomes";
 import { createProblemReports } from "../src/service/problems";
 import { createRecipeUse } from "../src/service/recipe-use";
 import { createDeviceRecipes } from "../src/service/device-recipes";
 import { createRecipeSync } from "../src/service/recipes";
+import { createTransfer } from "../src/service/transfer";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync, MAX_SETTINGS_DEFER_MS } from "../src/service/settings-sync";
 import {
@@ -255,12 +263,35 @@ export default defineBackground(() => {
     deviceRecipes: {
       count: () => deviceRecipes.count(),
       // Called only after the recipe sync below exists.
+      // The record of the limits of recipes made here describes the recipes replaced.
       keepSynced: async () => {
         const synced = await recipeSync.synced();
         if (synced?.length) await deviceRecipes.keep(synced);
+        await deviceGenerationBackend.forget();
       },
-      clear: () => deviceRecipes.clear(),
+      clear: async () => {
+        await deviceRecipes.clear();
+        await deviceGenerationBackend.forget();
+      },
     },
+  });
+  // ADR 0040: with this device's own key saved, the device makes the model calls itself.
+  const deviceModel = createDeviceModel({
+    storage: trustedRecord(DEVICE_MODEL_KEY),
+    spend: trustedRecord(DEVICE_MODEL_SPEND_KEY),
+  });
+  // ADR 0040: without a pairing, the same routes run here with the key and kept recipes.
+  const deviceGenerationBackend = createDeviceGenerationBackend({
+    recipes: deviceRecipes,
+    storage: trustedRecord(DEVICE_GENERATION_KEY),
+    key: deviceModel.direct,
+    bindings: async () => (await settings.read()).settings.bindings,
+    // A pairing that cannot be read counts as one, so no write is lost to an upload.
+    paired: () =>
+      service.connection().then(
+        (connection) => connection !== undefined,
+        () => true,
+      ),
   });
   const settingsBaseStorage = createBrowserSettingsBaseStorage();
   const settingsHoldStorage = createBrowserSettingsHoldStorage();
@@ -312,12 +343,27 @@ export default defineBackground(() => {
     service,
     transport: serviceTransport,
     report: diagnosticsLog.recipeUse,
+    // ADR 0060: unpaired, the layout a login starts on is marked used here.
+    local: (recipeId, layout) => deviceGenerationBackend.markLayoutUsed(recipeId, layout),
   });
-  // ADR 0040: with this device's own key saved, the device makes the model calls itself.
-  const modelRequests = createDeviceModel({
-    storage: trustedRecord(DEVICE_MODEL_KEY),
-    spend: trustedRecord(DEVICE_MODEL_SPEND_KEY),
-  }).wrap(serviceTransport);
+  const modelRequests = deviceModel.wrap(serviceTransport);
+  // Generation and logout go to the paired service, or without a pairing to this device's
+  // own routes while a key is saved (ADR 0040, ADR 0063).
+  const generationService = {
+    connection: () =>
+      generationConnection(
+        () => service.connection(),
+        () =>
+          // A key that cannot be read makes no recipes, as none does.
+          deviceModel.direct.setting().then(
+            (setting) => setting !== undefined,
+            () => false,
+          ),
+      ),
+  };
+  const deviceGeneration = createDeviceGeneration(deviceGenerationBackend);
+  const generationRequests = (origin: string) =>
+    origin === DEVICE_GENERATION_ORIGIN ? deviceGeneration : modelRequests;
   const recipeCacheStorage = createBrowserRecipeCacheStorage();
   const recipeScheduleStorage = createBrowserRecipeScheduleStorage();
   const recipeSync = createRecipeSync({
@@ -411,11 +457,14 @@ export default defineBackground(() => {
     recipes: recipeSync.recipes,
     uris: vaultUris,
     generation: createLoginGeneration({
-      service,
+      service: generationService,
       transport: {
-        generateRecipe: (...request) => keepAlive(modelRequests.generateRecipe(...request)),
-        generateEntry: (...request) => keepAlive(modelRequests.generateEntry(...request)),
-        judgeCompletion: (...request) => keepAlive(modelRequests.judgeCompletion(...request)),
+        generateRecipe: (origin, ...request) =>
+          keepAlive(generationRequests(origin).generateRecipe(origin, ...request)),
+        generateEntry: (origin, ...request) =>
+          keepAlive(generationRequests(origin).generateEntry(origin, ...request)),
+        judgeCompletion: (origin, ...request) =>
+          keepAlive(generationRequests(origin).judgeCompletion(origin, ...request)),
         samplePage: (...request) => keepAlive(serviceTransport.samplePage(...request)),
       },
       storage: createBrowserGenerationAttemptStorage(),
@@ -423,6 +472,16 @@ export default defineBackground(() => {
       sampleStorage: createBrowserPageSampleStorage(),
       replaceStorage: createBrowserRecipeReplacementStorage(),
       sync: () => recipeSync.sync(),
+      refresh: () => recipeSync.sync({ settings: false }),
+    }),
+    // ADR 0063: an account switch from the popup signs the tab out first.
+    logout: createLogoutService({
+      service: generationService,
+      transport: {
+        generateLogout: (origin, ...request) =>
+          keepAlive(generationRequests(origin).generateLogout(origin, ...request)),
+      },
+      recipes: recipeSync.recipes,
       refresh: () => recipeSync.sync({ settings: false }),
     }),
     // ADR 0041: a generated recipe whose start page no longer matches is repaired.
@@ -472,6 +531,11 @@ export default defineBackground(() => {
         )
         .catch(() => undefined),
   });
+  // A tab that moved to a page of a paused site shows `II` (ADR 0062); the badge drops the
+  // pause first once the site changed.
+  browser.tabs.onUpdated.addListener((_tabId, change, tab) => {
+    if (change.url !== undefined) void login.tabLoaded(tab);
+  });
   const setupProbe = syntheticSetup?.handler(connections);
   const siteAccounts = createSiteAccountsHandler({
     settings,
@@ -496,18 +560,12 @@ export default defineBackground(() => {
     onTabRemoved: (listener) => browser.tabs.onRemoved.addListener(listener),
     keepAlive,
   });
-  // ADR 0021 D: after Pateat signed in a tab, a username-less request there asks again.
-  const signedTabs = createSignedTabs(sessionValue(SIGNED_TABS_KEY), (listener) =>
-    browser.tabs.onRemoved.addListener(listener),
-  );
-
   // A tab Chrome discards to save memory gets a new ID; its sign-ins and badge stay with it.
   browser.tabs.onReplaced.addListener((added, removed) => {
     loginBadge.replaced(added, removed);
     siteCounter.removed(removed);
     showCount(added);
     void signIns.replaced(added, removed).catch(() => {});
-    void signedTabs.replaced(added, removed).catch(() => {});
   });
   // Saving bumps the revision every login attempt checks; never stop a running login with it.
   const rememberPasskey = async (origin: string, candidate: VaultPasskeyCandidate) => {
@@ -535,6 +593,10 @@ export default defineBackground(() => {
     browserSites.changed(),
   );
   const passkeyBrowserSite = (origin: string) => browserSites.has(origin);
+  // Reads the settings copy kept ahead of requests, so the passkey request does not wait for
+  // the settings store; without one, the login runtime reads the store itself.
+  const passkeyDefaultUnset = async (origin: string, incognito: boolean) =>
+    login.defaultUnset(origin, incognito, await browserSites.settings().catch(() => undefined));
   const addBrowserSite = (origin: string) => browserSites.add(origin);
   const passkeyProbe =
     import.meta.env.MODE === "probe"
@@ -542,7 +604,13 @@ export default defineBackground(() => {
       : undefined;
   // ADR 0022 and ADR 0007: a returned assertion may complete a login and is a sign-in. The
   // vault item that signed it lets a login whose tab moved to the page that asked complete.
-  const passkeyAnswered = (tabId: number, origin: string, rpId: string, signed: object) => {
+  const passkeyAnswered = (
+    tabId: number,
+    origin: string,
+    rpId: string,
+    signed: object,
+    facts?: { silent?: true; incognito: boolean },
+  ) => {
     noteSignIn(tabId, origin, rpId);
     login.passkeyAnswered(
       tabId,
@@ -554,6 +622,7 @@ export default defineBackground(() => {
         typeof signed.itemId === "string"
         ? { connectionId: signed.connectionId, itemId: signed.itemId }
         : undefined,
+      facts,
     );
   };
   const passkeys = passkeyProbe
@@ -568,9 +637,9 @@ export default defineBackground(() => {
         loginAccount: login.loginAccount,
         requested: login.passkeyRequested,
         answered: passkeyAnswered,
-        signedTabs,
-        // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
-        logoutClicked: login.logoutClicked,
+        // ADR 0063: a site that asks every time opens the chooser with no default; so does a
+        // paused site's own request, and one the relogin guard holds (ADR 0062).
+        defaultUnset: passkeyDefaultUnset,
         reverification: login.passkeyReverification,
         conditional: login.conditionalRequest,
         hold: () => vaultSync.enter(false),
@@ -590,11 +659,12 @@ export default defineBackground(() => {
         requested: login.passkeyRequested,
         // ADR 0022: a login that moves on to the passkey's site after an answer completes.
         answered: passkeyAnswered,
-        signedTabs,
-        // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
-        logoutClicked: login.logoutClicked,
+        // ADR 0034: the page's own conditional request waits for the login of its page.
         // ADR 0035: a re-verification after Pateat's login in the tab is handed on.
         reverification: login.passkeyReverification,
+        // ADR 0063: a site that asks every time opens the chooser with no default; so does a
+        // paused site's own request, and one the relogin guard holds (ADR 0062).
+        defaultUnset: passkeyDefaultUnset,
         // ADR 0034: the page's own conditional request waits for the login of its page.
         conditional: login.conditionalRequest,
         // The open vault is not replaced while a passkey request is looked up or signed.
@@ -696,6 +766,18 @@ export default defineBackground(() => {
   browser.runtime.onStartup.addListener(() => {
     void actionIcon.refresh();
   });
+  // ADR 0040: a file carries what a pairing shares, for a device without the service.
+  const transfer = createTransfer({
+    settings,
+    recipes: () => recipeSync.inUse(),
+    paired: () =>
+      service.connection().then(
+        (connection) => connection !== undefined,
+        () => true,
+      ),
+    device: deviceRecipes,
+    imported: settingsSaved,
+  });
   /** Settings this device changed: running work follows them, and they are uploaded. */
   function settingsSaved() {
     browserSites.changed();
@@ -713,6 +795,7 @@ export default defineBackground(() => {
       }),
     siteAccounts: (request) =>
       siteAccounts(request).catch(() => ({ version: 1, ok: false, reason: "unavailable" })),
+    transfer: (request) => transfer.handle(request),
     service: (request) => {
       const type = requestType(request);
       return service.handle(request).then(

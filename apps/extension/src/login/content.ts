@@ -8,6 +8,7 @@ import {
   shownAccounts,
 } from "../page/accounts";
 import { isButton } from "../page/text";
+import { findLogoutTargets, safeLogoutControl, shownLayers } from "../page/logout-controls";
 import { pressElement } from "../page/script-url-click";
 import { autocompleteTokens, findTargets } from "../page/targets";
 import {
@@ -57,13 +58,21 @@ import { FIELD_GAP_MS, typeValue } from "../page/enter-value";
 import {
   extractAccountListObservation,
   extractEntryObservation,
+  extractLocalLogout,
+  extractLogoutObservation,
   extractLoginObservation,
   extractPasskeyObservation,
   extractSignedInObservation,
   fieldsMissDetail,
   presence,
 } from "../observation/extract";
-import { accountSwitchControls, listChoice, listControls } from "../page/account-list";
+import {
+  accountSwitchControls,
+  clickableSwitch,
+  entryLike,
+  listChoice,
+  listControls,
+} from "../page/account-list";
 import {
   listedAccounts,
   listsAccounts,
@@ -72,7 +81,6 @@ import {
   type ListedAccounts,
 } from "./no-input-offer";
 import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
-import { clickedLogout } from "../page/logout-click";
 import {
   pageSigns,
   passedCaptcha,
@@ -86,6 +94,7 @@ import { acceptsSecret, maskedSecret } from "./inputs";
 import { chooseFor } from "../page/choice-radio";
 import { askedQuestion, type AskedQuestion } from "../page/question";
 import { cardHints } from "../page/card-hints";
+import { siteValueChoice, stopSiteValues } from "../page/site-values";
 import {
   commandSchema,
   destinationAnswerSchema,
@@ -119,9 +128,6 @@ function submitButton(element: Element): element is HTMLButtonElement | HTMLInpu
     (element instanceof HTMLButtonElement && element.type === "submit") ||
     (element instanceof HTMLInputElement && (element.type === "submit" || element.type === "image"))
   );
-}
-function followable(element: Element | undefined): element is HTMLAnchorElement {
-  return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
 }
 /**
  * Whether `input` still asks the secret question the fill names, when it names one (ADR
@@ -177,14 +183,11 @@ const isOnly = (found: readonly Element[], element: Element) =>
 /** How long after a `wrong-account` result its account switch may still be clicked. */
 const switchTimeoutMs = 10_000;
 /**
- * Whether `element` is an account switch the executor may click: a shown link, or a shown
- * button that does not submit a form (that would send the sign-in form instead).
+ * Whether a recipe's account switch may be clicked: by the same rule as the page's own
+ * control for another account and a list's (ADR 0078), whatever its element type.
  */
 function switchable(element: Element | undefined): element is HTMLElement {
-  if (followable(element)) return true;
-  if (!clickable(element) || !isButton(element)) return false;
-  const submits = element.type === "submit" || element.type === "image";
-  return !(submits && formOf(element));
+  return element !== undefined && entryLike(element) && clickableSwitch(element);
 }
 /** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
 const ready = (readiness: LoginReadiness) => readingPage(() => readyNow(readiness));
@@ -194,7 +197,11 @@ function readyNow(readiness: LoginReadiness): boolean {
   if (readiness.accounts)
     return (
       !showsSignIn() &&
-      (readiness.targets.some((target) => listControls(document, target).length === 1) ||
+      (readiness.targets.some(
+        (target) =>
+          listControls(document, target, "other").length === 1 ||
+          listControls(document, target, "continue").length === 1,
+      ) ||
         listsAccounts(document))
     );
   return (
@@ -391,7 +398,10 @@ export interface LoginContentOptions {
 export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
   const token = newId();
   let cancelled = false;
-  // Set once this document's login has ended; it then watches for a logout (ADR 0021 D).
+  // Whether the background asked for the value the page set in an account input.
+  let siteAccountAsked = false;
+  // Set once this document's login has ended; it then watches for its first step to show
+  // again, as after a logout, when the page logs in again (ADR 0062).
   let ended = false;
   // The site rejected that login here: the form showing with the failure asks at once.
   let rejected = false;
@@ -966,8 +976,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       unwatch();
     } else if (parsed.output.starts) {
       watch(parsed.output.starts, parsed.output.generate === true, parsed.output.entry === true);
-      // In the document that logged in, a form still showing is not a logout; only its
-      // next appearance is (ADR 0021 D). After a rejection it is the form shown again.
+      // In the document that logged in, a form still showing does not log in again; only its
+      // next appearance does (ADR 0021 D, ADR 0062). After a rejection it is the form shown
+      // again.
       if (ended && !rejected && !start) announced = starts.some(ready);
       // A refused start means the background did not see the form on this path yet, for
       // example while the tab still shows the previous URL.
@@ -1023,6 +1034,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // The popup's fill of a personal detail (ADR 0061): its input, or every input of a
       // split value, each checked before any is filled, a radio first, and nothing
       // pressed. The values and the username never leave this handler.
+      // What the page sets in its inputs from now on may be Pateat's own filling.
+      stopSiteValues(window);
       const fields = command.fields.map((field) => ({ ...field }));
       for (const field of command.fields) field.value = "";
       const username = command.account?.username;
@@ -1115,6 +1128,32 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       );
       return false;
     }
+    if (command.type === "login.site.account") {
+      // Answered once per document, once its inputs are there to compare, so a page
+      // cannot try one value after another to learn which accounts the vault holds (ADR
+      // 0028 amendment of 2026-10-23).
+      const inputs =
+        siteAccountAsked || cancelled || pagePath() !== command.path
+          ? []
+          : command.targets.map((target) => {
+              const found = matches(target);
+              return found.length === 1 ? found[0]! : undefined;
+            });
+      const compared = inputs.length > 0 && inputs.every(Boolean);
+      const index = compared
+        ? siteValueChoice(window, inputs as Element[], command.usernames)
+        : undefined;
+      if (compared) siteAccountAsked = true;
+      command.usernames.fill("");
+      respond(
+        index !== undefined
+          ? { ok: true, index }
+          : siteAccountAsked
+            ? { ok: false, spent: true }
+            : { ok: false },
+      );
+      return false;
+    }
     if (command.type === "login.switch") {
       const pending = pendingSwitch;
       pendingSwitch = undefined;
@@ -1172,7 +1211,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           location.origin,
         );
       respond({ ok: true });
-      // A finished login keeps watching: its first step showing again means a logout.
+      // A finished login keeps watching: its first step showing again logs in again.
       // A new login in this document, as after a pick, watches for its own end.
       if (command.state === "executing") ended = false;
       if (!ended && (command.state === "authenticated" || command.state === "blocked")) {
@@ -1274,6 +1313,60 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       );
       return true;
     }
+    if (command.type === "login.logout.click") {
+      // An account switch's click (ADR 0063): waits for the control to show, as a menu's
+      // item does once the menu opens, then presses it as the executor presses a button.
+      const url = location.href;
+      void (async () => {
+        const until = Date.now() + command.timeoutMs;
+        const find = () =>
+          findLogoutTargets(document, command.target).filter(
+            (element): element is HTMLElement => element instanceof HTMLElement && visible(element),
+          );
+        let found = find();
+        for (;;) {
+          if (cancelled || found.length > 0 || Date.now() >= until) break;
+          // eslint-disable-next-line no-await-in-loop
+          await pause(100);
+          found = find();
+        }
+        if (cancelled) return { ok: false, reason: "cancelled" };
+        if (location.href !== url) return { ok: false, reason: "page-changed" };
+        if (found.length !== 1)
+          return { ok: false, reason: found.length ? "ambiguous" : "missing" };
+        const control = found[0]!;
+        // A control that logs out everywhere or ends the account is never pressed, whoever
+        // named it: a stored recipe, the model or the control's words (ADR 0063).
+        if (!safeLogoutControl(control, command.purpose)) return { ok: false, reason: "unsafe" };
+        const before = shownLayers(document);
+        const pressed = await pressElement(control, () => !cancelled && location.href === url);
+        if (pressed === "missed")
+          return { ok: false, reason: cancelled ? "cancelled" : "page-changed" };
+        if (command.watchMs === undefined) return { ok: true };
+        // How the page reacts to a control found by its words (ADR 0063): a page that
+        // navigates away ends this script, which the worker reads as navigated.
+        const watchUntil = Date.now() + command.watchMs;
+        for (;;) {
+          if (cancelled) return { ok: false, reason: "cancelled" };
+          if (location.href !== url) return { ok: true, reacted: "navigated" };
+          if (shownLayers(document) > before) return { ok: true, reacted: "dialog" };
+          if (!control.isConnected || !visible(control)) return { ok: true, reacted: "changed" };
+          if (Date.now() >= watchUntil) return { ok: true, reacted: "none" };
+          // eslint-disable-next-line no-await-in-loop
+          await pause(100);
+        }
+      })().then(respond, () => respond({ ok: false, reason: "missing" }));
+      return true;
+    }
+    if (command.type === "login.logout.local") {
+      try {
+        const onSite = new Set(command.onSite);
+        respond(extractLocalLogout(document, (url) => onSite.has(url.hostname)));
+      } catch {
+        respond({ ok: false, reason: "none" });
+      }
+      return true;
+    }
     if (command.type === "login.entry.check") {
       // The page after an entry press: polls until a sign-in input, an input that asks for
       // an account identifier alone (ADR 0016), or a first step shows.
@@ -1308,11 +1401,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 ? extractAccountListObservation(document, command.names)
                 : command.page === "entry"
                   ? extractEntryObservation(document, (url) => onSite.has(url.hostname))
-                  : extractSignedInObservation();
+                  : command.page === "logout"
+                    ? extractLogoutObservation(document)
+                    : extractSignedInObservation();
         // A page described without a field says why, for the log (ADR 0019).
         if (
           command.page !== "entry" &&
           command.page !== "signed-in" &&
+          command.page !== "logout" &&
           (result as { reason?: unknown }).reason === "no-candidates"
         )
           result = {
@@ -1432,6 +1528,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         operationId: operation.operationId,
       });
       if (authorized !== true) return fail("cancelled", "not-authorized");
+      // What the page sets in its inputs from now on may be Pateat's own filling.
+      stopSiteValues(window);
       /**
        * Why the step may not send its form where `read` says it goes: a destination the
        * page refuses, or one off the document's origin that the background does not allow
@@ -2217,22 +2315,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       () => undefined,
     );
   };
-  /**
-   * The person clicked a control that logs out (ADR 0021 D, owner 2026-10-16): the tab's
-   * next sign-in form of the site asks instead of logging in. Only on a page of an origin
-   * with recipes, only for the person's own clicks (a page's script clicking for an expired
-   * session is not one), and only the fact is sent, never the control's text.
-   */
-  const onClick = (event: MouseEvent) => {
-    if (cancelled || !event.isTrusted || !starts.length || !clickedLogout(event)) return;
-    void sendMessage("login", { version: 1, type: "login.document.logout-clicked", token }).catch(
-      () => undefined,
-    );
-  };
   document.addEventListener("submit", onSubmit, true);
-  // On the window in the capture phase, so the click is read before most of the page's
-  // own handlers act on it, such as one that removes the menu holding the control.
-  addEventListener("click", onClick, true);
   browser.runtime.onMessage.addListener(listener);
   void announce(false).catch(() => undefined);
   return () => {
@@ -2242,7 +2325,6 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     followConfirmPath(undefined);
     document.removeEventListener("submit", onSubmit, true);
     submitListeners.abort();
-    removeEventListener("click", onClick, true);
     browser.runtime.onMessage.removeListener(listener);
   };
 }

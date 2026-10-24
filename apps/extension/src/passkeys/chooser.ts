@@ -43,10 +43,11 @@ export const chooserViewSchema = v.strictObject({
     v.maxLength(MAX_CHOOSER_ENTRIES),
   ),
   replacesDefault: v.boolean(),
-  /** Pateat signed in from this tab before; the person may have signed out to switch. */
-  again: v.boolean(),
-  /** With `again`: the person logged out of the site in this tab instead (ADR 0021 D). */
-  loggedOut: v.optional(v.literal(true)),
+  /**
+   * Automatic login of the site is paused (ADR 0062): no entry is the default, and the box
+   * that makes the choice the default starts unticked.
+   */
+  paused: v.optional(v.literal(true)),
   /**
    * The window asks for the master password before a password login uses its one entry,
    * instead of choosing a passkey; absent for a passkey request.
@@ -189,8 +190,7 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
           ...(entry.reprompt === true ? { reprompt: true as const } : {}),
         })) satisfies PasskeyDisplay[],
         replacesDefault: input.replacesDefault,
-        again: input.again,
-        ...(input.again && input.loggedOut ? { loggedOut: true } : {}),
+        ...(input.paused === true ? { paused: true as const } : {}),
         ...(input.purpose === "login" ? { purpose: "login" } : {}),
       });
       if (!view.success) return { kind: "unavailable" };

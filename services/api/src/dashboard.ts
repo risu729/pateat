@@ -20,7 +20,8 @@ import {
 } from "./db/schema";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const ROLES = ["generate", "judge"] as const;
+/** Request log roles, with an account switch's logout (ADR 0063) apart from generation. */
+const ROLES = ["generate", "judge", "logout"] as const;
 type Role = (typeof ROLES)[number];
 const SLOWEST = 10;
 const LATEST_PER_CODE = 20;
@@ -42,7 +43,7 @@ export type DashboardRequest = {
   outcome: string;
   recipeId: string | null;
   revision: number | null;
-  recipePage: "first" | "continuation" | null;
+  recipePage: "first" | "continuation" | "logout" | null;
   build: string | null;
   inputTokens: number | null;
   outputTokens: number | null;
@@ -466,7 +467,10 @@ export async function readDashboard(
   return summarizeDashboard({
     range,
     now,
-    requests,
+    // An account switch's logout (ADR 0063) is logged as generation on its own page.
+    requests: requests.map((row) =>
+      row.recipePage === "logout" ? { ...row, role: "logout" as const } : row,
+    ),
     logins,
     firstLogins,
     // A period's sum is never negative once its call is settled; clamp it for the contract.

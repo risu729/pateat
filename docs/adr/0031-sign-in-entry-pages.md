@@ -13,6 +13,13 @@ form plan) and the recipe contract in `packages/contracts/src/login.ts`. Like
 [ADR 0028](0028-account-chooser-login-pages.md)'s `chooser`, it needs a recipe whose
 start has no fill step.
 
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (accepted and
+implemented): the checks no longer read a logout state or a logout click, and nothing is
+pressed or sent while the site's automatic login is paused, also by an exclusion rule
+(`paused`; the `site-excluded` check is gone, `destination-excluded` stays); and by
+[ADR 0063](0063-switch-accounts-from-the-popup.md): an account switch presses an entry
+without the `no-return-target` and `site-record` checks.
+
 Implementation notes (2026-10-12), which leave the decision below as accepted:
 
 - The `login.entry` levels follow

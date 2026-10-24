@@ -7,6 +7,12 @@ warningっぽいの数秒、詳しくはポップアップでよい」. Amends
 [site count badge](0021-account-choice-outside-settings.md#site-count-badge)) and
 replaces the spinning toolbar icon the owner chose at 14:04 UTC the same day.
 
+Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (accepted
+and implemented): the badge's after-logout state is removed, the popup's fill-only line
+names a tab that asks for an account, and a paused site, also one an exclusion rule
+pauses or a private window while automatic login is off there, shows a gray `II` unless
+a choice waits or a model request spins.
+
 Amended on 2026-10-14 by
 [ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14):
 only confirmed completion counts as a successful sign-in (implemented); see the dated
@@ -141,3 +147,23 @@ not be confirmed." The report and stored page status carry `unconfirmed`; the po
 retains the explanation after the badge expires and across a worker restart, under
 the existing origin and tab lifetime rules. The earlier table above is retained as
 history; all other badge priorities and lifetimes are unchanged.
+
+## Amendment: a synced setting hides the popup's section (2026-10-23)
+
+The owner's decision at 12:47 UTC (choice B for the earlier draft
+[#608](https://github.com/risu729/pateat/pull/608)) adds the setting this ADR left for
+later. The settings page's **Show "This page" in the popup** checkbox, under the Theme
+select, is checked by default. Unchecking it stores `popupPageSection: false` in the
+settings document, a profile part synced like the site exclusions
+([ADR 0024](0024-settings-profiles.md)), so every paired device follows it. While it is
+hidden the popup shows neither the page's status nor its **Open the detailed log** link
+and does not ask the worker for the page's status; the badge is unchanged. The personal
+details a page asks for ([ADR 0061](0061-personal-details-during-a-login.md)) are
+something to do on the page rather than its status, so they still show under the "This
+page" heading. The account switch ([ADR 0063](0063-switch-accounts-from-the-popup.md))
+belongs to the section and is hidden with it. The pause row
+([ADR 0062](0062-log-in-again-after-a-logout.md)) stays: it needs only the tab's site
+and its pause, which the popup asks for alone (`login.pause.get`), so all three lengths
+and Resume are offered. A document without the field shows the section. The official
+extension keeps its popup display options on each device
+([Bitwarden differences](../bitwarden-differences.md#popup-display)).

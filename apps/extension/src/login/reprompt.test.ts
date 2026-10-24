@@ -53,7 +53,6 @@ describe("login master password re-prompt", () => {
       rpId: "bank.example",
       entries: [{ item: "Bank", account: "Personal", reprompt: true }],
       purpose: "login",
-      again: false,
     });
     expect(await asked.verify!(0, "right")).toBe(true);
     expect(await asked.verify!(0, "wrong")).toBe(false);

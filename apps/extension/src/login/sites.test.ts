@@ -37,12 +37,30 @@ describe("createLoginSites", () => {
     expect(contains).toHaveBeenCalledWith({ origins: ["https://router.example/*"] });
   });
 
-  it("refuses other schemes and excluded sites", async () => {
+  it("refuses other schemes and unsupported hostnames, and admits a site a rule pauses", async () => {
+    granted.add("http://router.example/*");
+    granted.add("https://my_host.example/*");
     const sites = sitesWith((settings) => {
       settings.excludedSites = [{ hostname: "router.example", includeSubdomains: false }];
     });
     expect(await sites.admission(new URL("ftp://files.example/"))).toBe("not-web");
-    expect(await sites.admission(new URL("http://router.example/"))).toBe("site-excluded");
+    expect(await sites.admission(new URL("https://my_host.example/"))).toBe("unsupported-host");
+    // The rule pauses automatic login there; the login runtime refuses it as paused.
+    expect(await sites.admission(new URL("http://router.example/"))).toBe("admitted");
+  });
+
+  it("reads what of the settings pauses automatic login (ADR 0062)", async () => {
+    const rules = [{ hostname: "router.example", includeSubdomains: false }];
+    expect(
+      await sitesWith((settings) => {
+        settings.excludedSites = rules;
+      }).pausing(),
+    ).toEqual({ excludedSites: rules });
+    expect(
+      await sitesWith((settings) => {
+        settings.loginInPrivateWindows = true;
+      }).pausing(),
+    ).toEqual({ excludedSites: [], loginInPrivateWindows: true });
   });
 
   it("lists saved defaults of HTTP and HTTPS origins whose host access is granted", async () => {

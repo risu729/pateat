@@ -22,6 +22,18 @@ export {
   type GenerationRequest,
   type Irreversible,
 } from "./generation";
+export {
+  appendLogoutClick,
+  createLogoutGenerator,
+  logoutAnswerSchema,
+  logoutInstructions,
+  logoutPromptVersion,
+  validateLogout,
+  type LogoutAssemblyRejection,
+  type LogoutClickTarget,
+  type LogoutGenerationRequest,
+  type ValidatedLogout,
+} from "./logout";
 export { buildFieldQuestions, createFieldMappingDecider, type FiniteChoiceModel } from "./decision";
 export { evaluationCorpus, type EvaluationCase, type ExpectedResult } from "./corpus/cases";
 export { slots as corpusSlots } from "./corpus/slots";

@@ -157,11 +157,11 @@ async function expectInputOutcome(
     await expect
       .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
       .toMatchObject({ attempts: [], asks: ["rejected"] });
-    // The released page announced again and was refused as logged out: it never logs in
-    // again.
+    // The released page announced again and was refused while the tab asks: it never logs
+    // in again.
     await expect
       .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
-      .toMatchObject({ documents: [{ state: "denied", reason: "logged-out" }] });
+      .toMatchObject({ documents: [{ state: "denied", reason: "account-asked" }] });
     expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
       attempts: [],
       asks: ["rejected"],
@@ -1820,7 +1820,7 @@ test("a page showing another account is not filled, and its account switch is cl
       expect(inPlaceLoads).toBe(1);
       await inPlace.close();
       await expect.poll(status).not.toContain("authenticated");
-      // A switch that would submit a form is never clicked.
+      // A switch that would submit a form with a shown field is never clicked.
       const submit = await context.newPage();
       let submitLoads = 0;
       submit.on("load", () => {
@@ -1941,11 +1941,11 @@ test("waits for delayed same-page success and rejection without resubmitting", a
             outcome === "credential-rejected" ? '"asks":["rejected"]' : `"outcome":"${outcome}"`,
           );
         // A released rejection must not log in again in its page: its announcement after
-        // the release was refused as logged out.
+        // the release was refused while the tab asks.
         if (outcome === "credential-rejected")
           await expect
             .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
-            .toMatchObject({ documents: [{ state: "denied", reason: "logged-out" }] });
+            .toMatchObject({ documents: [{ state: "denied", reason: "account-asked" }] });
         expect(await clicks(page)).toBe(1);
         await page.close();
         // Closing the tab ends its record and its ask, so the next page logs in afresh.
@@ -2169,10 +2169,10 @@ test("credential rejection and unknown outcome each stop after one submission", 
         )
         .toContain('"asks":["rejected"]');
       // A released rejection must not log in again in its page: its announcement after the
-      // release was refused as logged out.
+      // release was refused while the tab asks.
       await expect
         .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
-        .toMatchObject({ documents: [{ state: "denied", reason: "logged-out" }] });
+        .toMatchObject({ documents: [{ state: "denied", reason: "account-asked" }] });
       expect(await clicks(rejected)).toBe(1);
       await rejected.close();
       // Closing the tab ends its ask, so the next page logs in afresh.

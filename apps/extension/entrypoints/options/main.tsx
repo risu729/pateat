@@ -7,6 +7,7 @@ import { createMetadataQueryClient, createSettingsClient } from "../../src/optio
 import { createConnectionClient } from "../../src/options/connection-client";
 import { createDeviceModelClient } from "../../src/options/device-model";
 import { createServiceClient } from "../../src/options/service-client";
+import { createTransferClient } from "../../src/options/transfer";
 import { createVaultTimeoutClient } from "../../src/options/vault-timeout";
 import { sendMessage } from "../../src/messaging/protocol";
 import { followThemePreference } from "../../src/theme";
@@ -33,6 +34,7 @@ createRoot(root).render(
       connectionClient={connectionClient}
       vaultTimeoutClient={createVaultTimeoutClient()}
       deviceModelClient={createDeviceModelClient()}
+      transferClient={createTransferClient((message) => sendMessage("settings", message))}
       serviceClient={createServiceClient({
         send: (message) => sendMessage("service", message),
         openTab: (url) => browser.tabs.create({ url }),

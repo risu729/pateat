@@ -526,7 +526,7 @@ describe("owner web UI dashboard", () => {
     const by = await owner();
     const data = await readDashboard(by);
     expect(data.range).toBe("7d");
-    expect(data.llm.map((role) => role.calls)).toEqual([0, 0]);
+    expect(data.llm.map((role) => role.calls)).toEqual([0, 0, 0]);
     expect(data.failures).toEqual([]);
     expect(data.stats.spend).toEqual({
       dayMicroUsd: 0,
@@ -535,6 +535,30 @@ describe("owner web UI dashboard", () => {
       monthlyLimitMicroUsd: 100_000_000,
     });
     expect(await ownerIdFor(by.subject)).toBeNull();
+  });
+
+  it("counts an account switch's logout requests apart from login generation (ADR 0063)", async () => {
+    const by = await owner();
+    const mine = await pair(by);
+    const now = Date.now();
+    const insert = env.DB.prepare(
+      "INSERT INTO inference_log (id, owner_id, role, provider, model_id, origin, path, request, outcome, recipe_id, revision, recipe_page, cost_micro_usd, model_ms, server_ms, created_at) VALUES (?, ?, 'generate', 'anthropic', 'm', 'https://bank.example', '/home', '{}', 'ok', ?, 1, ?, 0, ?, 2600, ?)",
+    );
+    await env.DB.batch([
+      insert.bind(`log-${crypto.randomUUID()}`, mine, "gen-login", "first", 4000, now - HOUR_MS),
+      insert.bind(`log-${crypto.randomUUID()}`, mine, "gen-logout", "logout", 1000, now - HOUR_MS),
+      insert.bind(`log-${crypto.randomUUID()}`, mine, "gen-logout", "logout", 3000, now - HOUR_MS),
+    ]);
+    const data = await readDashboard(by);
+    const calls = Object.fromEntries(data.llm.map((role) => [role.role, role.calls]));
+    expect(calls).toEqual({ generate: 1, judge: 0, logout: 2 });
+    expect(data.llm.find((role) => role.role === "generate")!.modelMs.values).toEqual([4000]);
+    expect(data.stats.recipesGenerated).toBe(1);
+    expect(data.stats.requests).toEqual([
+      { role: "logout", outcome: "ok", count: 2 },
+      { role: "generate", outcome: "ok", count: 1 },
+    ]);
+    expect(data.daily.reduce((sum, day) => sum + day.generateRequests, 0)).toBe(1);
   });
 
   it("aggregates only the signed-in owner's rows within the range", async () => {

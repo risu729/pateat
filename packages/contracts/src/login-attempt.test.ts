@@ -3116,7 +3116,7 @@ describe("route changes for a page's own passkey request (ADR 0034)", () => {
     expect(transitionLoginAttempt(filling, toPasskey)).toEqual(filling);
     // A submission, even before its result.
     expect(transitionLoginAttempt(submitting(), toPasskey)).toEqual(submitting());
-    // A login that only fills after a logout.
+    // A login that only fills while its tab asks for an account.
     const fillOnly = transitionLoginAttempt(
       create({ route: "password", variant: 0 }, { fillOnly: true }),
       { type: "RESOLVE" },

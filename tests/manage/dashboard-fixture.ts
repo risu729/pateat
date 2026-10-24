@@ -116,6 +116,18 @@ export function syntheticDashboard(now: number): ManageDashboard {
         inputTokens: 96_600,
         outputTokens: 3_150,
       },
+      {
+        // An account switch's logout requests (ADR 0063), apart from generation.
+        role: "logout",
+        calls: 3,
+        modelMs: few([1900, 2100, 2400]),
+        tokenMs: few([290, 300, 310]),
+        preModelMs: few([450, 470, 480]),
+        serverMs: few([2500, 2700, 3000]),
+        parts: { n: 3, preModelOtherMs: 170, tokenMs: 300, modelMs: 2100, afterModelMs: 60 },
+        inputTokens: 9_300,
+        outputTokens: 240,
+      },
     ],
     daily: days.map((day, index) => ({
       day,

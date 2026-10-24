@@ -250,6 +250,22 @@ function RecipeDetails({
             ],
           ]}
         />
+      ) : "logout" in recipe ? (
+        // A recipe that signs out for an account switch (ADR 0063); it has no layouts.
+        <KeyValues
+          entries={[
+            revisionFact,
+            [
+              "Logout",
+              recipe.logout.targets
+                .map(
+                  (target) =>
+                    `Click ${describeTarget(target.target)} on ${target.path} (${target.purpose})`,
+                )
+                .join(", then "),
+            ],
+          ]}
+        />
       ) : (
         <KeyValues entries={[revisionFact, ["Layouts", `${layouts.length}`]]} />
       )}

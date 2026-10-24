@@ -2027,6 +2027,52 @@ describe("cached recipe lookup", () => {
     ).toEqual([]);
   });
 
+  it("lists an origin's own logout recipes (ADR 0063), apart from its login recipes", async () => {
+    const logout: StoredLoginRecipe = {
+      version: 1,
+      id: "bank-logout",
+      revision: 1,
+      origin: SITE,
+      logout: {
+        path: "/login",
+        targets: [
+          {
+            kind: "click",
+            path: "/login",
+            target: { by: "text", value: "Sign out" },
+            purpose: "logout",
+          },
+        ],
+      },
+    };
+    const other = { ...logout, id: "other-logout", origin: "https://other.example" };
+    const { sync } = setup({
+      pages: [
+        page(
+          [logout, other].map((value) => ({
+            recipeId: value.id,
+            revision: 1,
+            state: "active" as const,
+            recipe: value,
+          })),
+          3,
+        ),
+      ],
+      stored,
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(await sync.recipes.logouts!(SITE)).toEqual([logout]);
+    expect(await sync.recipes.logouts!("https://unknown.example")).toEqual([]);
+    // On the login recipe's start path, it neither replaces it nor starts a login.
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(signin));
+    expect((await sync.recipes.starts(SITE)).map((start) => start.path)).toEqual(["/login"]);
+    expect(await sync.recipes.entries(SITE)).toEqual([]);
+    expect(
+      await setup({ stored: { ...stored, recipes: [logout] }, connection: undefined }).sync.recipes
+        .logouts!(SITE),
+    ).toEqual([]);
+  });
+
   it("serves nothing without a paired device or for another device's cache", async () => {
     expect(
       await setup({ stored, connection: undefined }).sync.recipes.recipe(SITE, "/login"),

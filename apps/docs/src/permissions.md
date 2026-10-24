@@ -40,17 +40,17 @@ HTTP and HTTPS page:
   request to create a passkey that lists one of your vault's passkeys, right after
   Pateat signed the tab in, is declined.
 
-Loading on a page does not mean acting on it. Pateat logs in only on a site that you
-have not excluded, that matches an item in your vault or that you chose an item for,
-that has a recipe for the page and that still has site access in Chrome. The vault must
-also be unlocked. It fills only
-the fields its recipe names for that exact origin, in that tab, frame and page. A page
-without a recipe can be described to your Pateat service so that one is written; what
-that description holds is in the [privacy policy](./privacy.md).
+Loading on a page does not mean acting on it. Pateat logs in by itself only on a site
+that you have not paused, that matches an item in your vault or that you chose an item
+for, that has a recipe for the page and that still has site access in Chrome. The vault
+must also be unlocked. It fills only the fields its recipe names for that exact origin,
+in that tab, frame and page. A page without a recipe can be described to your Pateat
+service so that one is written; what that description holds is in the
+[privacy policy](./privacy.md).
 
 To show on its toolbar icon how many of your vault's items match the current tab, Pateat
 compares the tab's address with your vault on your device. That needs no recipe, sends
-nothing, and also happens on sites you excluded.
+nothing, and also happens on sites you paused.
 
 The same access lets Pateat reach your Bitwarden server, your Pateat service and, when
 you saved an [AI key](./setup.md#ai-key), Anthropic's API
@@ -79,9 +79,11 @@ choice for each site. Where it has no access, it neither logs in nor answers pas
 requests, and its settings page asks for access to your Bitwarden server or Pateat
 service when it needs to reach them.
 
-To stop Pateat on one site while keeping its access elsewhere, turn
-**Pateat on this site** off in the toolbar popup instead. That adds an exclusion that
-every device using the same settings profile follows.
+To stop Pateat logging in on one site by itself while keeping its access elsewhere, use
+**Pause automatic login** in the toolbar popup instead. **10 minutes** and **1 hour**
+pause the site on this device only; **Until turned back on** adds a rule that every
+device using the same settings profile follows. While a site is paused, Pateat still
+logs in with an account you pick in the popup.
 
 ## Storage
 

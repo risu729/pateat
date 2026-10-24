@@ -30,13 +30,15 @@ for (const file of new Set(files)) {
       const headings = readFileSync(resolved, "utf8")
         .split("\n")
         .filter((line) => /^#{1,6} /.test(line))
-        .map((line) =>
-          line
-            .replace(/^#+ /, "")
-            .trim()
-            .toLowerCase()
-            .replace(/[^\w\s-]/g, "")
-            .replace(/\s/g, "-"),
+        .map(
+          (line) =>
+            line.match(/\{#([A-Za-z][A-Za-z0-9_-]*)\}\s*$/)?.[1] ??
+            line
+              .replace(/^#+ /, "")
+              .trim()
+              .toLowerCase()
+              .replace(/[^\p{L}\p{N}_\s-]/gu, "")
+              .replace(/\s/g, "-"),
         );
       if (!headings.includes(fragment)) failures.push(`${file}: missing heading: ${target}`);
     }

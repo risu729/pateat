@@ -58,7 +58,9 @@ only Bitwarden for the time being.
 - When a site asks for a passkey, Pateat can answer with a passkey stored in your vault.
 - When a site has no recipe yet, Pateat sends a sanitized description of the page, never
   your vault values, to your Pateat service, and a recipe is written with Claude, using
-  the service's Claude credentials or an Anthropic API key saved on your device.
+  the service's Claude credentials or an Anthropic API key saved on your device. With a
+  key and no service paired, the extension writes the recipe itself and keeps it on the
+  device.
 
 Settings and recipes live on a Pateat service that you pair the extension with. The
 extension keeps a copy, so logins keep working while the service is offline.
