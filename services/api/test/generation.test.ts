@@ -3125,6 +3125,53 @@ describe("page judgement (ADR 0027)", () => {
     expect(await head(device, change.recipeId)).toBe(2);
   });
 
+  it("fails closed on a page that still shows the login's elements, whatever the marker", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const code = {
+      ...element("app-code", "text", "Authentication code"),
+      inputMode: "numeric" as const,
+      maxLength: 6,
+    };
+    const mfa = observation("/login/mfa", [code, element("verify", "button", "Verify")]);
+    replies.push(
+      judgeReply({
+        decision: "challenge",
+        code: { field: "app-code", submit: "verify", source: "authenticator-app" },
+      }),
+    );
+    await complete(device, change.recipeId, 2, mfa);
+    // The code page again, its own button taken for the marker: still the handler's page.
+    replies.push(judgeReply({ decision: "signed-in", marker: "verify" }));
+    expect((await complete(device, change.recipeId, 3, mfa)).body).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+    });
+    // The first page's Next button on its own path, with its field gone.
+    const login = observation("/login", [
+      element("next", "button", "Next"),
+      element("help", "link", "Help"),
+    ]);
+    replies.push(judgeReply({ decision: "signed-in", marker: "next" }));
+    expect((await complete(device, change.recipeId, 3, login)).body).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+    });
+    // Both paths keep `challenge`, so a later login of the revision never completes there.
+    const calls = sent.length;
+    for (const page of [mfa, login])
+      // oxlint-disable-next-line no-await-in-loop -- Each request reads the row kept before.
+      expect((await complete(device, change.recipeId, 3, page)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "judged-challenge",
+      });
+    expect(sent).toHaveLength(calls);
+    expect(await head(device, change.recipeId)).toBe(3);
+  });
+
   it("does not judge a page that shows a route fill field or a signed-in marker", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);

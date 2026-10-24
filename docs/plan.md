@@ -2618,9 +2618,10 @@ is not on the judged page, a page on another origin, a marker one of the recipe'
 steps uses on that path, and a page that still shows an element a step uses on that path
 or a field any step fills. A failed sign-in that shows the form again with the same
 locators, on its own path or where the form posted, is then not learned as signed in.
-The judge is told which candidates are the recipe's own elements (`stepElements`), and a
-`signed-in` answer whose marker cannot be stored is still `signed-in` unless the page
-shows the login's own elements (ADR 0029 amendment of 2026-10-24). A site that signs in
+The judge is told which candidates are the recipe's own
+elements (`stepElements`). A page that still shows the login's elements fails as
+`invalid-output` and keeps `challenge`; a `signed-in` answer whose marker only cannot be
+stored is still `signed-in` (ADR 0029 amendment of 2026-10-24). A site that signs in
 on the login page's own path learns its completion only once that form is gone, and the
 completion then lists that path's fill fields as `absent` (at most four), which the
 executor requires to be missing. Both roles share `runStructuredRole` for metering,

@@ -69,6 +69,12 @@ may put off; once the password or a second factor was sent, with no sign and no
 evidence, it completes the login as signed in, confirmed, and learns no marker,
 otherwise it ends `challenge` (implemented, local tests only).
 
+Amended on 2026-10-24 (agent change, not yet confirmed by the owner): the judge is told
+which candidates are the recipe's own elements, a `signed-in` answer whose marker only
+cannot be stored stays `signed-in`, and a page that still shows the login's elements
+fails closed and keeps `challenge`; see
+[the amendment below](#amendment-a-marker-that-is-one-of-the-recipes-own-elements-2026-10-24).
+
 Date: 2026-10-12
 
 ## Context
@@ -587,14 +593,24 @@ with `id="submitto"`, the id the site also gives its sign-in button, which the r
 click step names. `addCompletion` refused it as `step-target`, rightly, since that
 marker would read the sign-in page as signed in, and the service answered that refusal
 on a recipe without a marker as `invalid-output`, which the extension reads as a judge
-that could not decide. An agent change, as a general rule (ADR 0033):
+that could not decide. An agent change, as a general rule (ADR 0033), not yet confirmed
+by the owner:
 
 - The judge's request names the candidates whose locator one of the recipe's elements
   uses (`recipeElements`: its steps of every variant, its passkey button, handlers,
   account switch and rejection) as `stepElements`, and the instructions say the marker
   is never one of them, so the model names another one. This changes the judge's prompt
-  version, so each page judged before is judged once more.
+  version, so each page judged before is judged once more. The change was not measured
+  on the judge's corpus.
+- `addCompletion` checks the page before the marker: a page that still shows an element
+  a step or handler uses on that path, a field any step fills, or the rejection is
+  `login-page`, whatever the marker. The account switch is not checked there, since a
+  signed-in page's account menu may read like it; as a marker it is still refused.
 - A `signed-in` answer whose marker only cannot be stored is still `signed-in`, without
-  a new revision: only a page that still shows the login's own elements
-  (`login-page`) fails closed as `invalid-output`. The service logs the refusal's code
-  (`Signed-in marker not learned`).
+  a new revision. A `login-page` answer fails closed as `invalid-output`, also for a
+  recipe that has a marker already, and the path keeps `challenge` instead of
+  `signed-in`, so a later login of the revision ends `judged-challenge` there. The
+  service logs the refusal's code (`Signed-in marker not learned`).
+- A path kept `signed-in` without a marker is not judged again for that revision and
+  prompt version: later logins get `judged-signed-in`, which completes a `password`
+  login on a quiet page but never a watched login, a `passkey` login or a stop.

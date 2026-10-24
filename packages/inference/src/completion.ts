@@ -152,8 +152,8 @@ export const completionInstructions = [
   "is by text is stored with that text, so the text must read the same everywhere: never",
   "the person's name, a count or a balance. A link by href is stored with its path, so",
   "the path must read the same for every account too: never one that names the person.",
-  "stepElements are the candidate IDs of elements the sign-in's own steps use, which its",
-  "sign-in pages show too: the marker is never one of them.",
+  "stepElements are the candidate IDs whose locator the sign-in's own steps also use; a",
+  "signed-in page may show them too, but the marker is never one of them.",
   "passkeyButton is a button that continues with a security key or passkey, never one",
   "that registers, creates, adds or sets up one, enters or sends a code, uses SMS, email",
   "or a recovery code, remembers the device, tries another way or cancels.",
@@ -668,10 +668,7 @@ export function createCompletionJudge(config: {
       v.union([semanticSlotsSchema, v.strictTuple([])]),
       request.slots ?? [],
     );
-    const elements = v.safeParse(
-      v.pipe(v.array(loginMarkerTargetSchema), v.maxLength(256)),
-      request.recipeElements ?? [],
-    );
+    const elements = v.safeParse(v.array(loginMarkerTargetSchema), request.recipeElements ?? []);
     if (!observation.success || !loginPaths.success || !slots.success || !elements.success)
       return { status: "failed", error: "invalid-request", calls: 0, usage: noUsage };
     if (!observation.output.complete)
