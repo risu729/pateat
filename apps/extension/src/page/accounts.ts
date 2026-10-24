@@ -1,5 +1,6 @@
 import { renderedText } from "./text";
-import { closestAcross, queryAll } from "./shadow";
+import { closestAcross, inputsOf, queryAll } from "./shadow";
+import { autocompleteTokens } from "./targets";
 
 const readLimit = 4000;
 const headingLimit = 8;
@@ -127,4 +128,26 @@ export function accountText(document: Document, form: HTMLFormElement | null): s
     .slice(0, headingLimit)
     .map((heading) => read(heading, headingReadLimit));
   return [scope ? read(scope, readLimit) : "", ...headings].join(" ");
+}
+
+/**
+ * The accounts `form` (or the page, without one) shows, and the addresses it would submit
+ * from an input for an account identifier the person cannot type into, hidden or
+ * read-only: a form for a remembered account may keep the address only there (ADR 0049),
+ * and {@link accountText} never includes an input's value. What a person types is never
+ * read (#932).
+ */
+export function formAccounts(document: Document, form: HTMLFormElement | null): string[] {
+  const identifier = /user|mail|login|account|ident/iu;
+  const submitted = inputsOf(form, document).flatMap((input) =>
+    input.type !== "password" &&
+    (input.type === "hidden" || input.readOnly || input.disabled) &&
+    input.value &&
+    (input.type === "email" ||
+      autocompleteTokens(input).some((token) => token === "username" || token === "email") ||
+      identifier.test(`${input.name} ${input.id}`))
+      ? shownAccounts(input.value).filter((entry) => !entry.includes("*"))
+      : [],
+  );
+  return [...shownAccounts(accountText(document, form)), ...submitted];
 }

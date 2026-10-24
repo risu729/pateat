@@ -138,8 +138,25 @@ export const loginReadinessSchema = v.strictObject({
    * shows no other identifier input, as an email form beside its password input would.
    */
   later: v.optional(v.literal(true)),
+  /**
+   * The targets a later step started with its password alone drops (ADR 0049): ready only
+   * while none of them shows writable, no other text input shares the password's form and
+   * neither the password input nor its form is marked `new-password`.
+   */
+  absent: v.optional(v.pipe(v.array(loginTargetSchema), v.minLength(1), v.maxLength(20))),
 });
 export type LoginReadiness = v.InferOutput<typeof loginReadinessSchema>;
+/** What a later step a new login may start at waits for (ADR 0049). */
+export function laterReadiness(entry: {
+  step: LoginStep;
+  absent?: LoginTarget[] | undefined;
+}): LoginReadiness {
+  return {
+    ...loginReadiness(entry.step),
+    later: true,
+    ...(entry.absent?.length ? { absent: entry.absent } : {}),
+  };
+}
 /** What a step waits for; a `wait` or `assert`-absent step does its own waiting. */
 export function loginReadiness(step: LoginStep): LoginReadiness {
   const targets: LoginTarget[] =

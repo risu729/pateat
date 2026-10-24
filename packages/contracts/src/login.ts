@@ -2125,20 +2125,51 @@ export function recipeStartSteps(recipe: LoginRecipe): LoginStep[] {
  * The later steps a new login may start at when none of the recipe's first steps shows
  * (ADR 0049): each `password` variant's `fill` steps after its first, other than one that
  * fills only a TOTP code, which a running login's handler or route step answers. `index`
- * is the step's position in its variant.
+ * is the step's position in its variant. A `fill` step that fills the password together
+ * with an account identifier, first or later, may also start with its password alone
+ * (`partial`), as a site that remembers the account shows its sign-in form with the
+ * password input alone (Duolingo, 2026-10-24); `absent` lists the targets it drops, which
+ * must not show then.
  */
-export function laterStartSteps(
-  recipe: LoginRecipe,
-): { variant: number; index: number; step: Extract<LoginStep, { kind: "fill" }> }[] {
+export function laterStartSteps(recipe: LoginRecipe): {
+  variant: number;
+  index: number;
+  step: Extract<LoginStep, { kind: "fill" }>;
+  partial?: true;
+  absent?: LoginTarget[];
+}[] {
   return passwordVariants(recipe).flatMap((variant, variantIndex) =>
-    variant.steps.flatMap((step, index) =>
-      index > 0 &&
-      step.kind === "fill" &&
-      step.fields.some((field) => field.slot !== TOTP_HANDLER_SLOT)
-        ? [{ variant: variantIndex, index, step }]
-        : [],
-    ),
+    variant.steps.flatMap((step, index) => {
+      if (step.kind !== "fill") return [];
+      const whole =
+        index > 0 && step.fields.some((field) => field.slot !== TOTP_HANDLER_SLOT)
+          ? [{ variant: variantIndex, index, step }]
+          : [];
+      const partial = passwordOnly(step);
+      if (!partial) return whole;
+      const absent = step.fields
+        .filter((field) => field.slot !== "password")
+        .map((field) => field.target);
+      return [
+        ...whole,
+        { variant: variantIndex, index, step: partial, partial: true as const, absent },
+      ];
+    }),
   );
+}
+/**
+ * A `fill` step with only its password fields (ADR 0049), when it also fills an account
+ * identifier, such as the username or a branch and account number; otherwise undefined.
+ * A TOTP field it fills is dropped too.
+ */
+export function passwordOnly(
+  step: Extract<LoginStep, { kind: "fill" }>,
+): Extract<LoginStep, { kind: "fill" }> | undefined {
+  const kept = step.fields.filter((field) => field.slot === "password");
+  return kept.length > 0 &&
+    step.fields.some((field) => field.slot !== "password" && field.slot !== TOTP_HANDLER_SLOT)
+    ? { ...step, fields: kept }
+    : undefined;
 }
 /**
  * Whether the recipe offers the route. A passkey-only recipe has no password route

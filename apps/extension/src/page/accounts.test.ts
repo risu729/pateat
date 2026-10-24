@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { accountText, showsOtherAccount, shownAccounts } from "./accounts";
+import { accountText, formAccounts, showsOtherAccount, shownAccounts } from "./accounts";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -99,6 +99,23 @@ describe("showsOtherAccount", () => {
   it("treats regular-expression characters in a shown value literally", () => {
     expect(showsOtherAccount(["a.b***@example.com"], "axb1@example.com", password)).toBe(true);
     expect(showsOtherAccount(["a.b***@example.com"], "a.b1@example.com", password)).toBe(false);
+  });
+});
+
+describe("formAccounts", () => {
+  it("adds the address a form keeps in a hidden or read-only identifier input, never a typed one", () => {
+    document.body.innerHTML = `<form id="login"><h2>Welcome back</h2>
+        <input type="hidden" name="email" value="kept@example.com">
+        <input type="text" id="username" readonly value="shown@example.com">
+        <input type="hidden" name="csrf" value="token@example.com">
+        <input type="text" name="email-typed" value="typed@example.com">
+        <input type="password" name="password" value="secret@example.com"></form>`;
+    const form = document.getElementById("login") as HTMLFormElement;
+    expect(formAccounts(document, form)).toEqual(["kept@example.com", "shown@example.com"]);
+    // Such an address of another account stops a fill for the account (ADR 0049).
+    expect(
+      showsOtherAccount(formAccounts(document, form), "me@example.com", { masked: false }),
+    ).toBe(true);
   });
 });
 

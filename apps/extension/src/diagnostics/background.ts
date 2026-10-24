@@ -462,6 +462,7 @@ export function createDiagnosticsLog(options: {
             item: report.itemId,
             fillOnly: report.fillOnly,
             startStep: report.startStep,
+            startPartial: report.startPartial,
             list: report.click,
             listUsername: report.listMiss?.username,
             listEntries: report.listMiss?.entries,

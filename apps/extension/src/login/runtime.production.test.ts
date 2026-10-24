@@ -48,7 +48,7 @@ import {
 import type { GenerationOutcome, LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
 import { siteDefaultsMark, type LogoutService } from "./switch";
-import { loginReadiness } from "./wire";
+import { laterReadiness, loginReadiness } from "./wire";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
 
 const fake = vi.hoisted(() => {
@@ -14915,12 +14915,14 @@ describe("production login document admission", () => {
           path: "/signin",
           steps: [recipe.steps[0]!],
           later: [
-            {
-              kind: "fill",
-              path: "/signin/password",
-              fields: [{ slot: "password", target: { by: "id", value: "password" } }],
-              effect: "prepare",
-            },
+            laterReadiness({
+              step: {
+                kind: "fill",
+                path: "/signin/password",
+                fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+                effect: "prepare",
+              },
+            }),
           ],
         },
       ]);
@@ -31877,7 +31879,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
         {
           path: "/signin",
           steps: [confirming.steps[0]!],
-          later: laterStartSteps(confirming).map(({ step }) => step),
+          later: laterStartSteps(confirming).map(laterReadiness),
         },
       ]);
       Object.assign(h.recipes, {
@@ -32353,7 +32355,7 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
       recipes.map((used) => ({
         path: used.steps[0]!.path,
         steps: [used.steps[0]!],
-        later: laterStartSteps(used).map(({ step }) => step),
+        later: laterStartSteps(used).map(laterReadiness),
       })),
     );
     const later = vi.fn(async (_origin: string, path: string) =>
@@ -33730,7 +33732,7 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
         {
           path: "/signin",
           steps: [coded.steps[0]!],
-          later: laterStartSteps(coded).map(({ step }) => step),
+          later: laterStartSteps(coded).map(laterReadiness),
         },
       ]);
       Object.assign(h.recipes, {
