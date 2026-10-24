@@ -545,6 +545,7 @@ test("a one-page form shown with its password input alone, as for an account the
           { slot: "account", target: target("account") },
           { slot: "password", target: target("password") },
         ],
+        effect: "prepare",
       },
       { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
     ],
