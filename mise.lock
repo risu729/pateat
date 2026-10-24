@@ -174,18 +174,18 @@ url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-windows-amd64.e
 url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663854370"
 
 [[tools.python]]
-version = "3.14.9"
+version = "3.15.1"
 backend = "core:python"
-specifiers = ["3.14.9"]
+specifiers = ["3.15.1"]
 
 [tools.python."platforms.linux-x64"]
-checksum = "sha256:561e91c1cadf30e84aec94d1917384ae3267e5f3e6e135e51fd1578bb19f4064"
-url = "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.14.9+20261021-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+checksum = "sha256:01d901e09ca673c99a6c9bd9ec2cfbd58dbe8813d07514c36cb73cfd20b18bd8"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.15.1+20261021-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 provenance = "github-attestations"
 
 [tools.python."platforms.windows-x64"]
-checksum = "sha256:57cc230da61d897e8e593511c9dac781491675a036cb727b7de5cb7a62ceebea"
-url = "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.14.9+20261021-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+checksum = "sha256:e7153a9f05921a72f7da1551d3bd374a88c4ffc0bbbea08776ddcb99b787d0f8"
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.15.1+20261021-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
 provenance = "github-attestations"
 
 [[tools.rumdl]]
