@@ -20,7 +20,7 @@
     "@types/react-dom": "19.3.0",
     "@vitest/browser-playwright": "5.0.5",
     "@vitest/coverage-v8": "5.0.5",
-    "@vitest/istanbul-lib-coverage": "1.0.2",
+    "@vitest/istanbul-lib-coverage": "2.0.0",
     "@vitest/ui": "5.0.5",
     "cf": "1.0.0-beta.20",
     "fast-check": "4.10.2",
