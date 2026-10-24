@@ -224,10 +224,10 @@ export function recipeElements(base: LoginRecipe): LoginMarkerTarget[] {
  * the first one, or one more after those learned before, up to four. A marker proves a
  * sign-in on any path, so it must be an element of the judged page and none of the
  * elements the recipe's steps, passkey route or handlers use on any path, nor its account
- * switch or rejection. The page must
- * not still show any element a step or handler uses on its own path, a field any step
- * fills on any path, or the rejection: a failed sign-in that shows the login form again, on its own path or where
- * the form posted, is not learned as signed in. On a step's own path the marker also
+ * switch or rejection. The page must not still show any element a step or handler uses
+ * on its own path, a field any step fills on any path, or the rejection: a failed sign-in
+ * that shows the login form again, on its own path or where the form posted, is not
+ * learned as signed in. On a step's own path the marker also
  * lists that path's fill fields as `absent`, since the executor checks it after every
  * step and counts hidden elements. A page of another HTTPS origin, which a login's tab
  * moved to (ADR 0022), stores that origin with its marker; the recipe's paths

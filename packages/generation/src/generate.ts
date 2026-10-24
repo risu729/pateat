@@ -1463,8 +1463,9 @@ export async function judgeCompletion(
   // even when the revision cannot be stored.
   const signedInAnyway = recipe.completion !== undefined || moved;
   const signedIn = { version: 1, status: "signed-in" } as const;
-  if (!learned?.ok) {
-    console.info("Signed-in marker not learned", { recipeId, reason: learned?.reason });
+  if (!learned) return failed("invalid-output");
+  if (!learned.ok) {
+    console.info("Signed-in marker not learned", { recipeId, reason: learned.reason });
     return loginPage ? failed("invalid-output") : signedIn;
   }
   const learnedRecipe = stored(head.recipe, branch, learned.recipe);
