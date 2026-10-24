@@ -387,6 +387,14 @@ const SIGN_IN_RECHECKS = 10;
  * answer to the step, read for a sign-in form shown again (ADR 0029).
  */
 const SITE_MOVE_MS = 30_000;
+/**
+ * How long after the passkey bridge answered a tab's top document outside a login no new
+ * automatic login starts on that page: the assertion is the page's sign-in, and the site
+ * moves on by itself. A form still showing after it is read as the site's refusal, as for
+ * a login's own answer (ADR 0034 rule 6).
+ */
+const PASSKEY_SIGN_IN_MS = 15_000;
+const PASSKEY_SIGNED_IN = "passkey-signed-in";
 /** How long a master password typed for a re-prompt item lets its document's login start. */
 const REPROMPT_GRANT_MS = 60_000;
 /** Readings of that move's new page, a second apart, before it must have loaded quietly. */
@@ -2844,12 +2852,18 @@ export function createLoginRuntime(
   /** By tab and origin: the last passkey request of the top document, outside conditional mediation. */
   const passkeyRequests = new Map<string, number>();
   /**
-   * By tab and origin: the last assertion the passkey bridge returned, its RP ID and the
-   * vault item it was signed with.
+   * By tab and origin: the last assertion the passkey bridge returned, its RP ID, the vault
+   * item it was signed with and, when no login of the tab's origin ran, the top document it
+   * signed in.
    */
   const passkeyAnswers = new Map<
     string,
-    { at: number; rpId: string; item?: { connectionId: string; itemId: string } }
+    {
+      at: number;
+      rpId: string;
+      item?: { connectionId: string; itemId: string };
+      signedIn?: string;
+    }
   >();
   /**
    * By tab: the page of another origin of the site that a top-level attempt's tab moved to
@@ -13990,6 +14004,29 @@ export function createLoginRuntime(
       (latest && !terminal(latest) && latest.id !== recorded?.id)
     )
       return refuse("tab-busy");
+    // A passkey Pateat returned to the tab's page, outside a login of it, signed that page
+    // in: the site moves on by itself, so no login runs there by itself, as one would fill
+    // and submit the password over the passkey's sign-in, also from a later step such as a
+    // password page shown alone. Read here, after the admission's last wait, so an answer
+    // returned while it waited counts too. A pick in the popup or an account switch still
+    // logs in, and the page announces again when the answer's window ends, so a step the
+    // site shows after the passkey, such as a one-time code, is filled then.
+    if (!previous && !picking) {
+      const answer = passkeyAnswers.get(`${document.tabId} ${siteOrigin}`);
+      const top =
+        document.frameId === 0
+          ? document.documentId
+          : documents.get(frameKey({ tabId: document.tabId, frameId: 0 }))?.document.documentId;
+      if (
+        answer?.signedIn !== undefined &&
+        answer.signedIn === top &&
+        Date.now() - answer.at < PASSKEY_SIGN_IN_MS
+      ) {
+        const refused = await refuse(PASSKEY_SIGNED_IN);
+        retryAfterPasskey(live, answer.at);
+        return refused;
+      }
+    }
     let metadata: LoginAttemptMetadata;
     let resumedPolicy: PolicyChange | undefined;
     if (previous) {
@@ -15435,16 +15472,44 @@ export function createLoginRuntime(
     siteOrigin: string,
     rpId: string,
     item?: { connectionId: string; itemId: string },
-    facts?: { silent?: true; incognito: boolean },
+    facts?: { silent?: true; incognito: boolean; documentId?: string },
   ): void {
     // A sign-in Pateat answered by itself outside a login counts as a relogin, so a page
     // that asks for a passkey on load after each logout cannot loop (ADR 0062).
     if (facts?.silent) void sessionLoaded.then(() => countSignIn(siteOrigin, facts.incognito));
+    // A running login's answer is that login's step, which it follows itself (ADR 0034).
+    const running = recordFor(tabId, siteOrigin);
+    const outside = !running || terminal(running) || idle(running);
     passkeyAnswers.set(`${tabId} ${siteOrigin}`, {
       at: Date.now(),
       rpId,
       ...(item ? { item: { connectionId: item.connectionId, itemId: item.itemId } } : {}),
+      ...(outside && facts?.documentId !== undefined ? { signedIn: facts.documentId } : {}),
     });
+  }
+  /**
+   * Asks a page refused as signed in by a passkey to announce again once that answer's
+   * window ends, so a page whose sign-in form still shows then logs in (ADR 0034 rule 6).
+   */
+  function retryAfterPasskey(live: LiveDocument, answeredAt: number): void {
+    setTimeout(
+      () => {
+        if (
+          documents.get(frameKey(live.document)) !== live ||
+          live.state !== "denied" ||
+          live.reason !== PASSKEY_SIGNED_IN
+        )
+          return;
+        void browser.tabs
+          .sendMessage(
+            live.document.tabId,
+            { version: 1, type: "login.reconnect" },
+            { frameId: live.document.frameId, documentId: live.document.documentId },
+          )
+          .catch(() => undefined);
+      },
+      Math.max(0, answeredAt + PASSKEY_SIGN_IN_MS - Date.now()),
+    );
   }
   /**
    * Whether a top-level attempt's tab moving to `live`, a top page of another origin, ended
