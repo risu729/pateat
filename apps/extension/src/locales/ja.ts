@@ -83,8 +83,7 @@ export const ja = {
   "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.":
     "Pateat はこのタブのアドレスを読み取れません。Pateat が動作するのは、サイトへのアクセスが許可されたウェブサイトです。読み込み中のページでもこの表示になります。",
   "Pateat's settings could not be loaded.": "Pateat の設定を読み込めませんでした。",
-  "Pateat runs only on allowed sites, and this site is not one of them.":
-    "Pateat は許可サイトでだけ動きます。このサイトは許可サイトではありません。",
+  "Paused, as this is not an allowed site": "許可サイトではないため一時停止中",
   "Allow {{site}}": "{{site}} を許可",
   "{{site}} and its subdomains are now allowed sites.":
     "{{site}} とそのサブドメインを許可サイトにしました。",
@@ -227,6 +226,8 @@ export const ja = {
     "プライベートウィンドウでは自動ログインはオフで、{{name}} にはパスワードがないため、Pateat はログインしませんでした。パスキーでログインするには、ページのパスキーログインボタンを押してください。{{name}} がこのサイトの唯一のパスキーか既定のときは、Pateat がそこでログインします。",
   "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.":
     "プライベートウィンドウでは自動ログインはオフで、{{name}} にはパスワードがないため、Pateat はログインしませんでした。{{name}} は既定にしていません。パスキーでログインするには、ページのパスキーログインボタンを押してください。{{name}} がこのサイトの唯一のパスキーか既定のときは、Pateat がそこでログインします。",
+  "Pateat: automatic login is paused here, as this is not an allowed site.":
+    "Pateat：許可サイトではないため、ここでは自動ログインを一時停止しています。",
   "Pateat: automatic login is paused on this site until turned back on.":
     "Pateat：このサイトの自動ログインは再開するまで一時停止中です。",
   "Automatic login is paused on this site, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button and choose {{name}} in Pateat's window.":

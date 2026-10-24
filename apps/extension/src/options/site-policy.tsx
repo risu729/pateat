@@ -523,10 +523,7 @@ export function SitePolicy({
     accountNote = t("Enter an origin to list the accounts that match it.");
   else if (accountsPending) accountNote = t("Finding the vault items that match this origin…");
   else if (accounts.isError || (accounts.data && !accounts.data.ok))
-    accountNote =
-      accounts.data?.ok === false && accounts.data.reason === "site-not-allowed"
-        ? t("This site is not an allowed site.")
-        : t("The matching accounts could not be listed.");
+    accountNote = t("The matching accounts could not be listed.");
   else if (!matchedCount)
     accountNote = t(
       "No vault item matches this origin. Add the site's URI or passkey to the item in your vault, then sync.",
@@ -776,7 +773,6 @@ export function SitePolicy({
       order: `2 ${rule.hostname}`,
       row: () => repromptRow(rule),
     })),
-    // A default on a site the allowed sites leave out is listed, and says it is not used.
     ...draft.siteDefaults
       .filter((entry) => !isSiteExcluded(draft, entry.origin))
       .map((entry) => ({

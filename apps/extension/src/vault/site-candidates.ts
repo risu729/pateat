@@ -2,7 +2,6 @@ import { maxTargetUrlLength } from "@pateat/bitwarden";
 import {
   connectionUse,
   getItemEligibility,
-  isSiteAllowed,
   isSupportedSite,
   parseSiteUrl,
   type LocalSettings,
@@ -38,7 +37,7 @@ export type LiveSiteCandidates =
       /** Connections whose live snapshot could not answer; never treated as "no match". */
       unavailableConnections: { connectionId: string; reason: string }[];
     }
-  | { ok: false; reason: "invalid-url" | "url-too-long" | "site-not-allowed" };
+  | { ok: false; reason: "invalid-url" | "url-too-long" };
 
 /** Provider URI matches for one page, narrowed by local settings before anything else.
  * Matches are candidate scope only: they never become `allowedOrigins`, site defaults,
@@ -61,8 +60,6 @@ export async function findLiveSiteCandidates(input: {
   // A hostname Pateat does not run on never reaches vault matching. An exclusion rule
   // only pauses automatic login, so its pages still list their matches (ADR 0062).
   if (!isSupportedSite(url)) return { ok: false, reason: "invalid-url" };
-  // A site outside the allowed sites gets nothing (ADR 0077).
-  if (!isSiteAllowed(settings, url)) return { ok: false, reason: "site-not-allowed" };
   const candidates: LiveSiteCandidate[] = [];
   const incompleteItems: IncompleteSiteItem[] = [];
   const unavailableConnections: { connectionId: string; reason: string }[] = [];

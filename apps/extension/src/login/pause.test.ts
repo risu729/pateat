@@ -4,6 +4,7 @@ import {
   createLoginPauses,
   PAUSE_LENGTHS,
   pausedByRule,
+  pausingRule,
   pausedInPrivate,
   pauseSite,
 } from "./pause";
@@ -49,6 +50,24 @@ describe("pausedByRule", () => {
     expect(pausedByRule(settings, "https://example.net/")).toBe(false);
     // A page Pateat does not run on is not a paused site.
     expect(pausedByRule(settings, "chrome://newtab/")).toBe(false);
+  });
+
+  it("pauses the pages the allowed sites leave out while they are on (ADR 0077)", () => {
+    const allowed = [{ hostname: "example.com", includeSubdomains: true }];
+    const settings = { excludedSites: [], allowedSites: allowed, allowedSitesEnabled: true };
+    expect(pausingRule(settings, "https://login.example.com/")).toBeUndefined();
+    expect(pausingRule(settings, "https://example.net/")).toBe("not-allowed");
+    expect(pausedByRule(settings, "https://example.net/")).toBe(true);
+    expect(pausingRule({ ...settings, allowedSitesEnabled: false }, "https://example.net/")).toBe(
+      undefined,
+    );
+    // An exclusion names the pause first.
+    const both = {
+      ...settings,
+      excludedSites: [{ hostname: "example.net", includeSubdomains: false }],
+    };
+    expect(pausingRule(both, "https://example.net/")).toBe("excluded");
+    expect(pausingRule(settings, "chrome://newtab/")).toBeUndefined();
   });
 });
 

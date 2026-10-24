@@ -620,14 +620,14 @@ exclusion rule `{hostname: <registrable site>, includeSubdomains: true}`; Resume
 timed pause or removes the site's own covering rules. When a rule for a parent of the
 site covers it, the row links each such rule to the settings page, and in a private
 window while automatic login is off there it links that setting. While the allowed sites
-are on ([ADR 0077](adr/0077-allowed-sites.md)) and leave the tab's site out, the popup
-lists no accounts and has no pause row: it says Pateat runs only on allowed sites and
-offers "Allow <registrable site>", which adds the allow rule
-`{hostname: <registrable site>, includeSubdomains: true}`. While the tab's page waits
-for an account choice, the choice is the popup's only list (the owner asked for one list
-on 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the default"
-checkbox makes the picked account the default once that login succeeds (a pick of
-another account that starts no login says it was not made the default), and a saved
+are on ([ADR 0077](adr/0077-allowed-sites.md)) and leave the tab's site out, the site is
+paused as by a rule: the popup lists its accounts, and its pause row says "Paused, as
+this is not an allowed site" and offers "Allow <registrable site>", which adds the allow
+rule `{hostname: <registrable site>, includeSubdomains: true}`. While the tab's page
+waits for an account choice, the choice is the popup's only list (the owner asked for
+one list on 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the
+default" checkbox makes the picked account the default once that login succeeds (a pick
+of another account that starts no login says it was not made the default), and a saved
 default can still be removed there. A paused site offers its choice too: every matching
 account, also a single one, the saved default first, and a pick logs in once; once the
 site is no longer paused, a choice offered only because of the pause ends and the page
@@ -848,7 +848,7 @@ refused document, once the check applied a new snapshot within ten seconds
 ([ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches)). A static content
 script runs on every HTTP(S) page and frame; the background admits documents with host
 access on hostnames Pateat runs on (an exclusion rule pauses rather than refuses, ADR
-0062) and, while the allowed sites are on, only on allowed sites (ADR 0077) and needs a
+0062, as a site the allowed sites leave out does, ADR 0077) and needs a
 cached recipe for the exact origin before any policy or vault access
 ([ADR 0009](adr/0009-install-time-https-site-access.md)). On an `http:` page only a
 vault URI saved with an explicit `http://` scheme matches, so only those items can be

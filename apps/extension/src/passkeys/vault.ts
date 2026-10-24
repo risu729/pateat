@@ -1,7 +1,6 @@
 import {
   connectionUse,
   getItemEligibility,
-  isSiteAllowed,
   isSupportedSite,
   itemAsksForMasterPassword,
   siteDefaultConnection,
@@ -73,9 +72,8 @@ export async function findVaultPasskeys(input: {
   const { catalog } = input.saved;
   const { only } = input;
   // An exclusion rule pauses automatic login only; the person's own request still asks
-  // in the chooser window (ADR 0062). A site outside the allowed sites gets no answer
-  // (ADR 0077).
-  if (!isSupportedSite(input.origin) || !isSiteAllowed(settings, input.origin)) return undefined;
+  // in the chooser window (ADR 0062).
+  if (!isSupportedSite(input.origin)) return undefined;
   const siteDefault = only
     ? undefined
     : settings.siteDefaults.find((entry) => entry.origin === input.origin);
@@ -293,8 +291,7 @@ export function createVaultPasskeySource(
       // unsupported hostname, or settings with no enabled connection, stop at the metadata
       // read.
       const metadata = await connections.settings.read().catch(() => undefined);
-      if (!metadata || !isSupportedSite(origin) || !isSiteAllowed(metadata.settings, origin))
-        return undefined;
+      if (!metadata || !isSupportedSite(origin)) return undefined;
       if (!metadata.settings.accountPolicies.some((entry) => entry.enabled))
         return { candidates: [], complete: true };
       const saved = await read();
@@ -375,7 +372,6 @@ export async function rememberVaultPasskey(input: {
     connection.snapshotId !== candidate.snapshotId ||
     connection.quarantinedItemIds?.includes(candidate.itemId) ||
     !isSupportedSite(origin) ||
-    !isSiteAllowed(settings, origin) ||
     !passkeyEligible(settings, saved.catalog, candidate.connectionId, candidate.itemId)
   )
     return false;

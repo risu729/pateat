@@ -119,7 +119,12 @@ export type SitePause =
   /** A rule for other sites too covers the site; it is changed in settings. */
   | { readonly kind: "shared"; readonly rules: readonly ExcludedSite[] }
   /** The tab is in a private window, where automatic login is off; changed in settings. */
-  | { readonly kind: "private" };
+  | { readonly kind: "private" }
+  /**
+   * The allowed sites are on and leave the site out (ADR 0077); allowing `site`, the
+   * registrable site with its subdomains, resumes it.
+   */
+  | { readonly kind: "not-allowed"; readonly site: string };
 
 /**
  * The pause row at the top of the popup (ADR 0062): "Pause automatic login" for 10
@@ -131,6 +136,7 @@ export function PauseControl({
   busy,
   onPause,
   onResume,
+  onAllow,
   onOpenSettings,
 }: {
   pause: SitePause;
@@ -142,6 +148,8 @@ export function PauseControl({
   busy: boolean;
   onPause: (length: PauseLength | "rule") => void;
   onResume: () => void;
+  /** Allows the site of a `not-allowed` pause. */
+  onAllow: () => void;
   /** Opens the settings page, at `section` when given. */
   onOpenSettings: (section?: string) => void;
 }) {
@@ -192,6 +200,28 @@ export function PauseControl({
         >
           {t("Change in settings")}
         </a>
+      </div>
+    );
+  if (pause.kind === "not-allowed")
+    return (
+      <div className="popup-pause">
+        <p id="popup-paused" className="popup-muted popup-status">
+          <Pause size={16} strokeWidth={2} aria-hidden="true" />
+          {t("Paused, as this is not an allowed site")}
+        </p>
+        <Button
+          id="popup-allow-site"
+          type="button"
+          variant="outline"
+          className="gap-2"
+          aria-disabled={busy || undefined}
+          onClick={() => {
+            if (!busy) onAllow();
+          }}
+        >
+          <Play size={16} strokeWidth={2} aria-hidden="true" />
+          {t("Allow {{site}}", { site: pause.site })}
+        </Button>
       </div>
     );
   return (

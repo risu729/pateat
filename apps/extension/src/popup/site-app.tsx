@@ -676,9 +676,8 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
-  // Only the vault policies, the allowed sites (ADR 0077) and each vault's sync, state and
-  // quarantine decide the matches, so saving a default or a pause keeps the listed accounts
-  // instead of listing them again.
+  // Only the vault policies and each vault's sync, state and quarantine decide the matches,
+  // so saving a default or a pause keeps the listed accounts instead of listing them again.
   const accounts = useQuery({
     queryKey: [
       "popup",
@@ -689,8 +688,6 @@ export function SiteApp({
           saved.snapshot.settings.accountPolicies,
           saved.snapshot.settings.itemPolicies,
           saved.snapshot.settings.customFieldReviews,
-          saved.snapshot.settings.allowedSites ?? [],
-          saved.snapshot.settings.allowedSitesEnabled ?? false,
         ]),
       saved?.catalog.settingsSyncPending ?? false,
       saved?.catalog.connections.map((entry) => [
@@ -713,8 +710,7 @@ export function SiteApp({
         clearTimeout(timer);
       }
     },
-    // A site outside the allowed sites is not searched (ADR 0077).
-    enabled: Boolean(origin && saved && isSiteAllowed(saved.snapshot.settings, origin)),
+    enabled: Boolean(origin && saved),
     staleTime: 0,
     gcTime: 0,
   });
@@ -868,6 +864,24 @@ export function SiteApp({
     }
   }
 
+  /**
+   * Allows the tab's site, which the allowed sites leave out (ADR 0077): its registrable
+   * site with its subdomains, the site a pause covers, so automatic login runs there again.
+   */
+  async function allowSite(site: string) {
+    if (
+      await change(
+        (value) => {
+          value.allowedSites = [
+            ...(value.allowedSites ?? []).filter((rule) => rule.hostname !== site),
+            { hostname: site, includeSubdomains: true },
+          ];
+        },
+        (translate) => translate("{{site}} and its subdomains are now allowed sites.", { site }),
+      )
+    )
+      void refreshPause();
+  }
   /**
    * Pauses automatic login of the tab's site for `length`, until turned back on with an
    * exclusion rule, or resumes it, also removing the site's own rules (ADR 0062).
@@ -1063,39 +1077,7 @@ export function SiteApp({
         <span>{t("Pateat's settings could not be loaded.")}</span>
       </p>
     );
-  else if (!isSiteAllowed(saved.snapshot.settings, origin)) {
-    // A site outside the allowed sites gets nothing from Pateat, so the popup only offers
-    // to allow it: the registrable site with its subdomains, as a pause covers it (ADR 0077).
-    const site = pauseSite(new URL(origin)) ?? hostnameOf(origin);
-    body = (
-      <div className="popup-section">
-        <p id="popup-site-not-allowed">
-          {t("Pateat runs only on allowed sites, and this site is not one of them.")}
-        </p>
-        <div className="popup-actions">
-          <Button
-            id="popup-allow-site"
-            type="button"
-            disabled={busy}
-            onClick={() =>
-              void change(
-                (value) => {
-                  value.allowedSites = [
-                    ...(value.allowedSites ?? []).filter((rule) => rule.hostname !== site),
-                    { hostname: site, includeSubdomains: true },
-                  ];
-                },
-                (translate) =>
-                  translate("{{site}} and its subdomains are now allowed sites.", { site }),
-              )
-            }
-          >
-            {t("Allow {{site}}", { site })}
-          </Button>
-        </div>
-      </div>
-    );
-  } else {
+  else {
     const hostname = hostnameOf(origin);
     const rules = siteRules(saved.snapshot.settings, origin);
     const reprompt = repromptSwitch(saved.snapshot.settings, hostname);
@@ -1339,18 +1321,22 @@ export function SiteApp({
     );
     // Only a site Pateat runs on can be paused (ADR 0062). In a private window automatic
     // login is off until turned on in the settings, which wins over the rest; a rule pauses
-    // the site until turned back on, and wins over a pause of a length.
+    // the site until turned back on, and wins over a pause of a length. A site the allowed
+    // sites leave out is paused until allowed, after its exclusions (ADR 0077).
+    const notAllowed = !isSiteAllowed(saved.snapshot.settings, origin);
     const pause: SitePause = inPrivate
       ? { kind: "private" }
       : rules.shared.length
         ? { kind: "shared", rules: rules.shared }
         : rules.rules.length
           ? { kind: "rule" }
-          : timedPause !== undefined
-            ? { kind: "until", until: timedPause }
-            : { kind: "running" };
+          : notAllowed
+            ? { kind: "not-allowed", site: pauseSite(new URL(origin)) ?? hostname }
+            : timedPause !== undefined
+              ? { kind: "until", until: timedPause }
+              : { kind: "running" };
     // With the page section hidden, any tab with a site to pause shows the row.
-    const ruled = inPrivate || rules.rules.length > 0;
+    const ruled = inPrivate || rules.rules.length > 0 || notAllowed;
     if (
       pageSectionShown
         ? pauseShown(status, Boolean(found?.accounts.length), ruled)
@@ -1363,6 +1349,9 @@ export function SiteApp({
           busy={busy}
           onPause={(length) => void setPause(length)}
           onResume={() => void setPause(undefined)}
+          onAllow={() => {
+            if (pause.kind === "not-allowed") void allowSite(pause.site);
+          }}
           onOpenSettings={(section) => host.openSettings(section)}
         />
       );

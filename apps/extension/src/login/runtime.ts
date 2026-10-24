@@ -227,11 +227,12 @@ import {
   type SwitchResponse,
 } from "./choice-wire";
 import {
+  allowlistOf,
   createLoginPauses,
   LOGIN_PAUSES_KEY,
   pauseSite,
-  pausedByRule,
   pausedInPrivate,
+  pausingRule,
   type LoginPauses,
   type PauseLength,
   type PauseState,
@@ -2695,7 +2696,8 @@ export function createLoginRuntime(
     sites?.pausing().catch(() => undefined) ?? Promise.resolve(undefined);
   /**
    * What of `policy` pauses a document (ADR 0062): automatic login being off in private
-   * windows, for a page of one, else an exclusion rule covering its site or its tab's.
+   * windows, for a page of one, else an exclusion rule covering its site or its tab's, or
+   * the allowed sites leaving one of them out (ADR 0077).
    */
   const settingsPause = (
     policy: PausingSettings | undefined,
@@ -2703,9 +2705,11 @@ export function createLoginRuntime(
   ): PauseState | undefined => {
     if (!policy) return undefined;
     if (pausedInPrivate(policy, live.incognito)) return { private: true };
-    return [live.url, live.topUrl].some((page) => page !== undefined && pausedByRule(policy, page))
-      ? { rule: true }
-      : undefined;
+    const rules = [live.url, live.topUrl].map((page) =>
+      page === undefined ? undefined : pausingRule(policy, page),
+    );
+    if (rules.includes("excluded")) return { rule: true };
+    return rules.includes("not-allowed") ? { rule: true, notAllowed: true } : undefined;
   };
   /**
    * What pauses automatic login of a document, if anything (ADR 0062): automatic login
@@ -5504,9 +5508,6 @@ export function createLoginRuntime(
     granted: VaultCatalog,
   ): Promise<{ reason: string } | undefined> {
     if (!live.topUrl) return undefined;
-    // A frame on a page outside the allowed sites gets nothing either (ADR 0077).
-    if (!isSiteAllowed(snapshot.snapshot.settings, live.topUrl))
-      return { reason: "site-not-allowed" };
     const connection = snapshot.catalog.connections.find(
       (entry) => entry.id === selected.connectionId,
     );
@@ -8686,12 +8687,6 @@ export function createLoginRuntime(
     const excluded = async (): Promise<string | undefined> => {
       const snapshot = await settings.handle({ version: 1, type: "settings.get" });
       if (!snapshot.ok) return "settings-unavailable";
-      const saved = snapshot.snapshot.settings;
-      if (
-        !isSiteAllowed(saved, live.document.origin) ||
-        (live.topUrl !== undefined && !isSiteAllowed(saved, live.topUrl))
-      )
-        return "site-not-allowed";
       return (await pauseOf(live)) ? "paused" : undefined;
     };
     /** The page as the judge would get it, while it is still the one the login ended on. */
@@ -14851,7 +14846,6 @@ export function createLoginRuntime(
       .handle({ version: 1, type: "settings.get" })
       .catch(() => undefined);
     if (!snapshot?.ok) return "settings-unavailable";
-    if (!isSiteAllowed(snapshot.snapshot.settings, url)) return "site-not-allowed";
     const matched = await vaultMatches({ ...live, url }).catch(() => undefined);
     if (!matched?.items.length) return "no-vault-match";
     return undefined;
@@ -16922,7 +16916,14 @@ export function createLoginRuntime(
        * The settings as the caller already read them, such as the passkey runtime's copy
        * read ahead of requests, so the request need not wait for the settings store.
        */
-      readAhead?: Pick<LocalSettings, "excludedSites" | "loginInPrivateWindows" | "siteDefaults">,
+      readAhead?: Pick<
+        LocalSettings,
+        | "excludedSites"
+        | "allowedSites"
+        | "allowedSitesEnabled"
+        | "loginInPrivateWindows"
+        | "siteDefaults"
+      >,
     ): Promise<boolean | "paused"> => {
       // Read at once, so a passkey request waits for the slowest read only.
       const [pausedBy, limited, asking] = await Promise.all([
@@ -16934,6 +16935,7 @@ export function createLoginRuntime(
               ? {
                   policy: {
                     excludedSites: readAhead.excludedSites,
+                    ...allowlistOf(readAhead),
                     ...(readAhead.loginInPrivateWindows ? { loginInPrivateWindows: true } : {}),
                   },
                 }

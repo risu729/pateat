@@ -473,19 +473,19 @@ test("a page waiting for the master password offers to open its window again", a
   expect(choices.reprompt).toHaveBeenCalledWith(7);
 });
 
-test("a site the allowed sites leave out lists nothing and offers to allow its whole site (ADR 0077)", async () => {
+test("a site the allowed sites leave out is paused, lists its accounts and offers to allow its whole site (ADR 0077)", async () => {
   const settings = createDefaultSettings();
   settings.allowedSitesEnabled = true;
   settings.allowedSites = [{ hostname: "shop.example", includeSubdomains: false }];
   const { client, current } = store(saved(0, settings));
   await mount(client, "https://login.bank.example/", pageOf("https://login.bank.example"));
   await expect
-    .element(page.getByText("Pateat runs only on allowed sites, and this site is not one of them."))
+    .element(page.getByText("Paused, as this is not an allowed site", { exact: true }))
     .toBeVisible();
-  expect(client.findSiteAccounts).not.toHaveBeenCalled();
-  await expect
-    .element(page.getByRole("group", { name: "Pause automatic login" }))
-    .not.toBeInTheDocument();
+  // As on a paused site, the accounts are listed: a pick logs in.
+  await expect.poll(() => client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Resume" })).not.toBeInTheDocument();
   await userEvent.click(page.getByRole("button", { name: "Allow bank.example" }));
   await expect
     .element(page.getByText("bank.example and its subdomains are now allowed sites."))
@@ -495,8 +495,18 @@ test("a site the allowed sites leave out lists nothing and offers to allow its w
     { hostname: "bank.example", includeSubdomains: true },
   ]);
   expect(current().snapshot.settings.allowedSitesEnabled).toBe(true);
-  await expect.poll(() => client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
-  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  await expect.element(page.getByRole("group", { name: "Pause automatic login" })).toBeVisible();
+});
+
+test("an exclusion of a site the allowed sites leave out is resumed first", async () => {
+  const settings = createDefaultSettings();
+  settings.allowedSitesEnabled = true;
+  settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: true }];
+  const { client, current } = store(saved(0, settings));
+  await mount(client, "https://login.bank.example/", pageOf("https://login.bank.example"));
+  await userEvent.click(page.getByRole("button", { name: "Resume" }));
+  expect(current().snapshot.settings.excludedSites).toEqual([]);
+  await expect.element(page.getByRole("button", { name: "Allow bank.example" })).toBeVisible();
 });
 
 test("allowed sites that are off, or that cover the site, leave the popup as it is", async () => {
@@ -513,7 +523,7 @@ test("allowed sites that are off, or that cover the site, leave the popup as it 
   await mount(covered.client, "https://login.bank.example/");
   await expect.poll(() => covered.client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
   await expect
-    .element(page.getByText("Pateat runs only on allowed sites, and this site is not one of them."))
+    .element(page.getByText("Paused, as this is not an allowed site", { exact: true }))
     .not.toBeInTheDocument();
 });
 

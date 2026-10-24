@@ -81,8 +81,7 @@ export const en = {
   "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.":
     "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too.",
   "Pateat's settings could not be loaded.": "Pateat's settings could not be loaded.",
-  "Pateat runs only on allowed sites, and this site is not one of them.":
-    "Pateat runs only on allowed sites, and this site is not one of them.",
+  "Paused, as this is not an allowed site": "Paused, as this is not an allowed site",
   "Allow {{site}}": "Allow {{site}}",
   "{{site}} and its subdomains are now allowed sites.":
     "{{site}} and its subdomains are now allowed sites.",
@@ -225,6 +224,8 @@ export const en = {
     "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.",
   "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.":
     "Automatic login is off in private windows, and {{name}} has no password, so Pateat did not log in. {{name}} was not made the default. To sign in with its passkey, use the page's own passkey sign-in button; Pateat logs in there when {{name}} is this site's only passkey or its default.",
+  "Pateat: automatic login is paused here, as this is not an allowed site.":
+    "Pateat: automatic login is paused here, as this is not an allowed site.",
   "Pateat: automatic login is paused on this site until turned back on.":
     "Pateat: automatic login is paused on this site until turned back on.",
   "Automatic login is paused on this site, and {{name}} has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button and choose {{name}} in Pateat's window.":

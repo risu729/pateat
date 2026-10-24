@@ -2,7 +2,6 @@
 export function unavailableReason(reason: string): string {
   const descriptions: Record<string, string> = {
     "invalid-url": "The destination is invalid.",
-    "site-not-allowed": "This site is not an allowed site, so this default is not used.",
     "default-not-set": "No default account is set.",
     "item-origin-mismatch": "This account does not match the exact origin.",
     "connection-missing": "The vault connection is unavailable.",

@@ -461,9 +461,9 @@ export const localSettingsSchema = v.pipe(
      */
     repromptSites: v.optional(siteRulesSchema, []),
     /**
-     * The allowed sites (ADR 0077): while `allowedSitesEnabled` is true, Pateat acts only
-     * on a site one of these rules covers, and an exclusion still wins. Turning the list
-     * off keeps its rules. Absent is the same as empty and off. A profile part, synced
+     * The allowed sites (ADR 0077): while `allowedSitesEnabled` is true, automatic login
+     * runs only on a site one of these rules covers, and any other site is paused as an
+     * exclusion pauses it (ADR 0062). Turning the list off keeps its rules. Absent is the same as empty and off. A profile part, synced
      * like the exclusions (ADR 0024).
      */
     allowedSites: v.optional(siteRulesSchema),
@@ -1250,10 +1250,9 @@ export function allowlistOn(settings: AllowedSites): boolean {
 }
 
 /**
- * Whether Pateat may act on a page at all (ADR 0077): it is a page Pateat runs on and,
- * while the allowed sites are on, one of them covers it. Unlike an exclusion, which only
- * pauses automatic login, a page outside the allowed sites gets nothing from Pateat: no
- * admission, no login from a popup pick, no fill and no passkey answer.
+ * Whether the allowed sites let automatic login run on a page (ADR 0077): it is a page
+ * Pateat runs on and, while they are on, one of them covers it. A page they leave out is
+ * paused as an exclusion pauses it (ADR 0062): what the person starts still runs.
  */
 export function isSiteAllowed(settings: AllowedSites, value: string): boolean {
   const url = parseSiteUrl(value);
@@ -1267,16 +1266,17 @@ export function isSiteAllowed(settings: AllowedSites, value: string): boolean {
 
 /**
  * How the site rules treat a URL, for what a page says: `invalid` for a URL Pateat does
- * not run on, `not-allowed` while the allowed sites are on and none covers it, `excluded`
- * (paused, ADR 0062) when an exclusion covers it, else `allowed`.
+ * not run on, `excluded` (paused, ADR 0062) when an exclusion covers it, `not-allowed`
+ * (paused too, ADR 0077) while the allowed sites are on and none covers it, else
+ * `allowed`.
  */
 export function siteAccess(
   settings: Pick<LocalSettings, "excludedSites"> & AllowedSites,
   value: string,
 ): "allowed" | "excluded" | "not-allowed" | "invalid" {
   if (!isSupportedSite(value)) return "invalid";
-  if (!isSiteAllowed(settings, value)) return "not-allowed";
-  return isSiteExcluded(settings, value) ? "excluded" : "allowed";
+  if (isSiteExcluded(settings, value)) return "excluded";
+  return isSiteAllowed(settings, value) ? "allowed" : "not-allowed";
 }
 
 /**
@@ -1317,7 +1317,6 @@ export type SiteAccountResolution =
       ok: false;
       reason:
         | "invalid-url"
-        | "site-not-allowed"
         | "default-not-set"
         | "item-origin-mismatch"
         | "account-ambiguous"
@@ -1364,9 +1363,8 @@ export function resolveSiteAccount(
 ): SiteAccountResolution {
   const url = parseSiteUrl(value);
   if (!url || !normalizeHostname(url.hostname)) return { ok: false, reason: "invalid-url" };
-  // An exclusion rule only pauses automatic login, and a pick still logs in (ADR 0062);
-  // a site outside the allowed sites gets nothing (ADR 0077).
-  if (!isSiteAllowed(settings, value)) return { ok: false, reason: "site-not-allowed" };
+  // An exclusion rule only pauses automatic login, and a pick still logs in (ADR 0062), as
+  // on a site outside the allowed sites (ADR 0077).
   const selected = settings.siteDefaults.find((entry) => entry.origin === url.origin);
   if (!selected) return { ok: false, reason: "default-not-set" };
   const connection = siteDefaultConnection(selected, catalog);
