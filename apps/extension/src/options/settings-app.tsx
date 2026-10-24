@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bug,
   EyeOff,
+  FileDown,
   Globe,
   Info,
   KeyRound,
@@ -34,6 +35,7 @@ import { PrivateWindows } from "./private-windows";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
 import { DeviceModelPanel, type DeviceModelClient } from "./device-model";
+import { TransferPanel, type TransferClient } from "./transfer";
 import type { ConnectionClient } from "./connection-client";
 import { backgroundOnlyConflict, saveConflictMessage } from "./save-conflict";
 import type { ServiceClient } from "./service-client";
@@ -62,6 +64,7 @@ export function SettingsApp({
   serviceClient,
   vaultTimeoutClient,
   deviceModelClient,
+  transferClient,
 }: {
   client: SettingsClient;
   connectionClient?: ConnectionClient;
@@ -70,6 +73,8 @@ export function SettingsApp({
   vaultTimeoutClient?: VaultTimeoutClient;
   /** This device's own Anthropic API key (ADR 0040). */
   deviceModelClient?: DeviceModelClient;
+  /** Export and import of what a pairing shares (ADR 0040). */
+  transferClient?: TransferClient;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   const queryClient = useQueryClient();
@@ -518,6 +523,7 @@ export function SettingsApp({
     { id: PRIVATE_WINDOWS_SECTION, label: t("Private windows"), icon: EyeOff },
     ...(serviceClient ? [{ id: "sync", label: t("Sync service"), icon: Link }] : []),
     ...(deviceModelClient ? [{ id: "ai-key", label: t("AI key"), icon: KeyRound }] : []),
+    ...(transferClient ? [{ id: "transfer", label: t("Export and import"), icon: FileDown }] : []),
   ];
   return (
     <div className="mx-auto flex max-w-[70rem] flex-col gap-8 px-6 pt-8 pb-12 max-sm:px-4">
@@ -687,6 +693,22 @@ export function SettingsApp({
           </fieldset>
           {serviceClient && <ServiceConnection client={serviceClient} settingsClient={client} />}
           {deviceModelClient && <DeviceModelPanel client={deviceModelClient} />}
+          {transferClient && (
+            <TransferPanel
+              client={transferClient}
+              blocked={dirty || busy || saving}
+              onImported={() => {
+                // Edits made while the file was imported stay until the owner reloads.
+                if (dirtyRef.current || operation.current)
+                  setMessage((translate) =>
+                    translate(
+                      "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.",
+                    ),
+                  );
+                else void reload();
+              }}
+            />
+          )}
           <footer className="flex flex-wrap gap-4 text-[0.8125rem] leading-5 text-ink-muted">
             <a href="legal.html" target="_blank" rel="noreferrer">
               {t("Licenses and source")}

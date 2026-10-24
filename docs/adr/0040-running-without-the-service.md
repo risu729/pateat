@@ -10,8 +10,8 @@ the key field, the spend stops, the log rows and the choice on unpairing below. 
 details marked "chosen by an agent" were not asked. The
 [paired part](#a-paired-device-with-its-own-key), the
 [recipes a device keeps](#recipes-a-device-keeps) and
-[generation on an unpaired device](#generation-on-an-unpaired-device) are implemented;
-export and import come in a later pull request. On a card at 21:11
+[generation on an unpaired device](#generation-on-an-unpaired-device) and
+[export and import](#export-and-import) are implemented. On a card at 21:11
 UTC the owner decided to build generation on an unpaired device and to settle the Chrome
 Web Store question when the extension is submitted. Amends
 [ADR 0012](0012-inference-request-log.md),
@@ -217,13 +217,56 @@ Chosen by an agent: the backend is plain JavaScript over `storage.local` rather 
 SQLite in WebAssembly, which needs no content security policy change and no second copy
 of the D1 queries.
 
-### Export and import (later pull request)
+### Export and import
 
 - **Export and import** (12:49 UTC): a file can carry everything pairing shares
   (settings, recipes and bindings) to another device, never vault data, the sync
   service's sign-in or the AI key. How this meets settings profiles is decided when
   profiles gain inheritance, since one device may switch between, for example, letting
   the model work and logging in by hand.
+
+How it works (chosen by an agent unless noted):
+
+- **The file** is JSON (`pateat-transfer`, version 1, `transferFileSchema` in
+  `packages/contracts/src/transfer.ts`). It holds the settings document a service would
+  hold, without vault connections and without the demo provider's policy, and the
+  recipes logins use now: the synced cache while paired, or the recipes the device
+  keeps. Like the service's copy, the settings name vault accounts and items by their
+  labels. The same limits apply as on the service: a settings document of at most 120
+  KiB and at most 1,000 recipes. Nothing on the device that pairing does not share goes
+  into it: not the vault timeout, the request limits record, the diagnostics log or a
+  recipe's provenance.
+- **Confirming first.** A file may come from someone else, and its entries can let the
+  owner's vault items be used on more sites: a binding, a default account or a
+  personal-detail link names a site and one of the owner's items, and the file's entry
+  wins. So the page first asks the background what the import would change
+  (`settings.import` with `apply: false`) and shows it: the sites where the file decides
+  which vault item Pateat uses (ten named, the rest counted), how many vault limits and
+  site rules it changes (an item's policy and its custom-field review merge as one
+  entry, so a file can also drop one held here, which counts too), and how many recipes
+  it keeps, with a warning to import only a file the owner made or trusts. Nothing
+  changes until the owner presses **Import**.
+- **Importing settings** merges the file into the device's settings as a first pairing
+  merges a service's: every entry of both is kept, and the file's entry wins where both
+  hold one. Vault connections stay. A merge that breaks a settings limit is refused
+  (`invalid-file`), and so is one whose synced document would be larger than the
+  service holds (`too-large`), since a paired device could no longer sync it. The write
+  is recorded as `settings-import` (ADR 0025), and the device syncs at once when paired.
+  A page with unsaved changes cannot import; edits made while an import runs stay, and
+  the page asks for a reload. A save from another page that meets an import is a
+  conflict that is not reapplied automatically.
+- **Importing recipes** keeps them as the device's own recipes (see
+  [recipes a device keeps](#recipes-a-device-keeps)): a recipe replaces one kept under
+  its ID only at a newer revision, so a login that resumes on a revision never finds
+  other content under it, and the device keeps at most 1,000. A paired device leaves out
+  a recipe whose ID its synced recipes hold, since the service's copy wins under the
+  upload rule above, and uploads the rest at its next full sync; while its synced
+  recipes cannot be read, it imports nothing. Recipes that would not
+  fit are refused, and then nothing is imported. The recipes are kept before the
+  settings are written: if that write then fails, the recipes stay and importing the
+  file again finishes the settings.
+- **Only the settings page** exports and imports, through `settings.export` and
+  `settings.import`; the popup cannot.
 
 ## Consequences
 

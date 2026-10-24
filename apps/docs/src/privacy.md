@@ -47,6 +47,11 @@ read it, and removing the extension deletes it.
 - **Login progress**: for each tab and site, how far a login went, which account you
   picked, the sites you paused for 10 minutes or an hour, and when Pateat last logged in
   to each site, kept so that a login is not repeated or resumed by mistake.
+- **Export files**, only when you export: Pateat saves the file where Chrome saves
+  downloads. It holds what your Pateat service would keep of the settings, with the
+  names of vault accounts and items, and the recipes, never vault keys or values, the
+  service's sign-in or your Anthropic API key. Pateat sends it nowhere; an imported file
+  is read on the device it is imported on.
 - **A diagnostics log** of what Pateat did, for bug reports. It records sites, page
   addresses with their parameter names but not their values, and tab IDs, and never
   vault values. Entries are kept for at most 14 days. Its warnings, errors and the

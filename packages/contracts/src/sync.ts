@@ -20,6 +20,8 @@ const revision = v.pipe(
   v.maxValue(Number.MAX_SAFE_INTEGER - 1),
 );
 const writtenRevision = v.pipe(revision, v.minValue(1));
+/** Names one settings upload of a device, so its answer can be told apart from others. */
+const settingsWriteId = v.pipe(v.string(), v.uuid());
 const sequence = v.pipe(
   v.number(),
   v.integer(),
@@ -49,6 +51,12 @@ export const syncSettingsStateSchema = v.pipe(
      * created during pairing: the first device then keeps its own entries (ADR 0076).
      */
     newProfile: v.optional(v.literal(true)),
+    /**
+     * For a paired device's own requests: the `writeId` of its last write that the service
+     * stored. A device whose write got no answer learns from it whether that write
+     * committed, so its merge base never treats an uploaded entry as an edit not yet sent.
+     */
+    written: v.optional(settingsWriteId),
   }),
   v.check(
     (state) => (state.revision === 0) === (state.settings === null),
@@ -74,6 +82,8 @@ export const syncSettingsWriteSchema = v.pipe(
     version: v.literal(1),
     expectedRevision: revision,
     settings: localSettingsSchema,
+    /** Sent by a device; the owner's web pages leave it out. */
+    writeId: v.optional(settingsWriteId),
   }),
   v.check((write) => write.settings.connections.length === 0, "Connections stay on devices"),
   v.check(

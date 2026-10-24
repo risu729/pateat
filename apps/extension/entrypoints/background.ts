@@ -78,6 +78,7 @@ import { createProblemReports } from "../src/service/problems";
 import { createRecipeUse } from "../src/service/recipe-use";
 import { createDeviceRecipes } from "../src/service/device-recipes";
 import { createRecipeSync } from "../src/service/recipes";
+import { createTransfer } from "../src/service/transfer";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync, MAX_SETTINGS_DEFER_MS } from "../src/service/settings-sync";
 import {
@@ -765,6 +766,18 @@ export default defineBackground(() => {
   browser.runtime.onStartup.addListener(() => {
     void actionIcon.refresh();
   });
+  // ADR 0040: a file carries what a pairing shares, for a device without the service.
+  const transfer = createTransfer({
+    settings,
+    recipes: () => recipeSync.inUse(),
+    paired: () =>
+      service.connection().then(
+        (connection) => connection !== undefined,
+        () => true,
+      ),
+    device: deviceRecipes,
+    imported: settingsSaved,
+  });
   /** Settings this device changed: running work follows them, and they are uploaded. */
   function settingsSaved() {
     browserSites.changed();
@@ -782,6 +795,7 @@ export default defineBackground(() => {
       }),
     siteAccounts: (request) =>
       siteAccounts(request).catch(() => ({ version: 1, ok: false, reason: "unavailable" })),
+    transfer: (request) => transfer.handle(request),
     service: (request) => {
       const type = requestType(request);
       return service.handle(request).then(

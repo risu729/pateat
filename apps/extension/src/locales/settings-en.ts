@@ -25,6 +25,7 @@ export const settingsEn = {
   "custom fields were reviewed": "custom fields were reviewed",
   "settings were merged with the Pateat sync service":
     "settings were merged with the Pateat sync service",
+  "settings were imported from a file": "settings were imported from a file",
   "an account used to log in on a site was saved for that site":
     "an account used to log in on a site was saved for that site",
   "a vault field for a personal detail was linked or unlinked for a site":
@@ -230,4 +231,58 @@ export const settingsEn = {
     "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.",
   "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.":
     "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.",
+  "Export and import": "Export and import",
+  "Export to a file": "Export to a file",
+  "Import from a file": "Import from a file",
+  "Pateat export file": "Pateat export file",
+  "Exporting…": "Exporting…",
+  "Importing…": "Importing…",
+  "Exported the settings and {{count}} recipe.": "Exported the settings and {{count}} recipe.",
+  "Exported the settings and {{count}} recipe._one": "Exported the settings and {{count}} recipe.",
+  "Exported the settings and {{count}} recipe._other":
+    "Exported the settings and {{count}} recipes.",
+  "Imported the settings and {{count}} new or newer recipe.":
+    "Imported the settings and {{count}} new or newer recipe.",
+  "Imported the settings and {{count}} new or newer recipe._one":
+    "Imported the settings and {{count}} new or newer recipe.",
+  "Imported the settings and {{count}} new or newer recipe._other":
+    "Imported the settings and {{count}} new or newer recipes.",
+  "The settings or recipes are larger than an export file holds.":
+    "The settings or recipes are larger than an export file holds.",
+  "This is not a Pateat export file, or its settings do not fit with these.":
+    "This is not a Pateat export file, or its settings do not fit with these.",
+  "The file's settings or recipes do not fit with the ones on this device. Nothing was imported.":
+    "The file's settings or recipes do not fit with the ones on this device. Nothing was imported.",
+  "Pateat could not read or write its storage. Try again.":
+    "Pateat could not read or write its storage. Try again.",
+  "Save or reload the settings above before you import.":
+    "Save or reload the settings above before you import.",
+  "The file holds what a paired sync service keeps: the site settings, the vault policies with their account and item names, the accounts chosen for sites, and the recipes logins use. It never holds vault keys or values, the sync service's sign-in or the AI key.":
+    "The file holds what a paired sync service keeps: the site settings, the vault policies with their account and item names, the accounts chosen for sites, and the recipes logins use. It never holds vault keys or values, the sync service's sign-in or the AI key.",
+  "Importing keeps everything this device has; where both hold the same entry, the file's wins. A recipe replaces one kept here only at a newer revision. A paired device uploads the imported ones at its next sync, unless its service already holds a recipe of that ID.":
+    "Importing keeps everything this device has; where both hold the same entry, the file's wins. A recipe replaces one kept here only at a newer revision. A paired device uploads the imported ones at its next sync, unless its service already holds a recipe of that ID.",
+  "Reading the file…": "Reading the file…",
+  "This file changes nothing here.": "This file changes nothing here.",
+  "Importing this file will:": "Importing this file will:",
+  "Choose which of your vault items Pateat uses on {{count}} site:":
+    "Choose which of your vault items Pateat uses on {{count}} site:",
+  "Choose which of your vault items Pateat uses on {{count}} site:_one":
+    "Choose which of your vault items Pateat uses on {{count}} site:",
+  "Choose which of your vault items Pateat uses on {{count}} site:_other":
+    "Choose which of your vault items Pateat uses on {{count}} sites:",
+  "and {{count}} more": "and {{count}} more",
+  "Change {{count}} vault limit.": "Change {{count}} vault limit.",
+  "Change {{count}} vault limit._one": "Change {{count}} vault limit.",
+  "Change {{count}} vault limit._other": "Change {{count}} vault limits.",
+  "Change {{count}} site rule.": "Change {{count}} site rule.",
+  "Change {{count}} site rule._one": "Change {{count}} site rule.",
+  "Change {{count}} site rule._other": "Change {{count}} site rules.",
+  "Keep {{count}} new or newer recipe.": "Keep {{count}} new or newer recipe.",
+  "Keep {{count}} new or newer recipe._one": "Keep {{count}} new or newer recipe.",
+  "Keep {{count}} new or newer recipe._other": "Keep {{count}} new or newer recipes.",
+  "Import only a file you exported yourself or got from someone you trust: it can let Pateat use your vault items on the sites it names.":
+    "Import only a file you exported yourself or got from someone you trust: it can let Pateat use your vault items on the sites it names.",
+  Import: "Import",
+  "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.":
+    "Settings were imported. Reload saved settings to see them; reloading drops your unsaved changes.",
 } as const;
