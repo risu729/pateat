@@ -578,3 +578,23 @@ fields, as the judge does, so a sign-in page never holds off the recipe's next s
 The sampled rows do not count toward the service's daily cap of 500 rows answered
 without a model call, and that cap does not stop them: the 30-day rule already bounds
 them to one per recipe and branch.
+
+## Amendment: a marker that is one of the recipe's own elements (2026-10-24)
+
+On 2026-10-24 at 01:37 UTC a Money Forward login on build `43a1ac4` ended `challenge`
+though the judge answered `signed-in`: its marker was the signed-in `/me` page's button
+with `id="submitto"`, the id the site also gives its sign-in button, which the recipe's
+click step names. `addCompletion` refused it as `step-target`, rightly, since that
+marker would read the sign-in page as signed in, and the service answered that refusal
+on a recipe without a marker as `invalid-output`, which the extension reads as a judge
+that could not decide. An agent change, as a general rule (ADR 0033):
+
+- The judge's request names the candidates whose locator one of the recipe's elements
+  uses (`recipeElements`: its steps of every variant, its passkey button, handlers,
+  account switch and rejection) as `stepElements`, and the instructions say the marker
+  is never one of them, so the model names another one. This changes the judge's prompt
+  version, so each page judged before is judged once more.
+- A `signed-in` answer whose marker only cannot be stored is still `signed-in`, without
+  a new revision: only a page that still shows the login's own elements
+  (`login-page`) fails closed as `invalid-output`. The service logs the refusal's code
+  (`Signed-in marker not learned`).

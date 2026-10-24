@@ -3106,6 +3106,25 @@ describe("page judgement (ADR 0027)", () => {
     expect(await head(device, change.recipeId)).toBe(3);
   });
 
+  it("answers signed-in without a change when a first marker is the recipe's own element", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    // The site gives a signed-in page's button the sign-in button's id: the judge is told
+    // it is a step's element, and a marker naming it anyway is not learned, since the
+    // sign-in page would read as signed in (ADR 0029).
+    const welcome = observation("/welcome", [
+      element("sign-in", "button", "Sign out"),
+      element("help", "link", "Help"),
+    ]);
+    replies.push(judgeReply({ decision: "signed-in", marker: "sign-in" }));
+    expect((await complete(device, change.recipeId, 2, welcome)).body).toEqual({
+      version: 1,
+      status: "signed-in",
+    });
+    expect(JSON.stringify(sent.at(-1)!.body)).toContain(String.raw`\"stepElements\":[\"sign-in\"]`);
+    expect(await head(device, change.recipeId)).toBe(2);
+  });
+
   it("does not judge a page that shows a route fill field or a signed-in marker", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);

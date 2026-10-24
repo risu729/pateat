@@ -61,6 +61,7 @@ import {
   completionBesideInstructions,
   completionBesidePromptVersion,
   createCompletionJudge,
+  recipeElements,
   createEntryGenerator,
   createRecipeGenerator,
   customSlotNames,
@@ -1297,6 +1298,7 @@ export async function judgeCompletion(
         observation,
         loginPaths,
         slots,
+        recipeElements: recipeElements(recipe),
         ...(stop ? { stop } : {}),
         ...(beside ? { beside } : {}),
       }),
@@ -1443,11 +1445,17 @@ export async function judgeCompletion(
   // A later signed-in page adds its marker, up to four (ADR 0029). A recipe that has a
   // marker already is signed in whether or not this one can be added, as with four, a
   // marker it has, or one that breaks the recipe's bounds. So is a page of another origin
-  // of the site (ADR 0022): a later request for it answers `judged-signed-in` anyway.
+  // of the site (ADR 0022): a later request for it answers `judged-signed-in` anyway. So is
+  // a page whose marker only cannot be stored, as one of the recipe's own elements that a
+  // site's signed-in page shows by the same locator; only a page that still shows the
+  // login's elements fails closed.
   const signedInAnyway = recipe.completion !== undefined || moved;
   const learned = addCompletion(recipe, observation, judgement.target);
   const signedIn = { version: 1, status: "signed-in" } as const;
-  if (!learned.ok) return signedInAnyway ? signedIn : failed("invalid-output");
+  if (!learned.ok) {
+    console.info("Signed-in marker not learned", { recipeId, reason: learned.reason });
+    return signedInAnyway || learned.reason !== "login-page" ? signedIn : failed("invalid-output");
+  }
   const learnedRecipe = stored(head.recipe, branch, learned.recipe);
   if (!learnedRecipe) return signedInAnyway ? signedIn : failed("recipe-invalid");
   // The marker learned is the route's last one.

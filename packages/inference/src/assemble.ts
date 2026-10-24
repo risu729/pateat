@@ -206,6 +206,25 @@ export function appendPageSteps(
 }
 
 /**
+ * The elements a recipe's steps, passkey route, handlers, account switch and rejection use
+ * on any path, which are never its signed-in marker (`addCompletion`): a sign-in page shows
+ * them too. The judge is told which of a page's candidates they are, so it names another
+ * marker where a site gives one locator to elements of several pages.
+ */
+export function recipeElements(base: LoginRecipe): LoginMarkerTarget[] {
+  // Every variant's steps count, whichever one the judged login ran, and the passkey
+  // route's button (ADR 0027).
+  return [
+    ...passwordVariants(base).flatMap((variant) => variant.steps.flatMap(stepTargets)),
+    ...(base.passkey ? [base.passkey.target] : []),
+    ...(base.handlers ?? []).flatMap(handlerTargets),
+    // A login page that shows the switch or the rejection must not read as signed in.
+    ...(base.accountSwitch ? [base.accountSwitch] : []),
+    ...(base.rejection ? [base.rejection] : []),
+  ];
+}
+
+/**
  * Adds the judged signed-in marker to a generated recipe in its next revision (ADR 0029):
  * the first one, or one more after those learned before, up to four. A marker proves a
  * sign-in on any path, so it must be an element of the judged page and none of the
@@ -238,18 +257,8 @@ export function addCompletion(
     return { ok: false, reason: "origin-mismatch" };
   if (!page.candidates.some((candidate) => sameTarget(candidate.target, target)))
     return { ok: false, reason: "not-on-page" };
-  // Every variant's steps count, whichever one the judged login ran, and the passkey
-  // route's button (ADR 0027).
   const steps = passwordVariants(base).flatMap((variant) => variant.steps);
-  const own = [
-    ...steps.flatMap(stepTargets),
-    ...(base.passkey ? [base.passkey.target] : []),
-    ...(base.handlers ?? []).flatMap(handlerTargets),
-    // A login page that shows the switch or the rejection must not read as signed in.
-    ...(base.accountSwitch ? [base.accountSwitch] : []),
-    ...(base.rejection ? [base.rejection] : []),
-  ];
-  if (own.some((element) => sameTarget(element, target)))
+  if (recipeElements(base).some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };
   // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not. A
   // `totp` handler's code field on this path shows its code page (ADR 0027).
