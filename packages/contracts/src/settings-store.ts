@@ -6,7 +6,6 @@ import {
   customFieldReviewState,
   DUMMY_VAULT_CATALOG,
   itemPolicyFor,
-  localSettingsSchema,
   SETTINGS_CHANGE_HISTORY,
   settingsRequestSchema,
   settingsSnapshotSchema,
@@ -122,132 +121,6 @@ function reviewedSettings(
   return settings;
 }
 
-const settingsEntries = localSettingsSchema.pipe[0].entries;
-const snapshotEntries = settingsSnapshotSchema.entries;
-/** The settings that decide where Pateat acts at all; never rebuilt from defaults. */
-const SAFETY_PARTS = new Set<string>(["excludedSites", "repromptSites"]);
-/**
- * Lists whose entries an older build wrote in a shape that no longer reads (account
- * references without their server); only their entries may be left out.
- */
-const OLDER_LISTS = new Set<string>(["siteDefaults", "bindings", "detailLinks"]);
-
-/**
- * Settings this build cannot read, as an older build wrote them before the settings shape
- * changed (owner rule: no backward compatibility for Pateat's own data), rebuilt from the
- * parts that still read, entry by entry, and `defaults` for the rest, so a shape change
- * never stops every login. A list entry that no longer reads, such as an account
- * reference without its server, is left out. A vault connection's entry keeps only
- * whether it is used, and only when it used every item with nothing excluded or held
- * back (`restricted` names those that held items back); the account's policy then
- * follows from it as for a newly added connection. Undefined, so
- * the settings stay refused without site exclusions, for a part this build does not
- * know, any other part that does not read, or a result that does not.
- */
-export function rebuiltSettings(
-  parts: unknown,
-  defaults: LocalSettings,
-  restricted: ReadonlySet<string> = new Set(),
-): LocalSettings | undefined {
-  if (typeof parts !== "object" || parts === null || Array.isArray(parts)) return undefined;
-  const old = parts as Record<string, unknown>;
-  // Every build wrote its site exclusions: settings without them are not an older build's.
-  if (!("excludedSites" in old) || Object.keys(old).some((key) => !(key in settingsEntries)))
-    return undefined;
-  const settings: Record<string, unknown> = { ...defaults };
-  for (const [key, schema] of Object.entries(settingsEntries)) {
-    if (!(key in old)) continue;
-    const value = old[key];
-    const whole = v.safeParse(schema, value);
-    if (whole.success) settings[key] = whole.output;
-    else if (SAFETY_PARTS.has(key)) return undefined;
-    else if (key === "connections" && Array.isArray(value))
-      settings[key] = value.flatMap((entry: unknown) => {
-        const parsed = v.safeParse(olderConnectionSchema, entry);
-        if (!parsed.success) return [];
-        const { connectionId, enabled, selection, excludedItemIds, excludedFields } = parsed.output;
-        const unrestricted =
-          selection?.mode !== "selected" &&
-          !excludedItemIds?.length &&
-          !excludedFields?.length &&
-          !restricted.has(connectionId);
-        return [{ connectionId, enabled: enabled && unrestricted }];
-      });
-    else {
-      const item = entrySchema(schema);
-      const parsed =
-        OLDER_LISTS.has(key) && Array.isArray(value) && item
-          ? v.safeParse(
-              schema,
-              value.filter((entry: unknown) => v.is(item, entry)),
-            )
-          : undefined;
-      // Only an older list's entries are left out; any other part that does not read, or
-      // a list still over its limits, keeps the settings refused.
-      if (!parsed?.success) return undefined;
-      settings[key] = parsed.output;
-    }
-  }
-  const parsed = v.safeParse(localSettingsSchema, settings);
-  return parsed.success ? parsed.output : undefined;
-}
-
-/** A stored snapshot an older build wrote, with its settings rebuilt (`rebuiltSettings`). */
-function rebuiltSnapshot(stored: unknown, catalog: VaultCatalog): SettingsSnapshot | undefined {
-  if (typeof stored !== "object" || stored === null) return undefined;
-  const record = stored as Record<string, unknown>;
-  if (
-    record["version"] !== 1 ||
-    !v.is(snapshotEntries.revision, record["revision"]) ||
-    // A part this build does not know is not one an older build wrote.
-    Object.keys(record).some((key) => !(key in snapshotEntries) && key !== "fieldPolicies")
-  )
-    return undefined;
-  // A connection with items held for review or protected kept them out of logins.
-  const held = v.safeParse(olderFieldPoliciesSchema, record["fieldPolicies"] ?? []);
-  if (!held.success) return undefined;
-  const restricted = new Set(
-    held.output.flatMap((entry) =>
-      entry.quarantinedItemIds?.length || entry.protectedItemIds?.length
-        ? [entry.connectionId]
-        : [],
-    ),
-  );
-  const settings = rebuiltSettings(record["settings"], createDefaultSettings(catalog), restricted);
-  if (!settings) return undefined;
-  const snapshot = {
-    version: 1,
-    revision: record["revision"],
-    settings,
-    ...(v.is(snapshotEntries.changes, record["changes"]) ? { changes: record["changes"] } : {}),
-  };
-  const parsed = v.safeParse(settingsSnapshotSchema, snapshot);
-  return parsed.success ? parsed.output : undefined;
-}
-/** The schema of one entry of a settings list, through its optional and pipe wrappers. */
-function entrySchema(schema: unknown): v.GenericSchema | undefined {
-  let current = schema as { type?: string; wrapped?: unknown; pipe?: unknown[]; item?: unknown };
-  if (current.type === "optional") current = current.wrapped as typeof current;
-  if (current.pipe) current = current.pipe[0] as typeof current;
-  return current.type === "array" ? (current.item as v.GenericSchema) : undefined;
-}
-/** The items older builds held back per vault connection, by review state. */
-const olderFieldPoliciesSchema = v.array(
-  v.object({
-    connectionId: v.string(),
-    quarantinedItemIds: v.optional(v.array(v.unknown())),
-    protectedItemIds: v.optional(v.array(v.unknown())),
-  }),
-);
-/** A vault connection's entry as builds before ADR 0023's account policies wrote it. */
-const olderConnectionSchema = v.object({
-  connectionId: v.string(),
-  enabled: v.boolean(),
-  selection: v.optional(v.object({ mode: v.string() })),
-  excludedItemIds: v.optional(v.array(v.unknown())),
-  excludedFields: v.optional(v.array(v.unknown())),
-});
-
 /** One worker-owned queue serializes read/check/write; no other context writes storage. */
 export function createSettingsStore(
   storage: SettingsStorage,
@@ -264,10 +137,8 @@ export function createSettingsStore(
     const stored = await storage.read();
     if (stored !== undefined) {
       const checked = v.safeParse(settingsSnapshotSchema, stored);
-      if (checked.success) return checked.output;
-      const rebuilt = rebuiltSnapshot(stored, initialCatalog);
-      if (!rebuilt) throw new CorruptSettings();
-      return rebuilt;
+      if (!checked.success) throw new CorruptSettings();
+      return checked.output;
     }
     return { version: 1, revision: 0, settings: createDefaultSettings(initialCatalog) };
   }
