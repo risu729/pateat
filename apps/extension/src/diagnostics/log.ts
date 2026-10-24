@@ -348,6 +348,7 @@ export const LOG_EVENTS = {
       item: "item",
       fillOnly: "flag",
       startStep: "count",
+      startPartial: "flag",
       list: "code",
       listUsername: "code",
       listEntries: "count",

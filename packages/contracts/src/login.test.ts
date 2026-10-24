@@ -4036,6 +4036,35 @@ describe("later steps a login may start at (ADR 0049)", () => {
       [1, 2, "/password"],
     ]);
   });
+
+  it("also lists a fill step that fills the password with an identifier, with its password alone", () => {
+    const onePage = parseLoginRecipe({
+      version: 1,
+      id: "one-page",
+      revision: 1,
+      origin: "https://example.test",
+      pageKind: "sign-in",
+      slots: ["username", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/login",
+          fields: [field("username", "username"), field("password", "password")],
+        },
+        { kind: "click", path: "/login", target: { by: "id", value: "login" }, purpose: "submit" },
+      ],
+      maxSubmissions: 1,
+    });
+    const starts = laterStartSteps(onePage);
+    expect(starts).toMatchObject([
+      { variant: 0, index: 0, step: { kind: "fill", path: "/login" }, partial: true },
+    ]);
+    expect(starts[0]!.step.fields).toEqual([field("password", "password")]);
+    // The username input it drops must not show for it to start (ADR 0049).
+    expect(starts[0]!.absent).toEqual([{ by: "id", value: "username" }]);
+    // A step that fills the password alone, or an identifier alone, has no such start.
+    expect(laterStartSteps(remembered).some((entry) => entry.partial)).toBe(false);
+  });
 });
 
 describe("the route a recipe lacks for the item (ADR 0058 A)", () => {

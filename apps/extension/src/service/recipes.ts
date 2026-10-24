@@ -27,7 +27,7 @@ import {
 import * as v from "valibot";
 import type { LoginRecipes } from "../login/runtime";
 import type { DeviceRecipeUpload } from "./device-recipes";
-import { loginReadiness } from "../login/wire";
+import { laterReadiness, loginReadiness } from "../login/wire";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
 import {
@@ -755,7 +755,7 @@ export function createRecipeSync(options: {
           const layouts = loginLayoutCandidates(stored).map((candidate) => candidate.recipe);
           // A later step a login may start at when no first step shows (ADR 0049).
           const later = once(
-            layouts.flatMap((recipe) => laterStartSteps(recipe).map(({ step }) => step)),
+            layouts.flatMap((recipe) => laterStartSteps(recipe).map(laterReadiness)),
           );
           return {
             path: stored.layouts[0]!.steps[0]!.path,

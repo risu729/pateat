@@ -176,6 +176,7 @@ import {
   siteAccountResultSchema,
   type ListMissReport as ListMiss,
   probeControlSchema,
+  laterReadiness,
   loginReadiness,
   HELD_CLICK_WAIT_MS,
   LOGIN_STEP_WAIT_MS,
@@ -1154,16 +1155,22 @@ const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
  * One layout a new login may run (ADR 0060), in the order it is tried, with the later
  * steps that show of it when the login starts at one (ADR 0049).
  */
+/**
+ * Where a login may start later in its recipe (ADR 0049): each variant's showing steps, in
+ * order, `partial` holding `variant:index` for a step that shows only with its password
+ * fields alone, and whether the start page's passkey button shows beside them.
+ */
+type LaterStart = { variants: Map<number, number[]>; partial: Set<string>; button: boolean };
 type LayoutChoice = {
   recipe: LoginRecipe;
-  later?: { variants: Map<number, number[]>; button: boolean } | undefined;
+  later?: LaterStart | undefined;
 };
 export type LoginRecipeStart = {
   path: string;
   steps: LoginStep[];
   list?: LoginTarget[];
-  /** The later steps a login may start at when no first step shows (ADR 0049). */
-  later?: LoginStep[];
+  /** What the later steps a login may start at when no first step shows wait for (ADR 0049). */
+  later?: LoginReadiness[];
 };
 /**
  * Cached recipes. Account bindings come from synced settings (`settings.bindings`,
@@ -2047,6 +2054,8 @@ export type LoginReport = (
       fillOnly?: true;
       /** The later step of its variant the login started at (ADR 0049). */
       startStep?: number;
+      /** It started at that step with the step's password fields alone (ADR 0049). */
+      startPartial?: true;
       /**
        * For a login on a chooser's list (ADR 0028): what it clicks there, or `none` when
        * it ends `account-not-listed`; `other-shown` when its path showed the `other`
@@ -3616,7 +3625,7 @@ export function createLoginRuntime(
     // A later step a login may start at counts as a start on its path (ADR 0049), and so
     // does the first page of a recipe generated as a verification (ADR 0035).
     const paths = [
-      ...starts.flatMap((start) => [start.path, ...(start.later ?? []).map((step) => step.path)]),
+      ...starts.flatMap((start) => [start.path, ...(start.later ?? []).map((entry) => entry.path)]),
       ...entries.map((entry) => entry.entry.path),
       ...(routes ?? [])
         .filter((recipe) => !runsLogin(recipe))
@@ -10506,9 +10515,7 @@ export function createLoginRuntime(
       ]);
     // Later steps come after every first step, so the bound for the wire drops them first
     // (ADR 0049); a path several recipes start on keeps them, as another recipe may own them.
-    const later = all.flatMap((start) =>
-      (start.later ?? []).map((step) => ({ ...loginReadiness(step), later: true as const })),
-    );
+    const later = all.flatMap((start) => start.later ?? []);
     const unique = new Map([...readiness, ...later].map((entry) => [JSON.stringify(entry), entry]));
     return [...unique.values()].slice(0, 32);
   }
@@ -13172,7 +13179,7 @@ export function createLoginRuntime(
     // steps, as a password page shown again after a logout for an account the site
     // remembers, starts a new login at that step (ADR 0049, owner 2026-10-18). A first step
     // that shows goes first, another recipe's too; a chooser's branches never start there.
-    let later: { variants: Map<number, number[]>; button: boolean } | undefined;
+    let later: LaterStart | undefined;
     if (
       !previous &&
       !chooser &&
@@ -13197,7 +13204,11 @@ export function createLoginRuntime(
           firstShows = await showsNow(live, loginReadiness(variant.steps[0]!));
           if (firstShows) break;
         }
-        const showing: { recipe: LoginRecipe; variants: Map<number, number[]> }[] = [];
+        const showing: {
+          recipe: LoginRecipe;
+          variants: Map<number, number[]>;
+          partial: Set<string>;
+        }[] = [];
         if (!firstShows)
           for (const candidate of candidates) {
             // A page that shows one of the recipe's signed-in markers, those of any of its
@@ -13205,13 +13216,21 @@ export function createLoginRuntime(
             // again before a sensitive action: no login starts there.
             if (await showsAnyMarker(live, candidate)) continue;
             const variants = new Map<number, number[]>();
-            for (const { variant, index, step } of laterStartSteps(candidate)) {
-              if (step.path !== live.path) continue;
-              if (await showsNow(live, { ...loginReadiness(step), later: true })) {
-                variants.set(variant, [...(variants.get(variant) ?? []), index]);
+            // A step that shows whole goes before the same step with its password alone.
+            const whole = new Set<string>();
+            const partial = new Set<string>();
+            for (const entry of laterStartSteps(candidate)) {
+              const { variant, index, step, partial: part } = entry;
+              const at = `${variant}:${index}`;
+              if (step.path !== live.path || whole.has(at)) continue;
+              if (await showsNow(live, laterReadiness(entry))) {
+                if (part) partial.add(at);
+                else whole.add(at);
+                const indices = variants.get(variant) ?? [];
+                if (!indices.includes(index)) variants.set(variant, [...indices, index]);
               }
             }
-            if (variants.size) showing.push({ recipe: candidate, variants });
+            if (variants.size) showing.push({ recipe: candidate, variants, partial });
           }
         /* eslint-enable no-await-in-loop */
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
@@ -13240,7 +13259,8 @@ export function createLoginRuntime(
                 createdAt: meta?.createdAt ?? 0,
               };
             });
-            // Each shows a later step whole, so only how many show tells them apart.
+            // Each shows later steps, whole or with their password alone, so only how many
+            // show tells them apart.
             const laterShown = showing.map((entry) => ({
               starts: true,
               missing: 0,
@@ -13259,7 +13279,11 @@ export function createLoginRuntime(
           const choices: LayoutChoice[] = await Promise.all(
             ranked.map(async (entry) => ({
               recipe: entry.recipe,
-              later: { variants: entry.variants, button: await buttonShows(entry.recipe) },
+              later: {
+                variants: entry.variants,
+                partial: entry.partial,
+                button: await buttonShows(entry.recipe),
+              },
             })),
           );
           layoutChoices = choices.length > 1 ? choices : [];
@@ -14052,6 +14076,9 @@ export function createLoginRuntime(
           // An item without a password stops before it (ADR 0036).
           ...("stopAt" in plan && typeof plan.stopAt === "number" ? { stopAt: plan.stopAt } : {}),
           ...(startAt === undefined ? {} : { startAt }),
+          ...(startAt !== undefined && later?.partial.has(`${startVariant}:${startAt}`)
+            ? { startPartial: true }
+            : {}),
           timing,
         }),
         { type: "RESOLVE" },
@@ -14122,6 +14149,7 @@ export function createLoginRuntime(
           : {}),
         ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
         ...(metadata.startStep === undefined ? {} : { startStep: metadata.startStep }),
+        ...(metadata.startPartial ? { startPartial: true as const } : {}),
         ...(click ? { click } : {}),
         ...(listMiss ? { listMiss } : {}),
       });

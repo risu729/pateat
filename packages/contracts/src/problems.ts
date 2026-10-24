@@ -223,6 +223,7 @@ export const PROBLEM_EVENT_FIELDS = {
     account: "code",
     candidates: "count",
     startStep: "count",
+    startPartial: "flag",
     list: "code",
     listUsername: "code",
     listEntries: "count",

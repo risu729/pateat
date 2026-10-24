@@ -1,12 +1,7 @@
 import * as v from "valibot";
 import { sameLoginTarget, type LoginMarkerTarget, type LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import {
-  accountText,
-  comparableAccounts,
-  showsOtherAccount,
-  shownAccounts,
-} from "../page/accounts";
+import { comparableAccounts, formAccounts, showsOtherAccount } from "../page/accounts";
 import { isButton } from "../page/text";
 import { findLogoutTargets, safeLogoutControl, shownLayers } from "../page/logout-controls";
 import { pressElement } from "../page/script-url-click";
@@ -223,8 +218,42 @@ function readyNow(readiness: LoginReadiness): boolean {
     }) &&
     // A later step is no start while the page also asks for an identifier the step does not
     // fill, as a form for another account with its own email input (ADR 0049).
-    !(readiness.later && credentialInputs(readiness.targets).identifier)
+    !(readiness.later && credentialInputs(readiness.targets).identifier) &&
+    !(readiness.absent && asksBeyondPassword(readiness.targets, readiness.absent))
   );
+}
+/** Input types a person types an account identifier or a code into. */
+const textTypes = new Set(["text", "email", "tel", "number", "url"]);
+/**
+ * Whether a page that shows a later step's password input also asks for more than the
+ * password, so the step may not start with its password alone (ADR 0049): one of the
+ * targets the step drops shows writable; another visible writable text input shares the
+ * password input's form; or the password input or another input of its form (of the page
+ * outside forms, without one) is marked `new-password`, as on a sign-up or password change
+ * form.
+ */
+function asksBeyondPassword(
+  targets: readonly LoginTarget[],
+  absent: readonly LoginTarget[],
+): boolean {
+  const shown = (element: Element) => writable(element) && presence(element) === "visible";
+  if (absent.some((target) => matches(target).some(shown))) return true;
+  const own = new Set(
+    targets
+      .flatMap((target) => matches(target))
+      .filter((element) => element instanceof HTMLInputElement),
+  );
+  // A password input outside any form counts every input outside a form as its form.
+  const forms = new Set([...own].map(formOf));
+  const newPassword = (input: HTMLInputElement) =>
+    autocompleteTokens(input).includes("new-password");
+  return queryAll<HTMLInputElement>(document, "input").some((input) => {
+    if (own.has(input)) return newPassword(input);
+    const form = formOf(input);
+    if (!forms.has(form)) return false;
+    // Outside a form, another text input, as a page's search box, tells nothing.
+    return newPassword(input) || (form !== null && textTypes.has(input.type) && shown(input));
+  });
 }
 /**
  * Whether the page shows a visible password input, or one marked for a username or a
@@ -1084,7 +1113,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // login's fill does (owner decision, 2026-10-11).
         if (
           username !== undefined &&
-          showsOtherAccount(shownAccounts(accountText(document, form)), username, {
+          showsOtherAccount(formAccounts(document, form), username, {
             masked: fields.some((field) => maskedSecret(field.secret)),
           })
         )
@@ -1693,7 +1722,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const form =
             first.length === 1 && first[0] instanceof HTMLInputElement ? formOf(first[0]) : null;
           const comparable = comparableAccounts(
-            shownAccounts(accountText(document, form)),
+            formAccounts(document, form),
             command.account.username,
             { masked },
           );
@@ -1772,11 +1801,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // A secret goes only to the account the page shows, when it shows one (owner
         // decision, 2026-10-11). The comparison stays in this content script.
         if (command.account) {
-          const other = showsOtherAccount(
-            shownAccounts(accountText(document, form)),
-            command.account.username,
-            { masked },
-          );
+          const other = showsOtherAccount(formAccounts(document, form), command.account.username, {
+            masked,
+          });
           command.account.username = "";
           if (other) {
             // The recipe's account switch is clicked once the background has recorded the

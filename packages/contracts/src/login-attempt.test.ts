@@ -4318,6 +4318,42 @@ describe("a login that starts at a later step (ADR 0049)", () => {
     expect(() => create({ startAt: 2, chooser: "other-shown" })).toThrow();
     expect(() => create({ choice: { route: "passkey" }, startAt: 2 })).toThrow();
   });
+
+  it("starts a one-page form with its password alone, and only then at its first step", () => {
+    // One step fills the username and the password together, as on a sign-in page that
+    // later shows only its password input for an account it remembers (Duolingo).
+    const onePage: LoginRecipe = {
+      ...recipe,
+      slots: ["username", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/login",
+          fields: [
+            { slot: "username", target: { by: "id", value: "email" } },
+            { slot: "password", target: { by: "id", value: "password" } },
+          ],
+        },
+        { kind: "click", path: "/login", target: { by: "id", value: "login" }, purpose: "submit" },
+      ],
+    };
+    const partial = transitionLoginAttempt(
+      create({ recipe: onePage, startAt: 0, startPartial: true }),
+      { type: "RESOLVE" },
+    );
+    expect(partial).toMatchObject({ stepIndex: 0, startStep: 0, startPartial: true });
+    expect(nextLoginOperation(partial, onePage, document, "fill-password")).toMatchObject({
+      stepIndex: 0,
+      step: { kind: "fill", fields: [{ slot: "password" }] },
+    });
+    expect(attemptPlan(onePage, partial)?.[0]?.step).toEqual({
+      kind: "fill",
+      path: "/login",
+      fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+    });
+    // A whole start never begins at the first step.
+    expect(() => create({ recipe: onePage, startAt: 0 })).toThrow();
+  });
 });
 
 describe("a login's own times for the local log (ADR 0019)", () => {

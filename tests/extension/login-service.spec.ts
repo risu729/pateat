@@ -125,6 +125,7 @@ async function prepare(
   service: SyncService,
   policy?: (account: Account, item: VaultItemMetadata) => SyncedPolicy,
   others: { id: string }[] = [],
+  main: LoginRecipeDocument = recipe,
 ) {
   const options = await browser.context.newPage();
   await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
@@ -159,7 +160,7 @@ async function prepare(
 
   const published = await service.request(`/v1/recipes/${recipeId}`, {
     method: "PUT",
-    body: { version: 1, expectedRevision: 0, state: "active", recipe },
+    body: { version: 1, expectedRevision: 0, state: "active", recipe: main },
   });
   expect(published.status).toBe(200);
   for (const other of others) {
@@ -519,6 +520,80 @@ test("a password page shown alone, as for an account the site remembers, logs in
               { state: "authenticated", outcome: "authenticated", startStep: 4, submissions: 1 },
             ],
           });
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
+
+test("a one-page form shown with its password input alone, as for an account the site remembers, logs in with the password alone (ADR 0049)", async () => {
+  const fixture = await startLoginFixture(0, { password: "test_password" });
+  const service = await startSyncService();
+  // One step fills the identifiers and the password together on /password, as a generated
+  // recipe does for a page that asks for all of them (Duolingo, 2026-10-24).
+  const onePage: LoginRecipe = {
+    ...route,
+    steps: [
+      {
+        kind: "fill",
+        path: "/password",
+        fields: [
+          { slot: "branch", target: target("branch") },
+          { slot: "account", target: target("account") },
+          { slot: "password", target: target("password") },
+        ],
+      },
+      { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
+    ],
+  };
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        await setupProbe(browser.page, { action: "configure", variant: "uri" });
+        const { options } = await prepare(browser, service, undefined, [], {
+          ...recipe,
+          layouts: [toLoginLayout(onePage, { key: newLayoutKey(createdAt, []), createdAt })],
+        });
+
+        // Beside an email input, as a form for another account, it starts nothing.
+        const other = await browser.context.newPage();
+        await other.addInitScript(() => sessionStorage.setItem("identityMatched", "true"));
+        await other.goto(`${site}/password?email=1`);
+        await expect(other.locator("#password")).toBeVisible();
+        await expect
+          .poll(() => logs(browser.background, "login.refused"), { timeout: 20_000 })
+          .toContainEqual(expect.objectContaining({ reason: "not-started" }));
+        await expect(other.locator("#password")).toHaveValue("");
+        expect(await other.evaluate(() => sessionStorage.getItem("submitClicks"))).toBeNull();
+        await other.close();
+
+        // The site already knows the account and asks for its password alone.
+        const page = await browser.context.newPage();
+        await page.addInitScript(() => sessionStorage.setItem("identityMatched", "true"));
+        await page.goto(`${site}/password`);
+        await expect(page.locator("#authenticated")).toBeVisible();
+        expect(await page.evaluate(() => sessionStorage.getItem("passwordMatched"))).toBe("true");
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({
+            attempts: [
+              {
+                state: "authenticated",
+                outcome: "authenticated",
+                startStep: 0,
+                startPartial: true,
+                submissions: 1,
+              },
+            ],
+          });
+        await expect
+          .poll(() => logs(browser.background, "login.start"))
+          .toContainEqual(expect.objectContaining({ startStep: 0, startPartial: true }));
       },
       { args: ["--ignore-certificate-errors"] },
     );

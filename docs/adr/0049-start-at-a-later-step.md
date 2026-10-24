@@ -28,6 +28,11 @@ that owns it the login takes the one whose later step shows most, whose plan pas
 the account, of the page's language, then the newest. Any layout's signed-in marker
 keeps a later step from starting.
 
+Amended on 2026-10-24 (owner, 10:48 UTC, decision card "A: パスワード欄だけで始める",
+implemented): [a fill step that fills the password with an account identifier may start
+with its password alone](#amendment-2026-10-24-a-one-page-form-with-its-password-alone),
+which the Consequences listed as not fixed.
+
 Date: 2026-10-18
 
 ## Context
@@ -159,7 +164,8 @@ Details added in implementation, not confirmed by the owner:
   without pressing) are not covered.
 - Not fixed: a recipe whose one `fill` step fills both the username and the password, on
   a page that later shows only the password input (the step is only partly ready), and a
-  page no step of any recipe matches.
+  page no step of any recipe matches. The first is fixed by the
+  [amendment of 2026-10-24](#amendment-2026-10-24-a-one-page-form-with-its-password-alone).
 
 ## Alternatives
 
@@ -174,3 +180,34 @@ Details added in implementation, not confirmed by the owner:
 - **Press only when the page's account matches.** The other choice on the owner's card.
   On sites that show no comparable account it fills without pressing in a tab without a
   login, against the 07:41 UTC constraint.
+
+## Amendment 2026-10-24: a one-page form with its password alone
+
+Status: accepted by the owner on 2026-10-24 (10:48 UTC, decision card "A:
+パスワード欄だけで始める"), over generating a layout for that page (B) or no change (C).
+
+Real Chrome on 2026-10-24 (10:32 UTC): Duolingo's recipe `gen-d0ad348b…`, generated for
+its sign-in form on `/`, fills the email and the password in one `fill` step. After a
+logout the same path shows "Welcome Back!" with the remembered address and the password
+input alone. Nothing started (`login.refused` `not-started` `first-step-missing`), and
+the repair of ADR 0041 abstained (`insufficient-evidence`).
+
+Decision: a `password` variant's `fill` step that fills a password together with an
+account identifier (the username, or another slot such as a branch and account number),
+whether it is the variant's first step or a later one, may also start a login with its
+password fields alone (`laterStartSteps`'s `partial`). It starts under the rules above:
+only when none of the origin's recipes' first steps is ready, while the page shows no
+other visible writable username or email input and no signed-in marker, and the same
+step shown whole goes first. Since the step's identifier input is not there to show the
+form is a sign-in for one account, three more checks keep it from starting on another
+form: none of the targets it drops (`absent` in its readiness, TOTP ones included) shows
+writable, no other visible writable text input shares the password input's form, and
+neither the password input nor another input of its form (of the page outside forms,
+for a password input without one) is marked `new-password`, as on a sign-up or password
+change form. The login fills only the password on that step
+(`startPartial` on the attempt, `startStep` 0 for a first step), and as a fill that
+writes a secret but not the username, it is checked against the account the page shows
+first, so a page showing another account ends `wrong-account` as before. That check
+also reads an unmasked address the form keeps in a hidden or read-only identifier input,
+as the form would submit it with the password; an input the person can type into is
+never read. `login.start` logs `startPartial`.
