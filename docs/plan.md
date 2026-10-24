@@ -3482,17 +3482,21 @@ for policy invariants, state transitions and controlled async-ordering tests.
 Also approved for M2: TanStack Query for metadata loading/mutations and
 `@webext-core/messaging` for extension communication. The library carries the messages
 to the background; the background's sends to a tab's document, Ports and page messages
-stay raw (owner decision, 2026-10-13;
-[development](development.md#dependency-policy)). Keep dirty form drafts
-separate from refreshed data, configure retry/refetch behavior explicitly and
-retain runtime payload/sender authorization. Use the approved XState for the M2
-executor; verify navigation cancellation, timeout handling and interrupted-submit
-reconciliation before expanding execution. Persist allowlisted resumable metadata
-only; restoring state must not blindly replay submission. Every Pateat record in
+stay raw (owner decision, 2026-10-13; [development](development.md#dependency-policy)).
+Keep dirty form drafts separate from refreshed data, configure retry/refetch behavior
+explicitly and retain runtime payload/sender authorization. Use the approved XState for
+the M2 executor; verify navigation cancellation, timeout handling and interrupted-submit
+reconciliation before expanding execution. Persist allowlisted resumable metadata only;
+restoring state must not blindly replay submission. Every Pateat record in
 `storage.local` and `storage.session`, including the login runtime's, is read and
 written through WXT storage; `storage.local` is restricted to trusted contexts before
 any read or write, and the existing single-writer revision checks and fail-closed
-handling of corrupt settings stay in Pateat's code.
+handling of corrupt settings stay in Pateat's code. Settings an older build stored
+before the settings shape changed are not corrupt: the device's store and the service's
+settings read rebuild them from the parts that still read (`rebuiltSettings`), leaving
+out list entries that no longer read, such as an account reference without its server. A
+site exclusion or re-prompt list that does not read, a part this build does not know, or
+a list over its limits still keeps them refused.
 
 Approved for M4: Hono and Drizzle for the first substantive API/schema. Keep
 Valibot boundary validation, verify generated SQL and migrations, and test owner
