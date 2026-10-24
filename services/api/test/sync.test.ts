@@ -327,6 +327,43 @@ describe("settings sync", () => {
     });
   });
 
+  it("reads settings an older build stored, leaving out entries that no longer read", async () => {
+    // Account references stored before they named their server (ADR 0023).
+    const device = await enrollOwner();
+    expect(
+      (await put(device, "/v1/settings", { version: 1, expectedRevision: 0, settings: settings() }))
+        .status,
+    ).toBe(200);
+    const older = {
+      origin: "https://shop.example",
+      provider: "bitwarden",
+      userId: "u-1",
+      itemId: "i-1",
+    };
+    await env.DB.prepare(
+      "UPDATE profiles SET document = ? WHERE id = (SELECT profile_id FROM devices WHERE id = ?)",
+    )
+      .bind(
+        JSON.stringify({
+          excludedSites: [{ hostname: "bank.example", includeSubdomains: true }],
+          repromptSites: [],
+          siteDefaults: [older],
+        }),
+        device.deviceId,
+      )
+      .run();
+    const read = await api(device, "/v1/settings");
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({
+      revision: 1,
+      settings: {
+        excludedSites: [{ hostname: "bank.example", includeSubdomains: true }],
+        siteDefaults: [],
+        accountPolicies: [],
+      },
+    });
+  });
+
   it("tells each device the write ID of its own last stored write, and only its own", async () => {
     // A device whose write got no answer learns from it whether the write committed.
     const laptop = await enrollOwner();

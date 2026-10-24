@@ -1,4 +1,7 @@
 import {
+  createDefaultSettings,
+  localSettingsSchema,
+  rebuiltSettings,
   syncSettingsStateSchema,
   type LocalSettings,
   type SavedLoginBinding,
@@ -73,18 +76,21 @@ export async function readSettings(
     siteDefaults: [],
     ...(row.document ? JSON.parse(row.document) : {}),
   };
+  const stored = {
+    connections: [],
+    ...profile,
+    bindings: shared.bindings,
+    ...(shared.detailLinks ? { detailLinks: shared.detailLinks } : {}),
+  };
+  // Documents an older build stored are read without the entries that no longer read.
+  const settings = v.is(localSettingsSchema, stored)
+    ? stored
+    : (rebuiltSettings(stored, createDefaultSettings({ connections: [] })) ?? stored);
   return v.parse(syncSettingsStateSchema, {
     version: 1,
     profileId,
     revision: row.revision ?? 0,
-    settings: row.revision
-      ? {
-          connections: [],
-          ...profile,
-          bindings: shared.bindings,
-          ...(shared.detailLinks ? { detailLinks: shared.detailLinks } : {}),
-        }
-      : null,
+    settings: row.revision ? settings : null,
     ...(row.revision && !row.document ? { newProfile: true } : {}),
     ...(row.written === null ? {} : { written: row.written }),
   });
