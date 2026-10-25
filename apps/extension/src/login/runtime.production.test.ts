@@ -22413,6 +22413,42 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(savedLinks(h)).toEqual([birthLink]);
         expect(h.store.update).not.toHaveBeenCalled();
       }, 10_000);
+
+      it.each([
+        [
+          "keeps a saved link while a login between pages changed within two minutes",
+          10_000,
+          false,
+        ],
+        [
+          "removes a saved link once a login between pages has not changed for two minutes",
+          2 * 60_000,
+          true,
+        ],
+      ])(
+        "after a worker restart, %s (owner, 2026-10-25)",
+        async (_name, age, removed) => {
+          onClick({ login: toConfirm, confirm: "hang" });
+          const { h: first } = start([birthLink]);
+          expect(await first.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(clicks("confirm")).toBe(1), { timeout: 6_000 });
+          const [record] = status() as Record<string, unknown>[];
+          record!["changedAt"] = (record!["changedAt"] as number) - age;
+          // The restarted worker has no run of the tab, only the record of its login.
+          const query = fake.browser.tabs.query;
+          fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+          onTestFinished(() => {
+            fake.browser.tabs.query = query;
+          });
+          const { h } = start([birthLink]);
+          expect(await h.login.active()).toBe(true);
+          expect(await remove(h)).toEqual(
+            removed ? { ok: true } : { ok: false, reason: "not-saved" },
+          );
+          expect(savedLinks(h)).toEqual(removed ? [] : [birthLink]);
+        },
+        10_000,
+      );
     });
   });
 });
