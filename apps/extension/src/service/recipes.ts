@@ -39,6 +39,11 @@ import {
 
 /** A lookup this long after the last sync attempt starts a background sync. */
 export const RECIPE_SYNC_STALE_MS = 5 * 60 * 1000;
+/**
+ * How long a check whether a recipe was withdrawn waits for a sync that is running or a
+ * lookup just started: the lookup answered from the cache that sync may be changing.
+ */
+export const RECIPE_SYNC_WAIT_MS = 5 * 1000;
 /** After the service asks Pateat to slow down, background syncs wait this long. */
 export const RECIPE_SYNC_RATE_LIMIT_MS = 15 * 60 * 1000;
 /** Pages read in one sync; a larger backlog continues on the next one. */
@@ -581,10 +586,30 @@ export function createRecipeSync(options: {
     return running;
   }
 
+  // The sync a lookup's `refreshIfStale` is deciding on, until it is known whether one runs.
+  let refreshing: Promise<unknown> | undefined;
   /** Starts a background sync when the last attempt, even in an earlier worker, is old. */
   function refreshIfStale() {
-    if (running) return;
-    void dueAt().then((at) => (!running && now() >= at ? sync() : undefined));
+    // A check still deciding is kept, so a wait on it never misses the sync it starts.
+    if (running || refreshing) return;
+    const check = dueAt().then((at) => (!running && now() >= at ? sync() : undefined));
+    refreshing = check;
+    void check.finally(() => {
+      if (refreshing === check) refreshing = undefined;
+    });
+  }
+  /** Waits, at most `RECIPE_SYNC_WAIT_MS`, for the sync running or being started now. */
+  async function settled() {
+    const pending = running ?? refreshing;
+    if (!pending) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      pending.catch(() => undefined),
+      new Promise((resolve) => {
+        timer = setTimeout(resolve, RECIPE_SYNC_WAIT_MS);
+      }),
+    ]);
+    clearTimeout(timer);
   }
 
   /** Forgets the cache when its device is disconnected; a new pairing starts empty anyway. */
@@ -707,6 +732,8 @@ export function createRecipeSync(options: {
       return selection.ok ? selection.recipe : undefined;
     },
     async withdrawn(origin: string, recipeId: string, layout?: string) {
+      // A sync the lookup started may be revoking the recipe right now.
+      await settled();
       const cache = await current(false);
       if (!cache) return false;
       // A chooser login (ADR 0028) resumes on its chooser by ID.
