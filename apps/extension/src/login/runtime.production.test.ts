@@ -14240,7 +14240,7 @@ describe("production login document admission", () => {
           });
         }
         /* eslint-enable no-await-in-loop */
-        return { states, service, report };
+        return { states, service, report, h };
       }
 
       it("does not read the submitted document again when a restarted worker resumes the settled login there", async () => {
@@ -14334,6 +14334,31 @@ describe("production login document admission", () => {
           fake.browser.tabs.query = query;
         }
       }, 30_000);
+
+      it("reads a route the submitted document took after it settled, as Duolingo's /learn", async () => {
+        // Seen on Duolingo's "Welcome Back!" page on 2026-10-25 (00:57 UTC): the sign-in
+        // form still showed when the submitted document was read, the login settled as
+        // unknown, and the single-page site then routed to /learn in the same document,
+        // signed in, which was never read (ADR 0027 amendment of 2026-10-25).
+        const { states, h } = await settledFirst([]);
+        const moved = (from: Record<string, unknown> = {}) =>
+          h.login.handle(
+            { version: 1, type: "login.document.moved", token: "synthetic-token" },
+            sender(from),
+          );
+        fake.state.observedPath = "/learn";
+        fake.state.present = new Set();
+        fake.state.signs = () => ({ ...noSigns, username: true });
+        // Another document of the tab is not the watch's own.
+        await moved({ documentId: "other-document" });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(states()).toHaveLength(1);
+        await moved();
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 8_000,
+        });
+        expect(states()[1]).toMatchObject({ e2: true, decision: "signed-in", settled: true });
+      }, 20_000);
 
       it("rejects the sign-in form shown again after the submitted document settled", async () => {
         // A slow answer, still well within 30 seconds of the submission.
@@ -20805,6 +20830,24 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       ).toHaveLength(2);
       expect(fake.state.session["pateat.login-stopped-asks.v1"] ?? []).toEqual([]);
       expect(fake.state.session["pateat.login-rejected-asks.v1"] ?? []).toEqual([]);
+    });
+
+    it("reads a route the approval's own document takes, as a single-page site's (ADR 0027)", async () => {
+      const { h, service } = await watched(["signed-in"]);
+      const steps = executed().length;
+      // The approval page routes to /home in place once the person approved.
+      fake.state.pageUrl = `${origin}/home`;
+      fake.state.observedPath = "/home";
+      fake.state.extracted = { "signed-in": described("/home") };
+      await h.login.handle(
+        { version: 1, type: "login.document.moved", token: "synthetic-token" },
+        sender(),
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(service.judge).toHaveBeenCalledTimes(2);
+      expect(status()).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]);
+      expect(executed()).toHaveLength(steps);
+      expect(judges().at(-1)).toMatchObject({ verdict: "signed-in", watched: true });
     });
 
     it("completes as signed in on a later page the judge finds optional (ADR 0065)", async () => {

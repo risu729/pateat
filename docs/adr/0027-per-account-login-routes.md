@@ -1423,3 +1423,40 @@ steps, as it does on a route. The Slack fix still depends on the item's TOTP see
 being one the local TOTP reader accepts
 ([#939](https://github.com/risu729/pateat/pull/939)) and needs a check in the owner's
 Chrome.
+
+## Amendment 2026-10-25: routes of a single-page site
+
+**Problem.** On Duolingo's "Welcome Back!" page in the owner's Chrome (2026-10-25,
+00:57 UTC, recipe `gen-d0ad348b` revision 6), the login typed the password and pressed
+SIGN IN, and the site signed in. Three seconds after the click the sign-in form still
+showed in the same document (`login.state` with `s1`, decision `unknown`, `reshownMiss`
+`same-document`), so the judge was not asked (`sign-in-shown`) and the result settled
+as unknown. The single-page site then routed to `/learn` in that document, signed in,
+but nothing was read there: a watched login read only new documents of the tab, and
+the document its watch began in was never read again. No `authenticated` result was
+logged. A full form on the same site ended `authenticated`, as its marker showed within
+the three seconds.
+
+**Decision** (Claude's reading of "each new page of the same tab and origin is
+checked" above; the owner has not confirmed it separately). A route of the watch's own
+document to another path in place (`history.pushState`, or a back or forward move)
+counts as the tab's next page:
+
+- The login content script reports such a move (`login.document.moved`, with no URL)
+  while its document carries a login that has not ended. A change of the query or
+  fragment alone is no move.
+- The worker reads the route once when the login is watched in the top document its
+  watch began in and the watch still lasts: as any new page of a settled login (its
+  next step, a handler, the markers, the sign-in state and the judge, ADR 0029), or of
+  a `watching` one (its markers, the sign-in state and the judge, reading only). A move
+  that comes while the login is being read is read once that reading ends with the
+  login watched. Judged routes count toward the watch's 2 pages.
+- The document without such a move is still not read again, so a restarted worker
+  still runs no check there (2026-10-17, above). The recipe's first step showing in a
+  route of that document does not end the watch, as before.
+
+**Consequences.** A single-page site that signs in after a slow answer, or after an
+approval the person gives, now completes the watched login on its next route. A site
+that shows the signed-in page without changing its path is still not read until a new
+document or route comes; reading on every change of the page was not chosen, since a
+page left to the person changes often and each reading may ask the judge.

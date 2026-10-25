@@ -170,6 +170,7 @@ import {
   stateResultSchema,
   statusSchema,
   submittedSchema,
+  movedSchema,
   localLogoutResultSchema,
   logoutClickResultSchema,
   LOGOUT_REACTION_MS,
@@ -991,6 +992,12 @@ type Execution = {
    */
   heldClick?: number;
   /**
+   * The document's path changed in place since the login was last read (ADR 0027
+   * amendment of 2026-10-25): a login watched in the document its watch began in reads
+   * that route once, as the tab's next page.
+   */
+  routed?: true;
+  /**
    * The elements of the step after an advance on the same path, as the document measured
    * them in the same task as the advance, just before it (ADR 0013): only elements that
    * were not usable then confirm it. Kept in memory and carried to the attempt's next
@@ -1168,6 +1175,15 @@ const settledHere = (run: Execution) =>
 const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
   metadata.watch !== undefined &&
   (now - metadata.watch.since >= WATCH_MS || now < metadata.watch.since);
+/**
+ * Whether a login is watched (ADR 0027) in the top document its watch began in, and the
+ * watch still lasts: a route of that document is read as the tab's next page.
+ */
+const watchedHere = (run: Execution) =>
+  run.live.document.frameId === 0 &&
+  (run.metadata.state === "watching" || settledHere(run)) &&
+  run.metadata.watch?.documentId === run.live.document.documentId &&
+  !watchOver(run.metadata, Date.now());
 
 /**
  * Where one recipe starts: its start path and the first step of each of its routes and
@@ -9851,9 +9867,9 @@ export function createLoginRuntime(
    * password, while any other answer, a refusal or a spent budget leaves it watched, with a
    * warning in the log. The document the watch began in is not checked again.
    */
-  async function watchPage(run: Execution): Promise<void> {
+  async function watchPage(run: Execution, routed = false): Promise<void> {
     const { watch } = run.metadata;
-    if (!watch || run.live.document.documentId === watch.documentId) return;
+    if (!watch || (run.live.document.documentId === watch.documentId && !routed)) return;
     const proof = markerProof(run.recipe);
     const watching = () => current(run) && run.metadata.state === "watching";
     if (proof.targets.length > 0) {
@@ -9949,18 +9965,25 @@ export function createLoginRuntime(
       }
     } finally {
       run.running = false;
+      // A route the document took while the login was read is read once it is watched.
+      if (run.routed && current(run) && watchedHere(run)) void drive(run);
+      else delete run.routed;
     }
   }
   /** Runs the attempt's steps until it leaves `ready`; `drive` owns errors and retries. */
   async function runSteps(run: Execution): Promise<void> {
+    // A route the watch's own document took since, as a single-page site's after its
+    // sign-in, is read once as the tab's next page (ADR 0027 amendment of 2026-10-25).
+    const routed = run.routed === true && watchedHere(run);
+    delete run.routed;
     if (run.metadata.state === "watching") {
-      await watchPage(run);
+      await watchPage(run, routed);
       return;
     }
     // A result that settled as unknown is watched from the next page on: the document the
     // watch began in is not read again, as when a restarted worker resumes the login there
-    // (ADR 0027).
-    if (settledHere(run)) return;
+    // (ADR 0027), unless it took another route since.
+    if (settledHere(run) && !routed) return;
     if (run.metadata.state === "reconciling" || run.metadata.state === "awaiting-result")
       await reconcileBounded(run);
     while (current(run) && run.metadata.state === "ready") {
@@ -15190,6 +15213,23 @@ export function createLoginRuntime(
         sender.documentId === visit.document.documentId
       )
         visit.submitted = true;
+      return undefined;
+    }
+    if (v.safeParse(movedSchema, message).success) {
+      // A route of the document a login is watched in, or one it took while the login was
+      // read, is read once (ADR 0027 amendment of 2026-10-25).
+      const document = await identify(sender);
+      const run = document ? attempts.get(document.tabId) : undefined;
+      if (
+        document &&
+        run &&
+        current(run) &&
+        sameLoginDocument(run.live.document, document) &&
+        (run.running || watchedHere(run))
+      ) {
+        run.routed = true;
+        void drive(run);
+      }
       return undefined;
     }
     if (v.safeParse(submittedSchema, message).success) {

@@ -265,3 +265,46 @@ describe("a secret question's answer under the question the owner confirmed (ADR
     expect(answer()).toBe("synthetic answer");
   });
 });
+
+describe("a document carrying a login that routes in place (ADR 0027)", () => {
+  const status = (token: unknown, state: string, outcome?: string) => {
+    for (const listener of listeners)
+      listener(
+        {
+          version: 1,
+          type: "login.status",
+          token,
+          state,
+          stepIndex: 1,
+          ...(outcome ? { outcome } : {}),
+        },
+        { id: "synthetic-extension" },
+        () => undefined,
+      );
+  };
+  const moves = () => sent.filter((message) => message["type"] === "login.document.moved");
+
+  it("reports each move to another path while its login has not ended, as Duolingo's /learn", async () => {
+    history.replaceState(null, "", "/");
+    document.body.innerHTML = "<main><p>Welcome</p></main>";
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(200);
+    // No login yet: a route is the page's own business.
+    history.pushState(null, "", "/courses");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(moves()).toEqual([]);
+    const token = sent[0]!["token"];
+    status(token, "reconciling", "unknown-submit");
+    history.pushState(null, "", "/learn");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(moves()).toEqual([{ version: 1, type: "login.document.moved", token }]);
+    // A query or fragment change keeps the path.
+    history.pushState(null, "", "/learn?tab=home#top");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(moves()).toHaveLength(1);
+    status(token, "authenticated");
+    history.pushState(null, "", "/profile");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(moves()).toHaveLength(1);
+  });
+});
