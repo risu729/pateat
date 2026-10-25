@@ -16,6 +16,7 @@ import {
   MAX_RECIPE_PAGES_PER_SYNC,
   RECIPE_SYNC_RATE_LIMIT_MS,
   RECIPE_SYNC_STALE_MS,
+  RECIPE_SYNC_WAIT_MS,
 } from "./recipes";
 import { laterReadiness } from "../login/wire";
 import type { ServiceConnection } from "./runtime";
@@ -2145,6 +2146,38 @@ describe("cached recipe lookup", () => {
     time += 1;
     await sync.recipes.recipe(SITE, "/login");
     await vi.waitFor(() => expect(transport.recipeChanges).toHaveBeenCalledTimes(2));
+  });
+
+  it("tells a recipe withdrawn once the sync a lookup started revoked it", async () => {
+    let release: (result: RecipeChangesResult) => void = () => undefined;
+    const { sync, transport } = setup({ stored, now: () => RECIPE_SYNC_STALE_MS });
+    transport.recipeChanges.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    // The lookup still answers from the cache it starts refreshing.
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(signin));
+    const withdrawn = sync.recipes.withdrawn!(SITE, signin.id);
+    await vi.waitFor(() => expect(transport.recipeChanges).toHaveBeenCalledOnce());
+    release(page([revoked(signin.id, 2)], 3));
+    expect(await withdrawn).toBe(true);
+    expect(await sync.recipes.recipe(SITE, "/login")).toBeUndefined();
+  });
+
+  it("stops waiting for a sync that does not answer", async () => {
+    vi.useFakeTimers();
+    try {
+      const { sync, transport } = setup({ stored, now: () => RECIPE_SYNC_STALE_MS });
+      transport.recipeChanges.mockImplementationOnce(() => new Promise(() => undefined));
+      await sync.recipes.recipe(SITE, "/login");
+      const withdrawn = sync.recipes.withdrawn!(SITE, signin.id);
+      await vi.advanceTimersByTimeAsync(RECIPE_SYNC_WAIT_MS);
+      expect(await withdrawn).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not refresh for a device the service rejected", async () => {

@@ -7791,6 +7791,19 @@ describe("production login document admission", () => {
     expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual(expected);
     expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/signin", recipe.id, undefined);
   });
+  it("starts no login on a recipe the sync its lookup started removed", async () => {
+    // The lookup answered from the cache; the sync it started then revoked the recipe.
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    h.recipes.withdrawn.mockResolvedValue(true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "recipe-not-found" });
+    expect(h.recipes.withdrawn).toHaveBeenCalledWith(origin, recipe.id, undefined);
+    expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual([]);
+    expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "start" }));
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "refused", reason: "recipe-not-found", detail: "withdrawn" }),
+    );
+  });
   describe("a submitted login its recipe no longer runs", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
     const record = () =>
@@ -7848,6 +7861,7 @@ describe("production login document admission", () => {
       // owner 2026-10-24); after that, the tab's next page that shows the first step asks
       // and only fills (ADR 0062).
       h.recipes.recipe.mockResolvedValue(recipe);
+      h.recipes.withdrawn.mockResolvedValue(false);
       const now = Date.now();
       const clock = vi.spyOn(Date, "now").mockImplementation(() => now + 6 * 60_000);
       try {
@@ -7871,7 +7885,7 @@ describe("production login document admission", () => {
         ok: false,
         reason: "recipe-not-found",
       });
-      expect(h.recipes.withdrawn).toHaveBeenCalledWith(origin, recipe.id, undefined);
+      expect(h.recipes.withdrawn).toHaveBeenLastCalledWith(origin, recipe.id, undefined);
       expect(record()).toMatchObject({ id: before?.["id"], state: before?.["state"] });
       expect(record()?.["outcome"]).toBeUndefined();
       expect(await h.login.active()).toBe(true);

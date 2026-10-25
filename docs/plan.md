@@ -2136,7 +2136,11 @@ syncs at once, whatever the schedule. The attempt time is stored, so a worker re
 does not sync again sooner, and a 429, also an edge rate-limit page that is not JSON,
 postpones background syncs, but not the one after pairing, for 15 minutes. A clock set
 back before the last attempt makes a sync due at once, also within one worker. A lookup
-does not wait for the network or for pairing and disconnect requests. The serialized
+does not wait for the network or for pairing and disconnect requests. A new login, just
+before it starts, waits up to 5 seconds for a sync that is running or that its lookup
+started, and does not start when that sync removed its recipe or layout, as one revoked
+on the dashboard since the last sync. A recipe revoked within five minutes of the last
+sync attempt is still used until the next one. The serialized
 cache is limited to 2 MiB of the extension's 10 MB `storage.local` quota, which it
 shares with settings, login attempts and other extension state (the vault cache is in
 IndexedDB); a page that would exceed it is not fully applied. Sync walks later current

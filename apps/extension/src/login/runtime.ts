@@ -1213,7 +1213,8 @@ export interface LoginRecipes {
   /**
    * Whether the recipes, read without failure, no longer hold a layout of the recipe by ID
    * that runs: the recipe or its layout was withdrawn. False when they cannot be read, so a
-   * resumed login whose lookup failed stays resumable (owner, 2026-10-23).
+   * resumed login whose lookup failed stays resumable (owner, 2026-10-23). A sync running
+   * or being started by a lookup ends first, for at most a few seconds.
    */
   withdrawn?(origin: string, recipeId: string, layout?: string): Promise<boolean>;
   /** Where every recipe for the origin starts; a document watches for its first steps. */
@@ -14095,6 +14096,17 @@ export function createLoginRuntime(
     // The vault account whose master password this new login was started with, if any.
     let typedFor: string | undefined;
     if (!previous) {
+      // The lookup answered from the cache while the sync it started may be revoking the
+      // recipe, as one removed on the dashboard minutes ago: that sync ends first, and a
+      // recipe or layout it removed never starts.
+      if (
+        !(probeMode && document.origin === origin) &&
+        (await recipes.withdrawn?.(document.origin, recipe.id, recipe.layout).catch(() => false))
+      ) {
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        return refuse("recipe-not-found", "withdrawn");
+      }
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       // Another login's account choice, being saved now or saved since this snapshot was read,
       // bumps the revision this new login would be checked against: it is admitted again.
       await choicesSaved();
