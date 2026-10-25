@@ -17,6 +17,11 @@ Claude as a fix, with the owner's choices of 2026-10-23 and 2026-10-24: in D, a 
 login its recipe no longer runs ends as a stopped one (implemented, see the end of the
 2026-10-12 stopped-login amendment).
 
+Amended on 2026-10-25 by
+[ADR 0080](0080-login-usernames-kept-while-unlocked.md) (owner): the usernames the popup
+shows come from the crypto Worker, which keeps them while the vault is unlocked
+(implemented).
+
 Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) and
 [ADR 0063](0063-switch-accounts-from-the-popup.md) (owner, accepted and implemented):
 D's logout state, fill-only login after a logout, logout clicks and passkey chooser
@@ -155,10 +160,12 @@ every second until a choice waits, so a choice that starts waiting late, for exa
 after a restarted service worker asked the page to announce again, still appears; until
 the first answer it says it is checking (amended 2026-10-12). The list shows once the
 site's matches are known, so each candidate is named by its username from the first time
-it shows; the popup asks at open and caches no usernames, since vault field values are
-not kept. While another tab's login holds the site (ADR 0022), the list says so and Log
-in is disabled; the popup keeps asking and enables it once the hold ends. A pick refused
-because such a hold started meanwhile keeps the choice for a later pick.
+it shows; the popup asks at open and caches no usernames. Since 2026-10-25 the crypto
+Worker keeps each live login's username while the vault is unlocked and answers the
+popup from it ([ADR 0080](0080-login-usernames-kept-while-unlocked.md)). While another
+tab's login holds the site (ADR 0022), the list says so and Log in is disabled; the
+popup keeps asking and enables it once the hold ends. A pick refused because such a hold
+started meanwhile keeps the choice for a later pick.
 
 Choosing one stores the choice in `chrome.storage.session` for that `documentId` and
 sends `login.reconnect` to that document only. Once that starts the login, the popup

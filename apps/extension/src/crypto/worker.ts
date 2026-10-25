@@ -23,6 +23,7 @@ import {
   type CustomDigests,
   type HostCommand,
   type HostSessionRef,
+  type LoginUsernames,
   type UriCandidates,
 } from "./wire";
 import { newId } from "@pateat/contracts/ids";
@@ -54,6 +55,11 @@ let owned:
        * except that Regex patterns run in the nested Regex Worker it owns (ADR 0056).
        */
       loginUris: Map<string, { uri: string | null; match: number | null }[]>;
+      /**
+       * Each live login item's username, captured with its URI rules so the popup can name
+       * matching accounts without decrypting them again (ADR 0080). Nothing else is kept.
+       */
+      loginUsernames: Map<string, string>;
     }
   | undefined;
 let busy = false;
@@ -156,6 +162,7 @@ async function execute(command: HostCommand) {
       masterPasswordUnlock: prepared.masterPasswordUnlock,
       ...(uriContext ? { uriContext } : {}),
       loginUris: new Map(),
+      loginUsernames: new Map(),
     };
     return { ok: true as const, data: { session: ref, metadata: session.data.metadata } };
   }
@@ -167,7 +174,9 @@ async function execute(command: HostCommand) {
     owned.verified = false;
     delete owned.catalog;
     owned.loginUris.clear();
+    owned.loginUsernames.clear();
     const loginUris = new Map<string, { uri: string | null; match: number | null }[]>();
+    const loginUsernames = new Map<string, string>();
     const groups = await owned.session.decryptCatalogGroups(owned.metadataContext);
     if (!groups.ok) return groups;
     const items: LocalVaultMetadata["items"] = [];
@@ -182,15 +191,19 @@ async function execute(command: HostCommand) {
       if (!checked.ok) return checked;
       if (![1, 2, 3, 4].includes(checked.data.type)) return fail("crypto-failed");
       // Pinned clients exclude deleted and archived items from URL matching.
-      if (checked.data.type === 1 && !checked.data.deletedDate && !checked.data.archivedDate)
+      if (checked.data.type === 1 && !checked.data.deletedDate && !checked.data.archivedDate) {
+        // Same identifier form as the catalog item, so settings eligibility applies.
+        const itemId = String(checked.data.id);
         loginUris.set(
-          // Same identifier form as the catalog item, so settings eligibility applies.
-          String(checked.data.id),
+          itemId,
           (checked.data.login?.uris ?? []).map((entry) => ({
             uri: entry.uri ?? null,
             match: entry.match ?? null,
           })),
         );
+        const username = checked.data.login?.username;
+        if (username) loginUsernames.set(itemId.toLowerCase(), username.slice(0, 1024));
+      }
       const snapshot = createLocalFieldSnapshot({
         connectionId: command.connectionId,
         userId: owned.ref.userId,
@@ -238,6 +251,7 @@ async function execute(command: HostCommand) {
     if (!catalog.success) return fail("resource-limit");
     owned.catalog = catalog.output;
     owned.loginUris = loginUris;
+    owned.loginUsernames = loginUsernames;
     owned.verified = true;
     return { ok: true as const, data: { verifiedCipherCount: owned.ciphers.size } };
   }
@@ -312,6 +326,14 @@ async function execute(command: HostCommand) {
       if (result.unavailableUris.length > 100_000) return fail("resource-limit");
     }
     return { ok: true as const, data: result };
+  }
+  if (op.kind === "login-usernames") {
+    if (!owned.verified) return fail("invalid-request");
+    const usernames: LoginUsernames["usernames"] = {};
+    // Item identifiers match case-insensitively, as in the other operations.
+    for (const itemId of op.itemIds)
+      usernames[itemId] = owned.loginUsernames.get(itemId.toLowerCase()) ?? null;
+    return { ok: true as const, data: { usernames } };
   }
   if (op.kind === "custom-digest") {
     if (!owned.verified) return fail("invalid-request");

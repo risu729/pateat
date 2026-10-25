@@ -189,7 +189,10 @@ a TOTP key
 ([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-23-a-totp-code-from-a-custom-field)).
 The one exception is the default account picker: for the items that match the entered
 origin, the background returns each item's login username so same-named items can be
-told apart. It is not cached, persisted or synced.
+told apart. The crypto Worker keeps each live login's username in memory while the vault
+is unlocked and answers from it
+([ADR 0080](adr/0080-login-usernames-kept-while-unlocked.md)); it is not persisted or
+synced.
 Password requests accept explicit manual authenticator/email codes and new-device
 OTP values. Return bounded challenge categories and provider IDs, never raw
 challenge parameters, server descriptions or URLs. An email code is requested with
@@ -424,7 +427,9 @@ snapshot before it replies, so a field request returns only the listing or the o
 value asked for (the probe build's `decrypt` operation still returns a whole item).
 JavaScript cannot wipe the disposed copies; they only become unreachable. Between
 requests the session keeps no decrypted item data beyond the value-free catalog and the
-login URI rules captured during verification; closing the session destroys the Worker.
+login URI rules and usernames captured during verification
+([ADR 0080](adr/0080-login-usernames-kept-while-unlocked.md)); closing the session
+destroys the Worker.
 References bind connection, user, item and snapshot identity; custom fields use
 snapshot-scoped positional IDs because Bitwarden does not supply a persistent field
 UUID. Resolution requires an explicit field allowlist. Linked aliases also require

@@ -15,6 +15,7 @@ import {
   commandSchema,
   CRYPTO_PORT,
   customDigestsSchema,
+  loginUsernamesSchema,
   derivesArgon2id,
   JOB_BUDGET_MS,
   lifecycleSchema,
@@ -25,6 +26,7 @@ import {
   sessionSchema,
   uriCandidatesSchema,
   type CustomDigests,
+  type LoginUsernames,
   type HostOperation,
   type UriCandidates,
   type HostSessionRef,
@@ -382,6 +384,18 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           return;
         }
       }
+      if (job.operation.kind === "login-usernames") {
+        const requested = job.operation.itemIds;
+        const checked = v.safeParse(loginUsernamesSchema, result.data);
+        if (
+          !checked.success ||
+          Object.keys(checked.output.usernames).length !== requested.length ||
+          !requested.every((id) => Object.hasOwn(checked.output.usernames, id))
+        ) {
+          cancelOwned(parsed.output.requestId, "crypto-locked");
+          return;
+        }
+      }
       if (job.operation.kind === "passkey-find" || job.operation.kind === "passkey-sign") {
         const operation = job.operation;
         const bound = (entry: { connectionId: string; userId: string; snapshotId: string }) =>
@@ -624,7 +638,10 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       budget > (argon2id ? ARGON2ID_JOB_BUDGET_MS : JOB_BUDGET_MS)
     )
       return fail("invalid-request");
-    if (operation.kind === "custom-digest" && !unique(operation.itemIds))
+    if (
+      (operation.kind === "custom-digest" || operation.kind === "login-usernames") &&
+      !unique(operation.itemIds)
+    )
       return fail("invalid-request");
     if (
       operation.kind === "open" &&
@@ -845,6 +862,14 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       return request<CustomDigests>(
         session.connectionId,
         { kind: "custom-digest", session, itemIds: [...itemIds] },
+        signal,
+      );
+    },
+    /** The login usernames the Worker kept for these items when it verified the snapshot. */
+    loginUsernames(session: HostSessionRef, itemIds: readonly string[], signal?: AbortSignal) {
+      return request<LoginUsernames>(
+        session.connectionId,
+        { kind: "login-usernames", session, itemIds: [...itemIds] },
         signal,
       );
     },
