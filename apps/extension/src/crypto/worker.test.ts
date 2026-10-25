@@ -151,12 +151,15 @@ function expectEverySnapshotDisposedOnce() {
 
 /**
  * Loads a fresh Worker module and opens 129 logins, the first with `uris`' rules, and with
- * `withUnreadable` also an unsupported and an invalid item.
+ * `withUnreadable` also an unsupported and an invalid item. `edit` changes a login by its
+ * number.
  */
 async function openWorker(
   uris: readonly (readonly { uri: string | null; match: number | null }[])[] = savedUris,
   defaultMatch = 0,
   withUnreadable = false,
+  edit: (login: Record<string, unknown>, index: number) => Record<string, unknown> = (login) =>
+    login,
 ) {
   vi.resetModules();
   mocks.snapshots.clear();
@@ -171,16 +174,23 @@ async function openWorker(
       binding: { profile: { connectionId }, userId, accountVersion: 1 },
       coverage: "received-envelope",
       ciphers: [
-        ...Array.from({ length: loginCount }, (_, index) => ({
-          id: itemId(index + 1),
-          type: 1,
-          name: `Synthetic item ${index + 1}`,
-          collectionIds: [],
-          login: { password: `synthetic-password-${index + 1}`, uris: uris[index] ?? [] },
-          ...(index + 1 === seedIndex
-            ? { fields: [{ name: "seed", value: rfcTotpSecrets.SHA1, type: 1, linkedId: null }] }
-            : {}),
-        })),
+        ...Array.from({ length: loginCount }, (_, index) =>
+          edit(
+            {
+              id: itemId(index + 1),
+              type: 1,
+              name: `Synthetic item ${index + 1}`,
+              collectionIds: [],
+              login: { password: `synthetic-password-${index + 1}`, uris: uris[index] ?? [] },
+              ...(index + 1 === seedIndex
+                ? {
+                    fields: [{ name: "seed", value: rfcTotpSecrets.SHA1, type: 1, linkedId: null }],
+                  }
+                : {}),
+            },
+            index + 1,
+          ),
+        ),
         ...(withUnreadable
           ? [
               {
@@ -439,6 +449,77 @@ describe("crypto Worker Regex URIs (ADR 0056)", () => {
     await openWorker(savedUris.slice(0, 5));
     expect((await match("https://router.example/login")).candidates).toHaveLength(5);
     expect(mocks.regexRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("crypto Worker login usernames (ADR 0080)", () => {
+  const usernames = (ids: string[]) => command({ kind: "login-usernames", session, itemIds: ids });
+  beforeEach(async () => {
+    await openWorker(savedUris, 0, false, (login, index) => {
+      const fields = login["login"] as Record<string, unknown>;
+      if (index === 2) return { ...login, login: { ...fields, username: "bob@example.test" } };
+      if (index === 3)
+        return {
+          ...login,
+          deletedDate: "2026-10-01T00:00:00.000Z",
+          login: { ...fields, username: "carol@example.test" },
+        };
+      if (index === 4)
+        return {
+          ...login,
+          archivedDate: "2026-10-01T00:00:00.000Z",
+          login: { ...fields, username: "dave@example.test" },
+        };
+      return login;
+    });
+  });
+
+  it("answers only after the snapshot is verified", async () => {
+    expect(await usernames([itemId(2)])).toEqual(failed("invalid-request"));
+  });
+
+  it("answers each requested live login's username from memory, without decrypting", async () => {
+    expect(await command({ kind: "verify-received-ciphers", session })).toMatchObject({ ok: true });
+    mocks.decrypt.mockClear();
+    // Item 1 has no username, items 3 and 4 are deleted and archived, and the last is not in
+    // the snapshot.
+    const ids = [1, 2, 3, 4, unknownIndex].map(itemId);
+    expect(await usernames(ids)).toEqual({
+      ok: true,
+      data: {
+        usernames: {
+          [itemId(1)]: null,
+          [itemId(2)]: "bob@example.test",
+          [itemId(3)]: null,
+          [itemId(4)]: null,
+          [itemId(unknownIndex)]: null,
+        },
+      },
+    });
+    expect(mocks.decrypt).not.toHaveBeenCalled();
+    // Item identifiers match case-insensitively; the answer keeps the requested spelling.
+    const upper = itemId(2).toUpperCase();
+    expect(await usernames([upper])).toEqual({
+      ok: true,
+      data: { usernames: { [upper]: "bob@example.test" } },
+    });
+  });
+
+  it("forgets the usernames when the snapshot is verified again and fails", async () => {
+    expect(await command({ kind: "verify-received-ciphers", session })).toMatchObject({ ok: true });
+    mocks.decrypt.mockResolvedValueOnce({ ok: false, error: { code: "crypto-failed" } } as never);
+    expect(await command({ kind: "verify-received-ciphers", session })).toMatchObject({
+      ok: false,
+    });
+    expect(await usernames([itemId(2)])).toEqual(failed("invalid-request"));
+  });
+
+  it("answers only for the session it opened", async () => {
+    expect(await command({ kind: "verify-received-ciphers", session })).toMatchObject({ ok: true });
+    const other = { ...session, sessionId: "30000000-0000-4000-8000-000000000009" };
+    expect(
+      await command({ kind: "login-usernames", session: other, itemIds: [itemId(2)] }),
+    ).toEqual(failed("crypto-locked"));
   });
 });
 

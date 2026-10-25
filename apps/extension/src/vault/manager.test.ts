@@ -126,6 +126,10 @@ function harness(
         items: [],
       },
     })),
+    loginUsernames: vi.fn<VaultCryptoHost["loginUsernames"]>(async (_session, itemIds) => ({
+      ok: true as const,
+      data: { usernames: Object.fromEntries(itemIds.map((id) => [id, "alice@example.test"])) },
+    })),
     matchUris: vi.fn<VaultCryptoHost["matchUris"]>(async (session, targetUrl) => ({
       ok: true as const,
       data: {
@@ -979,6 +983,30 @@ describe("durable authority across independent managers", () => {
       vaultFailure("stale-vault-handle"),
     );
     expect(h.host.matchUris).toHaveBeenCalledTimes(2);
+  });
+  it("lists login usernames only through the current live snapshot and withholds a late result", async () => {
+    const h = harness();
+    const current = await accepted(h);
+    expect(await h.manager.loginUsernames(current.handle, [itemId])).toEqual({
+      ok: true,
+      data: { usernames: { [itemId]: "alice@example.test" } },
+    });
+    expect(h.host.loginUsernames.mock.calls[0]?.[0].snapshotId).toBe(current.handle.snapshotId);
+    expect(h.host.loginUsernames.mock.calls[0]?.[1]).toEqual([itemId]);
+    const held = gate();
+    h.host.loginUsernames.mockImplementationOnce(async () => {
+      await held.promise;
+      return { ok: true, data: { usernames: { [itemId]: "late@example.test" } } };
+    });
+    const pending = h.manager.loginUsernames(current.handle, [itemId]);
+    await vi.waitFor(() => expect(h.host.loginUsernames).toHaveBeenCalledTimes(2));
+    await h.manager.disableAutoUnlock();
+    held.release();
+    expect(await pending).toEqual(vaultFailure("stale-vault-handle"));
+    expect(await h.manager.loginUsernames(current.handle, [itemId])).toEqual(
+      vaultFailure("stale-vault-handle"),
+    );
+    expect(h.host.loginUsernames).toHaveBeenCalledTimes(2);
   });
   it("finds and signs passkeys only through the current live snapshot", async () => {
     const h = harness();

@@ -8,9 +8,9 @@ import { createRecipeRepairs } from "../src/login/repair";
 import { createLoginSites } from "../src/login/sites";
 import {
   combineFieldSources,
-  createVaultFieldBatch,
   createVaultFieldSource,
   createVaultUriMatcher,
+  createVaultUsernameSource,
   dummyFieldSource,
 } from "../src/login/vault";
 import { createBrowserCryptoHost } from "../src/crypto/browser";
@@ -542,7 +542,10 @@ export default defineBackground(() => {
     settings,
     matchUris: vaultUris,
     findPasskeys: vaultPasskeyFinder,
-    readFields: createVaultFieldBatch(connections),
+    readUsernames: createVaultUsernameSource({
+      ...connections,
+      settingsSyncPending: () => service.settingsSyncPending(),
+    }),
   });
   // ADR 0021: one Pateat window to choose among several matching passkeys.
   const passkeyChooser = createPasskeyChooser({

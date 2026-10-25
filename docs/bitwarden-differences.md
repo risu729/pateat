@@ -230,7 +230,11 @@ owner, 2026-10-23 21:50 UTC).
   or resolution decrypts its one item with the SDK and disposes it before replying
   ([vault adapter](architecture.md#vault-adapter); owner's decision 2026-10-23, which
   chose this over a copy narrowed to the allowed fields). It costs one SDK decryption
-  per request; a login reads only a few fields.
+  per request; a login reads only a few fields. The one exception is each live login's
+  username, kept beside its URI rules while the vault is unlocked so the toolbar popup
+  names matching accounts without decrypting them again
+  ([ADR 0080](adr/0080-login-usernames-kept-while-unlocked.md), owner's decision
+  2026-10-25).
 
 ## Self-hosted server address
 

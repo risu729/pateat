@@ -49,6 +49,7 @@ export type HostOperation =
   | { kind: "match-uris"; session: HostSessionRef; targetUrl: string }
   | { kind: "verify-password"; session: HostSessionRef; password: string }
   | { kind: "custom-digest"; session: HostSessionRef; itemIds: readonly string[] }
+  | { kind: "login-usernames"; session: HostSessionRef; itemIds: readonly string[] }
   | { kind: "passkey-find"; session: HostSessionRef; rpId: string }
   | {
       kind: "passkey-sign";
@@ -61,6 +62,9 @@ export type HostOperation =
     }
   | { kind: "lock"; session: HostSessionRef }
   | { kind: "close" };
+/** How many items one `login-usernames` request may name (ADR 0080). */
+export const LOGIN_USERNAMES_PER_REQUEST = 2_000;
+
 export const commandSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("crypto.command"),
@@ -122,6 +126,11 @@ export const commandSchema = v.strictObject({
       // 32 bytes. Only the offscreen document sets it; the background never holds the key.
       key: v.optional(base64Url(43, 43)),
     }),
+    v.strictObject({
+      kind: v.literal("login-usernames"),
+      session: sessionSchema,
+      itemIds: v.pipe(v.array(uuid), v.maxLength(LOGIN_USERNAMES_PER_REQUEST)),
+    }),
     v.strictObject({ kind: v.literal("passkey-find"), session: sessionSchema, rpId }),
     v.strictObject({
       kind: v.literal("passkey-sign"),
@@ -173,6 +182,12 @@ export const customDigestsSchema = v.strictObject({
   digests: v.record(uuid, v.nullable(base64Url(43, 43))),
 });
 export type CustomDigests = v.InferOutput<typeof customDigestsSchema>;
+/** Per requested item, the login username of a live login item in the open snapshot, or
+ * `null` when it has none or is not one (ADR 0080). */
+export const loginUsernamesSchema = v.strictObject({
+  usernames: v.record(uuid, v.nullable(v.pipe(v.string(), v.maxLength(1024)))),
+});
+export type LoginUsernames = v.InferOutput<typeof loginUsernamesSchema>;
 /** One DER ECDSA P-256 signature (8 to 72 bytes) bound to the credential that made it. */
 export const passkeySignatureSchema = v.strictObject({
   ...passkeyBinding,

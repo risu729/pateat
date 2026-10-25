@@ -6,10 +6,11 @@ import {
   type LocalSettings,
   type SettingsRequest,
   type SettingsResponse,
+  type SettingsSnapshot,
   type SiteAccountsResponse,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import type { LoginFieldBatch } from "../login/vault";
+import type { LoginUsernameSource } from "../login/vault";
 import { passkeyOrigin, rpIdsFor } from "../passkeys/rp-id";
 import { findVaultPasskeys, type PasskeyFinder } from "../passkeys/vault";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "./site-candidates";
@@ -35,8 +36,8 @@ export async function findSiteAccounts(input: {
   origin: string;
   matchUris: LiveUriMatcher;
   findPasskeys: PasskeyFinder;
-  /** Resolves matched live items' fields under the saved settings; never the demo vaults. */
-  readFields?: LoginFieldBatch;
+  /** Matched live items' login usernames, kept by each open snapshot; never the demo vaults. */
+  readUsernames?: LoginUsernameSource;
 }): Promise<SiteAccountsResponse> {
   const { settings } = input;
   const { catalog } = input.saved;
@@ -106,39 +107,45 @@ export async function findSiteAccounts(input: {
     if (!found.complete) complete = false;
     for (const entry of found.candidates) add(entry.connectionId, entry.itemId, "passkey");
   }
-  // Only matched items, so same-named items can be told apart; no other value is read. They
-  // are read together, so the settings and each vault are checked once for all of them.
-  if (input.readFields) {
-    const read = [];
+  // Only matched items, so same-named items can be told apart; no other value is read.
+  // A username is read only under the saved settings, as a fill would be: the item is
+  // eligible, its login username is not excluded, and it waits for no custom-field review.
+  if (input.readUsernames) {
+    const saved = input.saved.snapshot.settings;
+    const wanted = new Map<
+      string,
+      {
+        connection: (typeof live.connections)[number];
+        accounts: { itemId: string; username?: string }[];
+      }
+    >();
     for (const account of accounts.values()) {
       const connection = live.connections.find((entry) => entry.id === account.connectionId);
-      const excluded = isFieldExcluded(
-        settings,
-        catalog,
-        account.connectionId,
-        account.itemId,
-        "login.username",
-      );
-      if (connection && !excluded) read.push({ account, connection });
+      const eligibility = getItemEligibility(saved, catalog, account.connectionId, account.itemId);
+      if (
+        !connection?.snapshotId ||
+        !eligibility.eligible ||
+        !eligibility.fieldIds.includes("login.username") ||
+        connection.quarantinedItemIds?.includes(account.itemId) ||
+        isFieldExcluded(settings, catalog, account.connectionId, account.itemId, "login.username")
+      )
+        continue;
+      wanted
+        .getOrInsertComputed(connection.id, () => ({ connection, accounts: [] }))
+        .accounts.push(account);
     }
-    const usernames = read.length
-      ? await input
-          .readFields(
-            read.map(({ account, connection }) => ({
-              account: {
-                origin: input.origin,
-                connectionId: account.connectionId,
-                itemId: account.itemId,
-              },
-              connection,
-              fieldId: "login.username",
-            })),
-          )
-          .catch(() => [])
-      : [];
-    for (const [index, { account }] of read.entries()) {
-      const username = usernames[index];
-      if (username) account.username = username.slice(0, 1024);
+    for (const { connection, accounts: listed } of wanted.values()) {
+      // oxlint-disable-next-line no-await-in-loop -- vaults are asked one after another
+      const usernames = await input
+        .readUsernames(
+          connection,
+          listed.map((account) => account.itemId),
+        )
+        .catch(() => undefined);
+      for (const account of listed) {
+        const username = usernames?.[account.itemId];
+        if (username) account.username = username.slice(0, 1024);
+      }
     }
   }
   return { version: 1, ok: true, origin: input.origin, accounts: [...accounts.values()], complete };
@@ -146,52 +153,47 @@ export async function findSiteAccounts(input: {
 
 /** Answers `settings.site-accounts` from the settings page or the toolbar popup; callers check the sender. */
 export function createSiteAccountsHandler(options: {
-  settings: { handle(request: SettingsRequest): Promise<SettingsResponse> };
+  settings: {
+    handle(request: SettingsRequest): Promise<SettingsResponse>;
+    read(): Promise<SettingsSnapshot>;
+  };
   matchUris: LiveUriMatcher;
   findPasskeys: PasskeyFinder;
-  readFields?: LoginFieldBatch;
+  readUsernames?: LoginUsernameSource;
 }) {
   const answer = async (message: unknown): Promise<SiteAccountsResponse> => {
     const request = v.safeParse(siteAccountsRequestSchema, message);
     if (!request.success) return { version: 1, ok: false, reason: "invalid-request" };
-    // A username read while the settings change is refused, so a search that a save
-    // overlapped, such as a login saving its picked account as the default, misses that
-    // username; a search with a missed read while the settings changed is made again, at
-    // most twice.
-    for (let attempt = 0; ; attempt += 1) {
+    // The usernames are checked against the settings read when the search began. A search
+    // that a save overlapped, such as a login saving its picked account as the default, is
+    // made again, at most twice; when the settings still changed, or cannot be read to
+    // compare, the matches are answered without usernames (ADR 0080).
+    let found: SiteAccountsResponse | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       // oxlint-disable-next-line no-await-in-loop -- each search reads the settings anew
       const saved = await options.settings.handle({ version: 1, type: "settings.get" });
       if (!saved.ok) return { version: 1, ok: false, reason: "unavailable" };
-      const { readFields } = options;
-      let missed = false;
       // oxlint-disable-next-line no-await-in-loop -- searches run one after another
-      const found = await findSiteAccounts({
+      found = await findSiteAccounts({
         saved,
         settings: request.output.settings,
         origin: request.output.origin,
         matchUris: options.matchUris,
         findPasskeys: options.findPasskeys,
-        ...(readFields
-          ? {
-              readFields: (fields) =>
-                readFields(fields).then(
-                  (values) => {
-                    if (values.some((value) => value === undefined)) missed = true;
-                    return values;
-                  },
-                  (error: unknown) => {
-                    missed = true;
-                    throw error;
-                  },
-                ),
-            }
-          : {}),
+        ...(options.readUsernames ? { readUsernames: options.readUsernames } : {}),
       });
-      if (attempt === 2 || !missed) return found;
+      if (!found.ok || !found.accounts.some((account) => account.username)) return found;
+      // Only the revision is compared, so the snapshot alone is read again, without the catalog.
       // oxlint-disable-next-line no-await-in-loop -- compares with the settings searched
-      const latest = await options.settings.handle({ version: 1, type: "settings.get" });
-      if (!latest.ok || latest.snapshot.revision === saved.snapshot.revision) return found;
+      const latest = await options.settings.read().catch(() => undefined);
+      if (!latest) break;
+      if (latest.revision === saved.snapshot.revision) return found;
     }
+    if (!found?.ok) return found ?? { version: 1, ok: false, reason: "unavailable" };
+    return {
+      ...found,
+      accounts: found.accounts.map(({ username: _username, ...account }) => account),
+    };
   };
   // A vault's crypto Worker takes one job at a time, so concurrent lookups (one per saved
   // default, plus the picker) would refuse each other; answer them one after another.

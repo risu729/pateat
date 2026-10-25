@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { VaultConnectionMetadata } from "@pateat/contracts";
 import {
   combineFieldSources,
-  createVaultFieldBatch,
   createVaultFieldSource,
   createVaultUriMatcher,
+  createVaultUsernameSource,
   dummyFieldSource,
   loginSecretKind,
 } from "./vault";
@@ -126,56 +126,69 @@ describe("live vault login field source", () => {
     expect(h.connections.registry.get).not.toHaveBeenCalled();
     expect(h.connections.resolveField).not.toHaveBeenCalled();
   });
-  it("resolves several references in one connection runtime call, keeping their order", async () => {
+  it("lists the usernames of one connection's items from its open snapshot", async () => {
     const other = "80000000-0000-4000-8000-000000000002";
     const h = harness();
-    const resolveFields = vi.fn(async (fields: { ref: { itemId: string } }[]) =>
-      fields.map(({ ref }) =>
-        ref.itemId === itemId
-          ? { ok: true, data: { kind: "text", value: "alice" } }
-          : { ok: false, error: { code: "field-denied" } },
-      ),
+    const loginUsernames = vi.fn(async () => ({
+      ok: true,
+      data: { usernames: { [itemId]: "alice", [other]: null } },
+    }));
+    h.connections.vaultFor.mockReturnValue({
+      manager: { status: () => ({ handle: { userId, snapshotId } }), loginUsernames },
+    } as never);
+    const source = createVaultUsernameSource(
+      h.connections as unknown as Parameters<typeof createVaultUsernameSource>[0],
     );
-    const batch = createVaultFieldBatch({
-      ...h.connections,
-      resolveFields,
-    } as unknown as Parameters<typeof createVaultFieldBatch>[0]);
-    await expect(
-      batch([
-        { account, connection: connection(), fieldId: "login.username" },
-        // Rejected before any vault access, so it is not sent to the runtime.
-        { account, connection: connection({ provider: "dummy" }), fieldId: "login.username" },
-        {
-          account: { ...account, itemId: other },
-          connection: connection(),
-          fieldId: "login.username",
-        },
-      ]),
-    ).resolves.toEqual(["alice", undefined, undefined]);
-    expect(resolveFields).toHaveBeenCalledOnce();
-    expect(resolveFields).toHaveBeenCalledWith([
-      {
-        connectionId,
-        ref: { connectionId, userId, itemId, snapshotId, fieldId: "login.username" },
-      },
-      {
-        connectionId,
-        ref: { connectionId, userId, itemId: other, snapshotId, fieldId: "login.username" },
-      },
-    ]);
-    expect(h.connections.resolveField).not.toHaveBeenCalled();
+    await expect(source(connection(), [itemId, other])).resolves.toEqual({
+      [itemId]: "alice",
+      [other]: null,
+    });
+    expect(loginUsernames).toHaveBeenCalledWith({ userId, snapshotId }, [itemId, other]);
+    // A failed read lists no usernames.
+    loginUsernames.mockResolvedValueOnce({ ok: false, error: { code: "crypto-locked" } } as never);
+    await expect(source(connection(), [itemId])).resolves.toBeUndefined();
   });
-  it("does not call the connection runtime when no reference is bound to the open snapshot", async () => {
-    const h = harness(undefined, null);
-    const resolveFields = vi.fn();
-    const batch = createVaultFieldBatch({
+  it("asks in requests of at most 2,000 items and lists none while a settings sync is pending", async () => {
+    const h = harness();
+    const ids = Array.from(
+      { length: 2_001 },
+      (_, index) => `80000000-0000-4000-8000-${index.toString().padStart(12, "0")}`,
+    );
+    const loginUsernames = vi.fn(async (_handle: unknown, asked: string[]) => ({
+      ok: true,
+      data: { usernames: Object.fromEntries(asked.map((id) => [id, "alice"])) },
+    }));
+    h.connections.vaultFor.mockReturnValue({
+      manager: { status: () => ({ handle: { userId, snapshotId } }), loginUsernames },
+    } as never);
+    let pending = false;
+    const source = createVaultUsernameSource({
       ...h.connections,
-      resolveFields,
-    } as unknown as Parameters<typeof createVaultFieldBatch>[0]);
-    await expect(
-      batch([{ account, connection: connection(), fieldId: "login.username" }]),
-    ).resolves.toEqual([undefined]);
-    expect(resolveFields).not.toHaveBeenCalled();
+      settingsSyncPending: async () => pending,
+    } as unknown as Parameters<typeof createVaultUsernameSource>[0]);
+    const listed = await source(connection(), ids);
+    expect(Object.keys(listed ?? {})).toHaveLength(2_001);
+    expect(loginUsernames.mock.calls.map(([, asked]) => asked.length)).toEqual([2_000, 1]);
+    // A device paired while the usernames were read uses no item before its settings sync.
+    pending = true;
+    await expect(source(connection(), [itemId])).resolves.toBeUndefined();
+  });
+  it.each([
+    ["a demo connection", connection({ provider: "dummy" }), { userId, snapshotId }],
+    ["a catalog without a snapshot", connection({ snapshotId: undefined }), { userId, snapshotId }],
+    ["another open snapshot", connection(), { userId, snapshotId: itemId }],
+    ["a closed vault", connection(), null],
+  ])("lists no usernames for %s", async (_name, metadata, handle) => {
+    const h = harness(undefined, handle);
+    const loginUsernames = vi.fn();
+    h.connections.vaultFor.mockReturnValue({
+      manager: { status: () => ({ ...(handle ? { handle } : {}) }), loginUsernames },
+    } as never);
+    const source = createVaultUsernameSource(
+      h.connections as unknown as Parameters<typeof createVaultUsernameSource>[0],
+    );
+    await expect(source(metadata, [itemId])).resolves.toBeUndefined();
+    expect(loginUsernames).not.toHaveBeenCalled();
   });
   it("answers a code request from the synthetic source only for its TOTP field", async () => {
     const dummy = connection({ provider: "dummy" });

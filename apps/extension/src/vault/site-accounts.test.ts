@@ -7,7 +7,7 @@ import {
   type VaultCatalog,
 } from "@pateat/contracts";
 import type { UriCandidates } from "../crypto/wire";
-import type { LoginFieldBatch } from "../login/vault";
+import type { LoginUsernameSource } from "../login/vault";
 import type { PasskeyFinder } from "../passkeys/vault";
 import { vaultFailure } from "./record";
 import { excludeField, excludeItem, setAccountPolicy } from "./__fixtures__/policy";
@@ -51,6 +51,12 @@ function saved(state: "ready" | "unavailable" = "ready"): Extract<SettingsRespon
   };
   const settings = createDefaultSettings(catalog);
   return { version: 1, ok: true, snapshot: { version: 1, revision: 3, settings }, catalog };
+}
+/** Saved settings with the live vault enabled, as the draft enables it. */
+function enabled(): Extract<SettingsResponse, { ok: true }> {
+  const value = saved();
+  value.snapshot.settings = draft(value);
+  return value;
 }
 /** The settings page's draft: real connections start disabled until the owner enables one. */
 function draft(value = saved()): LocalSettings {
@@ -153,13 +159,13 @@ describe("findSiteAccounts", () => {
     });
   });
   it("reads the login username of matched live items only", async () => {
-    const readFields = vi.fn<LoginFieldBatch>(async (requests) =>
-      requests.map(({ account }) =>
-        account.itemId === uriItem ? "alice@example.test" : undefined,
+    const readUsernames = vi.fn<LoginUsernameSource>(async (_connection, itemIds) =>
+      Object.fromEntries(
+        itemIds.map((itemId) => [itemId, itemId === uriItem ? "alice@example.test" : null]),
       ),
     );
     const result = await findSiteAccounts({
-      saved: saved(),
+      saved: enabled(),
       settings: draft(),
       origin: "https://bank.example",
       matchUris: async () => ({
@@ -167,7 +173,7 @@ describe("findSiteAccounts", () => {
         data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
       }),
       findPasskeys: passkeys({ "bank.example": [uriItem, passkeyItem] }),
-      readFields,
+      readUsernames,
     });
     expect(result).toMatchObject({
       ok: true,
@@ -182,28 +188,21 @@ describe("findSiteAccounts", () => {
         { connectionId: "live", itemId: passkeyItem, uri: false, passkey: true },
       ]),
     });
-    // The demo vaults' static matches and unmatched live items are never read, and the
-    // matched ones are read together.
+    // The demo vaults' static matches and unmatched live items are never asked for, and the
+    // matched ones are asked for together.
     expect(
-      readFields.mock.calls.map(([requests]) =>
-        requests.map((request) => [request.account.itemId, request.fieldId]),
-      ),
-    ).toEqual([
-      [
-        [uriItem, "login.username"],
-        [passkeyItem, "login.username"],
-      ],
-    ]);
+      readUsernames.mock.calls.map(([connection, itemIds]) => [connection.id, itemIds]),
+    ).toEqual([["live", [uriItem, passkeyItem]]]);
   });
 
   it("lists the matches without usernames when reading them fails", async () => {
     const result = await findSiteAccounts({
-      saved: saved(),
+      saved: enabled(),
       settings: draft(),
       origin,
       matchUris: async () => ({ ok: true, data: uris() }),
       findPasskeys: passkeys(),
-      readFields: async () => {
+      readUsernames: async () => {
         throw new Error("Synthetic read failure");
       },
     });
@@ -219,20 +218,65 @@ describe("findSiteAccounts", () => {
       uriItem,
       "login.username",
     );
-    const readFields = vi.fn<LoginFieldBatch>(async (requests) =>
-      requests.map(() => "alice@example.test"),
+    const readUsernames = vi.fn<LoginUsernameSource>(async (_connection, itemIds) =>
+      Object.fromEntries(itemIds.map((itemId) => [itemId, "alice@example.test"])),
     );
     const result = await findSiteAccounts({
-      saved: saved(),
+      saved: enabled(),
       settings,
       origin,
       matchUris: async () => ({ ok: true, data: uris() }),
       findPasskeys: passkeys(),
-      readFields,
+      readUsernames,
     });
     expect(result).toMatchObject({ ok: true, accounts: [{ itemId: uriItem }] });
     expect(result.ok && result.accounts[0]).not.toHaveProperty("username");
-    expect(readFields).not.toHaveBeenCalled();
+    expect(readUsernames).not.toHaveBeenCalled();
+  });
+
+  it("does not read a username the saved settings exclude or a quarantined item", async () => {
+    const value = enabled();
+    const live = value.catalog.connections.find((entry) => entry.id === "live")!;
+    value.snapshot.settings = excludeField(
+      value.snapshot.settings,
+      live,
+      uriItem,
+      "login.username",
+    );
+    live.quarantinedItemIds = [passkeyItem];
+    const readUsernames = vi.fn<LoginUsernameSource>(async (_connection, itemIds) =>
+      Object.fromEntries(itemIds.map((itemId) => [itemId, "alice@example.test"])),
+    );
+    const result = await findSiteAccounts({
+      saved: value,
+      settings: draft(),
+      origin: "https://bank.example",
+      matchUris: async () => ({
+        ok: true,
+        data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
+      }),
+      findPasskeys: passkeys({ "bank.example": [uriItem, passkeyItem] }),
+      readUsernames,
+    });
+    expect(result.ok && result.accounts.some((account) => "username" in account)).toBe(false);
+    expect(readUsernames).not.toHaveBeenCalled();
+  });
+
+  it("does not read a username for a vault only the draft enables", async () => {
+    const readUsernames = vi.fn<LoginUsernameSource>(async () => ({}));
+    const result = await findSiteAccounts({
+      saved: saved(),
+      settings: draft(),
+      origin: "https://bank.example",
+      matchUris: async () => ({
+        ok: true,
+        data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
+      }),
+      findPasskeys: passkeys({ "bank.example": [uriItem] }),
+      readUsernames,
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(readUsernames).not.toHaveBeenCalled();
   });
 
   it("searches what the draft enables, not only the saved settings", async () => {
@@ -328,7 +372,7 @@ describe("findSiteAccounts", () => {
 describe("createSiteAccountsHandler", () => {
   it("rejects malformed requests and answers for the draft", async () => {
     const handle = createSiteAccountsHandler({
-      settings: { handle: async () => saved() },
+      settings: { handle: async () => saved(), read: async () => saved().snapshot },
       matchUris: async () => ({ ok: true, data: uris() }),
       findPasskeys: passkeys(),
     });
@@ -358,28 +402,38 @@ describe("createSiteAccountsHandler settings changes", () => {
     data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
   });
 
-  it("searches again when the settings changed while it read the usernames", async () => {
-    let revision = 3;
-    const settings = vi.fn(async () => {
-      const value = saved();
-      value.snapshot.revision = revision;
+  /** Settings whose revision `revisions()` decides at each `settings.get` and `read`. */
+  const settingsAt = (revisions: () => number | undefined) => ({
+    handle: vi.fn(async () => {
+      const value = enabled();
+      value.snapshot.revision = revisions() ?? 3;
       return value;
-    });
-    // A login saves its default while the usernames are read, so the reads are refused.
-    const readFields = vi.fn<LoginFieldBatch>(async (requests) => {
-      if (revision === 3) {
-        revision = 4;
-        return requests.map(() => undefined);
-      }
-      return requests.map(({ account }) =>
-        account.itemId === uriItem ? "alice@example.test" : "bob@example.test",
-      );
-    });
+    }),
+    read: vi.fn(async () => {
+      const revision = revisions();
+      if (revision === undefined) throw new Error("Synthetic storage failure");
+      return { ...saved().snapshot, revision };
+    }),
+  });
+  const named = vi.fn<LoginUsernameSource>(async (_connection, itemIds) =>
+    Object.fromEntries(
+      itemIds.map((itemId) => [
+        itemId,
+        itemId === uriItem ? "alice@example.test" : "bob@example.test",
+      ]),
+    ),
+  );
+
+  it("searches again when the settings changed during the search", async () => {
+    // A login saves its default during the first search.
+    const steps = [3, 4, 4, 4];
+    const settings = settingsAt(() => steps.shift());
+    const readUsernames = vi.fn(named);
     const handle = createSiteAccountsHandler({
-      settings: { handle: settings },
+      settings,
       matchUris,
       findPasskeys: passkeys({ "bank.example": [uriItem, passkeyItem] }),
-      readFields,
+      readUsernames,
     });
     expect(await handle(request())).toMatchObject({
       ok: true,
@@ -388,75 +442,58 @@ describe("createSiteAccountsHandler settings changes", () => {
         expect.objectContaining({ itemId: passkeyItem, username: "bob@example.test" }),
       ]),
     });
-    expect(readFields).toHaveBeenCalledTimes(2);
+    expect(readUsernames).toHaveBeenCalledTimes(2);
+    expect(settings.handle).toHaveBeenCalledTimes(2);
   });
 
-  it("answers after three searches while the settings keep changing", async () => {
+  it("drops the usernames after three searches while the settings keep changing", async () => {
     let revision = 3;
+    const settings = settingsAt(() => revision++);
     const handle = createSiteAccountsHandler({
-      settings: {
-        handle: async () => {
-          const value = saved();
-          value.snapshot.revision = revision;
-          revision += 1;
-          return value;
-        },
-      },
+      settings,
       matchUris,
       findPasskeys: passkeys({ "bank.example": [uriItem] }),
-      // Every read is refused, so each search misses the username.
-      readFields: async (requests) => requests.map(() => undefined),
+      readUsernames: named,
     });
-    expect(await handle(request())).toMatchObject({
+    const answer = await handle(request());
+    expect(answer).toMatchObject({
       ok: true,
       accounts: expect.arrayContaining([expect.objectContaining({ itemId: uriItem })]),
     });
-    // Three searches, each with its read before and its check after, but the last.
-    expect(revision).toBe(8);
+    expect(answer.ok && answer.accounts.some((account) => "username" in account)).toBe(false);
+    // Three searches, each with its read before and its check after.
+    expect(revision).toBe(9);
   });
-  it("keeps a search that read every username, though the settings changed", async () => {
-    let revision = 3;
-    const readFields = vi.fn<LoginFieldBatch>(async (requests) =>
-      requests.map(() => "alice@example.test"),
-    );
+
+  it("does not compare the settings when no username was read", async () => {
+    const settings = settingsAt(() => 3);
     const handle = createSiteAccountsHandler({
-      settings: {
-        handle: async () => {
-          const value = saved();
-          value.snapshot.revision = revision;
-          revision += 1;
-          return value;
-        },
-      },
+      settings,
       matchUris,
       findPasskeys: passkeys({ "bank.example": [uriItem] }),
-      readFields,
+      readUsernames: async (_connection, itemIds) =>
+        Object.fromEntries(itemIds.map((itemId) => [itemId, null])),
     });
     expect(await handle(request())).toMatchObject({ ok: true });
-    expect(readFields).toHaveBeenCalledOnce();
+    expect(settings.read).not.toHaveBeenCalled();
   });
 
-  it("keeps a search whose settings can no longer be read to compare", async () => {
-    let reads = 0;
-    const readFields = vi.fn<LoginFieldBatch>(async (requests) => requests.map(() => undefined));
+  it("drops the usernames when the settings can no longer be read to compare", async () => {
+    const steps = [3];
+    const settings = settingsAt(() => steps.shift());
     const handle = createSiteAccountsHandler({
-      settings: {
-        handle: async () => {
-          reads += 1;
-          return reads === 1
-            ? saved()
-            : { version: 1, ok: false, error: { code: "storage-unavailable", message: "Down." } };
-        },
-      },
+      settings,
       matchUris,
       findPasskeys: passkeys({ "bank.example": [uriItem] }),
-      readFields,
+      readUsernames: named,
     });
-    expect(await handle(request())).toMatchObject({
+    const answer = await handle(request());
+    expect(answer).toMatchObject({
       ok: true,
       accounts: expect.arrayContaining([expect.objectContaining({ itemId: uriItem })]),
     });
-    expect(readFields).toHaveBeenCalledOnce();
+    expect(answer.ok && answer.accounts.some((account) => "username" in account)).toBe(false);
+    expect(settings.handle).toHaveBeenCalledOnce();
   });
 });
 
@@ -465,7 +502,7 @@ describe("createSiteAccountsHandler queue", () => {
     let running = 0;
     let overlapped = false;
     const handle = createSiteAccountsHandler({
-      settings: { handle: async () => saved() },
+      settings: { handle: async () => saved(), read: async () => saved().snapshot },
       matchUris: async () => {
         running += 1;
         if (running > 1) overlapped = true;

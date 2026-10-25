@@ -32,6 +32,7 @@ export type VaultCryptoHost = Pick<
   | "resolveField"
   | "catalog"
   | "matchUris"
+  | "loginUsernames"
   | "customFieldDigests"
   | "findPasskeys"
   | "signPasskey"
@@ -970,6 +971,32 @@ export function createLocalVaultManager(options: {
       if (!before.ok || !validHandle(handle))
         return before.ok ? vaultFailure("stale-vault-handle") : before;
       const result = await options.host.matchUris(owner.opened.session, targetUrl, signal);
+      const after = await checkDurable(owner);
+      if (!after.ok) return after;
+      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+    },
+    /**
+     * The login usernames of these items in the live accepted snapshot, which its crypto
+     * Worker kept when it verified the snapshot (ADR 0080); no other field.
+     */
+    async loginUsernames(
+      handle: LocalVaultHandle,
+      itemIds: readonly string[],
+      signal?: AbortSignal,
+    ) {
+      let ids: string[];
+      try {
+        handle = structuredClone(handle);
+        ids = structuredClone([...itemIds]);
+      } catch {
+        return vaultFailure("invalid-request");
+      }
+      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
+      const owner = live;
+      const before = await checkDurable(owner);
+      if (!before.ok || !validHandle(handle))
+        return before.ok ? vaultFailure("stale-vault-handle") : before;
+      const result = await options.host.loginUsernames(owner.opened.session, ids, signal);
       const after = await checkDurable(owner);
       if (!after.ok) return after;
       return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");

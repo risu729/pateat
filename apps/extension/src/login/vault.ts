@@ -1,9 +1,9 @@
-import type { LocalFieldReference } from "@pateat/bitwarden";
 import type { LoginAccount, VaultConnectionMetadata } from "@pateat/contracts";
 import type { ConnectionRuntime } from "../connections/runtime";
 import type { LiveUriMatcher } from "../vault/site-candidates";
 import { vaultFailure } from "../vault/record";
 import { resolveDummyField } from "./dummy";
+import { LOGIN_USERNAMES_PER_REQUEST } from "../crypto/wire";
 import type { LoginSecretKind } from "./wire";
 
 export type LoginFieldRequest = {
@@ -58,62 +58,44 @@ export function createVaultFieldSource(
   };
 }
 
-/** Resolve several bound text fields at once; each answer is what `LoginFieldSource` would give. */
-export type LoginFieldBatch = (
-  requests: readonly Omit<LoginFieldRequest, "code">[],
-) => Promise<(string | undefined)[]>;
-
 /**
- * Text values of several live fields through one call to the connection runtime, with the
- * checks of `createVaultFieldSource` for each; never a generated code.
+ * The login usernames of several items of one live connection, kept by its open snapshot's
+ * crypto Worker (ADR 0080); `undefined` when the connection's open snapshot is not the one
+ * the catalog describes. Callers check settings eligibility first.
  */
-export function createVaultFieldBatch(
-  connections: Pick<ConnectionRuntime, "registry" | "vaultFor" | "resolveFields">,
-): LoginFieldBatch {
-  return async (requests) => {
-    const handles = new Map<string, Promise<{ userId: string; snapshotId: string } | undefined>>();
-    const openHandle = (connectionId: string) =>
-      handles.getOrInsertComputed(connectionId, async () => {
-        const configuration = await connections.registry.get(connectionId);
-        return configuration
-          ? connections.vaultFor(configuration.profile).manager.status().handle
-          : undefined;
-      });
-    const refs: { index: number; connectionId: string; ref: LocalFieldReference }[] = [];
-    for (const [index, { account, connection, fieldId }] of requests.entries()) {
-      if (
-        connection.provider !== "bitwarden" ||
-        connection.id !== account.connectionId ||
-        !connection.snapshotId
-      )
-        continue;
-      // oxlint-disable-next-line no-await-in-loop -- each connection is looked up once
-      const handle = await openHandle(account.connectionId);
-      // The authorizing catalog must describe the snapshot that is currently open.
-      if (!handle || handle.snapshotId !== connection.snapshotId) continue;
-      refs.push({
-        index,
-        connectionId: account.connectionId,
-        ref: {
-          connectionId: account.connectionId,
-          userId: handle.userId,
-          itemId: account.itemId,
-          snapshotId: connection.snapshotId,
-          fieldId,
-        },
-      });
+export type LoginUsernameSource = (
+  connection: VaultConnectionMetadata,
+  itemIds: readonly string[],
+) => Promise<Record<string, string | null> | undefined>;
+
+export function createVaultUsernameSource(
+  connections: Pick<ConnectionRuntime, "registry" | "vaultFor"> & {
+    /** A device paired since the catalog was built uses no item before its first settings sync (ADR 0023). */
+    settingsSyncPending?: () => Promise<boolean>;
+  },
+): LoginUsernameSource {
+  return async (connection, itemIds) => {
+    if (connection.provider !== "bitwarden" || !connection.snapshotId || !itemIds.length)
+      return undefined;
+    const configuration = await connections.registry.get(connection.id);
+    if (!configuration) return undefined;
+    const { manager } = connections.vaultFor(configuration.profile);
+    const handle = manager.status().handle;
+    // The authorizing catalog must describe the snapshot that is currently open.
+    if (!handle || handle.snapshotId !== connection.snapshotId) return undefined;
+    const usernames: Record<string, string | null> = {};
+    // The Worker answers at most this many items per request.
+    for (let start = 0; start < itemIds.length; start += LOGIN_USERNAMES_PER_REQUEST) {
+      // oxlint-disable-next-line no-await-in-loop -- the vault's Worker takes one job at a time
+      const found = await manager.loginUsernames(
+        handle,
+        itemIds.slice(start, start + LOGIN_USERNAMES_PER_REQUEST),
+      );
+      if (!found.ok) return undefined;
+      Object.assign(usernames, found.data.usernames);
     }
-    const values: (string | undefined)[] = requests.map(() => undefined);
-    if (!refs.length) return values;
-    const resolved = await connections.resolveFields(
-      refs.map(({ connectionId, ref }) => ({ connectionId, ref })),
-    );
-    for (const [at, { index }] of refs.entries()) {
-      const result = resolved[at];
-      if (result?.ok && (result.data.kind === "text" || result.data.kind === "otp"))
-        values[index] = result.data.value;
-    }
-    return values;
+    if (await connections.settingsSyncPending?.().catch(() => true)) return undefined;
+    return usernames;
   };
 }
 
