@@ -3,6 +3,7 @@ import {
   runsLogin,
   storedLayouts,
   syncRecipeChangeSchema,
+  type ChooserBranch,
   type ManageLayoutSource,
   type StoredLoginRecipe,
   type SyncRecipeChange,
@@ -216,8 +217,9 @@ export async function writeRecipe(
     /**
      * Rows a layout the write adds takes over from another one, as the pages a later step's
      * repair copies from the stale layout (ADR 0041): copied before `from` may be dropped.
+     * With `branch`, each unit is copied under that chooser branch's prefix (ADR 0079).
      */
-    copied?: { from: string; to: string; units: readonly string[] };
+    copied?: { from: string; to: string; units: readonly string[]; branch?: ChooserBranch };
   } = {},
 ): Promise<
   | { ok: true; change: SyncRecipeChange }
@@ -362,6 +364,21 @@ export async function writeRecipe(
       : call
         ? await namedUnits(document, call.units)
         : await documentUnits(document, await readPageUnits(db, ownerId, recipeId));
+  // Every unit a call's document still holds, so a row of a unit it no longer has, as the
+  // markers of a passkey route put in place of another (ADR 0079), goes with the write.
+  const held =
+    document !== null && call
+      ? await documentUnits(document, [
+          ...(await readPageUnits(db, ownerId, recipeId)),
+          ...call.units,
+          // The pages a repair copies start where they started in the layout they come from.
+          ...(copied?.units ?? []).map((unit) => ({
+            layout: copied!.to,
+            unit: copied!.branch ? `${copied!.branch}/${unit}` : unit,
+          })),
+        ])
+      : [];
+  const heldRows = sql`json_each(${JSON.stringify(held)}) AS held_row`;
   const won = sql`EXISTS (SELECT 1 FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.recipeId} = ${recipeId} AND ${recipeHeads.writeId} = ${writeId})`;
   const unitRows = sql`json_each(${JSON.stringify(units)}) AS unit_row`;
   const unitLayout = sql`json_extract(unit_row.value, '$.layout')`;
@@ -371,7 +388,8 @@ export async function writeRecipe(
   const listed = (digest: boolean) =>
     sql`EXISTS (SELECT 1 FROM ${unitRows} WHERE ${unitId} = ${recipeUnitSources.unit} AND ${unitLayout} IS ${recipeUnitSources.layout}${digest ? sql` AND ${unitDigest} = ${recipeUnitSources.digest}` : sql``})`;
   // A tombstone drops every row; a device's document every row it did not keep as it was;
-  // a call's write the rows of layouts the document dropped and of the units it rewrote.
+  // another write the rows of layouts the document dropped and of the units it rewrote,
+  // and a call's write also those of units the document no longer holds.
   const staleSources = orm
     .delete(recipeUnitSources)
     .where(
@@ -390,6 +408,9 @@ export async function writeRecipe(
                       isNull(recipeUnitSources.layout),
                       notInArray(recipeUnitSources.layout, kept),
                     ),
+                call
+                  ? sql`NOT EXISTS (SELECT 1 FROM ${heldRows} WHERE json_extract(held_row.value, '$.unit') = ${recipeUnitSources.unit} AND json_extract(held_row.value, '$.layout') IS ${recipeUnitSources.layout})`
+                  : undefined,
                 listed(false),
               ),
       ),
@@ -438,7 +459,9 @@ export async function writeRecipe(
                 ownerId: recipeUnitSources.ownerId,
                 recipeId: recipeUnitSources.recipeId,
                 layout: sql`${copied.to}`.as("layout"),
-                unit: recipeUnitSources.unit,
+                unit: copied.branch
+                  ? sql`${`${copied.branch}/`} || ${recipeUnitSources.unit}`.as("unit")
+                  : recipeUnitSources.unit,
                 digest: recipeUnitSources.digest,
                 revision: recipeUnitSources.revision,
                 origin: recipeUnitSources.origin,

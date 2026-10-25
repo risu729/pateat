@@ -42,6 +42,10 @@ UTC): the `other` button is
 [clicked by one rule](#amendment-2026-10-24-one-rule-for-a-control-for-another-account)
 with a recipe's switch and the page's own control for another account.
 
+Amended on 2026-10-25 by [ADR 0079](0079-passkey-button-beside-an-account-list.md)
+(owner, 00:16 UTC): a chooser layout may hold the passkey button shown beside the list,
+as the `passkey` branch.
+
 Date: 2026-10-12
 
 Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window

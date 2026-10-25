@@ -152,7 +152,11 @@ the kind the page is now, as the next revision of the same ID.
   while the login ends as before (`account-not-listed`). The answer adds a chooser
   layout without branches, which the next login generates; a list whose buttons a layout
   already has writes nothing, and with three layouts the least recently used one is
-  replaced.
+  replaced. Amended by
+  [ADR 0079](0079-passkey-button-beside-an-account-list.md) (owner, 2026-10-25): a list
+  answer that names the passkey button beside a list a layout already has adds it to
+  that layout as its `passkey`, or puts it in place of one on another button, and keeps
+  the layout's branches.
 - **Entry.** Only when the press found its link missing on a page whose URL names
   another path of the site (`namesReturnPath`, checked before the press), since a
   signed-in page drops the link too. The page goes as a form when it shows a sign-in
@@ -162,7 +166,9 @@ the kind the page is now, as the next revision of the same ID.
   is not sent.
 - **Kind changes.** A list answer replaces a login or entry recipe with a chooser, and a
   form answer replaces a chooser or entry recipe with a login recipe (one layout); the
-  replaced recipe's layouts go. A login recipe's start page that became a list is
+  replaced recipe's layouts go, except that a passkey-only layout whose button the list
+  answer names again becomes the new chooser layout's `passkey`, with its handlers and
+  markers (ADR 0079). A login recipe's start page that became a list is
   reported as in section 1. A chooser whose path shows a form instead of its list is its
   `other` branch's page (ADR 0028) and is not repaired.
 

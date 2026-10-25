@@ -22,6 +22,7 @@ import {
   type SemanticSlot,
 } from "@pateat/contracts";
 import * as v from "valibot";
+import type { AccountListRejection } from "./account-list";
 
 /**
  * A role's proposal for the observed page, expressed in observation-local candidate
@@ -825,120 +826,11 @@ function validateGeneratedSets(
 }
 
 /**
- * The generation role's answer that a page lists accounts to choose from (ADR 0028):
- * the control that continues without a listed account (`other`) and the one that
- * continues with the one account shown beside it (`continue`), as candidate IDs. The
- * model never picks an account.
- */
-export type GeneratedAccountList = {
-  other?: string | undefined;
-  continue?: string | undefined;
-};
-/** A list control the extension clicks, with the locator the chooser recipe stores. */
-type ListControl = {
-  candidate: string;
-  target: Exclude<
-    LoginTarget,
-    { by: "autocomplete" | "label" | "accessible-name" | "password-form-name" }
-  >;
-};
-/** An account list whose named controls passed {@link validateAccountList}. */
-export type ValidatedAccountList = {
-  accountList: true;
-  other?: ListControl;
-  continue?: ListControl;
-};
-export type AccountListRejection =
-  /** The page lists no accounts, or lists some and the answer is a form plan. */
-  | "unexpected-account-list"
-  | "unexpected-plan"
-  | "unknown-candidate"
-  | "duplicate-candidate"
-  | "incompatible-role"
-  /** A control's text holds an email address, a masked value or a long number. */
-  | "account-text"
-  /**
-   * No control is named, and no listed account is an entry Pateat can click, so the list
-   * could never lead on.
-   */
-  | "no-list-control";
-
-/**
  * Text the observation shows in place of an address, a masked value or a run of four or
  * more digits; a control holding one may be an account, which is never clicked as `other`
  * or `continue`.
  */
 export const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
-
-/**
- * Validates an account-list answer (ADR 0028): the page must list accounts, and each named
- * control must be a button or link of the page, not hold account text and not be the
- * other control. A list whose accounts are all shown beside buttons needs a named
- * control. Its locator is never `autocomplete` or `label`, which name only inputs, nor
- * `accessible-name`, which names only a `password` handler's button or a route step's click.
- */
-export function validateAccountList(
-  observation: LoginObservation,
-  draft: GeneratedAccountList,
-): { ok: true; list: ValidatedAccountList } | { ok: false; reason: AccountListRejection } {
-  if (!observation.accounts) return { ok: false, reason: "unexpected-account-list" };
-  const control = (id: string | undefined): ListControl | AccountListRejection | undefined => {
-    if (id === undefined) return undefined;
-    const candidate = observation.candidates.find((entry) => entry.id === id);
-    if (!candidate) return "unknown-candidate";
-    const { target } = candidate;
-    if (
-      (!isActionRole(candidate.role) && candidate.role !== "link") ||
-      !isStepTarget(target) ||
-      target.by === "autocomplete" ||
-      target.by === "label" ||
-      target.by === "password-form-name"
-    )
-      return "incompatible-role";
-    if (
-      [candidate.label, ...targetValues(target)].some(
-        (text) => text !== undefined && accountText.test(text),
-      )
-    )
-      return "account-text";
-    return { candidate: candidate.id, target };
-  };
-  const other = control(draft.other);
-  const shown = control(draft.continue);
-  for (const result of [other, shown])
-    if (typeof result === "string") return { ok: false, reason: result };
-  const named = [other, shown].filter((entry): entry is ListControl => typeof entry === "object");
-  // Without an entry to click, only a named control leads on from the list.
-  if (named.length === 0 && observation.accountEntries === 0)
-    return { ok: false, reason: "no-list-control" };
-  if (
-    named.length === 2 &&
-    (named[0]!.candidate === named[1]!.candidate ||
-      sameLoginTarget(named[0]!.target, named[1]!.target))
-  )
-    return { ok: false, reason: "duplicate-candidate" };
-  return {
-    ok: true,
-    list: {
-      accountList: true,
-      ...(typeof other === "object" ? { other } : {}),
-      ...(typeof shown === "object" ? { continue: shown } : {}),
-    },
-  };
-}
-
-/** An account-list answer reduced to references the request holds, for the request log. */
-export function redactAccountList(
-  observation: Pick<LoginObservation, "candidates">,
-  draft: GeneratedAccountList,
-): GeneratedAccountList {
-  const candidate = (id: string) =>
-    observation.candidates.some((entry) => entry.id === id) ? id : "?";
-  return {
-    ...(draft.other === undefined ? {} : { other: candidate(draft.other) }),
-    ...(draft.continue === undefined ? {} : { continue: candidate(draft.continue) }),
-  };
-}
 
 /**
  * The locator a sign-in entry is pressed by: never `autocomplete`, `label` or

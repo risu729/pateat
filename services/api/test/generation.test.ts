@@ -5653,7 +5653,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
     ]),
     accounts: ["[email] Last used", "[email]"],
   };
-  const listAnswer = (controls: { other?: string; continue?: string }) =>
+  const listAnswer = (controls: { other?: string; continue?: string; passkeyButton?: string }) =>
     JSON.stringify({ result: { decision: "account-list", ...controls } });
   const judgeReply = (result: unknown) => ({ text: JSON.stringify({ result }) });
   async function branchGenerate(
@@ -5781,6 +5781,68 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       reason: "recipe-conflict",
     });
     expect(sent).toHaveLength(1);
+  });
+
+  it("stores the passkey button beside the list as the layout's passkey route (ADR 0079)", async () => {
+    const device = await owner();
+    const page: LoginObservation = {
+      ...listPage,
+      candidates: [
+        ...listPage.candidates,
+        element("key", "button", "Sign in with a passkey"),
+        element("add-key", "button", "Add a passkey"),
+        element("mail-key", "button", "Use a passkey for [email]"),
+      ],
+    };
+    replies.push({ text: listAnswer({ other: "other", passkeyButton: "key" }) });
+    const answer = await generate(device, page);
+    if (answer.status !== "recipe") throw new Error(answer.status);
+    const key = await layoutKey(device.ownerId, answer.change.recipeId);
+    const button = { by: "id", value: "key" };
+    expect(await storedHead(device.ownerId, answer.change.recipeId)).toMatchObject({
+      chooser: {
+        path: "/login",
+        layouts: [
+          {
+            key,
+            other: { by: "id", value: "other" },
+            passkey: {
+              pageKind: "sign-in",
+              slots: [],
+              passkeyOnly: true,
+              passkey: { path: "/login", target: button },
+              steps: [{ kind: "click", path: "/login", target: button, purpose: "submit" }],
+              maxSubmissions: 1,
+            },
+          },
+        ],
+      },
+    });
+    // The login runs it as the chooser's passkey route.
+    expect(answer.change.recipe).toMatchObject({
+      chooser: { passkey: { passkeyOnly: true, layout: key } },
+    });
+    const [logged] = await rows(
+      "SELECT result FROM inference_log WHERE owner_id = ?",
+      device.ownerId,
+    );
+    expect(JSON.parse(String(logged!.result))).toEqual({
+      accountList: true,
+      other: "other",
+      passkeyButton: "key",
+    });
+    // A button that registers a passkey, one for a single account, or the list's own
+    // control, is no passkey route, and the list is stored without one.
+    for (const passkeyButton of ["add-key", "mail-key", "other", "help", "missing"]) {
+      // eslint-disable-next-line no-await-in-loop
+      const another = await owner();
+      replies.push({ text: listAnswer({ other: "other", passkeyButton }) });
+      // eslint-disable-next-line no-await-in-loop
+      const kept = await generate(another, page);
+      if (kept.status !== "recipe" || !("chooser" in kept.change.recipe))
+        throw new Error(kept.status);
+      expect(kept.change.recipe.chooser).not.toHaveProperty("passkey");
+    }
   });
 
   it("stores a shown account's continue button beside the other one", async () => {
@@ -8200,6 +8262,48 @@ describe("recipe repair (ADR 0041)", () => {
       ).toMatchObject({ status: "recipe", change: { revision: 2 } });
     });
 
+    it("adds the passkey button beside a chooser's list to its layout, keeping its branches (ADR 0079)", async () => {
+      const device = await owner();
+      const change = await storedChooser(device);
+      const withButton = (target: string): LoginObservation => ({
+        ...list("other"),
+        candidates: [...list("other").candidates, element(target, "button", "Use a passkey")],
+      });
+      const answer = (passkeyButton: string) =>
+        JSON.stringify({ result: { decision: "account-list", other: "other", passkeyButton } });
+      replies.push({ text: answer("key") });
+      expect(
+        (await repair(device, withButton("key"), { recipeId: change.recipeId, revision: 1 })).body,
+      ).toMatchObject({ status: "recipe", change: { revision: 2 } });
+      const stored = (await storedHead(device.ownerId, change.recipeId)) as LoginChooserDocument;
+      expect(stored.chooser.layouts).toHaveLength(1);
+      expect(stored.chooser.layouts[0]).toMatchObject({
+        other: { value: "other" },
+        passkey: { passkeyOnly: true, passkey: { target: { by: "id", value: "key" } } },
+      });
+      // The next day, the same button writes nothing; another one takes its place.
+      const nextDay = () =>
+        env.DB.prepare("UPDATE recipe_repairs SET repaired_at = ? WHERE device_id = ?")
+          .bind(Date.now() - DAY_MS, device.deviceId)
+          .run();
+      await nextDay();
+      replies.push({ text: answer("key") });
+      expect(
+        (await repair(device, withButton("key"), { recipeId: change.recipeId, revision: 2 })).body,
+      ).toMatchObject({ status: "recipe", change: { revision: 2 } });
+      await nextDay();
+      replies.push({ text: answer("passkey") });
+      expect(
+        (await repair(device, withButton("passkey"), { recipeId: change.recipeId, revision: 2 }))
+          .body,
+      ).toMatchObject({ status: "recipe", change: { revision: 3 } });
+      expect(await storedHead(device.ownerId, change.recipeId)).toMatchObject({
+        chooser: {
+          layouts: [{ passkey: { passkey: { target: { by: "id", value: "passkey" } } } }],
+        },
+      });
+    });
+
     it("writes a login recipe's start page that became a list as a chooser, and back", async () => {
       const device = await owner();
       const { change } = await storedRecipe(device);
@@ -8674,6 +8778,174 @@ describe("generation provenance (ADR 0060)", () => {
     const written = await sources(device.ownerId, recipeId);
     expect(written.find((row) => row.unit === "list")!.prompt_version).toBe(
       await accountListGenerationPromptVersion(),
+    );
+    await digestsMatch(device.ownerId, recipeId);
+  });
+
+  it("carries a passkey-only layout's learned units into the passkey route beside its list (ADR 0079)", async () => {
+    const device = await owner();
+    const button = element("key", "button", "Sign in with a passkey");
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
+          fields: [],
+          action: { candidate: "key", purpose: "submit" },
+          passkeyButton: "key",
+        },
+      }),
+    });
+    const started = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: observation("/login", [button]),
+      slots: [],
+      passkeyOnly: true,
+      signedIn: false,
+    });
+    const first = (await started.json()) as RecipeGenerationResult;
+    if (first.status !== "recipe" || !("layouts" in first.change.recipe))
+      throw new Error("Expected a passkey-only recipe");
+    const { recipeId } = first.change;
+    const stored = first.change.recipe;
+    const old = stored.layouts[0]!.key;
+    // A device learns the layout's signed-in marker.
+    const marked = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      {
+        version: 1,
+        expectedRevision: 1,
+        state: "active",
+        recipe: {
+          ...stored,
+          revision: 2,
+          layouts: [
+            { ...stored.layouts[0]!, completion: [{ target: { by: "id", value: "logout" } }] },
+          ],
+        },
+      },
+      "PUT",
+    );
+    expect(marked.status).toBe(200);
+    // Its start page now lists accounts beside the same button: the repair stores a chooser
+    // whose layout keeps the passkey-only route with its marker.
+    replies.push({
+      text: JSON.stringify({
+        result: { decision: "account-list", other: "other", passkeyButton: "key" },
+      }),
+    });
+    const repaired = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: {
+        ...observation("/login", [element("other", "button", "Use another account"), button]),
+        accounts: ["[email]"],
+      },
+      slots: [],
+      repair: { recipeId, revision: 2 },
+    });
+    expect(await repaired.json()).toMatchObject({ status: "recipe", change: { revision: 3 } });
+    const head = (await storedHead(device.ownerId, recipeId)) as LoginChooserDocument;
+    const [layout, ...others] = head.chooser.layouts;
+    expect(others).toEqual([]);
+    expect(layout!.key).not.toBe(old);
+    expect(layout!.passkey).toEqual({
+      pageKind: "sign-in",
+      slots: [],
+      passkeyOnly: true,
+      passkey: { path: "/login", target: { by: "id", value: "key" } },
+      steps: [
+        { kind: "click", path: "/login", target: { by: "id", value: "key" }, purpose: "submit" },
+      ],
+      maxSubmissions: 1,
+      completion: [{ target: { by: "id", value: "logout" } }],
+    });
+    // The marker keeps the device that learned it; the list and the button are this call's.
+    expect(await summary(device.ownerId, recipeId)).toEqual(
+      [
+        `${layout!.key} list generated 3`,
+        `${layout!.key} passkey/page:0 generated 3`,
+        `${layout!.key} passkey/marker:0 device 2`,
+      ].toSorted(),
+    );
+    await digestsMatch(device.ownerId, recipeId);
+  });
+
+  it("drops the units of a passkey route beside a list put in place of another (ADR 0079)", async () => {
+    const device = await owner();
+    const page = (button: string): LoginObservation => ({
+      ...observation("/login", [
+        element("other", "button", "Use another account"),
+        element(button, "button", "Sign in with a passkey"),
+      ]),
+      accounts: ["[email]"],
+    });
+    const answer = (passkeyButton: string) => ({
+      text: JSON.stringify({
+        result: { decision: "account-list", other: "other", passkeyButton },
+      }),
+    });
+    replies.push(answer("key"));
+    const list = await generate(device, page("key"));
+    if (list.status !== "recipe") throw new Error(list.status);
+    const { recipeId } = list.change;
+    const stored = (await storedHead(device.ownerId, recipeId)) as LoginChooserDocument;
+    const [layout] = stored.chooser.layouts;
+    // A device learns the passkey route's signed-in marker.
+    const marked = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      {
+        version: 1,
+        expectedRevision: 1,
+        state: "active",
+        recipe: {
+          ...stored,
+          revision: 2,
+          chooser: {
+            ...stored.chooser,
+            layouts: [
+              {
+                ...layout!,
+                passkey: {
+                  ...layout!.passkey!,
+                  completion: [{ target: { by: "id", value: "logout" } }],
+                },
+              },
+            ],
+          },
+        },
+      },
+      "PUT",
+    );
+    expect(marked.status).toBe(200);
+    expect(await summary(device.ownerId, recipeId)).toContain(
+      `${layout!.key} passkey/marker:0 device 2`,
+    );
+    // A passkey route is stored whole: a request for its next page is refused before a call.
+    const calls = sent.length;
+    const continued = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: passwordPage,
+      slots,
+      base: { recipeId, revision: 2 },
+      branch: `${layout!.key}:passkey`,
+    });
+    expect(await continued.json()).toMatchObject({ reason: "recipe-conflict" });
+    expect(sent).toHaveLength(calls);
+    // The list repaired with another button: its route takes the old one's place, and the
+    // old route's marker row goes with it.
+    replies.push(answer("passkey"));
+    const repaired = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: page("passkey"),
+      slots: [],
+      repair: { recipeId, revision: 2 },
+    });
+    expect(await repaired.json()).toMatchObject({ status: "recipe", change: { revision: 3 } });
+    expect(await summary(device.ownerId, recipeId)).toEqual(
+      [`${layout!.key} list generated 1`, `${layout!.key} passkey/page:0 generated 3`].toSorted(),
     );
     await digestsMatch(device.ownerId, recipeId);
   });

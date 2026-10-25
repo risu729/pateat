@@ -22,6 +22,10 @@ names), [ADR 0029](0029-local-sign-in-state.md) (E1 reads every layout's markers
 [ADR 0061](0061-personal-details-during-a-login.md) (a `detail` handler is kept per
 layout).
 
+Amended on 2026-10-25 by [ADR 0079](0079-passkey-button-beside-an-account-list.md): a
+chooser layout may also hold `passkey`, named `<key>:passkey`, with its units under
+`passkey/`.
+
 Date: 2026-10-23
 
 ## Context

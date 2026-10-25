@@ -18,15 +18,13 @@ import {
   type InferenceOutcome,
   type RoleLimits,
 } from "./outcome";
+import { redactAccountList, validateAccountList, type ValidatedAccountList } from "./account-list";
 import {
   MAX_PAGE_ALTERNATIVES,
-  redactAccountList,
   redactEntry,
   redactGeneratedPage,
-  validateAccountList,
   validateEntry,
   validateGeneratedPage,
-  type ValidatedAccountList,
   type ValidatedEntry,
   type ValidatedGeneratedPage,
 } from "./plan";
@@ -120,6 +118,14 @@ export const generatedPlanSchema = v.strictObject({
           "The control that signs in with the one account shown beside it, when the account is not a control itself.",
         ),
       ),
+      // The passkey button beside the list (ADR 0079); checked locally and dropped when it
+      // does not fit.
+      passkeyButton: v.optional(
+        described(
+          reference,
+          "A button beside the list that signs in to an existing account with a passkey.",
+        ),
+      ),
     }),
     // The control that opens the site's login page, for a request without slots (ADR 0031);
     // its meaning is the entry prompt line's, so the format other requests see stays short.
@@ -172,7 +178,8 @@ export const generationPromptVersion = promptVersionOf(generationInstructions, o
 export const accountListInstruction =
   "An observation with accounts lists saved accounts and has no fields, and its request " +
   "has no slots: answer account-list when choosing one of them leads on to signing in, " +
-  "else abstain. Never choose an account.";
+  "else abstain. Never choose an account. If a button beside the list signs in to an " +
+  "existing account with a passkey or security key, name it as passkeyButton.";
 /** The instructions of a request for a list of accounts: the generation role's and the list line. */
 export const accountListGenerationInstructions = `${generationInstructions} ${accountListInstruction}`;
 /** A list request's prompt version, for the request log. */

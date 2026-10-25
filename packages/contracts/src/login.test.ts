@@ -3250,6 +3250,98 @@ describe("chooser recipes (ADR 0028)", () => {
   });
 });
 
+describe("a passkey button beside a chooser's list (ADR 0079)", () => {
+  const button = { by: "id", value: "passkey-login" } as const;
+  /** The passkey-only route (ADR 0053) on `path`, as a chooser layout stores it. */
+  const passkeyRoute = (path = "/login", target: LoginTarget = button) => ({
+    pageKind: "sign-in" as const,
+    slots: [],
+    passkeyOnly: true as const,
+    passkey: { path, target },
+    steps: [{ kind: "click" as const, path, target, purpose: "submit" as const }],
+    maxSubmissions: 1,
+  });
+  const stored = (passkey: unknown) => ({
+    version: 1,
+    id: recipe().id,
+    revision: recipe().revision,
+    origin: recipe().origin,
+    chooser: {
+      path: "/login",
+      layouts: [
+        {
+          key: "1000",
+          createdAt: 1000,
+          other: { by: "text", value: "Use another account" },
+          passkey,
+        },
+      ],
+    },
+  });
+
+  it("holds a passkey-only route on the list's path, and nothing else as one", () => {
+    expect(v.is(storedLoginRecipeSchema, stored(passkeyRoute()))).toBe(true);
+    // Another path, a route that fills, and a passkey route of a password form are refused.
+    expect(v.is(storedLoginRecipeSchema, stored(passkeyRoute("/elsewhere")))).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, stored(routeBodyOf(recipe())))).toBe(false);
+    expect(
+      v.is(
+        storedLoginRecipeSchema,
+        stored({ ...routeBodyOf(recipe()), passkey: passkeyRoute().passkey }),
+      ),
+    ).toBe(false);
+    // Nor a route that is no sign-in, or presses the list's own button.
+    expect(v.is(storedLoginRecipeSchema, stored({ ...passkeyRoute(), pageKind: "confirm" }))).toBe(
+      false,
+    );
+    expect(
+      v.is(
+        storedLoginRecipeSchema,
+        stored(passkeyRoute("/login", { by: "text", value: "Use another account" })),
+      ),
+    ).toBe(false);
+  });
+
+  it("runs the button as its own route, and keeps it when a branch is written", () => {
+    const held = v.parse(storedLoginRecipeSchema, stored(passkeyRoute()));
+    if (!("chooser" in held) || !("layouts" in held.chooser)) throw new Error("chooser");
+    const [first] = chooserLayouts(held);
+    const route = chooserRoute(first!, "passkey");
+    expect(route).toEqual({
+      version: 1,
+      id: held.id,
+      revision: held.revision,
+      origin: held.origin,
+      layout: "1000",
+      ...passkeyRoute(),
+    });
+    expect(chooserClickBranch("passkey")).toBe("passkey");
+    expect(recipeHasRoute(route!, "password")).toBe(false);
+    // Writing the account branch moves the passkey route to the new revision unchanged.
+    const account = { ...recipe(), layout: "1000", revision: first!.revision + 1 };
+    const next = withChooserBranch(first!, "account", account);
+    expect(chooserBranch(next, "passkey")).toEqual({ ...route, revision: account.revision });
+    expect(v.is(loginChooserRecipeSchema, next)).toBe(true);
+    // And a passkey route written as a branch keeps the account branch.
+    const pressed = withChooserBranch(next, "passkey", {
+      ...route!,
+      revision: account.revision + 1,
+      completion: [{ target: { by: "id", value: "signed-in" } }],
+    });
+    expect(chooserBranch(pressed, "account")?.revision).toBe(account.revision + 1);
+    expect(toChooserLayout(pressed, { key: "1000", createdAt: 1000 }).passkey).toMatchObject({
+      passkeyOnly: true,
+      completion: [{ target: { by: "id", value: "signed-in" } }],
+    });
+    // Without the button, no route answers the click.
+    const plain = v.parse(loginChooserRecipeSchema, {
+      ...first!,
+      chooser: { ...first!.chooser, passkey: undefined },
+    });
+    expect(chooserRoute(plain, "passkey")).toBeUndefined();
+  });
+});
+
 describe("recipe layouts (ADR 0060)", () => {
   const second = (change: Partial<LoginRecipe> = {}) =>
     toLoginLayout(
@@ -3527,6 +3619,7 @@ describe("recipe layouts (ADR 0060)", () => {
     expect(recipeBranch("1000", "account")).toBe("1000:account");
     expect(parseRecipeBranch("1000")).toEqual({ layout: "1000" });
     expect(parseRecipeBranch("1000:other")).toEqual({ layout: "1000", branch: "other" });
+    expect(parseRecipeBranch("1000:passkey")).toEqual({ layout: "1000", branch: "passkey" });
     for (const value of ["", "account", "1000:", "1000:both", "x1000"])
       expect(parseRecipeBranch(value)).toBeUndefined();
     const two = { ...document(), layouts: [...document().layouts, second()] };

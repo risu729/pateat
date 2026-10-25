@@ -88,14 +88,16 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
   without the button, and the runtime chooses: the passkey lookup first, then the list
   and entry handling unchanged, logged as such rather than as `no-passkey`. A page with
   neither logs `no-passkey`.
-- Decision 7 on a shared recipe: a page has one recipe for all its items, and an item
-  without a passkey cannot run a passkey-only one (it gets `no-route`, and ADR 0058 A
-  would revoke it and regenerate the same page while another item still holds a
+- Decision 7 on a shared recipe (to be replaced by
+  [ADR 0079](0079-passkey-button-beside-an-account-list.md), accepted on 2026-10-25,
+  whose chooser layout holds the button beside the list; the service part is done and
+  the extension still does what follows): a page has one recipe for all its items, and
+  an item without a passkey cannot run a passkey-only one (it gets `no-route`, and ADR
+  0058 A would revoke it and regenerate the same page while another item still holds a
   passkey). So a page that also shows an entry or a list is sent as a passkey-only page
   only when every URI-matching item holds a discoverable passkey for the RP ID;
   otherwise its entry or list is sent, which every item can use. A page with only the
-  button keeps decision 2: one such item is enough, since there is nothing else to
-  send.
+  button keeps decision 2: one such item is enough, since there is nothing else to send.
 - The page right after a submitted password form is not sent, by the existing
   post-submission guard; a manual passkey exchange without a password form is not seen
   as a submission.

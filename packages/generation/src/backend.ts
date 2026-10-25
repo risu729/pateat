@@ -1,4 +1,5 @@
 import type {
+  ChooserBranch,
   DeviceModel,
   DeviceModelCall,
   GenerationUnavailableReason,
@@ -223,9 +224,11 @@ export interface GenerationBackend {
       sources?: UnitSources;
       /**
        * Units a layout the write adds takes over from another one, as the pages a later
-       * step's repair copies from the stale layout (ADR 0041).
+       * step's repair copies from the stale layout (ADR 0041), under `branch`'s prefix when
+       * they become a chooser branch's, as a passkey-only layout's handlers and markers
+       * carried beside a list (ADR 0079).
        */
-      copied?: { from: string; to: string; units: readonly string[] };
+      copied?: { from: string; to: string; units: readonly string[]; branch?: ChooserBranch };
     },
   ): Promise<
     | { ok: true; change: SyncRecipeChange }
