@@ -34029,6 +34029,23 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
       expect(fake.state.reconnects).toHaveLength(1);
     });
 
+    it("starts a login refused without a repair again for a request that comes later", async () => {
+      fake.state.present = new Set(["email", "login"]);
+      // A recipe that is not generated is never repaired: the start is refused at once.
+      const { h, generation } = start({
+        used: parseLoginRecipe({ ...emailOnly, id: "synthetic-email-only" }),
+      });
+      fake.state.onReconnect = () => h.hello();
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(generation.claimRepair).not.toHaveBeenCalled();
+      const decided = ask(h);
+      await vi.waitFor(() =>
+        expect(decided()).toMatchObject({ kind: "answer", item: { connectionId, itemId } }),
+      );
+      expect(fake.state.reconnects).toHaveLength(1);
+      expect(executed()).toEqual([]);
+    });
+
     it("keeps a request that comes during the repair, then answers it with the passkey", async () => {
       fake.state.present = new Set(["email", "login"]);
       fake.state.extracted = { login: formPage };

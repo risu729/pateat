@@ -648,6 +648,8 @@ type LiveDocument = {
    * announce again, so the login answers it (ADR 0034 amendment of 2026-10-25).
    */
   awaitsPageRequest?: true;
+  /** That document's repair runs (ADR 0058 A). */
+  repairing?: true;
   /**
    * For the tab's own page: the URL of the tab's previous page of the same origin, or of
    * this document before it changed its path in place, for the log of a page Pateat does
@@ -13988,7 +13990,10 @@ export function createLoginRuntime(
     ) {
       // A pause that started meanwhile admits the document again (ADR 0062).
       if ((await pauseOf(live)) !== undefined) return { ok: false, reason: CHOICE_SAVED };
-      if (awaitsRequest) live.awaitsPageRequest = true;
+      if (awaitsRequest) {
+        live.awaitsPageRequest = true;
+        live.repairing = true;
+      }
       live.state = "generating";
       delete live.reason;
       await publish(live);
@@ -13996,7 +14001,13 @@ export function createLoginRuntime(
         reason: plan.reason,
         ...("detail" in plan && typeof plan.detail === "string" ? { detail: plan.detail } : {}),
         route: unfit,
-      }).catch(() => undefined);
+      })
+        .catch(() => undefined)
+        .finally(() => {
+          // A request that waited for it is decided again, also when the repair failed.
+          delete live.repairing;
+          reviewRequests();
+        });
       return { ok: false, reason: "generating" };
     }
     if (!plan.ok) {
@@ -16237,8 +16248,9 @@ export function createLoginRuntime(
   }
   /**
    * Has a top document that `awaitsPageRequest` announce again once its own conditional
-   * request waits and its repair is over, so its new login answers that request; once per
-   * document (ADR 0034 amendment of 2026-10-25).
+   * request waits and its repair is over, so its new login answers that request. The new
+   * announcement clears the mark, so each refusal restarts at most once (ADR 0034
+   * amendment of 2026-10-25).
    */
   function restartForRequest(live: LiveDocument): void {
     const { tabId, documentId } = live.document;
@@ -16524,7 +16536,7 @@ export function createLoginRuntime(
         // A login of another document, or one that ended before the request came, does
         // not decide it. A document repaired for want of the passkey route keeps it until
         // the repair is over (ADR 0034 amendment of 2026-10-25).
-        const repairing = !own && awaitingDocument(parked)?.state === "generating";
+        const repairing = !own && awaitingDocument(parked)?.repairing === true;
         if (repairing) parked.restarted = now;
         if (
           repairing

@@ -1293,15 +1293,15 @@ back to the recorded `password` variant when no request comes, the item cannot a
 it, the recipe's rejection shows, or the sign-in form still shows 15 seconds after the
 answer, and until then a page on the start path is not judged (up to two minutes while
 it shows nothing to describe, as a loader). While the tab asks for an account (ADR 0062
-B), that request waits for the popup pick, whose login answers it the same way. A new
-login refused, or sent for repair, because the recipe lacks the `passkey` route while
-the item holds a discoverable passkey keeps a request that comes later until the repair
-is over, then has its document announce again once, so that login answers it (ADR 0034
-amendment of 2026-10-25). So
+B), that request waits for the popup pick, whose login answers it the same way. So
 does it, for up to four minutes, while the popup offers the page an ordinary choice of
 accounts in which an item holds a discoverable passkey, checked with one vault search
 per RP ID; it is handed on three seconds after that choice goes away
-([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A recipe's `password` route has
+([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A new login refused, or sent
+for repair, because the recipe lacks the `passkey` route while the item holds a
+discoverable passkey keeps a request that comes later until the repair is over, then has
+its document announce again once, so that login answers it (ADR 0034 amendment of
+2026-10-25). A recipe's `password` route has
 one to four variants, one per identifier set its start page offers (such as branch and
 account numbers, or a contract number), and the attempt records the variant it took: the
 first, in recipe order, whose binding resolves on the item and whose every bound

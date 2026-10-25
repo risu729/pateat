@@ -273,9 +273,13 @@ uses the item's passkey when it has one:
   passkey button, so a page request would give the route), outside an ask, a pause, an
   account switch and a resumed login, marks its document.
 - A conditional request of a marked document waits while its repair runs, up to the four
-  minutes of rule 5, and is then handed on (`no-login`) as before.
+  minutes of rule 5, and is then handed on (`no-login`) as before; a repair that fails
+  or ends without a new announcement leaves it three more seconds.
 - Once the document is refused and its request waits, the document is asked to announce
-  again, once; the new login sees the request and takes the `passkey` route (rule 3).
-  It has three more seconds to start, as rule 5 gives any document.
+  again, once for that refusal (the announcement clears the mark); the new login sees
+  the request and takes the `passkey` route (rule 3). It has three more seconds to
+  start, as rule 5 gives any document. A document whose own login is still in the
+  tab's record, even one that ended, is not asked; its request follows that login as
+  rule 5 says.
 - Nothing else changes: a document that was not marked hands the request on after three
   seconds as before, and an item without a discoverable passkey is never restarted.
