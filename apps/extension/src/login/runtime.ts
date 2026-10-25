@@ -1191,8 +1191,11 @@ const pathNow = (live: LiveDocument) => live.route ?? live.path;
 const routedHere = (run: Execution) =>
   run.live.document.frameId === 0 &&
   (run.metadata.state === "watching" || settledHere(run)) &&
-  run.metadata.watch?.path !== undefined &&
+  run.metadata.watch?.documentId === run.live.document.documentId &&
+  run.metadata.watch.path !== undefined &&
   run.metadata.watch.path !== pathNow(run.live) &&
+  // A path too long to keep reads no route, as the watch could not record it.
+  pathNow(run.live).length <= WATCH_PATH_MAX &&
   !watchOver(run.metadata, Date.now());
 
 /**
@@ -15247,15 +15250,20 @@ export function createLoginRuntime(
     }
     if (v.safeParse(movedSchema, message).success) {
       // A route of the document a login is watched in, or one it took while the login was
-      // read, is read once (ADR 0027 amendment of 2026-10-25). The tab's URL shows it.
+      // read, is read once (ADR 0027 amendment of 2026-10-25). The document says its path,
+      // which the tab's URL may not show yet.
       const document = await identify(sender);
       const run = document ? attempts.get(document.tabId) : undefined;
       if (!document || document.frameId !== 0 || !run || !current(run)) return undefined;
       if (!sameLoginDocument(run.live.document, document)) return undefined;
-      const tab = await browser.tabs.get(document.tabId).catch(() => undefined);
-      const url = tab?.url ? URL.parse(tab.url) : null;
-      if (!url || url.origin !== document.origin || !current(run)) return undefined;
-      run.live.route = observedPath(url.pathname);
+      const observed = v.safeParse(
+        observationSchema,
+        await send(run.live, { type: "login.observe", path: run.live.path, targets: [] }).catch(
+          () => undefined,
+        ),
+      );
+      if (!observed.success || !current(run)) return undefined;
+      run.live.route = observed.output.path;
       if (routedHere(run)) void drive(run);
       return undefined;
     }

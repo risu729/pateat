@@ -20999,6 +20999,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(status()).toMatchObject([
         { state: "watching", outcome: "challenge", watch: { pages: 2 }, changedAt },
       ]);
+      // The watch keeps the path of its own document, not a later document's.
+      expect(status()).toMatchObject([{ watch: { path: "/approve" } }]);
       expect(judges().slice(1)).toMatchObject(
         [
           { verdict: "unclear", watched: true },

@@ -366,7 +366,7 @@ export const submittedSchema = v.strictObject({
  * The path of this document changed in place (history.pushState or replaceState, or a back
  * or forward move) while the last status the worker sent it names no ended login: for a
  * login watched in it after its submission, a single-page site's route is the tab's next
- * page (ADR 0027 amendment of 2026-10-25). No URL is sent; the worker reads the tab's.
+ * page (ADR 0027 amendment of 2026-10-25). No URL is sent; the worker asks the document.
  */
 export const movedSchema = v.strictObject({
   version: v.literal(1),

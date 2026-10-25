@@ -1448,13 +1448,13 @@ forward move) counts as the tab's next page:
   a worker restart. A path longer than 2048 characters is not kept, and such a watch
   reads no route.
 - The login content script reports a change of its path (`login.document.moved`, with
-  no URL) while the last status the worker sent it names no ended login; the worker
-  drops a move of a document without a watched login. A change of the query or fragment
-  alone is no move.
-- When the watch's own top document shows another path than `watch.path`, as the tab's
-  URL shows it after a move or when the document announces again to a restarted worker,
-  and the watch still lasts, the worker records the new path first and then reads the
-  page once: as any new page of a settled login (its next step, a handler, the markers,
+  no URL) while the last status the worker sent it names no ended login. The worker asks
+  that document for its path when it carries the tab's login, and ignores the move
+  otherwise. A change of the query or fragment alone is no move.
+- When the watch's own top document shows another path than `watch.path`, as it says
+  after a move or as its URL shows when it announces again to a restarted worker, and
+  the watch still lasts, the worker records the new path first and then reads the page
+  once: as any new page of a settled login (its next step, a handler, the markers,
   the sign-in state and the judge, ADR 0029), or of a `watching` one (its markers, the
   sign-in state and the judge, reading only). A move that comes while the login is being
   read is read once that reading ends with the login watched and on another path than
