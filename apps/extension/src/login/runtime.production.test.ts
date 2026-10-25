@@ -22440,8 +22440,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           onTestFinished(() => {
             fake.browser.tabs.query = query;
           });
+          // The popup asks at once, before anything else waited for the stored records.
           const { h } = start([birthLink]);
-          expect(await h.login.active()).toBe(true);
           expect(await remove(h)).toEqual(
             removed ? { ok: true } : { ok: false, reason: "not-saved" },
           );

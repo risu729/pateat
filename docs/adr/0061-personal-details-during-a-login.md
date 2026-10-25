@@ -636,7 +636,8 @@ and the write goes ahead, even though it can stop that login `policy-changed` (o
 (`detail-kept`), but the device uses it no more: it is kept in session storage as
 refused, and its removal is tried again each time a login ends. Choosing the same
 detail's field again in the popup lifts it. Saving a link filled from the popup and the
-popup's **Remove** wait for other logins the same way.
+popup's **Remove** wait the same way; for **Remove**, the tab's own unfinished login
+counts too.
 
 ### Logs
 
