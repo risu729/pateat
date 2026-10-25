@@ -7876,6 +7876,35 @@ describe("production login document admission", () => {
         clock.mockRestore();
       }
     });
+    it("releases its tab after the hold when its recipe stays withdrawn", async () => {
+      // Duolingo, 2026-10-25: with the recipe revoked, its first step never showed again,
+      // so every later page of the tab was answered `login-stopped` and never offered for
+      // generation.
+      const h = await clicked(vi.fn());
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.withdrawn.mockResolvedValue(true);
+      h.recipes.starts.mockResolvedValue([]);
+      expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({
+        ok: false,
+        reason: "recipe-not-found",
+      });
+      expect(record()).toMatchObject({ state: "blocked", outcome: "policy-changed" });
+      const now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now + 6 * 60_000);
+      try {
+        // The page shows no first step: none is left to show.
+        expect(await h.hello({ documentId: "synthetic-document-3" }, false)).toEqual({
+          ok: false,
+          reason: "recipe-not-found",
+        });
+        expect(record()).toBeUndefined();
+        expect(h.recipes.withdrawn).toHaveBeenLastCalledWith(origin, recipe.id);
+        expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+        expect(executes()).toHaveLength(2);
+      } finally {
+        clock.mockRestore();
+      }
+    });
     it("stays resumable when the recipes could not be read (owner, 2026-10-23)", async () => {
       const report = vi.fn<(report: LoginReport) => void>();
       const h = await clicked(report);

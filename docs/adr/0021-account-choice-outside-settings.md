@@ -349,6 +349,15 @@ resume. The owner chose on 2026-10-24 (21:58 UTC) to keep ADR 0022's 5-minute ho
 such a stop when a fill or click may have reached the site, as for every other stopped
 login; after it, the tab's sign-in page fills once and presses nothing (ADR 0062).
 
+Amended on 2026-10-25 by Claude as a fix (agent-written): after that hold, a stopped
+record whose recipe the cache no longer holds waited for a first step that
+never shows again, so every later page of the tab was answered `login-stopped` and never
+sent for generation (Duolingo, 2026-10-25: both recipes revoked on the dashboard; a new
+tab generated one at once, the old tab logged nothing). Such a record is now released on
+the tab's next page as if its first step showed: the tab asks as above, and a page
+without a recipe may be sent for generation. A lookup that cannot read the recipes
+keeps the record, as above.
+
 Constraint, set by the owner on 2026-10-12 (07:41 UTC): beyond the cases above, where
 this tab's own Pateat login of the site is known, a site session that only expired must
 never make the user press the site's button. Pateat cannot tell an expiry from a logout
