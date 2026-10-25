@@ -1729,7 +1729,9 @@ document the watch began in is not read again: a restarted worker that resumes a
 whose result settled as unknown in that document runs no check there, and the tab's next
 page or one after the watch's 10 minutes is handled as before (agent fix applying ADR
 0027, 2026-10-17; a bank's settled login in the owner's Chrome was read again in its
-submitted document after each worker restart). Leaving the origin without a confirmed
+submitted document after each worker restart). A route of that document to another
+path in place, as a single-page site's after its sign-in, is read once as the tab's next
+page (ADR 0027 amendment of 2026-10-25). Leaving the origin without a confirmed
 sign-in ends it the same way where it stopped, not `left-origin`, so its first step
 showing again later in the tab is no logout either (2026-10-13). Newer settings end it
 `policy-changed` only when they no longer allow its account on the page; otherwise the

@@ -363,6 +363,17 @@ export const submittedSchema = v.strictObject({
   token: id,
 });
 /**
+ * The path of this document changed in place (history.pushState or replaceState, or a back
+ * or forward move) while the last status the worker sent it names no ended login: for a
+ * login watched in it after its submission, a single-page site's route is the tab's next
+ * page (ADR 0027 amendment of 2026-10-25). No URL is sent; the worker asks the document.
+ */
+export const movedSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.document.moved"),
+  token: id,
+});
+/**
  * The person submitted the form of a page the worker named a verification Pateat does not
  * fill (ADR 0035): a trusted `submit` event of the form that holds the page's first step,
  * reported before the page leaves. No button text or value is sent.

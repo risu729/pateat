@@ -455,6 +455,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let ended = false;
   // The site rejected that login here: the form showing with the failure asks at once.
   let rejected = false;
+  // This document carries a login that has not ended, and the path its page last showed:
+  // a same-document URL change to another path is reported, so a login watched after its
+  // submission reads a single-page site's next route as the tab's next page (ADR 0027).
+  let carrying = false;
+  let routePath = pagePath();
   const used = new Set<string>();
   // What this document showed when its last effect step ran (ADR 0029: F1, F2).
   let submitted: SubmittedPage | undefined;
@@ -1292,6 +1297,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           location.origin,
         );
       respond({ ok: true });
+      carrying = !["denied", "generating", "authenticated", "blocked"].includes(command.state);
       // A finished login keeps watching: its first step showing again logs in again.
       // A new login in this document, as after a pick, watches for its own end.
       if (command.state === "executing") ended = false;
@@ -2405,6 +2411,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    */
   let urlWatch: (() => void) | undefined;
   const urlChanged = () => {
+    if (!cancelled && pagePath() !== routePath) {
+      routePath = pagePath();
+      if (carrying)
+        void sendMessage("login", { version: 1, type: "login.document.moved", token }).catch(
+          () => undefined,
+        );
+    }
     if (cancelled || pageUrl() === offerUrl) return;
     offerUrl = pageUrl();
     if (!mayOffer || !offered || offerWindow !== undefined) return;
