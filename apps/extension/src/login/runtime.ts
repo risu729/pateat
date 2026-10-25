@@ -13194,7 +13194,16 @@ export function createLoginRuntime(
       // 2026-10-12); until then the page watches for it.
       const confirm = live.topUrl ? undefined : await confirmRecipeOn(document.origin, live.path);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-      if (start?.path !== live.path || confirm) {
+      // Nor does its recipe's first step show again once the recipe was withdrawn, as one
+      // revoked on the dashboard: the tab is released as after it, so its pages may be sent
+      // for generation again. A recipe that only dropped the login's layout still starts.
+      const withdrawn =
+        start?.path !== live.path &&
+        !confirm &&
+        !(probeMode && document.origin === origin) &&
+        (await recipes.withdrawn?.(document.origin, recorded.recipeId).catch(() => false));
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if ((start?.path !== live.path || confirm) && !withdrawn) {
         const starts = await startsFor(document.origin);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         const visit = confirm && confirmPage(live, confirm);
