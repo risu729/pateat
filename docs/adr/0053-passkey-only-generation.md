@@ -109,12 +109,16 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
   route (covered by a runtime test).
 - For an item with a password and no discoverable passkey,
   [ADR 0058](0058-automatic-recipe-removal.md) A, as amended by
-  [ADR 0041](0041-repair-stale-recipes.md), claims a repair of a passkey-only recipe
-  for the `password` route (once per device and route in 3 days). The start page is
-  sent only when it now shows a sign-in input. A page with only the button, or the
-  button beside an entry or a list, is refused with `no-route` and the claim given back,
-  so decision 7's entry or list is not yet used for such an item. The button is never
-  pressed.
+  [ADR 0041](0041-repair-stale-recipes.md), claims a repair of a passkey-only recipe for
+  the `password` route (once per device and route in 3 days). The start page is sent
+  only when one immediate read finds a sign-in or identifier input on it
+  (`login.entry.check`'s `signIn`). A page without one, as with only the button or the
+  button beside an entry or a list, or whose form renders only after the read, is
+  refused with `no-route` at once, with no claim, and that item signs in by hand (owner,
+  2026-10-25 00:16 UTC): decision 7's entry or list is not used for it yet, since
+  sending it as it is would replace the recipe and take the button from the items that
+  hold a passkey. A chooser layout that also holds the button is planned for the list.
+  The button is never pressed.
 
 ## Consequences
 

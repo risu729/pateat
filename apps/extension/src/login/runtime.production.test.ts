@@ -34007,6 +34007,8 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
     expect(executed()).toEqual([]);
     // Only the usernames to hide are read (ADR 0016), never a secret.
     expect(h.fields.mock.calls.map(([request]) => request.fieldId)).not.toContain("login.password");
+    // Only a passkey-only recipe's page is checked for a form first.
+    expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.entry.check");
   });
 
   it("tries a newer revision another device's repair stored before claiming one", async () => {
@@ -34201,29 +34203,27 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
     steps: [{ kind: "click", path: "/signin", target: target("passkey-login"), purpose: "submit" }],
     maxSubmissions: 1,
   });
-  const sentTypes = () => fake.state.messages.map((entry) => entry.type);
-
   it.each([
     ["no passkey", { passkey: false, discoverable: false }],
     ["a passkey that is not discoverable", { passkey: true, discoverable: false }],
   ])(
-    "claims the password route for a passkey-only recipe and an item with a password and %s, and gives it back while the page shows no form (ADR 0053)",
+    "refuses a passkey-only recipe's page that shows no form at once for an item with a password and %s (ADR 0053)",
     async (_, passkey) => {
-      vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
       fake.state.present = new Set(["passkey-login"]);
-      // The page shows only the button, so the sign-in form describes no field.
+      // The page shows only the button, or the button beside an entry or a list.
+      const before = fake.state.entry.check;
+      onTestFinished(() => {
+        fake.state.entry.check = before;
+      });
+      fake.state.entry.check = { ok: true, signIn: false, start: false, signUp: false };
       const { h, reports, generation } = start({
         used: buttonOnly,
         password: true,
         passkey,
         claim: claimed(),
       });
-      // The page waits as for a generation, reading no secret.
       expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
-      await vi.waitFor(() => expect(sentTypes()).toContain("login.extract"));
-      await vi.advanceTimersByTimeAsync(9_000);
       await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
-      expect(generation.claimRepair).toHaveBeenCalledExactlyOnceWith(generatedId, "password");
       expect(unfits(reports)).toEqual([
         {
           type: "unfit",
@@ -34232,14 +34232,16 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
           recipeId: generatedId,
           recipeRevision: 3,
           route: "password",
-          outcome: "claimed",
+          outcome: "not-due",
+          reason: "no-form",
           // The recipe has no password variant, so the plan's refusal names no fact.
           detail: "no-route",
         },
       ]);
-      // Nothing reached the model, so the claim is given back and the page refused.
+      // Nothing to send: no claim, no description of the page, no model call.
+      expect(generation.claimRepair).not.toHaveBeenCalled();
+      expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
       expect(generation.generate).not.toHaveBeenCalled();
-      expect(release).toHaveBeenCalledOnce();
       expect(refusals(reports)[0]).toMatchObject({ reason: "no-route" });
       // The button is never pressed, and no secret is read.
       expect(executed()).toEqual([]);
@@ -34271,6 +34273,38 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
     // The model abstained, so the claim stays.
     expect(release).not.toHaveBeenCalled();
     expect(executed()).toEqual([]);
+    // The page was read once, at once, before the claim.
+    expect(fake.state.messages.filter((entry) => entry.type === "login.entry.check")).toEqual([
+      expect.objectContaining({ starts: [], timeoutMs: 0 }),
+    ]);
+  });
+
+  it.each<[string, unknown]>([
+    ["an answer that fails its check", { ok: false }],
+    ["a check that throws", "throws"],
+  ])("refuses a passkey-only recipe's page at once after %s (ADR 0053)", async (_, answer) => {
+    fake.state.present = new Set(["passkey-login"]);
+    const before = fake.state.entry.check;
+    onTestFinished(() => {
+      fake.state.entry.check = before;
+    });
+    if (answer === "throws") {
+      const failing = Promise.reject(new Error("synthetic check failure"));
+      // Awaited only once the runtime asks; not an unhandled rejection meanwhile.
+      failing.catch(() => undefined);
+      fake.state.entry.check = failing;
+    } else fake.state.entry.check = answer;
+    const { h, reports, generation } = start({
+      used: buttonOnly,
+      password: true,
+      passkey: { passkey: false, discoverable: false },
+      claim: claimed(),
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(unfits(reports)).toMatchObject([{ outcome: "not-due", reason: "no-form" }]);
+    expect(generation.claimRepair).not.toHaveBeenCalled();
+    expect(refusals(reports)[0]).toMatchObject({ reason: "no-route" });
   });
 
   describe("never for an item or recipe outside the trigger", () => {
