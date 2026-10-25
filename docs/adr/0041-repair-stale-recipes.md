@@ -134,9 +134,11 @@ reached the model is given back. An answer that
 adds the missing passkey button is merged into the layout (section 3), so accounts that
 used the other route keep what it learned; the page announces again and starts it. Any
 other answer refuses the page as before. The claim logs `recipe.unfit`. A passkey-only
-recipe ([ADR 0053](0053-passkey-only-generation.md)) is claimed and sent only while its
-page shows a sign-in input; otherwise the page is refused at once with no claim
-(`recipe.unfit` outcome `not-due`, reason `no-form`; owner, 2026-10-25 00:16 UTC).
+recipe ([ADR 0053](0053-passkey-only-generation.md)) is claimed and sent only when one
+immediate read (`login.entry.check`'s `signIn`) finds a sign-in or identifier input on
+its page; otherwise the page is refused at once with no claim (`recipe.unfit` outcome
+`not-due`, reason `no-form`; owner, 2026-10-25 00:16 UTC), including a form the page
+renders only after its button.
 
 ### 6. Chooser and sign-in entry recipes
 

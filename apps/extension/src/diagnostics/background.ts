@@ -811,7 +811,8 @@ export function createDiagnosticsLog(options: {
           },
           // A recipe the chosen item cannot run, whose repair is claimed or whose newer
           // revision is tried, is worth seeing (ADR 0058 A, amended by ADR 0041); one not due,
-          // as within 3 days of the last for the route, changed nothing; a claim that could
+          // as within 3 days of the last for the route or on a passkey-only page that shows no
+          // form (`no-form`), changed nothing; a claim that could
           // not be recorded is a problem.
           {
             source,

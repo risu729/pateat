@@ -11619,8 +11619,9 @@ export function createLoginRuntime(
       }
     }
     // A passkey-only recipe's page (ADR 0053) is sent only as a sign-in form it shows by
-    // now: with the button alone, or beside an entry or a list, it gives the missing route
-    // nothing to send, so it is refused at once with no claim (owner, 2026-10-25).
+    // now: without a sign-in or identifier input, as with the button alone or beside an
+    // entry or a list, it gives the missing route nothing to send, so it is refused at
+    // once, after one read, with no claim (owner, 2026-10-25).
     const formShows =
       recipe.passkeyOnly &&
       v.safeParse(
