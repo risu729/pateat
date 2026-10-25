@@ -33970,6 +33970,104 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
     reports.flatMap((entry) => (entry.type === "refused" ? [entry] : []));
   const executed = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
 
+  describe("a page that asks for a passkey only after the start (ADR 0034 amendment of 2026-10-25)", () => {
+    /** Money Forward's shape: the email, then a submit, and no passkey button. */
+    const emailOnly = parseLoginRecipe({
+      version: 1,
+      id: generatedId,
+      revision: 1,
+      origin,
+      pageKind: "sign-in",
+      slots: ["username"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [{ slot: "username", target: target("email") }],
+          effect: "prepare",
+        },
+        { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+      ],
+      maxSubmissions: 1,
+    });
+    const ask = (h: ReturnType<typeof harness>) => {
+      let decided: ConditionalDecision | undefined;
+      void h.login
+        .conditionalRequest({
+          tabId: 1,
+          origin,
+          documentId: "synthetic-document",
+          signal: new AbortController().signal,
+        })
+        .then((value) => (decided = value));
+      return () => decided;
+    };
+
+    it("starts the refused login again for the request and answers it with the passkey", async () => {
+      fake.state.present = new Set(["email", "login"]);
+      const { h, reports } = start({ used: emailOnly });
+      fake.state.onReconnect = () => h.hello();
+      // No repair is due, so the start is refused before the page asks.
+      expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+      expect(refusals(reports)[0]).toMatchObject({ reason: "no-route" });
+      expect(unfits(reports)).toEqual([
+        expect.objectContaining({
+          route: "passkey",
+          outcome: "not-due",
+          detail: "password-empty:no-password-step",
+        }),
+      ]);
+      const decided = ask(h);
+      await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+      await vi.waitFor(() =>
+        expect(decided()).toMatchObject({ kind: "answer", item: { connectionId, itemId } }),
+      );
+      // Nothing is typed or pressed on the page.
+      expect(executed()).toEqual([]);
+      // The page announces again only once.
+      expect(fake.state.reconnects).toHaveLength(1);
+    });
+
+    it("keeps a request that comes during the repair, then answers it with the passkey", async () => {
+      fake.state.present = new Set(["email", "login"]);
+      fake.state.extracted = { login: formPage };
+      let finish!: () => void;
+      const { h, generation } = start({ used: emailOnly, claim: claimed() });
+      generation.generate.mockImplementation(async (_request, sent) => {
+        sent?.();
+        await new Promise<void>((resolve) => (finish = resolve));
+        return { outcome: "abstained", reason: "ambiguous" };
+      });
+      fake.state.onReconnect = () => h.hello();
+      expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledOnce());
+      vi.useFakeTimers({ toFake: ["setInterval", "setTimeout", "Date"], shouldAdvanceTime: true });
+      const decided = ask(h);
+      // More than the three seconds a document has to start its login.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(decided()).toBeUndefined();
+      finish();
+      await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+      await vi.waitFor(() =>
+        expect(decided()).toMatchObject({ kind: "answer", item: { connectionId, itemId } }),
+      );
+      expect(executed()).toEqual([]);
+    });
+
+    it("never asks a page whose item holds no discoverable passkey to announce again", async () => {
+      fake.state.present = new Set(["email", "login"]);
+      const { h } = start({ used: emailOnly, passkey: { passkey: true, discoverable: false } });
+      fake.state.onReconnect = () => h.hello();
+      expect(await h.hello()).toMatchObject({ ok: false });
+      vi.useFakeTimers({ toFake: ["setInterval", "setTimeout", "Date"], shouldAdvanceTime: true });
+      const decided = ask(h);
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(decided()).toEqual({ kind: "delegate", reason: "no-login" });
+      expect(fake.state.reconnects).toEqual([]);
+    });
+  });
+
   it("sends the start page for repair and asks the page to announce again with its answer", async () => {
     fake.state.extracted = { login: formPage };
     const { h, reports, generation } = start({ claim: claimed() });
