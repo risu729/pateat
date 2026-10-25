@@ -642,6 +642,15 @@ type LiveDocument = {
   /** Why this document's sign-in input last did not start a login, logged once. */
   notStarted?: string;
   /**
+   * A new login of this top document was refused, or waits for a repair, because its recipe
+   * lacks the `passkey` route while its item holds a discoverable passkey: the page's own
+   * conditional request, when it comes, waits for that repair and then has the document
+   * announce again, so the login answers it (ADR 0034 amendment of 2026-10-25).
+   */
+  awaitsPageRequest?: true;
+  /** That document's repair runs (ADR 0058 A). */
+  repairing?: true;
+  /**
    * For the tab's own page: the URL of the tab's previous page of the same origin, or of
    * this document before it changed its path in place, for the log of a page Pateat does
    * not fill (ADR 0035).
@@ -1059,6 +1068,11 @@ type ParkedRequest = {
    * it waits briefly for the choice again.
    */
   dropped?: number;
+  /**
+   * When its document last waited for a repair or was asked to announce again for it, from
+   * which a login of the document may still take `REQUEST_START_WAIT_MS` to start.
+   */
+  restarted?: number;
   settle(decision: ConditionalDecision): boolean;
 };
 /**
@@ -11669,6 +11683,8 @@ export function createLoginRuntime(
     live.state = "denied";
     live.reason = refusal.reason;
     await publish(live);
+    // A request of the page that came meanwhile starts the login now.
+    restartForRequest(live);
   }
   /**
    * Sends this page's observation for generation. A returned recipe is in the recipe
@@ -13958,6 +13974,18 @@ export function createLoginRuntime(
       !plan.ok && "unfit" in plan && (plan.unfit === "passkey" || plan.unfit === "password")
         ? plan.unfit
         : undefined;
+    // Such a recipe still answers the page's own passkey request, which may come only after
+    // this start (ADR 0034 amendment of 2026-10-25).
+    const awaitsRequest =
+      unfit === "passkey" &&
+      !pageRequest &&
+      !previous &&
+      !switched &&
+      !ask &&
+      !pausedStart &&
+      document.frameId === 0 &&
+      !live.topUrl &&
+      passkeyAnswersRequest(recipe);
     if (
       !plan.ok &&
       unfit &&
@@ -13979,6 +14007,10 @@ export function createLoginRuntime(
     ) {
       // A pause that started meanwhile admits the document again (ADR 0062).
       if ((await pauseOf(live)) !== undefined) return { ok: false, reason: CHOICE_SAVED };
+      if (awaitsRequest) {
+        live.awaitsPageRequest = true;
+        live.repairing = true;
+      }
       live.state = "generating";
       delete live.reason;
       await publish(live);
@@ -13986,7 +14018,13 @@ export function createLoginRuntime(
         reason: plan.reason,
         ...("detail" in plan && typeof plan.detail === "string" ? { detail: plan.detail } : {}),
         route: unfit,
-      }).catch(() => undefined);
+      })
+        .catch(() => undefined)
+        .finally(() => {
+          // A request that waited for it is decided again, also when the repair failed.
+          delete live.repairing;
+          reviewRequests();
+        });
       return { ok: false, reason: "generating" };
     }
     if (!plan.ok) {
@@ -14030,6 +14068,10 @@ export function createLoginRuntime(
       // this page's announcement cannot apply before the miss is registered.
       if (!previous && !switched && "noUriMatch" in plan && plan.noUriMatch)
         retryAfterSync(live, plan.reason);
+      if (awaitsRequest && documents.get(key) === live) {
+        live.awaitsPageRequest = true;
+        restartForRequest(live);
+      }
       return refused;
     }
     if (heldElsewhere(document.tabId, document.origin)) {
@@ -16232,6 +16274,36 @@ export function createLoginRuntime(
       return undefined;
     }
   }
+  /**
+   * Has a top document that `awaitsPageRequest` announce again once its own conditional
+   * request waits and its repair is over, so its new login answers that request. The new
+   * announcement clears the mark, so each refusal restarts at most once (ADR 0034
+   * amendment of 2026-10-25).
+   */
+  function restartForRequest(live: LiveDocument): void {
+    const { tabId, documentId } = live.document;
+    const parked = parkedFor(live.document);
+    if (
+      !parked ||
+      !live.awaitsPageRequest ||
+      live.state !== "denied" ||
+      documents.get(frameKey(live.document)) !== live ||
+      attempts.get(tabId)?.live.document.documentId === documentId
+    )
+      return;
+    delete live.awaitsPageRequest;
+    parked.restarted = Date.now();
+    void browser.tabs
+      .sendMessage(tabId, { version: 1, type: "login.reconnect" }, { frameId: 0, documentId })
+      .catch(() => undefined);
+  }
+  /** The top document of a request, while it `awaitsPageRequest` (ADR 0034). */
+  function awaitingDocument(parked: ParkedRequest): LiveDocument | undefined {
+    const live = documents.get(frameKey({ tabId: parked.tabId, frameId: 0 }));
+    return live?.document.documentId === parked.documentId && live.awaitsPageRequest
+      ? live
+      : undefined;
+  }
   /** The newest conditional request of a top document still waiting (ADR 0034). */
   function parkedFor(document: { tabId: number; documentId: string }): ParkedRequest | undefined {
     let found: ParkedRequest | undefined;
@@ -16295,6 +16367,9 @@ export function createLoginRuntime(
       parkedRequests.add(parked);
       input.signal.addEventListener("abort", onAbort, { once: true });
       reviewRequests();
+      // A document refused for want of the passkey route starts its login again for it.
+      const awaiting = awaitingDocument(parked);
+      if (awaiting) restartForRequest(awaiting);
       // A pause that started while the request was looked at hands it on as well.
       void pausedPage().then((now) => {
         if (now) parked.settle({ kind: "delegate", reason: "paused" });
@@ -16487,8 +16562,15 @@ export function createLoginRuntime(
           parked.settle({ kind: "delegate", reason: "no-pick" });
       } else if (!own || (ended && !parked.during)) {
         // A login of another document, or one that ended before the request came, does
-        // not decide it.
-        if (now - parked.since >= REQUEST_START_WAIT_MS)
+        // not decide it. A document repaired for want of the passkey route keeps it until
+        // the repair is over (ADR 0034 amendment of 2026-10-25).
+        const repairing = !own && awaitingDocument(parked)?.repairing === true;
+        if (repairing) parked.restarted = now;
+        if (
+          repairing
+            ? now - parked.since >= REQUEST_PARK_MS
+            : now - Math.max(parked.since, parked.restarted ?? 0) >= REQUEST_START_WAIT_MS
+        )
           parked.settle({ kind: "delegate", reason: own ? "login-ended" : "no-login" });
       } else if (own.state === "authenticated") parked.settle({ kind: "withhold" });
       else if (ended) parked.settle({ kind: "delegate", reason: "login-ended" });

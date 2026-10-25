@@ -49,6 +49,12 @@ that stops before its item's missing password, a `conditional` request made afte
 first submission waits until the login reaches its stop and is answered there (rules 3
 and 5; implemented).
 
+Amended on 2026-10-25 (agent change under the owner's policy of 2026-10-12 13:58 UTC,
+not yet confirmed by the owner;
+[the amendment below](#amendment-a-request-after-a-refused-start-2026-10-25)): a request
+that comes after its document's login was refused for want of the `passkey` route starts
+that login again (rule 5).
+
 Date: 2026-10-12
 
 ## Context
@@ -245,3 +251,35 @@ password when the item has one. The proposal reviewed with the owner is
   login runtime. Real-site checks on Wise run in the owner's Chrome. The wait for a pick
   outside a logout has local tests only; it is next checked on GitHub in the owner's
   Chrome.
+
+## Amendment: a request after a refused start (2026-10-25)
+
+On 2026-10-25 at 00:20 UTC, on build `557cdf9` in the owner's Chrome, Money Forward's
+sign-in page (`https://id.moneyforward.com/sign_in`, recipe
+`gen-9985d5176d1a9e9e5a7e6eb96a021ef5`, an email step and a submit, no passkey button)
+started no login for an item with a discoverable passkey and no password. The login
+started before the page's own `conditional` request came: without the request, the
+`password` route had no step to stop at (`password-empty:no-password-step`) and the
+recipe lacked the `passkey` route, so the page was sent for repair (ADR 0058 A). The
+request came during the repair and was handed on three seconds later (`no-login`); the
+start after the repair was refused (`no-route`). On 2026-10-24 at 01:37 UTC the same
+recipe had signed in on the `passkey` route, as the request came first.
+
+An agent change, as a general rule (ADR 0033), under the owner's policy that Pateat
+uses the item's passkey when it has one:
+
+- A new login of a top document refused, or sent for repair, because the recipe lacks
+  the `passkey` route while the item holds a discoverable passkey (and the recipe has no
+  passkey button, so a page request would give the route), outside an ask, a pause, an
+  account switch and a resumed login, marks its document.
+- A conditional request of a marked document waits while its repair runs, up to the four
+  minutes of rule 5, and is then handed on (`no-login`) as before; a repair that fails
+  or ends without a new announcement leaves it three more seconds.
+- Once the document is refused and its request waits, the document is asked to announce
+  again, once for that refusal (the announcement clears the mark); the new login sees
+  the request and takes the `passkey` route (rule 3). It has three more seconds to
+  start, as rule 5 gives any document. A document whose own login is still in the
+  tab's record, even one that ended, is not asked; its request follows that login as
+  rule 5 says.
+- Nothing else changes: a document that was not marked hands the request on after three
+  seconds as before, and an item without a discoverable passkey is never restarted.
