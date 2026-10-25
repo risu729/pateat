@@ -76,7 +76,13 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
 - Provenance ([ADR 0060](0060-recipe-layouts.md#generation-provenance)): the route's
   units are `passkey/page:0`, `passkey/handler:<i>` and `passkey/marker:<i>`. The call
   that names the button records `passkey/page:0`; a carried layout's handlers and
-  markers keep the rows of the calls or devices that made them.
+  markers keep the rows of the calls or devices that made them. A call's write drops the
+  rows of units its document no longer holds, as those of a route put in place of
+  another.
+- The route is stored whole: a request for a page after it (`<key>:passkey` as `branch`)
+  is refused with `recipe-conflict` before any call.
+- The stored route must be a sign-in route and must not press the list's `other` or
+  `continue` button.
 - `/manage` shows the button as the chooser's "Passkey sign-in".
 
 ## Consequences

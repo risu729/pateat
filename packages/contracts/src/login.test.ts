@@ -3290,6 +3290,16 @@ describe("a passkey button beside a chooser's list (ADR 0079)", () => {
         stored({ ...routeBodyOf(recipe()), passkey: passkeyRoute().passkey }),
       ),
     ).toBe(false);
+    // Nor a route that is no sign-in, or presses the list's own button.
+    expect(v.is(storedLoginRecipeSchema, stored({ ...passkeyRoute(), pageKind: "confirm" }))).toBe(
+      false,
+    );
+    expect(
+      v.is(
+        storedLoginRecipeSchema,
+        stored(passkeyRoute("/login", { by: "text", value: "Use another account" })),
+      ),
+    ).toBe(false);
   });
 
   it("runs the button as its own route, and keeps it when a branch is written", () => {

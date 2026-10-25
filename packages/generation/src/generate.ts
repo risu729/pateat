@@ -583,8 +583,12 @@ export async function generateRecipe(
     const resolved = branch === undefined ? undefined : storedBranchRoute(current.recipe, branch);
     if (!resolved) return { answer: unavailable("recipe-conflict") };
     const { route, chooser } = resolved;
-    // The other branch starts only with the chooser's button for it.
-    if (chooserSide === "other" && !chooser?.chooser.other)
+    // The other branch starts only with the chooser's button for it, and the passkey route
+    // beside the list (ADR 0079) is stored whole, never generated as a branch's page.
+    if (
+      (chooserSide === "other" && !chooser?.chooser.other) ||
+      (chooserSide === "passkey" && chooser)
+    )
       return { answer: unavailable("recipe-conflict") };
     // A branch's first page has nothing to continue yet.
     if (chooser && !route) return { base: undefined, chooser };

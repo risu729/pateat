@@ -117,7 +117,7 @@ export function validateAccountList(
 /**
  * The passkey button an account-list answer named (ADR 0079), kept only when it is a
  * button of the page whose label or locator names a passkey or security key and not its
- * registration, and is neither list control; anything else is dropped without failing the
+ * registration, holds no account text and is neither list control; anything else is dropped without failing the
  * list, as a form plan's passkey button is (`passkeyButtonOf`).
  */
 function listPasskeyButton(
@@ -133,6 +133,10 @@ function listPasskeyButton(
     !isStepTarget(button.target) ||
     !namesPasskey(button) ||
     registersPasskey(button) ||
+    // A button per account, as one naming an address, is no button beside the list.
+    [button.label, ...targetValues(button.target)].some(
+      (text) => text !== undefined && accountText.test(text),
+    ) ||
     named.some(
       (control) =>
         control.candidate === button.id || sameLoginTarget(control.target, button.target),

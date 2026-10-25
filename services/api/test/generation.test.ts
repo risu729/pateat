@@ -5791,6 +5791,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
         ...listPage.candidates,
         element("key", "button", "Sign in with a passkey"),
         element("add-key", "button", "Add a passkey"),
+        element("mail-key", "button", "Use a passkey for [email]"),
       ],
     };
     replies.push({ text: listAnswer({ other: "other", passkeyButton: "key" }) });
@@ -5830,9 +5831,9 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       other: "other",
       passkeyButton: "key",
     });
-    // A button that registers a passkey, or the list's own control, is no passkey route,
-    // and the list is stored without one.
-    for (const passkeyButton of ["add-key", "other", "help", "missing"]) {
+    // A button that registers a passkey, one for a single account, or the list's own
+    // control, is no passkey route, and the list is stored without one.
+    for (const passkeyButton of ["add-key", "mail-key", "other", "help", "missing"]) {
       // eslint-disable-next-line no-await-in-loop
       const another = await owner();
       replies.push({ text: listAnswer({ other: "other", passkeyButton }) });
@@ -8867,6 +8868,84 @@ describe("generation provenance (ADR 0060)", () => {
         `${layout!.key} passkey/page:0 generated 3`,
         `${layout!.key} passkey/marker:0 device 2`,
       ].toSorted(),
+    );
+    await digestsMatch(device.ownerId, recipeId);
+  });
+
+  it("drops the units of a passkey route beside a list put in place of another (ADR 0079)", async () => {
+    const device = await owner();
+    const page = (button: string): LoginObservation => ({
+      ...observation("/login", [
+        element("other", "button", "Use another account"),
+        element(button, "button", "Sign in with a passkey"),
+      ]),
+      accounts: ["[email]"],
+    });
+    const answer = (passkeyButton: string) => ({
+      text: JSON.stringify({
+        result: { decision: "account-list", other: "other", passkeyButton },
+      }),
+    });
+    replies.push(answer("key"));
+    const list = await generate(device, page("key"));
+    if (list.status !== "recipe") throw new Error(list.status);
+    const { recipeId } = list.change;
+    const stored = (await storedHead(device.ownerId, recipeId)) as LoginChooserDocument;
+    const [layout] = stored.chooser.layouts;
+    // A device learns the passkey route's signed-in marker.
+    const marked = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      {
+        version: 1,
+        expectedRevision: 1,
+        state: "active",
+        recipe: {
+          ...stored,
+          revision: 2,
+          chooser: {
+            ...stored.chooser,
+            layouts: [
+              {
+                ...layout!,
+                passkey: {
+                  ...layout!.passkey!,
+                  completion: [{ target: { by: "id", value: "logout" } }],
+                },
+              },
+            ],
+          },
+        },
+      },
+      "PUT",
+    );
+    expect(marked.status).toBe(200);
+    expect(await summary(device.ownerId, recipeId)).toContain(
+      `${layout!.key} passkey/marker:0 device 2`,
+    );
+    // A passkey route is stored whole: a request for its next page is refused before a call.
+    const calls = sent.length;
+    const continued = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: passwordPage,
+      slots,
+      base: { recipeId, revision: 2 },
+      branch: `${layout!.key}:passkey`,
+    });
+    expect(await continued.json()).toMatchObject({ reason: "recipe-conflict" });
+    expect(sent).toHaveLength(calls);
+    // The list repaired with another button: its route takes the old one's place, and the
+    // old route's marker row goes with it.
+    replies.push(answer("passkey"));
+    const repaired = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: page("passkey"),
+      slots: [],
+      repair: { recipeId, revision: 2 },
+    });
+    expect(await repaired.json()).toMatchObject({ status: "recipe", change: { revision: 3 } });
+    expect(await summary(device.ownerId, recipeId)).toEqual(
+      [`${layout!.key} list generated 1`, `${layout!.key} passkey/page:0 generated 3`].toSorted(),
     );
     await digestsMatch(device.ownerId, recipeId);
   });

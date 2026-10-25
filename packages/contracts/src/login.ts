@@ -1262,7 +1262,7 @@ export const loginChooserRecipeSchema = v.pipe(
     "A chooser has an other-account branch only with its button",
   ),
   v.check(
-    ({ chooser }) => !chooser.passkey || passkeyBesideList(chooser.path, chooser.passkey),
+    ({ chooser }) => !chooser.passkey || passkeyBesideList(chooser, chooser.passkey),
     "A chooser's passkey route is a passkey-only route on its path",
   ),
   // A branch runs only as `chooserRoute` builds it, so every click that leads to it must
@@ -1415,7 +1415,8 @@ export const loginChooserDocumentSchema = v.pipe(
   v.check(
     ({ chooser }) =>
       chooser.layouts.every(
-        (layout) => !layout.passkey || passkeyBesideList(chooser.path, layout.passkey),
+        (layout) =>
+          !layout.passkey || passkeyBesideList({ ...layout, path: chooser.path }, layout.passkey),
       ),
     "A chooser's passkey route is a passkey-only route on its path",
   ),
@@ -1937,14 +1938,22 @@ export const chooserClickBranch = (click: ChooserClick): ChooserBranch =>
       ? "other"
       : "account";
 /**
- * Whether `route` is a passkey-only route (ADR 0053) whose button is on the list's `path`,
- * as a chooser's `passkey` must be (ADR 0079).
+ * Whether `route` is a passkey-only sign-in route (ADR 0053) whose button is on the list's
+ * `path` and is neither of its buttons, as a chooser's `passkey` must be (ADR 0079).
  */
-function passkeyBesideList(listPath: string, route: LoginRouteBody): boolean {
+function passkeyBesideList(
+  list: { path: string; other?: LoginTarget | undefined; continue?: LoginTarget | undefined },
+  route: LoginRouteBody,
+): boolean {
+  const button = route.passkey;
   return (
     route.passkeyOnly === true &&
-    route.passkey?.path === listPath &&
-    route.steps.every((step) => step.path === listPath)
+    route.pageKind === "sign-in" &&
+    button?.path === list.path &&
+    route.steps.every((step) => step.path === list.path) &&
+    [list.other, list.continue].every(
+      (control) => !control || !sameLoginTarget(control, button.target),
+    )
   );
 }
 /**
