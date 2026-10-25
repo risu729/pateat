@@ -4989,6 +4989,32 @@ export function createLoginRuntime(
     await publish(run.live, run.metadata);
   }
   /**
+   * Whether a login other than `run` is in progress that a settings write would stop, as
+   * it bumps the revision every attempt checks: an account choice or a detail link then
+   * waits (ADR 0013, ADR 0061). A login between pages has no current run, as while its
+   * next page is admitted or after a worker restart, so its stored record counts too, as
+   * `active` counts it, but only while it changed within the settings sync's two-minute
+   * cap: an older one is likely left over, and the write may stop it `policy-changed`
+   * (owner, 2026-10-24 for choices and 2026-10-25 for detail links).
+   */
+  function loginElsewhere(run: Execution | undefined): boolean {
+    const now = Date.now();
+    return (
+      attempts.values().some((other) => other !== run && inProgress(other)) ||
+      persisted.values().some((other) => {
+        const age = now - (other.changedAt ?? Number.NEGATIVE_INFINITY);
+        return (
+          other.id !== run?.metadata.id &&
+          !terminal(other) &&
+          !idle(other) &&
+          // A clock set back ends the wait rather than prolonging it.
+          age >= 0 &&
+          age < MAX_SETTINGS_DEFER_MS
+        );
+      })
+    );
+  }
+  /**
    * Saves an automatic account choice after confirmed `authenticated` (ADR 0013). The settings must
    * still be the revision the attempt was authorized under, or the newer one a watch took
    * over after checking its account; otherwise nothing is saved and the next login chooses
@@ -5015,26 +5041,7 @@ export function createLoginRuntime(
       outcome("account-changed");
       return;
     }
-    // Saving bumps the revision every attempt checks; never stop another login with it. A
-    // login between pages has no current run, as while its next page is admitted or after
-    // a worker restart, so its stored record counts too, as `active` counts it, but only
-    // while it changed within the settings sync's two-minute cap: an older one is likely
-    // left over, and saving may stop it `policy-changed` (owner, 2026-10-24).
-    const now = Date.now();
-    if (
-      attempts.values().some((other) => other !== run && inProgress(other)) ||
-      persisted.values().some((other) => {
-        const age = now - (other.changedAt ?? Number.NEGATIVE_INFINITY);
-        return (
-          other.id !== run.metadata.id &&
-          !terminal(other) &&
-          !idle(other) &&
-          // A clock set back ends the wait rather than prolonging it.
-          age >= 0 &&
-          age < MAX_SETTINGS_DEFER_MS
-        );
-      })
-    ) {
+    if (loginElsewhere(run)) {
       outcome("login-in-progress");
       return;
     }
@@ -7358,15 +7365,15 @@ export function createLoginRuntime(
     );
   }
   /**
-   * Writes `mutate` to the settings unless another tab's login is in progress, whose
-   * policy revision the write would bump (ADR 0022). Returns whether it wrote.
+   * Writes `mutate` to the settings unless another login is in progress, whose policy
+   * revision the write would bump (`loginElsewhere`). Returns whether it wrote.
    */
   async function writeDetailLinks(
     run: Execution | undefined,
     mutate: (links: DetailLink[]) => DetailLink[],
   ): Promise<"saved" | "unchanged" | "busy" | "failed"> {
     if (!settings.update) return "failed";
-    if (attempts.values().some((other) => other !== run && inProgress(other))) return "busy";
+    if (loginElsewhere(run)) return "busy";
     // A login another tab is admitting waits for this write from here, before any await,
     // as for an account choice (see `admit`).
     const { promise: saving, resolve: finish } = Promise.withResolvers<void>();
@@ -8181,6 +8188,8 @@ export function createLoginRuntime(
   ): Promise<DetailRemoveResponse> {
     const page = await popupPage(tabId);
     await sessionLoaded;
+    // The write checks the stored logins (`loginElsewhere`).
+    await loaded;
     const login = page && detailAccount(tabId, page.url.origin);
     const snapshot = await settings
       .handle({ version: 1, type: "settings.get" })

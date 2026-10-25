@@ -21,6 +21,11 @@ revision, origin and path" hold per layout (and branch), a page beside the sign-
 included, and the service records which judge call made the handler, under the beside
 prompt version for such a page, as that layout's `handler:<i>` unit.
 
+Amended on 2026-10-25 by the owner (08:41 UTC, on
+[#1045](https://github.com/risu729/pateat/issues/1045)): a write of the site's links
+waits for another login between pages only while its stored record changed in the last
+two minutes, as an account choice does (see [Refused values](#refused-values)).
+
 Date: 2026-10-23
 
 ## Context
@@ -623,11 +628,16 @@ a worker restart the window asks again.
 A link whose fill the site refuses (the login ends `rejected`, or the handler's page
 shows again after its fill) is removed from the owner's settings, so the next login asks
 again instead of submitting the same value on a site that may lock the account. Like
-saving an account choice, the write waits for no other tab's login in progress: while
-one is, the link stays in the settings and the log says so (`detail-kept`), but the
-device uses it no more: it is kept in session storage as refused, and its removal is
-tried again each time a login ends. Choosing the same detail's field again in the popup
-lifts it.
+saving an account choice, the write waits for no other login in progress: one this
+worker runs, or another unfinished stored record (a login between pages, as after a
+worker restart) that changed less than two minutes ago; an older one is likely left over
+and the write goes ahead, even though it can stop that login `policy-changed` (owner,
+2026-10-25 08:41 UTC). While one is, the link stays in the settings and the log says so
+(`detail-kept`), but the device uses it no more: it is kept in session storage as
+refused, and its removal is tried again each time a login ends. Choosing the same
+detail's field again in the popup lifts it. Saving a link filled from the popup and the
+popup's **Remove** wait the same way; for **Remove**, the tab's own unfinished login
+counts too.
 
 ### Logs
 
