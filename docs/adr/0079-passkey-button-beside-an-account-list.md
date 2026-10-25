@@ -90,8 +90,11 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
 - Both kinds of item log in on the same page, each with the way in it can use.
 - The request of a page with a button beside a list says nothing about the matching
   items' passkeys.
-- A build older than this one cannot parse a chooser with `passkey` and stops syncing
-  recipes until it is updated; no compatibility is kept for the owner's own data.
+- A build older than this one cannot parse a chooser with `passkey`: its sync leaves
+  that recipe out and moves past it, as for any change it cannot read
+  ([#959](https://github.com/risu729/pateat/pull/959)), so that page has no recipe on it
+  until it is updated, and its generation answer for such a page is refused. No
+  compatibility is kept for the owner's own data.
 
 ## Delivery
 
