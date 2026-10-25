@@ -13,6 +13,7 @@ import {
   type LoginRecipeDocument,
   type LoginRouteBody,
   type LoginStep,
+  type LoginTarget,
   type RecipeLanguage,
 } from "@pateat/contracts";
 
@@ -174,10 +175,45 @@ function leastUsed<Layout extends { key: string; createdAt: number }>(
 }
 
 /**
+ * The passkey route beside a list on `path` (ADR 0079), pressing `target`: the passkey-only
+ * layout of `carried` (ADR 0053) for the same button, with the handlers and markers it
+ * learned, as `from`; otherwise a new one, as a passkey-only start page is generated.
+ */
+export function listPasskeyRoute(
+  path: string,
+  target: LoginTarget,
+  carried?: LoginRecipeDocument,
+): { route: LoginRouteBody; from?: string } {
+  const kept = carried?.layouts.find(
+    (layout) =>
+      layout.passkeyOnly &&
+      layout.passkey?.path === path &&
+      sameLoginTarget(layout.passkey.target, target),
+  );
+  if (kept) {
+    const { key, language: _language, createdAt: _createdAt, ...route } = kept;
+    return { route: { ...route, pageKind: "sign-in" }, from: key };
+  }
+  return {
+    route: {
+      pageKind: "sign-in",
+      slots: [],
+      passkeyOnly: true,
+      passkey: { path, target },
+      steps: [{ kind: "click", path, target, purpose: "submit" }],
+      maxSubmissions: 1,
+    },
+  };
+}
+
+/**
  * What a repair's list of accounts writes into a chooser recipe (ADR 0041 section 6): `same`
  * when a layout already has its buttons, so nothing is written; otherwise the next revision
  * with it as a new layout, without branches, which the next login generates (ADR 0028), in
- * place of the least recently used one when `MAX_RECIPE_LAYOUTS` are held.
+ * place of the least recently used one when `MAX_RECIPE_LAYOUTS` are held. A passkey button
+ * the answer names beside a list a layout already has is `merged` into that layout as its
+ * `passkey`, added or in place of one on another button, and its branches stay (ADR 0079);
+ * an answer without one leaves a layout's `passkey` as it is.
  */
 export function chooserRepairWrite(
   recipe: LoginChooserDocument,
@@ -186,14 +222,28 @@ export function chooserRepairWrite(
 ): RepairWrite<LoginChooserDocument> {
   const buttons = (layout: LoginChooserLayout) =>
     JSON.stringify([layout.other ?? null, layout.continue ?? null]);
-  const same = recipe.chooser.layouts.find((layout) => buttons(layout) === buttons(answer));
-  if (same) return { kind: "same", layout: same.key };
   const next = (layouts: LoginChooserLayout[]) => ({
     ...recipe,
     revision: recipe.revision + 1,
     chooser: { ...recipe.chooser, layouts },
   });
   const { layouts } = recipe.chooser;
+  const same = layouts.find((layout) => buttons(layout) === buttons(answer));
+  if (same) {
+    const button = answer.passkey?.passkey;
+    const held = same.passkey?.passkey;
+    if (!button || (held && sameLoginTarget(held.target, button.target)))
+      return { kind: "same", layout: same.key };
+    return {
+      kind: "merged",
+      layout: same.key,
+      recipe: next(
+        layouts.map((layout) =>
+          layout === same ? { ...layout, passkey: answer.passkey! } : layout,
+        ),
+      ),
+    };
+  }
   if (layouts.length < MAX_RECIPE_LAYOUTS)
     return { kind: "added", layout: answer.key, recipe: next([...layouts, answer]) };
   const removed = leastUsed(layouts, lastUsed);

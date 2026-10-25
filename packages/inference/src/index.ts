@@ -1,5 +1,6 @@
 export * from "./outcome";
 export * from "./plan";
+export * from "./account-list";
 export { classifyInferenceError } from "./errors";
 export {
   accountListGenerationInstructions,

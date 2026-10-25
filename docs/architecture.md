@@ -2490,36 +2490,41 @@ A third kind is a chooser recipe
 besides its identity, revision and origin is `chooser`: the path where a list of
 accounts shows and its [layouts](#recipe-layouts), each with the optional `other` and
 `continue` buttons and the optional `afterAccount` and `afterOther` branches, each a
-login recipe under the chooser's own ID, revision and origin. A chooser layout holds a
-branch only while `chooserRoute`, which puts the click on the list in front of it, makes
-a login recipe of it for every click that leads there. With that click, the branch has
-at most 31 steps, at most 7 of them clicks or fills that advance or submit, and room for
-`username` among its slots. Nothing on a button the login clicks on the list proves or
-hands off the sign-in (a signed-in marker, account switch, `password` handler button or
-`totp` code field), and the branch is not `passkeyOnly`, which the route drops. A
-generated page that would break this answers `recipe-invalid`, and a judged marker or
-handler that would is not learned. The entry to click is never stored. Like an entry
-recipe, it is validated, stored, synced, listed and revoked, and the extension never
-starts it yet. The service writes one when the model answers that a page with
-`accounts` is an account list, naming the list's `other` and `continue` controls by
-reference; the controls must be buttons or links of the page whose text holds no
-`[email]`, `[masked]`, `[number]`, `@` or run of four digits. The page's description
-also says how many of its listed accounts are entries the extension clicks itself
-(`accountEntries`); when none is, an answer naming neither control is refused
-(`no-list-control`), since nothing could lead on from the list. A request with `branch`
-(`<layout>:account` or `<layout>:other`) and the chooser as `base` generates that
-branch's next page: its first page when the branch is absent, with no alternatives and
-no passkey route as for any later page, or an append after the branch's final `advance`.
-The page judgement takes the same `branch` and learns a signed-in marker or handler into
-that branch, with the list's path among the login paths, and a list shown again is never
-judged. Each answer is the whole chooser at its next revision; a branch's page that
-loses its write to the other branch is written once more onto the newer chooser.
-Generation attempts and judged pages are keyed by branch too. A form page, or a route
-recipe's next page, whose stored recipe is a chooser still answers `recipe-conflict`.
-The extension sends a page that lists accounts once its DOM has been quiet for a second,
-or 5 seconds after it starts waiting (ADR 0057), unless it follows a submitted password
-form, with a username that is not an email and the other texts beside its buttons shown
-as `[account]` and with `slots: []`, which the service requires of a list
+login recipe under the chooser's own ID, revision and origin. A layout may also hold
+`passkey`, the passkey button shown beside the list as a passkey-only route on the
+list's path, which an item with a discoverable passkey takes instead of the list
+([ADR 0079](adr/0079-passkey-button-beside-an-account-list.md); the service stores it
+from the answer's `passkeyButton`, and the extension does not send or run it yet). A
+chooser layout holds a branch only while `chooserRoute`, which puts the click on the
+list in front of it, makes a login recipe of it for every click that leads there. With
+that click, the branch has at most 31 steps, at most 7 of them clicks or fills that
+advance or submit, and room for `username` among its slots. Nothing on a button the
+login clicks on the list proves or hands off the sign-in (a signed-in marker, account
+switch, `password` handler button or `totp` code field), and the branch is not
+`passkeyOnly`, which the route drops. A generated page that would break this answers
+`recipe-invalid`, and a judged marker or handler that would is not learned. The entry to
+click is never stored. Like an entry recipe, it is validated, stored, synced, listed and
+revoked, and the extension never starts it yet. The service writes one when the model
+answers that a page with `accounts` is an account list, naming the list's `other` and
+`continue` controls by reference; the controls must be buttons or links of the page
+whose text holds no `[email]`, `[masked]`, `[number]`, `@` or run of four digits. The
+page's description also says how many of its listed accounts are entries the extension
+clicks itself (`accountEntries`); when none is, an answer naming neither control is
+refused (`no-list-control`), since nothing could lead on from the list. A request with
+`branch` (`<layout>:account` or `<layout>:other`) and the chooser as `base` generates
+that branch's next page: its first page when the branch is absent, with no alternatives
+and no passkey route as for any later page, or an append after the branch's final
+`advance`. The page judgement takes the same `branch` and learns a signed-in marker or
+handler into that branch, with the list's path among the login paths, and a list shown
+again is never judged. Each answer is the whole chooser at its next revision; a branch's
+page that loses its write to the other branch is written once more onto the newer
+chooser. Generation attempts and judged pages are keyed by branch too. A form page, or a
+route recipe's next page, whose stored recipe is a chooser still answers
+`recipe-conflict`. The extension sends a page that lists accounts once its DOM has been
+quiet for a second, or 5 seconds after it starts waiting (ADR 0057), unless it follows a
+submitted password form, with a username that is not an email and the other texts beside
+its buttons shown as `[account]` and with `slots: []`, which the service requires of a
+list
 ([ADR 0028](adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots)),
 and caches the chooser it gets. A login on the list clicks the account's entry, the
 `continue` button or `other`, as the content script finds them for the account's
@@ -2548,7 +2553,7 @@ and the owner's bindings; the slots of all layouts together are at most 20, and 
 document is at most 120 KiB as JSON (`MAX_RECIPE_DOCUMENT_BYTES`), so a device can write
 back any document it synced within the 128 KiB body limit.
 Requests and the service's records name a layout in `branch`: `<key>`, or
-`<key>:account` and `<key>:other` for a chooser's branches.
+`<key>:account`, `<key>:other` and `<key>:passkey` for a chooser's branches.
 
 The device's recipe cache (version 2) keeps the documents and hands the login runtime a
 projection: one layout as a recipe of the earlier shape with `layout` set. The

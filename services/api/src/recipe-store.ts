@@ -3,6 +3,7 @@ import {
   runsLogin,
   storedLayouts,
   syncRecipeChangeSchema,
+  type ChooserBranch,
   type ManageLayoutSource,
   type StoredLoginRecipe,
   type SyncRecipeChange,
@@ -216,8 +217,9 @@ export async function writeRecipe(
     /**
      * Rows a layout the write adds takes over from another one, as the pages a later step's
      * repair copies from the stale layout (ADR 0041): copied before `from` may be dropped.
+     * With `branch`, each unit is copied under that chooser branch's prefix (ADR 0079).
      */
-    copied?: { from: string; to: string; units: readonly string[] };
+    copied?: { from: string; to: string; units: readonly string[]; branch?: ChooserBranch };
   } = {},
 ): Promise<
   | { ok: true; change: SyncRecipeChange }
@@ -438,7 +440,9 @@ export async function writeRecipe(
                 ownerId: recipeUnitSources.ownerId,
                 recipeId: recipeUnitSources.recipeId,
                 layout: sql`${copied.to}`.as("layout"),
-                unit: recipeUnitSources.unit,
+                unit: copied.branch
+                  ? sql`${`${copied.branch}/`} || ${recipeUnitSources.unit}`.as("unit")
+                  : recipeUnitSources.unit,
                 digest: recipeUnitSources.digest,
                 revision: recipeUnitSources.revision,
                 origin: recipeUnitSources.origin,

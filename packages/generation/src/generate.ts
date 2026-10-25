@@ -88,7 +88,7 @@ import {
   type UnitSources,
   type UnsentRequest,
 } from "./backend";
-import { chooserRepairWrite, repairBase, repairWrite } from "./repair";
+import { chooserRepairWrite, listPasskeyRoute, repairBase, repairWrite } from "./repair";
 import {
   branchUnit,
   ENTRY_UNIT,
@@ -676,6 +676,7 @@ export async function generateRecipe(
           accountList: true,
           ...(value.other ? { other: value.other.candidate } : {}),
           ...(value.continue ? { continue: value.continue.candidate } : {}),
+          ...(value.passkey ? { passkeyButton: value.passkey.candidate } : {}),
         };
       const { pageKind, irreversible, fields, action, accountSwitch, alternatives, passkeyButton } =
         value;
@@ -730,7 +731,7 @@ export async function generateRecipe(
     units: RecipeUnit[],
     customSlots: { slot: string; offered: string }[] = [],
     rebase?: (head: SyncRecipeChange | null) => Promise<StoredLoginRecipe | undefined>,
-    copied?: { from: string; to: string; units: string[] },
+    copied?: { from: string; to: string; units: string[]; branch?: ChooserBranch },
   ): Promise<RecipeGenerationResult> => {
     let next = recipe;
     let expectedRevision = baseRevision;
@@ -784,12 +785,24 @@ export async function generateRecipe(
       : unavailable("recipe-conflict");
   };
   if ("accountList" in value) {
+    // The passkey button beside the list is the layout's passkey route (ADR 0079): a
+    // passkey-only recipe whose start page became the list keeps its layout for the same
+    // button, with what it learned.
+    const passkey =
+      value.passkey &&
+      listPasskeyRoute(
+        path,
+        value.passkey.target,
+        repaired && "layouts" in repaired ? repaired : undefined,
+      );
+    const passkeyUnit = { layout: meta.key, unit: branchUnit("passkey", pageUnit(0)) };
     // The list becomes a chooser recipe with one layout and no branches; each branch is
     // generated once a login takes it (ADR 0028).
     const layout = {
       ...meta,
       ...(value.other ? { other: value.other.target } : {}),
       ...(value.continue ? { continue: value.continue.target } : {}),
+      ...(passkey ? { passkey: passkey.route } : {}),
     };
     // A chooser's repaired list is a layout beside its others (ADR 0041); a login or entry
     // recipe whose start page became a list is replaced by the chooser.
@@ -798,9 +811,14 @@ export async function generateRecipe(
       const written = chooserRepairWrite(repaired, layout, (key) => uses?.get(key));
       if (written.kind === "same") return unchanged();
       const recipe = document(written.recipe);
-      return recipe
-        ? save(recipe, [{ layout: written.layout, unit: LIST_UNIT }])
-        : failed("recipe-invalid");
+      if (!recipe) return failed("recipe-invalid");
+      const button = { ...passkeyUnit, layout: written.layout };
+      return save(
+        recipe,
+        written.kind === "merged"
+          ? [button]
+          : [{ layout: written.layout, unit: LIST_UNIT }, ...(passkey ? [button] : [])],
+      );
     }
     const recipe = document({
       version: 1,
@@ -809,9 +827,26 @@ export async function generateRecipe(
       origin,
       chooser: { path, layouts: [layout] },
     });
-    return recipe
-      ? save(recipe, [{ layout: meta.key, unit: LIST_UNIT }])
-      : failed("recipe-invalid");
+    if (!recipe) return failed("recipe-invalid");
+    // This call named the button again, so the passkey route's page is its own; a kept
+    // layout's handlers and markers keep the calls that made them.
+    const kept = passkey?.from;
+    const route = passkey?.route;
+    const learned = route
+      ? [
+          ...(route.handlers ?? []).map((_, index) => handlerUnit(index)),
+          ...(route.completion ?? []).map((_, index) => markerUnit(index)),
+        ]
+      : [];
+    return save(
+      recipe,
+      [{ layout: meta.key, unit: LIST_UNIT }, ...(passkey ? [passkeyUnit] : [])],
+      undefined,
+      undefined,
+      kept !== undefined && learned.length
+        ? { from: kept, to: meta.key, branch: "passkey", units: learned }
+        : undefined,
+    );
   }
   const built = buildLoginLayout(
     baseRecipe,

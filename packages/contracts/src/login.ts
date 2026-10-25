@@ -1209,6 +1209,7 @@ const chooserRecipeEntriesSchema = v.strictObject({
     continue: v.optional(chooserTargetSchema),
     afterAccount: v.optional(loginRecipeSchema),
     afterOther: v.optional(loginRecipeSchema),
+    passkey: v.optional(loginRecipeSchema),
   }),
 });
 /**
@@ -1225,6 +1226,10 @@ const chooserRecipeEntriesSchema = v.strictObject({
  * ID, origin, revision and layout. A branch is absent until a login takes it and its page
  * is generated as an ADR 0018 continuation.
  *
+ * `passkey` is the passkey button shown beside the list (ADR 0079): a passkey-only route
+ * (ADR 0053) on the list's path, which an item with a discoverable passkey takes instead
+ * of the list, under the same ID, origin, revision and layout.
+ *
  * A login on the list runs `chooserRoute` for what it clicks there, so a branch is held
  * only when that route is a recipe for every click that leads to it. With the click on
  * the list in front, a branch has at most 31 steps, at most 7 of them clicks or fills
@@ -1235,7 +1240,7 @@ export const loginChooserRecipeSchema = v.pipe(
   chooserRecipeEntriesSchema,
   v.check(
     ({ id, revision: current, origin, layout, chooser }) =>
-      [chooser.afterAccount, chooser.afterOther].every(
+      [chooser.afterAccount, chooser.afterOther, chooser.passkey].every(
         (branch) =>
           !branch ||
           (branch.id === id &&
@@ -1255,6 +1260,10 @@ export const loginChooserRecipeSchema = v.pipe(
   v.check(
     ({ chooser }) => !chooser.afterOther || chooser.other !== undefined,
     "A chooser has an other-account branch only with its button",
+  ),
+  v.check(
+    ({ chooser }) => !chooser.passkey || passkeyBesideList(chooser.path, chooser.passkey),
+    "A chooser's passkey route is a passkey-only route on its path",
   ),
   // A branch runs only as `chooserRoute` builds it, so every click that leads to it must
   // make a recipe of it.
@@ -1341,6 +1350,8 @@ export const loginChooserLayoutSchema = v.pipe(
     continue: v.optional(chooserTargetSchema),
     afterAccount: v.optional(loginRouteBodySchema),
     afterOther: v.optional(loginRouteBodySchema),
+    /** The passkey button beside the list, as a passkey-only route (ADR 0079). */
+    passkey: v.optional(loginRouteBodySchema),
   }),
   v.check(
     (layout) =>
@@ -1385,7 +1396,9 @@ export const loginChooserDocumentSchema = v.pipe(
     ({ chooser }) =>
       routeSlotCount(
         chooser.layouts.flatMap((layout) =>
-          [layout.afterAccount, layout.afterOther].filter((branch) => branch !== undefined),
+          [layout.afterAccount, layout.afterOther, layout.passkey].filter(
+            (branch) => branch !== undefined,
+          ),
         ),
       ) <= 20,
     "Too many recipe slots",
@@ -1393,11 +1406,18 @@ export const loginChooserDocumentSchema = v.pipe(
   v.check(
     ({ origin, chooser }) =>
       chooser.layouts.every((layout) =>
-        [layout.afterAccount, layout.afterOther].every(
+        [layout.afterAccount, layout.afterOther, layout.passkey].every(
           (branch) => !branch || markersOffOrigin(origin, branch),
         ),
       ),
     "Completion marker names the recipe's own origin",
+  ),
+  v.check(
+    ({ chooser }) =>
+      chooser.layouts.every(
+        (layout) => !layout.passkey || passkeyBesideList(chooser.path, layout.passkey),
+      ),
+    "A chooser's passkey route is a passkey-only route on its path",
   ),
   v.check(
     (recipe) =>
@@ -1687,6 +1707,7 @@ export function chooserLayoutRecipe(
     };
   const afterAccount = branch(layout.afterAccount);
   const afterOther = branch(layout.afterOther);
+  const passkey = branch(layout.passkey);
   return {
     version: 1,
     id: recipe.id,
@@ -1699,6 +1720,7 @@ export function chooserLayoutRecipe(
       ...(layout.continue ? { continue: layout.continue } : {}),
       ...(afterAccount ? { afterAccount } : {}),
       ...(afterOther ? { afterOther } : {}),
+      ...(passkey ? { passkey } : {}),
     },
   };
 }
@@ -1716,13 +1738,14 @@ export function findChooserLayout(
 }
 /** A chooser a login ran, stored back as the layout `meta` names (ADR 0060). */
 export function toChooserLayout(recipe: LoginChooserRecipe, meta: LayoutMeta): LoginChooserLayout {
-  const { other, continue: next, afterAccount, afterOther } = recipe.chooser;
+  const { other, continue: next, afterAccount, afterOther, passkey } = recipe.chooser;
   return {
     ...layoutMeta(meta),
     ...(other ? { other } : {}),
     ...(next ? { continue: next } : {}),
     ...(afterAccount ? { afterAccount: routeBodyOf(afterAccount) } : {}),
     ...(afterOther ? { afterOther: routeBodyOf(afterOther) } : {}),
+    ...(passkey ? { passkey: routeBodyOf(passkey) } : {}),
   };
 }
 /** The chooser with `layout` in place of the layout of the same key, or added after them. */
@@ -1810,14 +1833,17 @@ export function newLayoutKey(createdAt: number, taken: readonly string[]): strin
  * A branch of a chooser recipe (ADR 0028): the page after a listed or shown account
  * (`account`), or after the `other` button (`other`).
  */
-export const chooserBranchSchema = v.picklist(["account", "other"]);
+export const chooserBranchSchema = v.picklist(["account", "other", "passkey"]);
 export type ChooserBranch = v.InferOutput<typeof chooserBranchSchema>;
 /**
  * Which route of a stored recipe a record or request is about (ADR 0060): a layout's key,
  * and for a chooser (ADR 0028) the branch after a colon, such as `1760000000000:account`.
  * The service keeps it in the `branch` columns of its records.
  */
-export const recipeBranchSchema = v.pipe(v.string(), v.regex(/^\d{1,16}(?::(?:account|other))?$/u));
+export const recipeBranchSchema = v.pipe(
+  v.string(),
+  v.regex(/^\d{1,16}(?::(?:account|other|passkey))?$/u),
+);
 /**
  * The branch name of a layout and chooser branch (ADR 0060): the key, then the chooser
  * branch after a colon.
@@ -1853,7 +1879,11 @@ export function storedBranchRoute(
   const chooser = findChooserLayout(recipe, named.layout);
   return chooser && { route: chooserBranch(chooser, named.branch), chooser };
 }
-const branchMember = { account: "afterAccount", other: "afterOther" } as const;
+const branchMember = {
+  account: "afterAccount",
+  other: "afterOther",
+  passkey: "passkey",
+} as const;
 /** A chooser's route recipe for one branch, if a login generated it already. */
 export function chooserBranch(
   recipe: LoginChooserRecipe,
@@ -1863,7 +1893,7 @@ export function chooserBranch(
 }
 /**
  * The chooser with one branch replaced by `next`, as the revision `next` carries: the
- * other branch, if any, moves to that revision unchanged, since every branch has its
+ * other branches, if any, move to that revision unchanged, since every branch has its
  * chooser's revision.
  */
 export function withChooserBranch(
@@ -1871,22 +1901,14 @@ export function withChooserBranch(
   branch: ChooserBranch,
   next: LoginRecipe,
 ): LoginChooserRecipe {
-  const other = chooserBranch(recipe, branch === "account" ? "other" : "account");
+  const others = chooserBranchSchema.options.flatMap((name) => {
+    const other = name === branch ? undefined : chooserBranch(recipe, name);
+    return other ? [[branchMember[name], { ...other, revision: next.revision }] as const] : [];
+  });
   return {
     ...recipe,
     revision: next.revision,
-    chooser: {
-      ...recipe.chooser,
-      ...(other
-        ? {
-            [branchMember[branch === "account" ? "other" : "account"]]: {
-              ...other,
-              revision: next.revision,
-            },
-          }
-        : {}),
-      [branchMember[branch]]: next,
-    },
+    chooser: { ...recipe.chooser, ...Object.fromEntries(others), [branchMember[branch]]: next },
   };
 }
 /**
@@ -1896,15 +1918,35 @@ export function withChooserBranch(
 export const listClickSchema = v.picklist(["entry", "continue", "other"]);
 export type ListClick = v.InferOutput<typeof listClickSchema>;
 /**
- * How a chooser login (ADR 0028) entered its branch: by its click on the list, or
+ * How a chooser login (ADR 0028) entered its branch: by its click on the list,
  * `other-shown` when its path already showed the `other` branch's form instead of the
- * list, as after the person pressed the button for another account, so it clicked nothing.
+ * list, as after the person pressed the button for another account, so it clicked nothing,
+ * or `passkey` when it pressed the passkey button beside the list instead (ADR 0079).
  */
-export const chooserClickSchema = v.picklist([...listClickSchema.options, "other-shown"]);
+export const chooserClickSchema = v.picklist([
+  ...listClickSchema.options,
+  "other-shown",
+  "passkey",
+]);
 export type ChooserClick = v.InferOutput<typeof chooserClickSchema>;
 /** The branch a click on the list leads to, or the branch already shown. */
 export const chooserClickBranch = (click: ChooserClick): ChooserBranch =>
-  click === "other" || click === "other-shown" ? "other" : "account";
+  click === "passkey"
+    ? "passkey"
+    : click === "other" || click === "other-shown"
+      ? "other"
+      : "account";
+/**
+ * Whether `route` is a passkey-only route (ADR 0053) whose button is on the list's `path`,
+ * as a chooser's `passkey` must be (ADR 0079).
+ */
+function passkeyBesideList(listPath: string, route: LoginRouteBody): boolean {
+  return (
+    route.passkeyOnly === true &&
+    route.passkey?.path === listPath &&
+    route.steps.every((step) => step.path === listPath)
+  );
+}
 /**
  * The locator a chooser login's click on an account entry carries. It names no element:
  * the content script finds the entry of the account the worker chose, by the rule of ADR
@@ -1925,6 +1967,8 @@ export function chooserRoute(
   recipe: LoginChooserRecipe,
   click: ChooserClick,
 ): LoginRecipe | undefined {
+  // The passkey button beside the list is its own route, stored whole (ADR 0079).
+  if (click === "passkey") return recipe.chooser.passkey;
   if (click === "other-shown") {
     const shown = recipe.chooser.afterOther;
     if (!shown || shown.steps[0]!.path !== recipe.chooser.path) return undefined;
@@ -1979,6 +2023,7 @@ function chooserClicks(recipe: LoginChooserRecipe): ChooserClick[] {
     ...(chooser.continue ? (["continue"] as const) : []),
     ...(chooser.other ? (["other"] as const) : []),
     ...(chooser.afterOther?.steps[0]!.path === chooser.path ? (["other-shown"] as const) : []),
+    ...(chooser.passkey ? (["passkey"] as const) : []),
   ];
 }
 /**
@@ -1991,9 +2036,11 @@ export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
     "layouts" in recipe
       ? recipeLayouts(recipe)
       : chooserLayouts(recipe).flatMap((chooser) =>
-          [chooser.chooser.afterAccount, chooser.chooser.afterOther].filter(
-            (branch) => branch !== undefined,
-          ),
+          [
+            chooser.chooser.afterAccount,
+            chooser.chooser.afterOther,
+            chooser.chooser.passkey,
+          ].filter((branch) => branch !== undefined),
         );
   return [...new Set(routes.flatMap(recipeSlots))];
 }

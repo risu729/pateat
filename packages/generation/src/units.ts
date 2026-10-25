@@ -13,7 +13,8 @@ import type { ChooserBranch, LoginRouteBody, StoredLoginRecipe } from "@pateat/c
 //   at index `i`: the judge only appends them, and only a device's write may reorder or
 //   remove them, which the unit digests catch.
 // - `list` a chooser layout's list buttons (`other`, `continue`).
-// - `account/<unit>` and `other/<unit>` a unit of that chooser layout's branch's route.
+// - `account/<unit>` and `other/<unit>` a unit of that chooser layout's branch's route,
+//   and `passkey/<unit>` one of its passkey route beside the list (ADR 0079).
 // - `entry` an entry recipe (ADR 0031), which has no layout.
 // - `logout` a logout recipe's clicks (ADR 0063), which has no layout either.
 //
@@ -38,7 +39,7 @@ export const markerUnit = (index: number) => `marker:${index}`;
 export const branchUnit = (branch: ChooserBranch | undefined, unit: string) =>
   branch ? `${branch}/${unit}` : unit;
 
-const PAGE_UNIT = /^(?:(account|other)\/)?page:(\d+)$/;
+const PAGE_UNIT = /^(?:(account|other|passkey)\/)?page:(\d+)$/;
 
 /**
  * Each unit of a route with its content: its pages, split where `starts` say a page began
@@ -152,6 +153,14 @@ export async function documentUnits(
                       layout.afterOther,
                       startsOf(layout.key, "other"),
                       "other",
+                      undefined,
+                    )
+                  : []),
+                ...(layout.passkey
+                  ? routeContents(
+                      layout.passkey,
+                      startsOf(layout.key, "passkey"),
+                      "passkey",
                       undefined,
                     )
                   : []),

@@ -121,6 +121,13 @@ function recipeFacts(recipe: LoginRecipe | LoginChooserRecipe): {
         ["Another account", chooser.other ? `Click ${describeTarget(chooser.other)}` : "None"],
         ["After an account", branch(chooser.afterAccount)],
         ["After another account", branch(chooser.afterOther)],
+        [
+          // The passkey button beside the list (ADR 0079), its own passkey-only route.
+          "Passkey sign-in",
+          chooser.passkey?.passkey
+            ? `Click ${describeTarget(chooser.passkey.passkey.target)} for an account with a discoverable passkey; another account uses the list`
+            : "None",
+        ],
       ],
       variants: [],
     };
