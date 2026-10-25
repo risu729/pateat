@@ -1,3 +1,4 @@
+import { perfFlush, perfMark, perfReset } from "../perf-probe";
 import {
   connectionUse,
   getItemEligibility,
@@ -71,12 +72,14 @@ export async function findSiteAccounts(input: {
     ...catalog,
     connections: catalog.connections.filter((entry) => entry.provider !== "dummy"),
   };
+  const perfStart = performance.now();
   const uris = await findLiveSiteCandidates({
     settings,
     catalog: live,
     url: `${input.origin}/`,
     match: input.matchUris,
   });
+  perfMark("match-uris", performance.now() - perfStart);
   if (!uris.ok) return { version: 1, ok: false, reason: "invalid-request" };
   for (const entry of uris.candidates) add(entry.connectionId, entry.itemId, "uri");
   // An item whose rules could not be evaluated may still match; never report "no match".
@@ -106,6 +109,7 @@ export async function findSiteAccounts(input: {
     if (!found.complete) complete = false;
     for (const entry of found.candidates) add(entry.connectionId, entry.itemId, "passkey");
   }
+  perfMark("uris+passkeys", performance.now() - perfStart);
   // Only matched items, so same-named items can be told apart; no other value is read. They
   // are read together, so the settings and each vault are checked once for all of them.
   if (input.readFields) {
@@ -136,6 +140,7 @@ export async function findSiteAccounts(input: {
           )
           .catch(() => [])
       : [];
+    perfMark("usernames done", performance.now() - perfStart);
     for (const [index, { account }] of read.entries()) {
       const username = usernames[index];
       if (username) account.username = username.slice(0, 1024);
@@ -158,9 +163,13 @@ export function createSiteAccountsHandler(options: {
     // overlapped, such as a login saving its picked account as the default, misses that
     // username; a search with a missed read while the settings changed is made again, at
     // most twice.
+    const perfAnswer = performance.now();
     for (let attempt = 0; ; attempt += 1) {
       // oxlint-disable-next-line no-await-in-loop -- each search reads the settings anew
+      if (attempt === 0) perfReset();
+      const perfGet = performance.now();
       const saved = await options.settings.handle({ version: 1, type: "settings.get" });
+      perfMark("handler settings.get", performance.now() - perfGet);
       if (!saved.ok) return { version: 1, ok: false, reason: "unavailable" };
       const { readFields } = options;
       let missed = false;
@@ -187,7 +196,10 @@ export function createSiteAccountsHandler(options: {
             }
           : {}),
       });
-      if (attempt === 2 || !missed) return found;
+      if (attempt === 2 || !missed) {
+        await perfFlush(performance.now() - perfAnswer);
+        return found;
+      }
       // oxlint-disable-next-line no-await-in-loop -- compares with the settings searched
       const latest = await options.settings.handle({ version: 1, type: "settings.get" });
       if (!latest.ok || latest.snapshot.revision === saved.snapshot.revision) return found;

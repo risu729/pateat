@@ -1,3 +1,4 @@
+import { perfMark } from "../perf-probe";
 import * as v from "valibot";
 import {
   createBitwardenTransport,
@@ -196,14 +197,18 @@ export function createConnectionRuntime(
     let handle = vault.manager.status().handle;
     if (!handle) {
       if (!restore) throw new Error("vault-closed");
+      const perfR = performance.now();
       const restored = await vault.manager.restore();
+      perfMark("vault restore", performance.now() - perfR);
       if (!restored.ok)
         throw new Error(
           restored.error.code === "vault-locked" ? "vault-locked" : "vault-unavailable",
         );
       handle = restored.data.handle;
     }
+    const perfP = performance.now();
     const projected = await vault.manager.catalog(handle);
+    perfMark("manager.catalog", performance.now() - perfP);
     if (!projected.ok || projected.data.snapshotId !== record.data.accepted.snapshotId)
       throw new Error("vault-unavailable");
     return {
@@ -236,7 +241,9 @@ export function createConnectionRuntime(
       try {
         // Native sessions are limited. A failure is visible, never a fabricated ready catalog.
         // eslint-disable-next-line no-await-in-loop
+        const perfC = performance.now();
         const value = await current(configuration.profile.connectionId);
+        perfMark("catalog current()", performance.now() - perfC);
         // eslint-disable-next-line no-await-in-loop
         const connection = withEvidence(value.catalog, await itemEvidence(value.entry));
         const review = reviewBlockedItems(snapshot, connection);
@@ -622,7 +629,10 @@ export function createConnectionRuntime(
         ? eligibility.fieldIds
         : undefined;
     };
+    let perfT = performance.now();
     const saved = await settings.handle({ version: 1, type: "settings.get" });
+    perfMark("batch settings.get before", performance.now() - perfT);
+    perfT = performance.now();
     if (!saved.ok) return failed("storage-uncertain");
     const results: Awaited<ReturnType<LocalVaultManager["resolveField"]>>[] = [];
     // Each connection's fields go to its vault together, under one durable check.
@@ -666,7 +676,10 @@ export function createConnectionRuntime(
     }
     // A change during the reads, such as a pairing's settings sync or a vault the timeout
     // could not close, refuses the fields read after it, as a read before each field would.
+    perfMark("batch vault reads", performance.now() - perfT);
+    perfT = performance.now();
     const latest = await settings.handle({ version: 1, type: "settings.get" });
+    perfMark("batch settings.get after", performance.now() - perfT);
     if (!latest.ok || latest.snapshot.revision !== saved.snapshot.revision)
       return failed("field-denied");
     return results.map((result, index) =>

@@ -1,3 +1,4 @@
+import { perfMark } from "../perf-probe";
 import * as v from "valibot";
 import {
   admitPreparedBitwardenAccount,
@@ -1100,7 +1101,10 @@ export function createLocalVaultManager(options: {
         captured.map(() => vaultFailure(code));
       if (!validHandle(handle) || !live) return all("stale-vault-handle");
       const currentLive = live;
+      let perfD = performance.now();
       const before = await checkDurable(currentLive);
+      perfMark("durable check", performance.now() - perfD);
+      perfD = performance.now();
       if (!before.ok) return all(before.error.code);
       if (!validHandle(handle)) return all("stale-vault-handle");
       const results = [];
@@ -1119,6 +1123,7 @@ export function createLocalVaultManager(options: {
         );
         results.push(result);
       }
+      perfMark(`host resolve x${captured.length}`, performance.now() - perfD);
       const after = await checkDurable(currentLive);
       if (!after.ok) return all(after.error.code);
       return validHandle(handle) && live === currentLive ? results : all("stale-vault-handle");

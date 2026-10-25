@@ -13,6 +13,7 @@ import {
   type SiteAccountsResponse,
 } from "@pateat/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { browser } from "wxt/browser";
 import {
   CalendarDays,
   CircleCheck,
@@ -599,6 +600,10 @@ export function SiteApp({
       message.current?.focus({ preventScroll: true });
     wasBusy.current = busy;
   }, [busy]);
+  const perfMount = useRef(performance.now());
+  const perfSettings = useRef<number>(undefined);
+  const perfAccounts = useRef<number>(undefined);
+  const [perfLine, setPerfLine] = useState("");
   const tab = useQuery({
     queryKey: ["popup", "tab"],
     queryFn: async () => (await host.currentTab()) ?? null,
@@ -714,6 +719,26 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
+  if (!settings.isPending && perfSettings.current === undefined)
+    perfSettings.current = performance.now();
+  if (accounts.isSuccess && perfAccounts.current === undefined) {
+    perfAccounts.current = performance.now();
+    void browser.storage.session.get("pateat.perf-probe").then((value) => {
+      const worker = value["pateat.perf-probe"] as
+        | { workerAgeMs: number; totalMs: number; marks: [string, number][] }
+        | undefined;
+      setPerfLine(
+        [
+          `open->mount ${Math.round(perfMount.current)} ms`,
+          `settings ${Math.round((perfSettings.current ?? 0) - perfMount.current)} ms`,
+          `accounts ${Math.round(perfAccounts.current! - perfMount.current)} ms`,
+          worker
+            ? `worker: up ${Math.round(worker.workerAgeMs / 1000)} s, listing ${worker.totalMs} ms; ${worker.marks.map(([label, ms]) => `${label} ${ms}`).join(", ")}`
+            : "worker: no marks",
+        ].join(" | "),
+      );
+    });
+  }
 
   /** Saves a change to the settings; false when it was not saved. */
   async function change(
@@ -1643,6 +1668,11 @@ export function SiteApp({
         </p>
       )}
       {body}
+      {perfLine && (
+        <pre id="perf-probe" style={{ whiteSpace: "pre-wrap", fontSize: 10, userSelect: "all" }}>
+          {perfLine}
+        </pre>
+      )}
     </main>
   );
 }
