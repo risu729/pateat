@@ -38,6 +38,7 @@ import {
   keypadStep,
   loginStepEffect,
   parseAttemptMetadata,
+  WATCH_PATH_MAX,
   passkeyAnswersRequest,
   passwordStopOrMiss,
   passwordVariants,
@@ -623,6 +624,11 @@ type LiveDocument = {
    * browser did not say, and then either window kind's pause counts.
    */
   incognito?: boolean;
+  /**
+   * The document's path after a same-document URL change it reported since it announced
+   * (`login.document.moved`), as the tab's URL shows it (ADR 0027 amendment of 2026-10-25).
+   */
+  route?: string;
   state?: string;
   reason?: string;
   /** The detail of the refusal `reason` names, as the log has it, if any. */
@@ -992,11 +998,10 @@ type Execution = {
    */
   heldClick?: number;
   /**
-   * The document's path changed in place since the login was last read (ADR 0027
-   * amendment of 2026-10-25): a login watched in the document its watch began in reads
-   * that route once, as the tab's next page.
+   * The path the login's document showed when it was last observed, which a watch that
+   * begins there keeps (ADR 0027 amendment of 2026-10-25).
    */
-  routed?: true;
+  readPath?: { documentId: string; path: string };
   /**
    * The elements of the step after an advance on the same path, as the document measured
    * them in the same task as the advance, just before it (ADR 0013): only elements that
@@ -1175,14 +1180,19 @@ const settledHere = (run: Execution) =>
 const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
   metadata.watch !== undefined &&
   (now - metadata.watch.since >= WATCH_MS || now < metadata.watch.since);
+/** The document's path now, after any route it took in place since it announced. */
+const pathNow = (live: LiveDocument) => live.route ?? live.path;
 /**
- * Whether a login is watched (ADR 0027) in the top document its watch began in, and the
- * watch still lasts: a route of that document is read as the tab's next page.
+ * Whether a login is watched (ADR 0027) in the top document its watch began in, the watch
+ * still lasts, and that document took another route in place than the one the login was
+ * last read on: that route is read once as the tab's next page (ADR 0027 amendment of
+ * 2026-10-25).
  */
-const watchedHere = (run: Execution) =>
+const routedHere = (run: Execution) =>
   run.live.document.frameId === 0 &&
   (run.metadata.state === "watching" || settledHere(run)) &&
-  run.metadata.watch?.documentId === run.live.document.documentId &&
+  run.metadata.watch?.path !== undefined &&
+  run.metadata.watch.path !== pathNow(run.live) &&
   !watchOver(run.metadata, Date.now());
 
 /**
@@ -4780,6 +4790,18 @@ export function createLoginRuntime(
       run.live.document.frameId === 0 ? run.live.document.origin : undefined,
     );
     countRelogin(previous, run.metadata, run.live.incognito === true);
+    // A watch that begins in this document keeps the path the login was last read on, so
+    // a route the document takes later is read (ADR 0027 amendment of 2026-10-25).
+    const { watch } = run.metadata;
+    if (watch && watch.path === undefined && watch.documentId === run.live.document.documentId) {
+      const path =
+        run.readPath?.documentId === watch.documentId ? run.readPath.path : pathNow(run.live);
+      if (path.length <= WATCH_PATH_MAX)
+        run.metadata = parseAttemptMetadata({ ...run.metadata, watch: { ...watch, path } });
+      // The path the document announced may lag a route it took without a move reported
+      // to this worker, as before the login carried it; the reading is the page's own.
+      run.live.route ??= path;
+    }
     if (signedInNow(previous, run.metadata)) void endPickedPause(run.metadata, run.live);
     // Settling as unknown keeps the state, but it is how a login ends without a result.
     const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
@@ -6308,6 +6330,8 @@ export function createLoginRuntime(
     if (!current(run)) return undefined;
     const parsed = v.safeParse(observationSchema, response);
     if (probeMode && parsed.success) run.live.observations = (run.live.observations ?? 0) + 1;
+    if (parsed.success)
+      run.readPath = { documentId: run.live.document.documentId, path: parsed.output.path };
     return parsed.success ? parsed.output : undefined;
   }
   /**
@@ -9966,16 +9990,22 @@ export function createLoginRuntime(
     } finally {
       run.running = false;
       // A route the document took while the login was read is read once it is watched.
-      if (run.routed && current(run) && watchedHere(run)) void drive(run);
-      else delete run.routed;
+      if (current(run) && routedHere(run)) void drive(run);
     }
   }
   /** Runs the attempt's steps until it leaves `ready`; `drive` owns errors and retries. */
   async function runSteps(run: Execution): Promise<void> {
     // A route the watch's own document took since, as a single-page site's after its
-    // sign-in, is read once as the tab's next page (ADR 0027 amendment of 2026-10-25).
-    const routed = run.routed === true && watchedHere(run);
-    delete run.routed;
+    // sign-in, is read once as the tab's next page, recorded first so a restarted worker
+    // does not read it again (ADR 0027 amendment of 2026-10-25).
+    const routed = routedHere(run);
+    if (routed) {
+      run.metadata = parseAttemptMetadata({
+        ...run.metadata,
+        watch: { ...run.metadata.watch, path: pathNow(run.live) },
+      });
+      await save(run);
+    }
     if (run.metadata.state === "watching") {
       await watchPage(run, routed);
       return;
@@ -15217,19 +15247,16 @@ export function createLoginRuntime(
     }
     if (v.safeParse(movedSchema, message).success) {
       // A route of the document a login is watched in, or one it took while the login was
-      // read, is read once (ADR 0027 amendment of 2026-10-25).
+      // read, is read once (ADR 0027 amendment of 2026-10-25). The tab's URL shows it.
       const document = await identify(sender);
       const run = document ? attempts.get(document.tabId) : undefined;
-      if (
-        document &&
-        run &&
-        current(run) &&
-        sameLoginDocument(run.live.document, document) &&
-        (run.running || watchedHere(run))
-      ) {
-        run.routed = true;
-        void drive(run);
-      }
+      if (!document || document.frameId !== 0 || !run || !current(run)) return undefined;
+      if (!sameLoginDocument(run.live.document, document)) return undefined;
+      const tab = await browser.tabs.get(document.tabId).catch(() => undefined);
+      const url = tab?.url ? URL.parse(tab.url) : null;
+      if (!url || url.origin !== document.origin || !current(run)) return undefined;
+      run.live.route = observedPath(url.pathname);
+      if (routedHere(run)) void drive(run);
       return undefined;
     }
     if (v.safeParse(submittedSchema, message).success) {

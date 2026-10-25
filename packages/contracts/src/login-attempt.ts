@@ -65,6 +65,8 @@ export const MAX_ATTEMPT_SUBMISSIONS = 12;
 const MAX_ENTERED_HANDLERS = 4;
 /** Pages the model may judge after one effect step (ADR 0027). */
 export const MAX_JUDGED_PAGES = 2;
+/** The longest path a watch keeps for its own document; a longer one is not kept. */
+export const WATCH_PATH_MAX = 2048;
 /** Steps and effects a continuation may add: one page of a recipe (ADR 0018). */
 const MAX_RECIPE_STEPS = 32;
 const MAX_RECIPE_EFFECTS = 8;
@@ -208,13 +210,17 @@ export const attemptMetadataSchema = v.pipe(
      * A top-level `password` login watched after its result stopped at `challenge`
      * (`watching`) or settled as unknown (ADR 0027): since when, in epoch milliseconds, the
      * document it began in, and the pages sent to be judged since, apart from the effect
-     * step's own (`judged`). Kept by `transitionLoginAttempt`.
+     * step's own (`judged`). Kept by `transitionLoginAttempt`. `path` is the path of that
+     * document the login was last read on, as the runtime observes it, so a route the
+     * document takes in place, as a single-page site's, is read once as the tab's next page,
+     * also after a worker restart (ADR 0027 amendment of 2026-10-25).
      */
     watch: v.optional(
       v.strictObject({
         since: v.pipe(v.number(), v.integer(), v.minValue(0)),
         documentId: identifier,
         pages: integer(MAX_JUDGED_PAGES),
+        path: v.optional(v.pipe(v.string(), v.startsWith("/"), v.maxLength(WATCH_PATH_MAX))),
       }),
     ),
     /**
