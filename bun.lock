@@ -72,7 +72,7 @@
       "name": "@pateat/bitwarden",
       "version": "0.1.0",
       "dependencies": {
-        "@bitwarden/sdk-internal": "0.2.0-main.1153",
+        "@bitwarden/sdk-internal": "0.2.0-main.1155",
         "cbor2": "2.4.0",
         "otpauth": "9.5.2",
         "tldts": "7.4.19",
@@ -178,7 +178,7 @@
 
     "@bcoe/v8-coverage": ["@bcoe/v8-coverage@1.0.2", "", {}, "sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA=="],
 
-    "@bitwarden/sdk-internal": ["@bitwarden/sdk-internal@0.2.0-main.1153", "", { "dependencies": { "type-fest": "^5.0.0" } }, "sha512-S8X67c3txZSaQjuqZlQYWNOvg1oG+pmAC2VNjR5h3tqFN32zjwtbtZqdtkYimqe+hIWUBjtjc5eGBxDez+Yqwg=="],
+    "@bitwarden/sdk-internal": ["@bitwarden/sdk-internal@0.2.0-main.1155", "", { "dependencies": { "type-fest": "^5.0.0" } }, "sha512-SWDh0aMx7m7zV6r9+elQyH9xCJDqUu9mDPZPrtPxJxgkinYvIM+qv7F+qLCAV1EFhjqquIGL5EIU7EoWaiQhIQ=="],
 
     "@blazediff/core": ["@blazediff/core@1.10.0", "", {}, "sha512-AOQff0zgR7cGsZL+4E7hVkmujoPUpm0J9xzWGWZj5wCjd3gmxESXAPfKyuzs93VdpQNFhHlBhfOjrcZ+XTERtQ=="],
 
