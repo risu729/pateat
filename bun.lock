@@ -51,7 +51,7 @@
         "@tanstack/react-form": "1.33.5",
         "@tanstack/react-query": "5.104.5",
         "@webext-core/messaging": "4.0.0",
-        "i18next": "26.5.8",
+        "i18next": "26.5.10",
         "idb": "8.0.4",
         "lucide-react": "1.61.0",
         "react": "19.3.1",
@@ -846,7 +846,7 @@
 
     "htmlparser2": ["htmlparser2@10.1.0", "", { "dependencies": { "domelementtype": "^2.3.0", "domhandler": "^5.0.3", "domutils": "^3.2.2", "entities": "^7.0.1" } }, "sha512-VTZkM9GWRAtEpveh7MSF6SjjrpNVNNVJfFup7xTY3UpFtm67foy9HDVXneLtFVt4pMz5kZtgNcvCniNFb1hlEQ=="],
 
-    "i18next": ["i18next@26.5.8", "", { "peerDependencies": { "typescript": "^5 || ^6 || ^7" }, "optionalPeers": ["typescript"] }, "sha512-EQx2RyhwINMekbykhZpAJQ2ILeJqnYOpRjWEkSVv45pR8yeVbb0thr2zxQ+dOo365OIb7h06BKPtt16WE8Wliw=="],
+    "i18next": ["i18next@26.5.10", "", { "peerDependencies": { "typescript": "^5 || ^6 || ^7" }, "optionalPeers": ["typescript"] }, "sha512-YS4EiLQhhk0wGThm4Zy+BL2c9rBNIK+kAbksi4l/B+D6kVRQLIFZgu2b/MU2LibJJHwWNTYoOYR52T+jfV8kPQ=="],
 
     "idb": ["idb@8.0.4", "", {}, "sha512-jd0ITCrN+Zah4J7R/Z2jnR3W7A4BXDAjmo62MwWuSjxCiueUAf7X5rbodEdidWzeknwXHmLpdZkoiiCppNi30Q=="],
 
