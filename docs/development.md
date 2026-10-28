@@ -868,6 +868,15 @@ different copies, and the `Schema` from one is not assignable to the other in
 `packages/inference/src/structured.ts`. Updates still have to pass the repository's
 required checks.
 
+The shared preset makes Renovate wait one day (plus its 30-minute buffer) after a
+release before raising its update, for every datasource including npm (owner decision,
+2026-10-28 09:47 UTC;
+[risu729/renovate-config#2827](https://github.com/risu729/renovate-config/pull/2827)).
+mise refuses tool versions younger than its 24-hour `minimum_release_age` default, so a
+tool update raised earlier could not update `mise.lock` and failed CI until a rebase a
+day later ([#1103](https://github.com/risu729/pateat/pull/1103)). Renovate still raises
+security-fix updates at once.
+
 Renovate tracks the release-tagged hk-config imports through the shared preset. The
 typed Cloudflare compatibility date remains reviewed manually: the shared preset's date
 managers cover Wrangler TOML/JSON, not this typed configuration. Regenerate and commit

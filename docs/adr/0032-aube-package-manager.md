@@ -81,8 +81,9 @@ can update, preferring `pnpm-lock.yaml` over Bun's or npm's.
   2026-10-12, and the two pins have to move together.
 - aube's 24-hour release age and OSV checks apply when aube resolves versions, which
   it does not do while Bun writes the lockfile; `advisoryBloomCheck` still checks every
-  install. Renovate waits three days for npm updates (`security:minimumReleaseAgeNpm` in
-  `config:best-practices`).
+  install. Renovate waits one day after every release, npm included, before raising its
+  update (`minimumReleaseAge` in the shared preset; see
+  [development.md](../development.md#dependency-policy)).
 - Move dependency changes to `aube add` once aube writes a `bun.lock` its own frozen
   install accepts, and to `pnpm-lock.yaml` or `aube-lock.yaml` once pnpm reads aube's
   file or Renovate supports `aube-lock.yaml`.
