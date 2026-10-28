@@ -4,7 +4,7 @@
   "type": "module",
   "dependencies": {
     "@base-ui/react": "1.9.0",
-    "@hono/standard-validator": "0.4.0",
+    "@hono/standard-validator": "0.4.1",
     "@pateat/contracts": "workspace:*",
     "@pateat/generation": "workspace:*",
     "@pateat/inference": "workspace:*",
