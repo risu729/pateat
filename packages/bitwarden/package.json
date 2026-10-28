@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@bitwarden/sdk-internal": "0.2.0-main.1157",
-    "cbor2": "2.4.0",
+    "cbor2": "2.4.1",
     "otpauth": "9.5.2",
     "tldts": "7.4.19",
     "valibot": "1.5.0"
