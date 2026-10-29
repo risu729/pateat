@@ -19754,14 +19754,19 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           expect.objectContaining({ type: "login.detail.card", target: target("code") }),
         );
         // Neither the page's digits nor a card's leave the worker: not to a document, the
-        // log, the settings or the recipe service.
-        const out = JSON.stringify([
-          fake.state.messages,
-          report.mock.calls,
-          h.store.update.mock.calls,
-          h.recipes.recipe.mock.calls,
-          h.recipes.starts.mock.calls,
-        ]);
+        // log, the settings or the recipe service. The clock-derived values (`expiresAt` and
+        // the UUIDv7 ids) are left out, as the current time can contain any of the digits.
+        const out = JSON.stringify(
+          [
+            fake.state.messages,
+            report.mock.calls,
+            h.store.update.mock.calls,
+            h.recipes.recipe.mock.calls,
+            h.recipes.starts.mock.calls,
+          ],
+          (key, value: unknown) =>
+            ["expiresAt", "attemptId", "operationId"].includes(key) ? undefined : value,
+        );
         for (const digits of ["9876", "7351", "4242", "5555"]) expect(out).not.toContain(digits);
       });
 
