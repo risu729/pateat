@@ -852,7 +852,6 @@ so schema initialization cannot join the function modules' import cycles. This i
 behavior-preserving source split accepted by the owner on 2026-10-30; admission and
 policy decisions retain their existing await, stale-document and persistence ordering.
 
-
 Address tabs explicitly by `tabId`, frames by `frameId`, and documents by `documentId`.
 Never select the target by whichever tab happens to be active. Use declarative content
 scripts/host permissions and browser events, not a popup or focus event as the execution
