@@ -59,7 +59,7 @@ function feedbackTexts(
 ): Set<string> {
   const root = inputs[0]?.ownerDocument ?? document;
   const form = inputs[0] && formOf(inputs[0]);
-  const named = new Set(
+  const named = new Set<Element | null>(
     inputs.flatMap((input) =>
       ["aria-describedby", "aria-errormessage"].flatMap((name) =>
         (input.getAttribute(name) ?? "")

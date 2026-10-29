@@ -226,7 +226,7 @@ function alertTexts(
   fields: readonly HTMLInputElement[],
   beside = false,
 ): Set<string> {
-  const named = new Set(
+  const named = new Set<Element | null>(
     fields.flatMap((input) =>
       ["aria-describedby", "aria-errormessage"].flatMap((name) =>
         (input.getAttribute(name) ?? "")
