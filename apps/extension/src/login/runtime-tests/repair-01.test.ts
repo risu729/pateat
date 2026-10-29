@@ -8,7 +8,8 @@ import {
   type LoginStep,
 } from "@pateat/contracts";
 import { createRecipeRepairs } from "../repair";
-import type { GenerationOutcome, LoginGeneration, LoginReport } from "../runtime";
+import type { GenerationOutcome, LoginReport } from "../runtime/report";
+import type { LoginGeneration } from "../runtime/deps";
 import { laterReadiness } from "../wire";
 import type { ConditionalDecision } from "../../passkeys/runtime";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());

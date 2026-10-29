@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { LoginReport } from "../login/runtime";
+import type { LoginReport } from "../login/runtime/report";
 import {
   MAX_RECENT_RECIPE_USES,
   RECIPE_USE_REPEAT_MS,

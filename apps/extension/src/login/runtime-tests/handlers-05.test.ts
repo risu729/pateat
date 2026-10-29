@@ -5,7 +5,7 @@ import {
   type LocalSettings,
   type LoginHandler,
 } from "@pateat/contracts";
-import type { LoginReport } from "../runtime";
+import type { LoginReport } from "../runtime/report";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");

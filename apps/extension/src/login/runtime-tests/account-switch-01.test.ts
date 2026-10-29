@@ -9,7 +9,7 @@ import {
   type LogoutTarget,
 } from "@pateat/contracts";
 import { statusResponseSchema } from "../choice-wire";
-import type { LoginReport } from "../runtime";
+import type { LoginReport } from "../runtime/report";
 import { siteDefaultsMark, type LogoutService } from "../switch";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));

@@ -4,7 +4,7 @@ import { parseLoginRecipe, type LocalSettings } from "@pateat/contracts";
 import { i18n } from "../../i18n";
 import { pickFailure, statusResponseSchema } from "../choice-wire";
 import { createLoginBadge, memoryBadgeStorage, setActionBadge } from "../badge";
-import type { LoginReport } from "../runtime";
+import type { LoginReport } from "../runtime/report";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { LoginReport } from "../login/runtime";
+import type { LoginReport } from "../login/runtime/report";
 import { createLoginRecords, loginRecordOf, type LoginRecordSent } from "./login-records";
 import type { ServiceConnection } from "./runtime";
 import type { OutcomeResult, ServiceTransport } from "./transport";

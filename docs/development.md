@@ -34,10 +34,21 @@ The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
 `apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
 candidate, settle it from the fresh reading and disabled-field omission, and choose the
-judged outcome. `runtime.ts` retains the asynchronous page re-read, current-run checks,
+judged outcome. The login runtime retains the asynchronous page re-read, current-run checks,
 handler takeover and reporting. Its `judgeMove` and `judgeStop` keep their distinct
 completion rules. The policy's table tests pin the existing behavior; extracting it
 does not change what an undecided answer means.
+
+The login runtime is being split under `apps/extension/src/login/runtime/` using the
+owner-approved extraction plan (accepted 2026-10-30). Session schemas, public dependency
+contracts and reports, internal types, constants, and existing pure attempt/step helpers
+have separate owners. Consumers import public types directly from `deps.ts` or
+`report.ts`; the entrypoint does not re-export them. Runtime extraction keeps function
+bodies, storage formats, messages, reports and startup ordering unchanged. The next
+slices move nested functions to plain `fn(rt, ...)` modules with explicit state and
+mutable scalar reads through `rt.vars`, then split admission with an `AdmitContext`.
+Each completed module stays within the 1,000-line limit. Subsequent pure policy
+extractions remain separate changes, with separate tests.
 
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
