@@ -32,8 +32,8 @@ import {
   acceptedObservation,
   outcomeFields,
 } from "./steps";
-import { switchingElsewhere, sharesCookies } from "./hold";
-import { holdsOthers } from "./attempt-state";
+import { switchingElsewhere } from "./hold";
+import { siteHeldElsewhere as recordsSiteHeldElsewhere } from "./hold-policy";
 import { type EntryBlock, entryBlockSchema, type EntryPress } from "./session-schemas";
 import { type EntryBlockReason, type LiveDocument, type VaultMatch } from "./types";
 import { MAX_ENTRY_BLOCKS, ENTRY_NEXT_PAGE_MS, ENTRY_PRESS_MS } from "./constants";
@@ -64,15 +64,7 @@ export function siteHeldElsewhere(rt: Runtime, tabId: number, site: string): boo
   const now = Date.now();
   return (
     switchingElsewhere(rt, tabId, site) ||
-    rt.persisted
-      .values()
-      .some(
-        (entry) =>
-          entry.document.tabId !== tabId &&
-          siteOf(entry.account.origin) === site &&
-          sharesCookies(rt, entry.document.tabId, tabId) &&
-          holdsOthers(entry, now),
-      )
+    recordsSiteHeldElsewhere(rt.persisted.values(), rt.incognitoTabs, tabId, site, now)
   );
 }
 

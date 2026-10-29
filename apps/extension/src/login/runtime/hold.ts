@@ -1,7 +1,11 @@
 import { type LoginAttemptMetadata } from "@pateat/contracts";
 import { recordKey, siteOf } from "./steps";
-import { holdsOthers, terminal } from "./attempt-state";
-import { SIGNED_IN_ELSEWHERE_MS } from "./constants";
+import { terminal } from "./attempt-state";
+import {
+  heldElsewhere as recordsHeldElsewhere,
+  sharesCookies as tabsShareCookies,
+  signedInElsewhere as recordsSignedInElsewhere,
+} from "./hold-policy";
 import type { Runtime } from "./state";
 
 /**
@@ -31,15 +35,7 @@ export function heldElsewhere(rt: Runtime, tabId: number, siteOrigin: string): b
   const now = Date.now();
   return (
     switchingElsewhere(rt, tabId, siteOf(siteOrigin)) ||
-    rt.persisted
-      .values()
-      .some(
-        (entry) =>
-          entry.account.origin === siteOrigin &&
-          entry.document.tabId !== tabId &&
-          sharesCookies(rt, entry.document.tabId, tabId) &&
-          holdsOthers(entry, now),
-      )
+    recordsHeldElsewhere(rt.persisted.values(), rt.incognitoTabs, tabId, siteOrigin, now)
   );
 }
 
@@ -57,9 +53,7 @@ export function switchingElsewhere(rt: Runtime, tabId: number, site: string | un
  * window and the other known not to be (owner, 2026-10-23).
  */
 export function sharesCookies(rt: Runtime, tabId: number, otherTabId: number): boolean {
-  const incognito = rt.incognitoTabs.get(tabId);
-  const other = rt.incognitoTabs.get(otherTabId);
-  return incognito === undefined || other === undefined || incognito === other;
+  return tabsShareCookies(rt.incognitoTabs, tabId, otherTabId);
 }
 
 /** The tab of a `recordKey`. */
@@ -74,18 +68,7 @@ export const keyTab = (_rt: Runtime, key: string) => Number(key.slice(0, key.ind
  */
 export function signedInElsewhere(rt: Runtime, tabId: number, siteOrigin: string): boolean {
   const now = Date.now();
-  return rt.persisted.values().some((entry) => {
-    const age = now - (entry.changedAt ?? Number.NEGATIVE_INFINITY);
-    return (
-      entry.account.origin === siteOrigin &&
-      entry.document.tabId !== tabId &&
-      sharesCookies(rt, entry.document.tabId, tabId) &&
-      entry.state === "authenticated" &&
-      // A clock set back ends the skip rather than prolonging it.
-      age >= 0 &&
-      age < SIGNED_IN_ELSEWHERE_MS
-    );
-  });
+  return recordsSignedInElsewhere(rt.persisted.values(), rt.incognitoTabs, tabId, siteOrigin, now);
 }
 
 /** Whether another tab sharing its cookies still asks after the site rejected its login (ADR 0021). */
