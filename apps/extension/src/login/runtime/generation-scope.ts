@@ -28,7 +28,6 @@ import { skipGeneration } from "./generation";
 import { readUsernames, usernameShape } from "./markers";
 import type { Runtime } from "./state";
 
-/* eslint-enable no-await-in-loop */
 /**
  * First steps a document watches for: every route's and variant's of each recipe,
  * deduplicated and bounded for the wire. A path where several recipes start is left out,
