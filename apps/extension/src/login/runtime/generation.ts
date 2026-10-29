@@ -33,7 +33,7 @@ import { usernameReads, customSlots, pausedMeanwhile } from "./generation-scope"
 import { tabAttempt } from "./hold";
 import { DocumentGone } from "./document-gone";
 import { quietly } from "./session-store";
-import { admit } from "./index";
+import { admit } from "./admit";
 import type { Runtime } from "./state";
 
 /** Logs once per document and reason why it was not sent for generation. */
