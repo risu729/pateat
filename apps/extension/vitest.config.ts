@@ -11,7 +11,13 @@ export default defineConfig({
       enabled: Boolean(process.env["PATEAT_COVERAGE"]),
       // TSX is measured by the Browser Mode suites, which compile it the way the build does.
       include: ["src/**/*.ts"],
-      exclude: ["**/*.test.{ts,tsx}", "**/*.d.ts", "**/__fixtures__/**", "**/vitest.*.ts"],
+      exclude: [
+        "**/*.test.{ts,tsx}",
+        "**/*.d.ts",
+        "**/__fixtures__/**",
+        "**/runtime-tests/**",
+        "**/vitest.*.ts",
+      ],
       reporter: ["json"],
       reportsDirectory: "../../coverage/extension",
     },
