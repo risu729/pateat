@@ -400,7 +400,18 @@ Record the date, Chrome version, commit, the Access application's cookie setting
 the results in the [plan](plan.md#remaining-m4-service-gaps). This is service-pairing
 evidence, not real-account login evidence.
 
-### Windows notes
+#### Login runtime test organization
+
+The production login suites live in `apps/extension/src/login/runtime-tests/`.
+They share a synthetic browser and runtime harness, while each test file registers
+its own browser mock and keeps the enclosing setup and cleanup for its cases.
+Harness modules are excluded from coverage. Test files and helpers follow the
+1,000-line limit; splitting a suite preserves its assertions, parameter tables and
+expanded test count. The owner approved this organization with the runtime split
+on 2026-10-30. Compare the full Verify job as well as test counts when changing the
+suite layout, since each file loads the runtime and harness separately.
+
+## Windows notes
 
 Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs no Windows job (the owner's
 decision on 2026-10-12, see [delivery](delivery.md#current-foundation-workflows)). One

@@ -44,7 +44,6 @@
         "apps/extension/src/diagnostics/log.ts",
         "apps/extension/src/login/badge.test.ts",
         "apps/extension/src/login/content.ts",
-        "apps/extension/src/login/runtime.production.test.ts",
         "apps/extension/src/login/runtime.ts",
         "apps/extension/src/login/wire.ts",
         "apps/extension/src/observation/extract.test.ts",
