@@ -66,6 +66,12 @@ describe("profile editor", () => {
     ["a 401", () => Response.json({ error: "unauthorized" }, { status: 401 }), "sign-in-needed"],
     ["the login page itself", () => new Response("<html></html>"), "sign-in-needed"],
     ["a 403", () => Response.json({ error: "forbidden" }, { status: 403 }), "forbidden"],
+    ["Access's own 403 page", () => new Response("<html></html>", { status: 403 }), "forbidden"],
+    [
+      "an extension the service does not list",
+      () => Response.json({ error: "extension_not_allowed" }, { status: 403 }),
+      "extension-not-allowed",
+    ],
     ["a 409", () => Response.json({ error: "conflict" }, { status: 409 }), "conflict"],
     ["a 404", () => Response.json({ error: "not_found" }, { status: 404 }), "not-found"],
     [

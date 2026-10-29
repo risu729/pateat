@@ -6,6 +6,7 @@ import { timing } from "hono/timing";
 import {
   requireAccess,
   requireAccessApi,
+  requireEditorExtension,
   requirePairingAccess,
   requirePairingAccessApi,
   requirePairingOrigin,
@@ -103,12 +104,12 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/vaults", methodNotAllowed("GET"))
   // Editing any profile from the extension's settings page (ADR 0076). Only the host-wide
   // Access application's audience is accepted, which requires WARP, never the pairing
-  // one (ADR 0030), and only from an extension the pairing allowlist names. A device
-  // credential grants no access here.
+  // one (ADR 0030); writes only from an extension the pairing allowlist names, reads
+  // also from any extension with host access. A device credential grants no access here.
   .use(
     "/extension/profiles/*",
     requireAccessApi,
-    requirePairingOrigin,
+    requireEditorExtension,
     limitIdentity,
     bodyLimit({
       maxSize: MAX_BODY_BYTES,

@@ -15,6 +15,8 @@ export type ProfileEditorFailure =
   | "sign-in-needed"
   /** The service refused the sign-in, for example from a browser without WARP. */
   | "forbidden"
+  /** The service does not list this extension's ID in `PAIRING_EXTENSION_IDS`. */
+  | "extension-not-allowed"
   /** Another save changed the owner's settings first. */
   | "conflict"
   /** The profile was deleted meanwhile. */
@@ -110,7 +112,16 @@ export function createServiceClient(deps: {
     }
     if (response.type === "opaqueredirect" || response.status === 401)
       throw new ProfileEditorError("sign-in-needed");
-    if (response.status === 403) throw new ProfileEditorError("forbidden");
+    if (response.status === 403) {
+      // Access answers a refused sign-in with its own page; the Worker names its reason.
+      const answer: unknown = await response.json().catch(() => undefined);
+      const code = v.safeParse(v.object({ error: v.string() }), answer);
+      throw new ProfileEditorError(
+        code.success && code.output.error === "extension_not_allowed"
+          ? "extension-not-allowed"
+          : "forbidden",
+      );
+    }
     if (response.status === 409) throw new ProfileEditorError("conflict");
     if (response.status === 404) throw new ProfileEditorError("not-found");
     if (!response.ok) throw new ProfileEditorError("unexpected-response");

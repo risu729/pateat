@@ -18,6 +18,8 @@ const failures: Record<ProfileEditorFailure, string> = {
     "Sign in to the service first: open the sign-in page, then load the profiles again. Editing profiles needs the same sign-in as the service's management page.",
   forbidden:
     "The service did not accept your sign-in. Editing profiles needs a browser that can open the service's management page.",
+  "extension-not-allowed":
+    "This service does not accept this build of Pateat. Its operator must add this extension's ID to PAIRING_EXTENSION_IDS.",
   conflict: "Settings changed elsewhere. Reload this profile before saving again.",
   "not-found": "That profile was deleted. Load the profiles again.",
   unreachable: "The service could not be reached. Try again later.",

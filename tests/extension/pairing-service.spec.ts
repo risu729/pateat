@@ -192,6 +192,39 @@ test("pairs in one click from the background with the browser's session", async 
   }
 });
 
+test("loads the owner's profiles in the profile editor with the browser's sign-in", async () => {
+  const service = await startSyncService({ access: true });
+  try {
+    await withProduction(async (context, options) => {
+      await signIn(context, service);
+      await pair(options, service);
+      await expect(options.getByText("This device is paired.", { exact: true })).toBeVisible();
+      await options.getByRole("button", { name: "Load profiles", exact: true }).click();
+      const choice = options.getByRole("combobox", { name: "Profile to edit", exact: true });
+      await expect(choice.getByRole("option", { name: "Default", exact: true })).toBeAttached();
+      await choice.selectOption({ label: "Default" });
+      await expect(
+        options.getByRole("button", { name: "Save profile", exact: true }),
+      ).toBeVisible();
+      // Chromium leaves `Origin` out of these GETs, which the service accepts (#1124).
+      const cookie = `${ACCESS_COOKIE.name}=${ACCESS_COOKIE.value}`;
+      expect(
+        service.requests.filter((request) => request.path.startsWith("/extension/profiles")),
+      ).toEqual([
+        { method: "GET", path: "/extension/profiles", origin: null, cookie },
+        {
+          method: "GET",
+          path: expect.stringMatching(/^\/extension\/profiles\/[^/]+\/settings$/),
+          origin: null,
+          cookie,
+        },
+      ]);
+    });
+  } finally {
+    await service.close();
+  }
+});
+
 test("opens the sign-in page once when signed out and pairs on Try again", async () => {
   const service = await startSyncService({ access: true });
   try {
