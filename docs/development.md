@@ -53,8 +53,8 @@ Admission proceeds through `admit.ts`, `admit-record.ts`, `admit-recipe.ts` and
 `admit-start.ts`, sharing an explicit mutable `AdmitContext` across the original
 sequential phases. Each phase returns directly into the next; it adds no await between
 the original effects and stale-document checks. Every runtime module stays within the
-1,000-line limit. Subsequent pure policy extractions remain separate changes, with
-separate tests.
+1,000-line limit. Cross-tab holds, admission record phases and the relogin guard use
+pure decisions with separate tests; see [policy inputs](#login-runtime-policy-inputs).
 
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
@@ -432,6 +432,13 @@ writes, checks for a stale document, and supplies fresh page and popup-pick valu
 to the following phase. Eligibility and rejection decisions made before a read
 stay latched across that read; skipped reads retain their stale-document checks.
 The policy tests cover phase ordering, and caller tests exercise deferred reads.
+
+`login/runtime/relogin-policy.ts` decides which automatic completions count and
+returns a new, insertion-ordered history map for the ten-minute guard. It receives
+time explicitly and leaves the input map and records unchanged. The runtime applies
+that result to its existing shared map and saves the session; tab queries and
+closed-site cleanup remain outside the policy. Tests cover window boundaries,
+clock rollback, popup picks, normal/private partitions and the 256-site cap.
 
 ### Login runtime test organization
 

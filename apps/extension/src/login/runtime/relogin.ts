@@ -1,7 +1,12 @@
 import { type LoginAttemptMetadata } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { reloginKey, siteOf } from "./steps";
-import { RELOGIN_WINDOW_MS, RELOGIN_LIMIT } from "./constants";
+import {
+  countSignIn as countedSignIn,
+  countsAsRelogin,
+  reloginLimited as policyReloginLimited,
+  reloginTimes as policyReloginTimes,
+} from "./relogin-policy";
 import { quietly } from "./session-store";
 import { saveSession } from "./attempt";
 import type { Runtime } from "./state";
@@ -27,9 +32,7 @@ export const signedInNow = (
  * (ADR 0062); a clock set back drops them rather than keeping them longer.
  */
 export function reloginTimes(rt: Runtime, site: string, incognito: boolean, now: number): number[] {
-  return (rt.relogins.get(reloginKey(site, incognito))?.at ?? []).filter(
-    (at) => now - at >= 0 && now - at < RELOGIN_WINDOW_MS,
-  );
+  return policyReloginTimes(rt.relogins, site, incognito, now);
 }
 
 /**
@@ -38,10 +41,8 @@ export function reloginTimes(rt: Runtime, site: string, incognito: boolean, now:
  * incognito session (ADR 0062).
  */
 export function reloginLimited(rt: Runtime, siteOrigin: string, incognito: boolean): boolean {
-  const site = siteOf(siteOrigin);
-  return (
-    site !== undefined && reloginTimes(rt, site, incognito, Date.now()).length >= RELOGIN_LIMIT
-  );
+  if (siteOf(siteOrigin) === undefined) return false;
+  return policyReloginLimited(rt.relogins, siteOrigin, incognito, Date.now());
 }
 
 /**
@@ -78,8 +79,7 @@ export function countRelogin(
   next: LoginAttemptMetadata,
   incognito: boolean,
 ): void {
-  if (next.state !== "authenticated" || previous.state === "authenticated") return;
-  if (rt.picked.get(next.document.tabId)?.attemptId === next.id) return;
+  if (!countsAsRelogin(previous, next, rt.picked.get(next.document.tabId)?.attemptId)) return;
   countSignIn(rt, next.account.origin, incognito);
 }
 
@@ -90,17 +90,10 @@ export function countRelogin(
  * a login page that asks on load after each logout.
  */
 export function countSignIn(rt: Runtime, siteOrigin: string, incognito: boolean): void {
-  const site = siteOf(siteOrigin);
-  if (site === undefined) return;
-  const now = Date.now();
-  const key = reloginKey(site, incognito);
-  const at = [...reloginTimes(rt, site, incognito, now), now].slice(-RELOGIN_LIMIT);
-  // The most recently counted site is kept last, so the cap drops the oldest first.
-  rt.relogins.delete(key);
-  rt.relogins.set(key, { site, incognito, at });
-  for (const oldest of rt.relogins.keys()) {
-    if (rt.relogins.size <= 256) break;
-    rt.relogins.delete(oldest);
-  }
+  if (siteOf(siteOrigin) === undefined) return;
+  const counted = countedSignIn(rt.relogins, siteOrigin, incognito, Date.now());
+  // Keep the shared map's identity while applying the pure decision's ordered result.
+  rt.relogins.clear();
+  for (const [key, entry] of counted) rt.relogins.set(key, entry);
   void quietly(rt, () => saveSession(rt));
 }
