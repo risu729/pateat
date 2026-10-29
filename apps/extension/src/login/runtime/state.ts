@@ -503,7 +503,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       loaded: undefined!,
       policyRead: undefined!,
     } as {
-      origin: any;
+      origin: string;
       account: ProbeAccount;
       probePasskey: "discoverable" | "second-factor" | undefined;
       probeTotp: boolean;
