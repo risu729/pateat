@@ -417,7 +417,16 @@ Record the date, Chrome version, commit, the Access application's cookie setting
 the results in the [plan](plan.md#remaining-m4-service-gaps). This is service-pairing
 evidence, not real-account login evidence.
 
-#### Login runtime test organization
+#### Login runtime policy inputs
+
+`login/runtime/hold-policy.ts` decides whether another tab's records hold an origin
+or registrable site, whether tabs may share cookies, and whether another tab signed
+in recently. It receives records, window kinds and the current time as values.
+The runtime still reads the clock and checks account switches before record holds.
+Unknown window kinds retain the existing conservative cookie-sharing behavior.
+Bounded tests enumerate three-tab window-kind combinations and time boundaries.
+
+### Login runtime test organization
 
 The production login suites live in `apps/extension/src/login/runtime-tests/`.
 They share a synthetic browser and runtime harness, while each test file registers
