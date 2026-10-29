@@ -426,6 +426,13 @@ The runtime still reads the clock and checks account switches before record hold
 Unknown window kinds retain the existing conservative cookie-sharing behavior.
 Bounded tests enumerate three-tab window-kind combinations and time boundaries.
 
+`login/runtime/admit-record-policy.ts` selects the next record phase from the
+record, page and already-read inputs. Admission performs the selected reads and
+writes, checks for a stale document, and supplies fresh page and popup-pick values
+to the following phase. Eligibility and rejection decisions made before a read
+stay latched across that read; skipped reads retain their stale-document checks.
+The policy tests cover phase ordering, and caller tests exercise deferred reads.
+
 ### Login runtime test organization
 
 The production login suites live in `apps/extension/src/login/runtime-tests/`.

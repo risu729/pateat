@@ -10,7 +10,7 @@ import { saveSession, reportAttempt } from "./attempt";
 import { type Readiness } from "./types";
 import { confirmPage } from "./markers";
 import { recordFor } from "./hold";
-import { terminal, finishedLogin, watchOver, stoppedByPateat, holdsSite } from "./attempt-state";
+import { nextRecordStep, type RecordPhase, type RecordSeen } from "./admit-record-policy";
 import { addAskFill } from "./relogin";
 import { confirmRecipeOn, startsFor } from "./generation-scope";
 import type { Runtime } from "./state";
@@ -24,8 +24,25 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
 
   ctx.askKey = recordKey(ctx.document.tabId, ctx.document.origin);
 
+  // Each decision sees the current context and picks after the preceding awaited effect.
+  const recordStep = (phase: RecordPhase, seen: Omit<RecordSeen, "phase"> = {}, now = 0) =>
+    nextRecordStep(
+      ctx.recorded,
+      {
+        frameId: ctx.document.frameId,
+        documentId: ctx.document.documentId,
+        showsFirstStep: ctx.start?.path === ctx.live.path,
+        hasTopUrl: Boolean(ctx.live.topUrl),
+        paused: ctx.paused,
+        probe: probeMode && ctx.document.origin === rt.vars.origin,
+        pickedAttemptId: rt.picked.get(ctx.document.tabId)?.attemptId,
+      },
+      { phase, ...seen },
+      now,
+    );
+
   // A fill-only login is forgotten when it ends; one a stopped worker left ended is too.
-  if (ctx.recorded?.fillOnly && terminal(ctx.recorded)) {
+  if (ctx.recorded && recordStep("fill-only").kind === "forget-fill-only") {
     try {
       await forget(rt, ctx.askKey);
     } catch {
@@ -127,7 +144,7 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
   // asks as after a stopped login (below).
   let watchEnded: string | undefined;
 
-  if (ctx.recorded && watchOver(ctx.recorded, Date.now())) {
+  if (ctx.recorded && recordStep("watch", {}, Date.now()).kind === "end-watch") {
     watchEnded = ctx.recorded.watch?.documentId;
     const run = rt.attempts.get(ctx.document.tabId);
     const own = run?.metadata.id === ctx.recorded.id ? run : undefined;
@@ -154,12 +171,7 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
   // means the person is back at the start, as when a code or an approval expired: the
   // login never signed in. It ends, and only this tab asks and fills without pressing
   // anything (ADR 0027). The page the watch began in never ends it.
-  if (
-    ctx.recorded?.watch &&
-    ctx.document.frameId === 0 &&
-    ctx.start?.path === ctx.live.path &&
-    ctx.document.documentId !== ctx.recorded.watch.documentId
-  ) {
+  if (ctx.recorded && recordStep("abandon-watch").kind === "abandon-watch") {
     const refused = await abandonWatch(ctx.recorded);
     if (refused) return refused;
     ctx.recorded = undefined;
@@ -167,13 +179,7 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
 
   // A paused site's automatic login that has not ended stops on its next page before any
   // step, as when its pause started (ADR 0062); one a popup pick started goes on.
-  if (
-    ctx.paused &&
-    ctx.recorded &&
-    !terminal(ctx.recorded) &&
-    ctx.recorded.watch === undefined &&
-    rt.picked.get(ctx.document.tabId)?.attemptId !== ctx.recorded.id
-  ) {
+  if (ctx.recorded && recordStep("pause").kind === "stop-paused") {
     const run = rt.attempts.get(ctx.document.tabId);
     const own = run?.metadata.id === ctx.recorded.id ? run : undefined;
     const ended = transitionLoginAttempt(own?.metadata ?? recoverLoginAttempt(ctx.recorded), {
@@ -190,27 +196,24 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
     ctx.recorded = undefined;
   }
 
-  if (
-    ctx.recorded &&
-    finishedLogin(ctx.recorded) &&
-    ctx.recorded.document.frameId === 0 &&
-    ctx.document.frameId === 0
-  ) {
+  const finished = recordStep("finished");
+
+  if (ctx.recorded && finished.kind === "read-confirm") {
     // Until the recipe's first step shows again, the page keeps watching for it. The page
     // a rejection was read in shows the sign-in form again with the failure, which may be
     // on another path, such as the one the form posted to: it asks at once.
-    const rejectedHere =
-      ctx.recorded.outcome === "credential-rejected" &&
-      ctx.recorded.document.documentId === ctx.document.documentId;
+    const rejectedHere = finished.rejectedHere;
     // A page generated as a verification while signed in is no logout either, even when
     // it announces a start from starts read before its recipe was generated again (ADR
     // 0035): the service keeps one recipe per path, so no sign-in recipe starts there.
-    const confirm =
-      rejectedHere || ctx.live.topUrl
-        ? undefined
-        : await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
+    const confirm = finished.read
+      ? await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path)
+      : undefined;
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-    if ((ctx.start?.path !== ctx.live.path || confirm) && !rejectedHere) {
+    if (
+      recordStep(finished.next, { confirm: confirm !== undefined, rejectedHere }).kind ===
+      "keep-watching"
+    ) {
       const starts = await startsFor(rt, ctx.document.origin);
       if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
       // Not a recipe's first step on its path, so the login stays (ADR 0021 D).
@@ -231,14 +234,7 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
     ctx.recorded = undefined;
   }
 
-  if (
-    ctx.recorded &&
-    stoppedByPateat(ctx.recorded) &&
-    !finishedLogin(ctx.recorded) &&
-    ctx.recorded.outcome !== "account-switched" &&
-    ctx.recorded.submissions === 0 &&
-    ctx.recorded.document.documentId !== ctx.document.documentId
-  ) {
+  if (ctx.recorded && recordStep("stopped").kind === "release-stopped") {
     // A login Pateat itself stopped before submitting anything holds no tab, its own
     // included: a new page of the tab logs in as a new tab would, with the saved default
     // or by asking when several accounts match (ADR 0022). One that submitted is resumed,
@@ -260,38 +256,32 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
     ctx.recorded = undefined;
   }
 
-  if (
-    ctx.recorded &&
-    ctx.recorded.state === "blocked" &&
-    !finishedLogin(ctx.recorded) &&
-    ctx.recorded.outcome !== "account-switched" &&
-    ctx.recorded.submissions > 0 &&
-    ctx.recorded.document.frameId === 0 &&
-    ctx.document.frameId === 0 &&
-    // A page the watch already followed is this login's too, but not the one it began in.
-    (ctx.recorded.document.documentId !== ctx.document.documentId ||
-      (watchEnded !== undefined && watchEnded !== ctx.document.documentId)) &&
-    // While it still holds the site against other tabs, it is resumed as before.
-    !holdsSite(ctx.recorded, Date.now())
-  ) {
+  const submitted = recordStep("submitted", { watchEnded }, Date.now());
+
+  if (ctx.recorded && submitted.kind === "read-confirm") {
     // A login that stopped after it submitted is resumed by the tab's later pages, so it
     // never submits again. Its form showing again on one of them asks for an account, in
     // this tab only, and fills without pressing anything (ADR 0021 D, owner's choice
     // 2026-10-12); until then the page watches for it.
-    const confirm = ctx.live.topUrl
-      ? undefined
-      : await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
+    const confirm = submitted.read
+      ? await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path)
+      : undefined;
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+    const withdrawal = recordStep(submitted.next, { confirm: confirm !== undefined });
     // Nor does its recipe's first step show again once the recipe was withdrawn, as one
     // revoked on the dashboard: the tab is released as after it, so its pages may be sent
     // for generation again. A recipe that only dropped the login's layout still starts.
     const withdrawn =
-      ctx.start?.path !== ctx.live.path &&
-      !confirm &&
-      !(probeMode && ctx.document.origin === rt.vars.origin) &&
+      withdrawal.kind === "read-withdrawn" &&
+      withdrawal.read &&
       (await rt.recipes.withdrawn?.(ctx.document.origin, ctx.recorded.recipeId).catch(() => false));
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-    if ((ctx.start?.path !== ctx.live.path || confirm) && !withdrawn) {
+    if (
+      recordStep("submitted-withdrawn", {
+        confirm: confirm !== undefined,
+        withdrawn: withdrawn === true,
+      }).kind === "keep-watching"
+    ) {
       const starts = await startsFor(rt, ctx.document.origin);
       if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
       const visit = confirm && confirmPage(rt, ctx.live, confirm);
