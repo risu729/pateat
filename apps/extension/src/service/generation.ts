@@ -26,10 +26,10 @@ import type {
   EntryGenerationOutcome,
   GenerationHold,
   GenerationOutcome,
-  LoginGeneration,
   PageSampleOutcome,
   RecipeRepairClaim,
-} from "../login/runtime";
+} from "../login/runtime/report";
+import type { LoginGeneration } from "../login/runtime/deps";
 import { DEVICE_GENERATION_ORIGIN } from "./device-generation";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transport";

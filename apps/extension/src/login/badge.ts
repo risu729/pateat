@@ -9,7 +9,7 @@ import { localClock } from "../time";
 import { pauseSite, type PauseState } from "./pause";
 import { i18n } from "../i18n";
 import type { AskReason } from "./choice-wire";
-import type { LoginReport } from "./runtime";
+import type { LoginReport } from "./runtime/report";
 import type { SiteCount, SiteCountState, UncheckedReason } from "./site-count";
 
 export const LOGIN_BADGE_KEY = "session:pateat.login-badge.v1";

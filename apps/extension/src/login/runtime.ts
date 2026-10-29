@@ -30,7 +30,6 @@ import {
   manualDetails,
   pagesLeft,
   watchedAtStop,
-  loginDocumentSchema,
   loginDisplayNames,
   loginObservationSchema,
   isEntryObservation,
@@ -58,7 +57,6 @@ import {
   awaitPerson,
   followPage,
   personAnswered,
-  type AttemptTimes,
   resolveBindingFields,
   resolveLoginPlan,
   routeFillTargets,
@@ -69,34 +67,23 @@ import {
   runsLogin,
   sameLoginDocument,
   sameLoginTarget,
-  saveLoginChoice,
   showsBesideForm,
   siteDefaultConnection,
   templateLoginBinding,
   TOTP_HANDLER_SLOT,
   detailFieldFormat,
   detailFieldInputs,
-  detailFieldSchema,
   detailSlot,
   isDetailSlot,
   customFieldReference,
   resolveDetailSourceField,
   detailLinkSchema,
   loginDetailSchema,
-  loginTargetSchema,
   type DatePart,
   type DetailLink,
   type LoginFieldTarget,
-  questionText,
-  shownQuestionSchema,
-  storedQuestionSchema,
-  detailSourceFieldSchema,
-  detailFormatFits,
-  detailFormatSchema,
-  loginFieldTargetSchema,
   type LoginDetail,
   totpFieldMismatch,
-  totpFieldReference,
   transitionLoginAttempt,
   withdrawAccountSwitch,
   validateLoginOperation,
@@ -111,15 +98,12 @@ import {
   type LoginHandler,
   type LoginItemFacts,
   type LoginObservation,
-  type LoginOperation,
   isLoginRouteRecipe,
   itemAsksForMasterPassword,
-  chooserClickBranch,
   chooserRoute,
   type ChooserClick,
   type ListClick,
   type LayoutCandidate,
-  type PageKind,
   type LoginChooserRecipe,
   type LoginRecipe,
   type LoginRoute,
@@ -129,15 +113,10 @@ import {
   type LoginMarkerTarget,
   type LoginTarget,
   type LocalSettings,
-  type EntryGenerationRequest,
   type LoginEntryRecipe,
-  type LoginLogoutRecipe,
-  type LogoutPurpose,
-  type RecipeGenerationRequest,
   type SavedLoginBinding,
   type SemanticSlot,
   type SettingsResponse,
-  type SettingsChangeCause,
   type SettingsSnapshot,
   type ValueShape,
   type VaultCatalog,
@@ -149,8 +128,7 @@ import { storage } from "wxt/utils/storage";
 import { sessionValue, trustedRecord } from "../storage";
 import { MAX_SETTINGS_DEFER_MS } from "../service/settings-sync";
 import type { ServiceTiming } from "../service/transport";
-import { createLoginBadge, memoryBadgeStorage, setActionBadge, type LoginBadge } from "./badge";
-import { domainKey } from "@pateat/bitwarden";
+import { createLoginBadge, memoryBadgeStorage, setActionBadge } from "./badge";
 import {
   authorizeSchema,
   destinationCheckSchema,
@@ -186,14 +164,11 @@ import {
   LOGIN_STEP_WAIT_MS,
   START_TRIES,
   START_TRY_WINDOW_MS,
-  type ExecutionDetail,
   type InPlaceNext,
-  type LaterMiss,
   type LoginReadiness,
   type ShownLater,
   type StartMiss,
   type TargetRequirement,
-  type TargetState,
   type LoginSecretKind,
   type AskedQuestion,
 } from "./wire";
@@ -206,13 +181,8 @@ import {
   probeStarts,
   type ProbeAccount,
 } from "./dummy";
+import { findLiveSiteCandidates, type LiveSiteCandidate } from "../vault/site-candidates";
 import {
-  findLiveSiteCandidates,
-  type LiveSiteCandidate,
-  type LiveUriMatcher,
-} from "../vault/site-candidates";
-import {
-  askReasonSchema,
   choiceRequestSchema,
   pauseRequestSchema,
   pauseStateRequestSchema,
@@ -235,13 +205,12 @@ import {
   pauseSite,
   pausedInPrivate,
   pausingRule,
-  type LoginPauses,
   type PauseLength,
   type PauseState,
 } from "./pause";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
-import { classifyStartMiss, type RecipeRepairs } from "./repair";
-import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
+import { classifyStartMiss } from "./repair";
+import { emailUsername, namesUsername } from "../page/account-list";
 import { observedPath } from "../observation/path";
 import { senderDocumentOrigin, senderPageUrl } from "../messaging/sender";
 import { pathShowsUsername, withoutUsernames } from "../observation/usernames";
@@ -254,27 +223,15 @@ import {
 } from "./sign-in-state";
 import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "./completion-policy";
 import type { AlertMiss } from "../page/sign-in-state";
-import type { LoginSites, PausingSettings } from "./sites";
-import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
+import type { PausingSettings } from "./sites";
+import { linkRefusal, namesReturnPath } from "./entry";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
 import { passkeyOrigin, passkeyScriptsRun } from "../passkeys/rp-id";
-import {
-  loginFillsUsername,
-  loginSecretKind,
-  loginUsernameFieldId,
-  type LoginFieldSource,
-} from "./vault";
+import { loginFillsUsername, loginSecretKind, loginUsernameFieldId } from "./vault";
 import { newId } from "@pateat/contracts/ids";
 import { loginMoveFits } from "@pateat/contracts/site";
-import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
-import {
-  createAccountPicks,
-  runLogout,
-  siteDefaultsMark,
-  type LogoutPress,
-  type LogoutSource,
-  type LogoutService,
-} from "./switch";
+import { isoTime, isoTimeMs } from "../time";
+import { createAccountPicks, runLogout, siteDefaultsMark, type LogoutPress } from "./switch";
 import {
   cardGuessFields,
   cardLast4,
@@ -305,2412 +262,171 @@ import {
   type DetailRemoveResponse,
   type DetailResponse,
 } from "./detail-wire";
+import { type SettingsRuntime, noLoginRecipes } from "./runtime/deps";
+import {
+  type LoginReport,
+  type PolicyChange,
+  type StopCause,
+  type RouteChange,
+  type GenerationOutcome,
+  type AccountSource,
+  type AdvanceMiss,
+  type GenerationHold,
+  type RecipeRepairClaim,
+  type EntryGenerationOutcome,
+  type MoveMiss,
+} from "./runtime/report";
+import {
+  frameKey,
+  branchField,
+  sourceFieldKey,
+  choiceBadge,
+  recordKey,
+  reloginKey,
+  siteOf,
+  clipCodes,
+  logCode,
+  acceptedObservation,
+  pathNow,
+  withChoice,
+  withItemOrigin,
+  sameSiteAs,
+  accountTargetsOn,
+  codeFieldOf,
+  passwordMiss,
+  inPlaceNext,
+  stepTargets,
+  markerProof,
+  documentKey,
+  formAgain,
+  sameMarkers,
+  sameInputs,
+  handlerOrder,
+  autoSubmitted,
+  branchOf,
+  pairedQuestions,
+  outcomeFields,
+  codeStep,
+  selfSubmitStep,
+  catalogItems,
+  generationSlots,
+  offersGenerationField,
+  rawPath,
+  asksAccount,
+  codeAwaitsClick,
+  choiceKey,
+} from "./runtime/steps";
+import {
+  terminal,
+  holdsOthers,
+  idle,
+  pastStop,
+  effectful,
+  stopsPastPlan,
+  answeredAtStop,
+  advancingToStop,
+  routedHere,
+  settledHere,
+  atStop,
+  finishedLogin,
+  watchOver,
+  stoppedByPateat,
+  holdsSite,
+} from "./runtime/attempt-state";
+import {
+  probeMode,
+  SIGNED_IN_ELSEWHERE_MS,
+  SWITCH_CHECK_MS,
+  SWITCH_POLL_MS,
+  SWITCH_SETTLE_MS,
+  SWITCH_QUIET_MS,
+  ENTRY_NEXT_PAGE_MS,
+  RELOGIN_WINDOW_MS,
+  RELOGIN_LIMIT,
+  REQUEST_HOLD_MS,
+  SIGN_IN_RECHECKS,
+  SIGN_IN_RECHECK_MS,
+  ADVANCE_LOG_TARGETS,
+  CONTINUATION_WAIT_MS,
+  CONTINUATION_STABLE_MS,
+  WATCH_SETTLE_MS,
+  MAX_HINT_USERNAMES,
+  SITE_MOVE_READINGS,
+  MAX_CUSTOM_SHAPE_READS,
+  EXTRACT_READS,
+  EXTRACT_RETRY_MS,
+  CHOICE_SAVED,
+  AFTER_SIGN_IN_MS,
+  SITE_MOVE_MS,
+  WATCH_MS,
+  REPROMPT_GRANT_MS,
+  PASSKEY_SIGN_IN_MS,
+  PASSKEY_SIGNED_IN,
+  MAX_ENTRY_BLOCKS,
+  ENTRY_PRESS_MS,
+  REQUEST_START_WAIT_MS,
+  REQUEST_PARK_MS,
+  REQUEST_WAIT_MS,
+} from "./runtime/constants";
+import {
+  type LiveDocument,
+  type Execution,
+  type KeypadPress,
+  type ParkedRequest,
+  type ChoicePasskeys,
+  type DetailSourceField,
+  type ConfirmVisit,
+  type Sender,
+  type StartTiming,
+  type UnsavedChoice,
+  type SignInReading,
+  type DetailWait,
+  type GenerationScope,
+  type GenerationMiss,
+  type ListOffer,
+  type LayoutChoice,
+  type LaterStart,
+  type EntryBlockReason,
+  type VaultMatch,
+} from "./runtime/types";
+import {
+  type PickedAccount,
+  type PendingChoice,
+  type Relogins,
+  type EntryPress,
+  type EntryBlock,
+  type DetailOffer,
+  type PendingDetail,
+  type RefusedDetail,
+  PICKS_KEY,
+  CHOICES_KEY,
+  STOPPED_ASKS_KEY,
+  REJECTED_ASKS_KEY,
+  ASK_FILLS_KEY,
+  ENTRY_PRESSES_KEY,
+  NOTED_KEY,
+  RELOGINS_KEY,
+  DETAIL_OFFERS_KEY,
+  PENDING_DETAILS_KEY,
+  REFUSED_DETAILS_KEY,
+  pickedAccountSchema,
+  pendingChoiceSchema,
+  askSchema,
+  reloginSchema,
+  entryPressSchema,
+  detailOfferSchema,
+  pendingDetailSchema,
+  refusedDetailSchema,
+  STORAGE_KEY,
+  CONFIG_KEY,
+  ENTRY_BLOCKS_KEY,
+  entryBlockSchema,
+} from "./runtime/session-schemas";
+import { DocumentGone } from "./runtime/document-gone";
 
-const STORAGE_KEY = "pateat.login-attempts.v5";
-/** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
-const PICKS_KEY = "session:pateat.login-picks.v1";
-const CHOICES_KEY = "session:pateat.login-choices.v1";
-/**
- * Tabs whose login of an origin stopped after a submission and whose login form then
- * showed again on a later page, or whose watched login was abandoned (ADR 0027); they ask
- * for an account, in that tab only, and fill the page once without pressing anything
- * (ADR 0021 D).
- */
-const STOPPED_ASKS_KEY = "session:pateat.login-stopped-asks.v1";
-/**
- * Tabs whose login of an origin the site rejected; they ask for an account, and so do the
- * origin's other tabs while one asks, each filling a page once without pressing anything
- * (ADR 0021 D).
- */
-const REJECTED_ASKS_KEY = "session:pateat.login-rejected-asks.v1";
-/**
- * Pages filled once while their tab asks for an account, as `${tabId} ${documentId} ${path}`,
- * and documents a rejected login keeps unfilled, as `${tabId} ${documentId}` (ADR 0021 D).
- */
-const ASK_FILLS_KEY = "session:pateat.login-ask-fills.v1";
-/**
- * When automatic logins of a registrable site ended `authenticated`, by site and incognito,
- * so a site that keeps logging out again is not logged in over and over (ADR 0062).
- */
-const RELOGINS_KEY = "session:pateat.login-relogins.v1";
-/**
- * Automatic logins of a site that may end `authenticated` within `RELOGIN_WINDOW_MS`; the
- * next one asks for an account instead (`relogin-limit`, ADR 0062).
- */
-const RELOGIN_LIMIT = 2;
-const RELOGIN_WINDOW_MS = 10 * 60_000;
-/**
- * Refusal reasons already logged, by tab, document and path, so a page that announces
- * again after a worker restart does not log the same reason as news (ADR 0019).
- */
-const NOTED_KEY = "session:pateat.login-noted.v1";
-/**
- * Per tab, the `detail` handler its login stopped at for want of a linked value, and the
- * links filled from the popup that wait for the tab's login to be confirmed (ADR 0061).
- */
-const DETAIL_OFFERS_KEY = "session:pateat.login-detail-offers.v1";
-const PENDING_DETAILS_KEY = "session:pateat.login-pending-details.v1";
-/**
- * Links whose value a site refused and that could not be removed from the settings yet;
- * no login uses them, and their removal is tried again after each login (ADR 0061).
- */
-const REFUSED_DETAILS_KEY = "session:pateat.login-refused-details.v1";
-const CONFIG_KEY = "pateat.login-probe-origin.v1";
-/**
- * How long another tab's login that has not succeeded holds its origin after its record
- * last changed (ADR 0022, owner's choice on 2026-10-12).
- */
-const HOLD_MS = 5 * 60_000;
-/**
- * How often a login page offered for generation is read before it counts as one that
- * cannot be described, and how long apart: a form rendered in steps or fading in settles
- * meanwhile, for about nine seconds after the page offers itself (ADR 0016).
- */
-const EXTRACT_READS = 10;
-/**
- * At most this many matching items' usernames are looked for in a page's header or
- * navigation for its generation request's `signedIn` hint (ADR 0035), one page read each.
- */
-const MAX_HINT_USERNAMES = 8;
-const EXTRACT_RETRY_MS = 1000;
-/** How soon after a password submission the tab's next page counts as right after it (ADR 0028). */
-const AFTER_SIGN_IN_MS = 60_000;
-/**
- * How long after another tab's login of an origin authenticated a list of accounts showing
- * on it is not sent for generation (ADR 0028, owner 2026-10-17).
- */
-const SIGNED_IN_ELSEWHERE_MS = 60 * 60_000;
-/**
- * How long after evidence of a sign-in the page is read again before the login completes
- * on it (ADR 0029), so a page that is still redirecting or about to ask for a second
- * factor does not settle the login, and how many times it is read again at most while
- * the document is still loading.
- */
-const SIGN_IN_RECHECK_MS = 1000;
-const SIGN_IN_RECHECKS = 10;
-/**
- * How soon after a passkey answer, or after a password login's last effect step, a move to
- * another origin of that site may complete (ADR 0022), and a new document may be the site's
- * answer to the step, read for a sign-in form shown again (ADR 0029).
- */
-const SITE_MOVE_MS = 30_000;
-/**
- * How long after the passkey bridge answered a tab's top document outside a login no new
- * automatic login starts on that page: the assertion is the page's sign-in, and the site
- * moves on by itself. A form still showing after it is read as the site's refusal, as for
- * a login's own answer (ADR 0034 rule 6).
- */
-const PASSKEY_SIGN_IN_MS = 15_000;
-const PASSKEY_SIGNED_IN = "passkey-signed-in";
-/** How long a master password typed for a re-prompt item lets its document's login start. */
-const REPROMPT_GRANT_MS = 60_000;
-/** Readings of that move's new page, a second apart, before it must have loaded quietly. */
-const SITE_MOVE_READINGS = 5;
-/**
- * How long a login stays watched after its result stopped at `challenge` or settled as
- * unknown (ADR 0027, owner's choice on 2026-10-12), and how long each new page of its tab
- * is checked for a signed-in marker before its sign-in state is read, as after a click.
- */
-const WATCH_MS = 10 * 60_000;
-const WATCH_SETTLE_MS = 3000;
-/**
- * The sign-in state of ADR 0029 for a page no check explained, and whether a later reading
- * in the fully loaded document agreed, which every outcome but logging needs. `reshown`:
- * read on the sign-in form shown again in the first new document after the submission.
- */
-type SignInReading = {
-  decision: SignInDecision;
-  confirmed: boolean;
-  reshown?: true;
-  /**
-   * With `reshown`: the page shows the sign-in form with its password input and no other
-   * sign of a sign-in going on or done (no S3, S4, S5 or E sign), so the login did not go
-   * through and the tab asks again (ADR 0021 D).
-   */
-  formAgain?: true;
-  /**
-   * The page shows a password input (S2) and no CAPTCHA (S4): after an `advance` whose next
-   * step never showed, the page a repair continues (ADR 0041 section 4).
-   */
-  asksPassword?: true;
-};
-/**
- * The sign-in form with its password input shown again in the first new document after
- * the password submission, with no sign of another step or of a sign-in (ADR 0021 D).
- */
-const formAgain = (signs: SignInSigns) =>
-  signs.reshown === true &&
-  signs.s2 &&
-  !signs.s3 &&
-  !signs.s4 &&
-  !signs.s5 &&
-  !signs.e1 &&
-  !signs.e2 &&
-  !signs.e3;
-/** Sign-in entry presses per tab, until the tab closes (ADR 0031). */
-const ENTRY_PRESSES_KEY = "session:pateat.login-entry-presses.v1";
-/** Entry recipe revisions blocked on this device after a press that led nowhere (ADR 0031). */
-const ENTRY_BLOCKS_KEY = "pateat.login-entry-blocks.v1";
-/** A tab presses a sign-in entry at most once in this time (ADR 0031). */
-const ENTRY_PRESS_MS = 10 * 60_000;
-/** How soon after a press the next page must show: a new document or a URL change. */
-const ENTRY_NEXT_PAGE_MS = 10_000;
-/** Blocks kept at most; the oldest go first. */
-const MAX_ENTRY_BLOCKS = 100;
-const tabIdSchema = v.pipe(v.number(), v.integer(), v.minValue(0));
-const revisionSchema = v.pipe(v.number(), v.integer(), v.minValue(1));
-/**
- * A sign-in entry press (ADR 0031), kept in session storage until its tab closes so the
- * one-press-per-10-minutes limit and the check of the next page survive a worker restart.
- * `documentId` and `url` are the pressed page's, so the same page announcing again is not
- * taken as the next one; `checked` once the next page passed or the recipe was blocked.
- */
-const entryPressSchema = v.strictObject({
-  tabId: tabIdSchema,
-  origin: v.string(),
-  recipeId: v.string(),
-  revision: revisionSchema,
-  pressedAt: isoTimeSchema,
-  documentId: v.string(),
-  url: v.string(),
-  checked: v.optional(v.literal(true)),
-  /**
-   * The time the login after the press took on the pressed page (ADR 0019): since when
-   * that page was seen, with its service and person time. The login on the next page
-   * takes it over once, and it is dropped then.
-   */
-  timing: v.optional(
-    v.strictObject({
-      since: v.pipe(v.number(), v.integer(), v.minValue(0)),
-      serviceMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
-      networkMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
-      personMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
-    }),
-  ),
-});
-type EntryPress = v.InferOutput<typeof entryPressSchema>;
-/**
- * The times automatic logins of a registrable site ended `authenticated`, in epoch
- * milliseconds, in the browser's normal or incognito session (ADR 0062).
- */
-const reloginSchema = v.strictObject({
-  site: v.string(),
-  incognito: v.boolean(),
-  at: v.pipe(v.array(v.pipe(v.number(), v.integer(), v.minValue(0))), v.maxLength(RELOGIN_LIMIT)),
-});
-type Relogins = v.InferOutput<typeof reloginSchema>;
-/** Why the page after an entry press blocked its recipe revision (ADR 0031). */
-type EntryBlockReason = "left-site" | "no-sign-in" | "sign-up";
-/**
- * An entry recipe revision blocked on this device, until the recipe sync brings a newer
- * revision or removes it (ADR 0031). Revisions only grow, also for a recipe generated
- * again after a revocation, so a block never applies to a later revision.
- */
-const entryBlockSchema = v.strictObject({
-  recipeId: v.string(),
-  revision: revisionSchema,
-  reason: v.picklist(["left-site", "no-sign-in", "sign-up"]),
-  blockedAt: isoTimeSchema,
-});
-type EntryBlock = v.InferOutput<typeof entryBlockSchema>;
-/** The registrable domain of an origin or URL, as Bitwarden's Domain match compares it. */
-function siteOf(value: string | URL): string | undefined {
-  const url = typeof value === "string" ? URL.parse(value) : value;
-  if (!url) return undefined;
-  // Keep domain matching failures separate from an invalid URL.
-  try {
-    return domainKey(url);
-  } catch {
-    return undefined;
-  }
-}
-/** Names a site's automatic login completions in the normal or the incognito session. */
-const reloginKey = (site: string, incognito: boolean) =>
-  `${incognito ? "incognito" : "normal"} ${site}`;
-/** Whether a URL is on the site of `page` (its registrable domain). */
-const sameSiteAs =
-  (page: string): OnSite =>
-  (url) => {
-    const site = siteOf(page);
-    return site !== undefined && siteOf(url) === site;
-  };
-/**
- * An account switch's waits (ADR 0063): how often the tab is looked at after a click, how
- * long a page that stays the same must be quiet before it counts as settled, as when a menu
- * opened, how long the tab may take to settle at all, and how long its sign-in input is
- * waited for once it did.
- */
-const SWITCH_POLL_MS = 250;
-const SWITCH_QUIET_MS = 1500;
-const SWITCH_SETTLE_MS = 15_000;
-const SWITCH_CHECK_MS = 1500;
-/**
- * How long a page's own conditional passkey request waits for a login of its document to
- * start before it is handed on (ADR 0034).
- */
-const REQUEST_START_WAIT_MS = 3000;
-/**
- * Longest a conditional request waits for its login to end, or for a pick while its tab
- * asks for an account (ADR 0021 D); it is then withheld, so a login that runs that long never meets another provider's prompt
- * (ADR 0034). One that waits this long for a pick in an ordinary popup choice is handed on.
- */
-const REQUEST_PARK_MS = 4 * 60_000;
-/**
- * How long the `passkey` route waits for its page's own request before it falls back, and
- * a login of an item without a password waits at its stop (ADR 0036).
- */
-const REQUEST_WAIT_MS = 3000;
-/**
- * How long the start page's sign-in form may still show in the document after the
- * `passkey` route answered its request, before the login falls back (ADR 0034), and the
- * form after an answer at a login's stop, before it ends (ADR 0036).
- */
-const REQUEST_HOLD_MS = 15_000;
-type Sender = Browser.runtime.MessageSender;
-type SettingsRuntime = {
-  handle(value: unknown): Promise<SettingsResponse>;
-  /** Trusted background mutation; saves an automatic account choice after confirmed `authenticated`. */
-  update?(
-    expectedRevision: number | undefined,
-    cause: SettingsChangeCause,
-    mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
-  ): Promise<SettingsSnapshot>;
-};
-/**
- * An account choice used by an attempt but not saved yet (ADR 0013); `connectionId` is the
- * local connection the attempt used, so only that account is saved. A login on the
- * `passkey` route fills nothing, so it saves the site default without a binding (ADR 0027).
- */
-type UnsavedChoice = {
-  binding: SavedLoginBinding | LoginChoiceAccount;
-  connectionId: string;
-  replace?: boolean;
-};
-/**
- * Settings with the choice added where missing, or replacing the site default for an
- * account picked to become it; the same object when nothing changes.
- */
-const withChoice = (value: SettingsSnapshot["settings"], choice: UnsavedChoice) =>
-  saveLoginChoice(value, choice.binding, { replace: choice.replace === true });
-/**
- * A document's time before its login's attempt exists (ADR 0019): `AttemptTiming` without
- * a running wait or a wait for the site.
- */
-type StartTiming = { since: number; serviceMs: number; networkMs: number; personMs: number };
-/** A document's path before its token-like segments are replaced (ADR 0039). */
-const rawPath = (live: LiveDocument) => new URL(live.url).pathname;
-type LiveDocument = {
-  document: LoginDocument;
-  token: string;
-  /**
-   * The document's browser-provided URL: the tab's committed URL for a same-origin top
-   * document (it follows history.pushState), else `sender.url`. Provider URI rules match it.
-   */
-  url: string;
-  /**
-   * The URL's path as observations carry it (`observedPath`, ADR 0039): every comparison
-   * with a recipe's, an observation's or the content script's path reads this one. A
-   * username in the path is looked for in `url`'s raw path (`rawPath`).
-   */
-  path: string;
-  /**
-   * For a document in a frame inside the page: the tab's URL. The account must match it
-   * as well as the frame's own URL (ADR 0017).
-   */
-  topUrl?: string;
-  /**
-   * Whether the document's tab is in an incognito window, as its sender or tab said when it
-   * announced. Incognito keeps its own pauses and relogin counts (ADR 0062); absent when the
-   * browser did not say, and then either window kind's pause counts.
-   */
-  incognito?: boolean;
-  /**
-   * The document's path after a same-document URL change it reported since it announced
-   * (`login.document.moved`), as the tab's URL shows it (ADR 0027 amendment of 2026-10-25).
-   */
-  route?: string;
-  state?: string;
-  reason?: string;
-  /** The detail of the refusal `reason` names, as the log has it, if any. */
-  refusal?: string;
-  /** A provider URI match for this document only, valid while its snapshot is unchanged. */
-  uriMatch?: { connectionId: string; itemId: string; snapshotId: string };
-  /** A single-match account choice, valid while every connection's snapshot is unchanged. */
-  autoChoice?: { snapshots: string; connectionId: string; itemId: string };
-  /**
-   * The document's content script compared the value the page set in its account input
-   * (ADR 0028 amendment of 2026-10-23), which it answers only once.
-   */
-  siteAsked?: true;
-  /** A provider URI match for `topUrl`, valid while its snapshot is unchanged. */
-  topMatch?: { connectionId: string; itemId: string; snapshotId: string };
-  /** Why generation last skipped this document, so each reason is logged once. */
-  generationSkip?: string;
-  /** Why this document's sign-in input last did not start a login, logged once. */
-  notStarted?: string;
-  /**
-   * A new login of this top document was refused, or waits for a repair, because its recipe
-   * lacks the `passkey` route while its item holds a discoverable passkey: the page's own
-   * conditional request, when it comes, waits for that repair and then has the document
-   * announce again, so the login answers it (ADR 0034 amendment of 2026-10-25).
-   */
-  awaitsPageRequest?: true;
-  /** That document's repair runs (ADR 0058 A). */
-  repairing?: true;
-  /**
-   * For the tab's own page: the URL of the tab's previous page of the same origin, or of
-   * this document before it changed its path in place, for the log of a page Pateat does
-   * not fill (ADR 0035).
-   */
-  previousUrl?: string;
-  /** The tab's top page went on to a page Pateat does not admit, so it is no previous page. */
-  leftUnread?: true;
-  /**
-   * When this worker first saw the document. Only a page first seen after another tab's
-   * login began to be watched ends that login (ADR 0027).
-   */
-  seenAt: number;
-  /**
-   * The time a login this document starts takes before it starts, for the local log (ADR
-   * 0019): since when it waits for one, and its service and person time so far, such as
-   * its first page's generation or an account pick. Shared with the same document's later
-   * announcements, so time added to an earlier one counts too.
-   */
-  timing: StartTiming;
-  /** Why this document's sign-in entry was not pressed, each reason logged once at info. */
-  entryRefusals?: string[];
-  /**
-   * Why the last check of this page, the new top page of a login's move to another origin
-   * (ADR 0022), did not find the sign-in complete, for the log.
-   */
-  moveMiss?: MoveMiss;
-  /** Probe build only: how many observations of the page a login got back, for its status. */
-  observations?: number;
-};
-/**
- * A tab's page on whose path a recipe generated as `confirm` or `unclear` starts, which
- * Pateat only watches (ADR 0035), for the log entry written when the tab leaves it.
- */
-type ConfirmVisit = {
-  document: LoginDocument;
-  path: string;
-  url: string;
-  recipe: Pick<LoginRecipe, "id" | "revision" | "pageKind">;
-  /** The recipe's first step, for the document to report once it shows. */
-  first: LoginReadiness;
-  /** The person submitted the page's form themselves (a trusted `submit` event). */
-  submitted: boolean;
-  /**
-   * Once the page was logged `confirm-unsupported`: resolves after that entry is written, to
-   * whether the tab's next page is read for E1 (neither its own E1 nor E2 showed).
-   */
-  logged?: Promise<boolean>;
-};
-/**
- * Why a login's move to another origin did not complete it (ADR 0022): no step or second
- * factor fits the move, the account has no username to look for, the page went away or
- * could not be read, it shows a sign-in step or asked for a passkey, or it never read
- * quiet twice.
- */
-type MoveMiss =
-  | "no-factor"
-  | "no-username"
-  | "page-gone"
-  | "unreadable"
-  | "sign-in-shown"
-  | "passkey-request"
-  | "not-quiet";
-/** Why a page offered for generation is not sent, for the log (ADR 0019). */
-type GenerationMiss = "no-vault-match" | "vault-unavailable" | "connection-disabled";
-/**
- * The popup's codes within its 200 characters: a page's own refusal reason is any text the
- * content script sent.
- */
-const clipCodes = <T extends Record<string, string | undefined>>(fields: T): T =>
-  Object.fromEntries(
-    Object.entries(fields).map(([key, value]) => [key, value?.slice(0, 200)]),
-  ) as T;
-/** A provider's or vault's reason as a log code, within the log's 64 characters. */
-const logCode = (reason: string) =>
-  reason
-    .toLowerCase()
-    .replace(/[^a-z0-9.:-]+/gu, "-")
-    .replace(/^[^a-z0-9]+/u, "")
-    .slice(0, 64) || "unknown";
-/**
- * A page offered as a list of accounts (ADR 0028): its path, and without an email listed,
- * the short texts that may name an account by a username that is not an email, and why a
- * shown email address is not a list entry, for the log only.
- */
-type ListOffer = {
-  path: string;
-  names?: string[] | undefined;
-  other?: true | undefined;
-  otherMiss?: OtherMiss | undefined;
-  missed?: EntryMiss | undefined;
-};
-/** Whether a record holds its origin against other tabs at `now` (ADR 0022). */
-const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
-  entry.state !== "authenticated" &&
-  // A fill-only login never submits (ADR 0021 D).
-  !entry.fillOnly &&
-  // A login interrupted before anything was submitted never submits.
-  !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions) &&
-  !stoppedByPateat(entry) &&
-  // A clock set back ends the hold rather than prolonging it.
-  now - (entry.changedAt ?? 0) >= 0 &&
-  now - (entry.changedAt ?? 0) < HOLD_MS;
-/**
- * Whether a record holds its origin against the site's other tabs at `now` (ADR 0022): as
- * {@link holdsSite}, and a watched login for as long as its watch, as while its tab waits
- * for a code, so a second tab does not log in and send a second code (owner, 2026-10-23).
- */
-const holdsOthers = (entry: LoginAttemptMetadata, now: number) =>
-  holdsSite(entry, now) || (entry.watch !== undefined && !watchOver(entry, now));
-/** Documents are tracked per frame; a tab still runs at most one attempt. */
-const frameKey = (document: { tabId: number; frameId: number }) =>
-  `${document.tabId}:${document.frameId}`;
-/**
- * Attempt records are kept per tab and origin: each origin a tab shows keeps its own
- * record until the tab closes, while the tab still runs one attempt at a time.
- */
-const recordKey = (tabId: number, origin: string) => `${tabId} ${origin}`;
-/** A document's key in the entry press's sets and maps (ADR 0031). */
-const documentKey = (page: { tabId: number; documentId: string }) =>
-  `${page.tabId} ${page.documentId}`;
-/**
- * An account the user picked in the toolbar popup (ADR 0021). It is used instead of the
- * saved default by the refused document it restarted and then by the attempt that
- * document started, on that login's later pages too. It is saved as the default after
- * confirmed `authenticated` only with `makeDefault`.
- */
-const pickedAccountSchema = v.strictObject({
-  tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
-  origin: v.string(),
-  documentId: v.string(),
-  /** Set once the picked login starts; until then the pick applies to `documentId` only. */
-  attemptId: v.optional(v.string()),
-  connectionId: v.string(),
-  itemId: v.string(),
-  makeDefault: v.boolean(),
-  /** How long the popup offered the choice before the pick: the person's time (ADR 0019). */
-  waitedMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
-  /**
-   * Chosen by the value the page set in its account input, not in the popup (ADR 0028
-   * amendment of 2026-10-23): kept like a pick so the login's later pages use it too, and
-   * never saved as the default.
-   */
-  site: v.optional(v.literal(true)),
-});
-type PickedAccount = v.InferOutput<typeof pickedAccountSchema>;
-/**
- * A document refused because several accounts match it, or because its tab asks for an
- * account (`ask`, ADR 0021 D, ADR 0062); the popup offers these candidates.
- */
-const pendingChoiceSchema = v.strictObject({
-  document: loginDocumentSchema,
-  /** When the document was first offered the choice, in epoch milliseconds (ADR 0019). */
-  at: v.pipe(v.number(), v.integer(), v.minValue(0)),
-  candidates: v.array(v.strictObject({ connectionId: v.string(), itemId: v.string() })),
-  ask: v.optional(askReasonSchema),
-  /** Refused because automatic login of the site is paused (ADR 0062). */
-  paused: v.optional(v.literal(true)),
-});
-/**
- * A secret question the judge paired with one of the login item's custom fields (ADR 0061,
- * owner 2026-10-23): the answer input, the field, the question in its compared form, which
- * the page must show as one whole question, and as the judge copied it from the page
- * (`shown`, trimmed), for the popup only. The popup proposes it; only the owner's
- * confirmation links it.
- */
-const pairedQuestionSchema = v.strictObject({
-  field: detailSourceFieldSchema.options[1],
-  question: storedQuestionSchema,
-  shown: shownQuestionSchema,
-});
-type PairedQuestion = v.InferOutput<typeof pairedQuestionSchema> & { target: LoginFieldTarget };
-/**
- * The judge's pairings as a login keeps them (ADR 0061): each answer input with the custom
- * field whose slot the judge named, and the question. A slot sent for no custom field, or
- * a question too short or too long to store, pairs nothing.
- */
-function pairedQuestions(
-  path: string,
-  questions: readonly { field: LoginFieldTarget; slot: string; shown: string }[] | undefined,
-  offers: readonly CustomFieldOffer[],
-): { path: string; questions: PairedQuestion[] } | undefined {
-  const kept = (questions ?? []).flatMap((entry) => {
-    const offer = offers.find((candidate) => candidate.slot.id === entry.slot);
-    const question = questionText(entry.shown);
-    const shown = entry.shown.trim();
-    return offer && v.is(storedQuestionSchema, question) && v.is(shownQuestionSchema, shown)
-      ? [{ target: entry.field, field: offer.reference, question, shown }]
-      : [];
-  });
-  return kept.length ? { path, questions: kept } : undefined;
-}
-/**
- * A `detail` handler that a tab's login stopped at because no linked vault field had a
- * value for it (ADR 0061); the popup proposes fields for it while the tab shows `document`.
- */
-const detailOfferSchema = v.strictObject({
-  document: loginDocumentSchema,
-  path: v.string(),
-  attemptId: v.string(),
-  /** The handler's index in the login's recipe, for the log. */
-  handler: v.pipe(v.number(), v.integer(), v.minValue(0)),
-  /** The login item and its site. */
-  account: v.strictObject({ connectionId: v.string(), itemId: v.string(), origin: v.string() }),
-  /**
-   * The handler's fields Pateat fills: one in one input, which for a secret question's
-   * answer may carry the judge's pairing until the owner confirms it, or one split over
-   * several inputs.
-   */
-  fields: v.pipe(
-    v.array(
-      v.union([
-        v.pipe(
-          v.strictObject({
-            detail: loginDetailSchema,
-            format: v.optional(detailFormatSchema),
-            target: loginFieldTargetSchema,
-            paired: v.optional(pairedQuestionSchema),
-          }),
-          v.check(
-            (entry) => detailFormatFits(entry.detail, entry.format),
-            "A birth date or card expiry input has a format of its own, and no other input has one",
-          ),
-        ),
-        detailFieldSchema.options[1],
-      ]),
-    ),
-    v.minLength(1),
-    v.maxLength(3),
-  ),
-  /** The handler's button, which must still show for the popup's fill. */
-  target: loginTargetSchema,
-});
-type DetailOffer = v.InferOutput<typeof detailOfferSchema>;
-/** A saved link's field that a login reads only after the master password (ADR 0061). */
-type DetailWait = {
-  detail: LoginDetail;
-  itemId: string;
-  fieldId: string;
-  /** The waiting field's inputs, so its fill goes to that field and no other. */
-  targets: LoginFieldTarget[];
-};
-/** Whether two fields' inputs are the same, in the same order. */
-const sameInputs = (left: readonly LoginFieldTarget[], right: readonly LoginFieldTarget[]) =>
-  left.length === right.length && left.every((target, at) => sameLoginTarget(target, right[at]!));
-/** A link filled from the popup, saved once the tab's login `attemptId` is confirmed. */
-const pendingDetailSchema = v.strictObject({
-  tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
-  attemptId: v.string(),
-  handler: v.pipe(v.number(), v.integer(), v.minValue(0)),
-  connectionId: v.string(),
-  link: detailLinkSchema,
-});
-type PendingDetail = v.InferOutput<typeof pendingDetailSchema>;
-type DetailSourceField = DetailLink["source"]["field"];
-/** A link's source field as a key, the same whatever order its properties came in. */
-const sourceFieldKey = (field: DetailSourceField) =>
-  typeof field === "string"
-    ? field
-    : JSON.stringify([field.custom, field.position ?? null, field.count ?? null]);
-/** A refused link; a secret question's answer names its question's field too. */
-const refusedDetailSchema = v.strictObject({
-  ...v.omit(detailLinkSchema, ["source"]).entries,
-  field: v.optional(detailLinkSchema.entries.source.entries.field),
-});
-type RefusedDetail = v.InferOutput<typeof refusedDetailSchema>;
-/** A tab and origin that asks for an account until a pick logs in (ADR 0021 D). */
-const askSchema = v.strictObject({
-  tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
-  origin: v.string(),
-});
-/**
- * A login that ended with a result, or that ended when the tab left its origin (ADR 0022);
- * its first step showing again in the tab's page releases its record, and the page logs in
- * again as on any visit (ADR 0062), or asks after a rejection. A switch, a stop, or a
- * result still being reconciled does not.
- */
-const finishedLogin = (metadata: LoginAttemptMetadata) =>
-  metadata.state === "authenticated" ||
-  (metadata.state === "blocked" &&
-    ["credential-rejected", "wrong-account", "left-origin", "interrupted"].includes(
-      metadata.outcome ?? "",
-    ));
-/**
- * A login Pateat itself stopped with nothing in flight: a withdrawn authorization, a
- * cancel, a value the page would not take, another account shown, or retries spent on
- * failures that changed nothing. It does not hold the origin against other tabs (ADR
- * 0022). A refusal by the site, a second-factor challenge, a submission limit, an
- * operation the page may have received or a result that may still arrive keeps holding.
- */
-const stoppedByPateat = (metadata: LoginAttemptMetadata) =>
-  metadata.state === "blocked" &&
-  ([
-    "policy-changed",
-    "value-mismatch",
-    "wrong-account",
-    "account-switched",
-    "retry-limit",
-    // Nothing on a chooser's list fit the account (ADR 0028); nothing was clicked.
-    "account-not-listed",
-  ].includes(metadata.outcome ?? "") ||
-    // A frame login whose page went away also ends `cancelled`; after a submission that
-    // is the tab leaving, which holds like `interrupted`.
-    (metadata.outcome === "cancelled" && metadata.submissions === 0)) &&
-  metadata.mutationIntent !== true &&
-  metadata.settled !== true &&
-  !(metadata.operationKind === "click" && metadata.operationId !== undefined);
-type PendingChoice = v.InferOutput<typeof pendingChoiceSchema>;
-type Execution = {
-  metadata: LoginAttemptMetadata;
-  /** The links this login's `detail` fills used were already removed as refused (ADR 0061). */
-  detailsForgotten?: boolean;
-  /**
-   * The question field each `detail` handler this login filled a secret question's answer
-   * into read from, by handler (ADR 0061). Kept in memory only.
-   */
-  answers?: Map<number, DetailSourceField>;
-  /**
-   * The secret questions the judge paired with the login item's custom fields on the page
-   * at `path` (ADR 0061), for the popup to propose once the login stops at their handler.
-   * Unconfirmed, so nothing is ever filled from them. Kept in memory only.
-   */
-  paired?: { path: string; questions: PairedQuestion[] };
-  /** A chooser login's recipe (ADR 0028), whose list its first step clicks on. */
-  chooser?: LoginChooserRecipe;
-  /** A fill-only login's accounts and why its tab asks, offered once it ends (ADR 0021 D). */
-  asked?: { candidates: PendingChoice["candidates"]; ask: AskReason };
-  recipe: LoginRecipe;
-  live: LiveDocument;
-  running: boolean;
-  operation?: LoginOperation;
-  /** `operation` was sent to the page, so its effect may have started. */
-  delivered?: boolean;
-  /** Saved only once this attempt reaches confirmed `authenticated`. */
-  choice?: UnsavedChoice;
-  /**
-   * The step index of a held click this document performed (ADR 0027): a handler's click
-   * or the `passkey` route's. Its page is not judged while the clicked button still shows.
-   */
-  heldClick?: number;
-  /**
-   * The path the login's document showed when it was last observed, which a watch that
-   * begins there keeps (ADR 0027 amendment of 2026-10-25).
-   */
-  readPath?: { documentId: string; path: string };
-  /**
-   * The elements of the step after an advance on the same path, as the document measured
-   * them in the same task as the advance, just before it (ADR 0013): only elements that
-   * were not usable then confirm it. Kept in memory and carried to the attempt's next
-   * document, never stored.
-   */
-  inPlace?: { operationId: string; before: TargetState[] };
-  /**
-   * Likewise each other layout's next step on the advance's path, by the layout's key (ADR
-   * 0060): only elements not usable then confirm a switch to that layout on that path.
-   */
-  siblingsInPlace?: { operationId: string; siblings: { layout: string; before: TargetState[] }[] };
-  /**
-   * Since when the page after the final `advance` step `operationId` has shown a sign-in
-   * input on `path`, so the recipe may be continued there (ADR 0018). Kept in memory only.
-   */
-  qualified?: { operationId: string; path: string; since: number };
-  /**
-   * The final `advance` step whose continuation this document will not send or take over
-   * again: its request was spent or its answer could not be used (ADR 0018). Kept apart
-   * from `qualified`, so a path change or a page that stops qualifying for a moment does
-   * not clear it. Kept in memory only.
-   */
-  continuationRefused?: string;
-  /**
-   * When the `passkey` route's answer to its page's own request went back (ADR 0034), or a
-   * login's answer at its stop (ADR 0036). Kept per document in memory only, so a new
-   * document or a worker restart counts as long after it.
-   */
-  answeredAt?: number;
-  /**
-   * The path a login's answer at a stop just past its plan's last step was given on (ADR
-   * 0036): with no step at the stop, the page held after the answer is the one on this
-   * path, as the stop step's path is otherwise. Kept with `answeredAt`.
-   */
-  answeredPath?: string;
-  /**
-   * Why a continuation could not take a stop just past the plan's last step over (ADR 0036,
-   * `continuedStop`), as `fills-lacking`: the `challenge` at that stop names it after
-   * `password-empty:`. Kept in memory only, so a later document logs the bare reason.
-   */
-  stopMiss?: PasswordStopMiss;
-  /** The login's item could not answer its page's own request; the login never asks again. */
-  passkeyFailed?: true;
-  /**
-   * The recipe's rejection showed when the login fell back from the passkey answer to the
-   * password (ADR 0034). It does not reject the password in this document until it has gone.
-   */
-  staleRejection?: true;
-};
-/**
- * A top document's own `conditional` passkey request, waiting for the login of that
- * document (ADR 0034). `settle` answers it once and says whether it still waited.
- */
-type ParkedRequest = {
-  tabId: number;
-  origin: string;
-  documentId: string;
-  /** Whether its tab is incognito, as its sender or the tab says; absent when not known. */
-  incognito?: boolean;
-  since: number;
-  /** The login of its document was seen running, so its end decides the request. */
-  during?: true;
-  /**
-   * Its document was asked for an account (ADR 0021 D, ADR 0062), so it waits for the
-   * pick while the tab asks.
-   */
-  asked?: true;
-  /**
-   * Its document was offered a popup choice outside an ask in which an item holds a
-   * discoverable passkey, so it waits for the pick while that choice is offered (ADR 0034).
-   */
-  picking?: true;
-  /**
-   * When a pick for its document started no login, or the choice it waited for went away;
-   * it waits briefly for the choice again.
-   */
-  dropped?: number;
-  /**
-   * When its document last waited for a repair or was asked to announce again for it, from
-   * which a login of the document may still take `REQUEST_START_WAIT_MS` to start.
-   */
-  restarted?: number;
-  settle(decision: ConditionalDecision): boolean;
-};
-/**
- * A popup choice offered to a tab's top document outside an ask, on a recipe without a
- * passkey button (ADR 0034): whether one of its items holds a discoverable passkey, checked
- * once while a conditional request of that document waits. Kept in memory only.
- */
-type ChoicePasskeys = {
-  /** The choice it describes, as `choiceKey` names it. */
-  key: string;
-  /** The document the choice was offered to. */
-  documentId: string;
-  /** Unset until the check ends. */
-  holds?: boolean;
-  checking?: true;
-  /** A site default was saved for the origin since, which ends the choice. */
-  defaulted?: true;
-};
-/** Names a popup choice by its document and the accounts it offers. */
-const choiceKey = (choice: {
-  document: { documentId: string; origin: string };
-  candidates: readonly { connectionId: string; itemId: string }[];
-}) =>
-  JSON.stringify([
-    choice.document.documentId,
-    choice.document.origin,
-    choice.candidates.map((entry) => `${entry.connectionId} ${entry.itemId}`).sort(),
-  ]);
-/** An in-memory catalog copy in which one item covers `origin`; never persisted. */
-function withItemOrigin(
-  catalog: VaultCatalog,
-  account: { connectionId: string; itemId: string },
-  origin: string,
-): VaultCatalog {
-  const granted = structuredClone(catalog);
-  const item = granted.connections
-    .find((entry) => entry.id === account.connectionId)
-    ?.items.find((entry) => entry.id === account.itemId);
-  if (item && !item.allowedOrigins.includes(origin)) item.allowedOrigins.push(origin);
-  return granted;
-}
-/** Internal: admit again, because an account choice was saved while admitting (ADR 0022). */
-const CHOICE_SAVED = "choice-saved";
-const terminal = (metadata: LoginAttemptMetadata) =>
-  ["authenticated", "blocked"].includes(metadata.state);
-/**
- * A login with no step left to run: its result settled as unknown, or it is watched after a
- * `challenge` (ADR 0027). Its later pages are checked, but it is not a login in progress.
- */
-const idle = (metadata: LoginAttemptMetadata) =>
-  metadata.settled === true || metadata.state === "watching";
-/**
- * Whether a login of an item without a password stands at its stop with nothing in flight
- * (ADR 0036): the step there fills the password, so it never runs, or the stop lies just
- * past the plan's last step and no step is there.
- */
-const atStop = (metadata: LoginAttemptMetadata) =>
-  metadata.route === "password" &&
-  metadata.stopAt !== undefined &&
-  metadata.stepIndex === metadata.stopAt &&
-  metadata.operationId === undefined;
-/** Whether such a login answered a passkey request at its stop (`STOP_ANSWERED`). */
-const answeredAtStop = (metadata: LoginAttemptMetadata) =>
-  metadata.route === "password" &&
-  metadata.stopAt !== undefined &&
-  metadata.stepIndex === metadata.stopAt &&
-  metadata.operationId !== undefined;
-/** Whether the plan step at `index` lies past such a login's stop. */
-const pastStop = (metadata: LoginAttemptMetadata, index: number) =>
-  metadata.route === "password" && metadata.stopAt !== undefined && index > metadata.stopAt;
-/**
- * Whether such a login's stop lies just past its plan's last step (ADR 0036): its route
- * fills no password and ends with an `advance`, as a recipe whose page after the identifier
- * is not generated yet. The page that advance leads to is the stop's.
- */
-const stopsPastPlan = (metadata: LoginAttemptMetadata) =>
-  metadata.route === "password" && metadata.stopAt === metadata.stepCount;
-/** Whether the step in flight is the final `advance` that leads to such a stop. */
-const advancingToStop = (metadata: LoginAttemptMetadata) =>
-  stopsPastPlan(metadata) &&
-  metadata.operationId !== undefined &&
-  metadata.operationEffect === "advance" &&
-  metadata.stepIndex + 1 === metadata.stopAt;
-/**
- * Whether a login whose result settled as unknown runs in the document its watch began in
- * (ADR 0027), which was already read for that result.
- */
-const settledHere = (run: Execution) =>
-  run.metadata.state === "reconciling" &&
-  run.metadata.settled === true &&
-  run.metadata.watch?.documentId === run.live.document.documentId;
-/** Whether a login's watch is over at `now`; a clock set back ends it too (ADR 0027). */
-const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
-  metadata.watch !== undefined &&
-  (now - metadata.watch.since >= WATCH_MS || now < metadata.watch.since);
-/** The document's path now, after any route it took in place since it announced. */
-const pathNow = (live: LiveDocument) => live.route ?? live.path;
-/**
- * Whether a login is watched (ADR 0027) in the top document its watch began in, the watch
- * still lasts, and that document took another route in place than the one the login was
- * last read on: that route is read once as the tab's next page (ADR 0027 amendment of
- * 2026-10-25).
- */
-const routedHere = (run: Execution) =>
-  run.live.document.frameId === 0 &&
-  (run.metadata.state === "watching" || settledHere(run)) &&
-  run.metadata.watch?.documentId === run.live.document.documentId &&
-  run.metadata.watch.path !== undefined &&
-  run.metadata.watch.path !== pathNow(run.live) &&
-  // A path too long to keep reads no route, as the watch could not record it.
-  pathNow(run.live).length <= WATCH_PATH_MAX &&
-  !watchOver(run.metadata, Date.now());
+import type { LoginRuntimeOptions } from "./runtime/deps";
 
-/**
- * Where one recipe starts: its start path and the first step of each of its routes and
- * variants, all on that path (ADR 0027).
- */
-/**
- * Where a recipe starts: its first steps, or for a chooser recipe (ADR 0028) `list`, the
- * list's own buttons, when it shows the list of accounts, and as its steps the first step
- * of its `other` branch when that starts on the list's path.
- */
-/**
- * One layout a new login may run (ADR 0060), in the order it is tried, with the later
- * steps that show of it when the login starts at one (ADR 0049).
- */
-/**
- * Where a login may start later in its recipe (ADR 0049): each variant's showing steps, in
- * order, `partial` holding `variant:index` for a step that shows only with its password
- * fields alone, and whether the start page's passkey button shows beside them.
- */
-type LaterStart = { variants: Map<number, number[]>; partial: Set<string>; button: boolean };
-type LayoutChoice = {
-  recipe: LoginRecipe;
-  later?: LaterStart | undefined;
-};
-export type LoginRecipeStart = {
-  path: string;
-  steps: LoginStep[];
-  list?: LoginTarget[];
-  /** What the later steps a login may start at when no first step shows wait for (ADR 0049). */
-  later?: LoginReadiness[];
-};
-/**
- * Cached recipes. Account bindings come from synced settings (`settings.bindings`,
- * ADR 0013); neither carries values.
- */
-export interface LoginRecipes {
-  /**
-   * The recipe for a document, or an attempt's own recipe by ID after navigation: one
-   * layout of it (ADR 0060), the one named or else the newest.
-   */
-  recipe(
-    origin: string,
-    path: string,
-    recipeId?: string,
-    layout?: string,
-  ): Promise<LoginRecipe | undefined>;
-  /**
-   * Every layout of the recipe that starts on the path, for a new login to choose from
-   * (ADR 0060); none when no single recipe starts there.
-   */
-  layouts?(origin: string, path: string): Promise<LayoutCandidate<LoginRecipe>[]>;
-  /**
-   * Every layout of a recipe by ID, a chooser's branches for a chooser recipe: a sign-in
-   * check reads all their signed-in markers (ADR 0060).
-   */
-  layoutsOf?(origin: string, recipeId: string): Promise<LoginRecipe[]>;
-  /**
-   * Whether the recipes, read without failure, no longer hold a layout of the recipe by ID
-   * that runs: the recipe or its layout was withdrawn. False when they cannot be read, so a
-   * resumed login whose lookup failed stays resumable (owner, 2026-10-23). A sync running
-   * or being started by a lookup ends first, for at most a few seconds.
-   */
-  withdrawn?(origin: string, recipeId: string, layout?: string): Promise<boolean>;
-  /** Where every recipe for the origin starts; a document watches for its first steps. */
-  starts(origin: string): Promise<LoginRecipeStart[]>;
-  /**
-   * Each layout of the origin's login recipes with a later step on the path a login may
-   * start at (ADR 0049, ADR 0060).
-   */
-  later?(origin: string, path: string): Promise<LoginRecipe[]>;
-  /**
-   * The chooser recipe (ADR 0028) whose list shows on the path, or a chooser login's own
-   * recipe by ID after navigation: one layout of it, the one named or else the newest.
-   */
-  chooser?(
-    origin: string,
-    path: string,
-    recipeId?: string,
-    layout?: string,
-  ): Promise<LoginChooserRecipe | undefined>;
-  /** Every layout of the chooser whose list shows on the path (ADR 0060). */
-  choosers?(origin: string, path: string): Promise<LayoutCandidate<LoginChooserRecipe>[]>;
-  /** The origin's entry recipes (ADR 0031): a start path and the link pressed there. */
-  entries(origin: string): Promise<LoginEntryRecipe[]>;
-  /** The origin's logout recipes (ADR 0063), for an account switch. */
-  logouts?(origin: string): Promise<LoginLogoutRecipe[]>;
-  /**
-   * Every route recipe of the origin whatever its page kind, and each chooser branch (ADR
-   * 0028), which is `sign-in`. `recipe` and `starts` leave out one generated as `confirm`
-   * or `unclear` (ADR 0035): its page is never logged in to and is not sent for generation
-   * again. Their signed-in markers tell the generation request whether a page shows the
-   * user signed in.
-   */
-  routes?(origin: string): Promise<LoginRecipe[]>;
-}
-export const noLoginRecipes: LoginRecipes = {
-  recipe: async () => undefined,
-  starts: async () => [],
-  entries: async () => [],
-};
-
-/**
- * Why a page is not sent now: no paired service, its request is in flight, or a request
- * for it reached the model within the retry window (ADR 0016).
- */
-export type GenerationHold = "not-connected" | "sending" | "sent";
-/**
- * What came of a repeat login's signed-in page sample (ADR 0029, owner 2026-10-18 08:05
- * UTC): `not-due` when none is due (this device sent one of the recipe and branch in the
- * last 30 days, or no service is paired), `not-sent` with why when one was due but the page
- * could not be described, the sample recorded, or the site was excluded before it left,
- * `kept`, `recent`, `gone` or `refused` for the service's answer (it logged the page, had a
- * sample already, no longer holds the recipe revision, or turned the page away), `failed`
- * with the transport's code.
- */
-export type PageSampleOutcome =
-  | { outcome: "not-due"; reason?: string }
-  | { outcome: "not-sent"; reason: string }
-  | { outcome: "kept" | "recent" | "gone" | "refused" }
-  | { outcome: "failed"; reason: string };
-
-/**
- * Whether a repair of a recipe the chosen item cannot run may be sent (ADR 0058 A, amended
- * by ADR 0041): `claimed`, with `release` to drop the claim for a request that never reached
- * the model; `not-due` when no service is paired (`not-connected`) or this device sent one
- * for the recipe and route in the last 3 days; `not-sent` when the claim could not be recorded first
- * (`storage-unavailable`).
- */
-export type RecipeRepairClaim =
-  | { outcome: "claimed"; release(): Promise<void> }
-  | { outcome: "not-due" | "not-sent"; reason?: string };
-
-/**
- * What came of one page offered for generation: the model's recipe, with the fields its
- * custom slots name remembered for `slotFields` and the recipe cache pulled once (a failed
- * pull is not reported, so the cache may not hold it yet: a continuation's login takes the
- * returned recipe itself), or its abstention, a failure or refusal with its code, or why
- * nothing was sent, for the local log. `retry` marks a page left free to send again: its
- * request did not reach the model, or it was not sent because no service is paired,
- * storage could not be written or a request for it is still in flight (ADR 0016); a
- * continuation's login then gives its request back for a later document to send (ADR
- * 0018). A continuation of a revoked or since-changed recipe is not marked.
- */
-export type GenerationOutcome =
-  /** A route recipe, or a chooser recipe for a list of accounts (ADR 0028). */
-  (
-    | { outcome: "recipe"; recipe: LoginRecipe | LoginChooserRecipe }
-    | {
-        outcome: "abstained" | "failed" | "unavailable" | "skipped";
-        reason: string;
-        retry?: true;
-      }
-    | {
-        outcome: "failed";
-        reason: "invalid-output";
-        /** Which check refused the model's output (`json`, `schema` or `plan`). */
-        check: "json" | "schema" | "plan";
-        /** The plan check's code or the output format's issue. */
-        detail?: string;
-        /** For an output format issue: where in the output it was. */
-        path?: string;
-        /** Refused output came from a model call, so the page is never left free. */
-        retry?: never;
-      }
-  ) &
-    ServiceTimed;
-
-/** What came of a page sent as a site's sign-in entry (ADR 0031): its entry recipe, or not. */
-export type EntryGenerationOutcome =
-  | ({ outcome: "recipe"; recipe: LoginEntryRecipe } & ServiceTimed)
-  | Exclude<GenerationOutcome, { outcome: "recipe" }>;
-
-/** How long a request that reached the service took, for the local log (ADR 0019). */
-type ServiceTimed = { timing?: ServiceTiming };
-
-/** An outcome's fields for the local log: never the recipe itself or `retry`. */
-function outcomeFields(answer: GenerationOutcome | EntryGenerationOutcome) {
-  const timed = answer.timing ? { timing: answer.timing } : {};
-  // A route recipe's kind (ADR 0035); a chooser and an entry recipe are always `sign-in`.
-  if (answer.outcome === "recipe")
-    return {
-      outcome: answer.outcome,
-      ...("recipe" in answer && "pageKind" in answer.recipe
-        ? { pageKind: answer.recipe.pageKind }
-        : {}),
-      ...timed,
-    };
-  if (!("check" in answer)) return { outcome: answer.outcome, reason: answer.reason, ...timed };
-  const { outcome, reason, check, detail, path } = answer;
-  return {
-    outcome,
-    reason,
-    check,
-    ...(detail === undefined ? {} : { detail }),
-    ...(path === undefined ? {} : { path }),
-    ...timed,
-  };
-}
-
-/**
- * A page's description as generation may send it (ADR 0016), or why not as a value-free
- * code for the log's `detail` (ADR 0019): `invalid-observation` when it fails its check,
- * the extractor's `gap` when it is incomplete (`incomplete` without one), and for a
- * complete one `origin-changed` or `path-changed` when it describes another origin or path
- * than expected, or `list-mismatch` when `list` is given and the description lists
- * accounts on a page not announced as a list, or none on one that was.
- */
-function acceptedObservation(
-  described: { readonly observation: unknown; readonly gap?: string | undefined },
-  expected: { readonly origin: string; readonly path: string; readonly list?: boolean },
-): { observation: LoginObservation } | { detail: string } {
-  const parsed = v.safeParse(loginObservationSchema, described.observation);
-  if (!parsed.success) return { detail: "invalid-observation" };
-  const observation = parsed.output;
-  if (!observation.complete) return { detail: described.gap ?? "incomplete" };
-  if (observation.origin !== expected.origin) return { detail: "origin-changed" };
-  if (observation.path !== expected.path) return { detail: "path-changed" };
-  if (expected.list !== undefined && (observation.accounts !== undefined) !== expected.list)
-    return { detail: "list-mismatch" };
-  return { observation };
-}
-
-/** Roles of a field that can take an account's email address, username or ID. */
-const accountRoles = new Set(["text", "email", "tel", "number"]);
-/**
- * A field's `autocomplete` that leaves it free to take an account: none, or one for a
- * username, an email address or a phone number.
- */
-const accountTokens = new Set([undefined, "off", "username", "email", "tel"]);
-/**
- * Whether a page asks for an account (ADR 0028): it holds a field that can take one, in the
- * same form as a password field when it shows one, so a search box or another form's
- * field beside a password-only form does not count.
- */
-const asksAccount = (observation: LoginObservation) => {
-  const passwords = observation.candidates.filter((candidate) => candidate.role === "password");
-  return observation.candidates.some(
-    (candidate) =>
-      accountRoles.has(candidate.role) &&
-      accountTokens.has(candidate.autocomplete) &&
-      (!passwords.length || passwords.some((password) => password.group === candidate.group)),
-  );
-};
-
-/** The service's recipe generation routes (ADR 0016, ADR 0018). */
-export interface LoginGeneration {
-  /**
-   * `true` when a page may be sent, else why not; with `base` and `branch`, as the first
-   * page of that chooser branch (ADR 0028). A branch is the name `recipeBranch` gives a
-   * layout and chooser branch (ADR 0060).
-   */
-  available(
-    origin: string,
-    path: string,
-    base?: RecipeGenerationRequest["base"],
-    branch?: string,
-  ): Promise<true | GenerationHold>;
-  /**
-   * Sends one page: a recipe's first page, or with `base` the page after the final
-   * `advance` step of that revision, which continues it. A continuation pulls recipes only,
-   * so the login it belongs to is not stopped by a settings write. `sent` is called just
-   * before the request leaves the device, for the local log (ADR 0019).
-   */
-  generate(request: RecipeGenerationRequest, sent?: () => void): Promise<GenerationOutcome>;
-  /**
-   * Sends a page without a login form, without slots (ADR 0031); its answer names the
-   * page's sign-in entry. Claimed and held as `generate` claims a first page.
-   */
-  generateEntry(
-    request: EntryGenerationRequest,
-    sent?: () => void,
-  ): Promise<EntryGenerationOutcome>;
-  /**
-   * Which vault field each custom slot of a recipe generated from this device names, from
-   * the request that produced it (ADR 0027); nothing for a recipe it did not generate.
-   */
-  slotFields(recipeId: string): Promise<LoginBindingTemplate | undefined>;
-  /**
-   * Sends a page no recipe check explained after an effect step, so the service can
-   * learn a signed-in marker or a handler (ADR 0027). `recipe` is the newer
-   * revision with a handler added, already in the recipe cache. `sent` is called just
-   * before the request leaves the device.
-   */
-  judge(
-    recipeId: string,
-    revision: number,
-    route: LoginRoute,
-    observation: LoginObservation,
-    sent?: () => void,
-    /**
-     * The layout the login ran (ADR 0060), and for a chooser login (ADR 0028) the branch
-     * whose route is judged, as `recipeBranch` names them; none for a recipe without layouts.
-     */
-    branch?: string,
-    /**
-     * The description left out a disabled field that may not be a sign-in field: the
-     * service keeps the model's abstention as `partial`, so a page of the path described
-     * in full is judged again (ADR 0029).
-     */
-    partial?: true,
-    /**
-     * The page of a login's stop before its item's missing password, which still shows the
-     * stop step's password field: the service keeps only a `passkey` handler from it (ADR
-     * 0036, owner 2026-10-13 05:39 UTC).
-     */
-    stop?: true,
-    /**
-     * The login account's slots, built as for generation (owner 2026-10-23: the same
-     * information goes to every model call unless there is a sound reason); `totp` goes
-     * only with a page that shows a code field.
-     */
-    slots?: readonly SemanticSlot[],
-    /**
-     * The page still shows the route's sign-in form beside another form that may ask for a
-     * detail (`showsBesideForm`): the service keeps only a `detail` handler from it (ADR
-     * 0061).
-     */
-    beside?: true,
-  ): Promise<{
-    /**
-     * `retry` for a temporary refusal before any model call, which gives the page back:
-     * no paired service, a rejected device, an unreachable or busy service, the service's
-     * own request limit, or a request that failed before the model. `unclear` covers
-     * every other answer, including permanent refusals and failed model calls. `optional`
-     * is a page after the sign-in that the person may put off (ADR 0065).
-     */
-    verdict: "signed-in" | "rejected" | "challenge" | "optional" | "unclear" | "retry";
-    /** For `retry` and `unclear`: the refusal or failure code, for the local log. */
-    reason?: string;
-    /** A chooser login's is the whole chooser (ADR 0028); either is the judged layout. */
-    recipe?: LoginRecipe | LoginChooserRecipe;
-    /**
-     * With `recipe`: the secret questions the judge paired with a slot sent, by the answer
-     * input, for the owner to confirm in the popup (ADR 0061).
-     */
-    questions?: { field: LoginFieldTarget; slot: string; shown: string }[];
-    /** How long the request took, when one was sent (ADR 0019). */
-    timing?: ServiceTiming;
-  }>;
-  /**
-   * Sends a repeat login's signed-in page, which the service logs for evaluation without a
-   * model call (ADR 0029, owner 2026-10-18 08:05 UTC), when this device sent none of the
-   * recipe and branch in the last 30 days and a service is paired. `describe` is called
-   * only then; the sample is recorded on the device before it is sent. `sending` is called
-   * after that, just before the request leaves the device: a reason it answers, such as a
-   * site excluded meanwhile, stops the request and leaves the record. Absent, no page is
-   * sampled.
-   */
-  samplePage?(
-    sample: { recipeId: string; revision: number; route: LoginRoute; branch?: string },
-    describe: () => Promise<
-      { observation: LoginObservation; slots: readonly SemanticSlot[] } | { unsent: string }
-    >,
-    sending?: () => Promise<string | undefined>,
-  ): Promise<PageSampleOutcome>;
-  /**
-   * Claims a repair of a generated recipe the chosen item cannot run (ADR 0058 A, amended by
-   * ADR 0041), at most once per recipe ID and missing `route` in 3 days for this service
-   * and device, recorded before the request leaves. Absent, no such repair is sent.
-   */
-  claimRepair?(recipeId: string, route: LoginRoute): Promise<RecipeRepairClaim>;
-  /**
-   * Pulls the service's recipes into the cache, so a repair is never asked for a recipe
-   * another device has already changed (ADR 0041).
-   */
-  pullRecipes?(): Promise<void>;
-}
-
-/**
- * Slot meanings sent for generation, each read from the vault item's built-in field of
- * the same name by `defaultLoginBinding`; `totp` reads a custom field holding a TOTP key
- * instead when the built-in one holds no value (`totpFieldReference`, owner 2026-10-23).
- */
-const generationSlots: { slot: SemanticSlot; fieldId: string }[] = [
-  { slot: builtInLoginSlots.username, fieldId: "login.username" },
-  { slot: builtInLoginSlots.password, fieldId: "login.password" },
-  { slot: builtInLoginSlots.totp, fieldId: "login.totp-code" },
-];
-/**
- * Whether a matching item offers a generation slot's built-in field. The password counts
- * only when it holds a value and is not excluded (ADR 0027); the TOTP field counts when
- * present, so the TOTP flag never decides what the model is offered.
- */
-function offersGenerationField(
-  settings: LocalSettings,
-  catalog: VaultCatalog,
-  entry: { connectionId: string; item: VaultItemMetadata },
-  fieldId: string,
-): boolean {
-  const field = entry.item.fields.find((candidate) => candidate.id === fieldId);
-  if (!field) return false;
-  if (fieldId !== "login.password") return true;
-  return (
-    field.empty !== true &&
-    !isFieldExcluded(settings, catalog, entry.connectionId, entry.item.id, fieldId)
-  );
-}
-/**
- * The field a `totp` handler makes its code from for the login's item (ADR 0027): the
- * field the item's saved binding for the recipe names for `totp`, else the one
- * `totpFieldReference` picks (the built-in TOTP field when it holds a value, else the one
- * custom field flagged as holding a key, owner 2026-10-23), or the synthetic probe item's
- * `totp` field. A custom field counts only when it is a Text or Hidden field the catalog
- * flags as holding a TOTP key (`totpSeed`). The code is always generated from the field's
- * key; its raw value is never typed. Undefined when the item has no such field, or when
- * the binding names any other field for `totp`.
- */
-function codeFieldOf(
-  connection: VaultConnectionMetadata,
-  itemId: string,
-  bindings: readonly SavedLoginBinding[],
-  recipe: LoginRecipe,
-): string | undefined {
-  const item = connection.items.find((entry) => entry.id === itemId);
-  if (!item) return undefined;
-  if (connection.provider === "dummy")
-    return item.fields.some((field) => field.id === "totp") ? "totp" : undefined;
-  if (connection.provider !== "bitwarden" || !connection.userId) return undefined;
-  const saved = findLoginBinding(bindings, recipe, {
-    provider: connection.provider,
-    server: connection.server,
-    userId: connection.userId,
-    itemId,
-  });
-  const reference =
-    saved?.slots.find((entry) => entry.slot === TOTP_HANDLER_SLOT)?.field ??
-    totpFieldReference(item.fields);
-  if (reference !== "totp") {
-    const resolved = resolveBindingFields(
-      { slots: [{ slot: TOTP_HANDLER_SLOT, field: reference }] },
-      [TOTP_HANDLER_SLOT],
-      item.fields,
-    );
-    const fieldId = resolved.ok ? resolved.slots[0]!.fieldId : undefined;
-    const field = item.fields.find((entry) => entry.id === fieldId);
-    return field?.id.startsWith("custom.") &&
-      (field.kind === "text" || field.kind === "hidden") &&
-      field.totpSeed === true
-      ? field.id
-      : undefined;
-  }
-  return item.fields.some((field) => field.id === "login.totp-code")
-    ? "login.totp-code"
-    : undefined;
-}
-/**
- * Why an item's password fact is false, for the log (ADR 0027): the item's password is
- * missing or empty (`password-empty`), or it holds one that the account may not fill,
- * directly or through a field linked to it (`password-not-allowed`). Never a value.
- */
-function passwordMiss(
-  item: Pick<VaultItemMetadata, "fields"> | undefined,
-  allowedFieldIds: readonly string[],
-): "password-not-allowed" | "password-empty" {
-  const held = item?.fields.some((field) => field.id === "login.password" && field.empty !== true);
-  return item &&
-    held &&
-    !allowedFieldIds.some((allowed) => loginFieldSource(item, allowed) === "login.password")
-    ? "password-not-allowed"
-    : "password-empty";
-}
-/**
- * Where the plan step at `index` stands in a TOTP code's entry (ADR 0027): the code fill
- * of an entered `totp` handler or of a route step that fills only the `totp` slot, or
- * the click on its button that follows the fill on the same path. A route's code fill
- * counts only when that click, a submit, follows it. A `totp` handler without a button
- * has only its fill, which submits by itself (ADR 0027 amendment of 2026-10-23).
- */
-function codeStep(
-  recipe: LoginRecipe,
-  metadata: LoginAttemptMetadata,
-  index: number,
-): "fill" | "click" | undefined {
-  const plan = attemptPlan(recipe, metadata);
-  const entry = plan?.[index];
-  if (!entry) return undefined;
-  const before = plan![index - 1];
-  if (entry.handler !== undefined) {
-    if (recipe.handlers?.[entry.handler]?.kind !== "totp") return undefined;
-    if (entry.step.kind === "fill") return "fill";
-    return entry.step.kind === "click" &&
-      before?.handler === entry.handler &&
-      before.step.kind === "fill"
-      ? "click"
-      : undefined;
-  }
-  const routeCode = (at: { step: LoginStep; handler?: number } | undefined) =>
-    at?.handler === undefined &&
-    at?.step.kind === "fill" &&
-    at.step.fields.length === 1 &&
-    at.step.fields[0]!.slot === TOTP_HANDLER_SLOT;
-  const after = plan![index + 1];
-  if (routeCode(entry))
-    return after?.handler === undefined &&
-      after?.step.kind === "click" &&
-      after.step.purpose === "submit" &&
-      after.step.path === entry.step.path
-      ? "fill"
-      : undefined;
-  return entry.step.kind === "click" &&
-    entry.step.purpose === "submit" &&
-    routeCode(before) &&
-    before!.step.path === entry.step.path
-    ? "click"
-    : undefined;
-}
-/**
- * Where the plan step at `index` stands in an entry the page may submit by itself: a TOTP
- * code's (`codeStep`, ADR 0027), or a route step's fill on a software keyboard followed on
- * the same path by its submit click, as a PIN pad that submits at its last digit
- * (ADR 0067).
- */
-function selfSubmitStep(
-  recipe: LoginRecipe,
-  metadata: LoginAttemptMetadata,
-  index: number,
-): "fill" | "click" | undefined {
-  const code = codeStep(recipe, metadata, index);
-  if (code) return code;
-  const plan = attemptPlan(recipe, metadata);
-  type Entry = { step: LoginStep; handler?: number } | undefined;
-  const keyed = (fill: Entry, click: Entry) =>
-    fill?.handler === undefined &&
-    click?.handler === undefined &&
-    fill !== undefined &&
-    keypadStep(fill.step) &&
-    click?.step.kind === "click" &&
-    click.step.purpose === "submit" &&
-    click.step.path === fill.step.path;
-  if (keyed(plan?.[index], plan?.[index + 1])) return "fill";
-  if (keyed(plan?.[index - 1], plan?.[index])) return "click";
-  return undefined;
-}
-/**
- * Whether a TOTP code's fill (see `codeStep`) went in, or may have, and its click has not
- * run (ADR 0027): a page that moved on meanwhile submitted the code by itself. A fill on a
- * software keyboard counts only after the page told of its first key press (`press`, ADR
- * 0067), while the fill is still running or once it went in and before its click is
- * prepared: a document that replaced the page before any press, as after the person's own
- * link click or a reload, submitted nothing, and neither did one after a stopped fill.
- */
-const codeAwaitsClick = (
-  recipe: LoginRecipe,
-  metadata: LoginAttemptMetadata,
-  press: KeypadPress | undefined,
-) =>
-  metadata.operationId === undefined
-    ? codeStep(recipe, metadata, metadata.stepIndex) === "click" ||
-      (press?.filled === true &&
-        press.stepIndex === metadata.stepIndex - 1 &&
-        selfSubmitStep(recipe, metadata, metadata.stepIndex) === "click")
-    : metadata.operationKind === "fill" &&
-      metadata.operationEffect === "prepare" &&
-      metadata.mutationIntent === true &&
-      (codeStep(recipe, metadata, metadata.stepIndex) === "fill" ||
-        (press?.filled !== true &&
-          press?.operationId === metadata.operationId &&
-          selfSubmitStep(recipe, metadata, metadata.stepIndex) === "fill"));
-/**
- * A keypad fill whose page told of its first key press (ADR 0067): its operation and plan
- * step, and whether it went in.
- */
-interface KeypadPress {
-  operationId: string;
-  stepIndex: number;
-  filled?: true;
-}
-/** The event for a code the page submitted by itself, marking a route step's code. */
-const autoSubmitted = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) => ({
-  type: "AUTO_SUBMITTED" as const,
-  operationId: newId(),
-  ...(attemptPlan(recipe, metadata)?.[metadata.stepIndex]?.handler === undefined
-    ? { routeStep: true as const }
-    : {}),
-});
-/** The step may have submitted or moved the page, so its result can show a handler. */
-const effectful = (metadata: LoginAttemptMetadata) =>
-  metadata.operationKind === "click" ||
-  metadata.operationEffect === "advance" ||
-  metadata.operationEffect === "submit";
-const stepTargets = (step: LoginStep) =>
-  step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
-/**
- * The name of the layout a login runs (ADR 0060) and, for a chooser login (ADR 0028), the
- * branch its click led to, as the service's records and requests name them; `undefined` for
- * a recipe without layouts, as the probe build's.
- */
-function branchOf(metadata: LoginAttemptMetadata): string | undefined {
-  return metadata.layout === undefined
-    ? undefined
-    : recipeBranch(
-        metadata.layout,
-        metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined,
-      );
-}
-/** `branchOf` as an optional `branch` member. */
-function branchField(metadata: LoginAttemptMetadata): { branch?: string } {
-  const branch = branchOf(metadata);
-  return branch ? { branch } : {};
-}
-/**
- * The recipe's signed-in markers as elements to observe (ADR 0029): each marker, which may
- * be a link located by its text (ADR 0018), then the elements it needs missing. `proves`
- * reads their states from `offset`: whether one marker shows once, visible, while each
- * element it needs missing is missing even hidden, on any path. Only the markers learned
- * on `pageOrigin` count: the recipe's own origin by default, or another origin that a
- * login's tab moved to (ADR 0022).
- */
-/** Whether two recipes hold the same signed-in markers, so reading one reads the other. */
-const sameMarkers = (left: LoginRecipe, right: LoginRecipe) =>
-  JSON.stringify(left.completion ?? []) === JSON.stringify(right.completion ?? []);
-function markerProof(recipe: LoginRecipe, pageOrigin = recipe.origin) {
-  const markers = (recipe.completion ?? []).filter(
-    (marker) => (marker.origin ?? recipe.origin) === pageOrigin,
-  );
-  return {
-    targets: markers.flatMap((marker) => [marker.target, ...(marker.absent ?? [])]),
-    links: markers.flatMap((marker) => [true, ...(marker.absent ?? []).map(() => false)]),
-    /** Every copy counts, hidden or not, as the markers were learned (ADR 0037 amendment). */
-    hidden: markers.flatMap((marker) => [true, ...(marker.absent ?? []).map(() => true)]),
-    /** Each marker must be visible; the elements it needs gone count even when hidden. */
-    shown: markers.flatMap((marker) => [
-      "shown" as const,
-      ...(marker.absent ?? []).map(() => "present" as const),
-    ]),
-    proves(states: readonly string[], offset = 0): boolean {
-      let at = offset;
-      for (const marker of markers) {
-        const absent = marker.absent ?? [];
-        if (
-          states[at] === "unique" &&
-          absent.every((_target, index) => states[at + 1 + index] === "missing")
-        )
-          return true;
-        at += 1 + absent.length;
-      }
-      return false;
-    },
-  };
-}
-/**
- * What confirms the route step at `index` when it is an advance whose next route step is
- * on the same path, as an identifier-first form that swaps in its password form in place
- * (ADR 0013): the next step's elements, as that step waits for them and also visible as
- * the page's description reads them (ADR 0018), so a password input an email form keeps
- * off-screen or hidden from assistive technology for the browser is not taken for the
- * password form before or after the advance. Undefined when no element could confirm it: a
- * next step that needs none, one that shares an element with the advance, or a handler's
- * step, which keeps its own rules (ADR 0027). A `password` handler's click is the exception:
- * the route's next step on its path confirms it as it confirms an advance (ADR 0048).
- */
-function inPlaceNext(
-  recipe: LoginRecipe,
-  metadata: LoginAttemptMetadata,
-  index: number,
-): InPlaceNext | undefined {
-  const plan = attemptPlan(recipe, metadata);
-  const done = plan?.[index];
-  const next = plan?.[index + 1];
-  if (
-    !done ||
-    !next ||
-    (done.handler !== undefined && recipe.handlers?.[done.handler]?.kind !== "password") ||
-    next.handler !== undefined ||
-    loginStepEffect(done.step) !== "advance" ||
-    done.step.path !== next.step.path
-  )
-    return undefined;
-  const readiness = loginReadiness(next.step);
-  const own = stepTargets(done.step);
-  if (
-    !readiness.targets.length ||
-    readiness.targets.some((target) => own.some((other) => sameLoginTarget(other, target)))
-  )
-    return undefined;
-  return {
-    require:
-      readiness.require === "writable"
-        ? "described-writable"
-        : readiness.require === "clickable"
-          ? "described-clickable"
-          : "present",
-    targets: readiness.targets,
-  };
-}
-const probeMode = import.meta.env.MODE === "probe";
-/** How many of an unconfirmed in-place advance's next targets the log names (ADR 0019). */
-const ADVANCE_LOG_TARGETS = 4;
-/**
- * Why an advance whose next step is on its own path was not confirmed, for the log only
- * (ADR 0019): per next target, joined by `.`, its state just before the advance
- * (`TargetState`, or `unmeasured`), its state when the advance settled, and the check that
- * decided that (`TargetCheck`), and whether the page was on the step's path. Codes only.
- */
-type AdvanceMiss = {
-  advanceBefore: string;
-  advanceAfter: string;
-  advanceWhy: string;
-  advancePath: "same" | "other";
-};
-/**
- * The order in which handlers shown together are tried: a `password` handler first, so a
- * login that types its password goes on to it rather than to a passkey beside it (ADR
- * 0048), then a passkey, which types nothing.
- */
-const handlerOrder = { password: 0, passkey: 1, totp: 2, detail: 3 } as const satisfies Record<
-  LoginHandler["kind"],
-  number
->;
-
-/**
- * How long the page after a recipe's final `advance` step must keep showing a sign-in input,
- * on one path, before it is sent to continue the recipe (ADR 0018).
- */
-const CONTINUATION_STABLE_MS = 1000;
-/**
- * How long a later document of the login waits for the continuation its earlier document
- * asked for (ADR 0018); the request itself gives up after 90 seconds.
- */
-const CONTINUATION_WAIT_MS = 100_000;
-
-/** Custom-field values read for their shapes per generation request (ADR 0027). */
-const MAX_CUSTOM_SHAPE_READS = 32;
-
-/** What a page without a recipe is sent with: its slots and the items that matched it. */
-type GenerationScope = {
-  /** The built-in slots a matching item can fill. */
-  slots: SemanticSlot[];
-  /** One slot per custom field a matching item allows, numbered over all of them. */
-  offers: CustomFieldOffer[];
-  items: {
-    connection: VaultConnectionMetadata;
-    item: VaultCatalog["connections"][number]["items"][number];
-  }[];
-  settings: SettingsSnapshot["settings"];
-  catalog: VaultCatalog;
-  /** Every enabled connection answered and every item's URI rules were evaluated. */
-  complete: boolean;
-};
-/** The items that matched a page and the settings they were matched under. */
-type VaultMatch = Pick<GenerationScope, "items" | "settings" | "catalog">;
-
-/**
- * The recipe's inputs for the `username` slot on `path`, over every password variant, each
- * once: where a site may show the account it remembers (ADR 0028 amendment of 2026-10-23).
- */
-function accountTargetsOn(recipe: LoginRecipe, path: string): LoginFieldTarget[] {
-  const targets: LoginFieldTarget[] = [];
-  for (const variant of passwordVariants(recipe))
-    for (const step of variant.steps)
-      if (step.kind === "fill" && step.path === path)
-        for (const field of step.fields)
-          if (
-            field.slot === "username" &&
-            !targets.some((target) => sameLoginTarget(target, field.target))
-          )
-            targets.push(field.target);
-  return targets;
-}
-/** Each URI match's connection and item in the catalog; one the catalog lacks is left out. */
-function catalogItems(
-  catalog: VaultCatalog,
-  candidates: readonly Pick<LiveSiteCandidate, "connectionId" | "itemId">[],
-): GenerationScope["items"] {
-  return candidates.flatMap((candidate) => {
-    const connection = catalog.connections.find((entry) => entry.id === candidate.connectionId);
-    const item = connection?.items.find((entry) => entry.id === candidate.itemId);
-    return connection && item ? [{ connection, item }] : [];
-  });
-}
-
-/**
- * Coordinator is packaged production code. Production admits only `sites` documents and
- * uses `recipes`; the loopback probe adapter and its controls exist only in the probe build.
- * Account metadata comes from each live settings read; values come from `fields` per fill.
- */
-/**
- * How a login's account was chosen (ADR 0013, ADR 0021): the saved default, the only match,
- * a pick in the popup, an account switch's pick (ADR 0063), or the account the page set in
- * its input (ADR 0028).
- */
-export type AccountSource = "default" | "match" | "pick" | "switch" | "site-value";
-/**
- * A value-free account of what the runtime decided, for the local log (ADR 0019). The
- * origin and recipe ID are reduced there; no account ID is included, and the only item ID,
- * a `start`'s, is logged as a pseudonym.
- */
-export type LoginReport = (
-  | {
-      type: "attempt";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      /** The recipe revision the login runs. */
-      recipeRevision: number;
-      /**
-       * The layout the login runs (ADR 0060), and for a chooser login (ADR 0028) the branch
-       * whose route it runs, as `recipeBranch` names them.
-       */
-      branch?: string;
-      /** The route and password variant the login took when it started (ADR 0027). */
-      route: LoginRoute;
-      variant?: number;
-      state: LoginAttemptMetadata["state"];
-      stepIndex: number;
-      stepCount: number;
-      /** The current step's kind and effect, and the entered handler it belongs to. */
-      operation?: string;
-      effect?: string;
-      handler?: number;
-      outcome?: string;
-      /** An undecided page ended the login without a confirmed sign-in (ADR 0029). */
-      unconfirmed?: true;
-      /**
-       * For a `policy-changed` outcome: its cause, and a refused plan's reason. For a login
-       * that failed or was cancelled: why, as the worker or the page saw it (ADR 0019).
-       */
-      cause?: PolicyChangeCause | StopCause;
-      reason?: string;
-      /** The result of the current effect step just settled as unknown (`unknown-submit`). */
-      settled?: true;
-      /** The login is watched for its result (ADR 0027): its watch has not ended. */
-      watched?: true;
-      /** A new document of the tab resumed the attempt without changing its state or outcome. */
-      repeat?: true;
-      /**
-       * Nothing was submitted yet, and the login is still in the document it began in, so
-       * the page is the one it started on or the same document after a fill (ADR 0066).
-       */
-      unsubmitted?: true;
-      /**
-       * A fill-only login of a tab that asks (ADR 0062 B), whose log lines stay on the device
-       * (ADR 0066). Its `reason` is `fill-only` too, unless a stop names another.
-       */
-      fillOnly?: true;
-      /** Why the login just changed route (ADR 0034). */
-      routeChange?: RouteChange;
-      /**
-       * The layout the login ran until it just switched to `branch`'s, where the layouts of
-       * its recipe part (ADR 0060).
-       */
-      layoutFrom?: string;
-      /** The login stops before the password its item lacks (ADR 0036). */
-      stop?: "password";
-      /** For a login that just ended, signed in or blocked: how long it took (ADR 0019). */
-      times?: AttemptTimes;
-    }
-  | {
-      type: "refused";
-      tabId: number;
-      origin: string;
-      reason: string;
-      /** The refused document is a frame, not the tab's page. */
-      frame?: true;
-      /**
-       * For `no-route` on a recipe with several password variants: why its first variant
-       * did not fit, such as `binding-not-found` (ADR 0027). For `account-asked`, why the
-       * tab asks ({@link AskReason}); for `not-started`, why a shown sign-in input did not
-       * start a login.
-       */
-      detail?: string;
-      /**
-       * For `account-ambiguous`, `account-asked` and `relogin-limit`: how many accounts the
-       * tab may ask with.
-       */
-      candidates?: number;
-      /**
-       * For `not-started` with `confirm-unsupported`: the recipe generated as `confirm` or
-       * `unclear` that starts on the page, and its kind (ADR 0035); with
-       * `first-step-missing`, the recipe whose first step missed.
-       */
-      recipeId?: string;
-      recipeRevision?: number;
-      pageKind?: PageKind;
-      /**
-       * Also for `confirm-unsupported`, what the page showed for the evaluation of page
-       * kinds, never a value or page text (ADR 0035): whether an amount shows in the form of
-       * its first step (absent when that step is in no form), whether a signed-in marker of
-       * the origin's recipes shows (ADR 0029's E1), whether a matching item's username shows
-       * in the header or navigation (E2, absent when the usernames could not be read), and
-       * the URL of the tab's previous page of the origin.
-       */
-      amount?: boolean;
-      e1?: boolean;
-      e2?: boolean;
-      previousUrl?: string;
-      /**
-       * For `not-started`: the later steps watched on the page's path (ADR 0049), how many,
-       * how many with their password alone, and the furthest check they reached
-       * (`LaterMiss`).
-       */
-      laterSteps?: number;
-      laterPartial?: number;
-      laterMiss?: LaterMiss;
-      /** The same reason was already logged for this page (ADR 0019). */
-      repeat?: true;
-      /**
-       * The page is not login-related: its origin has no recipe and no login runs in the
-       * tab, or the tab no longer shows it, so the refusal is ordinary browsing (ADR 0019).
-       */
-      unrelated?: true;
-    }
-  | {
-      /** A new login started (ADR 0019). */
-      type: "start";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      /** The recipe revision the login runs. */
-      recipeRevision: number;
-      /** The layout of the recipe the login runs (ADR 0060); absent for one without layouts. */
-      layout?: string;
-      /** How many layouts of the recipe it chose among, when more than one (ADR 0060). */
-      layouts?: number;
-      route: LoginRoute;
-      variant?: number;
-      /** How the account was chosen; absent in the probe build. */
-      account?: AccountSource;
-      /** For an account found by URI match: the candidate count. */
-      candidates?: number;
-      /** For an account found by URI match: the item, logged only as a pseudonym. */
-      itemId?: string;
-      /**
-       * The login fills the page without pressing anything while its tab asks for an
-       * account (ADR 0021 D).
-       */
-      fillOnly?: true;
-      /** The later step of its variant the login started at (ADR 0049). */
-      startStep?: number;
-      /** It started at that step with the step's password fields alone (ADR 0049). */
-      startPartial?: true;
-      /**
-       * For a login on a chooser's list (ADR 0028): what it clicks there, or `none` when
-       * it ends `account-not-listed`; `other-shown` when its path showed the `other`
-       * branch's form instead, so it clicked nothing there.
-       */
-      click?: ChooserClick | "none";
-      /** With `none`: what the list showed, without any name or address. */
-      listMiss?: ListMiss;
-    }
-  | {
-      /**
-       * The tab stopped asking for an account of the origin after a rejection or a stopped
-       * login (ADR 0021 D), because it closed. After a rejection, the origin's other tabs
-       * stop asking with it unless `elsewhere`; a stopped login asked in its own tab only.
-       */
-      type: "ask-ended";
-      tabId: number;
-      origin: string;
-      ask: "rejected" | "stopped-login";
-      cause: "tab-closed";
-      /** Another tab still asks after the site rejected its own login of the origin. */
-      elsewhere?: true;
-    }
-  | {
-      /**
-       * Automatic login of a registrable site was paused or resumed from the popup, or its
-       * pause ended because a login picked in the popup authenticated (ADR 0062). `origin`
-       * is the page's the pause was set from or the picked login's.
-       */
-      type: "pause";
-      tabId: number;
-      origin: string;
-      action: "paused" | "resumed" | "picked";
-      /** For `paused`: the length the person chose. */
-      length?: PauseLength;
-      /** The pause is the incognito windows'. */
-      incognito?: true;
-    }
-  | {
-      /**
-       * The tab left a page logged `not-started` with `confirm-unsupported`, for its next
-       * page or by closing (ADR 0035). `url` is that page's.
-       */
-      type: "confirm-left";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      recipeRevision: number;
-      pageKind: PageKind;
-      /** The person submitted the page's form themselves: a trusted `submit` event. */
-      personSubmitted: boolean;
-      /**
-       * For a page that showed neither E1 nor E2 (E2 also when unread), read as the
-       * `signedIn` false its generation request carried: whether the tab's next page shows a
-       * signed-in marker of the origin's recipes (E1). Absent when the tab closed or its next
-       * page was not read.
-       */
-      nextE1?: boolean;
-    }
-  | {
-      /**
-       * Whether an automatic or picked account choice was saved after the login
-       * authenticated (ADR 0013), and why not.
-       */
-      type: "choice";
-      tabId: number;
-      origin: string;
-      outcome:
-        | "saved"
-        | "already-saved"
-        | "account-changed"
-        | "login-in-progress"
-        | "settings-unavailable"
-        | "write-failed";
-    }
-  | {
-      /**
-       * What the toolbar popup was told about a tab's account choice (ADR 0021), logged when
-       * it changes for the tab: offered with how many accounts, or none, with the tab's
-       * login record and the page's last answer that explain why.
-       */
-      type: "popup";
-      tabId: number;
-      origin: string;
-      choice: "offered" | "none";
-      candidates?: number;
-      /** Why the tab asks for an account (ADR 0021 D, ADR 0062). */
-      ask?: AskReason;
-      /** Automatic login of the site is paused (ADR 0062). */
-      paused?: true;
-      held?: true;
-      /** The site rejected another tab's login, so the popup chooses no account. */
-      rejectedElsewhere?: true;
-      recordState?: string;
-      recordOutcome?: string;
-      pageReason?: string;
-    }
-  | {
-      /** An exception stopped a login; only its class name and message are passed on. */
-      type: "exception";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      /** The recipe revision the login runs. */
-      recipeRevision: number;
-      route: LoginRoute;
-      /** The state the login was left in, and the step it stopped at. */
-      state: LoginAttemptMetadata["state"];
-      stepIndex: number;
-      /** As for `attempt`: nothing was submitted yet, in the document the login began in. */
-      unsubmitted?: true;
-      /** As for `attempt`: a fill-only login of a tab that asks (ADR 0062 B, ADR 0066). */
-      fillOnly?: true;
-      name: string;
-      /** Logged only when it is one of Pateat's own error codes. */
-      message?: string;
-      /** Logged as the extension's own file positions only (ADR 0019). */
-      stack?: string;
-    }
-  | {
-      type: "generation";
-      tabId: number;
-      origin: string;
-      /** `sent` when the page went out; the outcome follows unless no answer came (ADR 0019). */
-      outcome: GenerationOutcome["outcome"] | "sent";
-      /** Unless a recipe came back: the refusal or failure code, or why nothing was sent. */
-      reason?: string;
-      /** For refused model output: which check refused it, and why. */
-      check?: "json" | "schema" | "plan";
-      detail?: string;
-      path?: string;
-      /**
-       * For the page after a recipe's final `advance` step (ADR 0018): the recipe and the
-       * revision it continues, and for a returned recipe whether this login took it over.
-       */
-      recipeId?: string;
-      baseRevision?: number;
-      takenOver?: boolean;
-      /**
-       * For a returned recipe this login did not take over: a value-free code for why, such
-       * as the plan's refusal (`binding-slots-mismatch`, `field-missing`) or
-       * `settings-revision` (ADR 0019).
-       */
-      notTakenOver?: string;
-      /**
-       * `accounts` for a page that lists accounts (ADR 0028), `entry` for a page sent as a
-       * site's sign-in entry (ADR 0031), `other` for a form shown on a chooser's path sent
-       * as its `other` branch's first page (ADR 0028), `repair` for a stale recipe's start
-       * page sent to add a layout, with the recipe and the revision it repairs (ADR 0041).
-       */
-      page?: "accounts" | "entry" | "other" | "repair";
-      /** A returned route recipe's page kind (ADR 0035). */
-      pageKind?: PageKind;
-      /** The `signedIn` hint the request carried (ADR 0035). */
-      signedIn?: boolean;
-      /** How long the request took, once it was answered or failed (ADR 0019). */
-      timing?: ServiceTiming;
-    }
-  | {
-      /**
-       * A login's tab moved to a page of another origin that did not complete it (ADR
-       * 0022), and why; `origin` is that page's. Logged when the move ends the login, or,
-       * with `kept`, when the page went away before it was read and the tab's next page is
-       * checked instead. A move the judge decided is logged as `judge` instead.
-       */
-      type: "move";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      recipeRevision: number;
-      route: LoginRoute;
-      reason: MoveMiss;
-      /** A frame of the new page announced first; only the top page reads the sign-in. */
-      frame?: true;
-      kept?: true;
-    }
-  | {
-      type: "judge";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      recipeRevision: number;
-      route: LoginRoute;
-      /**
-       * `sent` when the page goes out; the service's verdict when it answers; `not-sent`,
-       * with the reason, when the page is not sent or could not be described for it.
-       */
-      verdict:
-        | "sent"
-        | "not-sent"
-        | "signed-in"
-        | "rejected"
-        | "challenge"
-        | "optional"
-        | "unclear"
-        | "retry";
-      reason?: string;
-      /** For a returned revision: whether this login took it over. */
-      takenOver?: boolean;
-      /** A page of a watched login, judged from the watch's own pages (ADR 0027). */
-      watched?: true;
-      /**
-       * The judge could not decide a page with no sign and no evidence, or found it an
-       * optional page after the sign-in, so the login completed on it (ADR 0029, ADR 0065).
-       */
-      completed?: true;
-      /**
-       * The page's description left out a disabled field that may not be a sign-in field,
-       * so only `signed-in` completes the login on it (ADR 0029).
-       */
-      disabledLeftOut?: true;
-      /**
-       * Why an undecided answer that would have completed the login did not: the page's
-       * description left out a disabled field (ADR 0029), or the login stopped before the
-       * password its item lacks, which an undecided answer never completes (ADR 0036).
-       */
-      notCompleted?: "disabled-left-out" | "password-empty";
-      /**
-       * The page is on another origin, which a `password` login's tab moved to right after
-       * the submission or a second factor (ADR 0022); `origin` is that page's.
-       */
-      moved?: true;
-      /**
-       * The page of a login's stop before its item's missing password, judged for a passkey
-       * button beside the password field (ADR 0036, owner 2026-10-13 05:39 UTC).
-       */
-      stop?: "password";
-      /**
-       * The page still shows the route's sign-in form beside another form, judged for a
-       * `detail` handler only (ADR 0061).
-       */
-      beside?: true;
-      /** How long the request took, once it was answered or failed (ADR 0019). */
-      timing?: ServiceTiming;
-    }
-  | {
-      /**
-       * A repeat login's signed-in page sample (ADR 0029): `sent` just before it leaves the
-       * device, then the answer, or `not-sent` with why when one was due.
-       */
-      type: "sample";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      recipeRevision: number;
-      route: LoginRoute;
-      outcome: "sent" | Exclude<PageSampleOutcome["outcome"], "not-due">;
-      reason?: string;
-    }
-  | ({
-      type: "state";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      /** The recipe revision the login runs. */
-      recipeRevision: number;
-      route: LoginRoute;
-      /** What ADR 0029 would do with the page; logged only (delivery 1). */
-      decision: ReturnType<typeof decideSignInState>;
-      /** A later page of an attempt whose result already settled as unknown. */
-      settled?: true;
-      /** Why S1 was not read as the sign-in form shown again, when it holds without it. */
-      reshownMiss?: ReshownMiss;
-      /** Why F2 does not hold on the sign-in form shown again. */
-      alertMiss?: AlertMiss;
-    } & SignInSigns &
-      Partial<AdvanceMiss>)
-  | {
-      /**
-       * A site's sign-in entry (ADR 0031): `pressed`; `refused` with the check before the
-       * press that failed, or `unconfirmed` for a press the page never answered; `blocked`
-       * with why the page after the press blocked the recipe revision (`left-site`,
-       * `no-sign-in`, `sign-up`), and `detail` `storage-unavailable` when the block could
-       * not be stored on the device.
-       */
-      type: "entry";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      recipeRevision: number;
-      outcome: "pressed" | "refused" | "blocked";
-      reason?: string;
-      detail?: string;
-      /** A refusal the document already logged for the same reason. */
-      repeat?: true;
-    }
-  | {
-      /**
-       * A generated recipe's start page showed a sign-in input for the step wait without a
-       * ready first step (ADR 0041): `due` when the page is sent for repair, or
-       * why not (`skipped`, with the `StartMissVerdict`, the `RepairNote` or why the page
-       * cannot be sent as `reason`).
-       */
-      type: "repair";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      recipeRevision: number;
-      outcome: "due" | "skipped";
-      reason?: string;
-    }
-  | {
-      /**
-       * A new login's recipe the chosen item cannot run, whose start page is sent for repair
-       * (ADR 0058 A, amended by ADR 0041): `route` is the route the item would take that the
-       * recipe lacks, `detail` the plan's refusal, and the outcome the claim's
-       * ({@link RecipeRepairClaim}).
-       */
-      type: "unfit";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      recipeRevision: number;
-      route: LoginRoute;
-      /** `newer` when a newer revision was pulled, which the page tries first. */
-      outcome: RecipeRepairClaim["outcome"] | "newer";
-      reason?: string;
-      detail?: string;
-    }
-  | {
-      /**
-       * An account switch from the popup (ADR 0063): `start` once it began, `click` for each
-       * logout click with its `purpose` and whether the model gave it in this switch
-       * (`learned`), and `end` with `outcome` `signed-out` or `failed`, why (`reason`) and the
-       * model's or page's code (`detail`).
-       */
-      type: "switch";
-      tabId: number;
-      origin: string;
-      stage: "start" | "click" | "end";
-      outcome?: "signed-out" | "failed";
-      reason?: string;
-      detail?: string;
-      purpose?: LogoutPurpose;
-      /** Where a click came from: the stored recipe, the model or the control's words. */
-      source?: LogoutSource;
-      learned?: true;
-      clicks?: number;
-      recipeId?: string;
-      recipeRevision?: number;
-      makeDefault?: true;
-    }
-  | {
-      type: "handler";
-      tabId: number;
-      origin: string;
-      recipeId: string;
-      /** The recipe revision the login runs. */
-      recipeRevision: number;
-      handler: number;
-      kind: string;
-      /**
-       * `entered`; `shown-again` after this login already ran it; `missing-fact` when the
-       * item lacks what the handler needs, including a `totp` handler's code field;
-       * `code-used` when the login already types a TOTP code; `no-room` when the attempt's
-       * budget is spent, or the login is at its stop before a missing password (ADR 0036);
-       * for a `detail` handler (ADR 0061), `detail-manual` when its inputs ask only for
-       * details Pateat never fills, `detail-unlinked` when no usable vault field is linked
-       * for a shown input, `detail-reprompt` when the only linked value is in an item that
-       * waits for the master password, which the chooser window asks for before the fill,
-       * `detail-unreadable` when the linked value is no date or has too
-       * few digits, `detail-unavailable` when the vault could not give it, `detail-unfit`
-       * when a value split over several inputs fits none of them, as when no option of a
-       * select matches its part or a card's digits do not fit its boxes, and, about the
-       * site's links, `detail-saved` when the popup's fill was saved after the login was
-       * confirmed, `detail-forgotten` when a refused value's link was removed, and
-       * `detail-kept` when it could not be removed now.
-       */
-      outcome:
-        | "entered"
-        | "shown-again"
-        | "missing-fact"
-        | "code-used"
-        | "no-room"
-        | "detail-manual"
-        | "detail-unlinked"
-        | "detail-reprompt"
-        | "detail-unreadable"
-        | "detail-unavailable"
-        | "detail-unfit"
-        | "detail-saved"
-        | "detail-forgotten"
-        | "detail-kept"
-        | "detail-not-saved";
-      steps: number;
-    }
-) & {
-  /**
-   * The tab's page URL when the report is made, for a report on the page's own origin and
-   * not about a frame (ADR 0019). The log keeps its path and its parameters' names, never
-   * their values, only for a site it names in full.
-   */
-  url?: string | undefined;
-};
-/**
- * Why a login changed route (ADR 0034): to the `passkey` route because the page asked for
- * a passkey by itself (`page-request`); back to its password variant because that request
- * went away before the answer (`request-missing`), the item could not answer it
- * (`answer-failed`), the recipe's rejection showed after the answer (`sign-in-rejected`),
- * or the sign-in form still showed after the answer (`sign-in-shown`).
- */
-export type RouteChange =
-  | "page-request"
-  | "request-missing"
-  | "answer-failed"
-  | "sign-in-rejected"
-  | "sign-in-shown";
-/**
- * What withdrew a running login's authorization (`POLICY_CHANGED`): a settings sync or a
- * save on the settings page; a settings revision other than the login's, or settings that
- * could not be read; a plan the
- * settings or vault no longer allow; a vault snapshot replaced before delivery; a
- * vault field that could not be read; or a recipe that no longer runs a resumed login.
- */
-export type PolicyChangeCause =
-  | "settings-synced"
-  | "settings-saved"
-  | "settings-revision"
-  | "settings-unavailable"
-  | "plan"
-  | "vault-replaced"
-  | "field-unavailable"
-  // Automatic login of the site was paused (ADR 0062).
-  | "paused"
-  | "recipe-changed";
-type PolicyChange = { cause: PolicyChangeCause; reason?: string };
-/**
- * Why a login failed or was cancelled, for the log (ADR 0019): its step's elements did not
- * show in time (`elements-timeout`), a code page neither submitted the code nor took the
- * click (`code-not-submitted`), no operation could be built (`no-operation`), the operation
- * no longer validated (`operation-invalid`), a field had no binding (`slot-unbound`), the
- * page did not answer or its answer failed its check (`no-answer`), a code page said it
- * submitted the code itself but no check confirmed it (`page-submitted`), the document
- * could not be reached, as when a submit replaced it (`document-gone`), the login's item
- * could not answer its page's own passkey request (`answer-failed`, ADR 0034), the page
- * showed a CAPTCHA, so its click was left to the person (`captcha-shown`, ADR 0029), the
- * page after an effect step settled as unknown while it still showed the sign-in form
- * (S1) with no failure that acted (`sign-in-shown`, ADR 0029), or the page's own reason
- * (`ExecutionDetail`).
- */
-export type StopCause =
-  | "elements-timeout"
-  | "answer-failed"
-  | "code-not-submitted"
-  | "no-operation"
-  | "operation-invalid"
-  | "slot-unbound"
-  | "no-answer"
-  | "page-submitted"
-  | "document-gone"
-  | "captcha-shown"
-  | "sign-in-shown"
-  | ExecutionDetail;
-
-/**
- * A message to a login document that went unanswered, mostly because the document is gone:
- * a submit or a redirect replaced it, or its tab closed. Its replacement resumes the login.
- * `reason` keeps what the browser said: no listener was left, or the page went into the
- * back/forward cache (`no-receiver`), the listener did not answer, as when the document
- * unloads while it handles the message or a content script fault leaves it unanswered
- * (`port-closed`), or anything else (`send-failed`).
- */
-class DocumentGone extends Error {
-  override name = "DocumentGone";
-  readonly reason: "no-receiver" | "port-closed" | "send-failed";
-  constructor(cause: unknown) {
-    super("document-gone");
-    const message = cause instanceof Error ? cause.message : "";
-    this.reason = /Receiving end does not exist|back\/forward cache/u.test(message)
-      ? "no-receiver"
-      : /message (?:port|channel) closed/u.test(message)
-        ? "port-closed"
-        : "send-failed";
-  }
-}
-
-/** The badge of a tab whose login waits for an account choice (ADR 0021). */
-function choiceBadge(
-  candidates: readonly unknown[],
-  ask: AskReason | undefined,
-  paused?: boolean,
-): { count: number; ask?: AskReason; paused?: true } {
-  return {
-    count: candidates.length,
-    ...(ask ? { ask } : {}),
-    ...(paused ? { paused: true as const } : {}),
-  };
-}
-
-export function createLoginRuntime(
-  settings: SettingsRuntime,
-  options: {
-    fields: LoginFieldSource;
-    sites?: LoginSites;
-    recipes?: LoginRecipes;
-    /** Live provider URI matching; without it only static `allowedOrigins` apply. */
-    uris?: LiveUriMatcher;
-    /** Recipe generation for pages without a recipe; needs `uris` for the vault match. */
-    generation?: LoginGeneration;
-    /**
-     * Which generated recipes' start pages were sent for repair through `generation`
-     * (ADR 0041); without it no recipe is repaired.
-     */
-    repairs?: RecipeRepairs;
-    /**
-     * The account item's passkey facts, read once when a login starts (ADR 0027). Without
-     * it the item counts as holding no passkey, so a `passkey` handler is never run.
-     */
-    passkeys?: (account: LoginAccount) => Promise<{ passkey: boolean; discoverable: boolean }>;
-    /**
-     * The items holding a discoverable, usable passkey for the origin, by the criterion of
-     * `passkeys`, from one vault search per RP ID (ADR 0034). Without it no popup choice
-     * keeps a page's own conditional request waiting.
-     */
-    passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
-    /**
-     * An account switch's logout (ADR 0063): the stored logout recipes and the logout role.
-     * Without it the popup offers no switch.
-     */
-    logout?: LogoutService;
-    /**
-     * Whether the origin's hostname was just chosen "Always for this site" and its settings
-     * write still waits (ADR 0007): the login treats it as listed already.
-     */
-    pendingBrowserSite?: (origin: string) => boolean;
-    /** Receives each attempt state change, refusal and generation result. */
-    report?: (report: LoginReport) => void;
-    /**
-     * The toolbar badge (ADR 0038): the account choice a tab waits on, a tooltip, and a
-     * spin while a model request for its page is in flight, from the request's `sent` until
-     * it returns; and the tab's last login and model request it read from the reports, for
-     * the popup's page section. Without one the runtime writes `chrome.action` itself and
-     * keeps nothing across worker restarts.
-     */
-    badge?: Pick<LoginBadge, "choice" | "note" | "spin" | "status" | "asking"> &
-      Partial<Pick<LoginBadge, "paused">>;
-    /**
-     * The paused sites (ADR 0062); without it they are kept in `storage.session` under
-     * `LOGIN_PAUSES_KEY`.
-     */
-    pauses?: LoginPauses;
-    /**
-     * Told of each origin of a login that reached signed in, on any route, so a site's
-     * passkey registration right after it can be refused (ADR 0007). Never changes the login.
-     */
-    signedIn?: (tabId: number, origin: string) => void;
-    /**
-     * Automatic vault sync (ADR 0025). Each page announcement starts a due check and
-     * holds vault replacement off while it is handled; a page that may start a login
-     * first waits briefly for a running check.
-     */
-    vault?: {
-      refreshIfStale(): void;
-      enter(waitForCheck: boolean): Promise<() => void>;
-      /**
-       * Asked when a page with a recipe found no matching vault item: a check limited to
-       * once every ten seconds. Answers true when a check applied a new snapshot within
-       * ten seconds, after which the refused document is asked to announce again.
-       */
-      checkAfterMiss?(): Promise<boolean>;
-    };
-    /**
-     * Told once the runtime has handled a tab's top-frame announcement, which may count
-     * the site's items for the toolbar badge (ADR 0021).
-     */
-    announced?: (tabId: number, url: string) => void;
-    /**
-     * Asks for the master password of a login's item that has Bitwarden's re-prompt, on a
-     * site whose settings honour it, in Pateat's chooser window (ADR 0021; owner, 2026-10-23
-     * 12:46 UTC). `verified` once the vault accepted it; `unavailable` when no window may
-     * open, as for a tab in the background or in incognito. Without it such an item never
-     * starts a login there.
-     */
-    askMasterPassword?: (input: {
-      tabId: number;
-      origin: string;
-      account: LoginAccount;
-      connection: VaultConnectionMetadata;
-      item: VaultItemMetadata;
-      signal: AbortSignal;
-    }) => Promise<"verified" | "closed" | "unavailable">;
-  },
-) {
+export function createLoginRuntime(settings: SettingsRuntime, options: LoginRuntimeOptions) {
   /** A hostname whose passkey requests go to the browser, listed or just chosen (ADR 0007). */
   const listedBrowserSite = (saved: LocalSettings, origin: string) =>
     isPasskeyBrowserSite(saved, origin) || options.pendingBrowserSite?.(origin) === true;

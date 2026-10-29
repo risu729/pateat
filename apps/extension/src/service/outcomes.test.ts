@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { LoginReport } from "../login/runtime";
+import type { LoginReport } from "../login/runtime/report";
 import {
   createLoginOutcomes,
   loginOutcomeOf,

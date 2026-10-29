@@ -8,7 +8,7 @@ import {
   type LoginOutcomeReport,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import type { LoginReport, StopCause } from "../login/runtime";
+import type { LoginReport, StopCause } from "../login/runtime/report";
 import type { ServiceConnection } from "./runtime";
 import type { OutcomeResult, ServiceTransport } from "./transport";
 

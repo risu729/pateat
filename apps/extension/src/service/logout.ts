@@ -1,4 +1,4 @@
-import type { LoginRecipes } from "../login/runtime";
+import type { LoginRecipes } from "../login/runtime/deps";
 import type { LogoutOutcome, LogoutService } from "../login/switch";
 import type { ServiceConnection } from "./runtime";
 import type { ServiceTransport } from "./transport";

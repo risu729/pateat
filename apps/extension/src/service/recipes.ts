@@ -25,7 +25,7 @@ import {
   type SyncRecipeChanges,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import type { LoginRecipes } from "../login/runtime";
+import type { LoginRecipes } from "../login/runtime/deps";
 import type { DeviceRecipeUpload } from "./device-recipes";
 import { laterReadiness, loginReadiness } from "../login/wire";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";

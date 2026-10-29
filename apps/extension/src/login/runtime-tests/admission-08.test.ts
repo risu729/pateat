@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseLoginRecipe, type LoginStep } from "@pateat/contracts";
-import type { LoginReport } from "../runtime";
+import type { LoginReport } from "../runtime/report";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");

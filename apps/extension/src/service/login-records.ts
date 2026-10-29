@@ -1,6 +1,6 @@
 import { loginRecordSchema, type LoginRecord } from "@pateat/contracts";
 import * as v from "valibot";
-import type { LoginReport } from "../login/runtime";
+import type { LoginReport } from "../login/runtime/report";
 import { loginOutcomeOf } from "./outcomes";
 import type { ServiceConnection } from "./runtime";
 import type { OutcomeResult, ServiceTransport } from "./transport";

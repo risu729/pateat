@@ -6,7 +6,7 @@ import {
   type LoginStep,
 } from "@pateat/contracts";
 import type { UriCandidates } from "../../crypto/wire";
-import type { LoginReport } from "../runtime";
+import type { LoginReport } from "../runtime/report";
 import type { ConditionalDecision, PasskeyItem } from "../../passkeys/runtime";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));

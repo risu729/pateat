@@ -15,7 +15,7 @@ import {
   type BadgeDetails,
 } from "./badge";
 import { localClock } from "../time";
-import type { LoginReport } from "./runtime";
+import type { LoginReport } from "./runtime/report";
 import type { SiteCount } from "./site-count";
 
 const action = vi.hoisted(() => ({

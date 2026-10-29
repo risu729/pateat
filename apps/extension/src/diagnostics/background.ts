@@ -6,7 +6,7 @@ import type { VaultTimeoutReport } from "../vault/timeout";
 import type { SignInStep } from "../connections/runtime";
 import type { RefreshReport } from "../connections/sessions";
 import type { SetupReply } from "../connections/types";
-import type { LoginReport } from "../login/runtime";
+import type { LoginReport } from "../login/runtime/report";
 import type { PasskeyCreateReport } from "../passkeys/create";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
 import type { LoginRecordSent } from "../service/login-records";

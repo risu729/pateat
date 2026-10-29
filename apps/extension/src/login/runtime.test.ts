@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SettingsResponse } from "@pateat/contracts";
 import type { LoginFieldSource } from "./vault";
-import type { LoginReport } from "./runtime";
+import type { LoginReport } from "./runtime/report";
 
 const fake = vi.hoisted(() => {
   const state = {
