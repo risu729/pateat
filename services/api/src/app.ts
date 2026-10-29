@@ -105,7 +105,7 @@ export const app = new Hono<ApiEnv>()
   // Editing any profile from the extension's settings page (ADR 0076). Only the host-wide
   // Access application's audience is accepted, which requires WARP, never the pairing
   // one (ADR 0030); writes only from an extension the pairing allowlist names, reads
-  // from an extension context. A device credential grants no access here.
+  // also from any extension with host access. A device credential grants no access here.
   .use(
     "/extension/profiles/*",
     requireAccessApi,

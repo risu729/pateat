@@ -497,6 +497,11 @@ describe("extension profile editor authorization", () => {
       expect(await response.json()).toEqual({ error: "extension_not_allowed" });
     }
     expect((await bare(path)).status).toBe(403);
+    // A typed address or bookmark is marked `none` too, but as a navigation.
+    expect(
+      (await bare(path, { headers: { "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate" } }))
+        .status,
+    ).toBe(403);
     // A listed extension's Origin still wins over Fetch Metadata, and another one loses.
     expect((await editor(by, path, { headers: { "Sec-Fetch-Site": "cross-site" } })).status).toBe(
       200,

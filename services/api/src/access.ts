@@ -177,13 +177,16 @@ export const requirePairingOrigin = extensionGuard(
 
 /**
  * The profile editor (ADR 0076). A write must carry a listed extension's `Origin`, as
- * pairing does. Chrome leaves `Origin` out of an extension's GET to a host it has
- * access to and marks that request `Sec-Fetch-Site: none`, which no page's request
- * carries: a read is accepted that way too, from any extension with access to the
- * host, which can already read `/manage/api` (ADR 0020).
+ * pairing does. Chrome leaves `Origin` out of an extension's `fetch` GET to a host it
+ * has access to and marks it `Sec-Fetch-Site: none` and `Sec-Fetch-Mode: cors`, which no
+ * request whose answer a page can read carries: a read is accepted that way too, from
+ * any extension with access to the host, which can already read `/manage/api`
+ * (ADR 0020).
  */
 export const requireEditorExtension = extensionGuard((c, origin, listed) => {
   if (origin !== undefined) return listed.includes(origin);
   const read = c.req.method === "GET" || c.req.method === "HEAD";
-  return read && c.req.header("Sec-Fetch-Site") === "none";
+  return (
+    read && c.req.header("Sec-Fetch-Site") === "none" && c.req.header("Sec-Fetch-Mode") === "cors"
+  );
 });
