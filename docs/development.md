@@ -39,18 +39,22 @@ checks, handler takeover and reporting. Its `judgeMove` and `judgeStop` keep the
 distinct completion rules. The policy's table tests pin the existing behavior;
 extracting it does not change what an undecided answer means.
 
-The login runtime is being split under `apps/extension/src/login/runtime/` using the
+The login runtime lives under `apps/extension/src/login/runtime/` using the
 owner-approved extraction plan (accepted 2026-10-30). Session schemas, public dependency
 contracts and reports, internal types, constants, and existing pure attempt/step helpers
 have separate owners. Consumers import public types directly from `deps.ts` or
-`report.ts`; the entrypoint does not re-export them. Runtime extraction keeps function
-bodies, storage formats, messages, reports and startup ordering unchanged. Nested
-functions now live in plain `fn(rt, ...)` modules with explicit state and mutable scalar
-reads through `rt.vars`. The entrypoint creates that state, starts the original storage
-reads and listeners in their original order, and exposes the public callbacks. Admission
-remains in the entrypoint until its `AdmitContext` split. Each completed module stays
-within the 1,000-line limit. Subsequent pure policy extractions remain separate changes,
-with separate tests.
+`report.ts`; the entrypoint does not re-export them. The extraction preserves storage
+formats, messages, reports, startup ordering and function behavior.
+
+Nested functions live in plain `fn(rt, ...)` modules with explicit state and mutable
+scalar reads through `rt.vars`. The entrypoint creates that state, starts the original
+storage reads and listeners in their original order, and exposes the public callbacks.
+Admission proceeds through `admit.ts`, `admit-record.ts`, `admit-recipe.ts` and
+`admit-start.ts`, sharing an explicit mutable `AdmitContext` across the original
+sequential phases. Each phase returns directly into the next; it adds no await between
+the original effects and stale-document checks. Every runtime module stays within the
+1,000-line limit. Subsequent pure policy extractions remain separate changes, with
+separate tests.
 
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
