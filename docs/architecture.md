@@ -852,6 +852,12 @@ so schema initialization cannot join the function modules' import cycles. This i
 behavior-preserving source split accepted by the owner on 2026-10-30; admission and
 policy decisions retain their existing await, stale-document and persistence ordering.
 
+Admission has four sequential owners: document/site checks in `admit.ts`, earlier login
+records in `admit-record.ts`, recipe/layout selection in `admit-recipe.ts`, and plan
+authorization/start in `admit-start.ts`. Their mutable `AdmitContext` retains local
+values shared across those phases, preserving the existing persistence effects and
+the document checks that follow them.
+
 Address tabs explicitly by `tabId`, frames by `frameId`, and documents by `documentId`.
 Never select the target by whichever tab happens to be active. Use declarative content
 scripts/host permissions and browser events, not a popup or focus event as the execution
