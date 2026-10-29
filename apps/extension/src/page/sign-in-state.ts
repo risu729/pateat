@@ -52,8 +52,8 @@ export interface PageSigns {
 
 // As the fill check reads them: alerts anywhere, status and polite live regions only
 // inside a sign-in input's form or when one names them. A region around a sign-in input
-// changes with any text of the form, and a button's own text, such as "Signing in." or a
-// close button's "x", is not a message.
+// changes with any text of the form, and a button's own text, such as "Signing in…" or a
+// close button's "×", is not a message.
 const alertSelector = '[role="alert"], [aria-live="assertive"]';
 const statusSelector = '[role="status"], [aria-live="polite"]';
 const landmarkSelector = 'header, nav, [role="banner"], [role="navigation"]';
@@ -73,8 +73,8 @@ const landmarkReadLimit = 4000;
 export const minUsernameLength = 3;
 /**
  * Digits an all-digit username, such as a member number, needs to show beside kana or
- * kanji (`????12345678??`); a shorter number there may be a date or a count, as in
- * `2026?10?` or `??123?` (owner, 2026-10-23).
+ * kanji (`会員番号12345678さん`); a shorter number there may be a date or a count, as in
+ * `2026年10月` or `残り123件` (owner, 2026-10-23).
  */
 const memberNumberMinDigits = 8;
 /**
@@ -362,7 +362,7 @@ export function showsCaptcha(document: Document): boolean {
  * E2: the username, ignoring case, as a whole word of the header or navigation text,
  * read behind an open modal dialog too, as the signed-in page's description is. As in
  * ADR 0028, a username with a Latin letter whose edge is a Latin letter or digit may
- * touch a letter of another script, such as kana or kanji, there (`taro_y??`). An all-digit one may touch kana or kanji only
+ * touch a letter of another script, such as kana or kanji, there (`taro_yさん`). An all-digit one may touch kana or kanji only
  * with {@link memberNumberMinDigits} digits or more, and no other letter.
  */
 function showsUsername(document: Document, username: string): boolean {
@@ -379,7 +379,7 @@ function showsUsername(document: Document, username: string): boolean {
     ),
   );
   // `risu` is not shown by `risu729` nor by `x.risu@example.com`.
-  // An all-digit username, such as a member number, keeps the strict rule (`2026?`)
+  // An all-digit username, such as a member number, keeps the strict rule (`2026年`)
   // unless it is long enough to be a member number.
   const latin = /\p{Script=Latin}/u.test(name);
   const blockedBefore =
@@ -388,7 +388,7 @@ function showsUsername(document: Document, username: string): boolean {
     latin && latinWord.test(name.at(-1)!) ? /[\p{Script=Latin}\p{N}_@-]/u : /[\p{L}\p{N}_@-]/u;
   const memberNumber =
     /^\p{Decimal_Number}+$/u.test(name) && [...name].length >= memberNumberMinDigits;
-  // Script extensions also cover ? and ?, which `????` and `??` use.
+  // Script extensions also cover ー and 〆, which `メンバー` and `〆切` use.
   const kanaOrKanji = /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}]/u;
   const blocks = (blocked: RegExp, edge: string) =>
     blocked.test(edge) && !(memberNumber && kanaOrKanji.test(edge));

@@ -153,13 +153,13 @@ describe("pageSigns", () => {
     // A live region around a button changes with its text, which is not an answer.
     document.body.insertAdjacentHTML(
       "beforeend",
-      '<div aria-live="assertive"><button>Signing in.</button></div>',
+      '<div aria-live="assertive"><button>Signing in…</button></div>',
     );
     expect(pageSigns(document, { submitted })).toEqual(none);
     // An alert with a close button still counts by its own text.
     document.body.insertAdjacentHTML(
       "beforeend",
-      '<div role="alert">Wrong password <button aria-label="Close">x</button></div>',
+      '<div role="alert">Wrong password <button aria-label="Close">×</button></div>',
     );
     expect(pageSigns(document, { submitted })).toEqual({ ...none, alert: true });
     document.body.lastElementChild!.remove();
@@ -499,8 +499,8 @@ describe("pageSigns", () => {
       expect.soft(pageSigns(document, { username }).username, html).toBe(true);
     }
     // A username holding a format character, such as the ZWNJ of a Persian name.
-    document.body.innerHTML = "<nav>???&zwnj;???</nav>";
-    expect(pageSigns(document, { username: "???\u200C???" }).username).toBe(true);
+    document.body.innerHTML = "<nav>علی&zwnj;رضا</nav>";
+    expect(pageSigns(document, { username: "علی\u200Cرضا" }).username).toBe(true);
   });
 
   it("finds a Latin username beside Japanese text, as ADR 0028 names do", () => {
@@ -509,40 +509,40 @@ describe("pageSigns", () => {
       return pageSigns(document, { username }).username;
     };
     // A Latin-edged username may touch kana or kanji.
-    expect(shows("<nav>???? taro_y??</nav>", "taro_y")).toBe(true);
-    expect(shows("<nav>taro@example.com??????</nav>", "taro@example.com")).toBe(true);
-    expect(shows("<nav>??taro_y</nav>", "taro_y")).toBe(true);
+    expect(shows("<nav>ようこそ taro_yさん</nav>", "taro_y")).toBe(true);
+    expect(shows("<nav>taro@example.comでログイン中</nav>", "taro@example.com")).toBe(true);
+    expect(shows("<nav>会員taro_y</nav>", "taro_y")).toBe(true);
     // But not another Latin letter or digit.
     expect(shows("<nav>xtaro_y</nav>", "taro_y")).toBe(false);
     expect(shows("<nav>taro_yx</nav>", "taro_y")).toBe(false);
     expect(shows("<nav>taro12</nav>", "taro1")).toBe(false);
-    expect(shows("<nav>taro_y??</nav>", "taro")).toBe(false);
-    expect(shows("<nav>taro_y??</nav>", "taro_y")).toBe(true);
+    expect(shows("<nav>taro_yさん</nav>", "taro")).toBe(false);
+    expect(shows("<nav>ｔａｒｏ＿ｙさん</nav>", "taro_y")).toBe(true);
     // An all-digit username, such as a member number, may touch kana or kanji only with
     // 8 digits or more (owner, 2026-10-23); a shorter one may be a date or a count.
-    expect(shows("<nav>2026?10?</nav>", "2026")).toBe(false);
-    expect(shows("<nav>??123?</nav>", "123")).toBe(false);
-    expect(shows("<nav>????12345??</nav>", "12345")).toBe(false);
-    expect(shows("<nav>???? 12345</nav>", "12345")).toBe(true);
-    expect(shows("<nav>????12345678??</nav>", "12345678")).toBe(true);
-    expect(shows("<nav>????1234567??</nav>", "1234567")).toBe(false);
-    expect(shows("<nav>????12345678</nav>", "12345678")).toBe(true);
-    expect(shows("<nav>????1234567</nav>", "1234567")).toBe(false);
-    expect(shows("<nav>???12345678</nav>", "12345678")).toBe(true);
-    expect(shows("<nav>????12345678??</nav>", "12345678")).toBe(true);
-    expect(shows("<nav>?????12345678</nav>", "12345678")).toBe(true);
-    expect(shows("<nav>???1234567</nav>", "1234567")).toBe(false);
-    expect(shows("<nav>12345678??</nav>", "12345678")).toBe(true);
-    expect(shows("<nav>1234567??</nav>", "1234567")).toBe(false);
-    expect(shows("<nav>12345678?</nav>", "12345678")).toBe(true);
-    expect(shows("<nav>1234567?</nav>", "1234567")).toBe(false);
-    expect(shows("<nav>????12345678??</nav>", "12345678")).toBe(true);
+    expect(shows("<nav>2026年10月</nav>", "2026")).toBe(false);
+    expect(shows("<nav>残り123件</nav>", "123")).toBe(false);
+    expect(shows("<nav>会員番号12345さん</nav>", "12345")).toBe(false);
+    expect(shows("<nav>会員番号 12345</nav>", "12345")).toBe(true);
+    expect(shows("<nav>会員番号12345678さん</nav>", "12345678")).toBe(true);
+    expect(shows("<nav>会員番号1234567さん</nav>", "1234567")).toBe(false);
+    expect(shows("<nav>会員番号12345678</nav>", "12345678")).toBe(true);
+    expect(shows("<nav>会員番号1234567</nav>", "1234567")).toBe(false);
+    expect(shows("<nav>カード12345678</nav>", "12345678")).toBe(true);
+    expect(shows("<nav>メンバー12345678さん</nav>", "12345678")).toBe(true);
+    expect(shows("<nav>ﾒﾝﾊﾞｰ12345678</nav>", "12345678")).toBe(true);
+    expect(shows("<nav>カード1234567</nav>", "1234567")).toBe(false);
+    expect(shows("<nav>12345678さん</nav>", "12345678")).toBe(true);
+    expect(shows("<nav>1234567さん</nav>", "1234567")).toBe(false);
+    expect(shows("<nav>12345678様</nav>", "12345678")).toBe(true);
+    expect(shows("<nav>1234567様</nav>", "1234567")).toBe(false);
+    expect(shows("<nav>会員番号１２３４５６７８さん</nav>", "12345678")).toBe(true);
     // But not another letter or digit, however long.
     expect(shows("<nav>No12345678</nav>", "12345678")).toBe(false);
-    expect(shows("<nav>123456789??</nav>", "12345678")).toBe(false);
-    expect(shows("<nav>??12345678</nav>", "12345678")).toBe(false);
+    expect(shows("<nav>123456789さん</nav>", "12345678")).toBe(false);
+    expect(shows("<nav>회원12345678</nav>", "12345678")).toBe(false);
     // A non-Latin username inside a longer non-Latin word still does not count.
-    expect(shows("<nav>????</nav>", "???")).toBe(false);
+    expect(shows("<nav>山田花子</nav>", "山田花")).toBe(false);
   });
 
   it("finds the username behind an open modal dialog that hid the page (2026-10-13)", () => {
