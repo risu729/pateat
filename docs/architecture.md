@@ -1219,8 +1219,11 @@ the content script waits 500 ms for the page's own handlers and ends the attempt
 `aria-invalid="true"`, or a visible alert shows text that no such region showed before
 the fill. Alerts are `role="alert"` and `aria-live="assertive"` regions anywhere, and
 `role="status"` and polite regions inside the filled form or named by a filled input's
-`aria-describedby` or `aria-errormessage`. A message the page already showed and renders
-again is not new, nor is a mark the input had before the fill. The text stays in the
+`aria-describedby` or `aria-errormessage`. Named feedback resolves in the input's own
+document or shadow tree, for both the fill check and the sign-in state reading; a
+matching ID in another tree does not name that region (ADR 0070). A message the page
+already showed and renders again is not new, nor is a mark the input had before the
+fill. The text stays in the
 content script; only the outcome leaves it. A fill that submits through its own event is
 checked only before filling. When a filled input was replaced during the wait, nothing
 is clicked and the attempt observes the page instead. A click is not made, and the
