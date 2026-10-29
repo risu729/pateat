@@ -91,6 +91,16 @@ merge.
   pairing allowlist names (owner, root A on 2026-10-19). The "pateat pair" application
   of [ADR 0030](0030-pairing-without-warp.md) is not accepted there, so a browser
   without WARP can pair but cannot edit other profiles. ADR 0030 is unchanged.
+- Chrome leaves `Origin` out of an extension page's `GET` to a host the extension can
+  access (seen in Chromium 153, issue
+  [#1124](https://github.com/risu729/pateat/issues/1124)), so reads are also accepted
+  without `Origin` when they carry `Sec-Fetch-Site: none`, which no page's request
+  carries. Any extension with host access passes that, but it can already read the
+  same profiles through `/manage/api` (ADR 0020's threat model). Writes still need a
+  listed extension's `Origin`, which Chrome sends on `PUT` (implementation,
+  2026-10-29).
+- A `403` with `extension_not_allowed` tells the editor that the service does not list
+  this extension; any other `403` is a refused sign-in (implementation).
 - The editor changes a profile's exclusions and saved accounts; a save keeps the
   profile's vault policy (ADR 0023) as it was (implementation).
 - When the sign-in is missing or expired, the editor shows **Open sign-in page**, which

@@ -146,19 +146,44 @@ export const requireSameOrigin = createMiddleware<ApiEnv>(async (c, next) => {
 const pairingExtensionIdsSchema = v.pipe(v.array(extensionIdSchema), v.minLength(1));
 
 /**
- * Pairing answers only listed extensions (ADR 0020). Pages cannot set `Origin` to a
- * `chrome-extension://` value, so this also refuses script on the service's own pages.
- * An empty or malformed list refuses every pairing.
+ * Answers only listed extensions (ADR 0020). `allows` decides from the request's
+ * `Origin`, or its absence, and the listed origins. An empty or malformed list refuses
+ * every request.
  */
-export const requirePairingOrigin = createMiddleware<ApiEnv>(async (c, next) => {
-  // Parsed at runtime: a deployment may leave the binding out or mistype it.
-  const configured = v.safeParse(pairingExtensionIdsSchema, c.env.PAIRING_EXTENSION_IDS);
-  if (!configured.success) {
-    console.error("Pairing extension IDs misconfigured");
-    return apiError(c, 503, { error: "pairing_unavailable" });
-  }
-  const origin = c.req.header("Origin");
-  if (!configured.output.some((id) => origin === `chrome-extension://${id}`))
-    return apiError(c, 403, { error: "extension_not_allowed" });
-  return next();
+function extensionGuard(
+  allows: (c: Context<ApiEnv>, origin: string | undefined, listed: string[]) => boolean,
+) {
+  return createMiddleware<ApiEnv>(async (c, next) => {
+    // Parsed at runtime: a deployment may leave the binding out or mistype it.
+    const configured = v.safeParse(pairingExtensionIdsSchema, c.env.PAIRING_EXTENSION_IDS);
+    if (!configured.success) {
+      console.error("Pairing extension IDs misconfigured");
+      return apiError(c, 503, { error: "pairing_unavailable" });
+    }
+    const listed = configured.output.map((id) => `chrome-extension://${id}`);
+    if (!allows(c, c.req.header("Origin"), listed))
+      return apiError(c, 403, { error: "extension_not_allowed" });
+    return next();
+  });
+}
+
+/**
+ * Pairing answers only listed extensions. Pages cannot set `Origin` to a
+ * `chrome-extension://` value, so this also refuses script on the service's own pages.
+ */
+export const requirePairingOrigin = extensionGuard(
+  (_, origin, listed) => origin !== undefined && listed.includes(origin),
+);
+
+/**
+ * The profile editor (ADR 0076). A write must carry a listed extension's `Origin`, as
+ * pairing does. Chrome leaves `Origin` out of an extension's GET to a host it has
+ * access to and marks that request `Sec-Fetch-Site: none`, which no page's request
+ * carries: a read is accepted that way too, from any extension with access to the
+ * host, which can already read `/manage/api` (ADR 0020).
+ */
+export const requireEditorExtension = extensionGuard((c, origin, listed) => {
+  if (origin !== undefined) return listed.includes(origin);
+  const read = c.req.method === "GET" || c.req.method === "HEAD";
+  return read && c.req.header("Sec-Fetch-Site") === "none";
 });

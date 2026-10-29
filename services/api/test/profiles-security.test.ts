@@ -476,6 +476,53 @@ describe("extension profile editor authorization", () => {
     const viaPair = await pairOwner(by.subject);
     expect((await editor(viaPair, path)).status).toBe(403);
   });
+  it("reads as Chrome sends an extension's GET, without Origin, but writes only with it", async () => {
+    const { by, settings } = await setup();
+    const path = `/${settings.profileId}/settings`;
+    // What Chrome sends from the options page to a host it has access to (#1124).
+    const extensionGet = { "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "cors" };
+    const bare = (target: string, init: RequestInit = {}) =>
+      request(`/extension/profiles${target}`, { access: by.token, ...init });
+    expect((await bare("", { headers: extensionGet })).status).toBe(200);
+    expect((await bare(path, { headers: extensionGet })).status).toBe(200);
+    // A page's GET is marked as one, and a request without Fetch Metadata is refused.
+    const refused = await Promise.all(
+      ["same-origin", "same-site", "cross-site"].map((site) =>
+        bare(path, { headers: { "Sec-Fetch-Site": site } }),
+      ),
+    );
+    for (const response of refused) {
+      expect(response.status).toBe(403);
+      // oxlint-disable-next-line no-await-in-loop
+      expect(await response.json()).toEqual({ error: "extension_not_allowed" });
+    }
+    expect((await bare(path)).status).toBe(403);
+    // A listed extension's Origin still wins over Fetch Metadata, and another one loses.
+    expect((await editor(by, path, { headers: { "Sec-Fetch-Site": "cross-site" } })).status).toBe(
+      200,
+    );
+    expect(
+      (
+        await bare(path, {
+          headers: {
+            ...extensionGet,
+            Origin: "chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          },
+        })
+      ).status,
+    ).toBe(403);
+    const write = await bare(path, {
+      method: "PUT",
+      headers: { ...extensionGet, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        expectedRevision: settings.revision,
+        settings: { ...createDefaultSettings(), connections: [] },
+      }),
+    });
+    expect(write.status).toBe(403);
+    expect(await write.json()).toEqual({ error: "extension_not_allowed" });
+  });
   it("never reads or overwrites a foreign owner's profile through the editor", async () => {
     const alice = await setup();
     const bob = await setup();
