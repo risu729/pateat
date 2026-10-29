@@ -34,10 +34,10 @@ The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
 `apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
 candidate, settle it from the fresh reading and disabled-field omission, and choose the
-judged outcome. The login runtime retains the asynchronous page re-read, current-run checks,
-handler takeover and reporting. Its `judgeMove` and `judgeStop` keep their distinct
-completion rules. The policy's table tests pin the existing behavior; extracting it
-does not change what an undecided answer means.
+judged outcome. The login runtime retains the asynchronous page re-read, current-run
+checks, handler takeover and reporting. Its `judgeMove` and `judgeStop` keep their
+distinct completion rules. The policy's table tests pin the existing behavior;
+extracting it does not change what an undecided answer means.
 
 The login runtime is being split under `apps/extension/src/login/runtime/` using the
 owner-approved extraction plan (accepted 2026-10-30). Session schemas, public dependency
