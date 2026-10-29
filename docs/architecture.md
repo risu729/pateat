@@ -842,6 +842,16 @@ Checked against the code on 2026-10-17:
 
 ## Background execution
 
+The login runtime implementation lives under `apps/extension/src/login/runtime/`.
+`index.ts` owns construction, startup and the public callbacks; `state.ts` owns each
+runtime instance's dependency references, collections and mutable scalar `vars`.
+Responsibility modules export plain functions that receive that runtime explicitly.
+Mutable scalar values are read through `rt.vars` at each use, including after awaits;
+callbacks forward the same runtime. Schema modules have no runtime-function imports,
+so schema initialization cannot join the function modules' import cycles. This is a
+behavior-preserving source split accepted by the owner on 2026-10-30; admission and
+policy decisions retain their existing await, stale-document and persistence ordering.
+
 Address tabs explicitly by `tabId`, frames by `frameId`, and documents by `documentId`.
 Never select the target by whichever tab happens to be active. Use declarative content
 scripts/host permissions and browser events, not a popup or focus event as the execution

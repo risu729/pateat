@@ -44,11 +44,13 @@ owner-approved extraction plan (accepted 2026-10-30). Session schemas, public de
 contracts and reports, internal types, constants, and existing pure attempt/step helpers
 have separate owners. Consumers import public types directly from `deps.ts` or
 `report.ts`; the entrypoint does not re-export them. Runtime extraction keeps function
-bodies, storage formats, messages, reports and startup ordering unchanged. The next
-slices move nested functions to plain `fn(rt, ...)` modules with explicit state and
-mutable scalar reads through `rt.vars`, then split admission with an `AdmitContext`.
-Each completed module stays within the 1,000-line limit. Subsequent pure policy
-extractions remain separate changes, with separate tests.
+bodies, storage formats, messages, reports and startup ordering unchanged. Nested
+functions now live in plain `fn(rt, ...)` modules with explicit state and mutable scalar
+reads through `rt.vars`. The entrypoint creates that state, starts the original storage
+reads and listeners in their original order, and exposes the public callbacks. Admission
+remains in the entrypoint until its `AdmitContext` split. Each completed module stays
+within the 1,000-line limit. Subsequent pure policy extractions remain separate changes,
+with separate tests.
 
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests

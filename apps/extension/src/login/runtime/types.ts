@@ -2,13 +2,16 @@ import {
   type DetailLink,
   type LoginFieldTarget,
   type LoginDetail,
+  type LoginAccountBinding,
   type LoginChoiceAccount,
   type LoginAttemptMetadata,
   type LoginDocument,
+  type LoginHandler,
   type LoginOperation,
   type LoginChooserRecipe,
   type LoginRecipe,
   type PasswordStopMiss,
+  type LocalSettings,
   type SavedLoginBinding,
   type SemanticSlot,
   type SettingsSnapshot,
@@ -16,21 +19,27 @@ import {
   type VaultConnectionMetadata,
 } from "@pateat/contracts";
 import { type Browser } from "wxt/browser";
-import { type LoginReadiness, type TargetState } from "../wire";
+import {
+  type unofferedReasons,
+  type LoginReadiness,
+  type ShownLater,
+  type StartMiss,
+  type TargetState,
+} from "../wire";
 import { type AskReason } from "../choice-wire";
 import { type CustomFieldOffer } from "../generation-slots";
 import { type EntryMiss, type OtherMiss } from "../../page/account-list";
 import { type SignInDecision } from "../sign-in-state";
 import type { ConditionalDecision } from "../../passkeys/runtime";
-import { type MoveMiss } from "./report";
-import { type PairedQuestion, type PendingChoice } from "./session-schemas";
+import { type MoveMiss, type AccountSource } from "./report";
+import { type PairedQuestion, type PendingChoice, type PickedAccount } from "./session-schemas";
 
-/**
+export /**
  * The sign-in state of ADR 0029 for a page no check explained, and whether a later reading
  * in the fully loaded document agreed, which every outcome but logging needs. `reshown`:
  * read on the sign-in form shown again in the first new document after the submission.
  */
-export type SignInReading = {
+type SignInReading = {
   decision: SignInDecision;
   confirmed: boolean;
   reshown?: true;
@@ -47,27 +56,27 @@ export type SignInReading = {
   asksPassword?: true;
 };
 
-/** Why the page after an entry press blocked its recipe revision (ADR 0031). */
-export type EntryBlockReason = "left-site" | "no-sign-in" | "sign-up";
+export /** Why the page after an entry press blocked its recipe revision (ADR 0031). */
+type EntryBlockReason = "left-site" | "no-sign-in" | "sign-up";
 
 export type Sender = Browser.runtime.MessageSender;
 
-/**
+export /**
  * An account choice used by an attempt but not saved yet (ADR 0013); `connectionId` is the
  * local connection the attempt used, so only that account is saved. A login on the
  * `passkey` route fills nothing, so it saves the site default without a binding (ADR 0027).
  */
-export type UnsavedChoice = {
+type UnsavedChoice = {
   binding: SavedLoginBinding | LoginChoiceAccount;
   connectionId: string;
   replace?: boolean;
 };
 
-/**
+export /**
  * A document's time before its login's attempt exists (ADR 0019): `AttemptTiming` without
  * a running wait or a wait for the site.
  */
-export type StartTiming = { since: number; serviceMs: number; networkMs: number; personMs: number };
+type StartTiming = { since: number; serviceMs: number; networkMs: number; personMs: number };
 
 export type LiveDocument = {
   document: LoginDocument;
@@ -158,11 +167,11 @@ export type LiveDocument = {
   observations?: number;
 };
 
-/**
+export /**
  * A tab's page on whose path a recipe generated as `confirm` or `unclear` starts, which
  * Pateat only watches (ADR 0035), for the log entry written when the tab leaves it.
  */
-export type ConfirmVisit = {
+type ConfirmVisit = {
   document: LoginDocument;
   path: string;
   url: string;
@@ -178,15 +187,15 @@ export type ConfirmVisit = {
   logged?: Promise<boolean>;
 };
 
-/** Why a page offered for generation is not sent, for the log (ADR 0019). */
-export type GenerationMiss = "no-vault-match" | "vault-unavailable" | "connection-disabled";
+export /** Why a page offered for generation is not sent, for the log (ADR 0019). */
+type GenerationMiss = "no-vault-match" | "vault-unavailable" | "connection-disabled";
 
-/**
+export /**
  * A page offered as a list of accounts (ADR 0028): its path, and without an email listed,
  * the short texts that may name an account by a username that is not an email, and why a
  * shown email address is not a list entry, for the log only.
  */
-export type ListOffer = {
+type ListOffer = {
   path: string;
   names?: string[] | undefined;
   other?: true | undefined;
@@ -194,8 +203,8 @@ export type ListOffer = {
   missed?: EntryMiss | undefined;
 };
 
-/** A saved link's field that a login reads only after the master password (ADR 0061). */
-export type DetailWait = {
+export /** A saved link's field that a login reads only after the master password (ADR 0061). */
+type DetailWait = {
   detail: LoginDetail;
   itemId: string;
   fieldId: string;
@@ -293,11 +302,11 @@ export type Execution = {
   staleRejection?: true;
 };
 
-/**
+export /**
  * A top document's own `conditional` passkey request, waiting for the login of that
  * document (ADR 0034). `settle` answers it once and says whether it still waited.
  */
-export type ParkedRequest = {
+type ParkedRequest = {
   tabId: number;
   origin: string;
   documentId: string;
@@ -329,12 +338,12 @@ export type ParkedRequest = {
   settle(decision: ConditionalDecision): boolean;
 };
 
-/**
+export /**
  * A popup choice offered to a tab's top document outside an ask, on a recipe without a
  * passkey button (ADR 0034): whether one of its items holds a discoverable passkey, checked
  * once while a conditional request of that document waits. Kept in memory only.
  */
-export type ChoicePasskeys = {
+type ChoicePasskeys = {
   /** The choice it describes, as `choiceKey` names it. */
   key: string;
   /** The document the choice was offered to. */
@@ -346,7 +355,7 @@ export type ChoicePasskeys = {
   defaulted?: true;
 };
 
-/**
+export /**
  * Where one recipe starts: its start path and the first step of each of its routes and
  * variants, all on that path (ADR 0027).
  */
@@ -364,25 +373,25 @@ export type ChoicePasskeys = {
  * order, `partial` holding `variant:index` for a step that shows only with its password
  * fields alone, and whether the start page's passkey button shows beside them.
  */
-export type LaterStart = { variants: Map<number, number[]>; partial: Set<string>; button: boolean };
+type LaterStart = { variants: Map<number, number[]>; partial: Set<string>; button: boolean };
 
 export type LayoutChoice = {
   recipe: LoginRecipe;
   later?: LaterStart | undefined;
 };
 
-/**
+export /**
  * A keypad fill whose page told of its first key press (ADR 0067): its operation and plan
  * step, and whether it went in.
  */
-export interface KeypadPress {
+interface KeypadPress {
   operationId: string;
   stepIndex: number;
   filled?: true;
 }
 
-/** What a page without a recipe is sent with: its slots and the items that matched it. */
-export type GenerationScope = {
+export /** What a page without a recipe is sent with: its slots and the items that matched it. */
+type GenerationScope = {
   /** The built-in slots a matching item can fill. */
   slots: SemanticSlot[];
   /** One slot per custom field a matching item allows, numbered over all of them. */
@@ -397,5 +406,76 @@ export type GenerationScope = {
   complete: boolean;
 };
 
-/** The items that matched a page and the settings they were matched under. */
-export type VaultMatch = Pick<GenerationScope, "items" | "settings" | "catalog">;
+export /** The items that matched a page and the settings they were matched under. */
+type VaultMatch = Pick<GenerationScope, "items" | "settings" | "catalog">;
+
+export type Choice = {
+  connectionId: string;
+  itemId: string;
+  saved: boolean;
+  /**
+   * How the account was chosen: the saved site default, the only provider URI match
+   * (ADR 0013) or a pick in the popup; with how many candidates there were.
+   */
+  source: AccountSource;
+  candidates?: number;
+  pick?: PickedAccount;
+  /** While the tab asks: fill the page without any step with an effect (ADR 0021 D). */
+  fillOnly?: true;
+  /** With `fillOnly`: the accounts the tab offers once the fill ends. */
+  asked?: PendingChoice["candidates"];
+};
+
+export /** `noUriMatch` marks a refusal because no vault item matches the page, or the saved
+ * default's item no longer does, which a vault sync may change; it is logged as the
+ * refusal's `no-uri-match` detail and never answered to the page. */
+type Refusal = {
+  reason: string;
+  candidates?: PendingChoice["candidates"];
+  /** The tab asks for an account, with `candidates` (ADR 0021 D, ADR 0062). */
+  ask?: true;
+  /** Automatic login of the site is paused; the candidates are offered (ADR 0062). */
+  paused?: true;
+  noUriMatch?: true;
+};
+
+export type Authorized = {
+  connection: VaultConnectionMetadata;
+  binding: LoginAccountBinding;
+  /** The account's allowed field IDs and the synced bindings it was authorized with. */
+  fieldIds: string[];
+  bindings: SavedLoginBinding[];
+  /** The settings and whole catalog it was authorized with, for linked details (ADR 0061). */
+  settings: LocalSettings;
+  catalog: VaultCatalog;
+};
+
+export type DetailHandler = Extract<LoginHandler, { kind: "detail" }>;
+
+export type Readiness = {
+  ok: boolean;
+  reason?: string;
+  starts?: LoginReadiness[];
+  generate?: true;
+  entry?: true;
+  /** A recipe generated as `confirm` or `unclear` starts here: its first step (ADR 0035). */
+  confirm?: LoginReadiness;
+  /** A frame asked to report a sign-in input or a secret answer (ADR 0035). */
+  frame?: true;
+};
+
+export type Announced = { path: string } | undefined;
+
+export type Unoffered = { path: string; why: (typeof unofferedReasons)[number] } | undefined;
+
+export /**
+ * A `shown` report: a sign-in input shown without a ready first step, with what the first
+ * steps missed (ADR 0041), or `amount` on a page Pateat does not fill (ADR 0035).
+ */
+type Shown = {
+  path: string;
+  amount?: boolean | undefined;
+  miss?: StartMiss | undefined;
+  later?: ShownLater | undefined;
+  accounts?: true | undefined;
+};
