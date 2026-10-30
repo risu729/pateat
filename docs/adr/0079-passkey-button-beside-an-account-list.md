@@ -68,7 +68,8 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
   by hand, or a later visit takes the route again. (This replaces an earlier choice here
   that it would fall back to the list.)
 - The route is chosen only when the account's plan on the list and its plan on the
-  route name the same item, before any list click; a resumed login keeps the click it
+  route name the same item and the button shows at that moment (otherwise the list is
+  used), before any list click; a resumed login keeps the click it
   recorded (`passkey`), and a passkey-route run is not treated as a run on the list.
 - A button-only page keeps ADR 0053 decision 2: one matching item with a passkey is
   enough. A list by names whose shown texts name no matching item's username and that

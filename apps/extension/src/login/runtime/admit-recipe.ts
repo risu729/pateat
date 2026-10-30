@@ -572,15 +572,9 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
         return { ok: false, reason: "generating" };
       }
       // A passkey page whose shown texts name no item's account is sent for its button
-      // alone (ADR 0053, ADR 0079); otherwise it is logged as for the list alone.
-      if (
-        passkeyPage &&
-        scope &&
-        listing?.names &&
-        !listed?.inPath &&
-        !names?.length &&
-        !otherOnly
-      ) {
+      // alone (ADR 0053, ADR 0079), which asks for no slot, so also without the list's
+      // scope; otherwise it is logged as for the list alone.
+      if (passkeyPage && listing?.names && !listed?.inPath && !names?.length && !otherOnly) {
         const sent = await passkeyOnly(true, entryOffer);
         if (sent) return sent;
       }

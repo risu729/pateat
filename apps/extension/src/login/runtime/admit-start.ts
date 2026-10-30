@@ -14,7 +14,7 @@ import {
   type LoginRecipe,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import { type ListMissReport as ListMiss } from "../wire";
+import { loginReadiness, type ListMissReport as ListMiss } from "../wire";
 import { observedPath } from "../../observation/path";
 import { newId } from "@pateat/contracts/ids";
 import { quietly } from "./session-store";
@@ -31,7 +31,7 @@ import { pauseOf } from "./pause";
 import { saveSession, reportAttempt, publish, report, startTiming, save } from "./attempt";
 import { clearChoice, offerChoice } from "./choice";
 import { type Readiness, type Execution } from "./types";
-import { listClick } from "./markers";
+import { listClick, showsNow } from "./markers";
 import { note, recipeInUse, retryAfterSync, choicesSaved } from "./generation";
 import { tabAttempt, recordFor, heldElsewhere, showHeld } from "./hold";
 import { terminal, holdsSite } from "./attempt-state";
@@ -175,7 +175,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   // On a list beside its passkey button (ADR 0079), an account that can take the button's
   // passkey-only route takes it instead of the list, as a login recipe's passkey route goes
   // before its password route; another account uses the list. A login that only fills, or
-  // asks, presses nothing.
+  // asks, presses nothing, and while the button does not show the list is used.
   const passkeyRoute =
     !ctx.previous && ctx.chooser && !ctx.shownOther
       ? chooserRoute(ctx.chooser, "passkey")
@@ -188,14 +188,16 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       ...(pageRequest ? { pageRequest } : {}),
     });
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-    if (
+    const fits =
       pressed.ok &&
       !("fillOnly" in pressed) &&
       pressed.route.route === "passkey" &&
       (!plan.ok ||
         (pressed.account.connectionId === plan.account.connectionId &&
-          pressed.account.itemId === plan.account.itemId))
-    ) {
+          pressed.account.itemId === plan.account.itemId));
+    const shown = fits && (await showsNow(rt, ctx.live, loginReadiness(passkeyRoute.steps[0]!)));
+    if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+    if (fits && shown) {
       plan = pressed;
       ctx.recipe = passkeyRoute;
       ctx.later = undefined;

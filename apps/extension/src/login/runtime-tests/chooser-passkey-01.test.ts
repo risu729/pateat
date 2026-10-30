@@ -36,6 +36,7 @@ describe("a chooser's passkey button beside its list (ADR 0079)", () => {
     fake.state.signIn = false;
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
+    fake.state.awaitReply = undefined;
     fake.state.executeReply = undefined;
     fake.state.switchReply = { ok: true };
     fake.state.chosen = { ok: true, click: "entry" };
@@ -151,6 +152,18 @@ describe("a chooser's passkey button beside its list (ADR 0079)", () => {
       chooser: { click: "passkey" },
     });
     expect(reports.find((entry) => entry.type === "start")).toMatchObject({ click: "passkey" });
+  });
+  it("clicks the list's entry while the button does not show", async () => {
+    const h = onList(true);
+    fake.state.present = new Set();
+    fake.state.awaitReply = (readiness) =>
+      JSON.stringify(readiness).includes(button.value)
+        ? { ok: false, reason: "timeout" }
+        : undefined;
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => clicks().length > 0);
+    expect(clicks()[0]!.operation.step.target?.value).toBe("[account]");
+    expect(status()![0]).toMatchObject({ chooser: { click: "entry" } });
   });
   it("clicks the list's entry for an account whose item has no passkey", async () => {
     const h = onList(false);
