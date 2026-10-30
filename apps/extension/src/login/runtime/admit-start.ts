@@ -172,13 +172,51 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   }
 
   /* eslint-enable no-await-in-loop */
+  // On a list beside its passkey button (ADR 0079), an account that can take the button's
+  // passkey-only route takes it instead of the list, as a login recipe's passkey route goes
+  // before its password route; another account uses the list. A login that only fills, or
+  // asks, presses nothing.
+  const passkeyRoute =
+    !ctx.previous && ctx.chooser && !ctx.shownOther
+      ? chooserRoute(ctx.chooser, "passkey")
+      : undefined;
+  let viaPasskey = false;
+  if (passkeyRoute && !(plan.ok && "fillOnly" in plan)) {
+    const pressed = await planFor(rt, snapshot, ctx.live, passkeyRoute, {
+      ...(asking ? { asking } : {}),
+      ...(pausedStart ? { paused: true } : {}),
+      ...(pageRequest ? { pageRequest } : {}),
+    });
+    if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+    if (
+      pressed.ok &&
+      !("fillOnly" in pressed) &&
+      pressed.route.route === "passkey" &&
+      (!plan.ok ||
+        (pressed.account.connectionId === plan.account.connectionId &&
+          pressed.account.itemId === plan.account.itemId))
+    ) {
+      plan = pressed;
+      ctx.recipe = passkeyRoute;
+      ctx.later = undefined;
+      viaPasskey = true;
+    }
+  }
+
   // A passkey-only item on a list whose account branch cannot take the stop (ADR 0036,
   // owner 2026-10-13 06:32 UTC: the account's row, else "another account") still reads
   // the list first, planned on the click alone: it goes on only through `other`, and is
   // refused with the account branch's reason, pressing nothing, when its row fits.
   let deferred: { route: LoginRecipe; detail?: string } | undefined;
 
-  if (!plan.ok && plan.reason === "no-route" && !ctx.previous && ctx.chooser && !ctx.shownOther) {
+  if (
+    !plan.ok &&
+    plan.reason === "no-route" &&
+    !ctx.previous &&
+    ctx.chooser &&
+    !ctx.shownOther &&
+    !viaPasskey
+  ) {
     const { afterAccount: _afterAccount, ...lists } = ctx.chooser.chooser;
     const bare = chooserRoute({ ...ctx.chooser, chooser: lists }, "entry");
     const alone =
@@ -322,11 +360,15 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
 
   // A new login on a chooser's list decides what it clicks there for its account (ADR
   // 0028), and takes the route that click leads to. A fill-only login presses nothing.
-  let click: ChooserClick | "none" | undefined = ctx.shownOther ? "other-shown" : undefined;
+  let click: ChooserClick | "none" | undefined = ctx.shownOther
+    ? "other-shown"
+    : viaPasskey
+      ? "passkey"
+      : undefined;
 
   let listMiss: ListMiss | undefined;
 
-  if (!ctx.previous && ctx.chooser && !ctx.shownOther && !("fillOnly" in plan)) {
+  if (!ctx.previous && ctx.chooser && !ctx.shownOther && !viaPasskey && !("fillOnly" in plan)) {
     const chosen = await listClick(rt, snapshot, ctx.live, ctx.chooser, plan.account);
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
     // Without the account's username nothing on the list can be compared with it.

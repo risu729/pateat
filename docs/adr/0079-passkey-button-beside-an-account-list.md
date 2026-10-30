@@ -62,11 +62,30 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
 
 - After a logout ([ADR 0021](0021-account-choice-outside-settings.md) D) the list page
   showing again asks for an account and presses nothing, as for any passkey route.
-- An item that holds a password as well and whose passkey sign-in fails falls back to
-  the list for its own account, as a login recipe's `passkey` route falls back to
-  `password`.
+- An item whose passkey sign-in on the route fails ends as a passkey-only route's does
+  (`challenge`), without falling back to the list: the route has no `password` variant
+  to fall back to, and the list is a separate route of the chooser. The item can sign in
+  by hand, or a later visit takes the route again. (This replaces an earlier choice here
+  that it would fall back to the list.)
+- The route is chosen only when the account's plan on the list and its plan on the
+  route name the same item, before any list click; a resumed login keeps the click it
+  recorded (`passkey`), and a passkey-route run is not treated as a run on the list.
 - A button-only page keeps ADR 0053 decision 2: one matching item with a passkey is
-  enough.
+  enough. A list by names whose shown texts name no matching item's username and that
+  shows no control for another account cannot be sent as a list (ADR 0028), as those
+  texts may be no list at all, such as a heading: that page is sent for its button alone
+  under decision 2, and with no item holding a passkey it is logged as the list alone
+  (`no-listed-account`).
+- The list observation carries every enabled button that names a passkey or security
+  key and not its registration, by its lasting locator (an ID, a name or a test ID) when
+  no unique text names it, as an icon-only button; one that is or holds a list control
+  is sent once.
+- A passkey-only recipe's page that shows a list beside its button (by
+  `login.entry.check`'s new `list`) is claimed and sent for repair as a list, as the
+  first page's list would be: the texts that name a matching item's username are hidden
+  (or all of them beside a control for another account), and a list by names that names
+  none and has no such control is not sent (`recipe.repair` `skipped`,
+  `no-listed-account`).
 - The answer's `passkeyButton` is kept only when it is a button of the page that names a
   passkey or security key and not its registration, and is neither list control;
   otherwise it is dropped and the list is stored without it, as a form plan's passkey
@@ -106,8 +125,10 @@ In two PRs:
    Nothing sends such a request yet: the extension still sends a page with the button
    beside a list as ADR 0053's implementation note says. Local tests only.
 2. The extension: the list observation carries the passkey buttons, the page is sent as
-   a list (`no-input-offer.ts`, `runtime.ts`), the route choice and fallback on the
-   list, and the repair of a passkey-only recipe's page as a list.
+   a list (`no-input-offer.ts`, `runtime/admit-recipe.ts`), the route choice on the list
+   (`runtime/admit-start.ts`), and the repair of a passkey-only recipe's page as a list
+   (`runtime/repair-run.ts`). Local tests only; a real site in the owner's Chrome is
+   unchecked.
 
 ## Alternatives
 

@@ -520,9 +520,11 @@ than in this repository.
   URI-matching item holds a discoverable passkey for the site, with its own generation
   instructions, and its recipe has only the `passkey` route. Covered by local synthetic
   and fake-model tests only; a real passkey-only site in the owner's Chrome is
-  unchecked. Beside an ADR 0031 sign-in entry or an ADR 0028 list, the passkey button
-  is used when every matching item holds a passkey (the recipe is shared), and
-  otherwise the entry or the list is handled as before (owner, 2026-10-19 22:44 UTC).
+  unchecked. Beside an ADR 0031 sign-in entry, the passkey button is used when every
+  matching item holds a passkey (the recipe is shared), and otherwise the entry is
+  handled as before (owner, 2026-10-19 22:44 UTC). Beside an ADR 0028 list, the page is
+  sent as a list whose chooser layout holds the button, and each item takes the button
+  or the list (ADR 0079, owner 2026-10-25).
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. The local log's `warn` and `error` lines, and its `info` lines that
   say why Pateat did nothing on a page, go to the service's `problem_log` automatically

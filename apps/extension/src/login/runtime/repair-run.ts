@@ -11,7 +11,7 @@ import { browser } from "wxt/browser";
 import { entryCheckResultSchema, type StartMiss } from "../wire";
 import { classifyStartMiss } from "../repair";
 import { type LiveDocument, type Execution, type GenerationMiss } from "./types";
-import { frameKey } from "./steps";
+import { frameKey, rawPath } from "./steps";
 import { report, send, publish } from "./attempt";
 import {
   type RecipeRepairClaim,
@@ -20,7 +20,7 @@ import {
 } from "./report";
 import { note, generateFor } from "./generation";
 import { restartForRequest } from "./passkey";
-import { showsAnyMarker } from "./markers";
+import { listedNames, showsAnyMarker } from "./markers";
 import { generationSlotsFor } from "./generation-scope";
 import { vaultMatches, generateEntryFor } from "./entry-press";
 import { tabAttempt } from "./hold";
@@ -72,9 +72,10 @@ export async function repairUnfit(
     }
   }
   // A passkey-only recipe's page (ADR 0053) is sent only as a sign-in form it shows by
-  // now: without a sign-in or identifier input, as with the button alone or beside an
-  // entry or a list, it gives the missing route nothing to send, so it is refused at
-  // once, after one read, with no claim (owner, 2026-10-25).
+  // now, or as the list of accounts beside its button, which the chooser keeps the button
+  // beside (ADR 0079): with the button alone or beside an entry it gives the missing route
+  // nothing to send, so it is refused at once, after one read, with no claim (owner,
+  // 2026-10-25).
   const formShows =
     recipe.passkeyOnly &&
     v.safeParse(
@@ -84,8 +85,10 @@ export async function repairUnfit(
       ),
     );
   if (rt.documents.get(key) !== live) return;
+  const shown = formShows && formShows.success ? formShows.output : undefined;
+  const list = shown && !shown.signIn ? shown.list : undefined;
   const claim: RecipeRepairClaim =
-    formShows && !(formShows.success && formShows.output.signIn)
+    formShows && !shown?.signIn && !list
       ? { outcome: "not-due", reason: "no-form" }
       : await Promise.resolve()
           .then(() => rt.generation!.claimRepair!(recipe.id, refusal.route))
@@ -103,7 +106,17 @@ export async function repairUnfit(
   });
   let answer: GenerationOutcome | EntryGenerationOutcome | undefined;
   if (claim.outcome === "claimed") {
-    answer = rt.documents.get(key) === live ? await sendRepair(rt, live, recipe) : undefined;
+    answer =
+      rt.documents.get(key) === live
+        ? await sendRepair(
+            rt,
+            live,
+            recipe,
+            list
+              ? { kind: "list", names: list.names ?? [], ...(list.other ? { other: true } : {}) }
+              : {},
+          )
+        : undefined;
     // Only a request that reached the model keeps its claim. A recipe more than one
     // revision on was answered without a call, as the cache was behind: it is tried as it
     // is, and repaired in turn if it still lacks the route.
@@ -282,6 +295,13 @@ export async function sendRepair(
     kind?: "form" | "list" | "entry";
     /** Sent from a login that keeps running, as on a chooser's list: its status stays. */
     during?: boolean;
+    /**
+     * For a list: the shown texts that may name an account without an email listed, sent
+     * hidden when they name a matching item's username, and whether the list shows a control
+     * for another account, which lets it go without one (ADR 0028).
+     */
+    names?: readonly string[];
+    other?: true;
   } = {},
 ): Promise<GenerationOutcome | EntryGenerationOutcome | undefined> {
   if (!rt.repairs) return undefined;
@@ -312,6 +332,18 @@ export async function sendRepair(
   if (!matched) {
     log("skipped", missed);
     return undefined;
+  }
+  // A list by names goes only as the first page's would: hiding the texts that name a
+  // matching item's username, or all of them beside a control for another account.
+  let hidden: string[] = [];
+  if (kind === "list" && page.names?.length) {
+    const listed = await listedNames(rt, live.document.origin, scope!, page.names, rawPath(live));
+    if (rt.documents.get(key) !== live) return undefined;
+    if (listed.inPath || (!listed.names.length && !page.other)) {
+      log("skipped", "no-listed-account");
+      return undefined;
+    }
+    hidden = listed.names.length ? listed.names : [...page.names];
   }
   // A start page whose form showed late may have started the recipe's login meanwhile: no
   // stale page.
@@ -354,7 +386,7 @@ export async function sendRepair(
       rt,
       live,
       scope!,
-      kind === "list" ? { names: [] } : undefined,
+      kind === "list" ? { names: hidden } : undefined,
       undefined,
       false,
       repair,

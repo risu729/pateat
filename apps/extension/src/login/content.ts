@@ -1463,8 +1463,23 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           if (cancelled) return { ok: false };
           const signIn = showsSignIn() || identifierInput(document) !== undefined;
           const start = command.starts.some(ready);
-          if (signIn || start || Date.now() >= until)
-            return { ok: true, signIn, start, signUp: showsSignUp(document) };
+          if (signIn || start || Date.now() >= until) {
+            const list = signIn ? undefined : listedAccounts(document);
+            return {
+              ok: true,
+              signIn,
+              start,
+              signUp: showsSignUp(document),
+              ...(list && !logOnly(list)
+                ? {
+                    list: {
+                      ...(list.names ? { names: list.names } : {}),
+                      ...(list.other ? { other: list.other } : {}),
+                    },
+                  }
+                : {}),
+            };
+          }
           // eslint-disable-next-line no-await-in-loop
           await pause(100);
         }

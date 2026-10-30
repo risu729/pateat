@@ -4212,6 +4212,23 @@ describe("extractAccountListObservation", () => {
     expect(JSON.stringify(observation)).not.toContain("example.com");
   });
 
+  it("sends a passkey button beside the list, also one no text names (ADR 0079)", () => {
+    page(
+      `<h1>Sign in to Example</h1>
+      <div role="list">
+        <div role="link" tabindex="0"><span>taro@example.com</span></div>
+      </div>
+      <button>Sign in with another profile</button>
+      <button id="passkey-login" aria-label="Sign in with a passkey"><svg></svg></button>`,
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    const targets = summary(result.observation).map((candidate) => candidate.target);
+    expect(targets).toContainEqual({ by: "id", value: "passkey-login" });
+    expect(targets).toContainEqual({ by: "text", value: "Sign in with another profile" });
+    expect(targets.filter((target) => target.value === "passkey-login")).toHaveLength(1);
+  });
+
   it("hides a saved profile named by a username as [account], everywhere", () => {
     // Instagram's saved profile on 2026-10-12, with a made-up username.
     page(

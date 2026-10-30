@@ -2221,6 +2221,18 @@ function readAccountList(document: Document, names: readonly string[]): Observat
     if (!v.is(loginTargetSchema, target)) return [];
     return [{ form: null, draft: { element, role: "button", label: text }, target }];
   });
+  // A passkey button beside the list that no text names, as one showing an icon only, is
+  // sent by its own locator, so the answer may name it for the chooser (ADR 0079).
+  const passkeys = passkeyButtons(document, describeAll(document)).filter(
+    (button) =>
+      !inEntry(button.draft.element) &&
+      !chosen.some(
+        (control) =>
+          containsAcross(control.draft.element, button.draft.element) ||
+          containsAcross(button.draft.element, control.draft.element),
+      ),
+  );
+  chosen.push(...passkeys);
   if (chosen.length > maxListControls) gap ??= "too-many-controls";
   const described = observe(
     document,
@@ -2554,9 +2566,23 @@ function readPasskey(document: Document): ObservationResult {
     )
   )
     return { ok: false, reason: "no-candidates" };
+  const buttons = passkeyButtons(document, found);
+  if (!buttons.length || buttons.length > maxCandidates)
+    return { ok: false, reason: "no-candidates" };
+  return observe(document, buttons, true);
+}
+
+/**
+ * The enabled buttons among `found` whose label or lasting locator names a passkey or
+ * security key and not its registration (ADR 0053).
+ */
+function passkeyButtons(
+  document: Document,
+  found: readonly ReturnType<typeof describeAll>[number][],
+): Chosen[] {
   const tokens = redactsPath(document.location.pathname);
   const index = locatorIndex(document);
-  const buttons = found.flatMap((entry) => {
+  return found.flatMap((entry) => {
     if (
       entry.kind !== "candidate" ||
       entry.draft.role !== "button" ||
@@ -2569,9 +2595,6 @@ function readPasskey(document: Document): ObservationResult {
     if (!namesPasskey(button) || registersPasskey(button)) return [];
     return [{ form: entry.form, draft: entry.draft, target }];
   });
-  if (!buttons.length || buttons.length > maxCandidates)
-    return { ok: false, reason: "no-candidates" };
-  return observe(document, buttons, true);
 }
 
 /**

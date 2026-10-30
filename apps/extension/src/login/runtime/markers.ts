@@ -522,10 +522,14 @@ export async function showsNow(
 
 /**
  * Whether a chooser login's first step is its click on the list (ADR 0028): not when it
- * started on the `other` branch's form already shown on the list's path.
+ * started on the `other` branch's form already shown on the list's path, nor when it
+ * pressed the passkey button beside the list (ADR 0079).
  */
 export const listOf = (_rt: Runtime, run: Execution) =>
-  run.chooser && run.metadata.chooser && run.metadata.chooser.click !== "other-shown"
+  run.chooser &&
+  run.metadata.chooser &&
+  run.metadata.chooser.click !== "other-shown" &&
+  run.metadata.chooser.click !== "passkey"
     ? { chooser: run.chooser, click: run.metadata.chooser.click }
     : undefined;
 

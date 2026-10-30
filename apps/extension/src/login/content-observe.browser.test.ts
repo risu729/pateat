@@ -77,3 +77,44 @@ describe("login.observe's hidden flags (ADR 0037 amendment of 2026-10-22)", () =
     ).toMatchObject({ targets: ["ambiguous", "ambiguous"] });
   });
 });
+
+describe("login.entry.check's list of accounts (ADR 0079)", () => {
+  async function check() {
+    const token = sent.find((message) => typeof message["token"] === "string")?.["token"];
+    const answers: Promise<unknown>[] = [];
+    for (const listener of listeners)
+      answers.push(
+        new Promise((resolve) =>
+          listener(
+            { version: 1, type: "login.entry.check", token, starts: [], timeoutMs: 0 },
+            { id: "synthetic-extension" },
+            resolve,
+          ),
+        ),
+      );
+    await vi.advanceTimersByTimeAsync(0);
+    return Promise.race(answers);
+  }
+  it("names the list a page without a sign-in input shows beside its passkey button", async () => {
+    document.body.innerHTML = `<h1>Welcome back</h1>
+      <div><span>taro.yamada</span><button>Continue</button></div>
+      <button>Use another profile</button>
+      <button>Sign in with a passkey</button>`;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await check()).toEqual({
+      ok: true,
+      signIn: false,
+      start: false,
+      signUp: false,
+      list: { names: expect.arrayContaining(["taro.yamada"]), other: true },
+    });
+  });
+  it("sends no list beside a sign-in input", async () => {
+    document.body.innerHTML = `<div><span>taro.yamada</span><button>Continue</button></div>
+      <input type="password" aria-label="Password"><button>Sign in</button>`;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await check()).toEqual({ ok: true, signIn: true, start: false, signUp: false });
+  });
+});

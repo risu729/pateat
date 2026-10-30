@@ -138,7 +138,9 @@ recipe ([ADR 0053](0053-passkey-only-generation.md)) is claimed and sent only wh
 immediate read (`login.entry.check`'s `signIn`) finds a sign-in or identifier input on
 its page; otherwise the page is refused at once with no claim (`recipe.unfit` outcome
 `not-due`, reason `no-form`; owner, 2026-10-25 00:16 UTC), including a form the page
-renders only after its button.
+renders only after its button. A page that shows a list of accounts beside the button
+instead is claimed and sent as a list, whose chooser layout keeps the button as its
+`passkey` (section 6, [ADR 0079](0079-passkey-button-beside-an-account-list.md)).
 
 ### 6. Chooser and sign-in entry recipes
 

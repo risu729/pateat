@@ -88,10 +88,11 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
   without the button, and the runtime chooses: the passkey lookup first, then the list
   and entry handling unchanged, logged as such rather than as `no-passkey`. A page with
   neither logs `no-passkey`.
-- Decision 7 on a shared recipe (to be replaced by
-  [ADR 0079](0079-passkey-button-beside-an-account-list.md), accepted on 2026-10-25,
-  whose chooser layout holds the button beside the list; the service part is done and
-  the extension still does what follows): a page has one recipe for all its items, and
+- Decision 7 on a shared recipe beside an entry (beside a list, replaced by
+  [ADR 0079](0079-passkey-button-beside-an-account-list.md), accepted on 2026-10-25:
+  the page is sent as a list whose chooser layout holds the button, and an item with a
+  discoverable passkey takes it; what follows still holds beside an entry, and the text
+  below is kept as written): a page has one recipe for all its items, and
   an item without a passkey cannot run a passkey-only one (it gets `no-route`, and ADR
   0058 A would revoke it and regenerate the same page while another item still holds a
   passkey). So a page that also shows an entry or a list is sent as a passkey-only page

@@ -1072,6 +1072,19 @@ export const entryCheckResultSchema = v.strictObject({
   signIn: v.boolean(),
   start: v.boolean(),
   signUp: v.boolean(),
+  /**
+   * Without a sign-in input, a list of accounts the page shows (ADR 0028), as it would be
+   * announced: `names` without an email listed, and `other` for a control for another
+   * account. A passkey-only recipe's page is repaired as such a list (ADR 0079).
+   */
+  list: v.optional(
+    v.strictObject({
+      names: v.optional(
+        v.pipe(v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(64))), v.maxLength(32)),
+      ),
+      other: v.optional(v.literal(true)),
+    }),
+  ),
 });
 /** The answer to `login.state`: the page signs as flags only (ADR 0029). */
 export const stateResultSchema = v.variant("ok", [
