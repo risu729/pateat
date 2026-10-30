@@ -26,6 +26,44 @@ describe("inputValueMismatch", () => {
 });
 
 describe("rejectsFill", () => {
+  it.each(["input", "form"])("ignores a named region after its %s was detached", (selector) => {
+    document.body.innerHTML =
+      '<form><input aria-describedby="hint"></form><p role="status" id="hint"></p>';
+    const field = document.querySelector("input")!;
+    const before = fillBaseline([field]);
+    document.querySelector(selector)!.remove();
+    document.getElementById("hint")!.textContent = "Unrelated change";
+    expect(rejectsFill([field], before)).toBe(false);
+  });
+
+  it.each(["aria-describedby", "aria-errormessage"])(
+    "resolves %s feedback in the filled input's own tree",
+    (attribute) => {
+      for (const shadow of [false, true]) {
+        document.body.innerHTML = '<div id="login"></div><div id="widget"></div>';
+        const host = document.querySelector("#login")!;
+        const scope = shadow ? host.attachShadow({ mode: "open" }) : host;
+        scope.innerHTML = `<form><input ${attribute}="hint"></form><p role="status" id="hint"></p>`;
+        const field = scope.querySelector("input")!;
+        const own = scope.querySelector("#hint")!;
+        const sibling = document.querySelector("#widget")!.attachShadow({ mode: "open" });
+        sibling.innerHTML = '<p role="status" id="hint">10 seconds remaining</p>';
+        // A shadow input must not resolve its reference into the document either.
+        if (shadow)
+          document.body.insertAdjacentHTML(
+            "beforeend",
+            '<p role="status" id="hint">Document timer</p>',
+          );
+        const before = fillBaseline([field]);
+        sibling.querySelector("p")!.textContent = "9 seconds remaining";
+        if (shadow) document.getElementById("hint")!.textContent = "Document timer changed";
+        expect(rejectsFill([field], before)).toBe(false);
+        own.textContent = "Wrong format";
+        expect(rejectsFill([field], before)).toBe(true);
+      }
+    },
+  );
+
   it("sees invalid inputs and new alert or live region text", () => {
     document.body.innerHTML =
       '<form><input id="field" pattern="[0-9]+" aria-describedby="hint"><p id="inside"></p></form><p id="hint" aria-live="polite"></p>';
