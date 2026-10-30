@@ -194,16 +194,17 @@ item with a password and no discoverable passkey refuses it with `no-route`, and
 repair is claimed for the `password` route. The button is never pressed and no secret is
 read. Only a start page on which one immediate read (`login.entry.check`'s `signIn`)
 finds a sign-in or identifier input is sent, and can gain a layout with the `password`
-route. A page without one, as with only the button or the button beside an entry or a
-list, or whose form renders only after that read, has nothing to send: it is refused
-with `no-route` at once, with no claim (`recipe.unfit` outcome `not-due`, reason
-`no-form`), so that item signs in by
-hand there (owner, 2026-10-25 00:16 UTC, on the card that chose to give a chooser layout
-the button). Sending the list as it is would replace the recipe with a chooser and take
-the button from the items that hold a passkey; a chooser layout that also holds the
-button is planned so that such an item can use the list. An item with a discoverable
-passkey takes the recipe's passkey route and claims nothing. Runtime tests in
-`apps/extension/src/login/runtime.production.test.ts` pin these cases.
+route. A page without one, as with only the button or the button beside an entry, or
+whose form renders only after that read, has nothing to send: it is refused with
+`no-route` at once, with no claim (`recipe.unfit` outcome `not-due`, reason `no-form`),
+so that item signs in by hand there (owner, 2026-10-25 00:16 UTC, on the card that chose
+to give a chooser layout the button). Sending the list as it is would replace the recipe
+with a chooser and take the button from the items that hold a passkey. Since
+[ADR 0079](0079-passkey-button-beside-an-account-list.md), a page that shows a list
+beside the button is claimed and sent as that list, whose chooser layout keeps the
+button as its `passkey`, so both kinds of item can use the page. An item with a
+discoverable passkey takes the recipe's passkey route and claims nothing. Runtime tests
+in `apps/extension/src/login/runtime.production.test.ts` pin these cases.
 
 ## Alternatives
 

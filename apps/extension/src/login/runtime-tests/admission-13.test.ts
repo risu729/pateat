@@ -562,7 +562,24 @@ describe("production login document admission", () => {
           expect(extracted()).toEqual([
             expect.objectContaining({ page: "accounts", names: ["@risu729"] }),
           ]);
-          expect(passkeyItems).toHaveBeenCalledTimes(2);
+          // The list's page says nothing of the items' passkeys (ADR 0079).
+          expect(passkeyItems).toHaveBeenCalledOnce();
+        });
+        it("sends a list that names an item holding a passkey as a list (ADR 0079)", async () => {
+          const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+          const { service, h, generations } = named({ passkeyItems });
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          expect(await passkeyListHello(h, ["@risu729"])).toEqual({
+            ok: false,
+            reason: "generating",
+          });
+          await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+          expect(service.generate.mock.calls[0]![0]).not.toHaveProperty("passkeyOnly");
+          expect(extracted()).toEqual([
+            expect.objectContaining({ page: "accounts", names: ["@risu729"] }),
+          ]);
+          expect(passkeyItems).not.toHaveBeenCalled();
+          expect(generations()).not.toContainEqual(expect.objectContaining({ outcome: "skipped" }));
         });
         it("logs no-passkey for a page whose list is only for the log", async () => {
           const passkeyItems = vi.fn(async () => []);

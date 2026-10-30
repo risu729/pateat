@@ -439,41 +439,53 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
         : undefined;
     const entryOffer = !plain && ctx.entryHello?.path === ctx.live.path;
     // A page with a passkey button is sent as a passkey-only page when a matching item
-    // holds a discoverable passkey; otherwise the list or entry it also shows is handled
-    // below as on a page without the button, logged as such (ADR 0053, owner 2026-10-19
-    // 22:44 UTC). With a list or an entry to use instead, every matching item must hold
-    // one: the recipe is shared, and an item without a passkey could not run it.
-    if (offer && ctx.signIn?.passkey && ctx.signIn.path === ctx.live.path) {
-      const fallback = listing !== undefined || entryOffer;
+    // holds a discoverable passkey; otherwise the entry it also shows is handled below as
+    // on a page without the button, logged as such (ADR 0053, owner 2026-10-19 22:44 UTC).
+    // With an entry to use instead, every matching item must hold one: the recipe is
+    // shared, and an item without a passkey could not run it. A list of accounts beside the
+    // button is sent as a list, which carries the button for the chooser's passkey route
+    // (ADR 0079, owner 2026-10-25), and says nothing of the items' passkeys; the button
+    // alone is sent only when the list is not, as a heading read as names no item has.
+    const passkeyPage =
+      offer && ctx.signIn?.passkey && ctx.signIn.path === ctx.live.path ? true : undefined;
+    const passkeyOnly = async (
+      fallback: boolean,
+      every = fallback,
+    ): Promise<Readiness | undefined> => {
       // Nor is the page right after a sign-in sent as a passkey-only page.
       if (rt.afterSignIn.get(ctx.document.tabId) === ctx.document.documentId) {
         if (!fallback) {
           skipGeneration(rt, ctx.live, "after-sign-in");
           offer = false;
         }
-      } else {
-        let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
-        const scope = await generationSlotsFor(
-          rt,
-          ctx.live,
-          (...reason) => {
-            missed = reason;
-          },
-          fallback ? "every" : "some",
-        ).catch(() => undefined);
-        if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-        if (scope) {
-          ctx.live.state = "generating";
-          delete ctx.live.reason;
-          await publish(rt, ctx.live);
-          void generateFor(rt, ctx.live, scope, undefined, undefined, true);
-          return { ok: false, reason: "generating" };
-        }
-        if (!fallback) {
-          skipGeneration(rt, ctx.live, missed[0], undefined, missed[1]);
-          offer = false;
-        }
+        return undefined;
       }
+      let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
+      const scope = await generationSlotsFor(
+        rt,
+        ctx.live,
+        (...reason) => {
+          missed = reason;
+        },
+        every ? "every" : "some",
+      ).catch(() => undefined);
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      if (scope) {
+        ctx.live.state = "generating";
+        delete ctx.live.reason;
+        await publish(rt, ctx.live);
+        void generateFor(rt, ctx.live, scope, undefined, undefined, true);
+        return { ok: false, reason: "generating" };
+      }
+      if (!fallback) {
+        skipGeneration(rt, ctx.live, missed[0], undefined, missed[1]);
+        offer = false;
+      }
+      return undefined;
+    };
+    if (passkeyPage && !listing) {
+      const sent = await passkeyOnly(entryOffer);
+      if (sent) return sent;
     }
     // A shown email address that is no list entry is logged only (ADR 0028).
     if (offer && shownList?.missed)
@@ -558,6 +570,13 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
           listing ? { names: otherOnly ?? names ?? [] } : undefined,
         );
         return { ok: false, reason: "generating" };
+      }
+      // A passkey page whose shown texts name no item's account is sent for its button
+      // alone (ADR 0053, ADR 0079), which asks for no slot, so also without the list's
+      // scope; otherwise it is logged as for the list alone.
+      if (passkeyPage && listing?.names && !listed?.inPath && !names?.length && !otherOnly) {
+        const sent = await passkeyOnly(true, entryOffer);
+        if (sent) return sent;
       }
       // No vault item matches this page, the vault could not tell, or no shown text names
       // an item's username, so it is not sent. A page offered only by its short texts is

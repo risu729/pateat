@@ -560,7 +560,7 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
     "refuses a passkey-only recipe's page that shows no form at once for an item with a password and %s (ADR 0053)",
     async (_, passkey) => {
       fake.state.present = new Set(["passkey-login"]);
-      // The page shows only the button, or the button beside an entry or a list.
+      // The page shows only the button, or the button beside an entry.
       const before = fake.state.entry.check;
       onTestFinished(() => {
         fake.state.entry.check = before;
@@ -626,6 +626,60 @@ describe("repairing a recipe the chosen item cannot run (ADR 0058 A, amended by 
     expect(fake.state.messages.filter((entry) => entry.type === "login.entry.check")).toEqual([
       expect.objectContaining({ starts: [], timeoutMs: 0 }),
     ]);
+  });
+  describe("a passkey-only recipe's page with a list of accounts beside its button (ADR 0079)", () => {
+    const listPage = {
+      ok: true,
+      observation: {
+        ...formPage.observation,
+        candidates: [
+          { id: "c1", role: "button", target: target("passkey-login"), label: "Passkey" },
+        ],
+        accounts: ["[account]"],
+      },
+    };
+    const withList = (list: unknown) => {
+      fake.state.present = new Set(["passkey-login"]);
+      fake.state.extracted = { accounts: listPage };
+      const before = fake.state.entry.check;
+      onTestFinished(() => {
+        fake.state.entry.check = before;
+      });
+      fake.state.entry.check = { ok: true, signIn: false, start: false, signUp: false, list };
+      const shown = start({
+        used: buttonOnly,
+        password: true,
+        passkey: { passkey: false, discoverable: false },
+        claim: claimed(),
+      });
+      shown.h.fields.mockImplementation(async ({ fieldId }) =>
+        fieldId === "login.username" ? "risu729" : "synthetic-secret",
+      );
+      return shown;
+    };
+    it("sends the list for the password route, hiding the text that names the account", async () => {
+      const { h, reports, generation } = withList({ names: ["Help", "@risu729"] });
+      expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledOnce());
+      expect(generation.claimRepair).toHaveBeenCalledExactlyOnceWith(generatedId, "password");
+      expect(unfits(reports)).toMatchObject([{ outcome: "claimed" }]);
+      expect(generation.generate.mock.calls[0]![0]).toMatchObject({
+        observation: { accounts: ["[account]"] },
+        repair: { recipeId: generatedId, revision: 3 },
+      });
+      expect(fake.state.messages.filter((entry) => entry.type === "login.extract")).toEqual([
+        expect.objectContaining({ page: "accounts", names: ["@risu729"] }),
+      ]);
+      expect(executed()).toEqual([]);
+    });
+    it("skips a list whose texts name no matching item's account and that has no other control", async () => {
+      const { h, reports, generation } = withList({ names: ["Help"] });
+      expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+      expect(generation.claimRepair).toHaveBeenCalledOnce();
+      expect(generation.generate).not.toHaveBeenCalled();
+      expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    });
   });
   it.each<[string, unknown]>([
     ["an answer that fails its check", { ok: false }],
