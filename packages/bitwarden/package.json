@@ -10,7 +10,7 @@
     "./browser-sdk": "./src/browser-sdk.ts"
   },
   "dependencies": {
-    "@bitwarden/sdk-internal": "0.2.0-main.1182",
+    "@bitwarden/sdk-internal": "0.2.0-main.1185",
     "cbor2": "2.4.1",
     "otpauth": "9.5.2",
     "tldts": "7.4.19",
