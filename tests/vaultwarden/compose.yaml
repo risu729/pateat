@@ -22,7 +22,7 @@ services:
       - 127.0.0.1::80
     depends_on: [mailpit]
   mailpit:
-    image: ghcr.io/axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
+    image: ghcr.io/axllent/mailpit:v1.33.0@sha256:9b3a463be15354c0f0eba91697d80e3e0d8a5623ef0e627cacc836bc17fd5231
     ports:
       # Only the HTTP API is published; Vaultwarden reaches SMTP on the compose network.
       - 127.0.0.1::8025
