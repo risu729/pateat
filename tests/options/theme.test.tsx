@@ -3,7 +3,10 @@ import { cdp, page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 // oxlint-disable-next-line import/no-unassigned-import -- Apply the options page stylesheet.
 import "../../apps/extension/entrypoints/options/style.css";
+import { useState } from "react";
 import { ThemeSelect } from "../../apps/extension/src/options/theme-select";
+import { followProfileTheme } from "../../apps/extension/src/theme-profile";
+import { createDefaultSettings, type LocalSettings } from "../../packages/contracts/src/index";
 import {
   followThemePreference,
   readThemePreference,
@@ -11,7 +14,8 @@ import {
   THEME_STORAGE_KEY,
 } from "../../apps/extension/src/theme";
 
-// The theme choice is presentation only: a localStorage value and the root's data-theme.
+// The theme choice is presentation only: the root's data-theme, from the synced profile
+// setting `theme`, with a copy in this origin's localStorage for the next page's start.
 
 const root = document.documentElement;
 function token(name: string): string {
@@ -126,9 +130,27 @@ test("follows a choice another page makes", () => {
   expect(root.hasAttribute("data-theme")).toBe(false);
 });
 
-test("the Theme select shows the stored choice and changes the theme", async () => {
-  localStorage.setItem(THEME_STORAGE_KEY, "light");
-  await render(<ThemeSelect />);
+test("the Theme select saves the choice as a profile setting and changes the theme", async () => {
+  const saved = vi.fn<(value: LocalSettings["theme"]) => void>();
+  function Harness() {
+    const [draft, setDraft] = useState<LocalSettings>(() => ({
+      ...createDefaultSettings(),
+      theme: "light",
+    }));
+    return (
+      <ThemeSelect
+        draft={draft}
+        edit={(update) => {
+          const next = structuredClone(draft);
+          update(next);
+          saved(next.theme);
+          setDraft(next);
+          return true;
+        }}
+      />
+    );
+  }
+  await render(<Harness />);
   const select = page.getByRole("combobox", { name: "Theme", exact: true });
   await expect.element(select).toHaveValue("light");
   expect(
@@ -136,11 +158,72 @@ test("the Theme select shows the stored choice and changes the theme", async () 
   ).toEqual(["Browser setting", "Light", "Dark"]);
 
   await select.selectOptions("dark");
+  expect(saved).toHaveBeenLastCalledWith("dark");
   expect(root.getAttribute("data-theme")).toBe("dark");
+  // This origin's copy lets the next page start in the theme.
   expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
 
-  localStorage.setItem(THEME_STORAGE_KEY, "system");
-  window.dispatchEvent(new StorageEvent("storage", { key: THEME_STORAGE_KEY }));
-  await expect.element(select).toHaveValue("system");
+  // The browser setting is the absent field, as in the synced document.
+  await select.selectOptions("system");
+  expect(saved).toHaveBeenLastCalledWith(undefined);
   expect(root.hasAttribute("data-theme")).toBe(false);
+});
+
+test("a theme choice the settings page could not take changes nothing", async () => {
+  await render(<ThemeSelect draft={createDefaultSettings()} edit={() => false} />);
+  await page.getByRole("combobox", { name: "Theme", exact: true }).selectOptions("dark");
+  expect(root.hasAttribute("data-theme")).toBe(false);
+});
+
+function profileStore(initial: unknown) {
+  const watchers = new Set<(value: unknown) => void>();
+  let value = initial;
+  return {
+    get: vi.fn(async () => value),
+    watch: (changed: (value: unknown) => void) => {
+      watchers.add(changed);
+      return () => watchers.delete(changed);
+    },
+    set(next: unknown) {
+      value = next;
+      for (const watcher of watchers) watcher(next);
+    },
+  };
+}
+
+test("follows the synced theme and keeps this origin's copy for the next page's start", async () => {
+  localStorage.setItem(THEME_STORAGE_KEY, "light");
+  const store = profileStore("dark");
+  const seen = vi.fn();
+  const stop = followProfileTheme(store, seen);
+  await vi.waitFor(() => expect(root.getAttribute("data-theme")).toBe("dark"));
+  expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+  // Absent is the browser setting.
+  store.set(undefined);
+  expect(root.hasAttribute("data-theme")).toBe(false);
+  expect(readThemePreference()).toBe("system");
+  expect(seen).toHaveBeenLastCalledWith("system");
+  // A value no version knows is the browser setting too.
+  store.set("sepia");
+  expect(readThemePreference()).toBe("system");
+  stop();
+  store.set("light");
+  expect(root.hasAttribute("data-theme")).toBe(false);
+});
+
+test("a synced change seen during the first read wins over what was read", async () => {
+  let release!: (value: unknown) => void;
+  const store = profileStore(undefined);
+  store.get.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const stop = followProfileTheme(store);
+  store.set("dark");
+  release("light");
+  await new Promise((resolve) => setTimeout(resolve));
+  expect(root.getAttribute("data-theme")).toBe("dark");
+  stop();
 });

@@ -65,6 +65,13 @@ export type SyncedSettings = {
   serviceReports?: NonNullable<LocalSettings["serviceReports"]>;
   /** The passkey flags claimed (ADR 0007); absent while both are `always`. */
   passkeyPolicy?: NonNullable<LocalSettings["passkeyPolicy"]>;
+  /** When the vaults lock or log out (ADR 0075); absent at the default. */
+  vaultTimeout?: NonNullable<LocalSettings["vaultTimeout"]>;
+  /** The pages' language (ADR 0043) and theme; absent while they follow the browser. */
+  language?: NonNullable<LocalSettings["language"]>;
+  theme?: NonNullable<LocalSettings["theme"]>;
+  /** The spend limits of a device's own key (ADR 0040); absent at the defaults. */
+  modelSpendLimits?: NonNullable<LocalSettings["modelSpendLimits"]>;
   bindings: Binding[];
   detailLinks: DetailLink[];
   popupPageSection: boolean;
@@ -90,6 +97,10 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
     ...(settings.loginInPrivateWindows ? { loginInPrivateWindows: true } : {}),
     ...(settings.serviceReports ? { serviceReports: settings.serviceReports } : {}),
     ...(settings.passkeyPolicy ? { passkeyPolicy: settings.passkeyPolicy } : {}),
+    ...(settings.vaultTimeout ? { vaultTimeout: settings.vaultTimeout } : {}),
+    ...(settings.language ? { language: settings.language } : {}),
+    ...(settings.theme ? { theme: settings.theme } : {}),
+    ...(settings.modelSpendLimits ? { modelSpendLimits: settings.modelSpendLimits } : {}),
     bindings: settings.bindings,
     detailLinks: settings.detailLinks ?? [],
     popupPageSection: popupPageSectionShown(settings),
@@ -410,6 +421,16 @@ export function mergeSyncedSettings(
       "passkeyPolicy",
       mergeValue(part("passkeyPolicy"), local.passkeyPolicy, service.passkeyPolicy),
     ),
+    ...present(
+      "vaultTimeout",
+      mergeValue(part("vaultTimeout"), local.vaultTimeout, service.vaultTimeout),
+    ),
+    ...present("language", mergeValue(part("language"), local.language, service.language)),
+    ...present("theme", mergeValue(part("theme"), local.theme, service.theme)),
+    ...present(
+      "modelSpendLimits",
+      mergeValue(part("modelSpendLimits"), local.modelSpendLimits, service.modelSpendLimits),
+    ),
     bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
     detailLinks: mergeDetailLinks(part("detailLinks"), local.detailLinks, service.detailLinks),
     popupPageSection: mergeValue(
@@ -479,6 +500,10 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     left.loginInPrivateWindows === right.loginInPrivateWindows &&
     same(left.serviceReports, right.serviceReports) &&
     same(left.passkeyPolicy, right.passkeyPolicy) &&
+    same(left.vaultTimeout, right.vaultTimeout) &&
+    left.language === right.language &&
+    left.theme === right.theme &&
+    same(left.modelSpendLimits, right.modelSpendLimits) &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey)) &&
     same(sorted(left.detailLinks, detailLinkKey), sorted(right.detailLinks, detailLinkKey)) &&
     left.popupPageSection === right.popupPageSection
@@ -497,6 +522,10 @@ function applySynced(settings: LocalSettings, merged: SyncedSettings): LocalSett
     loginInPrivateWindows: _off,
     serviceReports: _reports,
     passkeyPolicy: _policy,
+    vaultTimeout: _timeout,
+    language: _language,
+    theme: _theme,
+    modelSpendLimits: _limits,
     ...rest
   } = settings;
   return {

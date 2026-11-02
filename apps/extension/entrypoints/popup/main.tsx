@@ -10,13 +10,16 @@ import { sendMessage } from "../../src/messaging/protocol";
 import { SiteApp } from "../../src/popup/site-app";
 import { SETTINGS_STORAGE_KEY } from "../../src/settings";
 import { followThemePreference } from "../../src/theme";
+import { followProfileTheme } from "../../src/theme-profile";
 // oxlint-disable-next-line import/no-unassigned-import -- Share the settings page stylesheet.
 import "../options/style.css";
 // oxlint-disable-next-line import/no-unassigned-import -- Size the popup.
 import "./style.css";
 
-// The theme is set before the first render, and follows changes made on another page.
+// The theme is set before the first render from this origin's copy, then follows the synced
+// profile setting.
 followThemePreference();
+followProfileTheme();
 // The stored language is read before the first render, so no English text flashes.
 await followLanguagePreference();
 followLanguageMetadata("Pateat");

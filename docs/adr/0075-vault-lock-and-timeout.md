@@ -12,6 +12,15 @@ diagnostics page. The other details below were chosen by an agent and are marked
 Amends [ADR 0006](0006-atomic-local-vault-cache.md) and
 [ADR 0025](0025-automatic-vault-sync.md).
 
+Amended on 2026-11-02 by [ADR 0024](0024-settings-profiles.md) (owner, 10:14 UTC,
+「そうして」 to syncing it): the timeout and its action are the profile setting
+`vaultTimeout`, synced with the profile, instead of a record per device. It is absent at
+**Never** with **Lock**, so a profile that never changed it behaves as before; the
+settings page writes it like the other profile settings, and the service worker reads it
+from the settings snapshot and acts when a sync or the page changes it. Each device
+still counts its own time and acts by itself, and the key retention below follows the
+synced value on each device. The record `pateat.vault-timeout.v1` is no longer read.
+
 Date: 2026-10-23
 
 ## Context

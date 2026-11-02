@@ -98,16 +98,40 @@ test("built options and popup preserve light, dark and browser-setting colors", 
     for (const scheme of ["light", "dark"] as const) {
       // oxlint-disable-next-line no-await-in-loop
       await page.emulateMedia({ colorScheme: scheme });
-      for (const entrypoint of ["options.html", "popup.html"]) {
+      for (const theme of ["system", "light", "dark"] as const) {
+        // The theme is the synced profile setting `theme`, chosen on the settings page.
         // oxlint-disable-next-line no-await-in-loop
-        await page.goto(`chrome-extension://${id}/${entrypoint}`);
-        for (const theme of ["system", "light", "dark"] as const) {
-          // The page's startup module applies the stored choice before rendering.
+        await page.goto(`chrome-extension://${id}/options.html`);
+        const select = page.locator("#theme-preference");
+        // oxlint-disable-next-line no-await-in-loop
+        await expect(select).toBeEnabled();
+        // oxlint-disable-next-line no-await-in-loop
+        await select.selectOption(theme);
+        // Saved once the worker's settings snapshot holds it; absent is the browser setting.
+        // oxlint-disable-next-line no-await-in-loop
+        await expect
+          .poll(() =>
+            page.evaluate(async () => {
+              const key = "pateat.local-settings.v1";
+              const { storage } = (
+                globalThis as unknown as {
+                  chrome: {
+                    storage: { local: { get(key: string): Promise<Record<string, unknown>> } };
+                  };
+                }
+              ).chrome;
+              const stored = (await storage.local.get(key))[key] as
+                | { settings?: { theme?: string } }
+                | undefined;
+              return stored?.settings?.theme ?? "system";
+            }),
+          )
+          .toBe(theme);
+        const dark = theme === "dark" || (theme === "system" && scheme === "dark");
+        for (const entrypoint of ["options.html", "popup.html"]) {
+          // The page's startup module applies it, from this origin's copy before rendering.
           // oxlint-disable-next-line no-await-in-loop
-          await page.evaluate((choice) => localStorage.setItem("pateat.theme", choice), theme);
-          // oxlint-disable-next-line no-await-in-loop
-          await page.reload();
-          const dark = theme === "dark" || (theme === "system" && scheme === "dark");
+          await page.goto(`chrome-extension://${id}/${entrypoint}`);
           // oxlint-disable-next-line no-await-in-loop
           await expect(page.locator("html")).toHaveCSS(
             "background-color",

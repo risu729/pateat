@@ -1,12 +1,18 @@
+import { vaultTimeoutSchema } from "@pateat/contracts";
 import * as v from "valibot";
 import type { KeyRetention } from "./manager";
 
-/**
- * The vault timeout (ADR 0075): when the vaults on this device lock or log out, with the
- * official Bitwarden extension's choices except "Immediately". It is a device setting the
- * settings page writes; it is never synced.
- */
-export const VAULT_TIMEOUT_KEY = "pateat.vault-timeout.v1";
+export {
+  MAX_CUSTOM_MINUTES,
+  VAULT_TIMEOUT_EVENTS,
+  VAULT_TIMEOUT_MINUTES,
+  vaultTimeoutSchema,
+} from "@pateat/contracts";
+
+// The vault timeout (ADR 0075): when the vaults lock or log out, with the official Bitwarden
+// extension's choices except "Immediately". It is the profile setting `vaultTimeout`,
+// synced with the profile (ADR 0024); each device acts on it by itself.
+
 /**
  * When a vault was last used in this browser session. `storage.session` is cleared when
  * the browser restarts and when the extension is reloaded or updated, which is how a
@@ -17,19 +23,6 @@ export const VAULT_TIMEOUT_ALARM = "pateat.vault-timeout";
 /** Chrome's idle detection interval for "On system idle", as the official extension's. */
 export const IDLE_DETECTION_SECONDS = 5 * 60;
 
-/** The preset minutes; any other whole number of minutes up to a year is a custom one. */
-export const VAULT_TIMEOUT_MINUTES = [1, 5, 15, 30, 60, 240] as const;
-export const MAX_CUSTOM_MINUTES = 525_600;
-export const VAULT_TIMEOUT_EVENTS = ["never", "restart", "system-idle", "system-lock"] as const;
-export const vaultTimeoutSchema = v.strictObject({
-  /** Minutes without use, a system event, a browser restart only, or never. */
-  timeout: v.union([
-    v.picklist(VAULT_TIMEOUT_EVENTS),
-    v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_CUSTOM_MINUTES)),
-  ]),
-  /** Lock keeps the sync sign-in and unlocks offline; log out needs a sign-in again. */
-  action: v.picklist(["lock", "log-out"]),
-});
 export type VaultTimeoutSetting = v.InferOutput<typeof vaultTimeoutSchema>;
 export type VaultTimeoutAction = VaultTimeoutSetting["action"];
 export type VaultTimeoutTrigger = "minutes" | "restart" | "system-idle" | "system-lock";

@@ -96,6 +96,10 @@ function changes(before: LocalSettings, after: LocalSettings) {
       (was.loginInPrivateWindows === now.loginInPrivateWindows ? 0 : 1) +
       (same(was.serviceReports, now.serviceReports) ? 0 : 1) +
       (same(was.passkeyPolicy, now.passkeyPolicy) ? 0 : 1) +
+      (same(was.vaultTimeout, now.vaultTimeout) ? 0 : 1) +
+      (was.language === now.language ? 0 : 1) +
+      (was.theme === now.theme ? 0 : 1) +
+      (same(was.modelSpendLimits, now.modelSpendLimits) ? 0 : 1) +
       (was.popupPageSection === now.popupPageSection ? 0 : 1),
   };
 }

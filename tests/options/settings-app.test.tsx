@@ -1,5 +1,5 @@
 import { QueryClientProvider, focusManager } from "@tanstack/react-query";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { locators, page, userEvent, type Locator } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 import {
@@ -1444,20 +1444,20 @@ test("a clicked section link stays current until the user scrolls", async () => 
   }
 });
 
-test("the vault timeout has its own section only with a device setting to show", async () => {
+test("the vault timeout has its own section only with Bitwarden, as a synced setting", async () => {
   await mount();
   const nav = page.getByRole("navigation", { name: "Sections" });
   await expect.element(nav).toBeVisible();
   expect(nav.getByText("Vault timeout").query()).toBeNull();
   expect(document.querySelector("#vault-timeout")).toBeNull();
   await cleanup();
-  const vaultTimeoutClient = {
-    read: vi.fn(async () => ({ timeout: 15 as const, action: "lock" as const })),
-    write: vi.fn(async () => undefined),
-  };
+  const client = mockClient();
+  const stored = saved();
+  stored.snapshot.settings.vaultTimeout = { timeout: 15, action: "lock" };
+  client.getSettings.mockResolvedValue(stored);
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
-      <SettingsApp client={mockClient()} vaultTimeoutClient={vaultTimeoutClient} />
+      <SettingsApp client={client} vaultTimeout />
     </QueryClientProvider>,
   );
   await expect
@@ -1466,13 +1466,38 @@ test("the vault timeout has its own section only with a device setting to show",
   await expect
     .element(page.getByRole("region", { name: "Vault timeout", exact: true }))
     .toBeVisible();
-  await vi.waitFor(() =>
-    expect(
-      (document.querySelector("#vault-timeout-select") as HTMLSelectElement | null)?.value,
-    ).toBe("15"),
-  );
-  expect(vaultTimeoutClient.read).toHaveBeenCalled();
-  expect(vaultTimeoutClient.write).not.toHaveBeenCalled();
+  const select = page.getById("vault-timeout-select");
+  await expect.element(select).toHaveValue("15");
+  expect(client.saveSettings).not.toHaveBeenCalled();
+  await select.selectOptions("restart");
+  await vi.waitFor(() => expect(client.saveSettings).toHaveBeenCalledOnce());
+  expect(client.saveSettings.mock.calls[0]?.[0].settings.vaultTimeout).toEqual({
+    timeout: "restart",
+    action: "lock",
+  });
+});
+
+test("the theme and language are saved with the profile's other settings", async () => {
+  onTestFinished(() => {
+    localStorage.clear();
+    document.documentElement.removeAttribute("data-theme");
+  });
+  const client = mockClient();
+  await mount(client);
+  const theme = page.getByRole("combobox", { name: "Theme", exact: true });
+  await expect.element(theme).toBeEnabled();
+  await theme.selectOptions("dark");
+  await vi.waitFor(() => expect(client.saveSettings).toHaveBeenCalledOnce());
+  expect(client.saveSettings.mock.calls[0]?.[0].settings.theme).toBe("dark");
+  await page.getByRole("combobox", { name: "Language", exact: true }).selectOptions("en");
+  await vi.waitFor(() => expect(client.saveSettings).toHaveBeenCalledTimes(2));
+  expect(client.saveSettings.mock.calls[1]?.[0].settings).toMatchObject({
+    theme: "dark",
+    language: "en",
+  });
+  await page.getByRole("combobox", { name: "Theme", exact: true }).selectOptions("system");
+  await vi.waitFor(() => expect(client.saveSettings).toHaveBeenCalledTimes(3));
+  expect(client.saveSettings.mock.calls[2]?.[0].settings.theme).toBeUndefined();
 });
 
 test("the allowed sites turn on, list sites and stay listed when turned off (ADR 0077)", async () => {

@@ -42,8 +42,8 @@ read it, and removing the extension deletes it.
   the device identifier Pateat uses with Bitwarden.
 - **Settings and recipes** synced with your Pateat service, among them the item and
   field limits you set for each vault and which vault item holds each personal detail a
-  site asked for; the vault timeout, which stays on this device; and the pairing
-  credential for the service.
+  site asked for, the vault timeout, the language and theme, and the AI key's spend
+  limits; and the pairing credential for the service.
 - **Login progress**: for each tab and site, how far a login went, which account you
   picked, the sites you paused for 10 minutes or an hour, and when Pateat last logged in
   to each site, kept so that a login is not repeated or resumed by mistake.

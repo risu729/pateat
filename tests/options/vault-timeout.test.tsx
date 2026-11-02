@@ -1,14 +1,10 @@
-import { QueryClientProvider } from "@tanstack/react-query";
+import { createDefaultSettings, type LocalSettings } from "../../packages/contracts/src/index";
 import { afterEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { useState } from "react";
 import { cleanup, render } from "vitest-browser-react";
-import { createMetadataQueryClient } from "../../apps/extension/src/options/client";
 import { UnlockForm, type UnlockResult } from "../../apps/extension/src/options/unlock-form";
-import {
-  VaultTimeoutPanel,
-  type VaultTimeoutClient,
-} from "../../apps/extension/src/options/vault-timeout";
+import { VaultTimeoutPanel } from "../../apps/extension/src/options/vault-timeout";
 import type { VaultTimeoutSetting } from "../../apps/extension/src/vault/timeout";
 
 const password = "synthetic-component-password-only";
@@ -161,23 +157,29 @@ test("the unlock form names its account and can label its button", async () => {
   await expect.element(unlockButton("Open vault")).toBeVisible();
 });
 
-function timeoutClient(initial: VaultTimeoutSetting = { timeout: "never", action: "lock" }) {
-  let current = initial;
-  return {
-    read: vi.fn<VaultTimeoutClient["read"]>(async () => structuredClone(current)),
-    write: vi.fn<VaultTimeoutClient["write"]>(async (value) => {
-      current = structuredClone(value);
-    }),
-    current: () => current,
-  };
-}
-async function mountPanel(client = timeoutClient()) {
-  await render(
-    <QueryClientProvider client={createMetadataQueryClient()}>
-      <VaultTimeoutPanel client={client} />
-    </QueryClientProvider>,
-  );
-  return client;
+/** The settings page's draft: each edit is saved at once as the next draft. */
+async function mountPanel(initial?: VaultTimeoutSetting) {
+  const saved = vi.fn<(value: VaultTimeoutSetting | undefined) => void>();
+  function Harness() {
+    const [draft, setDraft] = useState<LocalSettings>(() => ({
+      ...createDefaultSettings(),
+      ...(initial ? { vaultTimeout: initial } : {}),
+    }));
+    return (
+      <VaultTimeoutPanel
+        draft={draft}
+        edit={(update) => {
+          const next = structuredClone(draft);
+          update(next);
+          saved(next.vaultTimeout);
+          setDraft(next);
+          return true;
+        }}
+      />
+    );
+  }
+  await render(<Harness />);
+  return saved;
 }
 // The labels hold the selects' option text, so the two selects are found by their order.
 const timeoutSelect = () => page.getByRole("combobox").nth(0);
@@ -189,8 +191,8 @@ const neverNote =
 const memoryNote =
   "The unlock key stays in memory only, so a browser restart also locks the vaults.";
 
-test("the vault timeout shows the stored setting with labelled choices", async () => {
-  await mountPanel(timeoutClient({ timeout: 240, action: "log-out" }));
+test("the vault timeout shows the synced setting with labelled choices", async () => {
+  await mountPanel({ timeout: 240, action: "log-out" });
   await expect.element(page.getByRole("heading", { name: "Vault timeout" })).toBeVisible();
   await expect.element(timeoutSelect()).toHaveValue("240");
   await expect.element(actionSelect()).toHaveValue("log-out");
@@ -213,6 +215,20 @@ test("the vault timeout shows the stored setting with labelled choices", async (
   // No "Immediately", as agreed for this extension.
   expect(labels).not.toContain("Immediately");
   expect(minutes().query()).toBeNull();
+  await expect.element(page.getByText(/Applies on all your devices\.$/u)).toBeVisible();
+});
+
+test("an absent setting is Never with Lock, and choosing them again stores nothing", async () => {
+  const saved = await mountPanel();
+  await expect.element(timeoutSelect()).toHaveValue("never");
+  await expect.element(actionSelect()).toHaveValue("lock");
+  await actionSelect().selectOptions("log-out");
+  await vi.waitFor(() =>
+    expect(saved).toHaveBeenLastCalledWith({ timeout: "never", action: "log-out" }),
+  );
+  await actionSelect().selectOptions("lock");
+  // Back at the default, the synced document leaves it out.
+  await vi.waitFor(() => expect(saved).toHaveBeenLastCalledWith(undefined));
 });
 
 test.each<[string, VaultTimeoutSetting["timeout"]]>([
@@ -225,47 +241,45 @@ test.each<[string, VaultTimeoutSetting["timeout"]]>([
   ["system-idle", "system-idle"],
   ["system-lock", "system-lock"],
   ["restart", "restart"],
-])("choosing %s saves it on this device and keeps the action", async (choice, timeout) => {
-  const client = await mountPanel(timeoutClient({ timeout: "never", action: "log-out" }));
+])("choosing %s saves it and keeps the action", async (choice, timeout) => {
+  const saved = await mountPanel({ timeout: "never", action: "log-out" });
   await expect.element(timeoutSelect()).toHaveValue("never");
   await timeoutSelect().selectOptions(choice);
   await vi.waitFor(() =>
-    expect(client.write).toHaveBeenCalledExactlyOnceWith({ timeout, action: "log-out" }),
+    expect(saved).toHaveBeenCalledExactlyOnceWith({ timeout, action: "log-out" }),
   );
-  await vi.waitFor(() => expect(message()).toBe("Saved on this device."));
   await expect.element(timeoutSelect()).toHaveValue(choice);
 });
 
 test("choosing Never saves it", async () => {
-  const client = await mountPanel(timeoutClient({ timeout: 15, action: "lock" }));
+  const saved = await mountPanel({ timeout: 15, action: "log-out" });
   await expect.element(timeoutSelect()).toHaveValue("15");
   await timeoutSelect().selectOptions("never");
   await vi.waitFor(() =>
-    expect(client.write).toHaveBeenCalledExactlyOnceWith({ timeout: "never", action: "lock" }),
+    expect(saved).toHaveBeenCalledExactlyOnceWith({ timeout: "never", action: "log-out" }),
   );
 });
 
 test("Custom saves its prefilled minutes, then a whole number in range on blur", async () => {
-  const client = await mountPanel();
+  const saved = await mountPanel();
   await expect.element(timeoutSelect()).toHaveValue("never");
   await timeoutSelect().selectOptions("custom");
   await expect.element(minutes()).toHaveValue(60);
   // The prefilled minutes count at once.
   await vi.waitFor(() =>
-    expect(client.write).toHaveBeenCalledExactlyOnceWith({ timeout: 60, action: "lock" }),
+    expect(saved).toHaveBeenCalledExactlyOnceWith({ timeout: 60, action: "lock" }),
   );
   await minutes().fill("45");
-  expect(client.write).toHaveBeenCalledOnce();
+  expect(saved).toHaveBeenCalledOnce();
   await actionSelect().click();
-  await vi.waitFor(() => expect(client.write).toHaveBeenCalledTimes(2));
-  expect(client.write).toHaveBeenLastCalledWith({ timeout: 45, action: "lock" });
-  await vi.waitFor(() => expect(message()).toBe("Saved on this device."));
+  await vi.waitFor(() => expect(saved).toHaveBeenCalledTimes(2));
+  expect(saved).toHaveBeenLastCalledWith({ timeout: 45, action: "lock" });
   await expect.element(timeoutSelect()).toHaveValue("custom");
   await expect.element(page.getByText(memoryNote, { exact: true })).toBeVisible();
 });
 
 test("Custom minutes are saved with Enter too", async () => {
-  const client = await mountPanel(timeoutClient({ timeout: 15, action: "log-out" }));
+  const saved = await mountPanel({ timeout: 15, action: "log-out" });
   await expect.element(timeoutSelect()).toHaveValue("15");
   await timeoutSelect().selectOptions("custom");
   // A preset is the starting value of the custom minutes.
@@ -273,40 +287,40 @@ test("Custom minutes are saved with Enter too", async () => {
   await minutes().fill("90");
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() =>
-    expect(client.write).toHaveBeenCalledExactlyOnceWith({ timeout: 90, action: "log-out" }),
+    expect(saved).toHaveBeenCalledExactlyOnceWith({ timeout: 90, action: "log-out" }),
   );
 });
 
 test.each(["0", "-3", "1.5", "525601", ""])(
   "Custom minutes %j are refused with the allowed range",
   async (typed) => {
-    const client = await mountPanel(timeoutClient({ timeout: 45, action: "lock" }));
+    const saved = await mountPanel({ timeout: 45, action: "lock" });
     await expect.element(timeoutSelect()).toHaveValue("custom");
     await expect.element(minutes()).toHaveValue(45);
     await minutes().fill(typed);
     await userEvent.keyboard("{Enter}");
     await vi.waitFor(() => expect(message()).toBe("Enter whole minutes from 1 to 525,600."));
     await actionSelect().click();
-    expect(client.write).not.toHaveBeenCalled();
+    expect(saved).not.toHaveBeenCalled();
   },
 );
 
-test("Custom minutes equal to the stored ones are not saved again", async () => {
-  const client = await mountPanel(timeoutClient({ timeout: 45, action: "lock" }));
+test("Custom minutes equal to the saved ones are not saved again", async () => {
+  const saved = await mountPanel({ timeout: 45, action: "lock" });
   await expect.element(minutes()).toHaveValue(45);
   await minutes().click();
   await userEvent.keyboard("{Enter}");
   await actionSelect().click();
-  expect(client.write).not.toHaveBeenCalled();
+  expect(saved).not.toHaveBeenCalled();
   await minutes().fill("525600");
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() =>
-    expect(client.write).toHaveBeenCalledExactlyOnceWith({ timeout: 525_600, action: "lock" }),
+    expect(saved).toHaveBeenCalledExactlyOnceWith({ timeout: 525_600, action: "lock" }),
   );
 });
 
 test("the timeout action saves Log out and Lock", async () => {
-  const client = await mountPanel(timeoutClient({ timeout: 5, action: "lock" }));
+  const saved = await mountPanel({ timeout: 5, action: "lock" });
   await expect.element(actionSelect()).toHaveValue("lock");
   await expect
     .element(
@@ -317,9 +331,7 @@ test("the timeout action saves Log out and Lock", async () => {
     )
     .toBeVisible();
   await actionSelect().selectOptions("log-out");
-  await vi.waitFor(() =>
-    expect(client.write).toHaveBeenLastCalledWith({ timeout: 5, action: "log-out" }),
-  );
+  await vi.waitFor(() => expect(saved).toHaveBeenLastCalledWith({ timeout: 5, action: "log-out" }));
   await expect
     .element(
       page.getByText("Log out also forgets the sync sign-in; sign in again to use the vault.", {
@@ -328,51 +340,14 @@ test("the timeout action saves Log out and Lock", async () => {
     )
     .toBeVisible();
   await actionSelect().selectOptions("lock");
-  await vi.waitFor(() =>
-    expect(client.write).toHaveBeenLastCalledWith({ timeout: 5, action: "lock" }),
-  );
+  await vi.waitFor(() => expect(saved).toHaveBeenLastCalledWith({ timeout: 5, action: "lock" }));
 });
 
 test("the note warns only for Never that the key stays on this device", async () => {
-  await mountPanel(timeoutClient({ timeout: "never", action: "lock" }));
+  await mountPanel({ timeout: "never", action: "lock" });
   await expect.element(page.getByText(neverNote, { exact: true })).toBeVisible();
   expect(document.body.textContent).not.toContain(memoryNote);
   await timeoutSelect().selectOptions("restart");
   await expect.element(page.getByText(memoryNote, { exact: true })).toBeVisible();
   expect(document.body.textContent).not.toContain(neverNote);
-});
-
-test("a setting that cannot be read shows Unavailable and offers no change", async () => {
-  const client = timeoutClient();
-  client.read.mockRejectedValue(new Error("Synthetic storage failure"));
-  await mountPanel(client);
-  await expect.element(timeoutSelect()).toBeDisabled();
-  await expect.element(actionSelect()).toBeDisabled();
-  await vi.waitFor(() =>
-    expect(document.querySelector("#vault-timeout-select option")?.textContent).toBe("Unavailable"),
-  );
-  expect(document.querySelector("#vault-timeout-action option")?.textContent).toBe("Unavailable");
-  expect(client.write).not.toHaveBeenCalled();
-});
-
-test("a save in progress disables the choices, and a failed save says so", async () => {
-  const client = timeoutClient({ timeout: 30, action: "lock" });
-  const saving = held<void>();
-  client.write.mockReturnValueOnce(saving.promise);
-  await mountPanel(client);
-  await expect.element(timeoutSelect()).toHaveValue("30");
-  await timeoutSelect().selectOptions("5");
-  await vi.waitFor(() => expect(message()).toBe("Saving…"));
-  await expect.element(timeoutSelect()).toBeDisabled();
-  await expect.element(actionSelect()).toBeDisabled();
-  saving.resolve();
-  await expect.element(timeoutSelect()).toBeEnabled();
-  client.write.mockRejectedValueOnce(new Error("Synthetic storage failure"));
-  await actionSelect().selectOptions("log-out");
-  await vi.waitFor(() =>
-    expect(message()).toBe("The vault timeout could not be saved. Try again."),
-  );
-  // The stored setting stays shown.
-  await expect.element(actionSelect()).toHaveValue("lock");
-  await expect.element(timeoutSelect()).toHaveValue("5");
 });

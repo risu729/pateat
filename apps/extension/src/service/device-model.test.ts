@@ -27,8 +27,6 @@ const NOW = Date.UTC(2026, 9, 23, 20, 0);
 const SETTING: DeviceModelSetting = {
   version: 1,
   apiKey: KEY,
-  dailyLimitUsd: 5,
-  monthlyLimitUsd: 100,
 };
 const REQUEST = {
   version: 1,
@@ -64,6 +62,7 @@ function setup(
     readSpend?: () => Promise<unknown>;
     writeSpend?: (value: DeviceModelSpend) => Promise<void>;
     readKey?: () => Promise<unknown>;
+    limits?: { dailyUsd: number; monthlyUsd: number } | (() => Promise<never>);
     answers?: RecipeGenerationResult[];
     fetch?: typeof globalThis.fetch;
   } = {},
@@ -85,6 +84,14 @@ function setup(
     options.fetch ?? (async () => new Response(ANSWER, { status: 200 })),
   ) as unknown as typeof globalThis.fetch & ReturnType<typeof vi.fn>;
   const model = createDeviceModel({
+    limits:
+      typeof options.limits === "function"
+        ? options.limits
+        : async () =>
+            (options.limits as { dailyUsd: number; monthlyUsd: number } | undefined) ?? {
+              dailyUsd: 5,
+              monthlyUsd: 100,
+            },
     storage: {
       read: options.readKey ?? (async () => ("setting" in options ? options.setting : SETTING)),
       write: async () => {},
@@ -173,6 +180,7 @@ describe("model calls with this device's own key (ADR 0040)", () => {
     const sent: (DeviceModel | undefined)[] = [];
     const fetch = vi.fn(async () => new Response(ANSWER, { status: 200 }));
     const model = createDeviceModel({
+      limits: async () => ({ dailyUsd: 5, monthlyUsd: 100 }),
       storage: { read: async () => SETTING, write: async () => {}, clear: async () => {} },
       spend: { read: async () => undefined, write: async () => {} },
       fetch,
@@ -353,7 +361,7 @@ describe("model calls with this device's own key (ADR 0040)", () => {
   it("keeps counting what it could not write, and stops at the limit", async () => {
     const { transport, fetch } = setup({
       answers: [CALL as RecipeGenerationResult, CALL as RecipeGenerationResult],
-      setting: { ...SETTING, dailyLimitUsd: 1 },
+      limits: { dailyUsd: 1, monthlyUsd: 100 },
       writeSpend: () => Promise.reject(new Error("quota")),
     });
     // A million input tokens is past a $1 daily limit at Opus 5.5's rates.
@@ -378,6 +386,29 @@ describe("model calls with this device's own key (ADR 0040)", () => {
     expect(sent[1]?.responses[0]?.kind).toBe("unreachable");
     expect(currentSpend(spend(), NOW).dayMicroUsd).toBe(
       callCostMicroUsd(BODY, { kind: "timeout", request: "" }),
+    );
+  });
+
+  it("stops when the profile's spend limits cannot be read", async () => {
+    const { transport, fetch } = setup({
+      limits: () => Promise.reject(new Error("settings unavailable")),
+    });
+    expect((await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).kind).toBe("failed");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the key of a record saved with its own limits, which the profile's replace", async () => {
+    const { transport, fetch } = setup({
+      readKey: async () => ({ ...SETTING, dailyLimitUsd: 0, monthlyLimitUsd: 0 }),
+    });
+    // Its old $0 limits would have stopped the call; the profile's $5 and $100 apply.
+    expect(await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).toEqual({
+      kind: "result",
+      result: RECIPE,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(new Headers((fetch.mock.calls[0]![1] as RequestInit).headers).get("x-api-key")).toBe(
+      KEY,
     );
   });
 

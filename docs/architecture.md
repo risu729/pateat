@@ -784,15 +784,13 @@ vocabulary contains login operations only.
 
 Settings are synced by default (owner, 2026-11-02 09:48 UTC;
 [ADR 0024](adr/0024-settings-profiles.md)): a new setting is part of the profile, or of
-the owner's shared parts, unless the owner agrees that it stays on the device. These
-settings stay on the device today, each until the owner decides it:
+the owner's shared parts, unless the owner agrees that it stays on the device. The vault
+timeout, language, theme and spend limits are synced since 2026-11-02. The owner agreed
+that these stay on the device:
 
 | Setting | Where it is stored | Why it stays |
 | --- | --- | --- |
-| Vault timeout and its action ([ADR 0075](adr/0075-vault-lock-and-timeout.md)) | `storage.local` `pateat.vault-timeout.v1` | It decides how long this device keeps its unlock key |
-| Language ([ADR 0043](adr/0043-extension-language-preference.md)) | `storage.local` `pateat.language` | Chosen per browser, as the browser's own language |
-| Theme | the extension pages' `localStorage` `pateat.theme` | Chosen per browser, as the browser's own theme |
-| This device's Anthropic API key and its daily and monthly spend limits ([ADR 0040](adr/0040-running-without-the-service.md)) | `storage.local` `pateat.device-model.v1` | The key is a secret; the limits belong to the key |
+| This device's Anthropic API key ([ADR 0040](adr/0040-running-without-the-service.md)); its spend limits are synced | `storage.local` `pateat.device-model.v1` | The key is a secret |
 | Debug logging until a time or until turned off ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)) | the diagnostics log's IndexedDB | The log itself never leaves the device |
 | Vault connections: server, account and sign-in ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)) | `connections` in `pateat.local-settings.v1` | Each device signs in to Bitwarden itself |
 | The demo vaults' policies | `accountPolicies`, `itemPolicies` and `customFieldReviews` entries of the `dummy` provider | The demo vaults exist on this device only |
@@ -1960,14 +1958,15 @@ selected on the settings page. Vault names, usernames and hostnames are interpol
 text; unknown status codes remain visible as codes. The setting does not change login
 policy.
 
-As [ADR 0043](adr/0043-extension-language-preference.md) records, `chrome.storage.local`
-holds `pateat.language` as `system`, `en` or `ja`, per browser profile and outside
-service sync; `system` takes the first English or Japanese entry of
+As [ADR 0043](adr/0043-extension-language-preference.md) records as amended, the
+language is the synced profile setting `language` (`en` or `ja`, absent for `system`;
+[ADR 0024](adr/0024-settings-profiles.md)), read from the settings snapshot in
+`chrome.storage.local`; `system` takes the first English or Japanese entry of
 `navigator.languages`, else English. Each page reads it before its first render and
-follows changes made on another page; the worker reads it at start and rewrites every
-tab's tooltip when it changes. A notice already on screen keeps its catalog key and
-values, so a language change translates it again without resetting drafts, focus or a
-running operation.
+follows changes a sync or the settings page makes; the worker reads it at start and
+rewrites every tab's tooltip when it changes. A notice already on screen keeps its
+catalog key and values, so a language change translates it again without resetting
+drafts, focus or a running operation.
 
 Bug report text, exported log entries and diagnostic codes stay English. The manifest
 description comes from `public/_locales` by Chrome's own UI language. The service's
@@ -2034,15 +2033,19 @@ Each page has light and dark themes. The extension's pages and the owner web UI 
 Theme select (Browser setting, Light, Dark): at the foot of the extension settings
 page's section list and in the owner web UI's footer (owner, 2026-10-12 20:54 UTC); the
 Worker's script-free pages always follow the browser. Browser setting, the default,
-follows the browser's `prefers-color-scheme`. The choice is presentation only: it is
-kept in the program's own `localStorage` under `pateat.theme`, not in `chrome.storage`,
-the service or sync, so the extension and the owner web UI keep separate choices and
-each browser profile has its own. A page applies the stored choice before it renders, as
-a `data-theme` attribute on the root element, and an open page follows a change made on
-another page of the same program through the `storage` event. Because neither program's
-pages allow inline script (the MV3 policy, and the owner web UI's `script-src 'self'`),
-the choice is applied from the page's module, so a page whose stored choice differs from
-the browser's scheme may paint one frame in the browser's scheme first.
+follows the browser's `prefers-color-scheme`. The choice is presentation only. The owner
+web UI keeps it in its own `localStorage` under `pateat.theme`, per browser profile. The
+extension's choice is the synced profile setting `theme` (`light` or `dark`, absent for
+Browser setting; owner, 2026-11-02, [ADR 0024](adr/0024-settings-profiles.md)), saved by
+the settings page like its other settings; each extension page keeps a copy in its
+`localStorage` under `pateat.theme` (`src/theme-profile.ts`). A page applies the stored
+copy before it renders, as a `data-theme` attribute on the root element, then the synced
+value once read, and an open page follows a change made on another page of the same
+program through the `storage` event and a sync through `chrome.storage`. Because neither
+program's pages allow inline script (the MV3 policy, and the owner web UI's
+`script-src 'self'`), the choice is applied from the page's module, so a page whose
+stored choice differs from the browser's scheme may paint one frame in the browser's
+scheme first.
 
 Forced colors, such as Windows contrast themes, replace the popup's accent colors and
 drop its shadows, so the popup gives its selected account card and its switch system

@@ -48,7 +48,7 @@ import { LanguageSelect } from "./language-select";
 import { ThemeSelect } from "./theme-select";
 import { PASSKEYS_SECTION, PasskeyPolicyPanel } from "./passkey-policy";
 import { SERVICE_REPORTS_SECTION, ServiceReports } from "./service-reports";
-import { VaultTimeoutPanel, type VaultTimeoutClient } from "./vault-timeout";
+import { VaultTimeoutPanel } from "./vault-timeout";
 import { Panel, StatusLines, type LocalizedMessage } from "./ui";
 
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
@@ -68,15 +68,15 @@ export function SettingsApp({
   client,
   connectionClient,
   serviceClient,
-  vaultTimeoutClient,
+  vaultTimeout,
   deviceModelClient,
   transferClient,
 }: {
   client: SettingsClient;
   connectionClient?: ConnectionClient;
   serviceClient?: ServiceClient;
-  /** This device's vault timeout (ADR 0075), shown with a real Bitwarden connection. */
-  vaultTimeoutClient?: VaultTimeoutClient;
+  /** Shows the vault timeout (ADR 0075), which only a real Bitwarden connection uses. */
+  vaultTimeout?: boolean;
   /** This device's own Anthropic API key (ADR 0040). */
   deviceModelClient?: DeviceModelClient;
   /** Export and import of what a pairing shares (ADR 0040). */
@@ -312,6 +312,10 @@ export function SettingsApp({
     form.setFieldValue("loginInPrivateWindows", value.loginInPrivateWindows);
     form.setFieldValue("serviceReports", value.serviceReports);
     form.setFieldValue("passkeyPolicy", value.passkeyPolicy);
+    form.setFieldValue("vaultTimeout", value.vaultTimeout);
+    form.setFieldValue("language", value.language);
+    form.setFieldValue("theme", value.theme);
+    form.setFieldValue("modelSpendLimits", value.modelSpendLimits);
     form.setFieldValue("popupPageSection", value.popupPageSection);
     rebased.current = true;
     return "rebased";
@@ -398,6 +402,10 @@ export function SettingsApp({
     form.setFieldValue("loginInPrivateWindows", next.loginInPrivateWindows);
     form.setFieldValue("serviceReports", next.serviceReports);
     form.setFieldValue("passkeyPolicy", next.passkeyPolicy);
+    form.setFieldValue("vaultTimeout", next.vaultTimeout);
+    form.setFieldValue("language", next.language);
+    form.setFieldValue("theme", next.theme);
+    form.setFieldValue("modelSpendLimits", next.modelSpendLimits);
     form.setFieldValue("popupPageSection", next.popupPageSection);
     edits.current += 1;
     setDirty(true);
@@ -535,9 +543,7 @@ export function SettingsApp({
     connectionClient
       ? { id: "bitwarden", label: "Bitwarden", icon: Shield }
       : { id: "demo-vaults", label: t("Demo vaults"), icon: Vault },
-    ...(vaultTimeoutClient
-      ? [{ id: "vault-timeout", label: t("Vault timeout"), icon: Timer }]
-      : []),
+    ...(vaultTimeout ? [{ id: "vault-timeout", label: t("Vault timeout"), icon: Timer }] : []),
     { id: "sites", label: t("Sites"), icon: Globe },
     { id: "allowed-sites", label: t("Allowed sites"), icon: ListChecks },
     { id: PRIVATE_WINDOWS_SECTION, label: t("Private windows"), icon: EyeOff },
@@ -583,6 +589,8 @@ export function SettingsApp({
       <div className="flex flex-wrap items-start gap-8">
         <SectionNav
           sections={sections}
+          theme={<ThemeSelect draft={draft} edit={edit} disabled={busy || !accepted} />}
+          language={<LanguageSelect draft={draft} edit={edit} disabled={busy || !accepted} />}
           display={
             <label className="checkbox-row m-0 text-sm">
               <input
@@ -676,7 +684,6 @@ export function SettingsApp({
               )}
             />
           )}
-          {vaultTimeoutClient && <VaultTimeoutPanel client={vaultTimeoutClient} />}
           <fieldset
             id="settings-controls"
             className="m-0 flex min-w-0 flex-col gap-6 border-0 p-0"
@@ -698,6 +705,18 @@ export function SettingsApp({
                 {exclusionsWin}
               </Panel>
             )}
+            {vaultTimeout &&
+              (accepted ? (
+                <VaultTimeoutPanel draft={draft} edit={edit} />
+              ) : (
+                <Panel
+                  id="vault-timeout"
+                  headingId="vault-timeout-heading"
+                  title={t("Vault timeout")}
+                >
+                  {null}
+                </Panel>
+              ))}
             {accepted ? (
               <SitePolicy
                 key={generation}
@@ -727,7 +746,13 @@ export function SettingsApp({
             {accepted && <ServiceReports draft={draft} edit={edit} />}
           </fieldset>
           {serviceClient && <ServiceConnection client={serviceClient} settingsClient={client} />}
-          {deviceModelClient && <DeviceModelPanel client={deviceModelClient} />}
+          {deviceModelClient && (
+            <DeviceModelPanel
+              client={deviceModelClient}
+              {...(accepted ? { draft } : {})}
+              edit={edit}
+            />
+          )}
           {transferClient && (
             <TransferPanel
               client={transferClient}
@@ -764,7 +789,17 @@ const navLinkClass =
  * The page's sections, the diagnostics page, the theme, the popup's display choice and the
  * language; the section in view is marked.
  */
-function SectionNav({ sections, display }: { sections: NavSection[]; display: ReactNode }) {
+function SectionNav({
+  sections,
+  theme,
+  display,
+  language,
+}: {
+  sections: NavSection[];
+  theme: ReactNode;
+  display: ReactNode;
+  language: ReactNode;
+}) {
   const { t } = useTranslation(undefined, { i18n });
   const [current, setCurrent] = useState(sections[0]?.id);
   const ids = sections.map((section) => section.id).join(" ");
@@ -846,9 +881,9 @@ function SectionNav({ sections, display }: { sections: NavSection[]; display: Re
         </li>
       </ul>
       <div className="flex flex-col gap-4 px-3">
-        <ThemeSelect />
+        {theme}
         {display}
-        <LanguageSelect />
+        {language}
       </div>
     </nav>
   );

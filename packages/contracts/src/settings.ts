@@ -291,6 +291,30 @@ export const detailLinkSchema = v.strictObject({
 });
 
 /** The saved account for one origin, named by provider account and item (ADR 0013). */
+/** The vault timeout's preset minutes; any other whole number up to a year is custom. */
+export const VAULT_TIMEOUT_MINUTES = [1, 5, 15, 30, 60, 240] as const;
+export const MAX_CUSTOM_MINUTES = 525_600;
+export const VAULT_TIMEOUT_EVENTS = ["never", "restart", "system-idle", "system-lock"] as const;
+/** When the vaults lock or log out (ADR 0075). */
+export const vaultTimeoutSchema = v.strictObject({
+  /** Minutes without use, a system event, a browser restart only, or never. */
+  timeout: v.union([
+    v.picklist(VAULT_TIMEOUT_EVENTS),
+    v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_CUSTOM_MINUTES)),
+  ]),
+  /** Lock keeps the sync sign-in and unlocks offline; log out needs a sign-in again. */
+  action: v.picklist(["lock", "log-out"]),
+});
+
+/** The highest spend limit a device's own Anthropic API key takes (ADR 0040). */
+export const MAX_DEVICE_LIMIT_USD = 100_000;
+const spendLimitUsd = v.pipe(
+  v.number(),
+  v.finite(),
+  v.minValue(0),
+  v.maxValue(MAX_DEVICE_LIMIT_USD),
+);
+
 export const siteDefaultSchema = v.strictObject({
   origin: originSchema,
   ...accountReference,
@@ -520,6 +544,26 @@ export const localSettingsSchema = v.pipe(
         presence: v.picklist(["always", "activation"]),
         verification: v.picklist(["always", "never"]),
       }),
+    ),
+    /**
+     * When the profile's vaults lock or log out (ADR 0075); absent means `{ timeout:
+     * "never", action: "lock" }`, the default. Synced as part of the profile (ADR 0024).
+     */
+    vaultTimeout: v.optional(vaultTimeoutSchema),
+    /**
+     * The extension pages' language (ADR 0043); absent follows the browser. Synced as part
+     * of the profile (ADR 0024).
+     */
+    language: v.optional(v.picklist(["en", "ja"])),
+    /** The extension pages' color theme; absent follows the browser. Synced (ADR 0024). */
+    theme: v.optional(v.picklist(["light", "dark"])),
+    /**
+     * The daily and monthly spend limits, in US dollars, of a device's own Anthropic API key
+     * (ADR 0040); absent means 5 and 100, the defaults. The key itself stays on the device.
+     * Synced as part of the profile (ADR 0024).
+     */
+    modelSpendLimits: v.optional(
+      v.strictObject({ dailyUsd: spendLimitUsd, monthlyUsd: spendLimitUsd }),
     ),
     /** Synced links to the items that hold a login's personal details (ADR 0061). */
     detailLinks: v.optional(

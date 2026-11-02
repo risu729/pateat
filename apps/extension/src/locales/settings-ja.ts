@@ -185,8 +185,6 @@ export const settingsJa = {
   "No sites listed": "登録されたサイトはありません",
   "Vault timeout": "保管庫のタイムアウト",
   "Saved on this device.": "このデバイスに保存しました。",
-  "The vault timeout could not be saved. Try again.":
-    "保管庫のタイムアウトを保存できませんでした。もう一度お試しください。",
   "{{count}} minute_one": "{{count}} 分",
   "{{count}} minute_other": "{{count}} 分",
   "{{count}} hour_one": "{{count}} 時間",
@@ -209,8 +207,10 @@ export const settingsJa = {
     "ログアウトでは同期用のログイン情報も削除します。保管庫を使うにはもう一度ログインしてください。",
   "Lock keeps the sync sign-in; unlock with the master password, without the server.":
     "ロックでは同期用のログイン情報を残します。マスターパスワードで、サーバーに接続せずにロックを解除できます。",
-  "Time counts from the last login filled, passkey signed, unlock or sign-in; this setting stays on this device.":
-    "時間は、ログイン情報の入力、パスキーでの署名、ロック解除、ログインのうち最後のものから数えます。この設定はこのデバイスにだけ保存します。",
+  "Time counts from the last login filled, passkey signed, unlock or sign-in, on each device by itself. Applies on all your devices.":
+    "時間は、ログイン情報の入力、パスキーでの署名、ロック解除、ログインのうち最後のものから、デバイスごとに数えます。すべてのデバイスに適用されます。",
+  "The limits apply on all your devices, each counting its own key's spend; the key itself is saved per device.":
+    "上限額はすべてのデバイスに適用され、各デバイスが自分のキーで使った額を数えます。キー自体はデバイスごとに保存します。",
   "AI key": "AI キー",
   "Anthropic API key": "Anthropic API キー",
   "Replace the Anthropic API key": "Anthropic API キーを置き換える",

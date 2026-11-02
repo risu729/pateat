@@ -1,8 +1,8 @@
 import { createInstance } from "i18next";
 import * as v from "valibot";
-import { storage } from "wxt/utils/storage";
 import { en } from "./locales/en";
 import { ja } from "./locales/ja";
+import { profileSettingStore } from "./profile-setting";
 
 export const LANGUAGE_PREFERENCES = ["system", "en", "ja"] as const;
 export type LanguagePreference = (typeof LANGUAGE_PREFERENCES)[number];
@@ -54,28 +54,28 @@ export function formatLocale(
 }
 
 /**
- * Where the preference is kept. Extension pages and the service worker share
- * `chrome.storage.local` (`extensionLanguageStore`), so the worker's toolbar titles follow
- * it too; tests and pages without one use memory.
+ * Where the preference is kept. Extension pages and the service worker read the synced
+ * profile setting `language` (`extensionLanguageStore`, ADR 0024), so the worker's toolbar
+ * titles follow it too; tests and pages without one use memory. A store without `set` is
+ * changed elsewhere: the settings page saves the choice as a profile setting.
  */
 export type LanguageStore = {
   get(): Promise<unknown>;
-  set(preference: LanguagePreference): Promise<void>;
+  set?(preference: LanguagePreference): Promise<void>;
   /** Calls back with each stored value written elsewhere; returns the unwatch. */
   watch(changed: (value: unknown) => void): () => void;
 };
 
-/** The extension's store: `local:pateat.language` through WXT's storage wrapper. */
+/** The settings snapshot's `language`, where absent is the browser setting. */
 export function extensionLanguageStore(): LanguageStore {
-  const item = storage.defineItem<unknown>(`local:${LANGUAGE_STORAGE_KEY}`);
+  const setting = profileSettingStore("language");
   return {
-    get: () => item.getValue(),
-    set: (preference) => item.setValue(preference),
-    watch: (changed) => item.watch(changed),
+    get: async () => (await setting.get()) ?? "system",
+    watch: (changed) => setting.watch((value) => changed(value ?? "system")),
   };
 }
 
-export function memoryLanguageStore(initial?: unknown): LanguageStore {
+export function memoryLanguageStore(initial?: unknown): Required<LanguageStore> {
   let value = initial;
   const watchers = new Set<(value: unknown) => void>();
   return {
@@ -91,7 +91,7 @@ export function memoryLanguageStore(initial?: unknown): LanguageStore {
   };
 }
 
-let store = memoryLanguageStore();
+let store: LanguageStore = memoryLanguageStore();
 let activePreference: LanguagePreference = "system";
 // Counts applied preferences, so a read that finishes after a newer choice is dropped.
 let applied = 0;
@@ -121,11 +121,14 @@ export function watchLanguagePreference(
 // applied again: after a quick ja then en, the late ja event would flip the page back.
 let ownWrites: unknown[] = [];
 
-/** Apply the choice at once; it lasts until the program ends if the store rejects it. */
+/**
+ * Apply the choice at once; it lasts until the program ends if the store rejects it. With
+ * a store changed elsewhere, the caller saves it, and its change event is not applied again.
+ */
 export function saveLanguagePreference(preference: LanguagePreference): void {
   applyLanguagePreference(preference);
   ownWrites.push(preference);
-  void store.set(preference).catch(() => undefined);
+  void store.set?.(preference).catch(() => undefined);
 }
 
 function storedChanged(value: unknown): void {

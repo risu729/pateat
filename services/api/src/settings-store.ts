@@ -12,7 +12,9 @@ import { hasProfile } from "./profile-store";
  * Profile parts are explicit so shared bindings cannot accidentally become policy. Automatic
  * login in private windows (ADR 0062) says how the profile's browsers log in, as its site
  * rules do, so it is a profile part too; absent while off. So are what its devices send to
- * the service on their own (ADR 0055) and the passkey flags they claim (ADR 0007).
+ * the service on their own (ADR 0055), the passkey flags they claim (ADR 0007), the vault
+ * timeout (ADR 0075), the pages' language and theme, and the spend limits of a device's own
+ * key (ADR 0040): settings are synced by default (ADR 0024).
  */
 export const profileDocument = (document: LocalSettings) => ({
   accountPolicies: document.accountPolicies,
@@ -26,9 +28,14 @@ export const profileDocument = (document: LocalSettings) => ({
   passkeyBrowserSites: document.passkeyBrowserSites,
   siteDefaults: document.siteDefaults,
   ...(document.loginInPrivateWindows ? { loginInPrivateWindows: true as const } : {}),
-  // Absent while at their defaults (sending on; passkey flags both `always`).
+  // Absent while at their defaults (sending on; passkey flags both `always`; vault timeout
+  // never with lock; language and theme following the browser; spend limits 5 and 100).
   ...(document.serviceReports ? { serviceReports: document.serviceReports } : {}),
   ...(document.passkeyPolicy ? { passkeyPolicy: document.passkeyPolicy } : {}),
+  ...(document.vaultTimeout ? { vaultTimeout: document.vaultTimeout } : {}),
+  ...(document.language ? { language: document.language } : {}),
+  ...(document.theme ? { theme: document.theme } : {}),
+  ...(document.modelSpendLimits ? { modelSpendLimits: document.modelSpendLimits } : {}),
   // Kept only while it hides the popup's page status; absent means shown.
   ...(document.popupPageSection === false && { popupPageSection: false }),
 });

@@ -8,14 +8,16 @@ import { createConnectionClient } from "../../src/options/connection-client";
 import { createDeviceModelClient } from "../../src/options/device-model";
 import { createServiceClient } from "../../src/options/service-client";
 import { createTransferClient } from "../../src/options/transfer";
-import { createVaultTimeoutClient } from "../../src/options/vault-timeout";
 import { sendMessage } from "../../src/messaging/protocol";
 import { followThemePreference } from "../../src/theme";
+import { followProfileTheme } from "../../src/theme-profile";
 // oxlint-disable-next-line import/no-unassigned-import -- Bundle the options page stylesheet.
 import "./style.css";
 
-// The theme is set before the first render, and follows changes made on another page.
+// The theme is set before the first render from this origin's copy, then follows the synced
+// profile setting.
 followThemePreference();
+followProfileTheme();
 // The stored language is read before the first render, so no English text flashes.
 await followLanguagePreference();
 followLanguageMetadata("Pateat settings");
@@ -32,7 +34,7 @@ createRoot(root).render(
     <SettingsApp
       client={createSettingsClient((message) => sendMessage("settings", message))}
       connectionClient={connectionClient}
-      vaultTimeoutClient={createVaultTimeoutClient()}
+      vaultTimeout
       deviceModelClient={createDeviceModelClient()}
       transferClient={createTransferClient((message) => sendMessage("settings", message))}
       serviceClient={createServiceClient({

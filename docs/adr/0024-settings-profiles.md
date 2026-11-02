@@ -19,7 +19,12 @@ synced by default. A new setting is a profile part (or, like bindings, an owner 
 unless the owner agrees that it stays on the device. `serviceReports` (ADR 0055) and
 `passkeyPolicy` (ADR 0007) are profile parts. Settings that do not sync today stay as
 they are until the owner decides each one; they are listed in
-[architecture](../architecture.md#settings-that-stay-on-the-device).
+[architecture](../architecture.md#settings-that-stay-on-the-device). On 2026-11-02 at
+10:14 UTC the owner agreed (「そうして」) to Claude's proposal to sync the vault timeout
+and its action (`vaultTimeout`, ADR 0075), the language (`language`, ADR 0043), the
+theme (`theme`) and the spend limits of a device's own Anthropic API key
+(`modelSpendLimits`, ADR 0040), and to keep the key itself, debug logging, the Bitwarden
+connections and the demo vaults on each device. Each new part is absent at its default.
 
 Date: 2026-10-11
 
@@ -54,6 +59,10 @@ are assigned now so that profiles can be added without moving data again:
 | `popupPageSection` (ADR 0038's amendment)                  | profile           |
 | `serviceReports` (ADR 0055, 2026-11-02)                    | profile           |
 | `passkeyPolicy` (ADR 0007, 2026-11-02)                     | profile           |
+| `vaultTimeout` (ADR 0075, 2026-11-02)                      | profile           |
+| `language` (ADR 0043, 2026-11-02)                          | profile           |
+| `theme` (2026-11-02)                                       | profile           |
+| `modelSpendLimits` (ADR 0040, 2026-11-02)                  | profile           |
 | `bindings`                                                 | owner (shared)    |
 | `detailLinks` (ADR 0061, 2026-10-23)                       | owner (shared)    |
 | Recipes, Claude credentials, spending and generation state | owner (unchanged) |

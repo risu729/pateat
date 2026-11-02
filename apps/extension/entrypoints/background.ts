@@ -33,6 +33,7 @@ import { readPasskeyPolicy } from "../src/passkeys/policy";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { SETTINGS_STORAGE_KEY } from "../src/settings";
+import { settingChanged } from "../src/profile-setting";
 import { sessionValue, trustedRecord } from "../src/storage";
 import {
   createVaultTimeout,
@@ -41,7 +42,6 @@ import {
   parseVaultTimeout,
   VAULT_ACTIVITY_KEY,
   VAULT_TIMEOUT_ALARM,
-  VAULT_TIMEOUT_KEY,
 } from "../src/vault/timeout";
 import { followLanguagePreference, i18n } from "../src/i18n";
 import { createLoginBadge, LOGIN_BADGE_KEY, setActionBadge } from "../src/login/badge";
@@ -62,6 +62,7 @@ import {
 } from "../src/passkeys/vault";
 import {
   createDeviceModel,
+  spendLimits,
   DEVICE_MODEL_KEY,
   DEVICE_MODEL_SPEND_KEY,
 } from "../src/service/device-model";
@@ -163,8 +164,10 @@ export default defineBackground(() => {
       unclosed: (connectionId) => vaultTimeout.unclosed(connectionId),
     },
   });
-  // The vault timeout (ADR 0075), a device setting the settings page writes.
-  const vaultTimeoutSetting = trustedRecord(VAULT_TIMEOUT_KEY);
+  // The vault timeout (ADR 0075), a profile setting synced with the others (ADR 0024).
+  const vaultTimeoutSetting = {
+    read: async () => (await connections.settings.read()).settings.vaultTimeout,
+  };
   const vaultTimeout = createVaultTimeout({
     setting: vaultTimeoutSetting,
     activity: sessionValue(VAULT_ACTIVITY_KEY),
@@ -184,7 +187,12 @@ export default defineBackground(() => {
     .then(() => vaultTimeout.apply())
     .catch(() => undefined);
   browser.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && VAULT_TIMEOUT_KEY in changes)
+    const snapshot = changes[SETTINGS_STORAGE_KEY];
+    if (
+      area === "local" &&
+      snapshot &&
+      settingChanged("vaultTimeout", snapshot.newValue, snapshot.oldValue)
+    )
       void vaultTimeout.changed().catch(() => undefined);
   });
   // "On system idle" and "On system lock", as the official extension detects them.
@@ -282,6 +290,7 @@ export default defineBackground(() => {
   const deviceModel = createDeviceModel({
     storage: trustedRecord(DEVICE_MODEL_KEY),
     spend: trustedRecord(DEVICE_MODEL_SPEND_KEY),
+    limits: async () => spendLimits((await connections.settings.read()).settings),
   });
   // ADR 0040: without a pairing, the same routes run here with the key and kept recipes.
   const deviceGenerationBackend = createDeviceGenerationBackend({
