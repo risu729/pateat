@@ -1527,7 +1527,8 @@ page (`stop`). On a later login the route's next step on the same path confirms 
 click as an in-place `advance` does, only when that step was not ready just before the
 click. The `authenticator` handler
 ([ADR 0081](adr/0081-authenticator-method-button.md), owner 2026-11-02 06:58 UTC)
-clicks a button such as "Use code from authenticator" on a page after the password that asks how to confirm the sign-in, as an `advance`; the code page
+clicks a button such as "Use code from authenticator" on a page after
+the password that asks how to confirm the sign-in, as an `advance`; the code page
 it shows is judged and may add a `totp` handler on the same path. It needs the `totp`
 fact and a code the account may fill, and is entered only by a login on the `password`
 route that filled its password in this login and typed no code yet, that is not
