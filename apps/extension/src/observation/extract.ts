@@ -241,6 +241,16 @@ const randomId = (value: string) =>
 const libraryId = /^mantine-/u;
 /** True for an ID another load may change: `randomId`, or a `libraryId` prefix. */
 const changingId = (value: string) => libraryId.test(value) || randomId(value);
+/**
+ * An ID shaped like a render counter: lower-case words joined by `-` or `_`, ending in up
+ * to four digits, with at least one `-` or `_`, such as Discord's `uid_7` and `uid_9` on
+ * its invite login page that read `uid_13` and `uid_15` on `/login` (2026-11-02, #1161),
+ * or Duolingo's `web-ui1` (ADR 0071). A unique `name` or `autocomplete` token names the
+ * element first; the ID is still used when nothing else does. `address1`, without a
+ * separator, is not one.
+ */
+const counterId = (value: string) =>
+  /^[a-z]+(?:[-_][a-z]+)*[-_]?\d{1,4}$/u.test(value) && /[-_]/u.test(value);
 
 /**
  * Text that can reveal an account or a number is replaced before it is observed
@@ -455,7 +465,9 @@ function namesOnly(
  * React's `useId` generated is not used, as another page gives it to another element. One
  * that another load may change (`changingId`) is used only when no other locator is
  * unique, as it may as well be stable, and never with `lasting`, which a signed-in
- * marker needs, since it must match on every later visit. A
+ * marker needs, since it must match on every later visit. One shaped like a render
+ * counter (`counterId`) gives way to a unique `name` and `autocomplete` token, and is
+ * used otherwise, as it may be stable too. A
  * script link's text must also name no native button, shown or not, which the executor
  * would take first. With `roles`, another `role="button"` element (`isRoleButton`) is
  * located by its text too, when no native button, script link or other such element
@@ -503,6 +515,7 @@ function locate(
   } = {},
 ): LoginMarkerTarget | undefined {
   let demoted: LoginTarget | undefined;
+  let counter: LoginTarget | undefined;
   for (const [by, attribute] of locators) {
     const value = element.getAttribute(attribute);
     if (value === null) continue;
@@ -512,9 +525,16 @@ function locate(
     const target = { by, value };
     if (!v.is(loginTargetSchema, target)) continue;
     if (!namesOnly(element, target, index.get(attribute)!.get(value), hidden)) continue;
+    // A counter-shaped ID gives way to a later attribute and an `autocomplete` token.
+    // A library's per-load ID (`mantine-r5`) is demoted further below.
+    if (attribute === "id" && counterId(value) && !changingId(value)) {
+      counter = target;
+      continue;
+    }
     if (attribute !== "id" || !changingId(value)) return target;
     if (!lasting) demoted = target;
   }
+  if (counter) return autocompleteTarget(element, index, hidden) ?? counter;
   return (
     (paths ? pathTarget(element, index, paths) : undefined) ??
     contentTarget(element, index, links, labels, roles, hidden) ??
@@ -709,6 +729,22 @@ function numbersCodeDigit(field: HTMLInputElement, name: string): boolean {
   );
 }
 
+/** A fillable input's login `autocomplete` token that names it alone, as `locate` takes it. */
+function autocompleteTarget(
+  element: Element,
+  index: LocatorIndex,
+  hidden: boolean,
+): LoginTarget | undefined {
+  if (!(element instanceof HTMLInputElement) || !fillTypes[element.type]) return undefined;
+  for (const value of autocompleteTokens(element)) {
+    if (!(loginAutocompleteTokens as readonly string[]).includes(value)) continue;
+    const target = { by: "autocomplete" as const, value };
+    if (!v.is(loginTargetSchema, target)) continue;
+    if (namesOnly(element, target, index.get("autocomplete")!.get(value), hidden)) return target;
+  }
+  return undefined;
+}
+
 /**
  * `locate`'s `autocomplete` token, visible name (with `labels`), link text or button text,
  * when one is unique.
@@ -723,12 +759,8 @@ function contentTarget(
 ): LoginTarget | undefined {
   // Only a field the login fills; a button is named by its own attributes or text.
   if (element instanceof HTMLInputElement && fillTypes[element.type]) {
-    for (const value of autocompleteTokens(element)) {
-      if (!(loginAutocompleteTokens as readonly string[]).includes(value)) continue;
-      const target = { by: "autocomplete" as const, value };
-      if (!v.is(loginTargetSchema, target)) continue;
-      if (namesOnly(element, target, index.get("autocomplete")!.get(value), hidden)) return target;
-    }
+    const token = autocompleteTarget(element, index, hidden);
+    if (token) return token;
     if (!labels) return undefined;
     const name = fieldName(element);
     // A name holding a number may change as the person types, such as a counter "0/20",
