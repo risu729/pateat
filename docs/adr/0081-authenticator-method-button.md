@@ -66,20 +66,24 @@ judge's answer on the choice page is not known; the reasons above follow from th
    after it is judged under the revision that added it, which may add a `totp` handler
    on the same path. It needs the item's `totp` fact.
 3. **The word list.** `namesAuthenticatorChoice` in `packages/contracts` (shared by the
-   service and the extension) holds English `authenticator`, `authentication app`,
-   `auth app` and `TOTP` as whole words and Japanese 認証アプリ and 認証システム. It
-   refuses a text that also holds: SMS, text, message, call, voice, email, mail, send,
-   sent, resend, backup, recovery, recover, scratch, push, notification, approve,
-   approval, request, prompt, passkey, security key, hardware, built-in, platform, FIDO,
-   YubiKey, Touch ID, Face ID, fingerprint, biometric, Windows Hello, set up, add,
-   register, enroll, enable, disable, new, change, update, reset, remove, delete, lost,
-   forgot, without, another, other, different, help, trouble, problem, cancel, link,
-   magic, sign or log out or off; and in Japanese ショートメッセージ, メッセージ, 電話,
-   通話, 音声, メール, 送信, 送る, 再送, バックアップ, リカバリ, 復旧, 予備, 回復,
+   service and the extension) holds English `authentication app`, `auth app` and `TOTP`
+   as whole words, `authenticator` only with `app` or `code` in the same text (a bare
+   "Sign in with Authenticator" more often starts a push approval), and Japanese
+   認証アプリ and 認証システム. It refuses a text that also holds: SMS, text, message,
+   call, voice, email, mail, send, sent, resend, backup, recovery, recover, scratch,
+   push, notification, approve, approval, request, prompt, passkey, security key,
+   hardware, built-in, platform, roaming, FIDO (FIDO2 too), U2F, WebAuthn, YubiKey,
+   number matching, Touch ID, Face ID, fingerprint, biometric, Windows Hello, set up,
+   add, register, enroll, enable, disable, new, change, update, reset, remove, delete,
+   lost, forgot, without, another, other, different, help, trouble, problem, cancel,
+   link, magic, sign or log out or off; and in Japanese ショートメッセージ, メッセージ,
+   電話, 通話, 音声, メール, 送信, 送る, 再送, バックアップ, リカバリ, 復旧, 予備, 回復,
    プッシュ, 通知, 承認, パスキー, セキュリティキー, 生体, 指紋, 顔, 設定, 登録, 追加,
    有効, 無効, 変更, 再設定, 解除, 削除, 忘れ, 紛失, お困り, わから, できない, 別, 他,
    キャンセル, ログアウト, サインアウト. "Code", "app", "phone" and "mobile" stay
-   neutral. No word names a site ([ADR 0033](0033-no-site-specific-features.md)).
+   neutral. Wording such as "Google Authenticator or another TOTP app" is refused by
+   "another", which keeps "Try another way" out. No word names a site
+   ([ADR 0033](0033-no-site-specific-features.md)).
 4. **Checked on the service.** `addHandler` keeps the button only when it is a button of
    the judged page whose label and text locator, whichever it has and at least one, pass
    the word list, it is no route step's element on that path and no account switch,

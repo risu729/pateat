@@ -5,7 +5,7 @@ const fake = await vi.hoisted(async () => (await import("./browser-fake")).creat
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
-const { origin, target, recipe, harness } = createRuntimeTestHarness(fake);
+const { origin, target, recipe, savedBinding, harness } = createRuntimeTestHarness(fake);
 
 describe("a button that goes on to an authenticator app's code (ADR 0081)", () => {
   afterEach(() => {
@@ -213,8 +213,8 @@ describe("a button that goes on to an authenticator app's code (ADR 0081)", () =
       expect(handlerReports(report)).toEqual([[1, "totp", "entered", 2]]);
     }, 10_000);
 
-    it("never presses it again once the login typed a code", async () => {
-      // The code is refused and the site shows the choice again.
+    it("never presses it again when the choice shows again after the code", async () => {
+      // The code is refused and the site shows the choice again (`shown-again`).
       onClick({ login: toChooser, "Use code from authenticator": toCode, verify: toChooser });
       const report = vi.fn<(report: LoginReport) => void>();
       const h = harness({}, { passkeys: noPasskey, report });
@@ -228,6 +228,54 @@ describe("a button that goes on to an authenticator app's code (ADR 0081)", () =
       );
       expect(clicks("Use code from authenticator")).toBe(1);
       expect(codeFills()).toHaveLength(1);
+    }, 10_000);
+
+    it("is never pressed by a login whose route types a code of its own", async () => {
+      // The route fills the code on a later page itself, so the login already types one
+      // (`code-used`) and leaves the choice to the person.
+      const routeCoded = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        slots: [...unlearned.slots, "totp"],
+        steps: [
+          ...unlearned.steps,
+          {
+            kind: "fill",
+            path: "/two-factor/code",
+            fields: [{ slot: "totp", target: target("route-code") }],
+          },
+          {
+            kind: "click",
+            path: "/two-factor/code",
+            target: target("route-verify"),
+            purpose: "submit",
+          },
+        ],
+        handlers: [appHandler],
+        maxSubmissions: 2,
+      });
+      onClick({ login: toChooser, "Use code from authenticator": toCode });
+      const bindings = [
+        {
+          ...savedBinding,
+          slots: [
+            { slot: "password", field: "password" as const },
+            { slot: "totp", field: "totp" as const },
+          ],
+        },
+      ];
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({ bindings }, { passkeys: noPasskey, report, username: true });
+      withTotp(h);
+      codes(h);
+      h.recipes.recipe.mockResolvedValue(routeCoded);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(
+        () => expect(handlerReports(report)).toEqual([[0, "authenticator", "code-used", 1]]),
+        { timeout: 6_000 },
+      );
+      expect(clicks("Use code from authenticator")).toBe(0);
+      expect(codeFills()).toEqual([]);
     }, 10_000);
   });
 });
