@@ -340,7 +340,8 @@ The flags come from a `PasskeyPolicy` with two settings: presence `always` or
 activation delegate; under `never`, UV stays clear and requests requiring UV
 delegate. Admission records the UV decision so signing cannot diverge from it. A
 later per-site setting supplies the policy without changing admission or
-assertion code; until then every claimed request uses the initial policy.
+assertion code; until then every claimed request uses the initial policy (but see
+the amendment below).
 
 Amended on 2026-11-02 (owner, 07:51 UTC: 「追加だけして、既定は今まで通」, add the
 setting with the default unchanged): the settings page's Passkeys section has two
@@ -354,7 +355,9 @@ site rather than one per site (both Claude's choices). The worker reads it for e
 request, so a change applies to the next one. A record that does not parse, or cannot
 be read, gives `activation` and `never`. While either is off, page-load and
 executor-triggered requests or UV-required requests go to the browser, so Pateat's own
-passkey logins there need the person.
+passkey logins there need the person: a login whose recipe presses a passkey button
+still takes that route, and the browser's prompt opens. A cancel the page sends while
+the policy is read is kept, so that request ends cancelled.
 
 ## Alternatives
 

@@ -425,6 +425,38 @@ describe("passkey runtime policy", () => {
   });
 });
 
+describe("a cancel while the device's passkey policy is read", () => {
+  it("is kept, so the request ends cancelled without asking the vault", async () => {
+    let release!: (policy: PasskeyPolicy) => void;
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      policy: () =>
+        new Promise<PasskeyPolicy>((resolve) => {
+          release = resolve;
+        }),
+    });
+    const operationId = crypto.randomUUID();
+    const pending = runtime.handle(get(operationId), sender());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const cancel = { version: 1, type: "passkey.cancel", operationId };
+    // Another document's cancel never touches it.
+    expect(await runtime.handle(cancel, sender({ documentId: "document-b" }))).toEqual({
+      ok: false,
+    });
+    expect(await runtime.handle(cancel, sender())).toEqual({ ok: true });
+    // A second request with the same ID while the first reads is refused as busy.
+    expect(await runtime.handle(get(operationId), sender())).toEqual({
+      kind: "delegate",
+      reason: "busy",
+    });
+    release(INITIAL_PASSKEY_POLICY);
+    expect(await pending).toEqual({ kind: "cancelled" });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+});
+
 describe("passkey runtime required mediation", () => {
   it("answers a page's required-mediation request with Pateat's assertion (ADR 0007)", async () => {
     // As Wise's "Log back in" asks: `navigator.credentials.get({ mediation: "required", ... })`.

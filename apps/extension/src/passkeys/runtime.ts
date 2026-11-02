@@ -375,6 +375,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     parked: boolean;
   };
   const operations = new Map<string, Operation>();
+  /**
+   * Requests still reading the device's policy, before they become operations: a page's
+   * cancel that arrives meanwhile is kept here, so it is not lost.
+   */
+  const reading = new Map<string, { documentId: string; cancelled: boolean }>();
   const settingsChanged = () => {
     for (const [id, operation] of operations) {
       // A person deciding is not interrupted; their choice is checked against the new settings.
@@ -395,8 +400,21 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     after: After<TCandidate>,
   ): Promise<RuntimeResult> {
     const { documentId } = context;
+    if (operations.has(message.operationId) || reading.has(message.operationId))
+      return { kind: "delegate", reason: "busy" };
     // Read before the limits below, so no wait falls between counting and adding.
-    const policy = (await options.policy?.(origin)) ?? INITIAL_PASSKEY_POLICY;
+    const pending = { documentId, cancelled: false };
+    reading.set(message.operationId, pending);
+    let policy: PasskeyPolicy;
+    try {
+      policy = (await options.policy?.(origin)) ?? INITIAL_PASSKEY_POLICY;
+    } finally {
+      reading.delete(message.operationId);
+    }
+    if (pending.cancelled) {
+      detail.cause = "page-cancelled";
+      return { kind: "cancelled" };
+    }
     const documentOperations = [...operations.values()].filter(
       (operation) => operation.documentId === documentId,
     ).length;
@@ -805,6 +823,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       const command = parsed.output;
       if (command.type === "passkey.cancel") {
         const operation = operations.get(command.operationId);
+        const early = reading.get(command.operationId);
+        if (!operation && early && early.documentId === sender.documentId) {
+          early.cancelled = true;
+          return { ok: true };
+        }
         if (!operation || operation.documentId !== sender.documentId) return { ok: false };
         operation.cancelledBy ??= "page-cancelled";
         operation.controller.abort();
