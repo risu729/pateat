@@ -362,10 +362,11 @@ logging to stay on for now, removed before publishing or kept behind a feature f
   logging left on until turned off.
 
 On 2026-11-02 the flag became a build flag, as the owner's "feature flag" allowed: a
-build made with `PATEAT_RELEASE=true`, which the release workflow uses for the published
-zip, sets `DEBUG_STAYS_ON` to false, so its button reads **Turn on debug logging for 24
-hours** and a stored "until turned off" deadline reads as off. Development, testing and
-probe builds keep it true.
+build made with `PATEAT_RELEASE=true` sets `DEBUG_STAYS_ON` to false, so its button
+reads **Turn on debug logging for 24 hours** and a stored "until turned off" deadline
+reads as off. Development, testing and probe builds keep it true. No workflow builds a
+published zip yet; the release workflow must set the variable when it is added (see the
+[roadmap](../plan.md#phase-3-public-release)).
 
 ## Amendment 2026-10-18: first login results for evaluation
 

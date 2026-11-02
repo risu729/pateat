@@ -22,5 +22,5 @@
     "noEmit": true,
     "types": ["node", "react", "react-dom", "vite/client", "@vitest/browser-playwright"]
   },
-  "include": ["*.ts", "*.tsx"]
+  "include": ["*.ts", "*.tsx", "../../apps/extension/src/build.d.ts"]
 }
