@@ -780,6 +780,23 @@ execution checks. Users may preauthorize bounded automatic operations without
 confirmation every time; AI cannot expand those grants. The initial action
 vocabulary contains login operations only.
 
+### Settings that stay on the device
+
+Settings are synced by default (owner, 2026-11-02 09:48 UTC;
+[ADR 0024](adr/0024-settings-profiles.md)): a new setting is part of the profile, or of
+the owner's shared parts, unless the owner agrees that it stays on the device. These
+settings stay on the device today, each until the owner decides it:
+
+| Setting | Where it is stored | Why it stays |
+| --- | --- | --- |
+| Vault timeout and its action ([ADR 0075](adr/0075-vault-lock-and-timeout.md)) | `storage.local` `pateat.vault-timeout.v1` | It decides how long this device keeps its unlock key |
+| Language ([ADR 0043](adr/0043-extension-language-preference.md)) | `storage.local` `pateat.language` | Chosen per browser, as the browser's own language |
+| Theme | the extension pages' `localStorage` `pateat.theme` | Chosen per browser, as the browser's own theme |
+| This device's Anthropic API key and its daily and monthly spend limits ([ADR 0040](adr/0040-running-without-the-service.md)) | `storage.local` `pateat.device-model.v1` | The key is a secret; the limits belong to the key |
+| Debug logging until a time or until turned off ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)) | the diagnostics log's IndexedDB | The log itself never leaves the device |
+| Vault connections: server, account and sign-in ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)) | `connections` in `pateat.local-settings.v1` | Each device signs in to Bitwarden itself |
+| The demo vaults' policies | `accountPolicies`, `itemPolicies` and `customFieldReviews` entries of the `dummy` provider | The demo vaults exist on this device only |
+
 ### Hostnames Pateat does not run on
 
 Policy inputs accept only hostnames whose labels are 1 to 63 lowercase letters, digits

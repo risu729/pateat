@@ -499,6 +499,28 @@ export const localSettingsSchema = v.pipe(
      * Synced with the sites' rules, as part of the profile (ADR 0024).
      */
     loginInPrivateWindows: v.optional(v.literal(true)),
+    /**
+     * Whether the profile's devices send login records (ADR 0055) and problem log lines
+     * (ADR 0066) to the service, and when the settings page last changed it, in epoch
+     * milliseconds; absent means sending, the default. Once on again, problem lines written
+     * before `since` are never sent. Synced as part of the profile (ADR 0024).
+     */
+    serviceReports: v.optional(
+      v.strictObject({
+        send: v.boolean(),
+        since: v.pipe(v.number(), v.integer(), v.minValue(0)),
+      }),
+    ),
+    /**
+     * The passkey presence and verification flags Pateat claims (ADR 0007); absent means
+     * both `always`, the default. Synced as part of the profile (ADR 0024).
+     */
+    passkeyPolicy: v.optional(
+      v.strictObject({
+        presence: v.picklist(["always", "activation"]),
+        verification: v.picklist(["always", "never"]),
+      }),
+    ),
     /** Synced links to the items that hold a login's personal details (ADR 0061). */
     detailLinks: v.optional(
       v.pipe(

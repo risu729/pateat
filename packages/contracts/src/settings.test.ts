@@ -486,6 +486,29 @@ describe("strict settings schema", () => {
       expect(() => parseLocalSettings({ ...settings, loginInPrivateWindows: value })).toThrow();
   });
 
+  it("keeps the reports switch and the passkey flags absent at their defaults", () => {
+    const settings = createDefaultSettings();
+    expect(settings).not.toHaveProperty("serviceReports");
+    expect(settings).not.toHaveProperty("passkeyPolicy");
+    const changed = {
+      ...settings,
+      serviceReports: { send: false, since: 1_000 },
+      passkeyPolicy: { presence: "activation", verification: "never" },
+    };
+    expect(parseLocalSettings(changed)).toMatchObject({
+      serviceReports: changed.serviceReports,
+      passkeyPolicy: changed.passkeyPolicy,
+    });
+    for (const serviceReports of [{ send: false }, { send: true, since: -1 }, { send: "no" }])
+      expect(() => parseLocalSettings({ ...settings, serviceReports })).toThrow();
+    for (const passkeyPolicy of [
+      { presence: "always" },
+      { presence: "sometimes", verification: "never" },
+      { presence: "always", verification: "always", extra: true },
+    ])
+      expect(() => parseLocalSettings({ ...settings, passkeyPolicy })).toThrow();
+  });
+
   it("shows the popup's This page section unless the settings hide it", () => {
     const settings = createDefaultSettings();
     expect(popupPageSectionShown(settings)).toBe(true);

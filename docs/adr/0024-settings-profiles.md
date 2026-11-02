@@ -13,6 +13,14 @@ implemented): `loginInPrivateWindows` is a profile part, synced with `excludedSi
 and an `excludedSites` rule now pauses automatic login on its hosts until it is removed,
 instead of turning Pateat off there, so a popup pick still logs in.
 
+Amended on 2026-11-02 (owner, 09:48 UTC:
+「同期しませんはやめて。基本すべて同期。…これらは聞いてから変えること」): settings are
+synced by default. A new setting is a profile part (or, like bindings, an owner part)
+unless the owner agrees that it stays on the device. `serviceReports` (ADR 0055) and
+`passkeyPolicy` (ADR 0007) are profile parts. Settings that do not sync today stay as
+they are until the owner decides each one; they are listed in
+[architecture](../architecture.md#settings-that-stay-on-the-device).
+
 Date: 2026-10-11
 
 ## Context
@@ -44,6 +52,8 @@ are assigned now so that profiles can be added without moving data again:
 | `customFieldReviews` (ADR 0023)                            | profile           |
 | `pagePermissionDefaults`, `sitePagePermissions` (ADR 0035) | profile           |
 | `popupPageSection` (ADR 0038's amendment)                  | profile           |
+| `serviceReports` (ADR 0055, 2026-11-02)                    | profile           |
+| `passkeyPolicy` (ADR 0007, 2026-11-02)                     | profile           |
 | `bindings`                                                 | owner (shared)    |
 | `detailLinks` (ADR 0061, 2026-10-23)                       | owner (shared)    |
 | Recipes, Claude credentials, spending and generation state | owner (unchanged) |

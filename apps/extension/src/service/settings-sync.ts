@@ -61,6 +61,10 @@ export type SyncedSettings = {
    * it says how this profile's browsers log in, so it is synced (ADR 0024).
    */
   loginInPrivateWindows?: true;
+  /** What the profile's devices send on their own (ADR 0055); absent while sending. */
+  serviceReports?: NonNullable<LocalSettings["serviceReports"]>;
+  /** The passkey flags claimed (ADR 0007); absent while both are `always`. */
+  passkeyPolicy?: NonNullable<LocalSettings["passkeyPolicy"]>;
   bindings: Binding[];
   detailLinks: DetailLink[];
   popupPageSection: boolean;
@@ -84,6 +88,8 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
     allowedSitesEnabled: settings.allowedSitesEnabled ?? false,
     siteDefaults: settings.siteDefaults,
     ...(settings.loginInPrivateWindows ? { loginInPrivateWindows: true } : {}),
+    ...(settings.serviceReports ? { serviceReports: settings.serviceReports } : {}),
+    ...(settings.passkeyPolicy ? { passkeyPolicy: settings.passkeyPolicy } : {}),
     bindings: settings.bindings,
     detailLinks: settings.detailLinks ?? [],
     popupPageSection: popupPageSectionShown(settings),
@@ -323,6 +329,10 @@ function itemEntries(policies: ItemPolicy[], reviews: CustomFieldReview[]): Item
   return [...entries.values()];
 }
 
+/** A merged value that is absent stays out of the settings, as its default. */
+const present = <K extends string, T>(key: K, value: T | undefined) =>
+  (value === undefined ? {} : { [key]: value }) as { [P in K]?: T };
+
 export function mergeSyncedSettings(
   base: SyncBase,
   local: SyncedSettings,
@@ -392,6 +402,14 @@ export function mergeSyncedSettings(
     )
       ? { loginInPrivateWindows: true }
       : {}),
+    ...present(
+      "serviceReports",
+      mergeValue(part("serviceReports"), local.serviceReports, service.serviceReports),
+    ),
+    ...present(
+      "passkeyPolicy",
+      mergeValue(part("passkeyPolicy"), local.passkeyPolicy, service.passkeyPolicy),
+    ),
     bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
     detailLinks: mergeDetailLinks(part("detailLinks"), local.detailLinks, service.detailLinks),
     popupPageSection: mergeValue(
@@ -459,6 +477,8 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     left.allowedSitesEnabled === right.allowedSitesEnabled &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
     left.loginInPrivateWindows === right.loginInPrivateWindows &&
+    same(left.serviceReports, right.serviceReports) &&
+    same(left.passkeyPolicy, right.passkeyPolicy) &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey)) &&
     same(sorted(left.detailLinks, detailLinkKey), sorted(right.detailLinks, detailLinkKey)) &&
     left.popupPageSection === right.popupPageSection
@@ -472,7 +492,13 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
  */
 function applySynced(settings: LocalSettings, merged: SyncedSettings): LocalSettings {
   const { popupPageSection, ...lists } = merged;
-  const { popupPageSection: _replaced, loginInPrivateWindows: _off, ...rest } = settings;
+  const {
+    popupPageSection: _replaced,
+    loginInPrivateWindows: _off,
+    serviceReports: _reports,
+    passkeyPolicy: _policy,
+    ...rest
+  } = settings;
   return {
     ...rest,
     ...lists,

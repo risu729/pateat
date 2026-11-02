@@ -29,7 +29,7 @@ import { createLoginReprompt, createVaultPasswordCheck } from "../src/login/repr
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createPasskeyCreateHandler } from "../src/passkeys/create";
 import { createProbePasskeySource } from "../src/passkeys/probe";
-import { PASSKEY_POLICY_KEY, readPasskeyPolicy } from "../src/passkeys/policy";
+import { readPasskeyPolicy } from "../src/passkeys/policy";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { SETTINGS_STORAGE_KEY } from "../src/settings";
@@ -75,7 +75,7 @@ import {
 import { createLoginGeneration } from "../src/service/generation";
 import { createLogoutService } from "../src/service/logout";
 import { createLoginRecords } from "../src/service/login-records";
-import { SERVICE_REPORTS_KEY, readServiceReports } from "../src/service/reports-setting";
+import { readServiceReports } from "../src/service/reports-setting";
 import { createLoginOutcomes } from "../src/service/outcomes";
 import { createProblemReports } from "../src/service/problems";
 import { createRecipeUse } from "../src/service/recipe-use";
@@ -325,9 +325,9 @@ export default defineBackground(() => {
     storage: createBrowserLoginOutcomeStorage(),
     report: diagnosticsLog.loginOutcome,
   });
-  // A device setting the settings page writes turns off both of the next two.
-  const serviceReports = trustedRecord(SERVICE_REPORTS_KEY);
-  const serviceReportsSetting = () => readServiceReports(() => serviceReports.read());
+  // The profile's `serviceReports` setting turns off both of the next two.
+  const serviceReportsSetting = () =>
+    readServiceReports(async () => (await settings.read()).settings);
   // ADR 0055: every login on a recipe revision sends its result and times once it ended.
   const loginRecords = createLoginRecords({
     service,
@@ -636,7 +636,6 @@ export default defineBackground(() => {
       facts,
     );
   };
-  const passkeyPolicySetting = trustedRecord(PASSKEY_POLICY_KEY);
   const passkeys = passkeyProbe
     ? createPasskeyRuntime(passkeyProbe.source, {
         extensionId: browser.runtime.id,
@@ -658,8 +657,8 @@ export default defineBackground(() => {
       })
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
-        // ADR 0007: presence and verification as this device's setting says, read per request.
-        policy: () => readPasskeyPolicy(() => passkeyPolicySetting.read()),
+        // ADR 0007: presence and verification as the profile's setting says, read per request.
+        policy: () => readPasskeyPolicy(async () => (await settings.read()).settings),
         // Only the local log keeps it; the page never learns why.
         report: diagnosticsLog.passkey,
         chooser: passkeyChooser,

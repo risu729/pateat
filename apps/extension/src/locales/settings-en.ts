@@ -274,9 +274,9 @@ export const settingsEn = {
   "Change {{count}} vault limit.": "Change {{count}} vault limit.",
   "Change {{count}} vault limit._one": "Change {{count}} vault limit.",
   "Change {{count}} vault limit._other": "Change {{count}} vault limits.",
-  "Change {{count}} site rule.": "Change {{count}} site rule.",
-  "Change {{count}} site rule._one": "Change {{count}} site rule.",
-  "Change {{count}} site rule._other": "Change {{count}} site rules.",
+  "Change {{count}} other setting.": "Change {{count}} other setting.",
+  "Change {{count}} other setting._one": "Change {{count}} other setting.",
+  "Change {{count}} other setting._other": "Change {{count}} other settings.",
   "Keep {{count}} new or newer recipe.": "Keep {{count}} new or newer recipe.",
   "Keep {{count}} new or newer recipe._one": "Keep {{count}} new or newer recipe.",
   "Keep {{count}} new or newer recipe._other": "Keep {{count}} new or newer recipes.",
@@ -304,8 +304,6 @@ export const settingsEn = {
   "Answer passkey requests without a click on the page":
     "Answer passkey requests without a click on the page",
   "Tell sites that you were verified": "Tell sites that you were verified",
-  "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on this device only.":
-    "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on this device only.",
-  "The passkey setting could not be saved. Try again.":
-    "The passkey setting could not be saved. Try again.",
+  "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on all your devices.":
+    "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on all your devices.",
 } as const;

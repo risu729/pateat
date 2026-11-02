@@ -11,7 +11,8 @@ import { hasProfile } from "./profile-store";
 /**
  * Profile parts are explicit so shared bindings cannot accidentally become policy. Automatic
  * login in private windows (ADR 0062) says how the profile's browsers log in, as its site
- * rules do, so it is a profile part too; absent while off.
+ * rules do, so it is a profile part too; absent while off. So are what its devices send to
+ * the service on their own (ADR 0055) and the passkey flags they claim (ADR 0007).
  */
 export const profileDocument = (document: LocalSettings) => ({
   accountPolicies: document.accountPolicies,
@@ -25,6 +26,9 @@ export const profileDocument = (document: LocalSettings) => ({
   passkeyBrowserSites: document.passkeyBrowserSites,
   siteDefaults: document.siteDefaults,
   ...(document.loginInPrivateWindows ? { loginInPrivateWindows: true as const } : {}),
+  // Absent while at their defaults (sending on; passkey flags both `always`).
+  ...(document.serviceReports ? { serviceReports: document.serviceReports } : {}),
+  ...(document.passkeyPolicy ? { passkeyPolicy: document.passkeyPolicy } : {}),
   // Kept only while it hides the popup's page status; absent means shown.
   ...(document.popupPageSection === false && { popupPageSection: false }),
 });

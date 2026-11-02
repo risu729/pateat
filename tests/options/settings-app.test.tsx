@@ -189,6 +189,63 @@ test("automatic login in private windows starts off and is saved at once when tu
   await expect.element(toggle).not.toBeChecked();
 });
 
+test("the passkey flags start on and are saved, synced, only while one is off (ADR 0007)", async () => {
+  const client = mockClient();
+  await mount(client);
+  const presence = page.getByRole("checkbox", {
+    name: "Answer passkey requests without a click on the page",
+  });
+  const verification = page.getByRole("checkbox", { name: "Tell sites that you were verified" });
+  await expect.element(presence).toBeChecked();
+  await expect.element(verification).toBeChecked();
+  await expect
+    .element(page.getByRole("navigation", { name: "Sections" }).getByText("Passkeys"))
+    .toBeVisible();
+  await presence.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 1).");
+  expect(client.saveSettings.mock.calls[0]?.[0].settings.passkeyPolicy).toEqual({
+    presence: "activation",
+    verification: "always",
+  });
+  await verification.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
+  expect(client.saveSettings.mock.calls[1]?.[0].settings.passkeyPolicy).toEqual({
+    presence: "activation",
+    verification: "never",
+  });
+  await presence.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 3).");
+  await verification.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 4).");
+  // Back at the default, the field is absent again.
+  expect(client.saveSettings.mock.calls[3]?.[0].settings.passkeyPolicy).toBeUndefined();
+  await expect.element(presence).toBeChecked();
+  await expect.element(verification).toBeChecked();
+});
+
+test("reports to the service start on and each change saves when it was made (ADR 0055)", async () => {
+  const client = mockClient();
+  await mount(client);
+  const toggle = page.getByRole("checkbox", {
+    name: "Send login records and problem reports to the service",
+  });
+  await expect.element(toggle).toBeChecked();
+  await expect
+    .element(page.getByRole("navigation", { name: "Sections" }).getByText("Reports to the service"))
+    .toBeVisible();
+  const before = Date.now();
+  await toggle.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 1).");
+  const off = client.saveSettings.mock.calls[0]?.[0].settings.serviceReports;
+  expect(off?.send).toBe(false);
+  expect(off?.since).toBeGreaterThanOrEqual(before);
+  await expect.element(toggle).not.toBeChecked();
+  await toggle.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
+  expect(client.saveSettings.mock.calls[1]?.[0].settings.serviceReports?.send).toBe(true);
+  await expect.element(toggle).toBeChecked();
+});
+
 test("an unknown save outcome is never retried and requires a successful explicit reload", async () => {
   const client = mockClient();
   client.saveSettings.mockRejectedValue(new Error("Synthetic transport lost its response"));

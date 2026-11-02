@@ -78,7 +78,7 @@ export function createLoginRecords(options: {
   transport: Pick<ServiceTransport, "reportLogin">;
   /** The extension's build, `PATEAT_BUILD_REVISION`. */
   build: string;
-  /** Whether the device sends records now; absent means always (`SERVICE_REPORTS_KEY`). */
+  /** Whether the device sends records now; absent means always (the profile's `serviceReports`). */
   enabled?: () => Promise<boolean>;
   /**
    * Told of each request sent, and of each record not sent because the contract refuses

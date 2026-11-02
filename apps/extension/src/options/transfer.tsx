@@ -237,7 +237,7 @@ export function TransferPanel({
                 <li>{t("Change {{count}} vault limit.", { count: preview.policies })}</li>
               )}
               {preview.others > 0 && (
-                <li>{t("Change {{count}} site rule.", { count: preview.others })}</li>
+                <li>{t("Change {{count}} other setting.", { count: preview.others })}</li>
               )}
               {preview.recipes > 0 && (
                 <li>{t("Keep {{count}} new or newer recipe.", { count: preview.recipes })}</li>
