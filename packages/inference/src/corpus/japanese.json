@@ -8,8 +8,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://direct.smbc.co.jp/aib/aibgsjsw5001.jsp",
-        "observed": "2026-10-11",
-        "commit": "e48b4e7"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "bank",
       "observation": {
@@ -23,6 +23,26 @@
         "candidates": [
           {
             "id": "c1",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "三井住友銀行"
+            },
+            "label": "三井住友銀行",
+            "group": "f1"
+          },
+          {
+            "id": "c2",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "突然表示される、偽のウイルス感染警告（サポート詐欺）にご注意ください"
+            },
+            "label": "突然表示される、偽のウイルス感染警告（サポート詐欺）にご注意ください",
+            "group": "f1"
+          },
+          {
+            "id": "c3",
             "role": "tel",
             "target": {
               "by": "name",
@@ -35,7 +55,7 @@
             "minLength": 3
           },
           {
-            "id": "c2",
+            "id": "c4",
             "role": "tel",
             "target": {
               "by": "name",
@@ -48,7 +68,7 @@
             "minLength": 1
           },
           {
-            "id": "c3",
+            "id": "c5",
             "role": "password",
             "target": {
               "by": "id",
@@ -61,7 +81,7 @@
             "minLength": 4
           },
           {
-            "id": "c4",
+            "id": "c6",
             "role": "button",
             "target": {
               "by": "text",
@@ -71,7 +91,7 @@
             "group": "f1"
           },
           {
-            "id": "c5",
+            "id": "c7",
             "role": "button",
             "target": {
               "by": "text",
@@ -81,7 +101,7 @@
             "group": "f1"
           },
           {
-            "id": "c6",
+            "id": "c8",
             "role": "link",
             "target": {
               "by": "text",
@@ -91,7 +111,7 @@
             "group": "f1"
           },
           {
-            "id": "c7",
+            "id": "c9",
             "role": "link",
             "target": {
               "by": "text",
@@ -101,7 +121,7 @@
             "group": "f1"
           },
           {
-            "id": "c8",
+            "id": "c10",
             "role": "link",
             "target": {
               "by": "text",
@@ -111,17 +131,7 @@
             "group": "f1"
           },
           {
-            "id": "c9",
-            "role": "link",
-            "target": {
-              "by": "text",
-              "value": "日曜21:00～月曜7:00にご利用いただけるサービス"
-            },
-            "label": "日曜21:00～月曜7:00にご利用いただけるサービス",
-            "group": "f1"
-          },
-          {
-            "id": "c10",
+            "id": "c11",
             "role": "button",
             "target": {
               "by": "text",
@@ -131,7 +141,7 @@
             "group": "f1"
           },
           {
-            "id": "c11",
+            "id": "c12",
             "role": "link",
             "target": {
               "by": "text",
@@ -141,7 +151,7 @@
             "group": "f1"
           },
           {
-            "id": "c12",
+            "id": "c13",
             "role": "link",
             "target": {
               "by": "text",
@@ -151,7 +161,7 @@
             "group": "f1"
           },
           {
-            "id": "c13",
+            "id": "c14",
             "role": "link",
             "target": {
               "by": "text",
@@ -161,7 +171,7 @@
             "group": "f1"
           },
           {
-            "id": "c14",
+            "id": "c15",
             "role": "link",
             "target": {
               "by": "text",
@@ -171,7 +181,7 @@
             "group": "f1"
           },
           {
-            "id": "c15",
+            "id": "c16",
             "role": "link",
             "target": {
               "by": "text",
@@ -181,7 +191,7 @@
             "group": "f1"
           },
           {
-            "id": "c16",
+            "id": "c17",
             "role": "button",
             "target": {
               "by": "text",
@@ -191,7 +201,7 @@
             "group": "f1"
           },
           {
-            "id": "c17",
+            "id": "c18",
             "role": "link",
             "target": {
               "by": "text",
@@ -201,7 +211,7 @@
             "group": "f1"
           },
           {
-            "id": "c18",
+            "id": "c19",
             "role": "link",
             "target": {
               "by": "text",
@@ -211,7 +221,17 @@
             "group": "f1"
           },
           {
-            "id": "c19",
+            "id": "c20",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "Fan Fun SMBC：三井住友銀行では、日々サービスの向上や改善に取り組んでおります。取り組み事例や、SMBCダイレクト・三井住友銀行アプリの便利な使用方法などについてご紹介いたします。"
+            },
+            "label": "Fan Fun SMBC：三井住友銀行では、日々サービスの向上や改善に取り組んでおります。取り組み事例や、SMBCダイレクト・三井住友銀行アプリの便利な使用方法などについてご紹介いたします。",
+            "group": "f1"
+          },
+          {
+            "id": "c21",
             "role": "link",
             "target": {
               "by": "text",
@@ -221,7 +241,7 @@
             "group": "f1"
           },
           {
-            "id": "c20",
+            "id": "c22",
             "role": "link",
             "target": {
               "by": "text",
@@ -231,7 +251,7 @@
             "group": "f1"
           },
           {
-            "id": "c21",
+            "id": "c23",
             "role": "link",
             "target": {
               "by": "text",
@@ -241,7 +261,7 @@
             "group": "f1"
           },
           {
-            "id": "c22",
+            "id": "c24",
             "role": "link",
             "target": {
               "by": "text",
@@ -251,7 +271,7 @@
             "group": "f1"
           },
           {
-            "id": "c23",
+            "id": "c25",
             "role": "link",
             "target": {
               "by": "text",
@@ -261,7 +281,7 @@
             "group": "f1"
           },
           {
-            "id": "c24",
+            "id": "c26",
             "role": "link",
             "target": {
               "by": "text",
@@ -275,11 +295,11 @@
       "expected": {
         "kind": "plan",
         "fields": {
-          "custom-1": "c1",
-          "custom-2": "c2",
-          "password": "c3"
+          "custom-1": "c3",
+          "custom-2": "c4",
+          "password": "c5"
         },
-        "action": "c10",
+        "action": "c11",
         "purpose": "submit"
       }
     },
@@ -288,8 +308,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://web.ib.mizuhobank.co.jp/servlet/LOGBNK0000000B.do",
-        "observed": "2026-10-11",
-        "commit": "e48b4e7"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -543,8 +563,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://login.paypay-bank.co.jp/wctx/LoginAction.do",
-        "observed": "2026-10-11",
-        "commit": "e48b4e7"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "bank",
       "observation": {
@@ -677,8 +697,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.rakuten-sec.co.jp/ITS/V_ACT_Login.html",
-        "observed": "2026-10-11",
-        "commit": "e48b4e7"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -779,8 +799,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://my.jcb.co.jp/Login",
-        "observed": "2026-10-11",
-        "commit": "e48b4e7"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -890,8 +910,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://directg.s.bk.mufg.jp/APL/LGP_P_01/PU/LG_0001/LG_0001_PC01",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "bank",
       "observation": {
@@ -1067,8 +1087,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://ib.jibunbank.co.jp/security/ap/loginlogout/login/loginstart",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1147,8 +1167,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.deal.matsui.co.jp/ITS/login/MemberLogin.jsp",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1520,8 +1540,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.daiwa.co.jp/PCC/HomeTrade/Account/m8301.html",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": [
         {
@@ -1622,8 +1642,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://sec-sso.click-sec.com/loginweb/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1780,8 +1800,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.eposcard.co.jp/memberservice/pc/login/login_certify_advertised.do",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1840,8 +1860,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.orico.co.jp/eorico/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1857,8 +1877,8 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
-              "value": "ss-query4"
+              "by": "name",
+              "value": "query"
             },
             "label": "サイト内検索",
             "placeholder": "キーワードを入力してください",
@@ -1886,8 +1906,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.ana.co.jp/ja/jp/amc/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1931,8 +1951,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.nenkin.go.jp/denshibenri_kojin/n_net/index.html",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1984,8 +2004,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://login.yahoo.co.jp/ncaptcha",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2044,8 +2064,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://member.qoo10.jp/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2244,8 +2264,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://note.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2253,7 +2273,7 @@
         "origin": "https://note.com",
         "path": "/login",
         "language": "ja",
-        "title": "ログイン｜note（ノート）",
+        "title": "ログイン｜note",
         "headings": ["ログイン"],
         "complete": true,
         "candidates": [
@@ -2326,8 +2346,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://accounts.hatena.ne.jp/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2400,8 +2420,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://accounts.pixiv.net/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2492,8 +2512,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://account.nicovideo.jp/spa/login/index.html",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2564,8 +2584,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://qiita.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2691,8 +2711,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://accounts.secure.freee.co.jp/sessions/new",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2708,8 +2728,8 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
-              "value": "loginIdField"
+              "by": "test-id",
+              "value": "login-id-form"
             },
             "label": "メールアドレス/ログインID",
             "autocomplete": "username",
@@ -2719,8 +2739,8 @@
             "id": "c2",
             "role": "password",
             "target": {
-              "by": "id",
-              "value": "passwordField"
+              "by": "test-id",
+              "value": "password-form"
             },
             "label": "パスワード",
             "autocomplete": "off",
@@ -2753,8 +2773,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://id.moneyforward.com/sign_in",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2815,8 +2835,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://mixi.jp/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2913,8 +2933,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://tver.jp/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2925,13 +2945,13 @@
         "title": "TVer - 無料で動画見放題",
         "headings": [
           "カテゴリ",
+          "現在配信中のライブ",
           "ドラマランキング",
           "バラエティランキング",
           "再生数上位の放送中ドラマ",
-          "この秋開始の新ドラマ【第1話】",
+          "1話30分以内のドラマ",
           "アニメランキング",
-          "報道／ドキュメンタリーランキング",
-          "スポーツランキング"
+          "報道／ドキュメンタリーランキング"
         ],
         "complete": true,
         "candidates": [
@@ -2956,8 +2976,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://accounts.dmm.com/service/login/password",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3149,8 +3169,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://admin.thebase.com/users/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3232,8 +3252,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://id.stores.jp/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3249,8 +3269,8 @@
             "id": "c1",
             "role": "email",
             "target": {
-              "by": "id",
-              "value": "email"
+              "by": "test-id",
+              "value": "email-input"
             },
             "label": "メールアドレス",
             "placeholder": "[email]",
@@ -3261,8 +3281,8 @@
             "id": "c2",
             "role": "password",
             "target": {
-              "by": "id",
-              "value": "current-password"
+              "by": "test-id",
+              "value": "password-input"
             },
             "label": "パスワード",
             "autocomplete": "current-password",
@@ -3345,8 +3365,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://app.smarthr.jp/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3355,7 +3375,6 @@
         "path": "/login",
         "language": "ja",
         "title": "ログイン｜SmartHR（スマートHR）",
-        "headings": ["ヘルプセンターをご活用ください"],
         "complete": true,
         "candidates": [
           {
@@ -3417,8 +3436,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://id.jobcan.jp/users/sign_in",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3508,8 +3527,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://s2.ta.kingoftime.jp/admin",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3518,7 +3537,7 @@
         "path": "/admin",
         "language": "ja",
         "title": "KING OF TIME",
-        "headings": ["捺印に郵送 紙のやり取りを見かけたら"],
+        "headings": ["給与計算をワンクリック化"],
         "complete": true,
         "candidates": [
           {
@@ -3588,8 +3607,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.mobilesuica.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3681,8 +3700,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://account.edit.yahoo.co.jp/signup",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3698,8 +3717,8 @@
             "id": "c1",
             "role": "tel",
             "target": {
-              "by": "name",
-              "value": "msn"
+              "by": "test-id",
+              "value": "tel-input"
             },
             "label": "携帯電話番号",
             "placeholder": "例：[number]",
@@ -3729,8 +3748,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://qiita.com/signup",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3820,8 +3839,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://accounts.secure.freee.co.jp/sign_up",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3867,8 +3886,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://id.moneyforward.com/sign_up",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3912,8 +3931,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://account.nicovideo.jp/spa/register/index.html",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3958,8 +3977,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.rakuten-sec.co.jp/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -4039,8 +4058,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.pokemoncenter-online.com/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -4157,8 +4176,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://colopl-recruit.snar.jp/login.aspx",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -4247,8 +4266,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://connpass.com/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -4334,8 +4353,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://gaishishukatsu.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -4393,8 +4412,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://ssl.pc.moppy.jp/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -4506,8 +4525,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.airdo.jp/ap/myairdo/cus101/cus101001",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -4523,8 +4542,8 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
-              "value": "mail-pc-1"
+              "by": "name",
+              "value": "im_user"
             },
             "label": "ログインID",
             "placeholder": "メールアドレスまたはお客様番号",
@@ -4534,8 +4553,8 @@
             "id": "c2",
             "role": "password",
             "target": {
-              "by": "id",
-              "value": "password-1"
+              "by": "name",
+              "value": "im_password"
             },
             "label": "パスワード",
             "group": "f1"
@@ -4607,8 +4626,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.q-move.jp/Plum/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -4670,6 +4689,15 @@
               "value": "btnRegister"
             },
             "label": "会員登録"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "id",
+              "value": "btnContact"
+            },
+            "label": "お問い合わせ"
           }
         ]
       },
@@ -4688,8 +4716,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://wise.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -4788,8 +4816,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://member.id.unisuper.com.au/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -4848,8 +4876,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.netflix.com/jp/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -4922,8 +4950,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.instagram.com/accounts/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5144,8 +5172,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.dropbox.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5169,8 +5197,8 @@
             "id": "c1",
             "role": "email",
             "target": {
-              "by": "id",
-              "value": "susi_email11942195985076864"
+              "by": "test-id",
+              "value": "susi-email-input"
             },
             "label": "メールアドレス",
             "placeholder": "[email]",
@@ -5204,8 +5232,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://id.atlassian.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5221,8 +5249,8 @@
             "id": "c1",
             "role": "email",
             "target": {
-              "by": "id",
-              "value": "username-_r0_"
+              "by": "test-id",
+              "value": "username"
             },
             "label": "E メール",
             "placeholder": "メール アドレスを入力",
@@ -5242,8 +5270,8 @@
             "id": "c3",
             "role": "button",
             "target": {
-              "by": "id",
-              "value": "login-submit"
+              "by": "test-id",
+              "value": "login-submit-idf-testid"
             },
             "label": "続ける",
             "group": "f1"
@@ -5264,8 +5292,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://app.hubspot.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5313,8 +5341,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.figma.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5415,8 +5443,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://app.notion.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5466,8 +5494,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://app.asana.com/-/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5483,8 +5511,8 @@
             "id": "c1",
             "role": "email",
             "target": {
-              "by": "id",
-              "value": "lui_0"
+              "by": "name",
+              "value": "e"
             },
             "label": "メールアドレス",
             "autocomplete": "username",
@@ -5516,8 +5544,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://discord.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5533,8 +5561,8 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
-              "value": "uid_10"
+              "by": "name",
+              "value": "email"
             },
             "label": "メールアドレスまたは電話番号",
             "autocomplete": "username",
@@ -5545,8 +5573,8 @@
             "id": "c2",
             "role": "password",
             "target": {
-              "by": "id",
-              "value": "uid_12"
+              "by": "name",
+              "value": "password"
             },
             "label": "パスワード",
             "autocomplete": "current-password",
@@ -5610,8 +5638,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.twitch.tv/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5721,8 +5749,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://store.steampowered.com/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5791,8 +5819,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://accounts.spotify.com/ja/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5808,8 +5836,8 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
-              "value": "username"
+              "by": "test-id",
+              "value": "login-username"
             },
             "label": "メールアドレス",
             "autocomplete": "username",
@@ -5841,8 +5869,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://login.yahoo.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5966,8 +5994,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://account.proton.me/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -5983,8 +6011,8 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
-              "value": "username"
+              "by": "test-id",
+              "value": "input-input-element"
             },
             "label": "メールアドレスまたはユーザー名",
             "autocomplete": "username",
@@ -5992,13 +6020,12 @@
           },
           {
             "id": "c2",
-            "role": "password",
+            "role": "link",
             "target": {
-              "by": "id",
-              "value": "password"
+              "by": "text",
+              "value": "メールアドレスを忘れましたか？"
             },
-            "label": "パスワード",
-            "autocomplete": "current-password",
+            "label": "メールアドレスを忘れましたか？",
             "group": "f1"
           },
           {
@@ -6016,9 +6043,9 @@
             "role": "button",
             "target": {
               "by": "text",
-              "value": "サインイン"
+              "value": "続行"
             },
-            "label": "サインイン",
+            "label": "続行",
             "group": "f1"
           },
           {
@@ -6046,11 +6073,10 @@
       "expected": {
         "kind": "plan",
         "fields": {
-          "username": "c1",
-          "password": "c2"
+          "username": "c1"
         },
         "action": "c4",
-        "purpose": "submit"
+        "purpose": "advance"
       }
     },
     {
@@ -6058,8 +6084,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://app.fastmail.com/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -6132,8 +6158,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://vault.bitwarden.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -6149,8 +6175,8 @@
             "id": "c1",
             "role": "email",
             "target": {
-              "by": "id",
-              "value": "email"
+              "by": "test-id",
+              "value": "login-email-input"
             },
             "label": "メールアドレス * (必須)",
             "group": "f1"
@@ -6159,8 +6185,8 @@
             "id": "c2",
             "role": "checkbox",
             "target": {
-              "by": "id",
-              "value": "bit-checkbox-0"
+              "by": "test-id",
+              "value": "login-remember-email"
             },
             "label": "メールアドレスを保存",
             "group": "f1"
@@ -6285,8 +6311,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://myaccount.getmoneytree.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -6366,8 +6392,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://learn.studysapuri.jp/ja/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -6382,7 +6408,7 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "name",
+              "by": "test-id",
               "value": "username"
             },
             "label": "ユーザー名、登録済メールアドレス",
@@ -6394,7 +6420,7 @@
             "id": "c2",
             "role": "password",
             "target": {
-              "by": "name",
+              "by": "test-id",
               "value": "password"
             },
             "label": "パスワード",
@@ -6406,8 +6432,8 @@
             "id": "c3",
             "role": "button",
             "target": {
-              "by": "text",
-              "value": "ログイン"
+              "by": "data-test",
+              "value": "login"
             },
             "label": "ログイン",
             "group": "f1"
@@ -6438,8 +6464,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://atcoder.jp/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -6628,8 +6654,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://secure.xserver.ne.jp/xapanel/login/xserver/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -6698,8 +6724,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.creema.jp/user/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -6830,8 +6856,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://crowdworks.jp/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -6847,8 +6873,8 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
-              "value": "v-0"
+              "by": "name",
+              "value": "username"
             },
             "label": "メールアドレス",
             "autocomplete": "email",
@@ -6858,8 +6884,8 @@
             "id": "c2",
             "role": "password",
             "target": {
-              "by": "id",
-              "value": "v-1"
+              "by": "name",
+              "value": "password"
             },
             "label": "パスワード",
             "autocomplete": "current-password",
@@ -6892,8 +6918,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.green-japan.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -6962,8 +6988,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://login.cybozu.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -7033,8 +7059,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://apps.nulab.com/signin",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -7107,8 +7133,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://esa.io/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -7160,8 +7186,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://member.bookwalker.jp/app/03/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -7231,8 +7257,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.agoda.com/ja-jp/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -7361,7 +7387,7 @@
               "by": "id",
               "value": "check-in-box"
             },
-            "label": "チェックイン日 [number]年11月1日 日曜日"
+            "label": "チェックイン日 [number]年11月11日 水曜日"
           },
           {
             "id": "c13",
@@ -7370,7 +7396,7 @@
               "by": "id",
               "value": "check-out-box"
             },
-            "label": "チェックアウト日 [number]年11月2日 月曜日"
+            "label": "チェックアウト日 [number]年11月12日 木曜日"
           },
           {
             "id": "c14",
@@ -7388,7 +7414,7 @@
               "by": "test-id",
               "value": "add-flight-button"
             },
-            "label": "航空券も予約する"
+            "label": "航空券を予約"
           },
           {
             "id": "c16",
@@ -7541,8 +7567,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://login.live.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -7611,8 +7637,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://signup.live.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -7665,8 +7691,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.facebook.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -7745,8 +7771,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.threads.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -7836,8 +7862,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://mastodon.social/auth/sign_in",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -7897,8 +7923,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.tiktok.com/login/phone-or-email/email",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -7968,8 +7994,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://jp.pinterest.com/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8042,8 +8068,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://vimeo.com/log_in",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8091,8 +8117,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://auth.deepl.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8108,8 +8134,8 @@
             "id": "c1",
             "role": "email",
             "target": {
-              "by": "id",
-              "value": "Email"
+              "by": "test-id",
+              "value": "email"
             },
             "label": "メールアドレス",
             "placeholder": "メールアドレス",
@@ -8120,8 +8146,8 @@
             "id": "c2",
             "role": "password",
             "target": {
-              "by": "id",
-              "value": "Password"
+              "by": "test-id",
+              "value": "password"
             },
             "label": "パスワード",
             "placeholder": "パスワード",
@@ -8165,8 +8191,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://accounts.evernote.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8214,8 +8240,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://app.todoist.com/auth/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8231,8 +8257,8 @@
             "id": "c1",
             "role": "email",
             "target": {
-              "by": "id",
-              "value": "element-0"
+              "by": "autocomplete",
+              "value": "email"
             },
             "label": "メール",
             "placeholder": "メールアドレスを入力してください...",
@@ -8243,8 +8269,8 @@
             "id": "c2",
             "role": "password",
             "target": {
-              "by": "id",
-              "value": "element-2"
+              "by": "autocomplete",
+              "value": "current-password"
             },
             "label": "パスワード",
             "placeholder": "パスワードを入力してください...",
@@ -8279,8 +8305,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://account.box.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8313,6 +8339,26 @@
             },
             "label": "次へ",
             "group": "f1"
+          },
+          {
+            "id": "c3",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "Googleでサインイン"
+            },
+            "label": "Googleでサインイン",
+            "group": "f1"
+          },
+          {
+            "id": "c4",
+            "role": "link",
+            "target": {
+              "by": "text",
+              "value": "詳細を表示"
+            },
+            "label": "詳細を表示",
+            "group": "f1"
           }
         ]
       },
@@ -8330,8 +8376,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://app.clickup.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8346,8 +8392,8 @@
             "id": "c1",
             "role": "button",
             "target": {
-              "by": "text",
-              "value": "SSOで続行"
+              "by": "data-test",
+              "value": "signup-with-sso-btn"
             },
             "label": "SSOで続行"
           },
@@ -8355,8 +8401,8 @@
             "id": "c2",
             "role": "email",
             "target": {
-              "by": "id",
-              "value": "login-email-input"
+              "by": "data-test",
+              "value": "form__email-input"
             },
             "placeholder": "仕事用メール",
             "group": "f1"
@@ -8365,8 +8411,8 @@
             "id": "c3",
             "role": "password",
             "target": {
-              "by": "id",
-              "value": "password-input"
+              "by": "data-test",
+              "value": "form__password-input"
             },
             "placeholder": "パスワード",
             "group": "f1",
@@ -8376,8 +8422,18 @@
             "id": "c4",
             "role": "button",
             "target": {
-              "by": "text",
-              "value": "ログイン"
+              "by": "data-test",
+              "value": "form__password-visibility-toggle"
+            },
+            "label": "表示",
+            "group": "f1"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "data-test",
+              "value": "login-submit"
             },
             "label": "ログイン",
             "group": "f1"
@@ -8390,7 +8446,7 @@
           "username": "c2",
           "password": "c3"
         },
-        "action": "c4",
+        "action": "c5",
         "purpose": "submit"
       }
     },
@@ -8399,8 +8455,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://auth.monday.com/auth/login_monday",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8416,7 +8472,7 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
+              "by": "test-id",
               "value": "user_email"
             },
             "label": "メールアドレス",
@@ -8466,8 +8522,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://miro.com/ja/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8483,8 +8539,8 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
-              "value": "email"
+              "by": "test-id",
+              "value": "mr-form-login-email-1"
             },
             "label": "メール",
             "placeholder": "メールアドレスを入力してください",
@@ -8495,8 +8551,8 @@
             "id": "c2",
             "role": "checkbox",
             "target": {
-              "by": "id",
-              "value": "rememberMe"
+              "by": "test-id",
+              "value": "remember-me-checkbox"
             },
             "label": "ユーザー情報を記憶する",
             "group": "f1"
@@ -8527,8 +8583,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://app.smartsheet.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8541,6 +8597,15 @@
         "candidates": [
           {
             "id": "c1",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "作成"
+            },
+            "label": "新しい Smartsheet アカウントを作成"
+          },
+          {
+            "id": "c2",
             "role": "text",
             "target": {
               "by": "id",
@@ -8551,7 +8616,7 @@
             "autocomplete": "email"
           },
           {
-            "id": "c2",
+            "id": "c3",
             "role": "button",
             "target": {
               "by": "id",
@@ -8560,22 +8625,40 @@
             "label": "続行"
           },
           {
-            "id": "c3",
+            "id": "c4",
             "role": "button",
             "target": {
               "by": "id",
               "value": "region_select"
             },
             "label": "データ リージョンを選択"
+          },
+          {
+            "id": "c5",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "プライバシー通知"
+            },
+            "label": "プライバシー通知"
+          },
+          {
+            "id": "c6",
+            "role": "button",
+            "target": {
+              "by": "text",
+              "value": "特許情報"
+            },
+            "label": "特許情報"
           }
         ]
       },
       "expected": {
         "kind": "plan",
         "fields": {
-          "username": "c1"
+          "username": "c2"
         },
-        "action": "c2",
+        "action": "c3",
         "purpose": "advance"
       }
     },
@@ -8584,8 +8667,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://app.intercom.com/admins/sign_in",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8685,8 +8768,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://accounts.intuit.com/app/sign-in",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8702,8 +8785,8 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
-              "value": "iux-identifier-first-unknown-identifier"
+              "by": "test-id",
+              "value": "IdentifierFirstIdentifierInput"
             },
             "label": "電話番号、電子メール、またはユーザーID",
             "description": "標準的な通話またはSMSの料金が適用される場合があります。",
@@ -8838,8 +8921,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://www.marriott.com/sign-in.mi",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8902,8 +8985,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://member.livedoor.com/login/",
-        "observed": "2026-10-23",
-        "commit": "74d5b3c"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -8991,8 +9074,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://fc2.com/login.php",
-        "observed": "2026-10-23",
-        "commit": "74d5b3c"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -9177,8 +9260,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://ib.sevenbank.co.jp/IB/IB_U_CO_002/IB_U_CO_002_100.aspx",
-        "observed": "2026-10-23",
-        "commit": "74d5b3c"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -9349,8 +9432,8 @@
       "source": {
         "dataset": "japanese",
         "url": "https://secure.sakura.ad.jp/auth/login",
-        "observed": "2026-10-23",
-        "commit": "74d5b3c"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
