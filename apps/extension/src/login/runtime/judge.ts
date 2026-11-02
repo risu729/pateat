@@ -284,8 +284,8 @@ export function sampleSignedIn(
  * Whether this attempt has sent the account's credential (ADR 0065): its latest effect
  * step submitted, after a route step that typed the password or a second factor's
  * handler (a handler missing from the recipe does not count). The page after an
- * identifier's Next, or after a `password` handler's button, is no page after the
- * sign-in. The `passkey` route never completes on an optional page (ADR 0027), so its
+ * identifier's Next, or after a `password` or `authenticator` handler's button (ADR 0048,
+ * ADR 0081), is no page after the sign-in. The `passkey` route never completes on an optional page (ADR 0027), so its
  * own step does not count.
  */
 export function credentialSent(_rt: Runtime, run: Execution): boolean {
@@ -297,7 +297,9 @@ export function credentialSent(_rt: Runtime, run: Execution): boolean {
     .some((entry) =>
       entry.handler === undefined
         ? entry.step.kind === "fill" && entry.step.fields.some((field) => field.slot === "password")
-        : ![undefined, "password"].includes(recipe.handlers?.[entry.handler]?.kind),
+        : ![undefined, "password", "authenticator"].includes(
+            recipe.handlers?.[entry.handler]?.kind,
+          ),
     );
 }
 

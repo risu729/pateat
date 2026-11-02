@@ -1383,7 +1383,7 @@ export async function judgeCompletion(
   }
   const judgement = outcome.value;
   // A stop's page keeps a `passkey` handler and nothing else: no rejection, no marker and
-  // no `totp` or `password` handler. Its other answers are kept as undecided, under the
+  // no `totp`, `password` or `authenticator` handler. Its other answers are kept as undecided, under the
   // stop's version. So does a page beside the sign-in form, with a `detail` handler (ADR
   // 0061), and its challenge that keeps none.
   if ((stop || beside) && judgement.decision !== "challenge") {
@@ -1421,7 +1421,7 @@ export async function judgeCompletion(
     let changed: LoginRecipe | undefined;
     // Kinds and refusal reasons only: never an element, label or value.
     const handlers: {
-      kind: "passkey" | "password" | "totp" | "detail";
+      kind: "passkey" | "password" | "authenticator" | "totp" | "detail";
       kept: boolean;
       reason?: string;
     }[] = [];
@@ -1444,6 +1444,11 @@ export async function judgeCompletion(
     if (judgement.password && (stop || beside))
       handlers.push({ kind: "password", kept: false, reason: stop ? "stop" : "beside" });
     else if (judgement.password) keep({ kind: "password", target: judgement.password });
+    // Nor an `authenticator` handler (ADR 0081): it goes on to a code, never learned there.
+    if (judgement.authenticator && (stop || beside))
+      handlers.push({ kind: "authenticator", kept: false, reason: stop ? "stop" : "beside" });
+    else if (judgement.authenticator)
+      keep({ kind: "authenticator", target: judgement.authenticator });
     // A code on a stop's page is never learned (ADR 0036), nor beside the sign-in form.
     if (judgement.totp && (stop || beside))
       handlers.push({ kind: "totp", kept: false, reason: stop ? "stop" : "beside" });

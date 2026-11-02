@@ -13,6 +13,7 @@ export * from "./observation";
 export * from "./pairing";
 export * from "./problems";
 export * from "./password-choice";
+export * from "./authenticator-choice";
 export * from "./recipes";
 export * from "./service-connection";
 export * from "./sync";

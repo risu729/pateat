@@ -586,7 +586,9 @@ export const handlerOrder = {
   password: 0,
   passkey: 1,
   totp: 2,
-  detail: 3,
+  // After a code field already shown, and after a passkey button beside it (ADR 0081).
+  authenticator: 3,
+  detail: 4,
 } as const satisfies Record<LoginHandler["kind"], number>;
 
 /**

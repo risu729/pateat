@@ -498,12 +498,15 @@ export function detailFieldFormat(field: DetailField): DetailFormat | undefined 
  * button, or, without `target`, types the code as the submission on a page that shows no
  * button for it and submits the code once it is in (ADR 0027 amendment of 2026-10-23);
  * `password` clicks a button such as "Password" on a page that asks how to confirm the
- * sign-in, which goes on to typing the password (ADR 0048); `detail` fills one of its
+ * sign-in, which goes on to typing the password (ADR 0048); `authenticator` clicks a
+ * button such as "Use code from authenticator" on such a page, which goes on to the page
+ * that asks for the authenticator app's code (ADR 0081); `detail` fills one of its
  * inputs with a personal detail of a linked item and clicks `target` (ADR 0061).
  */
 export const loginHandlerSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("passkey"), path, target: loginTargetSchema }),
   v.strictObject({ kind: v.literal("password"), path, target: loginTargetSchema }),
+  v.strictObject({ kind: v.literal("authenticator"), path, target: loginTargetSchema }),
   v.pipe(
     v.strictObject({
       kind: v.literal("totp"),
@@ -989,13 +992,14 @@ const routeRules: readonly (readonly [(recipe: RouteBody) => boolean, string])[]
       }),
     "The code field or a detail handler's element is a route step target, or a route slot is named as a detail handler's",
   ],
-  // A `password` handler's button leads to the password a route step types: it is never a
-  // route step's own element on its path (ADR 0048).
+  // A `password` handler's button leads to the password a route step types, and an
+  // `authenticator` handler's to the code page after the sign-in form: neither is a route
+  // step's own element on its path (ADR 0048, ADR 0081).
   [
     (recipe) =>
       !(recipe.handlers ?? []).some(
         (handler) =>
-          handler.kind === "password" &&
+          (handler.kind === "password" || handler.kind === "authenticator") &&
           variantsOf(recipe).some((variant) =>
             variant.steps.some(
               (step) =>
@@ -1006,7 +1010,7 @@ const routeRules: readonly (readonly [(recipe: RouteBody) => boolean, string])[]
             ),
           ),
       ),
-    "A password handler's button is a route step target",
+    "A password or authenticator handler's button is a route step target",
   ],
   // A control named by its accessible name is only ever a `password` handler's button
   // (ADR 0048 amendment of 2026-10-19) or a route step's click (ADR 0048 amendment of
@@ -2348,7 +2352,8 @@ export const detailSlot = (index: number) =>
 export const isDetailSlot = (slot: string) => /^detail(?: [2-6])?$/u.test(slot);
 /**
  * The steps a handler runs: a `passkey` handler's click, a `password` handler's click that
- * advances to the password page (ADR 0048), a `totp` handler's fill of the code into its
+ * advances to the password page (ADR 0048), an `authenticator` handler's click that
+ * advances to the code page (ADR 0081), a `totp` handler's fill of the code into its
  * field, or a `detail` handler's fill of its field at `field`, every input of a split
  * value at once (ADR 0061), followed by the click on its submit button. A `totp` handler
  * without a button runs one fill that submits through the code's own input (ADR 0027
@@ -2368,7 +2373,7 @@ export function handlerSteps(handler: LoginHandler, field = 0): LoginStep[] {
     kind: "click",
     path: handler.path,
     target: handler.target,
-    purpose: handler.kind === "password" ? "advance" : "submit",
+    purpose: handler.kind === "password" || handler.kind === "authenticator" ? "advance" : "submit",
   };
   if (handler.kind !== "detail") return [click];
   // A value split over several inputs fills them all in one step (ADR 0061).
@@ -2402,6 +2407,8 @@ export const handlerFact = {
   passkey: "passkey",
   password: "password",
   totp: "totp",
+  // It goes on to the code page: only a login that can type the item's TOTP presses it.
+  authenticator: "totp",
   detail: undefined,
 } as const satisfies Record<LoginHandler["kind"], keyof LoginItemFacts | undefined>;
 /** The field a fill of `fieldId` reads: a Linked field's built-in source, or the field itself. */

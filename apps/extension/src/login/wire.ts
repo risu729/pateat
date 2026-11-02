@@ -55,7 +55,10 @@ export type TargetState = v.InferOutput<typeof targetStateSchema>;
  * `password-choice` takes a shown button that names the password as the way to confirm the
  * sign-in, enabled or not: by its rendered text (`namesPasswordChoice`, ADR 0048), or with
  * an accessible name by that name and all the text it holds, hidden text too
- * (`namesPasswordControl`, its 2026-10-19 amendment). `settable` takes a writable input or
+ * (`namesPasswordControl`, its 2026-10-19 amendment). `authenticator-choice` takes a shown
+ * button whose text names an authenticator app's code as the way to confirm the sign-in,
+ * enabled or not, and none of whose text, hidden text and accessible name included, names
+ * another way (`namesAuthenticatorChoice`, ADR 0081). `settable` takes a writable input or
  * a shown enabled single-choice select, as a `detail` handler's fill of a split date's
  * part may choose an option (ADR 0061).
  */
@@ -70,6 +73,7 @@ export const targetRequirementSchema = v.picklist([
   "input",
   "shown-input",
   "password-choice",
+  "authenticator-choice",
 ]);
 export type TargetRequirement = v.InferOutput<typeof targetRequirementSchema>;
 /**
@@ -649,6 +653,13 @@ export const commandSchema = v.variant("type", [
      * pressed only with it.
      */
     passwordChoice: v.optional(v.literal(true)),
+    /**
+     * With an `authenticator` handler's click (ADR 0081): the button is pressed only while
+     * it, read in the same task as the press, still names an authenticator app's code as
+     * `authenticator-choice` takes it; otherwise nothing is pressed and the step fails as
+     * one whose target is missing.
+     */
+    authenticatorChoice: v.optional(v.literal(true)),
     /**
      * With an advance whose next step is on its own path (ADR 0013): that step's elements,
      * measured in the same task as the click or the fill's first input, just before it. The

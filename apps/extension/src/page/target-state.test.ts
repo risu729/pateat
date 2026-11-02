@@ -151,6 +151,40 @@ describe("targetState", () => {
     expect(targetCheck(document, password, "present")).toBe("ok");
   });
 
+  // A page that asks how to confirm the sign-in with a second factor (ADR 0081): the button
+  // is pressed only while its text names an authenticator app's code.
+  describe("a button that goes on to an authenticator app's code", () => {
+    const choose = { by: "id", value: "choose" } as const;
+
+    it("takes a shown button or script button whose text names it, enabled or not", () => {
+      for (const html of [
+        `<button id="choose" type="button">Authenticator app</button>`,
+        `<div id="choose" role="button"><div>Authenticator app</div><div>Use code from authenticator</div></div>`,
+        `<button id="choose" type="button" disabled>認証アプリを使用</button>`,
+      ]) {
+        page(html);
+        expect(targetState(document, choose, "authenticator-choice"), html).toBe("unique");
+      }
+    });
+
+    it("refuses another way, hidden words, a name that says otherwise and no button", () => {
+      for (const html of [
+        `<button id="choose" type="button">Text me a code</button>`,
+        `<button id="choose" type="button">Use backup code</button>`,
+        `<button id="choose" type="button">Approve a request on my authenticator app</button>`,
+        `<button id="choose" type="button">Authenticator app<span hidden>Text me</span></button>`,
+        `<button id="choose" type="button" aria-label="Text me a code">Authenticator app</button>`,
+        `<button id="choose" type="button" hidden>Authenticator app</button>`,
+        `<span id="choose">Authenticator app</span>`,
+        `<a id="choose" href="/mfa/app">Authenticator app</a>`,
+        `<label><input id="choose" type="radio" name="m">Authenticator app</label>`,
+      ]) {
+        page(html);
+        expect(targetState(document, choose, "authenticator-choice"), html).toBe("unusable");
+      }
+    });
+  });
+
   // A page that asks how to confirm the sign-in (ADR 0048): the button is pressed only
   // while its rendered text names the password choice.
   describe("a button that goes on to the password", () => {

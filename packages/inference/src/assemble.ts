@@ -9,6 +9,7 @@ import {
   loginRecipeSchema,
   loginStepEffect,
   MAX_COMPLETION_MARKERS,
+  namesAuthenticatorChoice,
   namesPasswordChoice,
   passwordVariants,
   refillsLoginSlot,
@@ -310,6 +311,12 @@ export type HandlerRejection =
    */
   | "password-filled"
   /**
+   * An `authenticator` handler's button whose label or text does not name an
+   * authenticator app's code as the way to confirm the sign-in
+   * (`namesAuthenticatorChoice`, ADR 0081).
+   */
+  | "not-authenticator"
+  /**
    * A `totp` handler's field is not an input the executor fills a TOTP code into, shorter
    * than 6 characters or one of several code inputs of its form, or its button is in
    * another form.
@@ -334,7 +341,8 @@ export type HandlerRejection =
 /**
  * Adds a handler for the judged page to a generated recipe in its next revision (ADR
  * 0027): a `passkey` handler for its security-key or passkey button, a `password` handler
- * for its button that goes on to the password (ADR 0048), or a `totp` handler for its
+ * for its button that goes on to the password (ADR 0048), an `authenticator` handler for
+ * its button that goes on to an authenticator app's code (ADR 0081), or a `totp` handler for its
  * TOTP code field and the button that submits it, or the field alone on a page that
  * shows no button for it (ADR 0027 amendment of 2026-10-23). The route's steps
  * are kept as they are, so a running login can take the result over (`extendsRecipe`).
@@ -349,7 +357,7 @@ export function addHandler(
   base: LoginRecipe,
   page: Pick<LoginObservation, "origin" | "path" | "candidates">,
   handler:
-    | { kind: "passkey" | "password"; target: LoginTarget }
+    | { kind: "passkey" | "password" | "authenticator"; target: LoginTarget }
     | { kind: "totp"; field: LoginFieldTarget; target?: LoginTarget | undefined }
     | { kind: "detail"; fields: DetailField[]; target: LoginTarget },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {
@@ -426,6 +434,18 @@ export function addHandler(
         )
       )
         return { ok: false, reason: "password-filled" };
+    }
+    // The button's label and its text locator, whichever it has, both name an
+    // authenticator app's code as the way to confirm the sign-in (ADR 0081). Unlike a
+    // `password` handler it may follow a recipe that types the password: the choice of a
+    // second factor comes after it.
+    if (handler.kind === "authenticator") {
+      const texts = [
+        button.label,
+        button.target.by === "text" ? button.target.value : undefined,
+      ].filter((text) => text !== undefined);
+      if (!texts.length || !texts.every(namesAuthenticatorChoice))
+        return { ok: false, reason: "not-authenticator" };
     }
     if (
       [...routeTargets(base, page.path), ...others].some((element) =>

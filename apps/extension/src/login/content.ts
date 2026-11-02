@@ -19,6 +19,7 @@ import {
   choosable,
   clickable,
   keyable,
+  authenticatorChoice,
   passwordChoice,
   targetCheck,
   targetState,
@@ -2231,6 +2232,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           // A `password` handler's button whose text no longer names the password, as one
           // the page rendered again with other text, is never pressed (ADR 0048).
           if (command.passwordChoice && !passwordChoice(only, { fragment }))
+            return fail("structural-mismatch", "target-missing");
+          // Likewise an `authenticator` handler's button whose text no longer names an
+          // authenticator app's code (ADR 0081).
+          if (command.authenticatorChoice && !authenticatorChoice(only))
             return fail("structural-mismatch", "target-missing");
           element = only;
         }

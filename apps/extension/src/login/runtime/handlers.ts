@@ -36,6 +36,9 @@ import type { Runtime } from "./state";
  * there with `stop.end` instead. A `password` handler goes first, and only for a login
  * that types its password and has not filled it yet; one shown but refused ends the login
  * as `challenge` rather than letting another handler beside it be entered (ADR 0048).
+ * An `authenticator` handler, which goes on to the code page, comes after a `totp` one,
+ * needs what a `totp` handler needs, and is pressed only in the tab's top document on the
+ * recipe's own origin by a login that does not only fill (ADR 0081).
  */
 export async function enterHandler(
   rt: Runtime,
@@ -101,6 +104,22 @@ export async function enterHandler(
         entry.step.kind === "fill" &&
         entry.step.fields.some((field) => field.slot === "password"),
     );
+  // An `authenticator` handler's button goes on to the code page (ADR 0081): only a login on
+  // the `password` route that has filled its password already, does not only fill and runs
+  // in the tab's top document on the recipe's own origin presses it, so a button that
+  // offers a code instead of the password never skips the password.
+  const choosesAuthenticator =
+    run.metadata.route === "password" &&
+    plan.some(
+      (entry, index) =>
+        index < unrun &&
+        entry.step.kind === "fill" &&
+        entry.step.fields.some((field) => field.slot === "password"),
+    ) &&
+    run.metadata.fillOnly !== true &&
+    run.live.document.frameId === 0 &&
+    run.live.topUrl === undefined &&
+    run.live.document.origin === run.recipe.origin;
   // The handler whose click this document performed and holds: its button the page only
   // hid is gone, as for the hold, not shown again (ADR 0027).
   const held =
@@ -110,12 +129,13 @@ export async function enterHandler(
       handler.path !== path ||
       (stop && handler.kind !== "passkey") ||
       (passwordAhead && handler.kind === "passkey") ||
-      (!choosesPassword && handler.kind === "password")
+      (!choosesPassword && handler.kind === "password") ||
+      (!choosesAuthenticator && handler.kind === "authenticator")
     )
       return [];
     const ran = run.metadata.handlers.some((entered) => entered.index === index);
-    // A `password` handler is pressed only while none of the route's fill fields shows on
-    // its path: a page that shows one gets it filled instead.
+    // A `password` or `authenticator` handler is pressed only while none of the route's
+    // fill fields shows on its path: a page that shows one gets it filled instead.
     const sameForm =
       !ran &&
       ((handler.kind === "totp" &&
@@ -123,7 +143,8 @@ export async function enterHandler(
           (target) => handler.target !== undefined && sameLoginTarget(target, handler.target),
         )) ||
         (handler.kind === "passkey" && typesPassword) ||
-        handler.kind === "password");
+        handler.kind === "password" ||
+        handler.kind === "authenticator");
     const targets = handlerTargets(handler);
     return [
       {
@@ -142,7 +163,10 @@ export async function enterHandler(
                 : handler.kind === "password"
                   ? // Shown, and its rendered text names the password choice (ADR 0048).
                     (["password-choice"] as const)
-                  : (["shown"] as const)),
+                  : handler.kind === "authenticator"
+                    ? // Shown, and its text names an authenticator app's code (ADR 0081).
+                      (["authenticator-choice"] as const)
+                    : (["shown"] as const)),
           ...(sameForm ? routeFields.map(() => "writable" as const) : []),
         ],
         own: targets.length,
@@ -238,7 +262,10 @@ export async function enterHandler(
     }
     const fact = handlerFact[handler.kind];
     if (!run.metadata.facts[fact]) return "missing-fact" as const;
-    return handler.kind === "totp" && attemptUsesCode(run.recipe, run.metadata)
+    // A login that already typed or means to type a code never goes on to another one,
+    // through the code field or the button that leads to it (ADR 0081).
+    return (handler.kind === "totp" || handler.kind === "authenticator") &&
+      attemptUsesCode(run.recipe, run.metadata)
       ? ("code-used" as const)
       : undefined;
   };
@@ -320,9 +347,10 @@ export async function enterHandler(
       ).catch(() => undefined);
     return true;
   }
-  if (fresh.handler.kind === "totp") {
+  if (fresh.handler.kind === "totp" || fresh.handler.kind === "authenticator") {
     // The code is made from the item's code field: its built-in TOTP, or the Text or
-    // Hidden custom field its saved binding names, which the account must allow.
+    // Hidden custom field its saved binding names, which the account must allow. The
+    // button that goes on to the code is pressed only for a code the login can type.
     const authorized = await allowed(rt, run);
     if (!authorized) return true;
     const code = codeFieldOf(
