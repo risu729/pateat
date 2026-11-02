@@ -2,15 +2,24 @@ import { describe, expect, it } from "vitest";
 import { acceptsSecret, type SecretInput } from "./inputs";
 
 // The rule reads `autocomplete` by its attribute, as Chromium's property is empty for
-// several tokens; `inputs.browser.test.ts` checks real inputs.
+// several tokens, and `inputmode` as the page's description does;
+// `inputs.browser.test.ts` checks real inputs.
 const input = ({
   autocomplete,
+  inputMode,
   ...overrides
-}: Partial<Omit<SecretInput, "getAttribute">> & { autocomplete?: string } = {}): SecretInput => ({
+}: Partial<Omit<SecretInput, "getAttribute">> & {
+  autocomplete?: string;
+  inputMode?: string;
+} = {}): SecretInput => ({
   type: "text",
-  inputMode: "",
   maxLength: -1,
-  getAttribute: (name) => (name === "autocomplete" ? (autocomplete ?? null) : null),
+  getAttribute: (name) =>
+    name === "autocomplete"
+      ? (autocomplete ?? null)
+      : name === "inputmode"
+        ? (inputMode ?? null)
+        : null,
   ...overrides,
 });
 const password = input({ type: "password" });
@@ -24,7 +33,7 @@ const oneTimeCode = input({ autocomplete: "one-time-code" });
 const text = input();
 const longTel = input({ type: "tel", maxLength: 11 });
 const unboundedTel = input({ type: "tel" });
-const select: SecretInput = { type: "select-one", inputMode: "", getAttribute: () => null };
+const select: SecretInput = { type: "select-one", getAttribute: () => null };
 
 describe("secret input rule", () => {
   it.each([
@@ -37,6 +46,8 @@ describe("secret input rule", () => {
     ["otp", oneTimeCode, true],
     ["otp", pin, true],
     ["otp", numeric, true],
+    // Read as the page's description reads it: trimmed, in any case.
+    ["otp", input({ inputMode: " Numeric ", maxLength: 6 }), true],
     ["otp", number, true],
     ["otp", password, false],
     ["otp", text, false],

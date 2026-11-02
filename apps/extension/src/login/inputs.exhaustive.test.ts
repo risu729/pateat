@@ -5,6 +5,7 @@ import {
   detailFormatFits,
   detailFormatSchema,
   detailInputRefusal,
+  detailLength,
   detailPartFormatSchema,
   isCodeField,
   type LoginDetail,
@@ -26,7 +27,7 @@ import type { LoginSecretKind } from "./wire";
 const inputTypes = ["text", "email", "tel", "number", "password"];
 const maxLengths = [-1, 1, 2, 3, 4, 6, 10, 11, 2000];
 const minLengths = [-1, 5];
-const inputModes = [null, "numeric", "tel", "text"];
+const inputModes = [null, "numeric", " Numeric ", "tel", "text", "kana"];
 const autocompletes = [
   null,
   "off",
@@ -56,9 +57,13 @@ const inputs: Input[] = [
             type,
             maxLength,
             minLength,
-            inputMode: inputModeAttribute ?? "",
             inputModeAttribute,
-            getAttribute: (name: string) => (name === "autocomplete" ? autocomplete : null),
+            getAttribute: (name: string) =>
+              name === "autocomplete"
+                ? autocomplete
+                : name === "inputmode"
+                  ? inputModeAttribute
+                  : null,
           })),
         ),
       ),
@@ -67,7 +72,6 @@ const inputs: Input[] = [
   ...autocompletes.map((autocomplete) => ({
     type: "select-one",
     minLength: -1,
-    inputMode: "",
     inputModeAttribute: null,
     getAttribute: (name: string) => (name === "autocomplete" ? autocomplete : null),
   })),
@@ -98,13 +102,16 @@ function described(input: Input): ObservedCandidate {
   const max = input.maxLength ?? -1;
   const min = input.minLength;
   const lengths =
-    role === "select" || role === "number" || (inRange(max) && inRange(min) && min > max)
+    role === "select" || role === "number"
       ? {}
       : {
           ...(inRange(max) ? { maxLength: max } : {}),
-          ...(inRange(min) ? { minLength: min } : {}),
+          ...(inRange(min) && !(inRange(max) && min > max) ? { minLength: min } : {}),
         };
-  const mode = ["numeric", "tel", "text"].find((entry) => entry === input.inputModeAttribute);
+  const attribute = input.inputModeAttribute?.trim().toLowerCase();
+  const mode = ["none", "text", "decimal", "numeric", "tel", "search", "email", "url"].find(
+    (entry) => entry === attribute,
+  );
   return {
     id: "f",
     role,
@@ -139,6 +146,26 @@ const entries: Entry[] = [
     [undefined, 4].map((length) => ({ detail, part: 0, ...(length ? { length } : {}) })),
   ),
 ];
+
+/**
+ * Whether the input's `maxlength` holds the shortest value of the entry, as the fill checks
+ * (page/enter-value.ts); a number input and a select have no length to check.
+ */
+function holds(input: Input, entry: Entry): boolean {
+  const max = input.maxLength ?? -1;
+  if (max < 0 || input.type === "number" || input.type.startsWith("select")) return true;
+  const needed =
+    entry.part === undefined
+      ? detailLength({ detail: entry.detail, format: entry.format as DetailFormat | undefined })
+      : typeof entry.part === "string"
+        ? entry.format === "yyyy"
+          ? 4
+          : entry.format === "yy" || entry.format === "mm" || entry.format === "dd"
+            ? 2
+            : 1
+        : (entry.length ?? 1);
+  return needed <= max;
+}
 
 /** The kind the executor fills an entry's value as (login/details.ts). */
 const secretOf = (entry: Entry): LoginSecretKind =>
@@ -182,7 +209,7 @@ describe("the service's input checks and the executor's, over every input", () =
       for (const entry of entries)
         if (
           detailInputRefusal(entry, field, button) === undefined &&
-          !acceptsSecret(input, secretOf(entry))
+          (!acceptsSecret(input, secretOf(entry)) || !holds(input, entry))
         )
           broken.push({ entry, input: shown(input) });
     }

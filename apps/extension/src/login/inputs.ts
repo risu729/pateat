@@ -2,21 +2,26 @@ import { autocompleteTokens } from "../page/targets";
 import type { LoginSecretKind } from "./wire";
 
 /**
- * The input attributes the secret fill rule reads; `autocomplete` by its attribute. A
- * select has no `maxLength`.
+ * The input attributes the secret fill rule reads; `autocomplete` and `inputmode` by their
+ * attributes. A select has no `maxLength`.
  */
-export type SecretInput = Pick<HTMLInputElement, "type" | "inputMode" | "getAttribute"> & {
+export type SecretInput = Pick<HTMLInputElement, "type" | "getAttribute"> & {
   readonly maxLength?: number;
 };
 
 function passwordInput(input: SecretInput): boolean {
   return input.type === "password" || autocompleteTokens(input).includes("current-password");
 }
-/** A short numeric field, as a code or a PIN goes in. */
+/**
+ * A short numeric field, as a code or a PIN goes in. Its `inputmode` is read from the
+ * attribute, trimmed and in lower case, as the page's description reads it
+ * (observation/extract.ts), so the service and the fill agree on every value.
+ */
 export function shortNumericInput(input: SecretInput): boolean {
   const maxLength = input.maxLength ?? -1;
+  const inputMode = input.getAttribute("inputmode")?.trim().toLowerCase();
   return (
-    (input.inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
+    (inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
     maxLength >= 1 &&
     maxLength <= 10
   );

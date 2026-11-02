@@ -114,6 +114,35 @@ describe("the result badge, over every attempt report (ADR 0038)", () => {
     ).toEqual([]);
   });
 
+  it("names a failure by its outcome and cause", () => {
+    expect(
+      cases
+        .filter(
+          ({ report, result }) =>
+            typeof result === "object" &&
+            result.kind === "failed" &&
+            result.reason !==
+              (report.cause ? `${report.outcome}: ${report.cause}` : report.outcome),
+        )
+        .slice(0, 5),
+    ).toEqual([]);
+  });
+
+  it("shows a login still going on as unsettled only on a settled unknown result or a second factor", () => {
+    expect(
+      cases
+        .filter(({ report }) => report.state !== "blocked" && report.state !== "authenticated")
+        .filter(({ report, result }) => {
+          const unsettled =
+            !report.repeat &&
+            ((report.settled === true && report.outcome === "unknown-submit") ||
+              report.outcome === "challenge");
+          return kind(result) !== (unsettled ? "unsettled" : undefined);
+        })
+        .slice(0, 5),
+    ).toEqual([]);
+  });
+
   it("shows no failure for a login that has not ended", () => {
     expect(
       cases

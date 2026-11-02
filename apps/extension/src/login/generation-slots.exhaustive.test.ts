@@ -11,11 +11,16 @@ const snapshot = "11111111-1111-4111-8111-111111111111";
 const ids = [0, 1].map((index) => `custom.${snapshot}.${index}`);
 const flags = [false, true];
 
-/** Every custom field at `index`: each kind, name and flag, a Linked one reading each field. */
+/**
+ * Every custom field at `index`: each kind and name (the same, another, blank, none, or
+ * one too long for a slot), a Linked one reading each field, and a Text or Hidden one with
+ * and without the TOTP key flag, which the catalog sets on no other kind.
+ */
+const longName = "N".repeat(121);
 const variants = (index: number): Field[] =>
   (["text", "hidden", "boolean", "otp", "linked"] as const).flatMap((kind) =>
-    ["A", "B", " "].flatMap((name) =>
-      flags.flatMap((totpSeed) =>
+    ["A", "B", " ", null, longName].flatMap((name) =>
+      (kind === "text" || kind === "hidden" ? flags : [false]).flatMap((totpSeed) =>
         (kind === "linked"
           ? ["login.username", "login.password", ...ids, undefined]
           : [undefined]
@@ -56,7 +61,14 @@ function allowedOffer(
   field: Field,
   allowed: readonly string[],
 ): { kind: SemanticSlot["kind"]; shaped: boolean } | undefined {
-  if (!allowed.includes(field.id) || !field.name?.trim() || field.totpSeed) return undefined;
+  // A slot carries a field name of at most 120 characters.
+  if (
+    !allowed.includes(field.id) ||
+    !field.name?.trim() ||
+    field.name.length > 120 ||
+    field.totpSeed
+  )
+    return undefined;
   if (field.kind === "text") return { kind: "identifier", shaped: true };
   if (field.kind === "hidden") return { kind: "hidden", shaped: false };
   if (field.kind !== "linked" || !field.linkedFieldId || !allowed.includes(field.linkedFieldId))

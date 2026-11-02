@@ -386,7 +386,7 @@ describe("extractLoginObservation", () => {
     );
     expect(summary(observe())).toEqual([
       { role: "text", target: { by: "id", value: "big" } },
-      { role: "text", target: { by: "id", value: "swap" } },
+      { role: "text", target: { by: "id", value: "swap" }, maxLength: 3 },
       { role: "number", target: { by: "id", value: "num" }, inputMode: "numeric" },
       { role: "text", target: { by: "id", value: "mode" } },
     ]);

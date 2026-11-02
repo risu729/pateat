@@ -125,7 +125,7 @@ describe("a judged page's outcome, over every combination", () => {
     );
   });
 
-  it("authenticates a watched login only on the judge's signed-in answer (ADR 0027)", () => {
+  it("authenticates a watched login only on the judge's signed-in or optional answer (ADR 0027, ADR 0065)", () => {
     expect(
       broken(
         (o) =>

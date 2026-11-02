@@ -87,6 +87,15 @@ describe("a login's move to another origin, over every pair of origins (ADR 0022
     ).toEqual([]);
   });
 
+  it("takes each name under a private suffix, and a bare public suffix, as the rule's own examples say", () => {
+    // Pinned by value, since the other rules read the site through the same function.
+    expect(loginMoveFits("https://alice.github.io", "https://bob.github.io", false)).toBe(false);
+    expect(loginMoveFits("https://a.example.co.uk", "https://b.example.co.uk", false)).toBe(true);
+    expect(loginMoveFits("https://a.example.co.uk", "https://co.uk", true)).toBe(false);
+    expect(registrableSite("https://alice.github.io")).toBe("alice.github.io");
+    expect(registrableSite("https://login.example.com:8443")).toBe("example.com");
+  });
+
   it("never moves to a bare public suffix or a value that is no web origin", () => {
     expect(
       broken(

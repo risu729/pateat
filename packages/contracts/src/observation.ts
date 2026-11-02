@@ -149,7 +149,7 @@ export const observedCandidateSchema = v.pipe(
     group: v.optional(identifier),
     // Page-declared input constraints. Lengths are UTF-16 code units, as HTML counts them.
     // The extractor omits a length outside 1-1024 (0, absent or effectively unbounded
-    // values such as 524288), omits both when minlength exceeds maxlength, and omits
+    // values such as 524288), omits minlength when it exceeds maxlength, and omits
     // lengths on number inputs, where browsers ignore them, so one odd attribute never
     // rejects the whole observation. Constraints appear only on fill roles. `pattern` is deliberately absent:
     // evaluating a page-supplied expression locally could hang the caller.
