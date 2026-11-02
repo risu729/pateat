@@ -72,7 +72,9 @@ extension keeps a copy, so logins keep working while the service is offline.
   performs no presence test or verification of its own. Unlocking the vault on this
   device and the account you chose for the site are the only authorization
   ([ADR 0007](https://github.com/risu729/pateat/blob/main/docs/adr/0007-existing-passkey-assertions.md#presence-and-verification)).
-  This is planned to become a setting before Pateat is public.
+  This is the default. The settings page's **Passkeys** section can turn either flag
+  off on a device; requests that need it then go to the browser or another extension,
+  so Pateat cannot sign in with a passkey by itself there.
 - **Bitwarden's master password re-prompt** is honoured only on the sites you list
   ([setup](./setup.md#sites-that-ask-for-the-master-password)), and only for login items
   and their passkeys. Elsewhere, and for personal details from linked card or identity

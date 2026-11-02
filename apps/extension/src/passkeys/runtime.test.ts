@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import {
   chooserWaitMs,
   createPasskeyRuntime,
@@ -404,6 +405,23 @@ describe("passkey runtime policy", () => {
     expect(policy).toHaveBeenCalledWith(origin);
     expect(backing.candidates).not.toHaveBeenCalled();
     expect(backing.sign).not.toHaveBeenCalled();
+  });
+
+  it("reads a policy that resolves later, as the device setting does, for each request", async () => {
+    let stored: PasskeyPolicy = { presence: "activation", verification: "always" };
+    const runtime = createPasskeyRuntime(source(), {
+      extensionId,
+      policy: async () => stored,
+    });
+    expect(await runtime.handle(get(undefined, false), sender())).toEqual({
+      kind: "delegate",
+      reason: "no-user-activation",
+    });
+    // Changed on the settings page: the next request follows it.
+    stored = INITIAL_PASSKEY_POLICY;
+    expect(await runtime.handle(get(undefined, false), sender())).toMatchObject({
+      kind: "assertion",
+    });
   });
 });
 

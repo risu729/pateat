@@ -263,8 +263,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   options: {
     extensionId: string;
     timeoutMs?: () => number;
-    /** Per-origin presence and verification policy; the initial policy when absent. */
-    policy?: (origin: string) => PasskeyPolicy;
+    /**
+     * Per-origin presence and verification policy; the initial policy when absent. Read
+     * for each request, so a changed setting applies to the next one.
+     */
+    policy?: (origin: string) => PasskeyPolicy | Promise<PasskeyPolicy>;
     /** Receives a value-free report of each finished request. */
     report?: (report: PasskeyRequestReport) => void;
     /**
@@ -392,6 +395,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     after: After<TCandidate>,
   ): Promise<RuntimeResult> {
     const { documentId } = context;
+    // Read before the limits below, so no wait falls between counting and adding.
+    const policy = (await options.policy?.(origin)) ?? INITIAL_PASSKEY_POLICY;
     const documentOperations = [...operations.values()].filter(
       (operation) => operation.documentId === documentId,
     ).length;
@@ -405,7 +410,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       origin,
       request: message.request,
       userActivation: message.userActivation,
-      policy: options.policy?.(origin) ?? INITIAL_PASSKEY_POLICY,
+      policy,
       conditional: options.conditional !== undefined,
     });
     if (admission.kind === "delegate") {

@@ -300,4 +300,12 @@ export const settingsEn = {
     "A site paused under Sites stays paused while it is allowed.",
   "Turning this off keeps the list. The Pateat popup can allow the open site.":
     "Turning this off keeps the list. The Pateat popup can allow the open site.",
+  Passkeys: "Passkeys",
+  "Answer passkey requests without a click on the page":
+    "Answer passkey requests without a click on the page",
+  "Tell sites that you were verified": "Tell sites that you were verified",
+  "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on this device only.":
+    "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on this device only.",
+  "The passkey setting could not be saved. Try again.":
+    "The passkey setting could not be saved. Try again.",
 } as const;

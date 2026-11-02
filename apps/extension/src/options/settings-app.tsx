@@ -14,6 +14,7 @@ import {
   Bug,
   EyeOff,
   FileDown,
+  Fingerprint,
   Globe,
   Info,
   KeyRound,
@@ -45,6 +46,7 @@ import { ServiceConnection } from "./service-connection";
 import { LanguageSelect } from "./language-select";
 import { ThemeSelect } from "./theme-select";
 import type { ServiceReportsClient } from "./service-reports";
+import { PASSKEYS_SECTION, PasskeyPolicyPanel, type PasskeyPolicyClient } from "./passkey-policy";
 import { VaultTimeoutPanel, type VaultTimeoutClient } from "./vault-timeout";
 import { Panel, StatusLines, type LocalizedMessage } from "./ui";
 
@@ -67,6 +69,7 @@ export function SettingsApp({
   serviceClient,
   vaultTimeoutClient,
   serviceReportsClient,
+  passkeyPolicyClient,
   deviceModelClient,
   transferClient,
 }: {
@@ -76,6 +79,7 @@ export function SettingsApp({
   /** This device's vault timeout (ADR 0075), shown with a real Bitwarden connection. */
   vaultTimeoutClient?: VaultTimeoutClient;
   serviceReportsClient?: ServiceReportsClient;
+  passkeyPolicyClient?: PasskeyPolicyClient;
   /** This device's own Anthropic API key (ADR 0040). */
   deviceModelClient?: DeviceModelClient;
   /** Export and import of what a pairing shares (ADR 0040). */
@@ -531,6 +535,9 @@ export function SettingsApp({
     { id: "sites", label: t("Sites"), icon: Globe },
     { id: "allowed-sites", label: t("Allowed sites"), icon: ListChecks },
     { id: PRIVATE_WINDOWS_SECTION, label: t("Private windows"), icon: EyeOff },
+    ...(passkeyPolicyClient
+      ? [{ id: PASSKEYS_SECTION, label: t("Passkeys"), icon: Fingerprint }]
+      : []),
     ...(serviceClient ? [{ id: "sync", label: t("Sync service"), icon: Link }] : []),
     ...(deviceModelClient ? [{ id: "ai-key", label: t("AI key"), icon: KeyRound }] : []),
     ...(transferClient ? [{ id: "transfer", label: t("Export and import"), icon: FileDown }] : []),
@@ -719,6 +726,7 @@ export function SettingsApp({
               {...(serviceReportsClient ? { reportsClient: serviceReportsClient } : {})}
             />
           )}
+          {passkeyPolicyClient && <PasskeyPolicyPanel client={passkeyPolicyClient} />}
           {deviceModelClient && <DeviceModelPanel client={deviceModelClient} />}
           {transferClient && (
             <TransferPanel

@@ -29,6 +29,7 @@ import { createLoginReprompt, createVaultPasswordCheck } from "../src/login/repr
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createPasskeyCreateHandler } from "../src/passkeys/create";
 import { createProbePasskeySource } from "../src/passkeys/probe";
+import { PASSKEY_POLICY_KEY, readPasskeyPolicy } from "../src/passkeys/policy";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { SETTINGS_STORAGE_KEY } from "../src/settings";
@@ -635,6 +636,7 @@ export default defineBackground(() => {
       facts,
     );
   };
+  const passkeyPolicySetting = trustedRecord(PASSKEY_POLICY_KEY);
   const passkeys = passkeyProbe
     ? createPasskeyRuntime(passkeyProbe.source, {
         extensionId: browser.runtime.id,
@@ -656,6 +658,8 @@ export default defineBackground(() => {
       })
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
+        // ADR 0007: presence and verification as this device's setting says, read per request.
+        policy: () => readPasskeyPolicy(() => passkeyPolicySetting.read()),
         // Only the local log keeps it; the page never learns why.
         report: diagnosticsLog.passkey,
         chooser: passkeyChooser,
