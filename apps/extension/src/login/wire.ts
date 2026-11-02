@@ -987,9 +987,23 @@ export const executionResultSchema = v.strictObject({
     v.pipe(v.array(v.pipe(v.array(targetStateSchema), v.maxLength(20))), v.maxLength(2)),
   ),
 });
+/**
+ * Why a step's elements were still not ready when its wait ran out, for the log only (ADR
+ * 0019): `path` on another path, else the first target's {@link TargetCheck} other than
+ * `ok`, else the {@link LaterMiss} of a later step or a password started alone. Never a
+ * text or value of the page.
+ */
+export const AWAIT_MISSES = [
+  "path",
+  ...targetCheckSchema.options.filter((check) => check !== "ok"),
+  ...LATER_MISSES.filter((miss) => miss !== "target"),
+] as const;
+export type AwaitMiss = (typeof AWAIT_MISSES)[number];
 export const awaitResultSchema = v.strictObject({
   ok: v.boolean(),
   reason: v.optional(v.picklist(["timeout", "cancelled"])),
+  /** With `timeout`, why the step was not ready at the last check. */
+  miss: v.optional(v.picklist(AWAIT_MISSES)),
 });
 /** Why an observation is incomplete; see `ObservationGap`. Value-free codes only. */
 export const observationGaps = [

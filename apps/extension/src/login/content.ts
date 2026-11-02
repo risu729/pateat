@@ -100,6 +100,7 @@ import {
   reconnectSchema,
   type ExecutionDetail,
   type LoginReadiness,
+  type AwaitMiss,
   LATER_MISSES,
   type LaterMiss,
   type ShownLater,
@@ -206,6 +207,28 @@ function readyNow(readiness: LoginReadiness): boolean {
         listsAccounts(document))
     );
   return stepMiss(readiness) === undefined;
+}
+/**
+ * Why a step is not ready now, for the log when its wait runs out (`AwaitMiss`): another
+ * path, the first target's check that failed, or what else a later step's page shows. A
+ * field entered on the page's keypad, which may be read-only (ADR 0067), counts as ready
+ * once it shows; a chooser's list is not explained.
+ */
+function readinessMiss(readiness: LoginReadiness): AwaitMiss | undefined {
+  if (pagePath() !== readiness.path) return "path";
+  if (readiness.accounts) return undefined;
+  for (const target of readiness.targets) {
+    if (
+      readiness.keypad?.some((other) => sameLoginTarget(other, target)) &&
+      matches(target).length === 1 &&
+      keyable(matches(target)[0])
+    )
+      continue;
+    const check = targetCheck(document, target, readiness.require);
+    if (check !== "ok") return check;
+  }
+  const miss = stepMiss(readiness);
+  return miss === "target" ? undefined : miss;
 }
 /**
  * Why a step on this path is not ready (`LaterMiss`): a target that matches no unique
@@ -1275,7 +1298,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // Cancellation is set by the independent background message listener.
         // eslint-disable-next-line no-unmodified-loop-condition
         while (!cancelled && !ready(command.readiness)) {
-          if (Date.now() >= until) return { ok: false, reason: "timeout" };
+          if (Date.now() >= until) {
+            const miss = readingPage(() => readinessMiss(command.readiness));
+            return { ok: false, reason: "timeout", ...(miss ? { miss } : {}) };
+          }
           // eslint-disable-next-line no-await-in-loop
           await pause(50);
         }

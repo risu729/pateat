@@ -17,6 +17,7 @@ import {
 import {
   executionResultSchema,
   loginReadiness,
+  type AwaitMiss,
   type LoginSecretKind,
   type AskedQuestion,
 } from "../wire";
@@ -185,10 +186,13 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       if (!current(rt, run) || run.metadata.state !== "ready") return;
       // A chooser login's click on its list waits for the list (ADR 0028).
       const onList = run.metadata.stepIndex === 0 ? listOf(rt, run) : undefined;
+      let miss: AwaitMiss | undefined;
       const waited = await waitFor(
         rt,
         run,
         onList ? listReadiness(rt, onList.chooser) : loginReadiness(upcoming),
+        undefined,
+        (reason) => (miss = reason),
       );
       if (!current(rt, run) || run.metadata.state !== "ready") return;
       if (waited === "timeout") {
@@ -204,12 +208,15 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
         // Another layout's step may show where the layouts part (ADR 0060).
         if (await switchLayout(rt, run)) continue;
         if (!current(rt, run) || run.metadata.state !== "ready") return;
+        // Which check still failed, as `not-clickable` for a disabled button (#1139).
         await change(
           rt,
           run,
           { type: "FAILED", reason: "structural-mismatch" },
           undefined,
           "elements-timeout",
+          undefined,
+          miss,
         );
         return;
       }

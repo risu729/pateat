@@ -441,6 +441,21 @@ describe("production login document admission", () => {
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
   });
+  it("logs which check still failed when a step's wait ran out (#1139)", async () => {
+    fake.state.awaited = { ok: false, reason: "timeout", miss: "not-clickable" };
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          state: "retryable",
+          cause: "elements-timeout",
+          reason: "not-clickable",
+        }),
+      ),
+    );
+  });
   it("logs in when a retry finds the step's elements that the first wait did not", async () => {
     let waits = 0;
     fake.state.onAwait = () => {
