@@ -456,6 +456,22 @@ describe("production login document admission", () => {
       ),
     );
   });
+  it("keeps `fill-only` as the reason of a fill-only login whose wait ran out (ADR 0066)", async () => {
+    fake.state.session["pateat.login-stopped-asks.v1"] = [{ tabId: 1, origin }];
+    fake.state.awaited = { ok: false, reason: "timeout", miss: "not-writable" };
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ state: "retryable", cause: "elements-timeout" }),
+      ),
+    );
+    const timedOut = report.mock.calls
+      .map(([entry]) => entry)
+      .find((entry) => entry.type === "attempt" && entry.cause === "elements-timeout");
+    expect(timedOut).toMatchObject({ fillOnly: true, reason: "fill-only" });
+  });
   it("logs in when a retry finds the step's elements that the first wait did not", async () => {
     let waits = 0;
     fake.state.onAwait = () => {
