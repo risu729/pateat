@@ -281,9 +281,9 @@ export const settingsJa = {
   "Change {{count}} vault limit.": "保管庫の制限を {{count}} 件変更します。",
   "Change {{count}} vault limit._one": "保管庫の制限を {{count}} 件変更します。",
   "Change {{count}} vault limit._other": "保管庫の制限を {{count}} 件変更します。",
-  "Change {{count}} site rule.": "サイトのルールを {{count}} 件変更します。",
-  "Change {{count}} site rule._one": "サイトのルールを {{count}} 件変更します。",
-  "Change {{count}} site rule._other": "サイトのルールを {{count}} 件変更します。",
+  "Change {{count}} other setting.": "その他の設定を {{count}} 件変更します。",
+  "Change {{count}} other setting._one": "その他の設定を {{count}} 件変更します。",
+  "Change {{count}} other setting._other": "その他の設定を {{count}} 件変更します。",
   "Keep {{count}} new or newer recipe.": "新しいか更新された {{count}} 件のレシピを保存します。",
   "Keep {{count}} new or newer recipe._one":
     "新しいか更新された {{count}} 件のレシピを保存します。",

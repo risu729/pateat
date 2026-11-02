@@ -46,13 +46,13 @@ function merge(
     : merged.output;
 }
 
+const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+
 /**
  * What the merge adds, replaces or drops in the synced part, for the owner to confirm. An
  * item's policy and its custom-field review merge as one entry (ADR 0023), so the file's
  * may drop the other half of one held here: that counts as a change of the item's limit.
  */
-const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
-
 function changes(before: LocalSettings, after: LocalSettings) {
   const was = syncedSettings(before);
   const now = syncedSettings(after);
