@@ -22,6 +22,7 @@ type JudgeAnswer = {
   marker?: string;
   passkeyButton?: string;
   passwordButton?: string;
+  authenticatorButton?: string;
   code?: { field: string; submit: string; source: string };
 };
 
@@ -68,6 +69,8 @@ export function judgeVerdict(testCase: JudgeCase, answer: JudgeAnswer | undefine
   if (answer.decision !== "challenge") return "correct";
   if (!detailMatches(expected.passkeyButton, answer.passkeyButton)) return "wrong-detail";
   if (!detailMatches(expected.passwordButton, answer.passwordButton)) return "wrong-detail";
+  if (!detailMatches(expected.authenticatorButton, answer.authenticatorButton))
+    return "wrong-detail";
   if (expected.code === undefined) return "correct";
   if (expected.code === null) return answer.code === undefined ? "correct" : "wrong-detail";
   if (answer.code === undefined) return "wrong-detail";

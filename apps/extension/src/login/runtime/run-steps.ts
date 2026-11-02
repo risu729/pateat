@@ -483,6 +483,12 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
         operation.step.kind === "click" &&
         ownHandler !== undefined &&
         run.recipe.handlers?.[ownHandler]?.kind === "password";
+      // So is an `authenticator` handler's, while its text names an authenticator app's code
+      // (ADR 0081).
+      const authenticatorChoice =
+        operation.step.kind === "click" &&
+        ownHandler !== undefined &&
+        run.recipe.handlers?.[ownHandler]?.kind === "authenticator";
       run.delivered = true;
       const { tabId } = run.live.document;
       if (
@@ -556,6 +562,7 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
             ? { code: {} }
             : {}),
         ...(passwordChoice ? { passwordChoice: true as const } : {}),
+        ...(authenticatorChoice ? { authenticatorChoice: true as const } : {}),
         // A `detail` handler's input is filled after its choosing radio (ADR 0061).
         ...(operation.step.kind === "fill" &&
         operation.step.fields.some((field) => isDetailSlot(field.slot))

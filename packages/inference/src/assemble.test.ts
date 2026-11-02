@@ -753,6 +753,111 @@ describe("judged password handler (ADR 0048)", () => {
   });
 });
 
+describe("judged authenticator handler (ADR 0081)", () => {
+  // A sign-in form that types the password, then, on the same path, a page that asks how
+  // to confirm the sign-in with a second factor.
+  const recipe = built(page("/login", "password", "submit"));
+  const app = { by: "text", value: "Use code from authenticator" } as const;
+  const chooser = (...candidates: ObservedCandidate[]) => ({
+    origin,
+    path: "/login",
+    candidates: [
+      { ...candidate("app", app), label: app.value },
+      { ...candidate("sms", { by: "text", value: "Text me a code" }), label: "Text me a code" },
+      ...candidates,
+    ],
+  });
+  const authenticator = (locator: LoginTarget = app) => ({
+    kind: "authenticator" as const,
+    target: locator,
+  });
+
+  it("adds a handler for the page's button after a recipe that types the password", () => {
+    const added = addHandler(recipe, chooser(), authenticator());
+    if (!added.ok) throw new Error(added.reason);
+    expect(added.recipe).toEqual({
+      ...recipe,
+      revision: recipe.revision + 1,
+      handlers: [{ kind: "authenticator", path: "/login", target: app }],
+    });
+    expect(extendsRecipe(recipe, added.recipe)).toBe(true);
+    // The code page that follows on the same path adds its own `totp` handler beside it.
+    const code = target("digit-1");
+    const codePage = {
+      origin,
+      path: "/login",
+      candidates: [
+        {
+          ...candidate("code", code, "text"),
+          autocomplete: "one-time-code" as const,
+          inputMode: "numeric" as const,
+          maxLength: 6,
+        },
+        { ...candidate("continue", target("continue")), label: "Continue" },
+      ],
+    };
+    const both = addHandler(added.recipe, codePage, {
+      kind: "totp",
+      field: code,
+      target: target("continue"),
+    });
+    if (!both.ok) throw new Error(both.reason);
+    expect(both.recipe.handlers?.map((handler) => handler.kind)).toEqual(["authenticator", "totp"]);
+    expect(addHandler(added.recipe, chooser(), authenticator())).toEqual({
+      ok: false,
+      reason: "duplicate",
+    });
+  });
+
+  it.each([
+    ["Text me a code", "a text message"],
+    ["Use backup code", "a backup code"],
+    ["Approve a request on my authenticator app", "a push approval"],
+    ["Use a security key or built-in authenticator", "a passkey"],
+    ["Set up an authenticator app", "another task"],
+    ["別の方法を試す", "another way"],
+  ])("refuses a button labelled %s (%s)", (label) => {
+    const labelled = { ...chooser(), candidates: [{ ...candidate("app", app), label }] };
+    expect(addHandler(recipe, labelled, authenticator())).toEqual({
+      ok: false,
+      reason: "not-authenticator",
+    });
+  });
+
+  it("checks the text locator too, needs a label or a text locator, and takes no link", () => {
+    const sms = { by: "text", value: "Text me a code" } as const;
+    expect(addHandler(recipe, chooser(), authenticator(sms))).toEqual({
+      ok: false,
+      reason: "not-authenticator",
+    });
+    const unnamed = { ...chooser(), candidates: [candidate("app", target("app"))] };
+    expect(addHandler(recipe, unnamed, authenticator(target("app")))).toEqual({
+      ok: false,
+      reason: "not-authenticator",
+    });
+    const link = {
+      ...chooser(),
+      candidates: [{ ...candidate("app", app, "link"), label: app.value }],
+    };
+    expect(addHandler(recipe, link, authenticator())).toEqual({
+      ok: false,
+      reason: "not-on-page",
+    });
+  });
+
+  it("refuses a route step's button", () => {
+    const login = target("password-next");
+    const routed = {
+      ...chooser(),
+      candidates: [{ ...candidate("app", login), label: "Authenticator app" }],
+    };
+    expect(addHandler(recipe, routed, authenticator(login))).toEqual({
+      ok: false,
+      reason: "step-target",
+    });
+  });
+});
+
 describe("judged totp handler (ADR 0027)", () => {
   const signIn = { by: "text", value: "Sign in" } as const;
   const recipe = built([

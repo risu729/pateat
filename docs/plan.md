@@ -638,11 +638,22 @@ than in this repository.
   (unit, DOM, service and a synthetic browser fixture); check UniSuper in the owner's
   Chrome, one judge call and one continuation call. The service deploys before the
   extension build is installed.
-  On 2026-10-19 at 12:50 UTC, on build `cfce11f`, the login pressed "Select" for the
-  password and the service returned the continuation (fill the password, press Verify),
-  but the login did not take it over and settled `unknown`. The item's saved binding of
-  the recipe, saved on 2026-10-17 at 01:34 UTC after revision 1, which filled only the
-  username, and a login wrongly judged `authenticated` (fixed by
+- Notion's login stopped after the password (2026-10-29 and 2026-10-30, build `c5a0a3a`,
+  [#1152](https://github.com/risu729/pateat/issues/1152)): on the same path, "Verify
+  your identity" offered the authenticator app, "Text me a code" and "Use backup code",
+  and after the owner's own choice the six one-digit code inputs were not filled, since
+  a watched login only reads and the code page shared the judged path. Proposed on
+  2026-11-02, not yet accepted by the owner: the judge may name such a page's button
+  that goes on to the authenticator app's code as an `authenticator` handler, pressed
+  only after the password, for an item with a TOTP code, when its text names an
+  authenticator app by a shared English and Japanese word list
+  ([ADR 0081](adr/0081-authenticator-method-button.md)). Local tests only; check Notion
+  in the owner's Chrome, two judge calls on the first login. On 2026-10-19 at 12:50 UTC,
+  on build `cfce11f`, the login pressed "Select" for the password and the service
+  returned the continuation (fill the password, press Verify), but the login did not
+  take it over and settled `unknown`. The item's saved binding of the recipe, saved on
+  2026-10-17 at 01:34 UTC after revision 1, which filled only the username, and a login
+  wrongly judged `authenticated` (fixed by
   [#571](https://github.com/risu729/pateat/pull/571)), named only `username`, so the
   takeover refused `binding-slots-mismatch`, and the log named no reason. Since
   2026-10-19 the slots a saved binding lacks are filled as for an item without one, the
@@ -651,15 +662,15 @@ than in this repository.
   ([ADR 0027's amendment](adr/0027-per-account-login-routes.md#amendment-2026-10-19-saved-bindings-that-lack-a-slot),
   owner, 22:48 UTC). Local tests only (unit and a synthetic browser fixture in cloud
   Chromium 141); check UniSuper in the owner's Chrome, where the next login should type
-  the password with the saved binding and widen it.
-  On 2026-10-20 at 09:56 UTC, on build `4aae14c`
-  ([#819](https://github.com/risu729/pateat/pull/819)), the login with revision 3 typed
-  the username, pressed Next, pressed "Select" for the password, typed the password and
-  pressed Verify. The judge answered `challenge` for the next page, "Verify with your
-  mobile" with a Send code button, and the attempt was logged `challenge`; no code was
-  sent and the tab was closed. No `login.choice` entry was logged, as the binding is
-  widened only after `authenticated`; whether the saved binding was filled or already
-  named `password` is not in the log. A `challenge` login is watched
+  the password with the saved binding and widen it. On 2026-10-20 at 09:56 UTC, on build
+  `4aae14c` ([#819](https://github.com/risu729/pateat/pull/819)), the login with
+  revision 3 typed the username, pressed Next, pressed "Select" for the password, typed
+  the password and pressed Verify. The judge answered `challenge` for the next page,
+  "Verify with your mobile" with a Send code button, and the attempt was logged
+  `challenge`; no code was sent and the tab was closed. No `login.choice` entry was
+  logged, as the binding is widened only after `authenticated`; whether the saved
+  binding was filled or already named `password` is not in the log. A `challenge` login
+  is watched
   ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)), so once
   the owner types the code and the attempt ends `authenticated`, the binding should be
   widened and `login.choice` logged (read from the code, not shown). Check that in the
