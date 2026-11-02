@@ -5,7 +5,7 @@ import { cleanup, render } from "vitest-browser-react";
 import "../../apps/extension/entrypoints/options/style.css";
 import { useState } from "react";
 import { ThemeSelect } from "../../apps/extension/src/options/theme-select";
-import { followProfileTheme } from "../../apps/extension/src/theme-profile";
+import { followProfileTheme, noteOwnThemeChoice } from "../../apps/extension/src/theme-profile";
 import { createDefaultSettings, type LocalSettings } from "../../packages/contracts/src/index";
 import {
   followThemePreference,
@@ -209,6 +209,25 @@ test("follows the synced theme and keeps this origin's copy for the next page's 
   stop();
   store.set("light");
   expect(root.hasAttribute("data-theme")).toBe(false);
+});
+
+test("its own quick choices' late save events do not flip the page back", async () => {
+  const store = profileStore(undefined);
+  const stop = followProfileTheme(store);
+  await new Promise((resolve) => setTimeout(resolve));
+  // The settings page chose dark, then light, applying each at once.
+  saveThemePreference("dark");
+  noteOwnThemeChoice("dark");
+  saveThemePreference("light");
+  noteOwnThemeChoice("light");
+  store.set("dark");
+  expect(root.getAttribute("data-theme")).toBe("light");
+  store.set("light");
+  expect(root.getAttribute("data-theme")).toBe("light");
+  // A change made elsewhere afterwards still applies.
+  store.set("dark");
+  expect(root.getAttribute("data-theme")).toBe("dark");
+  stop();
 });
 
 test("a synced change seen during the first read wins over what was read", async () => {

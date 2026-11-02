@@ -11,6 +11,7 @@ import {
   type DeviceModelCall,
   type DeviceModelResponse,
   type GenerationUnavailableReason,
+  modelSpendLimitsSchema,
   type LocalSettings,
 } from "@pateat/contracts";
 import {
@@ -44,6 +45,15 @@ export function spendLimits(settings: Pick<LocalSettings, "modelSpendLimits">): 
       monthlyUsd: DEFAULT_DEVICE_MONTHLY_LIMIT_USD,
     }
   );
+}
+
+/**
+ * The spend limits from a stored setting, unvalidated: the defaults when absent. A value
+ * that does not parse throws, so no call is made against limits that cannot be read.
+ */
+export function parseSpendLimits(stored: unknown): { dailyUsd: number; monthlyUsd: number } {
+  if (stored === undefined) return spendLimits({});
+  return v.parse(modelSpendLimitsSchema, stored);
 }
 export { MAX_DEVICE_LIMIT_USD } from "@pateat/contracts";
 /** An Anthropic API key as pasted: printable ASCII without spaces. */

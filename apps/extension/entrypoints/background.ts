@@ -33,7 +33,7 @@ import { readPasskeyPolicy } from "../src/passkeys/policy";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { SETTINGS_STORAGE_KEY } from "../src/settings";
-import { settingChanged } from "../src/profile-setting";
+import { settingChanged, snapshotSetting } from "../src/profile-setting";
 import { sessionValue, trustedRecord } from "../src/storage";
 import {
   createVaultTimeout,
@@ -62,7 +62,7 @@ import {
 } from "../src/passkeys/vault";
 import {
   createDeviceModel,
-  spendLimits,
+  parseSpendLimits,
   DEVICE_MODEL_KEY,
   DEVICE_MODEL_SPEND_KEY,
 } from "../src/service/device-model";
@@ -164,9 +164,13 @@ export default defineBackground(() => {
       unclosed: (connectionId) => vaultTimeout.unclosed(connectionId),
     },
   });
-  // The vault timeout (ADR 0075), a profile setting synced with the others (ADR 0024).
+  // The vault timeout (ADR 0075), a profile setting synced with the others (ADR 0024). It
+  // is read from the stored snapshot, not through the settings store's queue: a settings
+  // read lists the vaults, which checks the timeout, so a queued read would wait on itself.
+  // An unreadable value locks on restart, as `parseVaultTimeout` reads it.
+  const settingsSnapshot = trustedRecord(SETTINGS_STORAGE_KEY);
   const vaultTimeoutSetting = {
-    read: async () => (await connections.settings.read()).settings.vaultTimeout,
+    read: async () => snapshotSetting(await settingsSnapshot.read(), "vaultTimeout"),
   };
   const vaultTimeout = createVaultTimeout({
     setting: vaultTimeoutSetting,
@@ -290,7 +294,9 @@ export default defineBackground(() => {
   const deviceModel = createDeviceModel({
     storage: trustedRecord(DEVICE_MODEL_KEY),
     spend: trustedRecord(DEVICE_MODEL_SPEND_KEY),
-    limits: async () => spendLimits((await connections.settings.read()).settings),
+    // Read from the stored snapshot like the vault timeout, never behind the settings queue.
+    limits: async () =>
+      parseSpendLimits(snapshotSetting(await settingsSnapshot.read(), "modelSpendLimits")),
   });
   // ADR 0040: without a pairing, the same routes run here with the key and kept recipes.
   const deviceGenerationBackend = createDeviceGenerationBackend({

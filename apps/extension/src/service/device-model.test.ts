@@ -13,6 +13,7 @@ import {
   callCostMicroUsd,
   createDeviceModel,
   currentSpend,
+  parseSpendLimits,
   type DeviceModelSetting,
   type DeviceModelSpend,
 } from "./device-model";
@@ -387,6 +388,16 @@ describe("model calls with this device's own key (ADR 0040)", () => {
     expect(currentSpend(spend(), NOW).dayMicroUsd).toBe(
       callCostMicroUsd(BODY, { kind: "timeout", request: "" }),
     );
+  });
+
+  it("reads the profile's stored limits: the defaults when absent, none when damaged", () => {
+    expect(parseSpendLimits(undefined)).toEqual({ dailyUsd: 5, monthlyUsd: 100 });
+    expect(parseSpendLimits({ dailyUsd: 0, monthlyUsd: 3 })).toEqual({
+      dailyUsd: 0,
+      monthlyUsd: 3,
+    });
+    for (const damaged of [null, "5", { dailyUsd: 1 }, { dailyUsd: -1, monthlyUsd: 1 }])
+      expect(() => parseSpendLimits(damaged)).toThrow();
   });
 
   it("stops when the profile's spend limits cannot be read", async () => {

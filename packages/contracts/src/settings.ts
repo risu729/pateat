@@ -290,7 +290,6 @@ export const detailLinkSchema = v.strictObject({
   question: v.optional(storedQuestionSchema),
 });
 
-/** The saved account for one origin, named by provider account and item (ADR 0013). */
 /** The vault timeout's preset minutes; any other whole number up to a year is custom. */
 export const VAULT_TIMEOUT_MINUTES = [1, 5, 15, 30, 60, 240] as const;
 export const MAX_CUSTOM_MINUTES = 525_600;
@@ -314,6 +313,13 @@ const spendLimitUsd = v.pipe(
   v.minValue(0),
   v.maxValue(MAX_DEVICE_LIMIT_USD),
 );
+/** The daily and monthly spend limits of a device's own key, in US dollars (ADR 0040). */
+export const modelSpendLimitsSchema = v.strictObject({
+  dailyUsd: spendLimitUsd,
+  monthlyUsd: spendLimitUsd,
+});
+
+/** The saved account for one origin, named by provider account and item (ADR 0013). */
 
 export const siteDefaultSchema = v.strictObject({
   origin: originSchema,
@@ -562,9 +568,7 @@ export const localSettingsSchema = v.pipe(
      * (ADR 0040); absent means 5 and 100, the defaults. The key itself stays on the device.
      * Synced as part of the profile (ADR 0024).
      */
-    modelSpendLimits: v.optional(
-      v.strictObject({ dailyUsd: spendLimitUsd, monthlyUsd: spendLimitUsd }),
-    ),
+    modelSpendLimits: v.optional(modelSpendLimitsSchema),
     /** Synced links to the items that hold a login's personal details (ADR 0061). */
     detailLinks: v.optional(
       v.pipe(

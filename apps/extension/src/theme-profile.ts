@@ -7,11 +7,21 @@ import { parseThemePreference, saveThemePreference, type ThemePreference } from 
  * so the page does not flash in the old theme. Absent means the browser setting. Returns a
  * function that stops following.
  */
+// Choices this page saved whose change event may still arrive. Its own events are not
+// applied again: after a quick dark then light, the late dark event would flip it back.
+let ownChoices: ThemePreference[] = [];
+
+/** This page saved the choice as the profile setting, and applied it already. */
+export function noteOwnThemeChoice(preference: ThemePreference): void {
+  ownChoices.push(preference);
+}
+
 export function followProfileTheme(
   store: ProfileSettingStore = profileSettingStore("theme"),
   onChange?: (preference: ThemePreference) => void,
 ): () => void {
   let changes = 0;
+  ownChoices = [];
   const take = (value: unknown) => {
     const preference = parseThemePreference(value ?? "system");
     saveThemePreference(preference);
@@ -22,6 +32,12 @@ export function followProfileTheme(
     // Watched before the read, so a change while it runs is not missed.
     unwatch = store.watch((value) => {
       changes += 1;
+      const own = ownChoices.indexOf(parseThemePreference(value ?? "system"));
+      if (own !== -1) {
+        ownChoices = ownChoices.slice(own + 1);
+        return;
+      }
+      ownChoices = [];
       take(value);
     });
   } catch {

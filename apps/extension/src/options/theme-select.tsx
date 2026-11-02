@@ -2,6 +2,7 @@ import type { LocalSettings } from "@pateat/contracts";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import { parseThemePreference, saveThemePreference } from "../theme";
+import { noteOwnThemeChoice } from "../theme-profile";
 import { controlClass, fieldClass } from "./ui";
 
 /** The pages' color theme, a profile setting synced with the others (ADR 0024). */
@@ -31,7 +32,10 @@ export function ThemeSelect({
             else value.theme = preference;
           });
           // This page switches at once, before the save comes back.
-          if (saved) saveThemePreference(preference);
+          if (saved) {
+            saveThemePreference(preference);
+            noteOwnThemeChoice(preference);
+          }
         }}
       >
         <option value="system">{t("Browser setting")}</option>

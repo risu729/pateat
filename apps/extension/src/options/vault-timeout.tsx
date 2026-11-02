@@ -34,7 +34,9 @@ export function VaultTimeoutPanel({
   // The custom minutes as typed; saved once they are a whole number in range.
   const [custom, setCustom] = useState<string>();
   const value = parseVaultTimeout(draft.vaultTimeout);
-  const choice = custom !== undefined ? "custom" : choiceOf(value.timeout);
+  // Custom always saves minutes, so an event chosen elsewhere, such as by a sync, ends it.
+  const choice =
+    custom !== undefined && typeof value.timeout === "number" ? "custom" : choiceOf(value.timeout);
   /** Stored only when it differs from the default, as in the synced document. */
   function save(next: VaultTimeoutSetting) {
     setMessage("");
