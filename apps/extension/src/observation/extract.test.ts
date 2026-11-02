@@ -611,6 +611,12 @@ describe("extractLoginObservation", () => {
       { by: "id", value: "web-ui3" },
       { by: "id", value: "field-12" },
     ]);
+    // A library's per-load ID of the same shape still gives way to the visible name.
+    page(
+      `<form><input id="mantine-r5" type="password" aria-label="Password">
+        <button type="submit">Log In</button></form>`,
+    );
+    expect(observe().candidates[0]?.target).toEqual({ by: "label", value: "Password" });
     // An ID without a separator before its digits is no counter.
     page(`<form><input id="address1" name="line"><input id="address2" name="line2"></form>`);
     expect(observe().candidates.map(({ target }) => target)).toEqual([

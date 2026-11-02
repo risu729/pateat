@@ -526,7 +526,8 @@ function locate(
     if (!v.is(loginTargetSchema, target)) continue;
     if (!namesOnly(element, target, index.get(attribute)!.get(value), hidden)) continue;
     // A counter-shaped ID gives way to a later attribute and an `autocomplete` token.
-    if (attribute === "id" && counterId(value)) {
+    // A library's per-load ID (`mantine-r5`) is demoted further below.
+    if (attribute === "id" && counterId(value) && !changingId(value)) {
       counter = target;
       continue;
     }
