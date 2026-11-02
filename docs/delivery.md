@@ -297,6 +297,15 @@ unsigned commits"). Implementation is not deferred to later or follow-up work un
 is very large (owner, 2026-10-19 21:00 UTC:
 「実装を後回しにするのは基本的によほど大きくない限りやめて」).
 
+### Branch cleanup
+
+Keep only `main` and the branches of open PRs. Delete any other branch whose contents
+are not needed, for example because they are already squash-merged into `main` or were
+superseded, without asking the owner each time (owner, 2026-11-02 07:01 UTC:
+「ブランチは消してよいです。中身が必要でなければ常に」, "branches may be deleted, always,
+when their contents are not needed"). A branch whose contents are still needed and have
+no PR yet stays until they land in a PR.
+
 ### Issue labels
 
 Every issue gets one `type:` label and, where it applies, one `area:` label. Labels were
