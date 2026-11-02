@@ -8,7 +8,15 @@ import * as v from "valibot";
  */
 export const SERVICE_REPORTS_KEY = "pateat.service-reports.v1";
 
-export const serviceReportsSchema = v.strictObject({ send: v.boolean() });
+export const serviceReportsSchema = v.strictObject({
+  send: v.boolean(),
+  /**
+   * When the settings page last changed it, in epoch milliseconds. Turned on again, log
+   * lines written before this time are never sent, so nothing logged while it was off
+   * leaves the device whatever order the worker sees the change in.
+   */
+  since: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+});
 export type ServiceReportsSetting = v.InferOutput<typeof serviceReportsSchema>;
 
 /** Sending stays on until it is turned off (owner, 2026-11-02). */
@@ -23,11 +31,13 @@ export function parseServiceReports(value: unknown): ServiceReportsSetting {
   return parsed.success ? parsed.output : DAMAGED_SERVICE_REPORTS;
 }
 
-/** Whether the stored setting sends; a record that cannot be read sends nothing. */
-export async function serviceReportsOn(read: () => Promise<unknown>): Promise<boolean> {
+/** The stored setting; a record that cannot be read sends nothing. Never throws. */
+export async function readServiceReports(
+  read: () => Promise<unknown>,
+): Promise<ServiceReportsSetting> {
   try {
-    return parseServiceReports(await read()).send;
+    return parseServiceReports(await read());
   } catch {
-    return false;
+    return DAMAGED_SERVICE_REPORTS;
   }
 }

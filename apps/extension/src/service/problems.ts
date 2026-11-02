@@ -84,7 +84,8 @@ const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)
  * request keeps the lines for a later run and holds off runs, 1 minute after the first
  * failure, doubling up to an hour, or longer when the service asks by `Retry-After`; this
  * survives a worker restart. A credential the service rejected, or sending turned off on
- * the device, sends nothing. Nothing here throws.
+ * the device, sends nothing, and a line written before sending was last turned on is
+ * passed over. Nothing here throws.
  */
 export function createProblemReports(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
@@ -93,10 +94,11 @@ export function createProblemReports(options: {
   /** The extension's build, `PATEAT_BUILD_REVISION`. */
   build: string;
   /**
-   * Whether the device sends problem lines now; absent means always (`SERVICE_REPORTS_KEY`).
-   * While off, lines are passed over and never sent later.
+   * Whether the device sends problem lines now, and since when; absent means always
+   * (`SERVICE_REPORTS_KEY`). While off nothing is sent; on again, lines written before
+   * `since` are passed over, so none written while it was off is sent later.
    */
-  enabled?: () => Promise<boolean>;
+  setting?: () => Promise<{ send: boolean; since?: number | undefined }>;
   /** Told of each request sent, for the local log; never changes the sending. */
   report?: (sent: ProblemsSent) => void;
   now?: () => number;
@@ -147,11 +149,12 @@ export function createProblemReports(options: {
   async function send(): Promise<void> {
     const connection = await service.connection().catch(() => undefined);
     if (!connection || connection.rejected) return;
-    if (options.enabled && !(await options.enabled().catch(() => false))) {
-      // Turned off: the lines written so far are passed over, as at a new pairing.
-      await start(connection);
-      return;
-    }
+    const setting = options.setting
+      ? await options.setting().catch(() => ({ send: false, since: undefined }))
+      : { send: true, since: undefined };
+    // Turned off: nothing is sent, and the cursor stays where it is.
+    if (!setting.send) return;
+    const since = setting.since ?? 0;
     let cursor = await cursorFor(connection);
     if (now() < cursor.retryAt) return;
     const logId = await log.logId();
@@ -178,7 +181,8 @@ export function createProblemReports(options: {
           break;
         }
         last = keyed.key;
-        if (!entry) continue;
+        // Written before sending was last turned on: possibly while it was off.
+        if (!entry || entry.time < since) continue;
         const line = sameness(entry);
         if (lastSent?.line === line && entry.time - lastSent.time < PROBLEM_REPEAT_MS) continue;
         entries.push(entry);
@@ -251,16 +255,6 @@ export function createProblemReports(options: {
     /** Sends what is still unsent, as at worker start or after a recipe sync. */
     flush(): Promise<void> {
       return enqueue(send);
-    },
-    /**
-     * Sending was turned off or on again: lines from now on go, none written before, so
-     * nothing written while it was off leaves the device.
-     */
-    restart(): Promise<void> {
-      return enqueue(async () => {
-        const connection = await service.connection().catch(() => undefined);
-        if (connection && !connection.rejected) await start(connection);
-      });
     },
     /** A device was paired: lines from now on go to it, none from before. */
     paired(connection: { origin: string; deviceId: string }): Promise<void> {

@@ -41,11 +41,18 @@ test("sending is on by default and turning it off saves on this device", async (
   await mount(client);
   await expect.element(toggle()).toBeChecked();
   await toggle().click();
-  await vi.waitFor(() => expect(client.write).toHaveBeenCalledExactlyOnceWith({ send: false }));
+  await vi.waitFor(() =>
+    expect(client.write).toHaveBeenCalledExactlyOnceWith({
+      send: false,
+      since: expect.any(Number),
+    }),
+  );
   await expect.element(toggle()).not.toBeChecked();
   await vi.waitFor(() => expect(status()).toBe("Saved on this device."));
   await toggle().click();
-  await vi.waitFor(() => expect(client.write).toHaveBeenLastCalledWith({ send: true }));
+  await vi.waitFor(() =>
+    expect(client.write).toHaveBeenLastCalledWith({ send: true, since: expect.any(Number) }),
+  );
 });
 
 test("a setting that cannot be read shows Unavailable and offers no change", async () => {

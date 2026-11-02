@@ -56,7 +56,7 @@ export function ServiceReports({ client }: { client: ServiceReportsClient }) {
           checked={value?.send ?? false}
           disabled={!value || save.isPending}
           aria-describedby="service-reports-note"
-          onChange={(event) => save.mutate({ send: event.target.checked })}
+          onChange={(event) => save.mutate({ send: event.target.checked, since: Date.now() })}
         />
         {t("Send login records and problem reports to the service")}
       </label>

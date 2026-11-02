@@ -59,8 +59,8 @@ function setup(
     answer?: (report: ProblemReport) => Promise<OutcomeResult>;
     /** Entries one read looks at most, as the log's scan limit. */
     scanLimit?: number;
-    /** Whether the device sends problem lines; absent means always. */
-    enabled?: () => Promise<boolean>;
+    /** Whether the device sends problem lines, and since when; absent means always. */
+    setting?: () => Promise<{ send: boolean; since?: number }>;
   } = {},
 ) {
   const state = {
@@ -100,7 +100,7 @@ function setup(
       transport: { reportProblems },
       log,
       build: "1c42ad3",
-      ...(options.enabled ? { enabled: options.enabled } : {}),
+      ...(options.setting ? { setting: options.setting } : {}),
       report: (sent) => logged.push(sent),
       now: () => state.now,
       setTimer: (run, ms) => timers.push({ run, ms }),
@@ -124,37 +124,43 @@ const distinct = (length: number, fields: LogEntry["fields"] = {}) =>
   Array.from({ length }, (_, at) => blocked({ step: at, ...fields }));
 
 describe("problem reports (ADR 0066)", () => {
-  it("passes over every line while the device turned sending off, also once it is on again", async () => {
-    let on = false;
-    const { problems, reportProblems, state, cursorAt } = setup({
-      entries: keyed(blocked()),
+  it("sends nothing while the device turned sending off, nor later what was written before it was on", async () => {
+    let setting: { send: boolean; since?: number } = { send: false };
+    const { problems, reportProblems, state } = setup({
+      entries: keyed(blocked({ step: 1 }), blocked({ step: 2 })),
       cursor: { service: CONNECTION.origin, deviceId: CONNECTION.deviceId, after: 0 },
-      enabled: async () => on,
+      setting: async () => setting,
     });
     await problems.flush();
     expect(reportProblems).not.toHaveBeenCalled();
-    expect(state.cursor).toEqual(cursorAt(1));
-    // A line written while off, then sending turned on: the switch starts after it.
-    state.entries.push({ key: 2, entry: blocked({ step: 2 }) });
-    on = true;
-    await problems.restart();
-    await problems.flush();
-    expect(reportProblems).not.toHaveBeenCalled();
-    expect(state.cursor).toEqual(cursorAt(2));
-    state.entries.push({ key: 3, entry: blocked({ step: 3 }) });
+    // Turned on after both lines: whenever the worker sends next, neither goes.
+    setting = { send: true, since: TIME + 1 };
+    state.entries.push({ key: 3, entry: { ...blocked({ step: 3 }), time: TIME + 1 } });
     await problems.flush();
     expect(reportProblems).toHaveBeenCalledTimes(1);
     expect(reportProblems.mock.calls[0]?.[2].entries.map((entry) => entry.seq)).toEqual([3]);
+    // Turned on without a time, as a record from before the field: every line goes.
+    setting = { send: true };
+    state.entries.push({ key: 4, entry: blocked({ step: 4 }) });
+    await problems.flush();
+    expect(reportProblems.mock.calls[1]?.[2].entries.map((entry) => entry.seq)).toEqual([4]);
   });
 
-  it("sends nothing when the setting cannot be read", async () => {
-    const { problems, reportProblems } = setup({
+  it("sends nothing when the setting cannot be read, and keeps the retry hold", async () => {
+    const { problems, reportProblems, state } = setup({
       entries: keyed(blocked(), blocked({ step: 1 })),
-      cursor: { service: CONNECTION.origin, deviceId: CONNECTION.deviceId, after: 0 },
-      enabled: () => Promise.reject(new Error("storage")),
+      cursor: {
+        service: CONNECTION.origin,
+        deviceId: CONNECTION.deviceId,
+        after: 0,
+        failures: 2,
+        retryAt: 5_000,
+      },
+      setting: () => Promise.reject(new Error("storage")),
     });
     await problems.flush();
     expect(reportProblems).not.toHaveBeenCalled();
+    expect(state.cursor).toMatchObject({ after: 0, failures: 2, retryAt: 5_000 });
   });
 
   it("starts after the newest entry for a new pairing, so no earlier line is sent", async () => {
