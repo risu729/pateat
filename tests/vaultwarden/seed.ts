@@ -61,7 +61,8 @@ const authenticatorSchema = v.object({
   key: v.pipe(v.string(), v.regex(/^[A-Z2-7]{32}$/)),
 });
 // Vaultwarden 1.37.5+ answers the settings reads with the method's state and a token that the
-// following change must send back (`userVerificationToken`, as Bitwarden's web vault 2026.7.1+ does).
+// following change must send back (`userVerificationToken`; its release notes: needed by the
+// web vault 2026.7.1+ to turn two-step methods on or off).
 const verificationTokenSchema = v.pipe(v.string(), v.minLength(1));
 const authenticatorAnswerSchema = v.object({
   authenticator: authenticatorSchema,
