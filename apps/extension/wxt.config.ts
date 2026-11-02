@@ -16,6 +16,14 @@ function buildRevision(): string {
   }
 }
 
+/**
+ * A release build, the one published, sets PATEAT_RELEASE=true; every other build keeps
+ * debug logging on until it is turned off (ADR 0019).
+ */
+function releaseBuild(): boolean {
+  return process.env["PATEAT_RELEASE"] === "true";
+}
+
 /** The SDK version the bundled Bitwarden package pins, shown on the diagnostics page. */
 function bitwardenSdkVersion(): string {
   return readBitwardenSdkSource().version;
@@ -29,6 +37,7 @@ export default defineConfig({
     define: {
       PATEAT_BUILD_REVISION: JSON.stringify(buildRevision()),
       PATEAT_BITWARDEN_SDK_VERSION: JSON.stringify(bitwardenSdkVersion()),
+      PATEAT_DEBUG_STAYS_ON: JSON.stringify(!releaseBuild()),
     },
   }),
   manifest: ({ mode }) => ({

@@ -12,6 +12,8 @@ export default defineConfig({
   // Browser Mode suites share this root; separate caches keep one suite's optimized
   // dependencies from making the next suite re-optimize and reload its page.
   cacheDir: "node_modules/.vite/extension-dom",
+  // As in a development build (apps/extension/wxt.config.ts).
+  define: { PATEAT_DEBUG_STAYS_ON: "true" },
   // Pre-bundle up front; a mid-run optimization reloads the test page.
   optimizeDeps: { include: ["react", "react-dom", "react-dom/client", "valibot", "xstate"] },
   test: {

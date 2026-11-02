@@ -41,11 +41,12 @@ export const LOG_RETENTION_MS = 14 * 24 * HOUR_MS;
 export const DEBUG_RETENTION_MS = 24 * HOUR_MS;
 export const DEBUG_LOGGING_MS = 24 * HOUR_MS;
 /**
- * Until Pateat is published, debug logging once turned on stays on until it is turned off
- * rather than for {@link DEBUG_LOGGING_MS}, so the detail of a login that goes wrong is
- * there (owner, 2026-10-18). It is turned off, or removed, before publishing.
+ * In development and testing builds, debug logging once turned on stays on until it is
+ * turned off rather than for {@link DEBUG_LOGGING_MS}, so the detail of a login that goes
+ * wrong is there (owner, 2026-10-18). A release build (`PATEAT_RELEASE=true` at build
+ * time) leaves it off, and reads a stored {@link DEBUG_UNTIL_TURNED_OFF} as off.
  */
-export const DEBUG_STAYS_ON = true;
+export const DEBUG_STAYS_ON = PATEAT_DEBUG_STAYS_ON;
 /** The stored deadline of debug logging that stays on until it is turned off. */
 export const DEBUG_UNTIL_TURNED_OFF = 8_640_000_000_000_000;
 /**
