@@ -347,17 +347,18 @@ Amended on 2026-11-02 (owner, 07:51 UTC: 「追加だけして、既定は今ま
 setting with the default unchanged): the settings page's Passkeys section has two
 checkboxes, "Answer passkey requests without a click on the page" (presence `always`
 when checked, `activation` when not) and "Tell sites that you were verified"
-(verification `always` or `never`). Both are checked by default, the initial policy.
-The policy is a device setting in `storage.local` (`pateat.passkey-policy.v1`, such as
+(verification `always` or `never`). Both are checked by default, the initial policy. The
+policy is a device setting in `storage.local` (`pateat.passkey-policy.v1`, such as
 `{ "presence": "activation", "verification": "never" }`), never synced, as the vault
 timeout is ([ADR 0075](0075-vault-lock-and-timeout.md)), and one policy covers every
 site rather than one per site (both Claude's choices). The worker reads it for each
-request, so a change applies to the next one. A record that does not parse, or cannot
-be read, gives `activation` and `never`. While either is off, page-load and
+request, so a change applies to the next one. A record that does not parse, or cannot be
+read, gives `activation` and `never`. While either is off, page-load and
 executor-triggered requests or UV-required requests go to the browser, so Pateat's own
 passkey logins there need the person: a login whose recipe presses a passkey button
 still takes that route, and the browser's prompt opens. A cancel the page sends while
-the policy is read is kept, so that request ends cancelled.
+the policy is read is kept, so that request ends cancelled. The probe build, for
+synthetic tests only, keeps its own policy and ignores this setting.
 
 ## Alternatives
 
