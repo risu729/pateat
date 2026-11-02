@@ -588,6 +588,37 @@ describe("extractLoginObservation", () => {
     );
   });
 
+  it("locates a field by its name or autocomplete token before a counter-shaped ID (#1161)", () => {
+    // Discord (2026-11-02): `uid_7` and `uid_9` on its invite login page read `uid_13`
+    // and `uid_15` on `/login`, for the same inputs.
+    page(
+      `<form><input id="uid_7" name="email" autocomplete="username webauthn">
+        <input id="uid_9" name="password" type="password" autocomplete="current-password">
+        <button type="submit">Log In</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "name", value: "email" },
+      { by: "name", value: "password" },
+      { by: "text", value: "Log In" },
+    ]);
+    // Without a name, a login autocomplete token names the field before the ID.
+    page(
+      `<form><input id="uid_7" autocomplete="username"><input id="web-ui3" type="password">
+        <button id="field-12">Log In</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "autocomplete", value: "username" },
+      { by: "id", value: "web-ui3" },
+      { by: "id", value: "field-12" },
+    ]);
+    // An ID without a separator before its digits is no counter.
+    page(`<form><input id="address1" name="line"><input id="address2" name="line2"></form>`);
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "id", value: "address1" },
+      { by: "id", value: "address2" },
+    ]);
+  });
+
   it("locates a field that only a per-load ID names by its visible name (ADR 0037)", () => {
     // 外資就活ドットコム (Mantine, 2026-10-13): random IDs, no name, autocomplete or label.
     page(

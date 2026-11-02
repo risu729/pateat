@@ -106,3 +106,34 @@ Consequences:
 - Demoting only counter-like IDs (B) was not chosen: it guesses from the page (a stem
   and digits shared by another element), demotes stable numbered IDs such as
   `address1` and `address2`, and misses a counter alone on its page.
+
+## Amendment 2026-11-02: counter-shaped IDs give way
+
+Status: proposed, waiting for the owner's decision. It reverses the "demoting only
+counter-like IDs (B)" rejection above, for a shape that needs no other element.
+
+Discord's login form
+([issue #1161](https://github.com/risu729/pateat/issues/1161)) has no test attribute.
+Measured in Chromium on 2026-11-02, its inputs read
+`<input name="email" id="uid_7" autocomplete="username webauthn">` and
+`<input name="password" id="uid_9" autocomplete="current-password">` on
+`/invite/<code>/login`, and `id="uid_13"` and `id="uid_15"` on `/login`. A recipe that
+names them by `id` stops matching whenever the page renders a different number of
+components first. The step then waits out its 10 seconds (`elements-timeout`) until the
+retry limit, and nothing is filled.
+
+Decision 2 changes: an `id` is counter-shaped when it is lower-case words joined by `-`
+or `_`, ends in one to four digits and holds at least one `-` or `_` (`uid_7`,
+`web-ui3`, `field-12`, `password-field-1`). Such an `id` gives way to a unique `name`,
+then to a fillable input's login `autocomplete` token. It is still used when neither
+names the element alone, so a stable numbered ID loses nothing on a page without
+another locator. IDs without a separator before the digits (`address1`) are unchanged.
+
+Consequences:
+
+- The shape is read from the ID alone, so a counter alone on its page is caught and no
+  other element is compared.
+- A stable ID of that shape is named by its `name` or `autocomplete` token instead,
+  which is as stable for a form field.
+- Recipes generated before keep their targets. Discord's must be removed on the
+  management page and generated again.
