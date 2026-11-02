@@ -149,7 +149,7 @@ export const observedCandidateSchema = v.pipe(
     group: v.optional(identifier),
     // Page-declared input constraints. Lengths are UTF-16 code units, as HTML counts them.
     // The extractor omits a length outside 1-1024 (0, absent or effectively unbounded
-    // values such as 524288), omits both when minlength exceeds maxlength, and omits
+    // values such as 524288), omits minlength when it exceeds maxlength, and omits
     // lengths on number inputs, where browsers ignore them, so one odd attribute never
     // rejects the whole observation. Constraints appear only on fill roles. `pattern` is deliberately absent:
     // evaluating a page-supplied expression locally could hang the caller.
@@ -432,11 +432,13 @@ export const customFieldSlotDescriptions = {
 
 /**
  * Whether the executor would fill a TOTP code into this element (ADR 0013, the extension's
- * `acceptsSecret`): `autocomplete="one-time-code"`, or a numeric, tel or number input whose
- * `maxlength` is 1 to 10. Observations omit lengths on number inputs, so a number input
- * counts only with the autocomplete hint.
+ * `acceptsSecret`): a fill-role input with `autocomplete="one-time-code"`, or a numeric,
+ * tel or number input whose `maxlength` is 1 to 10. Observations omit lengths on number
+ * inputs, so a number input counts only with the autocomplete hint. A select is never one,
+ * whatever its `autocomplete` says, since no code is chosen from a list.
  */
 export function isCodeField(candidate: ObservedCandidate): boolean {
+  if (!(fillRoles as readonly string[]).includes(candidate.role)) return false;
   return (
     candidate.autocomplete === "one-time-code" ||
     ((candidate.inputMode === "numeric" ||

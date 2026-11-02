@@ -1298,12 +1298,14 @@ function constraints(input: HTMLInputElement, role: ObservedCandidate["role"]) {
   const inRange = (value: number) => value >= 1 && value <= 1024;
   const max = input.maxLength;
   const min = input.minLength;
+  // A `minlength` over the `maxlength` is dropped alone: the browser still limits typing to
+  // the `maxlength`, which the fill checks too.
   const lengths =
-    role === "number" || (inRange(max) && inRange(min) && min > max)
+    role === "number"
       ? {}
       : {
           ...(inRange(max) ? { maxLength: max } : {}),
-          ...(inRange(min) ? { minLength: min } : {}),
+          ...(inRange(min) && !(inRange(max) && min > max) ? { minLength: min } : {}),
         };
   const mode = input.getAttribute("inputmode")?.trim().toLowerCase();
   const inputMode = inputModes.find((entry) => entry === mode);
