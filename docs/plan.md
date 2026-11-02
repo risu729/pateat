@@ -1152,9 +1152,11 @@ Once the fixes have settled:
   tests: `hold-policy.ts`, `admit-record-policy.ts` and `relogin-policy.ts`
   ([#1144](https://github.com/risu729/pateat/pull/1144),
   [#1145](https://github.com/risu729/pateat/pull/1145),
-  [#1146](https://github.com/risu729/pateat/pull/1146)). Next: tests that walk every
-  case of the other pure functions where that checks more than their table tests,
-  without lengthening CI (owner, 2026-10-23 22:25 UTC).
+  [#1146](https://github.com/risu729/pateat/pull/1146)). Tests that walk every case of
+  the other pure functions where that checks more than their table tests, without
+  lengthening CI (owner, 2026-10-23 22:25 UTC), followed in
+  [#1194](https://github.com/risu729/pateat/pull/1194): the `*.exhaustive.test.ts`
+  files, with the four cases they found fixed.
 - Before Pateat is public: settings for the two protections Pateat does not honour
   today (owner, 2026-10-13 21:57 UTC). Passkey user presence and user verification:
   Pateat sets UP and UV on every assertion it claims without a gesture or a check
