@@ -12,7 +12,7 @@ Date: 2026-10-17, revised 2026-10-23
 The [translation work](../plan.md#phase-3-public-release) calls for English and Japanese
 extension UI and a language setting. Besides the extension pages, the service worker
 writes the toolbar tooltips (`chrome.action.setTitle` in `src/login/badge.ts`, from the
-choices and notes `src/login/runtime.ts` passes it). A service worker cannot read
+choices and notes `src/login/runtime/` passes it). A service worker cannot read
 `localStorage`, so a preference kept there, as the theme is, leaves those tooltips in
 English. The official Bitwarden extension keeps its locale in extension storage
 (`KeyDefinition(TRANSLATION_DISK, "locale")`, global disk state, that is

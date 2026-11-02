@@ -760,9 +760,9 @@ than in this repository.
   a failed sync after generation (both recorded under phase 1).
 - Since 2026-10-18 the worker drops a waiting account choice, a choice after a logout
   included, once its site is excluded: saved or synced settings clear it and the tab's
-  badge, and `choiceFor` in `apps/extension/src/login/runtime.ts` answers the popup and
-  a pick with `no-choice` (agent fix, owner's word 2026-10-18 04:29 UTC; local tests
-  only). Before, only the popup hid it
+  badge, and `choiceFor` in `apps/extension/src/login/runtime/choice.ts` answers the
+  popup and a pick with `no-choice` (agent fix, owner's word 2026-10-18 04:29 UTC; local
+  tests only). Before, only the popup hid it
   ([#683](https://github.com/risu729/pateat/pull/683)) and the badge kept asking until
   the page reloaded. Check in the owner's Chrome that excluding a site whose page shows
   the choice badge clears the badge. Since 2026-10-23 an exclusion rule pauses instead
@@ -1127,16 +1127,23 @@ Once the fixes have settled:
   are kept one year, so the earliest ones (2026-10-11) are deleted from 2027-10-11; a
   corpus that should include them has to be exported before then (inferred from the
   retention rule).
-- Split `apps/extension/src/login/runtime.ts` (9,998 lines on 2026-10-13, 14,468 on
-  2026-10-23; the line ranges below are from 2026-10-13) after
-  [#545](https://github.com/risu729/pateat/issues/545) moves the undecided-page
-  completion rule out, keeping the existing state transitions: the types and reports
-  (lines 1-1572), then storing and resuming attempts (`save`, `keep`, `forget`,
-  `change`), `remember` and the account choice, sign-in entry pages, page passkey
-  requests, the stop before a password, recipe generation, and last `admit` and
-  `runSteps`. `runtime.production.test.ts` is split along its eight top-level `describe`
-  blocks once its 38 shared helpers have their own module
-  ([external review](research/2026-10-13-external-review.md)).
+- The login runtime is split (owner, 2026-10-23 22:23 UTC; merged 2026-10-29):
+  `apps/extension/src/login/runtime.ts` is now `apps/extension/src/login/runtime/`,
+  every file within the 1,000-line limit, and `runtime.production.test.ts` is now
+  `apps/extension/src/login/runtime-tests/`
+  ([#1134](https://github.com/risu729/pateat/pull/1134),
+  [#1137](https://github.com/risu729/pateat/pull/1137),
+  [#1141](https://github.com/risu729/pateat/pull/1141),
+  [#1143](https://github.com/risu729/pateat/pull/1143)). The cross-tab hold
+  ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)), what admission does with
+  a tab's earlier record, and the relogin guard
+  ([ADR 0062](adr/0062-log-in-again-after-a-logout.md)) are pure functions with table
+  tests: `hold-policy.ts`, `admit-record-policy.ts` and `relogin-policy.ts`
+  ([#1144](https://github.com/risu729/pateat/pull/1144),
+  [#1145](https://github.com/risu729/pateat/pull/1145),
+  [#1146](https://github.com/risu729/pateat/pull/1146)). Next: tests that walk every
+  case of the other pure functions where that checks more than their table tests,
+  without lengthening CI (owner, 2026-10-23 22:25 UTC).
 - Before Pateat is public: settings for the two protections Pateat does not honour
   today (owner, 2026-10-13 21:57 UTC). Passkey user presence and user verification:
   Pateat sets UP and UV on every assertion it claims without a gesture or a check
