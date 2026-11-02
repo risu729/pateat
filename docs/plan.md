@@ -1084,12 +1084,11 @@ Once the fixes have settled:
   going from the service to a device (owner, 2026-10-18 08:38 UTC:
   「リリース前の考慮事項として記録はしておいて。一旦ユーザー私だけなので大丈夫」;
   [ADR 0055](adr/0055-login-records-sent-to-the-service.md)).
-- Before Pateat has other users, add a setting that turns off what a device sends on its
-  own: the login records of
-  [ADR 0055](adr/0055-login-records-sent-to-the-service.md) and the problem log lines
-  of [ADR 0066](adr/0066-problem-lines-sent-to-the-service.md). Neither has
-  one while the owner is the only user (owner, 2026-10-23 12:28 UTC: the off switch
-  waits for this list, as the revisit of ADR 0055 above does).
+- Done (2026-11-02): a setting that turns off what a device sends on its own, the login
+  records of [ADR 0055](adr/0055-login-records-sent-to-the-service.md) and the problem
+  log lines of [ADR 0066](adr/0066-problem-lines-sent-to-the-service.md). It is a
+  device setting in the Sync service section, on by default (owner, 2026-11-02 07:51
+  UTC: add it with the default unchanged); see ADR 0055's amendment of that day.
 - Next, before the rest of the work below that makes Pateat public: Japanese alongside
   English for Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the
   extension's UI text. The service's pages, such as `/manage`, come later. The owner

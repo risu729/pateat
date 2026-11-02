@@ -74,6 +74,7 @@ import {
 import { createLoginGeneration } from "../src/service/generation";
 import { createLogoutService } from "../src/service/logout";
 import { createLoginRecords } from "../src/service/login-records";
+import { SERVICE_REPORTS_KEY, readServiceReports } from "../src/service/reports-setting";
 import { createLoginOutcomes } from "../src/service/outcomes";
 import { createProblemReports } from "../src/service/problems";
 import { createRecipeUse } from "../src/service/recipe-use";
@@ -323,11 +324,15 @@ export default defineBackground(() => {
     storage: createBrowserLoginOutcomeStorage(),
     report: diagnosticsLog.loginOutcome,
   });
+  // A device setting the settings page writes turns off both of the next two.
+  const serviceReports = trustedRecord(SERVICE_REPORTS_KEY);
+  const serviceReportsSetting = () => readServiceReports(() => serviceReports.read());
   // ADR 0055: every login on a recipe revision sends its result and times once it ended.
   const loginRecords = createLoginRecords({
     service,
     transport: serviceTransport,
     build: PATEAT_BUILD_REVISION,
+    enabled: async () => (await serviceReportsSetting()).send,
     report: diagnosticsLog.loginRecord,
   });
   problemReports = createProblemReports({
@@ -335,6 +340,7 @@ export default defineBackground(() => {
     transport: serviceTransport,
     log: logger,
     build: PATEAT_BUILD_REVISION,
+    setting: serviceReportsSetting,
     report: diagnosticsLog.problemsSent,
   });
   // Lines a stopped worker had not sent yet go now.

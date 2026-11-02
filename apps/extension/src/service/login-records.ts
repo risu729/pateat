@@ -70,13 +70,16 @@ export function loginRecordOf(
 
 /**
  * Sends one record of each ended login to the paired service (ADR 0055), in the background
- * after the login ended. Nothing is stored or retried.
+ * after the login ended, unless the device turned these records off. Nothing is stored or
+ * retried.
  */
 export function createLoginRecords(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
   transport: Pick<ServiceTransport, "reportLogin">;
   /** The extension's build, `PATEAT_BUILD_REVISION`. */
   build: string;
+  /** Whether the device sends records now; absent means always (`SERVICE_REPORTS_KEY`). */
+  enabled?: () => Promise<boolean>;
   /**
    * Told of each request sent, and of each record not sent because the contract refuses
    * it, for the local log; never changes the sending.
@@ -92,6 +95,8 @@ export function createLoginRecords(options: {
     }
   };
   async function send(found: FoundLoginRecord) {
+    // Turned off on this device: the record is dropped, not kept for later.
+    if (options.enabled && !(await options.enabled().catch(() => false))) return;
     const connection = await service.connection().catch(() => undefined);
     if (!connection || connection.rejected) return;
     const { recipeId } = found;
