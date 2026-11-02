@@ -101,7 +101,11 @@ describe("a login's move to another origin, over every pair of origins (ADR 0022
       broken(
         (o) =>
           !o.fits ||
-          !(o.page.includes("://co.uk") || o.page === "not a url" || o.page.startsWith("chrome-")),
+          !(
+            URL.parse(o.page)?.hostname === "co.uk" ||
+            o.page === "not a url" ||
+            o.page.startsWith("chrome-")
+          ),
       ),
     ).toEqual([]);
   });
