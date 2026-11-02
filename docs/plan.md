@@ -3113,6 +3113,15 @@ Internet is now included, as the plan check accepts its button beside the form. 
 Japanese set now has 113 cases and the English set 46; the heuristic scores 0.73 (19
 false submits) and 0.65 (7).
 
+On 2026-11-02 both sets were observed again on main `7237e9c`. Labels moved whole on 115
+pages. On 26 more the fields' locators had changed (mostly to the test attribute, ADR
+0071), so each label was moved and checked case by case; Proton now asks for the email
+first, so its case became an `advance`. The other 18 pages keep their old observation:
+15 now show the cloud no field to fill (among them error pages, a 403 and a 502), 2
+failed to load and Atlassian's top page is now incomplete (`unlocated-button`). GMO Coin
+was refused by the 2026-10-23 code too, so the extractor did not cause it. The heuristic
+scores 0.72 (20 false submits) and 0.65 (7).
+
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
 one, which inference rejects without a call; 126 were complete. These totals were the

@@ -8,8 +8,8 @@
       "source": {
         "dataset": "web",
         "url": "https://github.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -90,8 +90,8 @@
       "source": {
         "dataset": "web",
         "url": "https://grafana.com/auth/sign-in",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -140,8 +140,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.linkedin.com/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -208,8 +208,8 @@
       "source": {
         "dataset": "web",
         "url": "https://ibanking.stgeorge.com.au/ibank/loginPage.action",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": [
         {
@@ -402,8 +402,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.members.medibankoshc.com.au/login.html",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -474,8 +474,8 @@
       "source": {
         "dataset": "web",
         "url": "https://cgi.cse.unsw.edu.au/~give/code/login.php",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -616,8 +616,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.chase.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -737,8 +737,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.wellsfargo.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -749,13 +749,13 @@
         "title": "Wells Fargo Bank | Financial Services & Online Banking",
         "headings": [
           "Wells Fargo",
-          "Good afternoon",
+          "Good evening",
           "$325 checking bonus on us",
-          "New customer? Say hello to a $125 bonus",
+          "Get started with a $125 banking bonus",
           "Find a credit card",
-          "Earn $250 in OneKeyCash®",
+          "Enjoy 0% intro APR for 21 months",
           "Interest rates today",
-          "Earn 20,000 bonus points"
+          "Earn 40,000 bonus points"
         ],
         "complete": true,
         "candidates": [
@@ -830,8 +830,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.anz.com.au/personal/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -841,7 +841,7 @@
         "language": "en",
         "title": "ANZ Personal – Bank accounts, home loans, credit cards & more | ANZ",
         "headings": [
-          "Send money overseas with $0 transfer fees Superscript: 1",
+          "Buying your next home? We'll help you get to a good place",
           "Banking with ANZ",
           "Your money matters",
           "Cost of living support",
@@ -885,8 +885,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.kraken.com/sign-in",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -997,8 +997,8 @@
       "source": {
         "dataset": "web",
         "url": "https://accounts.binance.com/en/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1014,7 +1014,7 @@
             "role": "text",
             "target": {
               "by": "id",
-              "value": "bn-formItem-jUKXN9U3"
+              "value": "bn-formItem-ENxi1G8P"
             },
             "label": "Username field for email or phone number",
             "placeholder": "Email/Phone (without country code)",
@@ -1047,8 +1047,8 @@
       "source": {
         "dataset": "web",
         "url": "https://account.booking.com/sign-in",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1108,8 +1108,8 @@
       "source": {
         "dataset": "web",
         "url": "https://stackoverflow.com/users/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1367,8 +1367,8 @@
       "source": {
         "dataset": "web",
         "url": "https://cloud.digitalocean.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1384,8 +1384,8 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
-              "value": "email"
+              "by": "test-id",
+              "value": "email-input"
             },
             "label": "email *",
             "placeholder": "Enter your email address",
@@ -1395,8 +1395,8 @@
             "id": "c2",
             "role": "password",
             "target": {
-              "by": "id",
-              "value": "password"
+              "by": "test-id",
+              "value": "password-input"
             },
             "label": "Password *",
             "placeholder": "Enter your password",
@@ -1447,8 +1447,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.twilio.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1507,8 +1507,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.capitalone.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1519,7 +1519,7 @@
         "title": "Capital One | Credit Cards, Checking, Savings & Auto Loans",
         "headings": [
           "Explore Capital One’s Banking and Financial Services",
-          "Checking accounts for student life",
+          "The freedom of fee-free checking",
           "Meet Capital One",
           "Financial wellness",
           "Built-in benefits",
@@ -1533,7 +1533,7 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
+              "by": "name",
               "value": "ods-input-0"
             },
             "label": "Username",
@@ -1544,7 +1544,7 @@
             "id": "c2",
             "role": "password",
             "target": {
-              "by": "id",
+              "by": "name",
               "value": "ods-input-1"
             },
             "label": "Password",
@@ -1608,8 +1608,8 @@
       "source": {
         "dataset": "web",
         "url": "https://verified.capitalone.com/auth/signin",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1688,8 +1688,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.citi.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1699,12 +1699,12 @@
         "language": "en",
         "title": "Online Banking, Mortgages, Personal Loans, Investing | Citi.com",
         "headings": [
-          "Explore Citi® / AAdvantage® cards",
-          "20,000 bonus points",
-          "Earn a $325 Checking Bonus",
-          "Great for Balance Transfers",
+          "Earn 50,000 AAdvantage® bonus miles",
+          "Earn 2% Cash Back",
+          "Open. Deposit. Earn $325.",
           "Go Big with Cash Back Rewards",
-          "Earn more with Citi Premium Boost"
+          "Save More, Earn More",
+          "Financial confidence starts here"
         ],
         "complete": true,
         "candidates": [
@@ -1817,8 +1817,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.usbank.com/index.html",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -1913,8 +1913,8 @@
       "source": {
         "dataset": "web",
         "url": "https://robinhood.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2014,8 +2014,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.natwest.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2025,9 +2025,9 @@
         "language": "en",
         "title": "NatWest Online – Bank Accounts, Mortgages, Loans and Savings",
         "headings": [
-          "Time to explore our 1 year Fixed Rate ISA? 4.25% AER/Tax free p.a. (fixed)",
+          "You could win £10,000 with our ISA Prize draw",
           "Banking",
-          "Cash ISA rules are changing – here's what it could mean for your money",
+          "Cash ISA limit update",
           "The bank for all ages and stages",
           "Easy app banking",
           "An app that gives you financial control",
@@ -2067,8 +2067,8 @@
       "source": {
         "dataset": "web",
         "url": "https://piazza.com/account/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2185,8 +2185,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.overleaf.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2307,8 +2307,8 @@
       "source": {
         "dataset": "web",
         "url": "https://orcid.org/signin",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2409,8 +2409,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.jstor.org/action/showLoginPage",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2453,8 +2453,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.tumblr.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2548,8 +2548,8 @@
       "source": {
         "dataset": "web",
         "url": "https://identity.flickr.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2564,8 +2564,8 @@
             "id": "c1",
             "role": "email",
             "target": {
-              "by": "id",
-              "value": "login-email"
+              "by": "test-id",
+              "value": "identity-email-input"
             },
             "label": "Email address",
             "group": "f1",
@@ -2597,8 +2597,8 @@
       "source": {
         "dataset": "web",
         "url": "https://auth.hulu.com/web/login/enter-email",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2646,8 +2646,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.disneyplus.com/identity/login/enter-email",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2695,8 +2695,8 @@
       "source": {
         "dataset": "web",
         "url": "https://sso.crunchyroll.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2777,8 +2777,8 @@
       "source": {
         "dataset": "web",
         "url": "https://auth.scribd.com/u/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2850,8 +2850,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.khanacademy.org/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -2867,8 +2867,8 @@
             "id": "c1",
             "role": "text",
             "target": {
-              "by": "id",
-              "value": "username-field"
+              "by": "test-id",
+              "value": "identifier-field"
             },
             "label": "Email or username",
             "placeholder": "[email]",
@@ -2880,8 +2880,8 @@
             "id": "c2",
             "role": "password",
             "target": {
-              "by": "id",
-              "value": "current-password-field"
+              "by": "test-id",
+              "value": "password-field"
             },
             "label": "Password",
             "description": "required Must be at least 8 characters long and can't be a commonly used password.",
@@ -2955,8 +2955,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.grammarly.com/signin",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3024,8 +3024,8 @@
       "source": {
         "dataset": "web",
         "url": "https://app.mural.co/signin",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3074,8 +3074,8 @@
       "source": {
         "dataset": "web",
         "url": "https://login.mailchimp.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3164,8 +3164,8 @@
       "source": {
         "dataset": "web",
         "url": "https://login.sendgrid.com/login/identifier",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3223,8 +3223,8 @@
       "source": {
         "dataset": "web",
         "url": "https://login.mailgun.com/login/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3274,8 +3274,8 @@
       "source": {
         "dataset": "web",
         "url": "https://secure.helpscout.net/members/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3358,8 +3358,8 @@
       "source": {
         "dataset": "web",
         "url": "https://login.xero.com/identity/user/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3451,8 +3451,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.docusign.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3525,8 +3525,8 @@
       "source": {
         "dataset": "web",
         "url": "https://account.docusign.com/",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3731,8 +3731,8 @@
       "source": {
         "dataset": "web",
         "url": "https://www.grubhub.com/login",
-        "observed": "2026-10-23",
-        "commit": "381116f"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
@@ -3775,8 +3775,8 @@
             "id": "c4",
             "role": "email",
             "target": {
-              "by": "id",
-              "value": "email"
+              "by": "test-id",
+              "value": "email-input"
             },
             "label": "Email",
             "group": "f1"
@@ -3785,8 +3785,8 @@
             "id": "c5",
             "role": "password",
             "target": {
-              "by": "id",
-              "value": "password"
+              "by": "test-id",
+              "value": "password-input"
             },
             "label": "Password",
             "autocomplete": "current-password",
@@ -3839,8 +3839,8 @@
       "source": {
         "dataset": "web",
         "url": "https://lightning.bitflyer.com/",
-        "observed": "2026-10-23",
-        "commit": "74d5b3c"
+        "observed": "2026-11-02",
+        "commit": "7237e9c"
       },
       "slots": "login",
       "observation": {
