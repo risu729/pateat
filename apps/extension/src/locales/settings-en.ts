@@ -181,8 +181,6 @@ export const settingsEn = {
   "No sites listed": "No sites listed",
   "Vault timeout": "Vault timeout",
   "Saved on this device.": "Saved on this device.",
-  "The vault timeout could not be saved. Try again.":
-    "The vault timeout could not be saved. Try again.",
   "{{count}} minute_one": "{{count}} minute",
   "{{count}} minute_other": "{{count}} minutes",
   "{{count}} hour_one": "{{count}} hour",
@@ -205,8 +203,10 @@ export const settingsEn = {
     "Log out also forgets the sync sign-in; sign in again to use the vault.",
   "Lock keeps the sync sign-in; unlock with the master password, without the server.":
     "Lock keeps the sync sign-in; unlock with the master password, without the server.",
-  "Time counts from the last login filled, passkey signed, unlock or sign-in; this setting stays on this device.":
-    "Time counts from the last login filled, passkey signed, unlock or sign-in; this setting stays on this device.",
+  "Time counts from the last login filled, passkey signed, unlock or sign-in, on each device by itself. Applies on all your devices.":
+    "Time counts from the last login filled, passkey signed, unlock or sign-in, on each device by itself. Applies on all your devices.",
+  "The limits apply on all your devices, each counting its own key's spend; the key itself is saved per device.":
+    "The limits apply on all your devices, each counting its own key's spend; the key itself is saved per device.",
   "AI key": "AI key",
   "Anthropic API key": "Anthropic API key",
   "Replace the Anthropic API key": "Replace the Anthropic API key",

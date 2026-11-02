@@ -1,27 +1,37 @@
-import { useEffect, useState } from "react";
+import type { LocalSettings } from "@pateat/contracts";
 import { useTranslation } from "react-i18next";
-import {
-  currentLanguagePreference,
-  i18n,
-  parseLanguagePreference,
-  saveLanguagePreference,
-  watchLanguagePreference,
-} from "../i18n";
+import { i18n, parseLanguagePreference, saveLanguagePreference } from "../i18n";
 import { controlClass, fieldClass } from "./ui";
 
-export function LanguageSelect() {
+/** The pages' language, a profile setting synced with the others (ADR 0024, ADR 0043). */
+export function LanguageSelect({
+  draft,
+  edit,
+  disabled,
+}: {
+  draft: LocalSettings;
+  edit: (update: (value: LocalSettings) => void) => boolean;
+  disabled?: boolean;
+}) {
   const { t } = useTranslation(undefined, { i18n });
-  const [preference, setPreference] = useState(currentLanguagePreference);
-  // The page read the stored choice before rendering; this follows changes made elsewhere.
-  useEffect(() => watchLanguagePreference(setPreference), []);
   return (
     <label className={fieldClass}>
       {t("Language")}
       <select
         id="language-preference"
         className={controlClass}
-        value={preference}
-        onChange={(event) => saveLanguagePreference(parseLanguagePreference(event.target.value))}
+        value={draft.language ?? "system"}
+        disabled={disabled}
+        onChange={(event) => {
+          const preference = parseLanguagePreference(event.target.value);
+          // Stored only when chosen, as in the synced document.
+          const saved = edit((value) => {
+            if (preference === "system") delete value.language;
+            else value.language = preference;
+          });
+          // This page switches at once, before the save comes back.
+          if (saved) saveLanguagePreference(preference);
+        }}
       >
         <option value="system">{t("Browser setting")}</option>
         <option value="en">English</option>

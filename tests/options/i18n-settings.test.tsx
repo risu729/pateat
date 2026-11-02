@@ -69,6 +69,9 @@ test("changing language preserves a typed site origin, focus and the theme selec
   const value = await mount();
   const origin = page.getByRole("textbox", { name: "Origin", exact: true });
   await page.getByRole("combobox", { name: "Theme", exact: true }).selectOptions("dark");
+  // The theme is a synced profile setting, saved at once (ADR 0024).
+  await vi.waitFor(() => expect(value.saveSettings).toHaveBeenCalledOnce());
+  expect(value.saveSettings.mock.calls[0]?.[0].settings.theme).toBe("dark");
   await origin.fill("https://draft.example");
   const element = origin.element();
   await i18n.changeLanguage("ja");
@@ -79,7 +82,7 @@ test("changing language preserves a typed site origin, focus and the theme selec
   await expect
     .element(page.getByRole("combobox", { name: japanese("Theme"), exact: true }))
     .toHaveValue("dark");
-  expect(value.saveSettings).not.toHaveBeenCalled();
+  expect(value.saveSettings).toHaveBeenCalledOnce();
   await i18n.changeLanguage("en");
   await expect.element(origin).toHaveValue("https://draft.example");
   await expect.element(origin).toHaveFocus();

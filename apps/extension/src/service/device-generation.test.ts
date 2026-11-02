@@ -21,8 +21,6 @@ const KEY = "sk-ant-synthetic-0000-abcd";
 const SETTING: DeviceModelSetting = {
   version: 1,
   apiKey: KEY,
-  dailyLimitUsd: 5,
-  monthlyLimitUsd: 100,
 };
 const page: LoginObservation = {
   version: 1,
@@ -115,6 +113,7 @@ function setup(
   });
   let spend: unknown = options.spend;
   const model = createDeviceModel({
+    limits: async () => ({ dailyUsd: 5, monthlyUsd: 100 }),
     storage: {
       read: async () => ("setting" in options ? options.setting : SETTING),
       write: async () => {},

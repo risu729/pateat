@@ -14,6 +14,8 @@ import {
   type LanguageStore,
 } from "../../apps/extension/src/i18n";
 import { LanguageSelect } from "../../apps/extension/src/options/language-select";
+import { createDefaultSettings, type LocalSettings } from "../../packages/contracts/src/index";
+import { useState } from "react";
 
 beforeEach(() => {
   localStorage.clear();
@@ -115,22 +117,48 @@ test("dates and lists use the browser's regional form of the UI language", () =>
   expect(formatLocale("ja", ["en-US"])).toBe("ja");
 });
 
-test("the language control persists the choice and immediately translates its accessible label", async () => {
+test("the language control saves the choice as a profile setting and translates at once", async () => {
   const store = memoryLanguageStore();
   const stop = await followLanguagePreference(store);
   onTestFinished(stop);
-  await render(<LanguageSelect />);
+  const saved = vi.fn<(value: LocalSettings["language"]) => void>();
+  function Harness() {
+    const [draft, setDraft] = useState<LocalSettings>(createDefaultSettings);
+    return (
+      <LanguageSelect
+        draft={draft}
+        edit={(update) => {
+          const next = structuredClone(draft);
+          update(next);
+          saved(next.language);
+          setDraft(next);
+          return true;
+        }}
+      />
+    );
+  }
+  await render(<Harness />);
   const english = page.getByRole("combobox", { name: "Language", exact: true });
   await expect.element(english).toHaveValue("system");
   await english.selectOptions("ja");
   const japanese = page.getByRole("combobox", { name: "言語", exact: true });
   await expect.element(japanese).toHaveValue("ja");
-  expect(await store.get()).toBe("ja");
+  expect(saved).toHaveBeenLastCalledWith("ja");
   expect(
     [...(japanese.element() as HTMLSelectElement).options].map((option) => option.value),
   ).toEqual(["system", "en", "ja"]);
-  await store.set("en");
-  await expect.element(english).toHaveValue("en");
+  // The browser setting is the absent field, as in the synced document.
+  await japanese.selectOptions("system");
+  await expect.element(english).toHaveValue("system");
+  expect(saved).toHaveBeenLastCalledWith(undefined);
+});
+
+test("a language choice the settings page could not take changes nothing", async () => {
+  const stop = await followLanguagePreference(memoryLanguageStore());
+  onTestFinished(stop);
+  await render(<LanguageSelect draft={createDefaultSettings()} edit={() => false} />);
+  await page.getByRole("combobox", { name: "Language", exact: true }).selectOptions("ja");
+  expect(i18n.resolvedLanguage).toBe("en");
 });
 
 test("Japanese passkey chooser keeps interpolated account markup as literal text", async () => {

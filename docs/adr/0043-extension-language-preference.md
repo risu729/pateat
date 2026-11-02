@@ -5,6 +5,13 @@ translate the extension now rather than in phase 3 (2026-10-18), and to keep the
 language preference in `chrome.storage.local` (2026-10-23 11:05 UTC), after the first
 ask had assumed that the service worker shows no translated text. Amends no ADR.
 
+Amended on 2026-11-02 by [ADR 0024](0024-settings-profiles.md) (owner, 10:14 UTC,
+「そうして」 to syncing it): the language is the profile setting `language` (`en` or
+`ja`, absent for the browser setting), synced with the profile, instead of
+`pateat.language`, which is no longer read. Pages and the worker read it from the
+settings snapshot in `chrome.storage.local` and follow its changes; the settings page
+saves a choice like its other profile settings and switches its own text at once.
+
 Date: 2026-10-17, revised 2026-10-23
 
 ## Context

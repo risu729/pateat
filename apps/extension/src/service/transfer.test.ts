@@ -266,6 +266,10 @@ describe("export and import", () => {
           serviceReports: { send: false, since: 1_000 },
           passkeyPolicy: { presence: "activation", verification: "never" },
           loginInPrivateWindows: true,
+          vaultTimeout: { timeout: "restart", action: "lock" },
+          language: "ja",
+          theme: "light",
+          modelSpendLimits: { dailyUsd: 2, monthlyUsd: 50 },
         }),
       }),
     );
@@ -273,7 +277,7 @@ describe("export and import", () => {
     expect(await device.transfer.handle(importRequest(file, false))).toMatchObject({
       sites: [],
       policies: 0,
-      others: 3,
+      others: 7,
     });
   });
 

@@ -250,7 +250,7 @@ export function createDeviceGenerationBackend(options: {
         if (next === "skip") continue;
         if (next === "stop") break;
         // oxlint-disable-next-line no-await-in-loop -- each call follows the one before
-        const stop = await key.stopped(setting);
+        const stop = await key.stopped();
         if (stop) {
           if (last === undefined) return { status: "unavailable", reason: stop };
           break;

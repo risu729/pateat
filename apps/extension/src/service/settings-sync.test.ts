@@ -426,36 +426,47 @@ describe("settings sync after the first", () => {
     expect(down.transport.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("syncs the reports switch and the passkey flags as one value each (ADR 0055, ADR 0007)", async () => {
+  it("syncs the switches, the timeout, language, theme and limits as one value each (ADR 0024)", async () => {
     const changed = {
       ...agreed,
       serviceReports: { send: false, since: 1_000 },
       passkeyPolicy: { presence: "activation", verification: "never" } as const,
+      vaultTimeout: { timeout: 15, action: "log-out" } as const,
+      language: "ja" as const,
+      theme: "dark" as const,
+      modelSpendLimits: { dailyUsd: 1, monthlyUsd: 20 },
     };
+    const keys = [
+      "serviceReports",
+      "passkeyPolicy",
+      "vaultTimeout",
+      "language",
+      "theme",
+      "modelSpendLimits",
+    ] as const;
     const merge = (base: LocalSettings, local: LocalSettings, service: LocalSettings) => {
       const merged = mergeSyncedSettings(
         { service: syncedSettings(base), local: syncedSettings(base) },
         syncedSettings(local),
         syncedSettings(service),
       );
-      return [merged.serviceReports, merged.passkeyPolicy];
+      return keys.map((key) => merged[key]);
     };
-    const values = [changed.serviceReports, changed.passkeyPolicy];
+    const values = keys.map((key) => changed[key]);
+    const none = keys.map(() => undefined);
     expect(merge(agreed, changed, agreed)).toEqual(values);
-    expect(merge(changed, agreed, changed)).toEqual([undefined, undefined]);
+    expect(merge(changed, agreed, changed)).toEqual(none);
     expect(merge(agreed, agreed, changed)).toEqual(values);
-    expect(merge(changed, changed, agreed)).toEqual([undefined, undefined]);
+    expect(merge(changed, changed, agreed)).toEqual(none);
     // Changed here, they are uploaded; back to the default on the service, they go here too.
     const up = setup({ local: changed, service: state(4, agreed), base: baseOf(4, agreed) });
     expect(await up.sync.run(CONNECTION, never)).toBe("synced");
-    expect(up.service().settings).toMatchObject({
-      serviceReports: changed.serviceReports,
-      passkeyPolicy: changed.passkeyPolicy,
-    });
+    expect(up.service().settings).toMatchObject(
+      Object.fromEntries(keys.map((key) => [key, changed[key]])),
+    );
     const down = setup({ local: changed, service: state(5, agreed), base: baseOf(4, changed) });
     expect(await down.sync.run(CONNECTION, never)).toBe("synced");
-    expect(down.local()?.settings).not.toHaveProperty("serviceReports");
-    expect(down.local()?.settings).not.toHaveProperty("passkeyPolicy");
+    for (const key of keys) expect(down.local()?.settings).not.toHaveProperty(key);
   });
 
   it("merges the sites that ask for the master password per site, like exclusions", () => {

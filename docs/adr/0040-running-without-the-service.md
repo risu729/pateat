@@ -41,6 +41,13 @@ is paired decides only where recipes are kept and shared.
 | Not paired | This device calls the model and keeps the recipes | No new recipes; recipes already on the device still run |
 | Paired | This device calls the model; the service checks and stores the result | The service calls the model with the owner's credential, as before |
 
+Amended on 2026-11-02 by [ADR 0024](0024-settings-profiles.md) (owner, 10:14 UTC,
+「そうして」 to syncing them): the daily and monthly spend limits are the profile
+setting `modelSpendLimits` (`dailyUsd` and `monthlyUsd`), synced with the profile and
+absent at $5 and $100; they can be set before a key is saved. Each device still counts
+its own key's spend against them. The key stays on the device and is never synced; a key
+record saved before this keeps its key and drops the limits it held.
+
 ### The key on the settings page
 
 The settings page has an **AI key** section: a masked field for an Anthropic API key, a

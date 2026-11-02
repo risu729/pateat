@@ -11,6 +11,8 @@ import {
   type DeviceModelCall,
   type DeviceModelResponse,
   type GenerationUnavailableReason,
+  modelSpendLimitsSchema,
+  type LocalSettings,
 } from "@pateat/contracts";
 import {
   claudeModelRates,
@@ -28,12 +30,32 @@ import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transpo
 
 export const DEVICE_MODEL_KEY = "pateat.device-model.v1";
 export const DEVICE_MODEL_SPEND_KEY = "pateat.device-model-spend.v1";
-/** The spend stops a new key starts with, as the service's own (owner, 2026-10-23 12:49 UTC). */
+/** The spend stops of a profile that set none, as the service's own (owner, 2026-10-23 12:49 UTC). */
 export const DEFAULT_DEVICE_DAILY_LIMIT_USD = 5;
 export const DEFAULT_DEVICE_MONTHLY_LIMIT_USD = 100;
-export const MAX_DEVICE_LIMIT_USD = 100_000;
 
-const limitUsd = v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(MAX_DEVICE_LIMIT_USD));
+/** The profile's spend limits in US dollars, or the defaults when it set none. */
+export function spendLimits(settings: Pick<LocalSettings, "modelSpendLimits">): {
+  dailyUsd: number;
+  monthlyUsd: number;
+} {
+  return (
+    settings.modelSpendLimits ?? {
+      dailyUsd: DEFAULT_DEVICE_DAILY_LIMIT_USD,
+      monthlyUsd: DEFAULT_DEVICE_MONTHLY_LIMIT_USD,
+    }
+  );
+}
+
+/**
+ * The spend limits from a stored setting, unvalidated: the defaults when absent. A value
+ * that does not parse throws, so no call is made against limits that cannot be read.
+ */
+export function parseSpendLimits(stored: unknown): { dailyUsd: number; monthlyUsd: number } {
+  if (stored === undefined) return spendLimits({});
+  return v.parse(modelSpendLimitsSchema, stored);
+}
+export { MAX_DEVICE_LIMIT_USD } from "@pateat/contracts";
 /** An Anthropic API key as pasted: printable ASCII without spaces. */
 export const deviceModelKeySchema = v.pipe(
   v.string(),
@@ -42,11 +64,13 @@ export const deviceModelKeySchema = v.pipe(
   v.maxLength(256),
   v.regex(/^[\x21-\x7e]+$/u),
 );
-export const deviceModelSettingSchema = v.strictObject({
+/**
+ * The saved key. Its spend limits are the synced profile setting `modelSpendLimits`
+ * (ADR 0024); a record from before that still holds its old limits, which are dropped.
+ */
+export const deviceModelSettingSchema = v.object({
   version: v.literal(1),
   apiKey: deviceModelKeySchema,
-  dailyLimitUsd: limitUsd,
-  monthlyLimitUsd: limitUsd,
 });
 export type DeviceModelSetting = v.InferOutput<typeof deviceModelSettingSchema>;
 
@@ -165,6 +189,8 @@ type Unavailable = { version: 1; status: "unavailable"; reason: GenerationUnavai
 export function createDeviceModel(options: {
   storage: DeviceModelStorage;
   spend: DeviceModelSpendStorage;
+  /** The profile's spend limits, read before each call; a rejection stops the call. */
+  limits: () => Promise<{ dailyUsd: number; monthlyUsd: number }>;
   fetch?: typeof globalThis.fetch;
   now?: () => number;
 }) {
@@ -184,14 +210,15 @@ export function createDeviceModel(options: {
       throw new Error("The spend count is unreadable");
     return currentSpend(stored, at);
   }
-  async function stopped(setting: DeviceModelSetting) {
+  async function stopped() {
+    const limits = await options.limits();
     const counted = await spentAt(now());
     const spent = {
       dayMicroUsd: counted.dayMicroUsd + unrecorded,
       monthMicroUsd: counted.monthMicroUsd + unrecorded,
     };
-    if (spent.monthMicroUsd >= setting.monthlyLimitUsd * 1_000_000) return "monthly-limit";
-    if (spent.dayMicroUsd >= setting.dailyLimitUsd * 1_000_000) return "daily-limit";
+    if (spent.monthMicroUsd >= limits.monthlyUsd * 1_000_000) return "monthly-limit";
+    if (spent.dayMicroUsd >= limits.dailyUsd * 1_000_000) return "daily-limit";
     return undefined;
   }
   async function add() {
@@ -307,7 +334,7 @@ export function createDeviceModel(options: {
       let stop: Awaited<ReturnType<typeof stopped>>;
       try {
         // oxlint-disable-next-line no-await-in-loop
-        stop = await stopped(setting);
+        stop = await stopped();
       } catch {
         return { kind: "failed", error: "unexpected-response", ...timed(answer) };
       }

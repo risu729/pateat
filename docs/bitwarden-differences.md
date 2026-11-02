@@ -388,7 +388,9 @@ Pateat's side is [ADR 0075](adr/0075-vault-lock-and-timeout.md) and
   Pateat counts from the last field filled, passkey signed, unlock or sign-in, since it
   has no vault view to be active in.
 - The timeout acts on every vault on the device; the official extension sets it per
-  account. Pateat's setting is per device and never synced, as the owner chose.
+  account, kept on the device. Pateat's setting is synced with the settings profile
+  since 2026-11-02 (owner, 10:14 UTC; [ADR 0024](adr/0024-settings-profiles.md)), so
+  every device of the profile uses the same timeout, and each counts its time by itself.
 - Log out keeps Pateat's encrypted vault cache and forgets only the unlock key and the
   sync sign-in, so the connection and its field settings stay; the official logout
   removes the account from the extension.

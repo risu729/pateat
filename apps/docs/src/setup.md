@@ -118,7 +118,8 @@ The **Vault timeout** section decides how long the vaults stay unlocked, counted
 the last login filled, passkey signed, unlock or sign-in: 1, 5, 15 or 30 minutes, 1 or
 4 hours, **On system idle**, **On system lock**, **On browser restart**, **Never** (the
 default) or **Custom** minutes. **Timeout action** is **Lock** or **Log out**. The
-setting stays on this device.
+setting is synced with your other settings, so it applies on all your devices; each
+device counts the time by itself.
 
 With **Never**, the unlock key is kept in the extension's storage in Chrome, so the
 vaults unlock by themselves after Chrome restarts. The key is not protected by your
@@ -167,7 +168,8 @@ itself. The key stays on this device and is sent to Anthropic only, never to the
 service. While no service is paired, the extension writes recipes with this key itself,
 with Claude's default models, and keeps them on this device. **Daily limit (USD)** and
 **Monthly limit (USD)**, $5 and $100 unless you change them, stop requests at either
-limit. **Remove key** deletes the key.
+limit. The limits are synced with your other settings, so they apply on all your
+devices, and each device counts its own key's spend. **Remove key** deletes the key.
 
 ### Export and import
 

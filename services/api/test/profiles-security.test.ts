@@ -101,6 +101,10 @@ describe("settings profile isolation", () => {
       loginInPrivateWindows: true as const,
       serviceReports: { send: false, since: 1_000 },
       passkeyPolicy: { presence: "activation" as const, verification: "never" as const },
+      vaultTimeout: { timeout: 15, action: "log-out" as const },
+      language: "ja" as const,
+      theme: "dark" as const,
+      modelSpendLimits: { dailyUsd: 1, monthlyUsd: 20 },
       passkeyBrowserSites: [{ hostname: "default-passkeys.example" }],
     };
     expect((await save(device.credential, settings.revision, shared)).status).toBe(200);
@@ -127,10 +131,16 @@ describe("settings profile isolation", () => {
     expect(state.settings).not.toHaveProperty("loginInPrivateWindows");
     expect(state.settings).not.toHaveProperty("serviceReports");
     expect(state.settings).not.toHaveProperty("passkeyPolicy");
+    for (const key of ["vaultTimeout", "language", "theme", "modelSpendLimits"])
+      expect(state.settings).not.toHaveProperty(key);
     const {
       loginInPrivateWindows: _on,
       serviceReports: _reports,
       passkeyPolicy: _policy,
+      vaultTimeout: _timeout,
+      language: _language,
+      theme: _theme,
+      modelSpendLimits: _limits,
       ...off
     } = shared;
     const filled = await save(agent.credential, state.revision, {
@@ -172,6 +182,15 @@ describe("settings profile isolation", () => {
     });
     expect(after.settings).not.toHaveProperty("serviceReports");
     expect(after.settings).not.toHaveProperty("passkeyPolicy");
+    // So are the vault timeout, language, theme and spend limits (2026-11-02).
+    expect(original.settings).toMatchObject({
+      vaultTimeout: shared.vaultTimeout,
+      language: "ja",
+      theme: "dark",
+      modelSpendLimits: shared.modelSpendLimits,
+    });
+    for (const key of ["vaultTimeout", "language", "theme", "modelSpendLimits"])
+      expect(after.settings).not.toHaveProperty(key);
     expect(original.settings?.passkeyBrowserSites).toEqual([
       { hostname: "default-passkeys.example" },
     ]);
