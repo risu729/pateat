@@ -3,7 +3,7 @@ import { visible } from "./code-submission";
 import { findKeypad, keypadField } from "./keypad";
 import { autocompleteTokens } from "./targets";
 import { collapseText, readBehindModal, renderedText } from "./text";
-import { composedParent, containsAcross, controlsOf, formOf, queryAll } from "./shadow";
+import { composedParent, containsAcross, controlsOf, formOf, queryAll, treeOf } from "./shadow";
 
 // The page signs of ADR 0029, read after an effect step that no check explained. Nothing
 // read here, including the username compared with the header, leaves the content script:
@@ -226,16 +226,19 @@ function alertTexts(
   fields: readonly HTMLInputElement[],
   beside = false,
 ): Set<string> {
-  const named = new Set(
+  const named = new Set<Element | null>(
     fields.flatMap((input) =>
       ["aria-describedby", "aria-errormessage"].flatMap((name) =>
-        (input.getAttribute(name) ?? "").split(/\s+/u).filter(Boolean),
+        (input.getAttribute(name) ?? "")
+          .split(/\s+/u)
+          .filter(Boolean)
+          .map((id) => (input.isConnected ? treeOf(input).getElementById(id) : null)),
       ),
     ),
   );
   const forms = formsOf(fields);
   const near = (element: Element) =>
-    [...forms].some((form) => containsAcross(form, element)) || named.has(element.id);
+    [...forms].some((form) => containsAcross(form, element)) || named.has(element);
   const regions = beside
     ? queryAll(document, `${alertSelector}, ${statusSelector}`).filter(
         (element) => near(element) || besideForm(element, fields, forms) === undefined,

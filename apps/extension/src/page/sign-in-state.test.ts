@@ -8,6 +8,46 @@ afterEach(() => {
 const none = { password: false, code: false, captcha: false, invalid: false, alert: false };
 
 describe("pageSigns", () => {
+  it.each(["input", "form"])("ignores a named region after its %s was detached", (selector) => {
+    document.body.innerHTML =
+      '<form><input aria-describedby="hint"></form><p role="status" id="hint"></p>';
+    const field = document.querySelector("input")!;
+    const submitted = submittedPage(document, [field]);
+    document.querySelector(selector)!.remove();
+    document.getElementById("hint")!.textContent = "Unrelated change";
+    expect(pageSigns(document, { submitted }).alert).toBe(false);
+    expect(pageSigns(document, { reshown: [field] }).alert).toBe(false);
+  });
+
+  it.each(["aria-describedby", "aria-errormessage"])(
+    "resolves %s feedback in the sign-in input's own tree",
+    (attribute) => {
+      for (const shadow of [false, true]) {
+        document.body.innerHTML = '<div id="login"></div><div id="widget"></div>';
+        const host = document.querySelector("#login")!;
+        const scope = shadow ? host.attachShadow({ mode: "open" }) : host;
+        scope.innerHTML = `<form><input ${attribute}="hint"></form><p role="status" id="hint"></p>`;
+        const field = scope.querySelector("input")!;
+        const own = scope.querySelector("#hint")!;
+        const sibling = document.querySelector("#widget")!.attachShadow({ mode: "open" });
+        sibling.innerHTML = '<p role="status" id="hint">10 seconds remaining</p>';
+        if (shadow)
+          document.body.insertAdjacentHTML(
+            "beforeend",
+            '<p role="status" id="hint">Document timer</p>',
+          );
+        const submitted = submittedPage(document, [field]);
+        sibling.querySelector("p")!.textContent = "9 seconds remaining";
+        if (shadow) document.getElementById("hint")!.textContent = "Document timer changed";
+        expect(pageSigns(document, { submitted }).alert).toBe(false);
+        expect(pageSigns(document, { reshown: [field] }).alert).toBe(false);
+        own.textContent = "Wrong password";
+        expect(pageSigns(document, { submitted }).alert).toBe(true);
+        expect(pageSigns(document, { reshown: [field] }).alert).toBe(true);
+      }
+    },
+  );
+
   it("reads a shown password input, but not one for a new password", () => {
     document.body.innerHTML = '<form><input type="password"></form>';
     expect(pageSigns(document)).toEqual({ ...none, password: true });

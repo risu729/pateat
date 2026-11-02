@@ -1,5 +1,5 @@
 import { valueMismatch, type ValueMismatch } from "@pateat/contracts";
-import { containsAcross, formOf, queryAll } from "./shadow";
+import { containsAcross, formOf, queryAll, treeOf } from "./shadow";
 
 // The executor's local fill checks (ADR 0010). They read only the page and the values
 // already in the content script; nothing they see, including alert text that may echo
@@ -59,17 +59,20 @@ function feedbackTexts(
 ): Set<string> {
   const root = inputs[0]?.ownerDocument ?? document;
   const form = inputs[0] && formOf(inputs[0]);
-  const named = new Set(
+  const named = new Set<Element | null>(
     inputs.flatMap((input) =>
       ["aria-describedby", "aria-errormessage"].flatMap((name) =>
-        (input.getAttribute(name) ?? "").split(/\s+/u).filter(Boolean),
+        (input.getAttribute(name) ?? "")
+          .split(/\s+/u)
+          .filter(Boolean)
+          .map((id) => (input.isConnected ? treeOf(input).getElementById(id) : null)),
       ),
     ),
   );
   const shown = [
     ...queryAll(root, alertSelector),
     ...(regions === "alert" ? [] : queryAll(root, statusSelector)).filter(
-      (element) => (form && containsAcross(form, element)) || named.has(element.id),
+      (element) => (form && containsAcross(form, element)) || named.has(element),
     ),
   ];
   const texts = new Set<string>();
