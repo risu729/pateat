@@ -128,8 +128,7 @@ export const serviceJa = {
   "The recipes kept on this device were deleted.": "このデバイスに残したレシピを削除しました。",
   "Send login records and problem reports to the service":
     "ログインの記録と問題の報告をサービスに送る",
-  "Each ended login's result and times, and the diagnostics log's warnings, errors and reasons Pateat did nothing on a page. Off: none are sent, and what was logged while off is never sent. Applies on this device only.":
-    "終わったログインの結果とかかった時間、診断ログの警告とエラー、ページで Pateat が何もしなかった理由を送ります。オフにすると何も送らず、オフの間に記録したものも後から送りません。このデバイスだけの設定です。",
-  "The setting could not be saved. Try again.":
-    "設定を保存できませんでした。もう一度お試しください。",
+  "Each ended login's result and times, and the diagnostics log's warnings, errors and reasons Pateat did nothing on a page. Off: none are sent, and what was logged while off is never sent. Applies on all your devices.":
+    "終わったログインの結果とかかった時間、診断ログの警告とエラー、ページで Pateat が何もしなかった理由を送ります。オフにすると何も送らず、オフの間に記録したものも後から送りません。すべてのデバイスに適用されます。",
+  "Reports to the service": "サービスへの報告",
 } satisfies Record<keyof typeof serviceEn, string>;

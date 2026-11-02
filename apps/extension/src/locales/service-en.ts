@@ -125,7 +125,7 @@ export const serviceEn = {
   "The recipes kept on this device were deleted.": "The recipes kept on this device were deleted.",
   "Send login records and problem reports to the service":
     "Send login records and problem reports to the service",
-  "Each ended login's result and times, and the diagnostics log's warnings, errors and reasons Pateat did nothing on a page. Off: none are sent, and what was logged while off is never sent. Applies on this device only.":
-    "Each ended login's result and times, and the diagnostics log's warnings, errors and reasons Pateat did nothing on a page. Off: none are sent, and what was logged while off is never sent. Applies on this device only.",
-  "The setting could not be saved. Try again.": "The setting could not be saved. Try again.",
+  "Each ended login's result and times, and the diagnostics log's warnings, errors and reasons Pateat did nothing on a page. Off: none are sent, and what was logged while off is never sent. Applies on all your devices.":
+    "Each ended login's result and times, and the diagnostics log's warnings, errors and reasons Pateat did nothing on a page. Off: none are sent, and what was logged while off is never sent. Applies on all your devices.",
+  "Reports to the service": "Reports to the service",
 } as const;

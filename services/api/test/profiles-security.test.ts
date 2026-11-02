@@ -99,6 +99,8 @@ describe("settings profile isolation", () => {
       excludedSites: [{ hostname: "default-only.example", includeSubdomains: false }],
       repromptSites: [{ hostname: "default-bank.example", includeSubdomains: true }],
       loginInPrivateWindows: true as const,
+      serviceReports: { send: false, since: 1_000 },
+      passkeyPolicy: { presence: "activation" as const, verification: "never" as const },
       passkeyBrowserSites: [{ hostname: "default-passkeys.example" }],
     };
     expect((await save(device.credential, settings.revision, shared)).status).toBe(200);
@@ -123,7 +125,14 @@ describe("settings profile isolation", () => {
     });
     expect(state.profileId).not.toBe(settings.profileId);
     expect(state.settings).not.toHaveProperty("loginInPrivateWindows");
-    const { loginInPrivateWindows: _on, ...off } = shared;
+    expect(state.settings).not.toHaveProperty("serviceReports");
+    expect(state.settings).not.toHaveProperty("passkeyPolicy");
+    const {
+      loginInPrivateWindows: _on,
+      serviceReports: _reports,
+      passkeyPolicy: _policy,
+      ...off
+    } = shared;
     const filled = await save(agent.credential, state.revision, {
       ...off,
       excludedSites: [{ hostname: "agent-only.example", includeSubdomains: false }],
@@ -155,6 +164,14 @@ describe("settings profile isolation", () => {
     // So is automatic login in private windows (ADR 0062), a profile part as well.
     expect(original.settings?.loginInPrivateWindows).toBe(true);
     expect(after.settings).not.toHaveProperty("loginInPrivateWindows");
+    // So are the reports switch (ADR 0055) and the passkey flags (ADR 0007).
+    expect(original.settings?.serviceReports).toEqual({ send: false, since: 1_000 });
+    expect(original.settings?.passkeyPolicy).toEqual({
+      presence: "activation",
+      verification: "never",
+    });
+    expect(after.settings).not.toHaveProperty("serviceReports");
+    expect(after.settings).not.toHaveProperty("passkeyPolicy");
     expect(original.settings?.passkeyBrowserSites).toEqual([
       { hostname: "default-passkeys.example" },
     ]);

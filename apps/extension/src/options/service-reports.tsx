@@ -1,62 +1,46 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { LocalSettings } from "@pateat/contracts";
 import { Info } from "lucide-react";
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
-import {
-  parseServiceReports,
-  SERVICE_REPORTS_KEY,
-  type ServiceReportsSetting,
-} from "../service/reports-setting";
-import { trustedRecord } from "../storage";
-import { checkClass, StatusLines } from "./ui";
+import { checkClass, Panel, StatusLines } from "./ui";
 
-/** Reads and writes whether this device sends its own reports to the service; never synced. */
-export interface ServiceReportsClient {
-  read(): Promise<ServiceReportsSetting>;
-  write(value: ServiceReportsSetting): Promise<void>;
-}
-
-/** The settings page's own `storage.local` record; the service worker follows its changes. */
-export function createServiceReportsClient(): ServiceReportsClient {
-  const record = trustedRecord<ServiceReportsSetting>(SERVICE_REPORTS_KEY);
-  return {
-    read: async () => parseServiceReports(await record.read()),
-    write: (value) => record.write(value),
-  };
-}
-
-const QUERY_KEY = ["settings", "service-reports"] as const;
+export const SERVICE_REPORTS_SECTION = "service-reports";
 
 /**
- * Whether this device sends a record of each ended login (ADR 0055) and its problem log
- * lines (ADR 0066) to the paired service. On by default.
+ * Whether the profile's devices send a record of each ended login (ADR 0055) and their
+ * problem log lines (ADR 0066) to the paired service. On by default; synced with the
+ * profile like the other settings here.
  */
-export function ServiceReports({ client }: { client: ServiceReportsClient }) {
+export function ServiceReports({
+  draft,
+  edit,
+  now = Date.now,
+}: {
+  draft: LocalSettings;
+  edit: (update: (value: LocalSettings) => void) => boolean;
+  now?: () => number;
+}) {
   const { t } = useTranslation(undefined, { i18n });
-  const queryClient = useQueryClient();
-  const [message, setMessage] = useState("");
-  const setting = useQuery({ queryKey: QUERY_KEY, queryFn: () => client.read(), retry: false });
-  const save = useMutation({
-    mutationFn: (value: ServiceReportsSetting) => client.write(value),
-    onMutate: () => setMessage(t("Saving…")),
-    onSuccess: (_result, value) => {
-      queryClient.setQueryData(QUERY_KEY, value);
-      setMessage(t("Saved on this device."));
-    },
-    onError: () => setMessage(t("The setting could not be saved. Try again.")),
-  });
-  const value = setting.data;
+  const on = draft.serviceReports?.send ?? true;
   return (
-    <div className="flex flex-col gap-2">
+    <Panel
+      id={SERVICE_REPORTS_SECTION}
+      headingId="service-reports-heading"
+      title={t("Reports to the service")}
+    >
       <label className={checkClass}>
         <input
           id="service-reports"
           type="checkbox"
-          checked={value?.send ?? false}
-          disabled={!value || save.isPending}
+          checked={on}
           aria-describedby="service-reports-note"
-          onChange={(event) => save.mutate({ send: event.target.checked, since: Date.now() })}
+          onChange={(event) => {
+            const send = event.target.checked;
+            // The time lets devices pass over lines written while it was off.
+            edit((settings) => {
+              settings.serviceReports = { send, since: now() };
+            });
+          }}
         />
         {t("Send login records and problem reports to the service")}
       </label>
@@ -68,14 +52,11 @@ export function ServiceReports({ client }: { client: ServiceReportsClient }) {
             tone: "idle",
             icon: Info,
             text: t(
-              "Each ended login's result and times, and the diagnostics log's warnings, errors and reasons Pateat did nothing on a page. Off: none are sent, and what was logged while off is never sent. Applies on this device only.",
+              "Each ended login's result and times, and the diagnostics log's warnings, errors and reasons Pateat did nothing on a page. Off: none are sent, and what was logged while off is never sent. Applies on all your devices.",
             ),
           },
         ]}
       />
-      <output id="service-reports-status" className="text-sm leading-5" aria-live="polite">
-        {setting.isError ? t("Unavailable") : message}
-      </output>
-    </div>
+    </Panel>
   );
 }

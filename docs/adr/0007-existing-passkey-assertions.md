@@ -4,7 +4,7 @@ Status: accepted for M5. On 2026-10-10 the owner chose to set UP and UV on every
 claimed assertion without a user gesture, knowingly departing from the WebAuthn
 ceremony; this amends the truthful UV/UP condition in
 [ADR 0001](0001-local-login-boundary.md). A per-site setting is planned later; a
-device setting for every site was added on 2026-11-02 (see
+profile setting for every site was added on 2026-11-02 (see
 [presence and verification](#presence-and-verification)).
 Also on 2026-10-10 the owner chose the official Bitwarden client's item rule:
 search every live login item by RP ID, and use the site default only to choose
@@ -348,12 +348,12 @@ setting with the default unchanged): the settings page's Passkeys section has tw
 checkboxes, "Answer passkey requests without a click on the page" (presence `always`
 when checked, `activation` when not) and "Tell sites that you were verified"
 (verification `always` or `never`). Both are checked by default, the initial policy. The
-policy is a device setting in `storage.local` (`pateat.passkey-policy.v1`, such as
-`{ "presence": "activation", "verification": "never" }`), never synced, as the vault
-timeout is ([ADR 0075](0075-vault-lock-and-timeout.md)), and one policy covers every
-site rather than one per site (both Claude's choices). The worker reads it for each
-request, so a change applies to the next one. A record that does not parse, or cannot be
-read, gives `activation` and `never`. While either is off, page-load and
+policy is the profile setting `passkeyPolicy`, synced with the profile
+([ADR 0024](0024-settings-profiles.md); owner, 09:48 UTC: settings sync by default),
+such as `{ "presence": "activation", "verification": "never" }`, and absent while both
+are `always`. One policy covers every site rather than one per site (Claude's choice).
+The worker reads it for each request, so a change applies to the next one. Settings that
+cannot be read give `activation` and `never`. While either is off, page-load and
 executor-triggered requests or UV-required requests go to the browser, so Pateat's own
 passkey logins there need the person: a login whose recipe presses a passkey button
 still takes that route, and the browser's prompt opens. A cancel the page sends while

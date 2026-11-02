@@ -314,8 +314,6 @@ export const settingsJa = {
   "Answer passkey requests without a click on the page":
     "ページでクリックしていなくてもパスキーのリクエストに応じる",
   "Tell sites that you were verified": "本人確認が済んだとサイトに伝える",
-  "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on this device only.":
-    "Pateat 自身は確認をしません。保管庫のロックが解除されていて、サイトのアカウントが選ばれていれば応じます。オフにすると、クリックなしのリクエストや本人確認が必須のリクエストはブラウザーか別の拡張機能に任せるので、そのサイトでは Pateat がパスキーで自動ログインできなくなります。このデバイスだけの設定です。",
-  "The passkey setting could not be saved. Try again.":
-    "パスキーの設定を保存できませんでした。もう一度お試しください。",
+  "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on all your devices.":
+    "Pateat 自身は確認をしません。保管庫のロックが解除されていて、サイトのアカウントが選ばれていれば応じます。オフにすると、クリックなしのリクエストや本人確認が必須のリクエストはブラウザーか別の拡張機能に任せるので、そのサイトでは Pateat がパスキーで自動ログインできなくなります。すべてのデバイスに適用されます。",
 } satisfies Record<keyof typeof settingsEn, string>;

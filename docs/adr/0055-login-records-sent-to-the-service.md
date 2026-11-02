@@ -18,20 +18,20 @@ log's `warn` and `error` lines and why Pateat did nothing. A setting to turn off
 kinds of sending was on the
 [pre-release list](../plan.md#phase-3-public-release).
 
-Amended on 2026-11-02: the settings page's Sync service section has a checkbox, "Send
-login records and problem reports to the service", that turns off both kinds of sending
-(owner, 2026-11-02 07:51 UTC: 「追加だけして、既定は今まで通」, add it with the default
-unchanged). It is on by default. It is a device setting in `storage.local`
-(`pateat.service-reports.v1`, such as `{ "send": false, "since": 1793600000000 }` while
-off), never synced, as the vault timeout is
-([ADR 0075](0075-vault-lock-and-timeout.md)): each device decides what leaves it
-(Claude's choice). The page also stores when it last changed the setting (`since`, epoch
-milliseconds). While it is off, a login's record is dropped, not kept for later, and no
-problem line is sent; once it is on again, problem lines written before `since` are
-passed over, so nothing logged while it was off is sent. Lines logged while it was on
-but not sent yet when it changed, such as during a retry wait, are passed over too, and
-a clock set back while it was off could let a line through. A record that does not
-parse, or cannot be read, sends nothing. The first login result of each recipe revision
+Amended on 2026-11-02: the settings page's "Reports to the service" section has a
+checkbox, "Send login records and problem reports to the service", that turns off both
+kinds of sending (owner, 2026-11-02 07:51 UTC: 「追加だけして、既定は今まで通」, add it
+with the default unchanged). It is on by default. It is the profile setting
+`serviceReports`, synced with the profile like `loginInPrivateWindows`
+([ADR 0024](0024-settings-profiles.md); owner, 09:48 UTC: settings sync by default),
+such as `{ "send": false, "since": 1793600000000 }` while off and absent at the default.
+`since` is when the settings page last changed it, in epoch milliseconds. While it is
+off, a login's record is dropped, not kept for later, and no problem line is sent; once
+it is on again, problem lines written before `since` are passed over, so nothing logged
+while it was off is sent. Lines logged while it was on but not sent yet when it changed,
+such as during a retry wait, are passed over too, and a clock set back while it was off
+could let a line through. Settings that cannot be read send nothing. The first login
+result of each recipe revision
 ([ADR 0019](0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation))
 and the recipe use of [ADR 0058](0058-automatic-recipe-removal.md) are not covered: the
 first keeps the evaluation corpus and the second keeps recipes from being removed. The
