@@ -51,11 +51,11 @@ remain subject to the [acceptance gates](docs/plan.md).
 One protection is not honoured yet. Pateat answers a site's passkey request with the
 user presence (UP) and user verification (UV) flags set, although it performs no
 presence test or verification of its own
-([ADR 0007](docs/adr/0007-existing-passkey-assertions.md#presence-and-verification)). It
-is planned to become a setting before Pateat is public
-([plan](docs/plan.md#phase-3-public-release)). Bitwarden's master password re-prompt is
-honoured only on the sites you list: elsewhere Pateat fills, and signs with the passkeys
-of, items marked with it without asking for the master password
+([ADR 0007](docs/adr/0007-existing-passkey-assertions.md#presence-and-verification)).
+This is the default; the settings page's Passkeys section can turn either flag off on a
+device, and requests that need it then go to the browser. Bitwarden's master password
+re-prompt is honoured only on the sites you list: elsewhere Pateat fills, and signs with
+the passkeys of, items marked with it without asking for the master password
 ([vault adapter](docs/architecture.md#vault-adapter)).
 
 The user-facing pages (installation, setup, permissions and a draft privacy policy) are

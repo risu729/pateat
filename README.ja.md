@@ -16,7 +16,7 @@ Auto Login for Chrome（Chrome 向けの自動ログイン）。
 
 インストールとチェックの方法は[開発](docs/development.md)を参照してください。本番用の拡張機能は `apps/extension/.output/chrome-mv3/` にビルドされます。これとは別のプローブ用ビルドは、合成テスト専用です。互換性と、人の操作なしでのパスキー対応は、引き続き[受け入れ条件](docs/plan.md)を満たすかどうかによります。
 
-まだ守られていない保護が 1 つあります。Pateat はサイトからのパスキー要求に、ユーザーの存在確認（UP）とユーザー検証（UV）のフラグを立てて応答しますが、自身では存在の確認も検証も行いません（[ADR 0007](docs/adr/0007-existing-passkey-assertions.md#presence-and-verification)）。Pateat を公開する前に設定項目にする予定です（[計画](docs/plan.md#phase-3-public-release)）。Bitwarden のマスターパスワードの再要求は、指定したサイトでのみ守ります。ほかのサイトでは、再要求が設定されたアイテムもマスターパスワードを尋ねずに入力に使い、そのパスキーで署名します（[保管庫アダプター](docs/architecture.md#vault-adapter)）。
+まだ守られていない保護が 1 つあります。Pateat はサイトからのパスキー要求に、ユーザーの存在確認（UP）とユーザー検証（UV）のフラグを立てて応答しますが、自身では存在の確認も検証も行いません（[ADR 0007](docs/adr/0007-existing-passkey-assertions.md#presence-and-verification)）。これが既定の動作で、設定ページの **パスキー** でデバイスごとにどちらのフラグもオフにできます。オフにすると、そのフラグが必要なリクエストはブラウザーに任せます。Bitwarden のマスターパスワードの再要求は、指定したサイトでのみ守ります。ほかのサイトでは、再要求が設定されたアイテムもマスターパスワードを尋ねずに入力に使い、そのパスキーで署名します（[保管庫アダプター](docs/architecture.md#vault-adapter)）。
 
 利用者向けのページ（インストール、初期設定、権限、プライバシーポリシーの草案）は、[apps/docs/src/ja](apps/docs/src/ja/index.md) にあるドキュメントサイトです。まだ公開していません。
 

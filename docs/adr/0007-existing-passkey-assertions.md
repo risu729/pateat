@@ -3,7 +3,9 @@
 Status: accepted for M5. On 2026-10-10 the owner chose to set UP and UV on every
 claimed assertion without a user gesture, knowingly departing from the WebAuthn
 ceremony; this amends the truthful UV/UP condition in
-[ADR 0001](0001-local-login-boundary.md). A per-site setting is planned later.
+[ADR 0001](0001-local-login-boundary.md). A per-site setting is planned later; a
+device setting for every site was added on 2026-11-02 (see
+[presence and verification](#presence-and-verification)).
 Also on 2026-10-10 the owner chose the official Bitwarden client's item rule:
 search every live login item by RP ID, and use the site default only to choose
 among several matches (see [Item selection](#item-selection)). After the official
@@ -338,7 +340,25 @@ The flags come from a `PasskeyPolicy` with two settings: presence `always` or
 activation delegate; under `never`, UV stays clear and requests requiring UV
 delegate. Admission records the UV decision so signing cannot diverge from it. A
 later per-site setting supplies the policy without changing admission or
-assertion code; until then every claimed request uses the initial policy.
+assertion code; until then every claimed request uses the initial policy (but see
+the amendment below).
+
+Amended on 2026-11-02 (owner, 07:51 UTC: 「追加だけして、既定は今まで通」, add the
+setting with the default unchanged): the settings page's Passkeys section has two
+checkboxes, "Answer passkey requests without a click on the page" (presence `always`
+when checked, `activation` when not) and "Tell sites that you were verified"
+(verification `always` or `never`). Both are checked by default, the initial policy. The
+policy is a device setting in `storage.local` (`pateat.passkey-policy.v1`, such as
+`{ "presence": "activation", "verification": "never" }`), never synced, as the vault
+timeout is ([ADR 0075](0075-vault-lock-and-timeout.md)), and one policy covers every
+site rather than one per site (both Claude's choices). The worker reads it for each
+request, so a change applies to the next one. A record that does not parse, or cannot be
+read, gives `activation` and `never`. While either is off, page-load and
+executor-triggered requests or UV-required requests go to the browser, so Pateat's own
+passkey logins there need the person: a login whose recipe presses a passkey button
+still takes that route, and the browser's prompt opens. A cancel the page sends while
+the policy is read is kept, so that request ends cancelled. The probe build, for
+synthetic tests only, keeps its own policy and ignores this setting.
 
 ## Alternatives
 

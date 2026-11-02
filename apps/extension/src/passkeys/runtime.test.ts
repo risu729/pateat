@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import {
   chooserWaitMs,
   createPasskeyRuntime,
@@ -402,6 +403,55 @@ describe("passkey runtime policy", () => {
       reason: "no-user-activation",
     });
     expect(policy).toHaveBeenCalledWith(origin);
+    expect(backing.candidates).not.toHaveBeenCalled();
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+
+  it("reads a policy that resolves later, as the device setting does, for each request", async () => {
+    let stored: PasskeyPolicy = { presence: "activation", verification: "always" };
+    const runtime = createPasskeyRuntime(source(), {
+      extensionId,
+      policy: async () => stored,
+    });
+    expect(await runtime.handle(get(undefined, false), sender())).toEqual({
+      kind: "delegate",
+      reason: "no-user-activation",
+    });
+    // Changed on the settings page: the next request follows it.
+    stored = INITIAL_PASSKEY_POLICY;
+    expect(await runtime.handle(get(undefined, false), sender())).toMatchObject({
+      kind: "assertion",
+    });
+  });
+});
+
+describe("a cancel while the device's passkey policy is read", () => {
+  it("is kept, so the request ends cancelled without asking the vault", async () => {
+    let release!: (policy: PasskeyPolicy) => void;
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      policy: () =>
+        new Promise<PasskeyPolicy>((resolve) => {
+          release = resolve;
+        }),
+    });
+    const operationId = crypto.randomUUID();
+    const pending = runtime.handle(get(operationId), sender());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const cancel = { version: 1, type: "passkey.cancel", operationId };
+    // Another document's cancel never touches it.
+    expect(await runtime.handle(cancel, sender({ documentId: "document-b" }))).toEqual({
+      ok: false,
+    });
+    expect(await runtime.handle(cancel, sender())).toEqual({ ok: true });
+    // A second request with the same ID while the first reads is refused as busy.
+    expect(await runtime.handle(get(operationId), sender())).toEqual({
+      kind: "delegate",
+      reason: "busy",
+    });
+    release(INITIAL_PASSKEY_POLICY);
+    expect(await pending).toEqual({ kind: "cancelled" });
     expect(backing.candidates).not.toHaveBeenCalled();
     expect(backing.sign).not.toHaveBeenCalled();
   });

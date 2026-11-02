@@ -1159,9 +1159,10 @@ Once the fixes have settled:
 - Before Pateat is public: settings for the two protections Pateat does not honour
   today (owner, 2026-10-13 21:57 UTC). Passkey user presence and user verification:
   Pateat sets UP and UV on every assertion it claims without a gesture or a check
-  ([ADR 0007](adr/0007-existing-passkey-assertions.md#presence-and-verification)); a
-  setting over the existing `PasskeyPolicy`, which ADR 0007 plans per site. Until then
-  it stays as it is, and the README says so. Bitwarden's master password re-prompt is
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md#presence-and-verification)).
+  Done (2026-11-02): a device setting over the existing `PasskeyPolicy` turns either
+  flag off, with both on by default (owner, 2026-11-02 07:51 UTC: add it with the
+  default unchanged); see ADR 0007's amendment. Bitwarden's master password re-prompt is
   honoured on the sites the owner lists (owner, 2026-10-23 12:46 UTC;
   [vault adapter](architecture.md#vault-adapter); implemented).
 - Anyone can use Pateat. The service is not opened to other people. Continuous delivery

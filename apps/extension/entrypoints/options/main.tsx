@@ -6,6 +6,7 @@ import { SettingsApp } from "../../src/options/settings-app";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createConnectionClient } from "../../src/options/connection-client";
 import { createDeviceModelClient } from "../../src/options/device-model";
+import { createPasskeyPolicyClient } from "../../src/options/passkey-policy";
 import { createServiceClient } from "../../src/options/service-client";
 import { createServiceReportsClient } from "../../src/options/service-reports";
 import { createTransferClient } from "../../src/options/transfer";
@@ -35,6 +36,7 @@ createRoot(root).render(
       connectionClient={connectionClient}
       vaultTimeoutClient={createVaultTimeoutClient()}
       serviceReportsClient={createServiceReportsClient()}
+      passkeyPolicyClient={createPasskeyPolicyClient()}
       deviceModelClient={createDeviceModelClient()}
       transferClient={createTransferClient((message) => sendMessage("settings", message))}
       serviceClient={createServiceClient({
