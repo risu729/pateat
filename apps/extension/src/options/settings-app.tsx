@@ -719,6 +719,7 @@ export function SettingsApp({
             )}
             {accepted && <PrivateWindows draft={draft} edit={edit} />}
           </fieldset>
+          {passkeyPolicyClient && <PasskeyPolicyPanel client={passkeyPolicyClient} />}
           {serviceClient && (
             <ServiceConnection
               client={serviceClient}
@@ -726,7 +727,6 @@ export function SettingsApp({
               {...(serviceReportsClient ? { reportsClient: serviceReportsClient } : {})}
             />
           )}
-          {passkeyPolicyClient && <PasskeyPolicyPanel client={passkeyPolicyClient} />}
           {deviceModelClient && <DeviceModelPanel client={deviceModelClient} />}
           {transferClient && (
             <TransferPanel
