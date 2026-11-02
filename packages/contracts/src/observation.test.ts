@@ -319,6 +319,8 @@ describe("code fields on a generated page (ADR 0027)", () => {
     // The hint alone counts, on any input the executor fills.
     expect(isCodeField(candidate({ role: "password", autocomplete: "one-time-code" }))).toBe(true);
     expect(isCodeField(candidate({ autocomplete: "current-password", maxLength: 6 }))).toBe(false);
+    // A select is no input the executor fills a code into, whatever its hint.
+    expect(isCodeField(candidate({ role: "select", autocomplete: "one-time-code" }))).toBe(false);
     // One code field among other inputs makes the page show one.
     const page = {
       candidates: [

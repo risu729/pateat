@@ -53,7 +53,8 @@ const strictness: Record<SemanticSlot["kind"], number> = {
  * (`totpSeed`) is never offered: it fills only the `totp` slot, as a generated code (ADR
  * 0027, owner 2026-10-23). A Linked field that reads the password counts only when the
  * password holds a value. Bitwarden links only built-in fields today; a Linked field that
- * reads a Text field would be offered like that Text field.
+ * reads a Text field would be offered like that Text field, and not when that field holds
+ * a TOTP key.
  */
 function offerClass(
   item: Pick<VaultItemMetadata, "fields">,
@@ -70,7 +71,8 @@ function offerClass(
     return { kind: "identifier", source: "username", priority: 1 };
   if (source?.id === "login.password")
     return source.empty === true ? undefined : { kind: "secret", priority: 3 };
-  if (source?.kind === "text") return { kind: "identifier", source: "text", priority: 1 };
+  if (source?.kind === "text" && source.totpSeed !== true)
+    return { kind: "identifier", source: "text", priority: 1 };
   return undefined;
 }
 
