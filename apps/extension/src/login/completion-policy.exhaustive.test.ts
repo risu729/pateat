@@ -29,7 +29,7 @@ const readings = [
 const routes: LoginRoute[] = ["password", "passkey"];
 const flags = [false, true];
 const PATH = "/account";
-const agains = [
+const rereadings = [
   undefined,
   ...decisions.flatMap((decision) =>
     flags.flatMap((loaded) => [PATH, "/elsewhere"].map((path) => ({ decision, loaded, path }))),
@@ -46,7 +46,7 @@ type Case = {
   sent: boolean;
   inputLeftOut: boolean;
   answered: boolean;
-  again: (typeof agains)[number];
+  again: (typeof rereadings)[number];
   disabledLeftOut: boolean;
 };
 
@@ -72,7 +72,7 @@ function* outcomes() {
                       inputLeftOut,
                       answered,
                     });
-                    for (const again of candidate.completes ? agains : [undefined])
+                    for (const again of candidate.completes ? rereadings : [undefined])
                       for (const disabledLeftOut of flags) {
                         const settled = settleCompletion({
                           ...candidate,
