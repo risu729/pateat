@@ -83,8 +83,8 @@ const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)
  * {@link PROBLEM_REPEAT_MS} before it, as a vault state a new worker logs again. A failed
  * request keeps the lines for a later run and holds off runs, 1 minute after the first
  * failure, doubling up to an hour, or longer when the service asks by `Retry-After`; this
- * survives a worker restart. A credential the service rejected
- * sends nothing. Nothing here throws.
+ * survives a worker restart. A credential the service rejected, or sending turned off on
+ * the device, sends nothing. Nothing here throws.
  */
 export function createProblemReports(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
@@ -92,6 +92,11 @@ export function createProblemReports(options: {
   log: ProblemLog;
   /** The extension's build, `PATEAT_BUILD_REVISION`. */
   build: string;
+  /**
+   * Whether the device sends problem lines now; absent means always (`SERVICE_REPORTS_KEY`).
+   * While off, lines are passed over and never sent later.
+   */
+  enabled?: () => Promise<boolean>;
   /** Told of each request sent, for the local log; never changes the sending. */
   report?: (sent: ProblemsSent) => void;
   now?: () => number;
@@ -142,6 +147,11 @@ export function createProblemReports(options: {
   async function send(): Promise<void> {
     const connection = await service.connection().catch(() => undefined);
     if (!connection || connection.rejected) return;
+    if (options.enabled && !(await options.enabled().catch(() => false))) {
+      // Turned off: the lines written so far are passed over, as at a new pairing.
+      await start(connection);
+      return;
+    }
     let cursor = await cursorFor(connection);
     if (now() < cursor.retryAt) return;
     const logId = await log.logId();
@@ -241,6 +251,16 @@ export function createProblemReports(options: {
     /** Sends what is still unsent, as at worker start or after a recipe sync. */
     flush(): Promise<void> {
       return enqueue(send);
+    },
+    /**
+     * Sending was turned off or on again: lines from now on go, none written before, so
+     * nothing written while it was off leaves the device.
+     */
+    restart(): Promise<void> {
+      return enqueue(async () => {
+        const connection = await service.connection().catch(() => undefined);
+        if (connection && !connection.rejected) await start(connection);
+      });
     },
     /** A device was paired: lines from now on go to it, none from before. */
     paired(connection: { origin: string; deviceId: string }): Promise<void> {

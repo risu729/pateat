@@ -193,6 +193,36 @@ describe("createLoginRecords", () => {
     expect(reportLogin).not.toHaveBeenCalled();
   });
 
+  it("sends nothing while the device turned these records off, and the next once on", async () => {
+    const reportLogin = vi.fn<ServiceTransport["reportLogin"]>(
+      async (): Promise<OutcomeResult> => ({ kind: "kept" }),
+    );
+    const logged: LoginRecordSent[] = [];
+    let on = false;
+    const records = createLoginRecords({
+      service: { connection: async () => CONNECTION },
+      transport: { reportLogin },
+      build: BUILD,
+      enabled: async () => on,
+      report: (sent) => logged.push(sent),
+    });
+    records.observe(ended());
+    // A setting that cannot be read counts as off.
+    const broken = createLoginRecords({
+      service: { connection: async () => CONNECTION },
+      transport: { reportLogin },
+      build: BUILD,
+      enabled: () => Promise.reject(new Error("storage")),
+    });
+    broken.observe(ended());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(reportLogin).not.toHaveBeenCalled();
+    expect(logged).toEqual([]);
+    on = true;
+    records.observe(ended());
+    await vi.waitFor(() => expect(reportLogin).toHaveBeenCalledTimes(1));
+  });
+
   it("sends nothing without a paired service or with a rejected device", async () => {
     const unpaired = setup({ connection: undefined });
     unpaired.records.observe(ended());

@@ -165,8 +165,11 @@ only by the person who runs it. The extension sends the service:
   back into the site. For some lines
   written before a login submitted anything, it holds the page's path, with IDs, tokens
   and email addresses replaced as in a page description; a username in such a path is
-  not hidden. Values, page text and query strings are never sent. There is no setting
-  to turn these reports off yet.
+  not hidden. Values, page text and query strings are never sent.
+
+Login records and problem reports are sent by default. Each device can turn both off in
+the settings page's **Sync service** section; nothing logged while they are off is sent
+later.
 
 The service stores the recipes it writes, with which model wrote each part, when, and
 from which device's request, until that part is removed. It removes a recipe, or one of

@@ -29,6 +29,7 @@ import {
   RowTitle,
   StatusLines,
 } from "./ui";
+import { ServiceReports, type ServiceReportsClient } from "./service-reports";
 
 /** How often the page checks whether the first sync after pairing finished. */
 export const SYNC_POLL_MS = 10_000;
@@ -101,10 +102,13 @@ export function ServiceConnection({
   client,
   pollMs = SYNC_POLL_MS,
   settingsClient,
+  reportsClient,
 }: {
   client: ServiceClient;
   pollMs?: number;
   settingsClient?: SettingsClient;
+  /** Whether this device sends its login records and problem lines (ADR 0055, ADR 0066). */
+  reportsClient?: ServiceReportsClient;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   const text = (value: ServiceMessage) =>
@@ -847,6 +851,7 @@ export function ServiceConnection({
           local={settingsClient}
         />
       )}
+      {reportsClient && <ServiceReports client={reportsClient} />}
     </Panel>
   );
 }

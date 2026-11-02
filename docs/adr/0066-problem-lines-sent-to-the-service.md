@@ -14,7 +14,9 @@ the most likely answer and be judged later
 count as doing nothing, the limits and the redaction are Claude's choices, not confirmed
 by the owner. Implemented (local tests only; not deployed). Amends
 [ADR 0019](0019-local-diagnostics-and-logs.md) (logs are not synced) and
-[ADR 0055](0055-login-records-sent-to-the-service.md) (what a device sends).
+[ADR 0055](0055-login-records-sent-to-the-service.md) (what a device sends). Amended
+on 2026-11-02: the device setting described in ADR 0055's amendment of that day turns
+the sending off; it is on by default.
 
 Date: 2026-10-23
 
@@ -143,10 +145,11 @@ condition that no value leaves.
   request log, purged with it, counted and deleted by the Request log page's Delete all,
   and listed (newest 200) on a new `/manage/problems` page. Claude sessions read them
   through the read-only D1 query tool.
-- No setting turns the sending off yet. Before Pateat has other users, a setting turns
-  off both this and the login records of ADR 0055, and this decision is revisited with
-  ADR 0055 ([plan](../plan.md#phase-3-public-release)). Logs still never go from the
-  service to a device.
+- A device setting turns off both this and the login records of ADR 0055 (added
+  2026-11-02, on by default; lines logged while it is off are never sent). Before Pateat
+  has other users, this decision is revisited with ADR 0055
+  ([plan](../plan.md#phase-3-public-release)). Logs still never go from the service to a
+  device.
 
 ## Consequences
 

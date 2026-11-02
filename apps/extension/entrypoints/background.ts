@@ -74,6 +74,7 @@ import {
 import { createLoginGeneration } from "../src/service/generation";
 import { createLogoutService } from "../src/service/logout";
 import { createLoginRecords } from "../src/service/login-records";
+import { SERVICE_REPORTS_KEY, serviceReportsOn } from "../src/service/reports-setting";
 import { createLoginOutcomes } from "../src/service/outcomes";
 import { createProblemReports } from "../src/service/problems";
 import { createRecipeUse } from "../src/service/recipe-use";
@@ -323,11 +324,15 @@ export default defineBackground(() => {
     storage: createBrowserLoginOutcomeStorage(),
     report: diagnosticsLog.loginOutcome,
   });
+  // A device setting the settings page writes turns off both of the next two.
+  const serviceReports = trustedRecord(SERVICE_REPORTS_KEY);
+  const serviceReportsEnabled = () => serviceReportsOn(() => serviceReports.read());
   // ADR 0055: every login on a recipe revision sends its result and times once it ended.
   const loginRecords = createLoginRecords({
     service,
     transport: serviceTransport,
     build: PATEAT_BUILD_REVISION,
+    enabled: serviceReportsEnabled,
     report: diagnosticsLog.loginRecord,
   });
   problemReports = createProblemReports({
@@ -335,7 +340,13 @@ export default defineBackground(() => {
     transport: serviceTransport,
     log: logger,
     build: PATEAT_BUILD_REVISION,
+    enabled: serviceReportsEnabled,
     report: diagnosticsLog.problemsSent,
+  });
+  // Lines written while sending was off never go, also when it is turned on again.
+  browser.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && SERVICE_REPORTS_KEY in changes)
+      void problemReports?.restart().catch(() => undefined);
   });
   // Lines a stopped worker had not sent yet go now.
   void problemReports.flush();

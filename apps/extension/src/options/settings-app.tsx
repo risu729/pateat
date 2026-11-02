@@ -44,6 +44,7 @@ import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
 import { LanguageSelect } from "./language-select";
 import { ThemeSelect } from "./theme-select";
+import type { ServiceReportsClient } from "./service-reports";
 import { VaultTimeoutPanel, type VaultTimeoutClient } from "./vault-timeout";
 import { Panel, StatusLines, type LocalizedMessage } from "./ui";
 
@@ -65,6 +66,7 @@ export function SettingsApp({
   connectionClient,
   serviceClient,
   vaultTimeoutClient,
+  serviceReportsClient,
   deviceModelClient,
   transferClient,
 }: {
@@ -73,6 +75,7 @@ export function SettingsApp({
   serviceClient?: ServiceClient;
   /** This device's vault timeout (ADR 0075), shown with a real Bitwarden connection. */
   vaultTimeoutClient?: VaultTimeoutClient;
+  serviceReportsClient?: ServiceReportsClient;
   /** This device's own Anthropic API key (ADR 0040). */
   deviceModelClient?: DeviceModelClient;
   /** Export and import of what a pairing shares (ADR 0040). */
@@ -709,7 +712,13 @@ export function SettingsApp({
             )}
             {accepted && <PrivateWindows draft={draft} edit={edit} />}
           </fieldset>
-          {serviceClient && <ServiceConnection client={serviceClient} settingsClient={client} />}
+          {serviceClient && (
+            <ServiceConnection
+              client={serviceClient}
+              settingsClient={client}
+              {...(serviceReportsClient ? { reportsClient: serviceReportsClient } : {})}
+            />
+          )}
           {deviceModelClient && <DeviceModelPanel client={deviceModelClient} />}
           {transferClient && (
             <TransferPanel
