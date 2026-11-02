@@ -1,6 +1,6 @@
 // Seeds a running synthetic Vaultwarden server through its client API, encrypting like an
 // official client with the pinned SDK. Synthetic accounts and items only.
-// Request shapes follow Vaultwarden 1.37.4 (7c188967e7a467b19b2757bc3326f9cf3ccae327):
+// Request shapes follow Vaultwarden 1.37.5 (6ed6921cc2b0e03b4d74189574d2a5e71c512e97):
 // src/api/identity.rs and core/accounts.rs (registration), core/ciphers.rs (items) and
 // core/two_factor/authenticator.rs and email.rs (two-step methods).
 import { createHash, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
@@ -59,6 +59,18 @@ const idSchema = v.object({ id: v.pipe(v.string(), v.uuid()) });
 const authenticatorSchema = v.object({
   enabled: v.boolean(),
   key: v.pipe(v.string(), v.regex(/^[A-Z2-7]{32}$/)),
+});
+// Vaultwarden 1.37.5+ answers the settings reads with the method's state and a token that the
+// following change must send back (`userVerificationToken`; its release notes: needed by the
+// web vault 2026.7.1+ to turn two-step methods on or off).
+const verificationTokenSchema = v.pipe(v.string(), v.minLength(1));
+const authenticatorAnswerSchema = v.object({
+  authenticator: authenticatorSchema,
+  userVerificationToken: verificationTokenSchema,
+});
+const emailAnswerSchema = v.object({
+  email: v.object({ enabled: v.boolean(), email: v.nullable(v.string()) }),
+  userVerificationToken: verificationTokenSchema,
 });
 
 async function call(
@@ -281,28 +293,41 @@ export function authenticatorCode(secret: string, nowMs = Date.now()) {
 export async function enableAuthenticator(account: SeededAccount): Promise<{ secret: string }> {
   const { baseUrl, masterPasswordHash: hash, accessToken } = account;
   const generated = v.parse(
-    authenticatorSchema,
+    authenticatorAnswerSchema,
     await call(baseUrl, "/api/two-factor/get-authenticator", {
       method: "POST",
       token: accessToken,
       json: { masterPasswordHash: hash },
     }),
   );
-  if (generated.enabled) throw new Error("Authenticator two-step is already on");
+  const { key } = generated.authenticator;
+  if (generated.authenticator.enabled) throw new Error("Authenticator two-step is already on");
   const enabled = v.parse(
-    authenticatorSchema,
+    v.object({ authenticator: authenticatorSchema }),
     await call(baseUrl, "/api/two-factor/authenticator", {
       method: "PUT",
       token: accessToken,
       json: {
-        key: generated.key,
-        token: authenticatorCode(generated.key),
-        masterPasswordHash: hash,
+        key,
+        token: authenticatorCode(key),
+        userVerificationToken: generated.userVerificationToken,
       },
     }),
   );
-  if (!enabled.enabled) throw new Error("Authenticator two-step did not turn on");
-  return { secret: generated.key };
+  if (!enabled.authenticator.enabled) throw new Error("Authenticator two-step did not turn on");
+  return { secret: key };
+}
+
+async function readEmailTwoStep(account: SeededAccount) {
+  const { baseUrl, masterPasswordHash: hash, accessToken } = account;
+  return v.parse(
+    emailAnswerSchema,
+    await call(baseUrl, "/api/two-factor/get-email", {
+      method: "POST",
+      token: accessToken,
+      json: { masterPasswordHash: hash },
+    }),
+  );
 }
 
 /**
@@ -310,22 +335,23 @@ export async function enableAuthenticator(account: SeededAccount): Promise<{ sec
  * Mailpit. Sign-in codes then come from `readTwoStepCode` after the client asks for one.
  */
 export async function enableEmailTwoStep(account: SeededAccount, mailpitUrl: string) {
-  const { baseUrl, email, masterPasswordHash: hash, accessToken } = account;
+  const { baseUrl, email, accessToken } = account;
+  const before = await readEmailTwoStep(account);
+  if (before.email.enabled) throw new Error("Email two-step is already on");
+  const { userVerificationToken } = before;
   await call(baseUrl, "/api/two-factor/send-email", {
     method: "POST",
     token: accessToken,
-    json: { email, masterPasswordHash: hash },
+    json: { email, userVerificationToken },
   });
   const token = await readTwoStepCode(mailpitUrl, email);
-  const enabled = v.parse(
-    v.object({ email: v.string(), enabled: v.string() }),
-    await call(baseUrl, "/api/two-factor/email", {
-      method: "PUT",
-      token: accessToken,
-      json: { email, token, masterPasswordHash: hash },
-    }),
-  );
-  // Vaultwarden answers `"enabled": "true"` as a string here.
-  if (enabled.enabled !== "true" || enabled.email !== email)
+  // The change answers `{}`; read the state back instead.
+  await call(baseUrl, "/api/two-factor/email", {
+    method: "PUT",
+    token: accessToken,
+    json: { email, token, userVerificationToken },
+  });
+  const after = await readEmailTwoStep(account);
+  if (!after.email.enabled || after.email.email !== email)
     throw new Error("Email two-step did not turn on");
 }

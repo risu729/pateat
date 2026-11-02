@@ -1,7 +1,7 @@
 // Reads Vaultwarden's two-step emails from Mailpit's HTTP API (ADR 0059 decision 6).
 import * as v from "valibot";
 
-/** Subject of Vaultwarden 1.37.4's `email/twofactor_email` template. */
+/** Subject of Vaultwarden 1.37.5's `email/twofactor_email` template. */
 export const twoStepSubject = "Vaultwarden Login Verification Code";
 
 const searchSchema = v.object({
