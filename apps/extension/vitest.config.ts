@@ -1,6 +1,8 @@
 import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // As in a development build (wxt.config.ts); tests pass `debugStaysOn` where it matters.
+  define: { PATEAT_DEBUG_STAYS_ON: "true" },
   test: {
     // `*.browser.test.ts` suites need Chromium and run in Browser Mode
     // (`src/vitest.dom.config.ts`).

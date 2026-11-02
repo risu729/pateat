@@ -2277,10 +2277,12 @@ it were dropped. The first drop of each event in a window is logged at once and 
 logs the drops not yet counted; the rest are counted when the window ends and the next
 event or prune runs, so a worker that stops first loses only that remainder. `debug`
 entries are written only after **Turn on debug logging**, until **Turn off debug
-logging**: until publishing, `DEBUG_STAYS_ON` keeps it on until then, across restarts,
-and a 24-hour window a build without it opened and that is still open stays on too
-(ADR 0019, owner, 2026-10-18). A published build's button reads **Turn on debug logging
-for 24 hours**, and its logging turns itself off after them. Either change is logged as
+logging**: in every build but a release build, `DEBUG_STAYS_ON` keeps it on until then,
+across restarts, and a 24-hour window a release build opened and that is still open
+stays on too (ADR 0019, owner, 2026-10-18). A release build (`PATEAT_RELEASE=true` at
+build time) sets it to false: its button reads **Turn on debug logging for 24 hours**,
+its logging turns itself off after them, and a stored "until turned off" deadline reads
+as off. Either change is logged as
 `log.debug` with `enabled`. Retention: 14 days; `debug` entries for 24 hours; at most
 14,000 `debug` and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn`
 and `error` entries, pruned at worker start and every 500 writes.

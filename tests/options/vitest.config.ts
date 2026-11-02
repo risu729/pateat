@@ -11,6 +11,8 @@ export default defineConfig({
   oxc: { jsx: { runtime: "automatic" } },
   // The layout tests import the options stylesheet, which is built on Tailwind.
   plugins: [tailwindcss()],
+  // As in a development build (apps/extension/wxt.config.ts).
+  define: { PATEAT_DEBUG_STAYS_ON: "true" },
   test: {
     include: ["tests/options/*.test.tsx"],
     fileParallelism: false,

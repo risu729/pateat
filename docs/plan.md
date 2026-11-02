@@ -1074,12 +1074,13 @@ Once the fixes have settled:
     after a rejection. Pateat shows no prompt inside a page; the passkey chooser window
     is the only prompt outside the popup. The diagnostics page, a developer page, and
     the settings store's messages keep their text.
-- Before publishing, turn off or remove `DEBUG_STAYS_ON` in
-  `apps/extension/src/diagnostics/log.ts`, which keeps debug logging on until it is
-  turned off, or keep it only behind a feature flag (owner, 2026-10-18 01:50 UTC;
-  whatever replaces it must still read the stored `DEBUG_UNTIL_TURNED_OFF` deadline as
-  off, or reset it, so a published build never inherits debug logging left on;
-  [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-debug-logging-stays-on-before-publishing)).
+- `DEBUG_STAYS_ON` in `apps/extension/src/diagnostics/log.ts`, which keeps debug
+  logging on until it is turned off, is now behind a build flag (owner, 2026-10-18 01:50
+  UTC: turn it off, remove it, or keep it only behind a feature flag): a build made with
+  `PATEAT_RELEASE=true` leaves it off and reads a stored `DEBUG_UNTIL_TURNED_OFF`
+  deadline as off, and every other build keeps it on. The release workflow must build
+  the published zip with `PATEAT_RELEASE=true`
+  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-debug-logging-stays-on-before-publishing)).
 - Before Pateat has other users, revisit sending a record of every login (its result,
   times, site and time on the service side) to the service, and keep logs from ever
   going from the service to a device (owner, 2026-10-18 08:38 UTC:
