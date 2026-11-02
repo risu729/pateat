@@ -14,7 +14,7 @@ and an `excludedSites` rule now pauses automatic login on its hosts until it is 
 instead of turning Pateat off there, so a popup pick still logs in.
 
 Amended on 2026-11-02 (owner, 09:48 UTC:
-「同期しませんはやめて。基本すべて同期。…これらは 聞いてから変えること」): settings are
+「同期しませんはやめて。基本すべて同期。…これらは聞いてから変えること」): settings are
 synced by default. A new setting is a profile part (or, like bindings, an owner part)
 unless the owner agrees that it stays on the device. `serviceReports` (ADR 0055) and
 `passkeyPolicy` (ADR 0007) are profile parts. Settings that do not sync today stay as

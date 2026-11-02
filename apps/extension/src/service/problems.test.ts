@@ -146,6 +146,24 @@ describe("problem reports (ADR 0066)", () => {
     expect(reportProblems.mock.calls[1]?.[2].entries.map((entry) => entry.seq)).toEqual([4]);
   });
 
+  it("never sends lines written while off after a profile switch turns it on without a time", async () => {
+    let setting: { send: boolean; since?: number } = { send: false, since: 1 };
+    const { problems, reportProblems, state } = setup({
+      entries: keyed(blocked({ step: 1 }), blocked({ step: 2 })),
+      cursor: { service: CONNECTION.origin, deviceId: CONNECTION.deviceId, after: 0 },
+      setting: async () => setting,
+    });
+    await problems.flush();
+    expect(state.cursor).toMatchObject({ after: 2 });
+    // Another profile, where the setting was never changed: absent, so on with no time.
+    setting = { send: true };
+    await problems.flush();
+    expect(reportProblems).not.toHaveBeenCalled();
+    state.entries.push({ key: 3, entry: blocked({ step: 3 }) });
+    await problems.flush();
+    expect(reportProblems.mock.calls[0]?.[2].entries.map((entry) => entry.seq)).toEqual([3]);
+  });
+
   it("sends nothing when the setting cannot be read, and keeps the retry hold", async () => {
     const { problems, reportProblems, state } = setup({
       entries: keyed(blocked(), blocked({ step: 1 })),
@@ -160,7 +178,8 @@ describe("problem reports (ADR 0066)", () => {
     });
     await problems.flush();
     expect(reportProblems).not.toHaveBeenCalled();
-    expect(state.cursor).toMatchObject({ after: 0, failures: 2, retryAt: 5_000 });
+    // The lines are passed over, as while off; the retry hold stays.
+    expect(state.cursor).toMatchObject({ after: 2, failures: 2, retryAt: 5_000 });
   });
 
   it("starts after the newest entry for a new pairing, so no earlier line is sent", async () => {

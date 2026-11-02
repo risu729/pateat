@@ -83,8 +83,8 @@ const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)
  * {@link PROBLEM_REPEAT_MS} before it, as a vault state a new worker logs again. A failed
  * request keeps the lines for a later run and holds off runs, 1 minute after the first
  * failure, doubling up to an hour, or longer when the service asks by `Retry-After`; this
- * survives a worker restart. A credential the service rejected, or sending turned off on
- * the device, sends nothing, and a line written before sending was last turned on is
+ * survives a worker restart. A credential the service rejected, or sending turned off in
+ * the profile's settings, sends nothing, and a line written before sending was last turned on is
  * passed over. Nothing here throws.
  */
 export function createProblemReports(options: {
@@ -94,9 +94,10 @@ export function createProblemReports(options: {
   /** The extension's build, `PATEAT_BUILD_REVISION`. */
   build: string;
   /**
-   * Whether the device sends problem lines now, and since when; absent means always
-   * (`SERVICE_REPORTS_KEY`). While off nothing is sent; on again, lines written before
-   * `since` are passed over, so none written while it was off is sent later.
+   * Whether the device sends problem lines now, and since when, from the profile's
+   * `serviceReports` setting; absent means always. While off nothing is sent and the lines
+   * are passed over; on again, lines written before `since` are passed over too, so none
+   * written while it was off is sent later.
    */
   setting?: () => Promise<{ send: boolean; since?: number | undefined }>;
   /** Told of each request sent, for the local log; never changes the sending. */
@@ -152,10 +153,15 @@ export function createProblemReports(options: {
     const setting = options.setting
       ? await options.setting().catch(() => ({ send: false, since: undefined }))
       : { send: true, since: undefined };
-    // Turned off: nothing is sent, and the cursor stays where it is.
-    if (!setting.send) return;
-    const since = setting.since ?? 0;
     let cursor = await cursorFor(connection);
+    if (!setting.send) {
+      // Turned off: nothing is sent, and the lines so far are passed over here, so neither a
+      // later profile switch nor another device's clock can send them once it is on again.
+      const newest = await log.lastKey();
+      if (newest > cursor.after) await log.setProblemCursor({ ...cursor, after: newest });
+      return;
+    }
+    const since = setting.since ?? 0;
     if (now() < cursor.retryAt) return;
     const logId = await log.logId();
     for (let request = 0; request < MAX_PROBLEM_REQUESTS; request += 1) {

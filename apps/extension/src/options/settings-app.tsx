@@ -302,11 +302,13 @@ export function SettingsApp({
     form.setFieldValue("accountPolicies", value.accountPolicies);
     form.setFieldValue("itemPolicies", value.itemPolicies);
     form.setFieldValue("excludedSites", value.excludedSites);
+    form.setFieldValue("passkeyBrowserSites", value.passkeyBrowserSites);
     form.setFieldValue("repromptSites", value.repromptSites);
     form.setFieldValue("allowedSites", value.allowedSites);
     form.setFieldValue("allowedSitesEnabled", value.allowedSitesEnabled);
     form.setFieldValue("siteDefaults", value.siteDefaults);
     form.setFieldValue("bindings", value.bindings);
+    form.setFieldValue("detailLinks", value.detailLinks);
     form.setFieldValue("loginInPrivateWindows", value.loginInPrivateWindows);
     form.setFieldValue("serviceReports", value.serviceReports);
     form.setFieldValue("passkeyPolicy", value.passkeyPolicy);
@@ -391,6 +393,8 @@ export function SettingsApp({
     form.setFieldValue("allowedSites", next.allowedSites);
     form.setFieldValue("allowedSitesEnabled", next.allowedSitesEnabled);
     form.setFieldValue("siteDefaults", next.siteDefaults);
+    form.setFieldValue("bindings", next.bindings);
+    form.setFieldValue("detailLinks", next.detailLinks);
     form.setFieldValue("loginInPrivateWindows", next.loginInPrivateWindows);
     form.setFieldValue("serviceReports", next.serviceReports);
     form.setFieldValue("passkeyPolicy", next.passkeyPolicy);

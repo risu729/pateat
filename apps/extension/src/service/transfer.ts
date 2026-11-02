@@ -51,6 +51,8 @@ function merge(
  * item's policy and its custom-field review merge as one entry (ADR 0023), so the file's
  * may drop the other half of one held here: that counts as a change of the item's limit.
  */
+const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+
 function changes(before: LocalSettings, after: LocalSettings) {
   const was = syncedSettings(before);
   const now = syncedSettings(after);
@@ -89,6 +91,11 @@ function changes(before: LocalSettings, after: LocalSettings) {
       rules("excludedSites") +
       rules("passkeyBrowserSites") +
       rules("repromptSites") +
+      new Set(changed(was.allowedSites, now.allowedSites).map(siteKey)).size +
+      (was.allowedSitesEnabled === now.allowedSitesEnabled ? 0 : 1) +
+      (was.loginInPrivateWindows === now.loginInPrivateWindows ? 0 : 1) +
+      (same(was.serviceReports, now.serviceReports) ? 0 : 1) +
+      (same(was.passkeyPolicy, now.passkeyPolicy) ? 0 : 1) +
       (was.popupPageSection === now.popupPageSection ? 0 : 1),
   };
 }

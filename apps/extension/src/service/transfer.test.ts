@@ -259,6 +259,24 @@ describe("export and import", () => {
     });
   });
 
+  it("counts the profile switches the file changes, such as the reports switch", async () => {
+    const file = await exported(
+      setup({
+        settings: settingsOf({
+          serviceReports: { send: false, since: 1_000 },
+          passkeyPolicy: { presence: "activation", verification: "never" },
+          loginInPrivateWindows: true,
+        }),
+      }),
+    );
+    const device = setup({ settings: settingsOf({}) });
+    expect(await device.transfer.handle(importRequest(file, false))).toMatchObject({
+      sites: [],
+      policies: 0,
+      others: 3,
+    });
+  });
+
   it("counts an item limit the file drops as a change", async () => {
     const exclusion = {
       ...owner,

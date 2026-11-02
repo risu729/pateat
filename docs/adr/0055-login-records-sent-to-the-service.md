@@ -24,14 +24,16 @@ kinds of sending (owner, 2026-11-02 07:51 UTC: 「追加だけして、既定は
 with the default unchanged). It is on by default. It is the profile setting
 `serviceReports`, synced with the profile like `loginInPrivateWindows`
 ([ADR 0024](0024-settings-profiles.md); owner, 09:48 UTC: settings sync by default),
-such as `{ "send": false, "since": 1793600000000 }` while off and absent at the default.
+such as `{ "send": false, "since": 1793600000000 }` while off; it is absent until the
+setting is first changed, and kept as `{ "send": true, ... }` once it is turned back on.
 `since` is when the settings page last changed it, in epoch milliseconds. While it is
-off, a login's record is dropped, not kept for later, and no problem line is sent; once
-it is on again, problem lines written before `since` are passed over, so nothing logged
-while it was off is sent. Lines logged while it was on but not sent yet when it changed,
-such as during a retry wait, are passed over too, and a clock set back while it was off
-could let a line through. Settings that cannot be read send nothing. The first login
-result of each recipe revision
+off, a login's record is dropped, not kept for later, no problem line is sent, and each
+device moves its own position in the log past every line it holds, so a profile switch
+or another device's clock does not send them later. Once it is on again, problem lines
+written before `since` are passed over as well, which covers a device that had not seen
+it off yet. Lines logged while it was on but not sent yet when it changed, such as
+during a retry wait, are passed over too. Settings that cannot be read send nothing. The
+first login result of each recipe revision
 ([ADR 0019](0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation))
 and the recipe use of [ADR 0058](0058-automatic-recipe-removal.md) are not covered: the
 first keeps the evaluation corpus and the second keeps recipes from being removed. The
