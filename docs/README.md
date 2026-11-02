@@ -131,6 +131,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0078: A page's own control for another account switches without a recipe target](adr/0078-the-pages-own-account-switch.md)
 - [0079: A chooser layout holds the passkey button shown beside its list](adr/0079-passkey-button-beside-an-account-list.md)
 - [0080: The crypto Worker keeps login usernames while a vault is unlocked](adr/0080-login-usernames-kept-while-unlocked.md)
+- [0081: A learned button goes on to the authenticator app's code (proposed)](adr/0081-authenticator-method-button.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

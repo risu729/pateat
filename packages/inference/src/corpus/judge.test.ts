@@ -16,6 +16,7 @@ function truthAnswer({ expected }: JudgeCase) {
     decision,
     ...(expected.passkeyButton ? { passkeyButton: expected.passkeyButton } : {}),
     ...(expected.passwordButton ? { passwordButton: expected.passwordButton } : {}),
+    ...(expected.authenticatorButton ? { authenticatorButton: expected.authenticatorButton } : {}),
     ...(expected.code
       ? {
           code: {

@@ -12,6 +12,7 @@ export type JudgeExpected = {
    */
   passkeyButton?: string | null;
   passwordButton?: string | null;
+  authenticatorButton?: string | null;
   code?: { field: string; submit: string; sources: string[] } | null;
 };
 
@@ -111,6 +112,9 @@ function withObservedIds(testCase: JudgeCase): JudgeCase {
       ...(expected.passwordButton === undefined
         ? {}
         : { passwordButton: detail(expected.passwordButton) }),
+      ...(expected.authenticatorButton === undefined
+        ? {}
+        : { authenticatorButton: detail(expected.authenticatorButton) }),
       ...(expected.code === undefined
         ? {}
         : {
@@ -433,6 +437,52 @@ const cases: JudgeCase[] = [
       },
     ),
     expected: { decisions: ["challenge"], passwordButton: "sel-2", passkeyButton: null },
+  },
+  {
+    id: "en-second-factor-chooser",
+    summary: "After the password, a choice of authenticator app, text message or backup code",
+    loginPaths: ["/login"],
+    observation: page(
+      "notes",
+      "/login",
+      "en",
+      [
+        byText(button("opt-app", "Authenticator app Use code from authenticator")),
+        byText(button("opt-sms", "Text me a code")),
+        byText(button("opt-backup", "Use backup code")),
+        byText(link("help", "Need help?")),
+      ],
+      { title: "Log in", headings: ["Verify your identity"] },
+    ),
+    expected: {
+      decisions: ["challenge"],
+      authenticatorButton: "opt-app",
+      passwordButton: null,
+      passkeyButton: null,
+      code: null,
+    },
+  },
+  {
+    id: "ja-second-factor-chooser",
+    summary: "パスワードの後、認証アプリか SMS かを選ぶページ",
+    loginPaths: ["/signin"],
+    observation: page(
+      "bank",
+      "/signin/verify",
+      "ja",
+      [
+        byText(button("opt-sms", "SMS でコードを受け取る")),
+        byText(button("opt-app", "認証アプリを使用")),
+        byText(link("other", "その他の方法")),
+      ],
+      { title: "本人確認", headings: ["本人確認の方法を選択してください"] },
+    ),
+    expected: {
+      decisions: ["challenge"],
+      authenticatorButton: "opt-app",
+      passwordButton: null,
+      code: null,
+    },
   },
   {
     id: "en-incorrect-password",

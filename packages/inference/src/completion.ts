@@ -73,6 +73,7 @@ export const judgedPageSchema = v.strictObject({
       ),
       passkeyButton: v.optional(reference),
       passwordButton: v.optional(reference),
+      authenticatorButton: v.optional(reference),
       code: v.optional(
         described(
           v.strictObject({
@@ -168,6 +169,12 @@ export const completionInstructions = [
   "password, tries another way or cancels, and never a link. Nor is it a button that",
   "uses the device's biometrics or platform sign-in, such as Touch ID, Face ID, a",
   "fingerprint or Windows Hello, even one whose label also names the password.",
+  "authenticatorButton is the button on such a page that goes on to typing a code from",
+  "an authenticator app, such as Authenticator app or Use code from authenticator; never",
+  "one that sends a code by SMS, text message, call or email, uses a backup or recovery",
+  "code, a push notification or approval, a passkey, security key or FIDO or built-in",
+  "authenticator (passkeyButton), sets up, adds or changes an authenticator, tries",
+  "another way or cancels, and never a link, radio button or option of a list.",
   "A button by accessible-name may show only neutral text, such as Select; judge it by",
   "that name.",
   "A page shown after the sign-in whose content is only an offer or reminder the person",
@@ -287,13 +294,15 @@ export type SignInJudgement =
   | { decision: "rejected" }
   /**
    * `passkey` is the judged page's passkey second-factor button; `password` its button
-   * that goes on to the password (ADR 0048); `totp` its code field for the item's TOTP
+   * that goes on to the password (ADR 0048); `authenticator` its button that goes on to an
+   * authenticator app's code (ADR 0081); `totp` its code field for the item's TOTP
    * and the button that submits it. `addHandler` checks each.
    */
   | {
       decision: "challenge";
       passkey?: LoginTarget;
       password?: LoginTarget;
+      authenticator?: LoginTarget;
       /** Without `target` on a page that shows no button for the code. */
       totp?: { field: LoginFieldTarget; target?: LoginTarget };
       /**
@@ -558,7 +567,8 @@ function loggedAnswer(
   if (result.decision === "signed-in")
     return { decision: result.decision, marker: candidate(result.marker) };
   if (result.decision !== "challenge") return { decision: result.decision };
-  const { passkeyButton, passwordButton, code, details, detailSubmit } = result;
+  const { passkeyButton, passwordButton, authenticatorButton, code, details, detailSubmit } =
+    result;
   return {
     decision: result.decision,
     ...(details === undefined
@@ -578,6 +588,9 @@ function loggedAnswer(
     ...(detailSubmit === undefined ? {} : { detailSubmit: candidate(detailSubmit) }),
     ...(passkeyButton === undefined ? {} : { passkeyButton: candidate(passkeyButton) }),
     ...(passwordButton === undefined ? {} : { passwordButton: candidate(passwordButton) }),
+    ...(authenticatorButton === undefined
+      ? {}
+      : { authenticatorButton: candidate(authenticatorButton) }),
     ...(code === undefined
       ? {}
       : {
@@ -739,9 +752,14 @@ export function createCompletionJudge(config: {
               ?.target;
           const passkeyTarget = buttonOf(draft.passkeyButton);
           const passwordTarget = buttonOf(draft.passwordButton);
+          const authenticatorTarget = buttonOf(draft.authenticatorButton);
           const passkey = passkeyTarget && isStepTarget(passkeyTarget) ? passkeyTarget : undefined;
           const password =
             passwordTarget && isLoginTarget(passwordTarget) ? passwordTarget : undefined;
+          const authenticator =
+            authenticatorTarget && isStepTarget(authenticatorTarget)
+              ? authenticatorTarget
+              : undefined;
           const totp = totpCode(page, draft.code);
           const detail = detailInputs(
             page,
@@ -758,6 +776,7 @@ export function createCompletionJudge(config: {
               decision: "challenge",
               ...(passkey ? { passkey } : {}),
               ...(password ? { password } : {}),
+              ...(authenticator ? { authenticator } : {}),
               ...totp,
               ...detail,
             },
