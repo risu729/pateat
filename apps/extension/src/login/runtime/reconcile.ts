@@ -12,6 +12,7 @@ import {
   extractResultSchema,
   observationSchema,
   type LoginReadiness,
+  type AwaitMiss,
   type TargetRequirement,
 } from "../wire";
 import { type Execution } from "./types";
@@ -79,6 +80,8 @@ export async function waitFor(
   run: Execution,
   readiness: LoginReadiness,
   timeoutMs = stepWaitMs(rt),
+  /** Told why the step was not ready when its wait ran out, for the log. */
+  onMiss?: (miss: AwaitMiss) => void,
 ): Promise<"ready" | "timeout" | "gone"> {
   try {
     const response = await send(rt, run.live, {
@@ -88,6 +91,7 @@ export async function waitFor(
     });
     const parsed = v.safeParse(awaitResultSchema, response);
     if (!parsed.success) return "gone";
+    if (parsed.output.reason === "timeout" && parsed.output.miss) onMiss?.(parsed.output.miss);
     return parsed.output.ok ? "ready" : parsed.output.reason === "timeout" ? "timeout" : "gone";
   } catch {
     return "gone";

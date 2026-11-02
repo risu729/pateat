@@ -61,7 +61,7 @@ export function createBrowserFake() {
     /** When set, each requested target is reported unique only if its value is listed. */
     present: undefined as Set<string> | undefined,
     /** The document's answer while it waits for a step's elements. */
-    awaited: { ok: true } as { ok: boolean; reason?: string },
+    awaited: { ok: true } as { ok: boolean; reason?: string; miss?: string },
     /** Runs while the document waits for a step's elements. */
     onAwait: undefined as undefined | (() => void),
     /** Overrides `awaited` for one wait when it answers, as a chooser's list does. */
