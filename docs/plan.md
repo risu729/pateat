@@ -642,8 +642,8 @@ than in this repository.
   [#1152](https://github.com/risu729/pateat/issues/1152)): on the same path, "Verify
   your identity" offered the authenticator app, "Text me a code" and "Use backup code",
   and after the owner's own choice the six one-digit code inputs were not filled, since
-  a watched login only reads and the code page shared the judged path. Proposed on
-  2026-11-02, not yet accepted by the owner: the judge may name such a page's button
+  a watched login only reads and the code page shared the judged path. Since
+  2026-11-02 (owner, 06:58 UTC) the judge may name such a page's button
   that goes on to the authenticator app's code as an `authenticator` handler, pressed
   only after the password, for an item with a TOTP code, when its text names an
   authenticator app by a shared English and Japanese word list

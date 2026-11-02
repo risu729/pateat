@@ -1,12 +1,15 @@
 # ADR 0081: A learned button goes on to the authenticator app's code
 
-Status: proposed on 2026-11-02 by Claude, after the owner said on 2026-11-02 at 04:53
-UTC to resume and handle what can be done on open issues, for
-[#1152](https://github.com/risu729/pateat/issues/1152). Built on assumed decisions, as
-the owner allowed on 2026-10-23 at 05:28 UTC; another AI reviewed the proposal
-(`designs/authenticator-method-button-proposal-ja.md` in the project files) against the
-code before the owner was asked. Not yet accepted by the owner. Implemented with local
-tests only (unit and runtime); not checked on a real site. Amends
+Status: accepted by the owner on 2026-11-02 at 06:58 UTC, on a decision card that chose
+option A, 「A 覚えて押す」 (learn the button and press it), over B (the person chooses
+and Pateat fills the code during the watch) and C (keep it as is). Claude proposed it
+for [#1152](https://github.com/risu729/pateat/issues/1152) after the owner said on
+2026-11-02 at 04:53 UTC to resume and handle what can be done on open issues, and built
+it on assumed decisions, as the owner allowed on 2026-10-23 at 05:28 UTC; another AI
+reviewed the proposal (`designs/authenticator-method-button-proposal-ja.md` in the
+project files) against the code before the owner was asked. The details under Decision
+are Claude's and were not confirmed one by one. Implemented with local tests only (unit
+and runtime); not checked on a real site. Amends
 [ADR 0027](0027-per-account-login-routes.md) (a fifth handler kind and what the judge
 may name) and follows [ADR 0048](0048-password-method-button.md), whose `password`
 handler it mirrors.
@@ -41,7 +44,7 @@ The extension's diagnostics log in the owner's Chrome from 2026-10-29 00:02 UTC 
 line for Notion, and the service's records were not readable on 2026-11-02, so the
 judge's answer on the choice page is not known; the reasons above follow from the code.
 
-## Decision (assumed)
+## Decision
 
 1. **What the judge names.** On a `challenge` page that asks how to confirm the sign-in,
    the judge may name `authenticatorButton`: a button that goes on to typing a code from
