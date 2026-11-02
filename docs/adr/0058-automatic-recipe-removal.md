@@ -171,7 +171,7 @@ Part B is implemented in the service (`last_used_at` on `recipe_heads`,
 (`apps/extension/src/service/recipe-use.ts`).
 
 Part A is implemented in the extension. The login runtime
-(`apps/extension/src/login/runtime.ts`) marks the plan's refusal with the route the item
+(`apps/extension/src/login/runtime/`) marks the plan's refusal with the route the item
 would take (`heldRouteMissing` in `packages/contracts/src/login.ts`), waits as for a
 generation, and asks the worker's generation side
 (`apps/extension/src/service/generation.ts`) to revoke the recipe. That side records the

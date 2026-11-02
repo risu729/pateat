@@ -345,7 +345,7 @@ Recorded on 2026-10-23 from the owner; not designed or decided here:
   `recipes.ts` (`rankLayouts`, selection), `generation.ts`, `sync.ts`, `manage.ts`,
   `login-attempt.ts` (`layout` on the attempt, the `LAYOUT` event).
 - Extension: the recipe cache (`apps/extension/src/service/recipes.ts`, version 2),
-  the login runtime (`apps/extension/src/login/runtime.ts`), the page's language
+  the login runtime (`apps/extension/src/login/runtime/`), the page's language
   (`observation/extract.ts`, `login/content.ts`), and the service senders that now name
   the layout.
 - Service: `packages/generation/src/generate.ts`, `recipe-store.ts` (`markLayoutUsed`,
