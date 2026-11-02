@@ -109,8 +109,10 @@ Consequences:
 
 ## Amendment 2026-11-02: counter-shaped IDs give way
 
-Status: proposed, waiting for the owner's decision. It reverses the "demoting only
-counter-like IDs (B)" rejection above, for a shape that needs no other element.
+Status: accepted by the owner on 2026-11-02 (07:19 UTC, decision card "数字で終わる id
+だけ後回し", recommended, over `name` before `id` for every element, and no change). It
+reverses the "demoting only counter-like IDs (B)" rejection above, for a shape that
+needs no other element.
 
 Discord's login form
 ([issue #1161](https://github.com/risu729/pateat/issues/1161)) has no test attribute.
