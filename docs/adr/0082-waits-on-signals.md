@@ -5,10 +5,9 @@ Status: accepted by the owner on 2026-11-03 at 03:31 UTC, who wrote
 at 03:20 UTC why logins are so slow. The rule is the owner's. Which signal replaces each
 wait, and the order in which the waits are replaced, are Claude's and were not confirmed
 one by one. The first replacements (below) are checked with local and CI tests only, not
-yet on a real site. Amends [ADR 0010](0010-inference-field-hints.md) (the 500 ms before
-the fill check), [ADR 0067](0067-software-keyboard-entry.md) (the keypad's 25 ms reads)
-and [ADR 0070](0070-shadow-roots-as-page-content.md) (the half-second count of undefined
-custom elements).
+yet on a real site. Amends [ADR 0067](0067-software-keyboard-entry.md) (the keypad's 25
+ms reads) and [ADR 0070](0070-shadow-roots-as-page-content.md) (the half-second count of
+undefined custom elements).
 
 Date: 2026-11-03
 
@@ -44,12 +43,12 @@ a poll adds half its interval on average to every wait.
    defining one of its custom elements. Changes are taken together until the page's next
    frame, so a page that changes all the time is checked at most once a frame.
 4. A wait for the page's own handlers after Pateat's events (after a value's characters,
-   between a fill's fields and a split code's digits, and before the fill check of ADR
-   0010) waits for the page's next rendered frame (`nextFrame` in `src/page/frames.ts`):
-   by then the handlers, their microtasks and the timers they set for now have run, and
-   what they changed is rendered. A hidden page renders no frame and waits one task. A
-   document that reads as shown but whose frame Chrome does not render, as an off-screen
-   frame, gets no animation frame, so this wait has a 100 ms bound.
+   between a fill's fields and a split code's digits) waits for the page's next rendered
+   frame (`nextFrame` in `src/page/frames.ts`): by then the handlers, their microtasks
+   and the timers they set for now have run, and what they changed is rendered. A hidden
+   page renders no frame and waits one task. A document that reads as shown but whose
+   frame Chrome does not render, as an off-screen frame, gets no animation frame, so
+   this wait has a 100 ms bound.
 5. When the page defines a custom element it had not defined, the content script checks
    the page at the next frame. Chrome's isolated world has no `customElements` (it is
    `null` there), so the main-world script waits with `customElements.whenDefined` for
@@ -61,7 +60,6 @@ a poll adds half its interval on average to every wait.
 
 | Wait until then | Where | Now |
 | --- | --- | --- |
-| 500 ms before the fill check (`fillSettleMs`) | `login/content.ts`, `login.execute` fill | Decision 4 |
 | 25 ms between fields, digits and after each value (`FIELD_GAP_MS`) | `page/enter-value.ts`, `login/content.ts` | Decision 4 |
 | 500 ms count of undefined custom elements, for ten seconds (`watchUpgrades`) | `login/content.ts` | Decision 5 |
 | 100 ms debounce before the page watch's check (`schedule`) | `login/content.ts` | Next frame after a change |
@@ -79,6 +77,11 @@ Their bounds stay: `LOGIN_STEP_WAIT_MS`, each step's `timeoutMs`, `KEYPAD_OPEN_M
 These waits remain set times and fall under the rule; each is replaced in its own
 change, in the order of the inventory (largest added time first):
 
+- The 500 ms before the fill check of [ADR 0010](0010-inference-field-hints.md)
+  (`fillSettleMs`). A frame is not enough: a page validator that shows its error from a
+  timer, as the end-to-end fixture's alert 100 ms after `input` does, would show it only
+  after the click. Its replacement needs a signal for "the timers the page's handlers
+  set for the fill have run".
 - The 3 s observation budget of a result no marker proves, `WATCH_SETTLE_MS`,
   `SIGN_IN_RECHECK_MS` and the cross-origin move's readings (`quietMove`) after a
   submission ([ADR 0027](0027-per-account-login-routes.md),
@@ -100,12 +103,8 @@ change, in the order of the inventory (largest added time first):
 
 ## Consequences
 
-- Each preparing fill is about 0.5 s faster, and each field about 50 ms; a page whose
-  form or next step shows after a change is checked within a frame instead of up to
-  50-500 ms later.
-- A page validator that shows its error only after a debounce longer than a frame shows
-  it after the click, not before; the click then meets the page's own refusal, as a
-  person's would, instead of the fill ending `fill-rejected` before it.
+- Each field is about 50 ms faster to fill, and a page whose form or next step shows
+  after a change is checked within a frame instead of up to 50-500 ms later.
 - A change that sends none of the signals of decision 3, as a shadow root attached to an
   element already defined with no other change, a stylesheet rule changed through the
   CSSOM or a Web Animations API animation ending, is seen at the page's next signal, or

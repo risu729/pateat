@@ -378,6 +378,12 @@ function credentialInputs(targets: readonly LoginMarkerTarget[]): {
 }
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 /**
+ * How long a preparing fill waits for the page's own input handlers before checking that
+ * the page accepted the values (ADR 0010). A set time still to be replaced (ADR 0082): a
+ * page validator debounced by 100 ms or more would show its error only after a click.
+ */
+const fillSettleMs = 500;
+/**
  * What a first-visit page without a sign-in input is gets decided once its DOM has had no
  * change for `offerQuietMs`, or `offerWaitMs` after the wait began while it keeps changing
  * (ADR 0057). A sign-in input is still offered until `LOGIN_STEP_WAIT_MS` (ADR 0016).
@@ -2205,11 +2211,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             return { ok: true, mutation: "possible" };
           }
           // A preparing fill is followed by a click; the page's own validation must accept
-          // the values first: its handlers for the last field's `change` and blur ran in
-          // the typing's last wait, and what they render shows by the next frame (ADR
-          // 0082). An effectful fill has already submitted through its event.
+          // the values first. An effectful fill has already submitted through its event.
           if (baseline) {
-            await nextFrame();
+            await pause(fillSettleMs);
             if (cancelled) return fail("cancelled", "document-cancelled");
             // The page replaced the form, perhaps signing in by itself; the background
             // observes the page instead of clicking.

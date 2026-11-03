@@ -80,9 +80,7 @@ decision:
   step runs, so it also covers recipes not generated from an observation. A mismatch
   fills nothing and ends the attempt as `value-mismatch` without a retry, since the
   same values would fail again.
-- Check 2 runs after a fill that prepares a click, waiting the page's next rendered
-  frame after the last field's typing (500 ms from the last field until 2026-11-03,
-  [ADR 0082](0082-waits-on-signals.md))
+- Check 2 runs after a fill that prepares a click, waiting 500 ms from the last field
   (since 2026-10-13 each field is focused, typed and blurred in turn; see
   [background execution](../architecture.md#background-execution)). It reads
   `validity.valid`, which fires no `invalid` event for the page to react to.

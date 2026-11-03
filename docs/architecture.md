@@ -1080,8 +1080,8 @@ its typing, including the waits after its last character; a typing they stop lea
 characters typed so far in the field and fails the step, so nothing is clicked, unless
 the code watch of [ADR 0027](adr/0027-per-account-login-routes.md) saw the page take the
 code, as a page that replaces its form once the last digit is in does: that ends as
-`submitted`. The check of [ADR 0010](adr/0010-inference-field-hints.md) follows the last
-field, one frame after its typing's last wait. A fill that advances or submits through
+`submitted`. The 500 ms check of [ADR 0010](adr/0010-inference-field-hints.md) follows
+the last field. A fill that advances or submits through
 the page's own event sets the value and sends that one `input` or `change` event alone,
 with no focus, keys or blur that could run its effect again. Known limits: the events
 are not trusted (`isTrusted` is false), so a page that checks that, or opens a software
@@ -1104,9 +1104,8 @@ value from such a timer may hold another value while the field passes that check
 the copy is submitted (a page's zero-delay timer runs before the next character only
 when Chrome queues it first, which it does not once it clamps nested timers to 4 ms);
 and a page that submits on its own from a key or blur handler of a preparing fill is not
-watched for, so the click after the fill check still runs if its button stays clickable;
-a page validator that shows its error only after a debounce longer than a frame shows it
-after the click (until 2026-11-03 the check waited 500 ms, ADR 0082). Before 2026-10-13
+watched for, so the click after the 500 ms check still runs if its button stays
+clickable. Before 2026-10-13
 a preparing fill sent only `input` and `change` after the setter, in one task; that day
 a bank page showed its required-field error under its filled fields. Until later that
 day it then set the whole value at once between bare key events, as Bitwarden's autofill
@@ -1251,35 +1250,35 @@ non-empty, within the input's `maxlength` and `minlength` (ignored on `number` i
 and a valid email or number for those input types (`valueMismatch` in
 `packages/contracts/src/values.ts`). A 22-character password and an input with
 `maxlength="8"` fills nothing and ends the attempt `value-mismatch` without a retry or a
-spent submission. After a preparing fill, the content script waits for the page's next
-rendered frame after the typing's last wait, so its own handlers ran
-([ADR 0082](adr/0082-waits-on-signals.md)), and ends the attempt `fill-rejected`,
-without a retry or the click, when a filled input is invalid (`validity.valid`, which
-unlike `checkValidity()` fires no `invalid` event), became `aria-invalid="true"`, or a
-visible alert shows text that no such region showed before the fill. Alerts are
-`role="alert"` and `aria-live="assertive"` regions anywhere, and `role="status"` and
-polite regions inside the filled form or named by a filled input's `aria-describedby` or
-`aria-errormessage`. Named feedback resolves in the input's own document or shadow tree,
-for both the fill check and the sign-in state reading; a matching ID in another tree
-does not name that region (ADR 0070). A message the page already showed and renders
-again is not new, nor is a mark the input had before the fill. The text stays in the
-content script; only the outcome leaves it. A fill that submits through its own event is
-checked only before filling. When a filled input was replaced during the wait, nothing
-is clicked and the attempt observes the page instead. A click is not made, and the
-attempt ends `structural-mismatch` and moves to reconciling, when the page emptied a
-shown input that this document's fills wrote to since the last click, or, for a
-submitting click, when a shown password input that was not writable when those fills
-began is empty. Only the clicked element's form counts (the page, for an element outside
-a form), and only once Pateat filled something in it since the last click. St.George's
-logon page (`ibanking.stgeorge.com.au`) with a remembered access number hides its
-Security Number field; typing the access number clears every field and shows it
-(2026-10-12), so the form would otherwise be sent with the access number and Security
-Number empty. A passkey button beside an empty password field, a registration panel's
-password field shown from the start, and an earlier step's field the page hid and
-cleared do not hold a click. When the page shows a CAPTCHA frame (ADR 0029's S4) as a
-click is about to run and none of its services' token fields holds a token yet, the form
-stays filled and nothing is clicked: the click is left to the person and held as a
-handler's click is, up to two minutes while its button shows
+spent submission. After a preparing fill, the content script waits 500 ms for the page's
+own handlers, a set time still to be replaced
+([ADR 0082](adr/0082-waits-on-signals.md#still-to-replace)), and ends the attempt
+`fill-rejected`, without a retry or the click, when a filled input is invalid
+(`validity.valid`, which unlike `checkValidity()` fires no `invalid` event), became
+`aria-invalid="true"`, or a visible alert shows text that no such region showed before
+the fill. Alerts are `role="alert"` and `aria-live="assertive"` regions anywhere, and
+`role="status"` and polite regions inside the filled form or named by a filled input's
+`aria-describedby` or `aria-errormessage`. Named feedback resolves in the input's own
+document or shadow tree, for both the fill check and the sign-in state reading; a
+matching ID in another tree does not name that region (ADR 0070). A message the page
+already showed and renders again is not new, nor is a mark the input had before the
+fill. The text stays in the content script; only the outcome leaves it. A fill that
+submits through its own event is checked only before filling. When a filled input was
+replaced during the wait, nothing is clicked and the attempt observes the page instead.
+A click is not made, and the attempt ends `structural-mismatch` and moves to
+reconciling, when the page emptied a shown input that this document's fills wrote to
+since the last click, or, for a submitting click, when a shown password input that was
+not writable when those fills began is empty. Only the clicked element's form counts
+(the page, for an element outside a form), and only once Pateat filled something in it
+since the last click. St.George's logon page (`ibanking.stgeorge.com.au`) with a
+remembered access number hides its Security Number field; typing the access number
+clears every field and shows it (2026-10-12), so the form would otherwise be sent with
+the access number and Security Number empty. A passkey button beside an empty password
+field, a registration panel's password field shown from the start, and an earlier step's
+field the page hid and cleared do not hold a click. When the page shows a CAPTCHA frame
+(ADR 0029's S4) as a click is about to run and none of its services' token fields holds
+a token yet, the form stays filled and nothing is clicked: the click is left to the
+person and held as a handler's click is, up to two minutes while its button shows
 ([ADR 0029](adr/0029-local-sign-in-state.md)); a chooser's click on its list is made as
 before. Explicit credential rejection stops retries with that credential. A structural
 mismatch sends the page for repair, once a UTC day per recipe and device
