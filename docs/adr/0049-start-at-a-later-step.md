@@ -230,18 +230,22 @@ page with ads or animations never goes quiet, so it paid the whole 5 seconds. Th
 forbade fixed waits on 2026-11-03 ([ADR 0082](0082-waits-on-signals.md)), after the
 production logins without a model took 11.3 seconds at the median.
 
-Decision: such a fill whose effect is `prepare` fills at once and leaves the comparison
-to the next click or Enter of the same attempt in the document. Just before that press,
-after its own checks, the content script compares the item's username with the account
-the page shows then, as the fill would have. While the page still shows no comparable
-identifier and has not loaded, it waits for `load` first, until the operation expires.
-On another account it clears the inputs the fill typed into, presses nothing, and the
-attempt ends `wrong-account`, or clicks the recipe's switch or the page's own control as
-before ([ADR 0078](0078-the-pages-own-account-switch.md)); the attempt's state machine
-now takes a wrong account from that click as from a fill. A page that shows an
-identifier when the fill starts is compared then, as before, and a fill that may submit
-by itself (`advance` or `submit`), which has no later press, still waits for the page to
-settle. The username stays in the content script and is cleared after the comparison.
+Decision: such a fill whose effect is `prepare`, followed on its path by a click, fills
+at once and leaves the comparison to that click or Enter (`accountAtPress`, sent by the
+background). The press first waits, while the page still shows no comparable identifier
+and has not loaded, for `load`, at most 5 seconds and until 2 seconds before the
+operation expires, and then runs its own checks (the form's destination, the form still
+holding its values); the comparison runs last, with no wait before the press. On another
+account the content script clears the inputs the fill typed into, presses nothing, and
+the attempt ends `wrong-account`, or clicks the recipe's switch or the page's own
+control as before ([ADR 0078](0078-the-pages-own-account-switch.md)); the attempt's
+state machine now takes a wrong account from that click as from a fill. An advance on a
+page that still shows no identifier leaves the comparison to the next press; a submit
+uses it up. A page that shows an identifier when the fill starts is compared then, as
+before. A fill-only login (ADR 0021 D), a fill on a software keyboard (ADR 0067), a code
+fill (ADR 0027) and a fill that may submit by itself, whose page may submit without the
+click, still wait for the page to settle before they fill. The username stays in the
+content script and is cleared after the comparison or when the document is cancelled.
 
 Consequences: a password-only page fills without the 1 to 5 second wait. A page that
 shows its account only after the press is no longer caught: the password was typed into

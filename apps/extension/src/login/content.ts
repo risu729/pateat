@@ -145,6 +145,20 @@ const stillAsks = (input: Control, question: AskedQuestion | undefined) =>
 /** An input a fill types into, or a select a split date's part sets (ADR 0061). */
 type Control = HTMLInputElement | HTMLSelectElement;
 /**
+ * Empties inputs a fill typed into, with the page's `input` and `change` events, as when
+ * the account check it left to the click found another account (ADR 0049).
+ */
+function clearTyped(inputs: Control[]): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  if (!setter) return;
+  for (const input of inputs)
+    if (input instanceof HTMLInputElement && input.isConnected && input.value !== "") {
+      setter.call(input, "");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+}
+/**
  * Whether `element` may take a value of `secret` now: a writable input, or, for a split
  * birth date's or card expiry date's part only (ADR 0061), a choosable select.
  */
@@ -1238,6 +1252,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     if (command.type === "login.cancel") {
       cancelled = true;
+      if (deferredAccount) deferredAccount.username = "";
+      deferredAccount = undefined;
       waits.abort();
       unwatch();
       frameWatch?.();
@@ -1772,54 +1788,59 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         }
         return fail("wrong-account");
       };
+      const nothingShown = (deferred: NonNullable<typeof deferredAccount>) =>
+        comparableAccounts(formAccounts(document, deferred.form), deferred.username, {
+          masked: deferred.masked,
+        })?.length === 0;
       /**
-       * The check a fill left to this click or Enter (`deferredAccount`): on another account
-       * the values it typed are cleared and nothing is pressed. While the page still shows
-       * no identifier to compare with and has not loaded, its `load` is waited for first,
-       * until the operation expires (ADR 0082).
+       * Before a click or Enter's own checks: while a fill left its account check to it
+       * (`deferredAccount`) and the page still shows no identifier and has not loaded, waits
+       * for `load`, at most `accountWaitMs` and until `accountReserveMs` before the operation
+       * expires (ADR 0082), or the document's cancel. A wait that ran out goes on.
        */
-      const deferredOther = async () => {
+      const deferredLoad = async () => {
         const deferred = deferredAccount;
-        deferredAccount = undefined;
+        if (!deferred || document.readyState === "complete" || !nothingShown(deferred))
+          return undefined;
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            clearTimeout(loadTimer);
+            removeEventListener("load", done);
+            waits.signal.removeEventListener("abort", done);
+            resolve();
+          };
+          const loadTimer = setTimeout(
+            done,
+            Math.max(
+              0,
+              Math.min(accountWaitMs, operation.expiresAt - accountReserveMs - Date.now()),
+            ),
+          );
+          addEventListener("load", done);
+          waits.signal.addEventListener("abort", done);
+        });
+        if (cancelled) return fail("cancelled", "document-cancelled");
+        if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
+        if (step.path !== pagePath()) return fail("cancelled", "page-changed");
+        return undefined;
+      };
+      /**
+       * The check a fill left to this click or Enter, run with no wait just before the press:
+       * on another account the values the fill typed are cleared and nothing is pressed. It
+       * is used up by a submitting press or once the page shows an identifier; an advance
+       * on a page that still shows none leaves it for the next press.
+       */
+      const deferredOther = (submit: boolean) => {
+        const deferred = deferredAccount;
         if (!deferred) return undefined;
-        if (
-          document.readyState !== "complete" &&
-          comparableAccounts(formAccounts(document, deferred.form), deferred.username, {
-            masked: deferred.masked,
-          })?.length === 0
-        ) {
-          await new Promise<void>((resolve) => {
-            const done = () => {
-              clearTimeout(timer);
-              removeEventListener("load", done);
-              resolve();
-            };
-            const timer = setTimeout(done, Math.max(0, operation.expiresAt - Date.now()));
-            addEventListener("load", done);
-          });
-          const stopped = cancelled
-            ? "document-cancelled"
-            : Date.now() >= operation.expiresAt
-              ? "operation-expired"
-              : step.path !== pagePath()
-                ? "page-changed"
-                : undefined;
-          if (stopped) {
-            deferred.username = "";
-            return fail("cancelled", stopped);
-          }
-        }
+        if (!submit && nothingShown(deferred)) return undefined;
+        deferredAccount = undefined;
         const other = showsOtherAccount(formAccounts(document, deferred.form), deferred.username, {
           masked: deferred.masked,
         });
         deferred.username = "";
         if (!other) return undefined;
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        for (const input of deferred.inputs)
-          if (input instanceof HTMLInputElement && input.isConnected && setter) {
-            setter.call(input, "");
-            input.dispatchEvent(new Event("input", { bubbles: true }));
-          }
+        clearTyped(deferred.inputs);
         return otherAccount(deferred);
       };
       // With an advance whose next step is on its path, that step's elements just before
@@ -1845,6 +1866,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
        * person, who then presses Enter or the button.
        */
       const pressEnter = async (target: LoginTarget, submit: boolean) => {
+        const waited = await deferredLoad();
+        if (waited) return waited;
         const found = matches(target);
         const field = found.length === 1 ? found[0] : undefined;
         const form = writable(field) ? formOf(field) : null;
@@ -1896,7 +1919,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           })
         )
           return fail("structural-mismatch", "form-changed");
-        const other = await deferredOther();
+        const other = deferredOther(submit);
         if (other) return other;
         measureNext();
         submitted = submittedPage(document, formInputs.filter(writable));
@@ -1908,9 +1931,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       };
       if (step.kind === "fill") {
         // A fill compared with the shown account, while the page shows nothing to compare
-        // with, is compared just before the next click instead, so an account the page shows
-        // after its fields is compared too (Duolingo, 2026-10-23); a fill that may submit
-        // has no later click and waits for the page to settle (`accountQuietMs`).
+        // with, is compared just before its click instead when the background says one
+        // follows (`accountAtPress`), so an account the page shows after its fields is
+        // compared too (Duolingo, 2026-10-23); any other such fill, whose page may submit
+        // without that click, waits for the page to settle (`accountQuietMs`).
         const masked = command.values.some((entry) => maskedSecret(entry.secret));
         let deferLater = false;
         if (command.account) {
@@ -1922,7 +1946,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             command.account.username,
             { masked },
           );
-          if (comparable?.length === 0 && step.effect === "prepare") deferLater = true;
+          if (comparable?.length === 0 && command.accountAtPress) deferLater = true;
           else if (comparable?.length === 0) {
             await settled(
               document,
@@ -2001,11 +2025,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // (`deferredAccount`, ADR 0049 amendment of 2026-11-03).
         if (command.account) {
           if (deferLater) {
+            const earlier = deferredAccount;
+            if (earlier) earlier.username = "";
             deferredAccount = {
               username: command.account.username,
               masked,
               form,
-              inputs: writableInputs,
+              inputs: [...(earlier?.inputs ?? []), ...writableInputs],
               ...(command.accountSwitch ? { accountSwitch: command.accountSwitch } : {}),
               ...(command.otherSwitch ? { otherSwitch: true as const } : {}),
             };
@@ -2336,6 +2362,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (step.kind === "click" && step.press === "enter")
         return await pressEnter(step.target, step.purpose === "submit");
       if (step.kind === "click") {
+        const waited = await deferredLoad();
+        if (waited) return waited;
         let element: HTMLElement | undefined;
         if (command.list) {
           // A chooser's click on its list goes where the list's choice is now (ADR 0028).
@@ -2415,7 +2443,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           })
         )
           return fail("structural-mismatch", "form-changed");
-        const other = await deferredOther();
+        const other = deferredOther(step.purpose === "submit");
         if (other) return other;
         // An advance's next step is measured in this task, just before the click, and so
         // is what the page shows before it (ADR 0029).

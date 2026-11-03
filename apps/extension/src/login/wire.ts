@@ -622,6 +622,13 @@ export const commandSchema = v.variant("type", [
     /** The recipe's account switch, clicked when the page shows another account. */
     accountSwitch: v.optional(loginTargetSchema),
     /**
+     * With `account`: the page may show no identifier yet, and the fill's own click
+     * follows on its path, so the comparison may wait for that click (ADR 0049 amendment
+     * of 2026-11-03). Never for a fill-only login, a software keyboard's or a code's fill,
+     * whose page may submit without that click.
+     */
+    accountAtPress: v.optional(v.literal(true)),
+    /**
      * Without the recipe's switch: the page's own control for another account may be
      * clicked when the page shows another account (ADR 0078).
      */
