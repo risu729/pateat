@@ -37,7 +37,9 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
         probe: probeMode && ctx.document.origin === rt.vars.origin,
         pickedAttemptId: rt.picked.get(ctx.document.tabId)?.attemptId,
         picked: rt.picked.has(ctx.document.tabId),
-        recordedAt: rt.persisted.get(ctx.askKey)?.changedAt,
+        recordedAt: ((stored) => (stored?.id === ctx.recorded?.id ? stored?.changedAt : undefined))(
+          rt.persisted.get(ctx.askKey),
+        ),
         switching: ["running", "signed-out"].includes(
           rt.switchStates.get(ctx.document.tabId)?.state ?? "",
         ),

@@ -703,8 +703,9 @@ Decision:
   bound of those readings only.
 - When the budget ran out, the reading counts at once when the document has loaded. A
   document still loading is read again once its `load` event fired, waited for in the
-  content script as a signal and at most 10 seconds (`SIGN_IN_LOAD_WAIT_MS`), instead of
-  every second up to ten times. There is no second reading a second later any more.
+  content script as a signal and at most 10 seconds (`SIGN_IN_LOAD_WAIT_MS`), and then
+  read afresh, instead of every second up to ten times. There is no second reading a
+  second later any more.
 - If the document a login completed in shows the recipe's first step again within 30
   seconds of the completion (`RESULT_CORRECTION_MS`), the login did not sign in: its
   result is corrected, and the tab asks for an account as after a refused password (ADR
@@ -736,10 +737,15 @@ The agent's choices, not part of the card:
   line carries no times and sends nothing more; the completion still counts towards the
   relogin limit (ADR 0062); and an account choice, a detail link or a site pick the
   completion saved, and "Pateat signed in here" (ADR 0007), are not taken back.
-- A page after the final `advance` that may be the next sign-in step (ADR 0018), a page
-  that may still be exchanging Pateat's passkey answer (ADR 0034, ADR 0036) and a login
+- A page after an `advance`, whose next step may still be rendering under a header that
+  already names the account (E2) or may be the next sign-in step (ADR 0018), a page that
+  may still be exchanging Pateat's passkey answer (ADR 0034, ADR 0036) and a login
   on its way to a stop are not read early; they are decided once the budget ran out, as
   before.
 - A second factor that the same document asks for after the early completion, as a code
   field shown after a header that already named the account, is left to the person: the
   login has completed, so no handler runs there.
+- The correction needs the recipe's first step on its own path, as the login's start
+  page showed it. A site that answers in the same document with a later step and an
+  error, or with the form on another path, is not corrected; such a page is a logout as
+  before.

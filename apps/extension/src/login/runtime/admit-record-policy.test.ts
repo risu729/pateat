@@ -216,6 +216,12 @@ describe("a completion its own document corrects (ADR 0029, amended 2026-11-03)"
     expect(
       finished(completed({ changedAt: undefined }), { recordedAt: now - 5_000 }),
     ).toMatchObject({ correctedHere: true });
+    // A resumed login's record keeps the time of its run's start; the stored one's counts.
+    expect(
+      finished(completed({ changedAt: now - RESULT_CORRECTION_MS - 60_000 }), {
+        recordedAt: now - 5_000,
+      }),
+    ).toMatchObject({ correctedHere: true });
     expect(
       nextRecordStep(
         completed(),

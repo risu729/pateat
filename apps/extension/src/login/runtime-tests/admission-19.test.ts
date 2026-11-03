@@ -703,6 +703,101 @@ describe("production login document admission", () => {
         });
         expect(status()).toMatchObject([{ outcome: "credential-rejected" }]);
         expect(Date.now() - clicked).toBeGreaterThanOrEqual(2_900);
+        // The state is read every round, but the run's username comes from the vault once:
+        // the fill's username and password, and the first reading's username.
+        expect(h.fields.mock.calls.length).toBeLessThanOrEqual(3);
+      }, 12_000);
+      it("reads a document that finished loading during the wait afresh", async () => {
+        realTime();
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.loaded = false;
+        // The document finishes loading while the content script waits for it.
+        fake.state.signs = (message) => {
+          if (message["loadWithinMs"] !== undefined) fake.state.loaded = true;
+          return { ...noSigns, username: true };
+        };
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 8_000,
+          interval: 10,
+        });
+        const reads = fake.state.messages.filter((entry) => entry.type === "login.state");
+        // The reading after the load is taken again, so none of its signs is from before it.
+        expect(
+          reads.slice(-2).map((entry) => (entry as { loadWithinMs?: number }).loadWithinMs),
+        ).toEqual([10_000, undefined]);
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 12_000);
+      it("never completes at once after an advance whose next step is still rendering", async () => {
+        // An identifier-first page may name the account in its header before its password
+        // input renders (E2): the page after an advance is decided once the budget ran out.
+        realTime();
+        const advancing = parseLoginRecipe({
+          ...generated,
+          steps: [
+            {
+              kind: "fill",
+              path: "/signin",
+              fields: [{ slot: "username", target: target("user") }],
+            },
+            { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+            {
+              kind: "fill",
+              path: "/signin",
+              fields: [{ slot: "password", target: target("password") }],
+            },
+            { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+          ],
+          maxSubmissions: 2,
+        });
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = { ...noSigns, username: false };
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+        });
+        h.recipes.recipe.mockResolvedValue(advancing);
+        fake.state.present = new Set(["user", "next"]);
+        fake.state.onExecute = async (message) => {
+          const { step } = message["operation"] as { step: { kind: string; purpose?: string } };
+          if (step.kind !== "click" || step.purpose !== "advance") return;
+          fake.state.present = new Set();
+          fake.state.signs = { ...noSigns, username: true };
+          setTimeout(() => {
+            fake.state.present = new Set(["password", "login"]);
+            fake.state.signs = { ...noSigns, password: true, username: true };
+          }, 500);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(
+              fake.state.messages.filter(
+                (entry) =>
+                  entry.type === "login.execute" &&
+                  (entry as { operation?: { step: { purpose?: string } } }).operation?.step
+                    .purpose === "submit",
+              ),
+            ).toHaveLength(1),
+          { timeout: 8_000, interval: 10 },
+        );
       }, 12_000);
     });
     describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => {

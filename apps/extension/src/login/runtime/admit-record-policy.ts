@@ -29,8 +29,9 @@ export interface RecordPage {
   /** The tab holds an account picked in the popup, for this login or a later one. */
   readonly picked?: boolean;
   /**
-   * When the tab's stored record of this origin last changed (`changedAt`), for a record
-   * read from its running login, which does not carry it.
+   * When the tab's stored record of this login last changed (`changedAt`): a record read
+   * from its running login does not carry it, and one a resumed login carries may be older
+   * than the stored one, which each change updates.
    */
   readonly recordedAt?: number | undefined;
 }
@@ -111,7 +112,7 @@ export function nextRecordStep(
       // again did not sign in: its result was read at once and is corrected, not taken for
       // a logout (ADR 0029, amended 2026-11-03). A switch or a pick of the person's own
       // logs in as before.
-      const age = now - (recorded.changedAt ?? page.recordedAt ?? Number.NEGATIVE_INFINITY);
+      const age = now - (page.recordedAt ?? recorded.changedAt ?? Number.NEGATIVE_INFINITY);
       const correctedHere =
         recorded.state === "authenticated" &&
         recorded.document.documentId === page.documentId &&

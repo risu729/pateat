@@ -379,10 +379,12 @@ export async function reconcile(
     // Before the budget runs out, a page whose loaded document reads signed in completes
     // the login at once (ADR 0029, amended 2026-11-03); the sign-in form shown again in
     // that document soon after corrects it. Not while such an answer may still be
-    // exchanged, on the way to a stop, or on a page that may be the next sign-in step
-    // after the final advance (ADR 0018), which the settled page decides below.
+    // exchanged, on the way to a stop, or after an advance: its next step may still be
+    // rendering under a header that already names the account (E2), and the settled page
+    // decides it below, as it does the next sign-in step after the final advance (ADR 0018).
     if (
       effectful(run.metadata) &&
+      run.metadata.operationEffect !== "advance" &&
       continued !== "qualified" &&
       !answering &&
       !advancingToStop(run.metadata) &&

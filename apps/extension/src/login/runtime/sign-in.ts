@@ -49,11 +49,14 @@ export async function signInState(
   // A decision counts once it is read in a fully loaded document, so a page whose signs
   // are still rendering is not settled; a document still loading is read again once its
   // `load` event fired, waited for as a signal and at most `SIGN_IN_LOAD_WAIT_MS` (ADR
-  // 0082). `unknown` changes nothing and is not read again, unless it is the sign-in form
-  // shown again with nothing else, on which the tab asks again (ADR 0021 D).
+  // 0082), and then read afresh, so no sign it gives was read before the load. `unknown`
+  // changes nothing and is not read again, unless it is the sign-in form shown again with
+  // nothing else, on which the tab asks again (ADR 0021 D).
   if (reading && !reading.loaded && acts(reading)) {
     if (!current(rt, run) || terminal(run.metadata)) return undefined;
     reading = await readSignInState(rt, run, SIGN_IN_LOAD_WAIT_MS);
+    if (reading?.loaded && current(rt, run) && !terminal(run.metadata))
+      reading = await readSignInState(rt, run);
   }
   if (!reading || !current(rt, run) || terminal(run.metadata)) return undefined;
   reportReading(rt, run, reading, advance);
@@ -178,6 +181,12 @@ export async function otherLayoutsMarked(
   return false;
 }
 
+/** The username each run read for E2, kept only as long as the run is. */
+const runUsernames = new WeakMap<
+  Execution,
+  { itemId: string; fieldId: string; username: string | undefined }
+>();
+
 export async function readSignInState(
   rt: Runtime,
   run: Execution,
@@ -239,16 +248,28 @@ export async function readSignInState(
       ? loginUsernameFieldId(authorized.connection, metadata.account.itemId)
       : undefined;
   if (usernameField) {
-    try {
-      username = await rt.fields({
-        account: metadata.account,
-        connection: authorized.connection,
-        fieldId: usernameField,
-      });
-    } catch {
-      username = undefined;
+    // The state is read every round of a step's observation (ADR 0029, amended
+    // 2026-11-03), so the run's username is taken from the vault once per account.
+    const kept = runUsernames.get(run);
+    if (kept?.itemId === metadata.account.itemId && kept.fieldId === usernameField)
+      ({ username } = kept);
+    else {
+      try {
+        username = await rt.fields({
+          account: metadata.account,
+          connection: authorized.connection,
+          fieldId: usernameField,
+        });
+        runUsernames.set(run, {
+          itemId: metadata.account.itemId,
+          fieldId: usernameField,
+          username,
+        });
+      } catch {
+        username = undefined;
+      }
+      if (!current(rt, run)) return undefined;
     }
-    if (!current(rt, run)) return undefined;
   }
   const s1 = observed.targets.slice(0, fills.length).some((state) => state === "unique");
   const { tabId, origin: pageOrigin } = run.live.document;
