@@ -245,6 +245,22 @@ export async function admit(
 
   const previousUrl = previousPage(rt, document, oldLive, sameDocument, path);
 
+  // The document's time for its next login starts again (ADR 0019, owner 2026-11-03):
+  // on a new document; once a locked vault can be read, since unlocking comes before any
+  // login; when the document moved in place to another path, as a single-page site's route
+  // to its sign-in; and when it shows a sign-in again after a login it started, as after a
+  // sign-out in place, unless the popup offers it a choice of account or the person picked
+  // one, as after a fill-only login, whose next login counts from the login before it.
+  const pick = rt.picked.get(document.tabId);
+  const choosing =
+    rt.pending.get(document.tabId)?.document.documentId === document.documentId ||
+    (pick?.attemptId === undefined && pick?.documentId === document.documentId);
+  const restart =
+    !sameDocument ||
+    oldLive.reason === "vault-unavailable" ||
+    oldLive.path !== path ||
+    (oldLive.loginStarted === true && Boolean(start || signIn || entryHello || list) && !choosing);
+
   const live: LiveDocument = {
     document,
     token,
@@ -267,12 +283,11 @@ export async function admit(
       : sameDocument && oldLive.path === path && oldLive.shownAt !== undefined
         ? { shownAt: oldLive.shownAt }
         : {}),
-    // A document that waited for a locked vault starts its login's time again once it can
-    // read it: unlocking the vault comes before any login (ADR 0019).
-    timing:
-      sameDocument && oldLive.reason !== "vault-unavailable"
-        ? oldLive.timing
-        : { since: Date.now(), serviceMs: 0, networkMs: 0, personMs: 0 },
+    // A new object, so time a request of the earlier one adds later stays with it.
+    timing: restart
+      ? { since: Date.now(), serviceMs: 0, networkMs: 0, personMs: 0 }
+      : oldLive.timing,
+    ...(!restart && oldLive.loginStarted ? { loginStarted: true as const } : {}),
     ...(sameDocument && oldLive.path === path && oldLive.entryRefusals
       ? { entryRefusals: oldLive.entryRefusals }
       : {}),

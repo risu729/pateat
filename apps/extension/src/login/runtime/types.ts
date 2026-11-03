@@ -162,6 +162,11 @@ export type LiveDocument = {
    * announcements, so time added to an earlier one counts too.
    */
   timing: StartTiming;
+  /**
+   * A login started in this document since its time last started, so a sign-in it shows
+   * again starts the time of its next login (ADR 0019).
+   */
+  loginStarted?: true;
   /** Why this document's sign-in entry was not pressed, each reason logged once at info. */
   entryRefusals?: string[];
   /**

@@ -559,6 +559,29 @@ Not confirmed by the owner (the agent's choices):
   counted. The fields are kept in memory only, for the 64 most recent logins: a worker
   that stops loses them, and a login whose entry has no times logs none.
 
+## Amendment 2026-11-03: when a login's time starts again
+
+A login's time counted from when the extension first saw its document, kept for as long
+as the document stayed. In a single-page site that put two other times into a login:
+the time the person spent on the site before moving in place to its sign-in page, and,
+for a login after a sign-out in place, everything since the login before it. On
+2026-11-03 at 11:10 UTC the owner chose (「B: SPA移動と再ログインで」) to start the time
+again in those two cases only, and to keep everything else, so Pateat's own work before
+a form is ready still counts:
+
+- A document that moves in place to another path, as a single-page site's route to its
+  sign-in, starts its next login's time again from that move. A path the login itself
+  moves to, as an identifier step followed by a password step, does not: a running
+  login keeps the time stored with it.
+- A document that shows a sign-in again (a ready first step, a sign-in form offered for
+  generation, a sign-in entry or an account list) after a login it started, as after a
+  sign-out in place, starts its next login's time again from then. A login picked in the
+  popup after a fill-only login, and any login while the popup offers the document a
+  choice, still counts from the login before it, as
+  [above](#amendment-2026-10-18-how-long-requests-and-logins-take).
+- Starting again takes a new record of the time, so time a request of the earlier one,
+  such as a generation, adds later stays out of the next login.
+
 ## Amendment: signed-in page samples
 
 On 2026-10-18 the owner chose (08:05 UTC,
