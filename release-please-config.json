@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/v17.9.0/schemas/config.json",
+  "bootstrap-sha": "0cca1da2d61d79b6da99f0c9b341d503ee184a3b",
+  "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "pateat",
+      "changelog-path": "CHANGELOG.md",
+      "draft": true,
+      "force-tag-creation": true,
+      "exclude-paths": ["services", "apps/docs", "docs", "tests"],
+      "extra-files": [
+        { "type": "json", "path": "apps/extension/package.json", "jsonpath": "$.version" }
+      ]
+    }
+  }
+}

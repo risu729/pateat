@@ -1,8 +1,10 @@
 # CI and server delivery
 
 Status: CI and guarded server delivery after main CI are implemented, and the service
-has been released automatically to `pateat.takuk.me` since 2026-10-11. Extension
-releases on GitHub Releases, Chrome Web Store publishing if its policies allow, and a
+has been released automatically to `pateat.takuk.me` since 2026-10-11. A manual workflow
+packs an extension release as a draft GitHub Release ([extension
+releases](#extension-releases)); no extension release has been drafted or published yet.
+Automatic extension releases, Chrome Web Store publishing if its policies allow, and a
 mode without the service are planned for [phase 3](plan.md#phase-3-public-release).
 
 ## Current foundation workflows
@@ -254,6 +256,88 @@ the failed main run's jobs. Routine
 releases never change the Custom Domain or other triggers; the bootstrap applies them
 once. The complete service release gates below remain planned, including automatic
 promotion/failure acknowledgement.
+
+## Extension releases
+
+`release.yml` ("Extension release") releases the extension the way biwa does with
+release-plz (owner, 2026-11-03 03:19 UTC:
+「リリースworkflowはbiwaみたく、マージしたら走る感じで」), with
+[release-please](https://github.com/googleapis/release-please-action):
+
+1. Every push to main runs the `Release PR` job, which opens or updates one release PR.
+   It raises `version` in the root `package.json` and in `apps/extension/package.json`
+   (x.y.z) and adds the release's section to `CHANGELOG.md`, from the Conventional
+   Commit titles since the last release: `feat` and breaking changes raise the minor
+   version and `fix`, `perf` and `revert` the patch version, while 0.x lasts
+   (`bump-minor-pre-major`). Commits that touch only
+   `services/`, `apps/docs/`, `docs/` or `tests/` are left out, since the service and
+   the docs website deploy on their own. `release-please-config.json` and
+   `.release-please-manifest.json` hold the settings and the last released version;
+   `bootstrap-sha` is where the history starts. `bun.lock` keeps the old workspace
+   version, which installs accept.
+2. Merging the release PR is the release. On that push the same job tags `v<version>`
+   at the merge commit and creates a draft GitHub Release with the changelog section.
+   Only the owner merges a release PR, or Claude on the owner's word; the rule that
+   Claude merges its own green PRs does not cover it.
+3. The `Pack` job (read-only token) checks out that commit, installs the locked tools
+   and dependencies, runs `mise run check:sdk-source` and
+   `mise run //apps/extension:zip` with `PATEAT_RELEASE=true`, the release build
+   ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-debug-logging-stays-on-before-publishing)),
+   then `.github/scripts/extension-release.mjs pack`, and checks that the packed tag is
+   the one release-please made.
+4. The `Publish release` job, which alone holds `contents: write` and never checks out
+   or runs repository code, downloads the packed files, checks `SHA256SUMS` and that
+   `release.json` names this commit and tag, attaches the ZIP, the source archive,
+   `release.json` and `SHA256SUMS` to the draft, appends the file list to its text and
+   publishes it as the latest release. If `Pack` or `Publish release` fails, the release
+   stays a draft with its tag; fix the cause and re-run the failed jobs.
+
+The release PR and the tag are made with the bot GitHub App's token, because a PR or tag
+made with `GITHUB_TOKEN` starts no workflow and the release PR would get no `CI Check`.
+The App's client ID is the repository variable `BOT_APP_CLIENT_ID`, which a job's `if`
+can read (an environment's variables come only after the job starts), and its private
+key is the `release` environment's secret `BOT_PRIVATE_KEY`; the App needs contents and
+pull requests write access to this repository. Until the variable is set, the
+`Release PR` job is skipped. Nothing uploads to the Chrome Web Store or
+uses a signing key.
+
+Started by hand with the `dry-run` input, on any branch, the workflow only runs `Pack`
+for that branch and keeps the files as the run's artifact. Use it to check a release's
+files before merging its release PR.
+
+Every WXT build, including the Worker bundle, records the third-party packages it
+bundles in `apps/extension/.output/<output directory>.packages.json` (for the production
+build, `chrome-mv3.packages.json`)
+(`apps/extension/bundled-packages.ts`, a Vite plugin that does not change the output):
+the installed package of each module in each chunk, and each package whose license
+banner (`/*! name vX.Y.Z | ...`) a stylesheet keeps, which is how Tailwind's own CSS
+shows up, since Tailwind inlines it without making it a module.
+The pack script refuses a dirty checkout, another revision than `PATEAT_REVISION`, and a
+manifest that is not the production build of that version (fixed `key`, HTTPS-only host
+access). It writes to `work/extension-release/`:
+
+- `pateat-<version>-chrome.zip`: the built extension.
+- `pateat-<version>-source.tar.gz`: `git archive` of the revision under
+  `pateat-<version>/`, plus `third-party-source/` with a `README.md`, the Bitwarden
+  SDK source at the commit the installed package's `VERSION` names (downloaded from
+  `github.com/bitwarden/sdk-internal/archive/<commit>.tar.gz`), and under `npm/` the
+  registry tarball of every recorded package with an `index.json`. Each recorded package
+  must be pinned in `bun.lock`, and each tarball must match its `bun.lock` integrity. On
+  2026-10-15 the production build recorded 38 packages, among them `wxt`'s own run-time
+  modules, `@bitwarden/sdk-internal` and `tailwindcss`; a local dry run with a stand-in
+  for the SDK archive, which that container could not download, made a source archive of
+  about 24 MB.
+- `release.json`: repository, revision, version, tag, event, ref, workflow run, the SDK
+  version, commit, archive URL and digest, every bundled package with its integrity, and
+  the size and SHA-256 of both files above.
+- `SHA256SUMS` of the ZIP, the source archive and `release.json`, and `notes.md`, the
+  file list with the same digests and links to the revision, the run and the SDK source.
+
+Before the first release PR is merged, the owner settles the
+[open questions](sdk-source.md#release-archives) on what the source must include; until
+then the release text calls the archive "its source", not Corresponding Source. Each
+published release and its files are kept for as long as
+[the gate](sdk-source.md#binary-distribution-gate) requires.
 
 ## Repository configuration
 
