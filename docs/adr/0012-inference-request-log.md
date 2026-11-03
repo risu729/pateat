@@ -298,13 +298,20 @@ and at 11:36 UTC 「あと入れていいか迷うものあったら確認して
   Delete all on `/manage` does not reach a file exported from the log; deleting the log
   should delete that file too.
 
-The agent's choices, not confirmed by the owner: the joins use `login_outcomes` only,
-matching its branch after the layout prefix (ADR 0060) with the row's chooser branch,
-and taking the next revision's first login when the row's own has none; the hosts
-treated as tenants (`*.slack.com` other than `app.slack.com`, `*.oraclecloud.com`,
-`*.smarthr.jp`, `*.snar.jp`, `*.starrezhousing.com`, `*.atlassian.net`, `*.okta.com`,
-`*.my.salesforce.com`, `*.zendesk.com`, `*.myshopify.com`, and any host or path with a
-long identifier) are hints a reviewer decides, not a rule.
+The agent's choices, not confirmed by the owner:
+
+- The login of a case comes from `login_outcomes` only: the first login of the row's
+  revision, else of the revision right after it. A later page's row matches its own
+  branch; a first page's row matches any branch of its layout (ADR 0060), so a list of
+  accounts counts its chooser branches' logins. Rows from before layouts join none,
+  since that migration removed every login outcome and restarted revisions.
+- Value shapes keep their exact length when a field on the page declares a length bound,
+  since the role compares the two.
+- Hosts and paths treated as naming a tenant (`*.slack.com` other than `app.slack.com`,
+  `*.oraclecloud.com`, `*.smarthr.jp`, `*.snar.jp`, `*.starrezhousing.com`,
+  `*.atlassian.net`, `*.okta.com`, `*.my.salesforce.com`, `*.zendesk.com`,
+  `*.myshopify.com`, a code host's page beyond its sign-in, and any host or path with a
+  long identifier) are hints a reviewer decides, not a rule.
 
 ## Consequences
 

@@ -13,6 +13,7 @@ import {
   scrubObservation,
   scrubSlots,
   scrubText,
+  textScrubber,
   type LogRow,
   type OutcomeRow,
 } from "./log-convert";
@@ -52,6 +53,7 @@ const answer = {
 const row = (overrides: Partial<LogRow> = {}): LogRow => ({
   id: "row-1",
   owner_id: "owner",
+  role: "generate",
   origin: "https://login.example.com",
   path: "/signin",
   recipe_page: "first",
@@ -68,6 +70,7 @@ const row = (overrides: Partial<LogRow> = {}): LogRow => ({
   created_at: Date.UTC(2026, 9, 20, 9),
   recipe_id: "gen-1",
   branch: "",
+  layout: "1792791691542",
   revision: 2,
   observation_hash: "0123456789ab",
   ...overrides,
@@ -90,6 +93,14 @@ describe("request-log corpus conversion", () => {
       "Hanako Example user@example.com No. 1234567",
     );
     expect(scrubText("PIN 123", replacements)).toBe("PIN 123");
+    // Full-width digits too, and distinct runs stay distinct.
+    expect(scrubText("口座番号 １２３４５６７", replacements)).toBe("口座番号 1234567");
+    const scrub = textScrubber(new Map());
+    expect([scrub("acct-98765"), scrub("acct-56789"), scrub("again 98765")]).toEqual([
+      "acct-12345",
+      "acct-12341",
+      "again 12345",
+    ]);
   });
 
   it("replaces listed accounts wherever their text shows, and keeps structure", () => {
@@ -100,11 +111,12 @@ describe("request-log corpus conversion", () => {
       accountEntries: 1,
     });
     const scrubbed = scrubObservation(listed, new Map());
-    expect(scrubbed.accounts).toEqual(["Account 1"]);
+    // The redaction mark stays, as the role's checks tell account text by it.
+    expect(scrubbed.accounts).toEqual(["Account 1 [email]"]);
     expect(scrubbed.candidates[0]).toEqual({
       id: "c1",
       role: "button",
-      target: { by: "text", value: "Account 1" },
+      target: { by: "text", value: "Account 1 [email]" },
     });
     expect(scrubbed.origin).toBe(listed.origin);
   });
@@ -112,6 +124,9 @@ describe("request-log corpus conversion", () => {
   it("names vault fields synthetically and coarsens value shapes", () => {
     expect(coarseShape({ length: 3, classes: ["ascii-digit"], email: false }).length).toBe(3);
     expect(coarseShape({ length: 13, classes: ["ascii-letter"], email: true }).length).toBe(16);
+    expect(coarseShape({ length: 13, classes: ["ascii-letter"], email: true }, true).length).toBe(
+      13,
+    );
     const scrubbed = scrubSlots(
       [
         ...v.parse(semanticSlotsSchema, slots),
@@ -149,23 +164,37 @@ describe("request-log corpus conversion", () => {
     expect(privateHints("https://example.com", "/user/123456/login")).toEqual([
       "identifier in path",
     ]);
+    expect(privateHints("https://github.com", "/acme/app/pull/12")).toEqual([
+      "repository page on github.com",
+    ]);
+    expect(privateHints("https://github.com", "/login")).toEqual([]);
+    expect(privateHints("https://github.com", "/sessions/two-factor")).toEqual([]);
   });
 
-  it("finds the revision's first login, else the next revision's, by chooser branch", () => {
+  it("finds the revision's first login, else the next revision's, by layout and branch", () => {
     expect(loginOf(row(), [outcome()])).toEqual({
       outcome: "authenticated",
       cause: null,
       step: 0,
       revision: "same",
     });
-    expect(loginOf(row(), [outcome({ revision: 4 }), outcome({ revision: 3 })])?.revision).toBe(
-      "later",
-    );
-    expect(loginOf(row(), [outcome({ branch: "1792791691542:account" })])).toBeUndefined();
-    expect(loginOf(row({ branch: "account" }), [outcome({ branch: "17:account" })])?.outcome).toBe(
+    expect(loginOf(row(), [outcome({ revision: 3 })])?.revision).toBe("later");
+    // Only the revision right after it, which the next page of the same login wrote.
+    expect(loginOf(row(), [outcome({ revision: 4 })])).toBeUndefined();
+    expect(loginOf(row(), [outcome({ revision: 1 })])).toBeUndefined();
+    // A first page counts the logins of any branch of its layout, a list's chooser ones too.
+    expect(loginOf(row(), [outcome({ branch: "1792791691542:account" })])?.outcome).toBe(
       "authenticated",
     );
-    expect(loginOf(row(), [outcome({ revision: 1 })])).toBeUndefined();
+    expect(loginOf(row(), [outcome({ branch: "1792790000000" })])).toBeUndefined();
+    // A later page matches its own branch only.
+    const later = row({ recipe_page: "continuation", branch: "1792791691542:account" });
+    expect(loginOf(later, [outcome()])).toBeUndefined();
+    expect(loginOf(later, [outcome({ branch: "1792791691542:account" })])?.outcome).toBe(
+      "authenticated",
+    );
+    // A row from before layouts joins nothing: that migration removed every login outcome.
+    expect(loginOf(row({ layout: null }), [outcome()])).toBeUndefined();
   });
 
   it("merges rows asking the same thing, keeping the latest row with an answer", () => {
@@ -175,17 +204,60 @@ describe("request-log corpus conversion", () => {
         row({ id: "b", created_at: 3, answer: null, outcome: "busy" }),
         row({ id: "c", created_at: 2, recipe_page: "continuation" }),
         row({ id: "d", origin: "http://localhost:8080" }),
+        row({ id: "e", role: "judge" }),
+        row({ id: "f", recipe_page: "logout" }),
+        row({ id: "g", request: "{" }),
       ],
       [outcome()],
     );
-    expect(skipped).toEqual([{ id: "d", reason: "local test server" }]);
-    expect(drafts.map((draft) => [draft.id, draft.source.logIds, draft.request])).toEqual([
-      ["log-0123456789ab", ["a", "b"], undefined],
-      ["log-0123456789ab-2", ["c"], { startPage: false }],
+    expect(skipped).toEqual([
+      { id: "d", reason: "local test server" },
+      { id: "e", reason: "not a generation row" },
+      { id: "f", reason: "logout request" },
+      { id: "g", reason: "row does not parse" },
     ]);
-    expect(drafts[0]!.logged).toMatchObject({ outcome: "ok", answer });
-    expect(drafts[0]!.login?.outcome).toBe("authenticated");
-    expect(drafts[0]!.source.observed).toBe("1970-01-01");
+    expect(
+      drafts.map((draft) => [draft.id.slice(0, 17), draft.source.logIds, draft.request]),
+    ).toEqual(
+      expect.arrayContaining([
+        ["log-0123456789ab-", ["a", "b"], undefined],
+        ["log-0123456789ab-", ["c"], { startPage: false }],
+      ]),
+    );
+    expect(drafts).toHaveLength(2);
+    const first = drafts.find((draft) => draft.request === undefined)!;
+    expect(first.logged).toMatchObject({ outcome: "ok", answer });
+    expect(first.login?.outcome).toBe("authenticated");
+    expect(first.source.observed).toBe("1970-01-01");
+    // The same rows give the same IDs whatever order they come in.
+    const again = draftLogCases(
+      [
+        row({ id: "c", created_at: 2, recipe_page: "continuation" }),
+        row({ id: "a", created_at: 1 }),
+      ],
+      [],
+    );
+    expect(again.drafts.map((draft) => draft.id).sort()).toEqual(
+      drafts.map((draft) => draft.id).sort(),
+    );
+  });
+
+  it("leaves out a page whose scrubbed text no longer fits the observation's limits", () => {
+    const title = `${"x".repeat(113)} a@b.jp`;
+    const { drafts, skipped } = draftLogCases(
+      [
+        row({
+          request: JSON.stringify({
+            instructions: "…",
+            slots,
+            observation: { ...observation, title },
+          }),
+        }),
+      ],
+      [],
+    );
+    expect(drafts).toEqual([]);
+    expect(skipped).toEqual([{ id: "row-1", reason: "scrubbed observation no longer parses" }]);
   });
 
   it("marks requests without slots as entry requests and lists as slotless", () => {
@@ -194,6 +266,33 @@ describe("request-log corpus conversion", () => {
       [],
     );
     expect(entry.drafts[0]).toMatchObject({ request: { entry: true }, slots: [] });
+    const passkeyOnly = draftLogCases(
+      [
+        row({
+          request: JSON.stringify({ instructions: "…", slots: [], passkeyOnly: true, observation }),
+        }),
+      ],
+      [],
+    );
+    expect(passkeyOnly.skipped).toEqual([]);
+    expect(passkeyOnly.drafts[0]).toMatchObject({ request: { passkeyOnly: true }, slots: [] });
+    // Rows from before observation hashes are told apart by their observations.
+    const unhashed = draftLogCases(
+      [
+        row({ id: "a", observation_hash: null }),
+        row({
+          id: "b",
+          observation_hash: null,
+          request: JSON.stringify({
+            instructions: "…",
+            slots,
+            observation: { ...observation, title: "Log in" },
+          }),
+        }),
+      ],
+      [],
+    );
+    expect(unhashed.drafts).toHaveLength(2);
   });
 
   it("keeps pages with open hints out until their label decides, and splits the corpus", () => {
@@ -218,6 +317,7 @@ describe("request-log corpus conversion", () => {
         "log-0123456789ab": { expected: plan, labelSource: "agreed" },
         "log-bbbbbbbbbbbb": { expected: plan, labelSource: "owner" },
         "log-cccccccccccc": { exclude: "labellers unsure" },
+        "log-gone": { exclude: "an earlier export's case" },
       },
       "2026-11-03",
     );
@@ -225,6 +325,7 @@ describe("request-log corpus conversion", () => {
     expect(assembled.private.cases).toEqual([]);
     expect(assembled.undecided).toEqual(["log-bbbbbbbbbbbb"]);
     expect(assembled.unlabelled).toEqual(["log-dddddddddddd"]);
+    expect(assembled.unknownLabels).toEqual(["log-gone"]);
     expect(assembled.public.cases[0]).not.toHaveProperty("privateHints");
   });
 });

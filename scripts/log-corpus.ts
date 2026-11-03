@@ -1,7 +1,8 @@
 // Builds the request-log corpus (ADR 0012) from rows a read-only SELECT of the production
 // database returned. It reads and writes local files only and calls nothing. Keep the
 // rows, the drafts, the replacements and the labels outside the repository: only the
-// assembled public corpus, src/corpus/log.json, is committed.
+// assembled public corpus, src/corpus/log.json, is committed. Export every column
+// `LogRow` names (role and layout included) and every `login_outcomes` row.
 import { readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import {
@@ -71,12 +72,18 @@ if (command === "draft") {
         private: assembled.private.cases.length,
         unlabelled: assembled.unlabelled,
         undecided: assembled.undecided,
+        unknownLabels: assembled.unknownLabels,
       },
       null,
       2,
     ),
   );
-  if (assembled.unlabelled.length > 0 || assembled.undecided.length > 0) process.exitCode = 1;
+  if (
+    assembled.unlabelled.length > 0 ||
+    assembled.undecided.length > 0 ||
+    assembled.unknownLabels.length > 0
+  )
+    process.exitCode = 1;
 } else {
   console.error("Choose a command: draft, assemble.");
   process.exit(2);

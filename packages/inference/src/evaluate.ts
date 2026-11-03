@@ -27,6 +27,8 @@ export type CaseResult = {
   verdict: Verdict;
   /** The ground truth's kind, so results can be grouped by kind of page. */
   expected: ScoredResult["kind"];
+  /** Who labelled a request-log page's truth, so scores can be reported per source. */
+  labelSource?: string;
   status: InferenceOutcome<ValidatedPagePlan>["status"];
   reason?: AbstentionReason | InferenceErrorCode;
   /** Why the plan check rejected an `invalid-output` plan, so a failure can be read. */
@@ -242,6 +244,9 @@ export async function evaluateRole<Case extends EvaluationCase<ScoredResult>>(op
       locale: testCase.locale,
       verdict,
       expected: testCase.expected.kind,
+      ...("labelSource" in testCase && typeof testCase.labelSource === "string"
+        ? { labelSource: testCase.labelSource }
+        : {}),
       status: outcome.status,
       ...(reason === undefined ? {} : { reason }),
       ...(outcome.status === "failed" && outcome.detail !== undefined

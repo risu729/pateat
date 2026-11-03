@@ -55,7 +55,7 @@ arg "<command>" help="draft: rows to unlabelled cases; assemble: unlabelled case
 flag "--rows <file>" help="draft: an absolute path to the inference_log rows, as JSON."
 flag "--outcomes <file>" help="draft: an absolute path to the login_outcomes rows, as JSON."
 flag "--replacements <file>" help="draft: an absolute path to the synthetic field names and text replacements."
-flag "--drafts <file>" help="The unlabelled cases: written by draft, read by assemble."
+flag "--drafts <file>" help="An absolute path outside the repository for the unlabelled cases: written by draft, read by assemble."
 flag "--labels <file>" help="assemble: an absolute path to the labels by case ID."
 flag "--private <file>" help="assemble: an absolute path for the pages kept outside the repository."
 '''

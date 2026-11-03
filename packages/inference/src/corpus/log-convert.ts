@@ -10,16 +10,18 @@ import type { CaseRequest, ScoredResult } from "./cases";
 import type { LabelSource, LogCorpusFile, LoggedLogin, LogPageCase, LogPageDraft } from "./log";
 
 /**
- * One `inference_log` generation row as a read-only SELECT of the production database
- * returns it (ADR 0012): `request`, `answer` and `result` are JSON text.
+ * One `inference_log` row as a read-only SELECT of the production database returns it
+ * (ADR 0012): `request`, `answer` and `result` are JSON text. Only generation rows become
+ * cases.
  */
 export type LogRow = {
   id: string;
   owner_id: string;
+  role: string;
   origin: string;
   path: string;
   recipe_page: string | null;
-  request: string;
+  request: string | null;
   answer: string | null;
   result: string | null;
   outcome: string;
@@ -31,7 +33,10 @@ export type LogRow = {
   build: string | null;
   created_at: number;
   recipe_id: string | null;
+  /** The request's branch: empty on a first page, else `<layout>[:<chooser branch>]`. */
   branch: string | null;
+  /** The recipe layout (ADR 0060); null on rows from before layouts. */
+  layout: string | null;
   revision: number | null;
   observation_hash: string | null;
 };
@@ -78,30 +83,53 @@ const tenantHosts = [
   /\.zendesk\.com$/u,
   /\.myshopify\.com$/u,
 ];
+/** Hosts whose pages beyond sign-in show the owner's own repositories. */
+const codeHosts = new Set(["github.com", "gitlab.com", "bitbucket.org"]);
+const codeHostSignIn = /^\/(login|session|sessions|signin|users\/sign_in)(\/|$)/u;
 // A label or path segment that looks like an identifier: 16 or more hex digits, or a UUID.
 const longId = /[0-9a-f]{16,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/iu;
 const email = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/gu;
-const digitRun = /\d{4,}/gu;
+// ASCII and full-width digits, as Japanese pages print both.
+const digitRun = /[0-9０-９]{4,}/gu;
+// The redaction marks a listed account's text keeps (`accountText` in plan.ts).
+const accountMarks = /\[(?:email|masked|number|account)\]/gu;
 
-/** A synthetic digit string of the same length, so length constraints still read the same. */
-const syntheticDigits = (length: number) =>
-  Array.from({ length }, (_, index) => String((index + 1) % 10)).join("");
+/**
+ * A synthetic digit string of the same length, so length constraints still read the same;
+ * the `index`th distinct run on a page ends in its index, so distinct runs stay distinct.
+ */
+const syntheticDigits = (length: number, index: number) => {
+  const base = Array.from({ length }, (_, position) => String((position + 1) % 10)).join("");
+  const suffix = index === 0 ? "" : String(index);
+  return base.slice(0, length - suffix.length) + suffix;
+};
+
+/** A text scrubber for one page: the same original run always gets the same synthetic one. */
+export function textScrubber(replacements: ReadonlyMap<string, string>): (text: string) => string {
+  // Longest first, so a full name is replaced before a part of it.
+  const ordered = [...replacements].sort((a, b) => b[0].length - a[0].length);
+  const runs = new Map<string, string>();
+  return (text) => {
+    let scrubbed = text;
+    for (const [from, to] of ordered) scrubbed = scrubbed.split(from).join(to);
+    return scrubbed.replace(email, "user@example.com").replace(digitRun, (run) => {
+      const known = runs.get(run);
+      if (known !== undefined) return known;
+      const synthetic = syntheticDigits(run.length, runs.size);
+      runs.set(run, synthetic);
+      return synthetic;
+    });
+  };
+}
 
 /**
  * Replaces in one page text what could identify the owner: the configured strings, email
  * addresses and runs of four or more digits.
  */
-export function scrubText(text: string, replacements: ReadonlyMap<string, string>): string {
-  let scrubbed = text;
-  // Longest first, so a full name is replaced before a part of it.
-  for (const [from, to] of [...replacements].sort((a, b) => b[0].length - a[0].length))
-    scrubbed = scrubbed.split(from).join(to);
-  return scrubbed
-    .replace(email, "user@example.com")
-    .replace(digitRun, (run) => syntheticDigits(run.length));
-}
+export const scrubText = (text: string, replacements: ReadonlyMap<string, string>) =>
+  textScrubber(replacements)(text);
 
-// Observation keys whose values are structure, not page text.
+// Keys whose values are structure, not page text.
 const structuralKeys = new Set([
   "version",
   "origin",
@@ -114,6 +142,12 @@ const structuralKeys = new Set([
   "autocomplete",
   "inputMode",
   "accountEntries",
+  "decision",
+  "pageKind",
+  "irreversible",
+  "slot",
+  "candidate",
+  "purpose",
 ]);
 
 function scrubValue(value: unknown, key: string, replace: (text: string) => string): unknown {
@@ -130,26 +164,41 @@ function scrubValue(value: unknown, key: string, replace: (text: string) => stri
 }
 
 /**
- * The observation with its page text scrubbed. Each listed account becomes `Account N`,
- * wherever its text shows, since a list shows the owner's own names.
+ * The page's replacements plus each listed account as `Account N` with the redaction marks
+ * its text had (`Account 1 [email]`), wherever its text shows, since a list shows the
+ * owner's own names and the role tells account text by those marks.
  */
+function pageReplacements(
+  observation: LoginObservation,
+  replacements: ReadonlyMap<string, string>,
+): Map<string, string> {
+  const all = new Map(replacements);
+  observation.accounts?.forEach((entry, index) => {
+    const marks = entry.match(accountMarks) ?? [];
+    all.set(entry, [`Account ${index + 1}`, ...marks].join(" "));
+  });
+  return all;
+}
+
+/** The observation with its page text scrubbed; see {@link pageReplacements}. */
 export function scrubObservation(
   observation: LoginObservation,
   replacements: ReadonlyMap<string, string>,
 ): LoginObservation {
-  const all = new Map(replacements);
-  observation.accounts?.forEach((entry, index) => all.set(entry, `Account ${index + 1}`));
-  return scrubValue(observation, "", (text) => scrubText(text, all)) as LoginObservation;
+  const replace = textScrubber(pageReplacements(observation, replacements));
+  return scrubValue(observation, "", replace) as LoginObservation;
 }
 
 /**
- * A value shape that keeps what tells fields apart, its character classes, whether it is
- * an email, and a short length exactly (a 3-digit branch from a 7-digit account), but
- * rounds a length over 8 up to a multiple of 4, so a username's exact length is not kept.
+ * A value shape that keeps what tells fields apart: its character classes, whether it is
+ * an email, and a short length exactly (a 3-digit branch from a 7-digit account). A length
+ * over 8 is rounded up to a multiple of 4, so a username's exact length is not kept,
+ * unless `exact`: when the page bounds a field's length, the exact length is what tells
+ * whether the value fits it.
  */
-export function coarseShape(shape: ValueShape): ValueShape {
-  const length = shape.length <= 8 ? shape.length : Math.min(1024, Math.ceil(shape.length / 4) * 4);
-  return { ...shape, length };
+export function coarseShape(shape: ValueShape, exact = false): ValueShape {
+  if (exact || shape.length <= 8) return shape;
+  return { ...shape, length: Math.min(1024, Math.ceil(shape.length / 4) * 4) };
 }
 
 /**
@@ -159,7 +208,12 @@ export function coarseShape(shape: ValueShape): ValueShape {
 export function scrubSlots(
   slots: readonly SemanticSlot[],
   fieldNames: Readonly<Record<string, string>>,
+  observation?: LoginObservation,
 ): { slots: SemanticSlot[]; unnamed: string[] } {
+  const bounded =
+    observation?.candidates.some(
+      (candidate) => candidate.maxLength !== undefined || candidate.minLength !== undefined,
+    ) ?? false;
   const unnamed: string[] = [];
   const scrubbed = slots.map((slot, index) => {
     const named =
@@ -171,7 +225,9 @@ export function scrubSlots(
     return {
       ...slot,
       ...named,
-      ...(slot.valueShape === undefined ? {} : { valueShape: coarseShape(slot.valueShape) }),
+      ...(slot.valueShape === undefined
+        ? {}
+        : { valueShape: coarseShape(slot.valueShape, bounded) }),
     };
   });
   return { slots: scrubbed, unnamed };
@@ -182,13 +238,13 @@ export function privateHints(origin: string, path: string): string[] {
   const host = new URL(origin).hostname;
   const hints: string[] = [];
   if (tenantHosts.some((pattern) => pattern.test(host))) hints.push(`tenant host ${host}`);
+  // A code host's page beyond its sign-in names the owner's repositories and their text.
+  if (codeHosts.has(host) && !codeHostSignIn.test(path)) hints.push(`repository page on ${host}`);
   if (host.split(".").some((label) => longId.test(label))) hints.push(`identifier in host ${host}`);
   if (path.split("/").some((segment) => longId.test(segment) || /\d{4,}/u.test(segment)))
     hints.push("identifier in path");
   return hints;
 }
-
-const parseJson = (text: string | null): unknown => (text === null ? undefined : JSON.parse(text));
 
 type LoggedRequest = {
   slots?: unknown;
@@ -210,28 +266,30 @@ function caseRequest(row: LogRow, request: LoggedRequest): CaseRequest | undefin
   return Object.keys(flags).length === 0 ? undefined : flags;
 }
 
-// The chooser branch an outcome's branch names, after its layout (ADR 0060).
-const chooserBranch = (branch: string) => {
-  const colon = branch.indexOf(":");
-  return colon === -1 ? "" : branch.slice(colon + 1);
-};
+// The layout an outcome's branch names, before any chooser branch (ADR 0060).
+const outcomeLayout = (branch: string) => branch.split(":", 1)[0]!;
 
-/** The first reported login of the row's revision, else of the next one its recipe wrote. */
+/**
+ * The first reported login of the row's revision, else of the revision right after it.
+ * Rows from before recipe layouts (ADR 0060) get none: that migration removed every login
+ * outcome and restarted revisions. A later page's row matches its own branch; a first
+ * page's row matches any branch of its layout, so a list of accounts counts the logins its
+ * chooser branches ran.
+ */
 export function loginOf(row: LogRow, outcomes: readonly OutcomeRow[]): LoggedLogin | undefined {
-  if (row.recipe_id === null || row.revision === null) return undefined;
-  const revision = row.revision;
-  const ofRecipe = outcomes.filter(
-    (outcome) =>
-      outcome.owner_id === row.owner_id &&
-      outcome.recipe_id === row.recipe_id &&
-      chooserBranch(outcome.branch) === (row.branch ?? "") &&
-      outcome.revision >= revision,
-  );
-  const same = ofRecipe.find((outcome) => outcome.revision === revision);
-  const later = ofRecipe
-    .filter((outcome) => outcome.revision > revision)
-    .sort((a, b) => a.revision - b.revision)[0];
-  const found = same ?? later;
+  if (row.recipe_id === null || row.revision === null || row.layout === null) return undefined;
+  const layout = row.layout;
+  const branch = row.branch ?? "";
+  const matching = (revision: number) =>
+    outcomes.find(
+      (outcome) =>
+        outcome.owner_id === row.owner_id &&
+        outcome.recipe_id === row.recipe_id &&
+        outcome.revision === revision &&
+        (branch === "" ? outcomeLayout(outcome.branch) === layout : outcome.branch === branch),
+    );
+  const same = matching(row.revision);
+  const found = same ?? matching(row.revision + 1);
   if (found === undefined) return undefined;
   return {
     outcome: found.outcome,
@@ -241,69 +299,129 @@ export function loginOf(row: LogRow, outcomes: readonly OutcomeRow[]): LoggedLog
   };
 }
 
+/** FNV-1a, for case IDs that stay the same across exports. */
+function shortHash(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+const parseJson = (text: string | null): unknown => (text === null ? undefined : JSON.parse(text));
+
+type Parsed = {
+  row: LogRow;
+  key: string;
+  flags: CaseRequest | undefined;
+  slots: SemanticSlot[];
+  unnamed: string[];
+  observation: LoginObservation;
+  answer: unknown;
+  result: unknown;
+};
+
+/** One row parsed and scrubbed, or why it is left out. */
+function parseRow(row: LogRow, replacements: Replacements): Parsed | { reason: string } {
+  if (row.role !== "generate") return { reason: "not a generation row" };
+  if (row.recipe_page === "logout") return { reason: "logout request" };
+  if (localHosts.has(new URL(row.origin).hostname)) return { reason: "local test server" };
+  let request: LoggedRequest;
+  let answer: unknown;
+  let result: unknown;
+  try {
+    request = (parseJson(row.request) ?? {}) as LoggedRequest;
+    answer = parseJson(row.answer);
+    result = parseJson(row.result);
+  } catch {
+    return { reason: "row does not parse" };
+  }
+  const observation = v.safeParse(loginObservationSchema, request.observation);
+  if (!observation.success) return { reason: "observation no longer parses" };
+  // A list of accounts (ADR 0028) and a passkey-only page (ADR 0053) are asked without
+  // slots, as is an entry request (ADR 0031); the log may still hold `slots: []`.
+  const slotless =
+    request.slots === undefined ||
+    request.passkeyOnly === true ||
+    observation.output.accounts !== undefined ||
+    (Array.isArray(request.slots) && request.slots.length === 0);
+  const parsedSlots = slotless ? undefined : v.safeParse(semanticSlotsSchema, request.slots);
+  if (parsedSlots !== undefined && !parsedSlots.success) return { reason: "slots no longer parse" };
+  const { slots, unnamed } = scrubSlots(
+    parsedSlots?.output ?? [],
+    replacements.fieldNames ?? {},
+    observation.output,
+  );
+  const page = pageReplacements(
+    observation.output,
+    new Map(Object.entries(replacements.text ?? {})),
+  );
+  const replace = textScrubber(page);
+  const scrubbed = v.safeParse(loginObservationSchema, scrubValue(observation.output, "", replace));
+  if (!scrubbed.success) return { reason: "scrubbed observation no longer parses" };
+  const flags = caseRequest(row, request);
+  return {
+    row,
+    // The same request of the same page, after scrubbing, so one site's accounts with
+    // different field names or lengths do not each become a case.
+    key: JSON.stringify([row.observation_hash ?? scrubbed.output, row.recipe_page, flags, slots]),
+    flags,
+    slots,
+    unnamed,
+    observation: scrubbed.output,
+    // The model's answer and the result hold slot names from the page or the bindings.
+    answer: answer === undefined ? undefined : scrubValue(answer, "", replace),
+    result: result === undefined ? undefined : scrubValue(result, "", replace),
+  };
+}
+
 /**
- * Turns request-log generation rows into unlabelled cases (ADR 0012). Rows of the owner's
- * local test servers and rows whose request no longer parses are left out. Rows asking
- * the same thing of the same observation become one case, kept from the latest row with a
- * model answer (else the latest row), with every row's ID.
+ * Turns request-log generation rows into unlabelled cases (ADR 0012). Rows that are not
+ * generation requests, rows of the owner's local test servers and rows that no longer
+ * parse are left out. Rows asking the same thing of the same observation become one case,
+ * kept from the latest row with a model answer (else the latest row), with every row's ID.
+ * A case's ID is its observation hash, plus a hash of what it asks when that observation
+ * is asked more than one way, so a label stays with its case across exports.
  */
 export function draftLogCases(
   rows: readonly LogRow[],
   outcomes: readonly OutcomeRow[],
   replacements: Replacements = {},
 ): { drafts: LogPageDraft[]; skipped: { id: string; reason: string }[] } {
-  const text = new Map(Object.entries(replacements.text ?? {}));
   const skipped: { id: string; reason: string }[] = [];
-  const groups = new Map<string, { row: LogRow; request: LoggedRequest }[]>();
+  const groups = new Map<string, Parsed[]>();
   for (const row of rows) {
-    if (localHosts.has(new URL(row.origin).hostname)) {
-      skipped.push({ id: row.id, reason: "local test server" });
+    const parsed = parseRow(row, replacements);
+    if ("reason" in parsed) {
+      skipped.push({ id: row.id, reason: parsed.reason });
       continue;
     }
-    const request = parseJson(row.request) as LoggedRequest;
-    const key = JSON.stringify([
-      row.observation_hash,
-      row.recipe_page,
-      caseRequest(row, request),
-      request.slots,
-    ]);
-    groups.set(key, [...(groups.get(key) ?? []), { row, request }]);
+    groups.set(parsed.key, [...(groups.get(parsed.key) ?? []), parsed]);
   }
+  const perHash = new Map<string, number>();
+  const hashOf = (group: Parsed[]) =>
+    group[0]!.row.observation_hash ?? shortHash(JSON.stringify(group[0]!.observation));
+  for (const group of groups.values())
+    perHash.set(hashOf(group), (perHash.get(hashOf(group)) ?? 0) + 1);
   const drafts: LogPageDraft[] = [];
-  const ids = new Map<string, number>();
-  for (const group of groups.values()) {
+  for (const [key, group] of groups) {
     const byTime = [...group].sort((a, b) => b.row.created_at - a.row.created_at);
-    const { row, request } = byTime.find((entry) => entry.row.answer !== null) ?? byTime[0]!;
-    const observation = v.safeParse(loginObservationSchema, request.observation);
-    if (!observation.success) {
-      skipped.push({ id: row.id, reason: "observation no longer parses" });
-      continue;
-    }
-    const slotless = request.slots === undefined || observation.output.accounts !== undefined;
-    const parsedSlots = slotless ? undefined : v.safeParse(semanticSlotsSchema, request.slots);
-    if (parsedSlots !== undefined && !parsedSlots.success) {
-      skipped.push({ id: row.id, reason: "slots no longer parse" });
-      continue;
-    }
-    const { slots, unnamed } = scrubSlots(parsedSlots?.output ?? [], replacements.fieldNames ?? {});
-    const base = `log-${row.observation_hash ?? row.id}`;
-    const seen = (ids.get(base) ?? 0) + 1;
-    ids.set(base, seen);
-    const flags = caseRequest(row, request);
+    const kept = byTime.find((entry) => entry.answer !== undefined) ?? byTime[0]!;
+    const { row } = kept;
+    const hash = hashOf(group);
     const login = loginOf(row, outcomes);
-    const answer = parseJson(row.answer);
-    const result = parseJson(row.result);
     drafts.push({
-      id: seen === 1 ? base : `${base}-${seen}`,
+      id: perHash.get(hash) === 1 ? `log-${hash}` : `log-${hash}-${shortHash(key)}`,
       source: {
         dataset: "log",
         logIds: group.map((entry) => entry.row.id).sort(),
         observed: new Date(row.created_at).toISOString().slice(0, 10),
         build: row.build,
       },
-      ...(flags === undefined ? {} : { request: flags }),
-      slots,
-      observation: scrubObservation(observation.output, text),
+      ...(kept.flags === undefined ? {} : { request: kept.flags }),
+      slots: kept.slots,
+      observation: kept.observation,
       logged: {
         outcome: row.outcome,
         promptVersion: row.prompt_version,
@@ -311,13 +429,13 @@ export function draftLogCases(
         effort: row.effort,
         speed: row.speed,
         source: row.source,
-        ...(answer === undefined ? {} : { answer }),
-        ...(result === undefined ? {} : { result }),
+        ...(kept.answer === undefined ? {} : { answer: kept.answer }),
+        ...(kept.result === undefined ? {} : { result: kept.result }),
       },
       ...(login === undefined ? {} : { login }),
       privateHints: [
         ...privateHints(row.origin, row.path),
-        ...unnamed.map((slot) => `no synthetic name for ${slot}'s vault field`),
+        ...kept.unnamed.map((slot) => `no synthetic name for ${slot}'s vault field`),
       ],
     });
   }
@@ -337,13 +455,20 @@ export type CaseLabel =
 /**
  * Splits labelled drafts into the repository's corpus and the one kept outside it (owner,
  * 2026-11-03 11:35 UTC). A draft without a label is reported, never guessed; a draft whose
- * private hints are still open needs its label to say `private` either way.
+ * private hints are still open needs its label to say `private` either way; a label whose
+ * case no longer exists is reported.
  */
 export function assembleLogCorpus(
   drafts: readonly LogPageDraft[],
   labels: Readonly<Record<string, CaseLabel>>,
   built: string,
-): { public: LogCorpusFile; private: LogCorpusFile; unlabelled: string[]; undecided: string[] } {
+): {
+  public: LogCorpusFile;
+  private: LogCorpusFile;
+  unlabelled: string[];
+  undecided: string[];
+  unknownLabels: string[];
+} {
   const source = { dataset: "log" as const, built };
   const shown: LogPageCase[] = [];
   const kept: LogPageCase[] = [];
@@ -368,10 +493,12 @@ export function assembleLogCorpus(
     };
     (label.private ? kept : shown).push(entry);
   }
+  const ids = new Set(drafts.map((draft) => draft.id));
   return {
     public: { source, cases: shown },
     private: { source, cases: kept },
     unlabelled,
     undecided,
+    unknownLabels: Object.keys(labels).filter((id) => !ids.has(id)),
   };
 }
