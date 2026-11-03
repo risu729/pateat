@@ -18,17 +18,48 @@ export type ExpectedResult =
        * plan verdict.
        */
       passkeyButton?: string;
+      /**
+       * The control that uses another account on a page showing a chosen one (ADR 0027).
+       * Scored apart from the plan verdict, like the passkey button.
+       */
+      accountSwitch?: string;
     }
   | { kind: "abstain" };
 
+/**
+ * The truths only pages taken from the request log carry (ADR 0012): a list of accounts
+ * to sign in with (ADR 0028), named by its controls, and the control that opens a page's
+ * sign-in (ADR 0031). Scored as their own decisions, so a role that answers a form plan
+ * on such a page is a false submit.
+ */
+export type ListOrEntryResult =
+  | { kind: "account-list"; other?: string; continue?: string; passkeyButton?: string }
+  | { kind: "entry"; entry: string };
+/** Any ground truth the evaluation scores. */
+export type ScoredResult = ExpectedResult | ListOrEntryResult;
+
+/**
+ * How a request-log page was asked (ADR 0012): a later page of a recipe (`startPage`
+ * false), the hint that the page shows the user signed in, a passkey-only start page
+ * (ADR 0053), or a page without slots asked for its sign-in entry (ADR 0031).
+ */
+export type CaseRequest = {
+  startPage?: false;
+  signedIn?: boolean;
+  passkeyOnly?: true;
+  entry?: true;
+};
+
 /** One synthetic page with its ground truth. No case contains real sites or credentials. */
-export type EvaluationCase = {
+export type EvaluationCase<Expected extends ScoredResult = ExpectedResult> = {
   id: string;
   locale: "ja" | "en" | "mixed";
   summary: string;
   observation: LoginObservation;
   slots: SemanticSlot[];
-  expected: ExpectedResult;
+  expected: Expected;
+  /** How the page was asked, for request-log pages; a start page with slots without it. */
+  request?: CaseRequest;
   /** Synthetic slot values for the local value check; never sent to a role. */
   values?: Record<string, string>;
 };

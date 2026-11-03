@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { runClaudeBenchmark, runClaudeJudgeBenchmark } from "./bench";
+import {
+  generationRequest,
+  runClaudeBenchmark,
+  runClaudeJudgeBenchmark,
+  scoredGeneration,
+} from "./bench";
 import { evaluationCorpus, expectedFields } from "./corpus/cases";
 import { judgeCorpus } from "./corpus/judge";
 import { claudeModelRates } from "./providers/claude";
@@ -219,5 +224,64 @@ describe("Claude benchmark runner", () => {
     await expect(
       runClaudeBenchmark({ apiKey: "sk-ant-test-synthetic", maxCostUsd }),
     ).rejects.toThrow(RangeError);
+  });
+});
+
+describe("request-log cases in the benchmark", () => {
+  const usage = { inputTokens: 1, outputTokens: 1 };
+  const basic = evaluationCorpus.find((entry) => entry.id === "en-basic")!;
+
+  it("sends the flags a request-log page carried", () => {
+    expect(generationRequest(basic)).toEqual({
+      observation: basic.observation,
+      slots: basic.slots,
+    });
+    expect(
+      generationRequest({
+        ...basic,
+        request: { startPage: false, signedIn: true, passkeyOnly: true },
+      }),
+    ).toEqual({
+      observation: basic.observation,
+      slots: basic.slots,
+      startPage: false,
+      signedIn: true,
+      passkeyOnly: true,
+    });
+  });
+
+  it("scores lists and entries by their candidate IDs", () => {
+    const target = { by: "id" as const, value: "x" };
+    expect(
+      scoredGeneration({
+        status: "ok",
+        value: {
+          accountList: true,
+          other: { candidate: "c4", target },
+          passkey: { candidate: "c5", target },
+        },
+        calls: 1,
+        usage,
+      }),
+    ).toMatchObject({
+      status: "ok",
+      value: { accountList: true, other: "c4", passkeyButton: "c5" },
+    });
+    expect(
+      scoredGeneration({
+        status: "ok",
+        value: { entry: "c2", target: { by: "text", value: "Log in" } },
+        calls: 1,
+        usage,
+      }),
+    ).toMatchObject({ value: { entry: "c2" } });
+    expect(scoredGeneration({ status: "abstained", reason: "ambiguous", calls: 1, usage })).toEqual(
+      {
+        status: "abstained",
+        reason: "ambiguous",
+        calls: 1,
+        usage,
+      },
+    );
   });
 });

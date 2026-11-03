@@ -1,10 +1,18 @@
 import { wrapLanguageModel } from "ai";
+import type { ValidatedAccountList } from "./account-list";
 import { createCompletionJudge } from "./completion";
-import { evaluationCorpus, type EvaluationCase } from "./corpus/cases";
+import { evaluationCorpus, type EvaluationCase, type ScoredResult } from "./corpus/cases";
 import { judgeCorpus, type JudgeCase } from "./corpus/judge";
-import { evaluateRole, type EvaluationReport } from "./evaluate";
-import { asPagePlan, createRecipeGenerator } from "./generation";
+import { evaluateRole, type EvaluationReport, type ScoredAnswer } from "./evaluate";
+import {
+  createEntryGenerator,
+  createRecipeGenerator,
+  type GeneratedPage,
+  type GenerationRequest,
+} from "./generation";
 import { heuristicPlan } from "./heuristic";
+import type { InferenceOutcome } from "./outcome";
+import type { ValidatedEntry } from "./plan";
 import { evaluateJudge, type JudgeEvaluationReport } from "./judge-evaluate";
 import {
   claudeGeneration,
@@ -57,6 +65,46 @@ function benchmarkModel(
   return { model, servedModels, servedSpeeds };
 }
 
+/**
+ * A generation outcome in the IDs the evaluation scores: a list of accounts (ADR 0028) or
+ * a sign-in entry (ADR 0031) by its controls' candidate IDs, a plan as it is. A list
+ * answer on a page without one is already refused by the role.
+ */
+export function scoredGeneration(
+  outcome: InferenceOutcome<GeneratedPage | ValidatedAccountList | ValidatedEntry>,
+): InferenceOutcome<ScoredAnswer> {
+  if (outcome.status !== "ok") return outcome;
+  const answer = outcome.value;
+  if ("accountList" in answer)
+    return {
+      ...outcome,
+      value: {
+        accountList: true,
+        ...(answer.other === undefined ? {} : { other: answer.other.candidate }),
+        ...(answer.continue === undefined ? {} : { continue: answer.continue.candidate }),
+        ...(answer.passkey === undefined ? {} : { passkeyButton: answer.passkey.candidate }),
+      },
+    };
+  if ("entry" in answer && !("fields" in answer))
+    return { ...outcome, value: { entry: answer.entry } };
+  return outcome as InferenceOutcome<GeneratedPage>;
+}
+
+/**
+ * The generation request a case asks for: as the extension sends it (ADR 0012), with the
+ * flags a request-log page carried.
+ */
+export function generationRequest(testCase: EvaluationCase<ScoredResult>): GenerationRequest {
+  const flags = testCase.request;
+  return {
+    observation: testCase.observation,
+    slots: testCase.slots,
+    ...(flags?.startPage === false ? { startPage: false } : {}),
+    ...(flags?.signedIn === undefined ? {} : { signedIn: flags.signedIn }),
+    ...(flags?.passkeyOnly ? { passkeyOnly: true as const } : {}),
+  };
+}
+
 export type ClaudeBenchmarkReport = {
   model: string;
   effort: ClaudeModelChoice["effort"];
@@ -80,7 +128,7 @@ export type ClaudeBenchmarkReport = {
 export async function runClaudeBenchmark(options: {
   apiKey: string;
   maxCostUsd: number;
-  cases?: readonly EvaluationCase[];
+  cases?: readonly EvaluationCase<ScoredResult>[];
   choice?: ClaudeModelChoice;
   /** Test seam only. */
   fetch?: typeof globalThis.fetch;
@@ -90,21 +138,21 @@ export async function runClaudeBenchmark(options: {
   const choice = options.choice ?? claudeGeneration;
   const callUsd = worstCaseCallUsd(choice.rates);
   const { model, servedModels, servedSpeeds } = benchmarkModel(options, choice);
-  const generate = createRecipeGenerator({
-    model,
-    limits,
-    maxOutputTokens,
-    refusalCategory: claudeRefusalCategory,
-  });
+  const roleConfig = { model, limits, maxOutputTokens, refusalCategory: claudeRefusalCategory };
+  const generate = createRecipeGenerator(roleConfig);
+  // A page without slots asked for its sign-in entry (ADR 0031), as the service routes it.
+  const generateEntry = createEntryGenerator(roleConfig);
   let spent = 0;
   const report = await evaluateRole({
     cases: options.cases ?? evaluationCorpus,
     checkValues: true,
     shouldRun: () => spent + maxCallsPerCase * callUsd <= options.maxCostUsd,
     run: async (testCase) => {
-      const outcome = await generate({ observation: testCase.observation, slots: testCase.slots });
+      const outcome = testCase.request?.entry
+        ? await generateEntry({ observation: testCase.observation })
+        : await generate(generationRequest(testCase));
       spent += estimateClaudeCostUsd(outcome.usage, choice.rates) ?? outcome.calls * callUsd;
-      return asPagePlan(outcome);
+      return scoredGeneration(outcome);
     },
   });
   return {
@@ -169,7 +217,9 @@ export async function runClaudeJudgeBenchmark(options: {
 }
 
 /** Scores the model-free comparator on the same cases; free, so it needs no approval. */
-export function runHeuristicBenchmark(cases: readonly EvaluationCase[]): Promise<EvaluationReport> {
+export function runHeuristicBenchmark(
+  cases: readonly EvaluationCase<ScoredResult>[],
+): Promise<EvaluationReport> {
   return evaluateRole({
     cases,
     checkValues: true,

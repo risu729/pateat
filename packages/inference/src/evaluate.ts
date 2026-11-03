@@ -1,5 +1,5 @@
 import type { PageKind } from "@pateat/contracts";
-import type { EvaluationCase, ExpectedResult } from "./corpus/cases";
+import type { EvaluationCase, ExpectedResult, ScoredResult } from "./corpus/cases";
 import type { AbstentionReason, InferenceErrorCode, InferenceOutcome } from "./outcome";
 import type { GeneratedPageRejection, ValidatedPagePlan } from "./plan";
 import { checkPlanValues } from "./values";
@@ -10,11 +10,25 @@ export type Verdict = "correct" | "correct-abstention" | "missed" | "false-submi
  * answer the page's kind (ADR 0035).
  */
 type ScoredPlan = ValidatedPagePlan & { passkeyButton?: string | undefined; pageKind?: PageKind };
+/**
+ * A role's answer for a page that lists accounts (ADR 0028) or for a page's sign-in entry
+ * (ADR 0031), in candidate IDs.
+ */
+export type ScoredListOrEntry =
+  | { accountList: true; other?: string; continue?: string; passkeyButton?: string }
+  | { entry: string };
+/** Any answer the evaluation scores. */
+export type ScoredAnswer = ScoredPlan | ScoredListOrEntry;
+const isPlan = (answer: ScoredAnswer): answer is ScoredPlan => "fields" in answer;
 
 export type CaseResult = {
   id: string;
   locale: EvaluationCase["locale"];
   verdict: Verdict;
+  /** The ground truth's kind, so results can be grouped by kind of page. */
+  expected: ScoredResult["kind"];
+  /** Who labelled a request-log page's truth, so scores can be reported per source. */
+  labelSource?: string;
   status: InferenceOutcome<ValidatedPagePlan>["status"];
   reason?: AbstentionReason | InferenceErrorCode;
   /** Why the plan check rejected an `invalid-output` plan, so a failure can be read. */
@@ -30,6 +44,10 @@ export type CaseResult = {
     passkeyButton?: string;
     pageKind?: PageKind;
   };
+  /** The answered list of accounts, in candidate IDs. */
+  list?: { other?: string; continue?: string; passkeyButton?: string };
+  /** The answered sign-in entry's candidate ID. */
+  entry?: string;
   latencyMs: number;
   calls: number;
 };
@@ -51,7 +69,12 @@ export type EvaluationReport = {
    * (`correct`) or none (`missed`); `wrong` counts plans that named another button, or one
    * where the truth names none.
    */
-  passkeyButtons: { expected: number; correct: number; missed: number; wrong: number };
+  passkeyButtons: SideScore;
+  /**
+   * The control that uses another account (ADR 0027), scored the same way over the plans
+   * returned for cases whose truth is a plan.
+   */
+  accountSwitches: SideScore;
   /**
    * The page kind each returned plan answered (ADR 0035), apart from the verdicts. Every
    * corpus page is a sign-in page, so `confirm` and `unclear` count pages whose recipe
@@ -72,17 +95,40 @@ export type EvaluationReport = {
   stoppedBefore?: string;
 };
 
+/** A control scored apart from the verdicts: see `passkeyButtons`. */
+export type SideScore = { expected: number; correct: number; missed: number; wrong: number };
+
+function scoreSide(score: SideScore, truth: string | undefined, named: string | undefined) {
+  if (truth !== undefined) score.expected += 1;
+  if (named === undefined) score.missed += truth === undefined ? 0 : 1;
+  else if (named === truth) score.correct += 1;
+  else score.wrong += 1;
+}
+
 const matches = (expected: Extract<ExpectedResult, { kind: "plan" }>, plan: ValidatedPagePlan) =>
   plan.action.candidate === expected.action &&
   plan.action.purpose === expected.purpose &&
   plan.fields.length === Object.keys(expected.fields).length &&
   plan.fields.every((field) => expected.fields[field.slot] === field.candidate);
 
-export function judge(expected: ExpectedResult, outcome: InferenceOutcome<ScoredPlan>): Verdict {
+/**
+ * Scores one outcome. Any answer other than the truth's own decision is a false submit:
+ * a form plan on a list of accounts, a list or an entry on a sign-in form.
+ */
+export function judge(expected: ScoredResult, outcome: InferenceOutcome<ScoredAnswer>): Verdict {
   if (outcome.status === "failed") return "failed";
   if (outcome.status === "abstained")
     return expected.kind === "abstain" ? "correct-abstention" : "missed";
-  return expected.kind === "plan" && matches(expected, outcome.value) ? "correct" : "false-submit";
+  const answer = outcome.value;
+  if (isPlan(answer))
+    return expected.kind === "plan" && matches(expected, answer) ? "correct" : "false-submit";
+  if ("accountList" in answer)
+    return expected.kind === "account-list" &&
+      answer.other === expected.other &&
+      answer.continue === expected.continue
+      ? "correct"
+      : "false-submit";
+  return expected.kind === "entry" && answer.entry === expected.entry ? "correct" : "false-submit";
 }
 
 /** Nearest-rank percentile; 0 for an empty sample. */
@@ -93,13 +139,19 @@ export function percentile(values: readonly number[], fraction: number): number 
 }
 
 function withValueCheck(
-  testCase: EvaluationCase,
-  outcome: InferenceOutcome<ScoredPlan>,
+  testCase: EvaluationCase<ScoredResult>,
+  outcome: InferenceOutcome<ScoredAnswer>,
   enabled: boolean | undefined,
-): InferenceOutcome<ScoredPlan> {
+): InferenceOutcome<ScoredAnswer> {
   // A mismatch on an expected-abstain case would score as a correct abstention; such
   // cases should not carry values unless that is the point of the case.
-  if (!enabled || outcome.status !== "ok" || testCase.values === undefined) return outcome;
+  if (
+    !enabled ||
+    outcome.status !== "ok" ||
+    !isPlan(outcome.value) ||
+    testCase.values === undefined
+  )
+    return outcome;
   const values = new Map(Object.entries(testCase.values));
   if (checkPlanValues(testCase.observation, outcome.value, values).ok) return outcome;
   return {
@@ -114,9 +166,9 @@ function withValueCheck(
  * Runs one role over the corpus sequentially and scores it. The role closure owns
  * its configured model; the harness never selects or falls back between providers.
  */
-export async function evaluateRole(options: {
-  cases: readonly EvaluationCase[];
-  run: (testCase: EvaluationCase) => Promise<InferenceOutcome<ScoredPlan>>;
+export async function evaluateRole<Case extends EvaluationCase<ScoredResult>>(options: {
+  cases: readonly Case[];
+  run: (testCase: Case) => Promise<InferenceOutcome<ScoredAnswer>>;
   now?: () => number;
   /**
    * Apply the local value check to plans for cases that carry synthetic values, as the
@@ -124,7 +176,7 @@ export async function evaluateRole(options: {
    */
   checkValues?: boolean;
   /** Return false to stop before this case, for example at a spending cap. */
-  shouldRun?: (testCase: EvaluationCase) => boolean;
+  shouldRun?: (testCase: Case) => boolean;
 }): Promise<EvaluationReport> {
   const now = options.now ?? (() => performance.now());
   const results: CaseResult[] = [];
@@ -137,6 +189,7 @@ export async function evaluateRole(options: {
     errors: {},
     jointMappingRejections: 0,
     passkeyButtons: { expected: 0, correct: 0, missed: 0, wrong: 0 },
+    accountSwitches: { expected: 0, correct: 0, missed: 0, wrong: 0 },
     pageKinds: { "sign-in": 0, confirm: 0, unclear: 0 },
     latencyMs: { p50: 0, p95: 0 },
     calls: 0,
@@ -161,17 +214,16 @@ export async function evaluateRole(options: {
     else report.usage.inputTokens += inputTokens;
     if (outputTokens === null) report.usage.unknownOutputCases += 1;
     else report.usage.outputTokens += outputTokens;
-    if (outcome.status === "ok" && testCase.expected.kind === "plan") {
-      const truth = testCase.expected.passkeyButton;
-      const named = outcome.value.passkeyButton;
-      const score = report.passkeyButtons;
-      if (truth !== undefined) score.expected += 1;
-      if (named === undefined) score.missed += truth === undefined ? 0 : 1;
-      else if (named === truth) score.correct += 1;
-      else score.wrong += 1;
+    const answer = outcome.status === "ok" ? outcome.value : undefined;
+    const plan = answer !== undefined && isPlan(answer) ? answer : undefined;
+    const list = answer !== undefined && "accountList" in answer ? answer : undefined;
+    if (plan !== undefined && testCase.expected.kind === "plan") {
+      scoreSide(report.passkeyButtons, testCase.expected.passkeyButton, plan.passkeyButton);
+      scoreSide(report.accountSwitches, testCase.expected.accountSwitch, plan.accountSwitch);
     }
-    if (outcome.status === "ok" && outcome.value.pageKind !== undefined)
-      report.pageKinds[outcome.value.pageKind] += 1;
+    if (list !== undefined && testCase.expected.kind === "account-list")
+      scoreSide(report.passkeyButtons, testCase.expected.passkeyButton, list.passkeyButton);
+    if (plan?.pageKind !== undefined) report.pageKinds[plan.pageKind] += 1;
     let reason: CaseResult["reason"];
     if (outcome.status === "abstained") {
       reason = outcome.reason;
@@ -191,6 +243,10 @@ export async function evaluateRole(options: {
       id: testCase.id,
       locale: testCase.locale,
       verdict,
+      expected: testCase.expected.kind,
+      ...("labelSource" in testCase && typeof testCase.labelSource === "string"
+        ? { labelSource: testCase.labelSource }
+        : {}),
       status: outcome.status,
       ...(reason === undefined ? {} : { reason }),
       ...(outcome.status === "failed" && outcome.detail !== undefined
@@ -199,24 +255,28 @@ export async function evaluateRole(options: {
       ...(outcome.status === "failed" && outcome.refusalCategory !== undefined
         ? { refusalCategory: outcome.refusalCategory }
         : {}),
-      ...(outcome.status === "ok"
-        ? {
+      ...(plan === undefined
+        ? {}
+        : {
             plan: {
-              fields: Object.fromEntries(
-                outcome.value.fields.map((field) => [field.slot, field.candidate]),
-              ),
-              action: outcome.value.action.candidate,
-              purpose: outcome.value.action.purpose,
-              ...(outcome.value.accountSwitch === undefined
-                ? {}
-                : { accountSwitch: outcome.value.accountSwitch }),
-              ...(outcome.value.passkeyButton === undefined
-                ? {}
-                : { passkeyButton: outcome.value.passkeyButton }),
-              ...(outcome.value.pageKind === undefined ? {} : { pageKind: outcome.value.pageKind }),
+              fields: Object.fromEntries(plan.fields.map((field) => [field.slot, field.candidate])),
+              action: plan.action.candidate,
+              purpose: plan.action.purpose,
+              ...(plan.accountSwitch === undefined ? {} : { accountSwitch: plan.accountSwitch }),
+              ...(plan.passkeyButton === undefined ? {} : { passkeyButton: plan.passkeyButton }),
+              ...(plan.pageKind === undefined ? {} : { pageKind: plan.pageKind }),
             },
-          }
-        : {}),
+          }),
+      ...(list === undefined
+        ? {}
+        : {
+            list: {
+              ...(list.other === undefined ? {} : { other: list.other }),
+              ...(list.continue === undefined ? {} : { continue: list.continue }),
+              ...(list.passkeyButton === undefined ? {} : { passkeyButton: list.passkeyButton }),
+            },
+          }),
+      ...(answer !== undefined && "entry" in answer ? { entry: answer.entry } : {}),
       latencyMs,
       calls: outcome.calls,
     });

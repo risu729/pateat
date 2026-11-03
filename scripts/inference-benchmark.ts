@@ -1,6 +1,7 @@
 // The Claude run is paid: it needs the owner's approval for each run (ADR 0014) and reads
 // only ANTHROPIC_API_KEY. The heuristic run is free and local. Both print the report as
 // JSON; the report carries no page text.
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import {
   runClaudeBenchmark,
@@ -9,6 +10,11 @@ import {
 } from "../packages/inference/src/bench";
 import { evaluationCorpus } from "../packages/inference/src/corpus/cases";
 import { judgeCorpus } from "../packages/inference/src/corpus/judge";
+import {
+  logPageCases,
+  logPageCorpus,
+  type LogCorpusFile,
+} from "../packages/inference/src/corpus/log";
 import {
   japanesePageCorpus,
   realPageCorpus,
@@ -26,6 +32,9 @@ const corpora = {
   real: realPageCorpus,
   japanese: japanesePageCorpus,
   web: webPageCorpus,
+  // The owner's request-log pages (ADR 0012); `--corpus-file` adds those kept outside
+  // the repository.
+  log: logPageCorpus,
   // The sign-in judge's pages; Claude only, since the heuristic has no judge.
   judge: judgeCorpus,
 };
@@ -35,6 +44,7 @@ const { values } = parseArgs({
     paid: { type: "boolean", default: false },
     "max-cost-usd": { type: "string", default: "2" },
     corpus: { type: "string", default: "synthetic" },
+    "corpus-file": { type: "string" },
     provider: { type: "string", default: "claude" },
     from: { type: "string", default: "0" },
     count: { type: "string" },
@@ -47,7 +57,17 @@ if (!Object.hasOwn(corpora, values.corpus)) {
   console.error(`Choose a corpus: ${Object.keys(corpora).join(", ")}.`);
   process.exit(2);
 }
-const corpus = corpora[values.corpus as keyof typeof corpora];
+if (values["corpus-file"] !== undefined && values.corpus !== "log") {
+  console.error("--corpus-file adds request-log pages; use it with --corpus log.");
+  process.exit(2);
+}
+const corpus =
+  values["corpus-file"] === undefined
+    ? corpora[values.corpus as keyof typeof corpora]
+    : [
+        ...logPageCorpus,
+        ...logPageCases(JSON.parse(readFileSync(values["corpus-file"], "utf8")) as LogCorpusFile),
+      ];
 const from = Number(values.from);
 const count = values.count === undefined ? undefined : Number(values.count);
 if (
