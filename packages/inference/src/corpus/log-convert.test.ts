@@ -370,7 +370,8 @@ describe("request-log corpus", () => {
     for (const entry of logPageCorpus) {
       const parsed = v.parse(loginObservationSchema, entry.observation);
       expect(parsed.complete, entry.id).toBe(true);
-      if (entry.expected.kind !== "plan") continue;
+      // A passkey-only page's plan fills nothing and presses the passkey button (ADR 0053).
+      if (entry.expected.kind !== "plan" || entry.request?.passkeyOnly === true) continue;
       const checked = validateGeneratedPage(
         parsed,
         v.parse(semanticSlotsSchema, entry.slots),

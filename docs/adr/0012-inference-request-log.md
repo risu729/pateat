@@ -285,17 +285,37 @@ and at 11:36 UTC 「あと入れていいか迷うものあったら確認して
   or more digits in page text becomes a synthetic one, and each listed account becomes
   `Account N` wherever its text shows.
 - The truth: when the revision's first reported login (`login_outcomes`) was
-  `authenticated`, the plan that ran; otherwise two labellers, an agent session and a
-  subagent, label the page each without seeing the logged answer. The owner checks the
-  pages they disagree on, the pages whose login points at a wrong plan, and 15 pages
-  they agreed on, drawn at random. A page the labellers cannot decide is left out of
-  scoring. Each case records its label source, and scores are reported per source.
+  `authenticated`, the plan that ran; otherwise two labellers, separate agent sessions,
+  label the page each without seeing the logged answer or each other's labels. The owner
+  checks the pages they disagree on, the pages whose login points at a wrong plan, and
+  15 pages they agreed on, drawn at random. A page the labellers cannot decide is left
+  out of scoring. Each case records its label source, and scores are reported per
+  source.
 - A case keeps what production answered (outcome, model, prompt version, the model's
   answer and the result) as history only: rows span prompt versions and models and were
   answered on the original slots, so they are no baseline for the current role.
 - The rows, the drafts, the synthetic names and the labels stay outside the repository.
   Delete all on `/manage` does not reach a file exported from the log; deleting the log
   should delete that file too.
+
+The first corpus (2026-11-03) holds 185 cases: 15 labelled by their login and 170 by
+the labellers, who agreed on 166. The owner's review:
+
+- `www.apahotel.com`: the custom field 会員ID, 9 digits, fills 「会員番号
+  (ログインID)」, not the email username (13:12 UTC). This review found that rounded
+  value lengths hid the difference; with exact shapes both labellers agree.
+- The AWS IAM sign-in pages are an abstention: the owner signs in as the root user
+  (13:28 UTC), no slot fills the required account ID, and a plan cannot press "Sign in
+  using root user email" without a field.
+- Instagram's page with three saved profiles names only "Use another profile", since the
+  extension clicks "Continue" only beside a single shown account (ADR 0028; owner 13:30
+  UTC 「それでいいんじゃない？」).
+- The owner left the other pages to the agent (13:30 UTC 「知らない。がんばれ」), so
+  the agent checked the failed-login and sampled pages and kept the agreed labels.
+- Of the pages the agent asked about, the Microsoft sign-in under the `unsw.edu.au`
+  tenant path and Stripe's billing page for Cursor go into the repository, and UNSW's
+  accommodation payment page stays out (13:32 UTC, 「ok」 to the agent's
+  recommendation). 154 cases are in the repository and 31 outside it.
 
 The agent's choices, not confirmed by the owner:
 
