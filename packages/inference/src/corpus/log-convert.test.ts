@@ -6,7 +6,6 @@ import { expectedFields } from "./cases";
 import { logPageCorpus } from "./log";
 import {
   assembleLogCorpus,
-  coarseShape,
   draftLogCases,
   loginOf,
   privateHints,
@@ -141,12 +140,7 @@ describe("request-log corpus conversion", () => {
     ]);
   });
 
-  it("names vault fields synthetically and coarsens value shapes", () => {
-    expect(coarseShape({ length: 3, classes: ["ascii-digit"], email: false }).length).toBe(3);
-    expect(coarseShape({ length: 13, classes: ["ascii-letter"], email: true }).length).toBe(16);
-    expect(coarseShape({ length: 13, classes: ["ascii-letter"], email: true }, true).length).toBe(
-      13,
-    );
+  it("names vault fields synthetically and keeps value shapes as sent", () => {
     const scrubbed = scrubSlots(
       [
         ...v.parse(semanticSlotsSchema, slots),
@@ -158,16 +152,32 @@ describe("request-log corpus conversion", () => {
           valueShape: { length: 3, classes: ["ascii-digit"], email: false },
         },
         { id: "custom-2", kind: "hidden", description: "a hidden value", fieldName: "secret pin" },
+        {
+          id: "custom-3",
+          kind: "identifier",
+          description: "a login identifier",
+          fieldName: "member ID",
+          valueShape: { length: 9, classes: ["ascii-digit"], email: false },
+        },
       ],
-      { "my branch": "支店番号" },
+      { "my branch": "支店番号", "member ID": "会員ID" },
     );
     expect(scrubbed.slots.map((slot) => slot.fieldName)).toEqual([
       undefined,
       undefined,
       "支店番号",
       "field 4",
+      "会員ID",
     ]);
     expect(scrubbed.unnamed).toEqual(["custom-2"]);
+    // A 9-digit member number must not look like a 12-character email (owner, 2026-11-03).
+    expect(scrubbed.slots.map((slot) => slot.valueShape?.length)).toEqual([
+      undefined,
+      undefined,
+      3,
+      undefined,
+      9,
+    ]);
   });
 
   it("hints at hosts and paths that name a tenant or an identifier", () => {

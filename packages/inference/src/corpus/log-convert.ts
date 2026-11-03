@@ -3,7 +3,6 @@ import {
   semanticSlotsSchema,
   type LoginObservation,
   type SemanticSlot,
-  type ValueShape,
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { CaseRequest, ScoredResult } from "./cases";
@@ -223,30 +222,14 @@ export function scrubObservation(
 }
 
 /**
- * A value shape that keeps what tells fields apart: its character classes, whether it is
- * an email, and a short length exactly (a 3-digit branch from a 7-digit account). A length
- * over 8 is rounded up to a multiple of 4, so a username's exact length is not kept,
- * unless `exact`: when the page bounds a field's length, the exact length is what tells
- * whether the value fits it.
- */
-export function coarseShape(shape: ValueShape, exact = false): ValueShape {
-  if (exact || shape.length <= 8) return shape;
-  return { ...shape, length: Math.min(1024, Math.ceil(shape.length / 4) * 4) };
-}
-
-/**
  * The slots with each vault field name replaced by its synthetic name, or `field N` when
- * none is configured, and every value shape coarsened (ADR 0012).
+ * none is configured. Value shapes stay exactly as production sent them (ADR 0012): a
+ * rounded length made a 9-digit member number look like a 12-character email.
  */
 export function scrubSlots(
   slots: readonly SemanticSlot[],
   fieldNames: Readonly<Record<string, string>>,
-  observation?: LoginObservation,
 ): { slots: SemanticSlot[]; unnamed: string[] } {
-  const bounded =
-    observation?.candidates.some(
-      (candidate) => candidate.maxLength !== undefined || candidate.minLength !== undefined,
-    ) ?? false;
   const unnamed: string[] = [];
   const scrubbed = slots.map((slot, index) => {
     const named =
@@ -255,13 +238,7 @@ export function scrubSlots(
         : { fieldName: fieldNames[slot.fieldName] ?? `field ${index + 1}` };
     if (slot.fieldName !== undefined && fieldNames[slot.fieldName] === undefined)
       unnamed.push(slot.id);
-    return {
-      ...slot,
-      ...named,
-      ...(slot.valueShape === undefined
-        ? {}
-        : { valueShape: coarseShape(slot.valueShape, bounded) }),
-    };
+    return { ...slot, ...named };
   });
   return { slots: scrubbed, unnamed };
 }
@@ -389,11 +366,7 @@ function parseRow(row: LogRow, replacements: Replacements): Parsed | { reason: s
     (Array.isArray(request.slots) && request.slots.length === 0);
   const parsedSlots = slotless ? undefined : v.safeParse(semanticSlotsSchema, request.slots);
   if (parsedSlots !== undefined && !parsedSlots.success) return { reason: "slots no longer parse" };
-  const { slots, unnamed } = scrubSlots(
-    parsedSlots?.output ?? [],
-    replacements.fieldNames ?? {},
-    observation.output,
-  );
+  const { slots, unnamed } = scrubSlots(parsedSlots?.output ?? [], replacements.fieldNames ?? {});
   const page = pageReplacements(
     observation.output,
     new Map(Object.entries(replacements.text ?? {})),
