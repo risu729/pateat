@@ -298,8 +298,15 @@ The App's client ID is the repository variable `BOT_APP_CLIENT_ID`, which a job'
 can read (an environment's variables come only after the job starts), and its private
 key is the `release` environment's secret `BOT_PRIVATE_KEY`; the App needs contents and
 pull requests write access to this repository. Until the variable is set, the
-`Release PR` job is skipped. Nothing uploads to the Chrome Web Store or
-uses a signing key.
+`Release PR` job is skipped. The App is `pateat-release-bot` (App ID 5594177), owned by
+risu729, private, with no webhook, Contents and Pull requests read and write, and
+installed on this repository only; it was created on 2026-11-03 from the owner's PC at
+the owner's request, its private key went straight into the secret and the downloaded
+file was deleted. Its first run,
+[41630408709](https://github.com/risu729/pateat/actions/runs/41630408709), made the
+token and finished the `Release PR` job. To replace the key, generate a new one on the
+App's page, set it with `gh secret set BOT_PRIVATE_KEY --env release`, and delete the
+old key there. Nothing uploads to the Chrome Web Store or uses a signing key.
 
 Started by hand with the `dry-run` input, on any branch, the workflow only runs `Pack`
 for that branch and keeps the files as the run's artifact. Use it to check a release's
