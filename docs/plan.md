@@ -1143,6 +1143,12 @@ Once the fixes have settled:
   are kept one year, so the earliest ones (2026-10-11) are deleted from 2027-10-11; a
   corpus that should include them has to be exported before then (inferred from the
   retention rule).
+  The owner chose on 2026-11-03 (11:19 UTC) to build that corpus from the request log
+  before any Clef run, rather than first comparing on the hand-collected pages; how its
+  pages are published and labelled is in
+  [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-11-03-the-request-log-corpus).
+  `mise run //packages/inference:corpus:log` turns exported rows into the corpus, and
+  `--corpus log` scores it; the corpus holds no pages yet.
 - The login runtime is split (owner, 2026-10-23 22:23 UTC; merged 2026-10-29):
   `apps/extension/src/login/runtime.ts` is now `apps/extension/src/login/runtime/`,
   every file within the 1,000-line limit, and `runtime.production.test.ts` is now

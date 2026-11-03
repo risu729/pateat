@@ -38,7 +38,10 @@ answer has a name to become `name-N`. Since
 [ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-19-slot-names-from-the-bindings)
 was amended on 2026-10-19 (owner, 01:22 UTC), an accepted plan's `result` may hold a
 slot name carried from the owner's saved bindings that the logged page does not show,
-such as an earlier page's wording or a name the model gave before 2026-10-18.
+such as an earlier page's wording or a name the model gave before 2026-10-18. Amended on
+2026-11-03 by the owner: the
+[request-log corpus](#amendment-2026-11-03-the-request-log-corpus) and how its pages
+are published and labelled. Built; it holds no pages yet.
 
 Date: 2026-10-10
 
@@ -256,6 +259,52 @@ earlier rows included). Its cost is estimated from the reported tokens at the pu
 rates, and `token_ms` and `model_ms` are null, since the service did not wait for the
 call. Such rows count toward neither the service's daily and monthly spend stops nor
 the automatic stop of fast mode. A device that is not paired logs nothing.
+
+## Amendment 2026-11-03: the request-log corpus
+
+The owner chose on decision cards that the finite-choice comparison with Clef waits for
+a corpus built from the request log (11:19 UTC, 「本番ログのコーパスが先」, over first
+comparing on the hand-collected pages), and how its truths are labelled (11:36 UTC). On
+publishing, the owner wrote at 11:35 UTC: 「\*.slack.com,
+\*.oraclecloud.comのような一部情報が使っているサイト以上に入っているもの以外はrepoにそのまま入れていいです」,
+and at 11:36 UTC 「あと入れていいか迷うものあったら確認して」.
+
+- A corpus entry is one generation request: rows asking the same thing of the same
+  observation (its hash, the recipe page, the request's flags and slots) become one
+  case, kept from the latest row with a model answer. Rows of the owner's local test
+  servers are left out.
+- Pages that reveal no more than which site the owner uses go into the repository as
+  they are (`packages/inference/src/corpus/log.json`). A page whose host or path names a
+  tenant, workspace or person, such as a `*.slack.com` workspace or an
+  `*.oraclecloud.com` tenant, stays in a file outside the repository and is still
+  scored. A page the agent is unsure about is asked about before it is committed. For
+  this corpus the owner's rule replaces "public by default" with its review of each
+  page.
+- Before either file, vault field names become synthetic names of the same meaning,
+  value shapes keep their character classes and email flag but round a length over 8 up
+  to a multiple of 4, every email address and run of four or more digits in page text
+  becomes a synthetic one, and each listed account becomes `Account N` wherever its text
+  shows.
+- The truth: when the revision's first reported login (`login_outcomes`) was
+  `authenticated`, the plan that ran; otherwise two labellers, an agent session and a
+  subagent, label the page each without seeing the logged answer. The owner checks the
+  pages they disagree on, the pages whose login points at a wrong plan, and 15 pages
+  they agreed on, drawn at random. A page the labellers cannot decide is left out of
+  scoring. Each case records its label source, and scores are reported per source.
+- A case keeps what production answered (outcome, model, prompt version, the model's
+  answer and the result) as history only: rows span prompt versions and models and were
+  answered on the original slots, so they are no baseline for the current role.
+- The rows, the drafts, the synthetic names and the labels stay outside the repository.
+  Delete all on `/manage` does not reach a file exported from the log; deleting the log
+  should delete that file too.
+
+The agent's choices, not confirmed by the owner: the joins use `login_outcomes` only,
+matching its branch after the layout prefix (ADR 0060) with the row's chooser branch,
+and taking the next revision's first login when the row's own has none; the hosts
+treated as tenants (`*.slack.com` other than `app.slack.com`, `*.oraclecloud.com`,
+`*.smarthr.jp`, `*.snar.jp`, `*.starrezhousing.com`, `*.atlassian.net`, `*.okta.com`,
+`*.my.salesforce.com`, `*.zendesk.com`, `*.myshopify.com`, and any host or path with a
+long identifier) are hints a reviewer decides, not a rule.
 
 ## Consequences
 

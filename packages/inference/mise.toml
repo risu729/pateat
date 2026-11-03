@@ -12,9 +12,10 @@ description = "Benchmark generation or the sign-in judge on a corpus: Claude (pa
 usage = '''
 flag "--paid" help="Confirm the owner approved this paid Claude run."
 flag "--max-cost-usd <usd>" default="2" help="Stop before a call that could exceed this estimated spend."
-flag "--corpus <name>" default="synthetic" help="The synthetic corpus, the Formasaurus real-page corpus, the Japanese pages, the English pages, or the sign-in judge's pages." {
-  choices "synthetic" "real" "japanese" "web" "judge"
+flag "--corpus <name>" default="synthetic" help="The synthetic corpus, the Formasaurus real-page corpus, the Japanese pages, the English pages, the request-log pages, or the sign-in judge's pages." {
+  choices "synthetic" "real" "japanese" "web" "log" "judge"
 }
+flag "--corpus-file <path>" help="With --corpus log: an absolute path to request-log pages kept outside the repository, scored after the repository's."
 flag "--provider <name>" default="claude" help="Claude, or the model-free heuristic comparator." {
   choices "claude" "heuristic"
 }
@@ -28,7 +29,7 @@ flag "--speed <speed>" default="standard" help="Fast mode, on the models priced 
   choices "standard" "fast"
 }
 '''
-run = "bun ../../scripts/inference-benchmark.ts {% if usage.paid %}--paid{% endif %} --max-cost-usd {{ usage.max_cost_usd }} --corpus {{ usage.corpus }} --provider {{ usage.provider }} --from {{ usage.from }} {% if usage.count %}--count {{ usage.count }}{% endif %} --model {{ usage.model }} --effort {{ usage.effort }} --speed {{ usage.speed }}"
+run = "bun ../../scripts/inference-benchmark.ts {% if usage.paid %}--paid{% endif %} --max-cost-usd {{ usage.max_cost_usd }} --corpus {{ usage.corpus }} {% if usage.corpus_file %}--corpus-file {{ usage.corpus_file | quote }}{% endif %} --provider {{ usage.provider }} --from {{ usage.from }} {% if usage.count %}--count {{ usage.count }}{% endif %} --model {{ usage.model }} --effort {{ usage.effort }} --speed {{ usage.speed }}"
 
 [tasks.pricing]
 description = "Refresh the committed Claude rates from the public pricing page (ADR 0014)."
@@ -43,6 +44,24 @@ flag "--chromium <path>" help="Chromium executable, when Playwright's own is not
 run = [
   "bun ../../scripts/formasaurus/import.ts --source {{ usage.source }} {% if usage.chromium %}--chromium {{ usage.chromium }}{% endif %}",
   "oxfmt src/corpus/formasaurus.json",
+]
+
+[tasks."corpus:log"]
+description = "Turn request-log rows into unlabelled cases, or labelled cases into the corpus files (ADR 0012)."
+usage = '''
+arg "<command>" help="draft: rows to unlabelled cases; assemble: unlabelled cases and labels to the corpus files." {
+  choices "draft" "assemble"
+}
+flag "--rows <file>" help="draft: an absolute path to the inference_log rows, as JSON."
+flag "--outcomes <file>" help="draft: an absolute path to the login_outcomes rows, as JSON."
+flag "--replacements <file>" help="draft: an absolute path to the synthetic field names and text replacements."
+flag "--drafts <file>" help="The unlabelled cases: written by draft, read by assemble."
+flag "--labels <file>" help="assemble: an absolute path to the labels by case ID."
+flag "--private <file>" help="assemble: an absolute path for the pages kept outside the repository."
+'''
+run = [
+  "bun ../../scripts/log-corpus.ts {{ usage.command }} {% if usage.rows %}--rows {{ usage.rows | quote }}{% endif %} {% if usage.outcomes %}--outcomes {{ usage.outcomes | quote }}{% endif %} {% if usage.replacements %}--replacements {{ usage.replacements | quote }}{% endif %} {% if usage.drafts %}--drafts {{ usage.drafts | quote }}{% endif %} {% if usage.labels %}--labels {{ usage.labels | quote }}{% endif %} {% if usage.private %}--private {{ usage.private | quote }}{% endif %}",
+  "oxfmt src/corpus/log.json",
 ]
 
 [tasks."corpus:japanese"]

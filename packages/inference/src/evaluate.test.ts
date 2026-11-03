@@ -184,4 +184,53 @@ describe("evaluation harness", () => {
     expect(report.cases[0]!.plan).toMatchObject({ passkeyButton: "c5" });
     expect(report.cases[1]!.plan).not.toHaveProperty("passkeyButton");
   });
+
+  it("scores lists of accounts and sign-in entries as their own decisions", async () => {
+    const basic = evaluationCorpus.find((item) => item.id === "en-basic")!;
+    const list = { kind: "account-list" as const, other: "c4", passkeyButton: "c5" };
+    const listOk = { accountList: true as const, other: "c4", passkeyButton: "c5" };
+    expect(judge(list, { status: "ok", value: listOk, calls: 1, usage })).toBe("correct");
+    expect(
+      judge(list, { status: "ok", value: { accountList: true, continue: "c4" }, calls: 1, usage }),
+    ).toBe("false-submit");
+    expect(
+      judge(
+        { kind: "entry", entry: "c2" },
+        { status: "ok", value: { entry: "c2" }, calls: 1, usage },
+      ),
+    ).toBe("correct");
+    // An entry or a list answered on a sign-in form is a false submit, and the reverse.
+    expect(judge(basic.expected, { status: "ok", value: { entry: "c2" }, calls: 1, usage })).toBe(
+      "false-submit",
+    );
+    const plan = firstMatch(basic);
+    expect(judge(list, plan)).toBe(plan.status === "ok" ? "false-submit" : "failed");
+    const report = await evaluateRole({
+      cases: [{ ...basic, expected: list }],
+      run: async () => ({
+        status: "ok",
+        value: { ...listOk, passkeyButton: "c6" },
+        calls: 1,
+        usage,
+      }),
+    });
+    expect(report.cases[0]).toMatchObject({
+      verdict: "correct",
+      expected: "account-list",
+      list: { other: "c4", passkeyButton: "c6" },
+    });
+    expect(report.passkeyButtons).toEqual({ expected: 1, correct: 0, missed: 0, wrong: 1 });
+  });
+
+  it("scores the account switch apart from the plan verdict (ADR 0027)", async () => {
+    const basic = evaluationCorpus.find((item) => item.id === "en-basic")!;
+    if (basic.expected.kind !== "plan") throw new Error("expected a plan");
+    const plan = firstMatch(basic);
+    if (plan.status !== "ok") throw new Error("expected a plan");
+    const report = await evaluateRole({
+      cases: [{ ...basic, expected: { ...basic.expected, accountSwitch: "switch" } }, basic],
+      run: async () => plan,
+    });
+    expect(report.accountSwitches).toEqual({ expected: 1, correct: 0, missed: 1, wrong: 0 });
+  });
 });
