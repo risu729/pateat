@@ -29,7 +29,7 @@ import {
 } from "./constants";
 import { pauseOf } from "./pause";
 import { saveSession, reportAttempt, publish, report, startTiming, save } from "./attempt";
-import { addSpan } from "./spans";
+import { addSpan, openSpans } from "./spans";
 import { clearChoice, offerChoice } from "./choice";
 import { type Readiness, type Execution } from "./types";
 import { listClick, showsNow } from "./markers";
@@ -609,8 +609,8 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
     if (ctx.later && startAt === undefined) return ctx.refuse("no-route", "later-variant");
     if (ctx.later && "stopAt" in plan && typeof plan.stopAt === "number" && plan.stopAt <= startAt!)
       return ctx.refuse("no-route", "password-empty:later-start");
-    // Where the time before the login went, for the local log (ADR 0019): read before
-    // `startTiming` starts the document's time again.
+    // Where the time before the login went, for the local log and the login record (ADR
+    // 0019, ADR 0055): read before `startTiming` starts the document's time again.
     const startedAt = Date.now();
     const beforeShown =
       ctx.live.shownAt === undefined ? 0 : ctx.live.shownAt - ctx.live.timing.since;
@@ -649,6 +649,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       }),
       { type: "RESOLVE" },
     );
+    openSpans(rt, metadata.id);
     addSpan(rt, metadata.id, "beforeShownMs", beforeShown);
     addSpan(rt, metadata.id, "startMs", admission);
     rt.begunIn.delete(metadata.id);

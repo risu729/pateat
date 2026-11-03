@@ -130,14 +130,19 @@ dashboard shows their medians:
 
 - `beforeShownMs`, `startMs`, `awaitMs`, `saveMs`, `statusMs`, `checkMs`, `vaultMs` and
   `commandMs` (`LOGIN_RECORD_PARTS`), each in milliseconds rounded down to 100. All of
-  them, 0 for a part the login had no time in, or none when the device kept none, as
-  after a software keyboard's fill or a worker restart. Older builds send none, and
-  their rows hold null.
+  them, 0 for a part the login had no time in, or none when the device kept none: a
+  login that typed on a software keyboard, or one that a restarted worker resumed, whose
+  parts before the restart are lost. The contract refuses a record with only some of
+  them. Older builds send none, and their rows hold null. A service older than this
+  amendment refuses a record with the parts, since the record is a strict object; the
+  service deploys from `main` before a build that sends them is released.
 - The time typing took is still never sent: no part times a fill, the parts are rounded
   down, and a login that typed on a software keyboard sends none, so `otherMs` less the
   parts does not tell it either.
 - The dashboard's "Where the rest of the login goes" table gives, for the signed-in
-  logins that sent them, the median of each part and of the rest of the login less them.
+  logins that sent them, the median of each part and of the rest of the login less all
+  of them, never below 0. `beforeShownMs` is part of the login's time and mostly of
+  `otherMs`; generation may run inside it, so the service's time may overlap it.
 
 Not confirmed by the owner (the agent's choices): the parts are flat optional fields of
 the record and nullable columns of `login_timings`; the contract takes only whole steps

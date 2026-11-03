@@ -32,6 +32,7 @@ export const LOGIN_PARTS = Object.keys(LOGIN_PART_CONFIG) as LoginPart[];
  * (`manageLoginOwnPartsSchema`); `restMs` is filling and work no part names.
  */
 export const LOGIN_OWN_PART_LABELS = {
+  beforeShownMs: "Before the sign-in showed",
   startMs: "Starting the login",
   awaitMs: "Waiting for a step's elements",
   checkMs: "Policy checks",

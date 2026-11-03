@@ -1774,6 +1774,16 @@ describe("login records", () => {
 
   it("refuses a site, values, typing time and anything beyond the record, without echoing it", async () => {
     const device = await enrollOwner();
+    const ownParts = {
+      beforeShownMs: 0,
+      startMs: 0,
+      awaitMs: 0,
+      saveMs: 0,
+      statusMs: 0,
+      checkMs: 0,
+      vaultMs: 0,
+      commandMs: 0,
+    };
     expect((await publish(device, "bank-login", 0)).status).toBe(200);
     const bodies: unknown[] = [
       { ...record, origin: "https://bank.example" },
@@ -1790,10 +1800,11 @@ describe("login records", () => {
       { ...record, serviceMs: 1.5 },
       { ...record, pageMs: -1 },
       { ...record, pageMs: undefined },
-      // Parts of Pateat's own time are whole steps of 100 ms (ADR 0055).
-      { ...record, startMs: 150 },
-      { ...record, awaitMs: -100 },
-      { ...record, fillMs: 300 },
+      // Parts of Pateat's own time are whole steps of 100 ms, all of them or none (ADR 0055).
+      { ...record, ...ownParts, startMs: 150 },
+      { ...record, ...ownParts, awaitMs: -100 },
+      { ...record, ...ownParts, fillMs: 300 },
+      { ...record, startMs: 100 },
       { ...record, branch: "list" },
       { ...record, revision: 0 },
       { ...record, version: 2 },

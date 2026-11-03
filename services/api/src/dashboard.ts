@@ -138,8 +138,12 @@ function loginParts(rows: DashboardLogin[]): ManageLoginParts {
   };
 }
 
-/** The parts of the rest of the login, which add up to at most its `otherMs`. */
+/**
+ * The parts of the rest of the login. All but `beforeShownMs` add up to at most its
+ * `otherMs`; that one may overlap generation, so the rest less them stops at 0.
+ */
 const OWN_PARTS = [
+  "beforeShownMs",
   "startMs",
   "awaitMs",
   "saveMs",
@@ -155,8 +159,7 @@ const OWN_PARTS = [
  */
 function loginOwnParts(rows: DashboardLogin[]): ManageLoginOwnParts {
   const carried = rows.filter((row) => row.startMs !== null);
-  const part = (name: (typeof OWN_PARTS)[number] | "beforeShownMs") =>
-    median(present(carried, (row) => row[name]));
+  const part = (name: (typeof OWN_PARTS)[number]) => median(present(carried, (row) => row[name]));
   return {
     n: carried.length,
     beforeShownMs: part("beforeShownMs"),

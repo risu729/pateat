@@ -243,9 +243,9 @@ export const manageLoginPartsSchema = v.strictObject({
 /**
  * The median of each part of Pateat's own time (`LOGIN_RECORD_PARTS`, ADR 0055 amendment
  * of 2026-11-03) over the `n` signed-in logins whose record carried them, and of `restMs`,
- * the rest of the login (`otherMs` of {@link manageLoginPartsSchema}) less those parts but
- * `beforeShownMs`: filling and work no part names. `beforeShownMs` is a reference apart
- * from the login time.
+ * the rest of the login (`otherMs` of {@link manageLoginPartsSchema}) less all of those
+ * parts, never below 0: filling and work no part names. `beforeShownMs` is part of the
+ * login's time; with generation, the service's time may overlap it.
  */
 export const manageLoginOwnPartsSchema = v.strictObject({
   n: rowCount,

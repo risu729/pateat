@@ -292,7 +292,8 @@ const loginMilliseconds = v.pipe(
  * Where a login's own time (`otherMs`) went, in milliseconds rounded down to 100 (ADR 0019,
  * amendment of 2026-11-03), as the login record carries them (ADR 0055, amendment of
  * 2026-11-03): `beforeShownMs` from when the document was seen until it first showed a
- * sign-in on the login's path, a reference apart from `otherMs`; `startMs` from that until
+ * sign-in on the login's path, part of the login's time and mostly of `otherMs`, though
+ * generation may run in it; `startMs` from that until
  * the login started; `awaitMs` waiting for a step's elements; `saveMs` and `statusMs`
  * storing the record and telling the page after each change; `checkMs` the policy checks;
  * `vaultMs` reading the values to fill; and `commandMs` a step's command to the page and
@@ -317,45 +318,51 @@ const loginPart = v.optional(v.pipe(loginMilliseconds, v.multipleOf(100)));
  * dashboard. Codes and whole milliseconds only: never a URL, origin, page text, reason
  * text, label, value, username or typing time. The service adds the site, from the recipe revision, and the time.
  */
-export const loginRecordSchema = v.strictObject({
-  version: v.literal(1),
-  revision: writtenRevision,
-  /** The layout the login ran (ADR 0060), and for a chooser recipe the branch it took. */
-  branch: recipeBranchSchema,
-  outcome: loginOutcomeSchema,
-  cause: v.optional(loginOutcomeCauseSchema),
-  extensionBuild: extensionBuildSchema,
-  /** From when the extension saw the login's first page until the login ended. */
-  totalMs: loginMilliseconds,
-  /** Waiting for the service: generation, judging and the recipe sync after them. */
-  serviceMs: loginMilliseconds,
-  /**
-   * Of `serviceMs`, the network part: each request's round trip less the service's own time
-   * from its `Server-Timing` header. A request whose answer did not name that time, or that
-   * got no answer, adds nothing.
-   */
-  networkMs: loginMilliseconds,
-  /** Waiting for the person: a code or approval, a click left to them, an account pick. */
-  personMs: loginMilliseconds,
-  /**
-   * Waiting for the site: from a step that may change the page, or the sign-in entry press
-   * before the login, until the login read the page's answer, a page load included.
-   */
-  pageMs: loginMilliseconds,
-  /**
-   * Where Pateat's own time went ({@link LOGIN_RECORD_PARTS}): all of them, 0 for none, or
-   * none when the device logged none, as after a software keyboard's fill or a worker
-   * restart.
-   */
-  beforeShownMs: loginPart,
-  startMs: loginPart,
-  awaitMs: loginPart,
-  saveMs: loginPart,
-  statusMs: loginPart,
-  checkMs: loginPart,
-  vaultMs: loginPart,
-  commandMs: loginPart,
-});
+export const loginRecordSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    revision: writtenRevision,
+    /** The layout the login ran (ADR 0060), and for a chooser recipe the branch it took. */
+    branch: recipeBranchSchema,
+    outcome: loginOutcomeSchema,
+    cause: v.optional(loginOutcomeCauseSchema),
+    extensionBuild: extensionBuildSchema,
+    /** From when the extension saw the login's first page until the login ended. */
+    totalMs: loginMilliseconds,
+    /** Waiting for the service: generation, judging and the recipe sync after them. */
+    serviceMs: loginMilliseconds,
+    /**
+     * Of `serviceMs`, the network part: each request's round trip less the service's own time
+     * from its `Server-Timing` header. A request whose answer did not name that time, or that
+     * got no answer, adds nothing.
+     */
+    networkMs: loginMilliseconds,
+    /** Waiting for the person: a code or approval, a click left to them, an account pick. */
+    personMs: loginMilliseconds,
+    /**
+     * Waiting for the site: from a step that may change the page, or the sign-in entry press
+     * before the login, until the login read the page's answer, a page load included.
+     */
+    pageMs: loginMilliseconds,
+    /**
+     * Where Pateat's own time went ({@link LOGIN_RECORD_PARTS}): all of them, 0 for none, or
+     * none when the device kept none, as for a login that typed on a software keyboard or one
+     * that a restarted worker resumed.
+     */
+    beforeShownMs: loginPart,
+    startMs: loginPart,
+    awaitMs: loginPart,
+    saveMs: loginPart,
+    statusMs: loginPart,
+    checkMs: loginPart,
+    vaultMs: loginPart,
+    commandMs: loginPart,
+  }),
+  v.check(
+    (record) => new Set(LOGIN_RECORD_PARTS.map((part) => record[part] === undefined)).size === 1,
+    "A login record carries all of its parts or none.",
+  ),
+);
 /**
  * `POST /v1/recipes/:recipeId/use`: a login started on this recipe revision and layout,
  * whatever happened after, so the service does not revoke the recipe or the layout as

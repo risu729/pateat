@@ -89,7 +89,7 @@ test("is the first section and shows speed, stats and failures for 7 days", asyn
   });
   await expect
     .element(ownParts.getByRole("row").nth(1))
-    .toMatchTextContent("Recipe only200 ms300 ms100 ms0 ms100 ms0 ms0 ms100 ms600 ms30");
+    .toMatchTextContent("Recipe only600 ms200 ms300 ms100 ms0 ms100 ms0 ms0 ms100 ms30");
   await expect.element(ownParts.getByRole("row")).toHaveLength(2);
   const loginTrend = page.getByRole("table", { name: /^Median login time by UTC day/ });
   await expect

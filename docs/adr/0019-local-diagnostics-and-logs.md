@@ -557,8 +557,10 @@ Not confirmed by the owner (the agent's choices):
   ([ADR 0067](0067-software-keyboard-entry.md)), whose presses take long enough to show
   through that rounding, logs none of them.
 - The save and status of the change that ends a login come after its entry and are not
-  counted. The fields are kept in memory only, for the 64 most recent logins: a worker
-  that stops loses them, and a login whose entry has no times logs none.
+  counted. The fields are kept in memory only, for the 64 most recent logins that
+  started in this worker: a login that a restarted worker resumed logs none, since its
+  fields before the restart are lost and whether it typed on a software keyboard may be
+  too, and a login whose entry has no times logs none.
 
 ## Amendment 2026-11-03: when a login's time starts again
 

@@ -10,8 +10,8 @@ import type { Execution } from "./types";
  *
  * - `beforeShownMs`: from when the extension saw the document until it first announced a
  *   sign-in on the path the login started on (a ready first step, a sign-in form offered
- *   for generation, a sign-in entry or an account list). Part of `totalMs` today; not part
- *   of `otherMs` alone, since generation may run in it.
+ *   for generation, a sign-in entry or an account list). Part of `totalMs` and mostly of
+ *   `otherMs`, though generation may run in it.
  * - `startMs`: from that announcement, as last received, until the login started: its
  *   admission, settings, plan and account choice.
  * - `awaitMs`: waiting for a step's elements before it runs, mostly the site rendering
@@ -31,8 +31,9 @@ import type { Execution } from "./types";
  * {@link SPAN_STEP_MS}, so that what is left of `otherMs` after them does not tell how long
  * a fill took either, and a login that typed on a software keyboard, whose presses take
  * long enough to count, logs none (ADR 0067). The save and status of the change that ends
- * a login come after its entry and are not counted. They are kept in memory only: a worker
- * that stops loses them.
+ * a login come after its entry and are not counted. They are kept in memory only, for
+ * logins that started in this worker: one that a restarted worker resumed logs none, since
+ * its parts before the restart are lost and whether it typed on a keyboard may be too.
  */
 export type SpanName =
   | "beforeShownMs"
@@ -53,10 +54,11 @@ export const SPAN_STEP_MS = 100;
 const KEPT_ATTEMPTS = 64;
 
 type Tables = {
-  /** The parts so far, by attempt. */
+  /**
+   * The parts so far of each login that started in this worker and has not handed them out
+   * or withheld them: only those add parts.
+   */
   spans: Map<string, AttemptSpans>;
-  /** Attempts whose parts were taken or withheld, which add none any more. */
-  closed: Set<string>;
   /** The parts being timed now, by attempt, in the order they began. */
   clocks: Map<string, Clock>;
 };
@@ -73,55 +75,46 @@ const tables = new WeakMap<Runtime, Tables>();
 function tablesOf(rt: Runtime): Tables {
   let found = tables.get(rt);
   if (!found) {
-    found = { spans: new Map(), closed: new Set(), clocks: new Map() };
+    found = { spans: new Map(), clocks: new Map() };
     tables.set(rt, found);
   }
   return found;
 }
 
-/** Keeps the latest `KEPT_ATTEMPTS` keys of `map`, dropping the oldest. */
-function bound(map: {
-  size: number;
-  keys(): IterableIterator<string>;
-  delete(key: string): unknown;
-}) {
-  for (const old of map.keys()) {
-    if (map.size <= KEPT_ATTEMPTS) break;
-    map.delete(old);
+/**
+ * Starts keeping attempt `attemptId`'s parts, when its login starts in this worker; the
+ * oldest of more than `KEPT_ATTEMPTS` logins goes first and hands out none.
+ */
+export function openSpans(rt: Runtime, attemptId: string): void {
+  const { spans } = tablesOf(rt);
+  if (spans.has(attemptId)) return;
+  spans.set(attemptId, {});
+  for (const old of spans.keys()) {
+    if (spans.size <= KEPT_ATTEMPTS) break;
+    spans.delete(old);
   }
 }
 
-/** Adds `ms` to attempt `attemptId`'s part `name`; nothing for no time or a closed login. */
+/** Adds `ms` to attempt `attemptId`'s part `name`; nothing for no time or a login not kept. */
 export function addSpan(rt: Runtime, attemptId: string, name: SpanName, ms: number): void {
   const add = Math.round(ms);
   if (!Number.isFinite(add) || add <= 0) return;
-  const { spans, closed } = tablesOf(rt);
-  if (closed.has(attemptId)) return;
-  const kept = spans.get(attemptId) ?? {};
-  spans.delete(attemptId);
-  spans.set(attemptId, { ...kept, [name]: (kept[name] ?? 0) + add });
-  bound(spans);
-}
-
-function close(rt: Runtime, attemptId: string): AttemptSpans | undefined {
-  const { spans, closed } = tablesOf(rt);
-  const found = spans.get(attemptId);
-  spans.delete(attemptId);
-  closed.delete(attemptId);
-  closed.add(attemptId);
-  bound(closed);
-  return found;
+  const kept = tablesOf(rt).spans.get(attemptId);
+  if (kept) kept[name] = (kept[name] ?? 0) + add;
 }
 
 /**
  * Attempt `attemptId`'s parts, taken once and rounded down to {@link SPAN_STEP_MS}: a login
  * that ended logs them with its times. A part rounded to nothing is left out, and the
- * login adds no part after. Nothing for a login with no part kept, as after a software
- * keyboard or a worker restart.
+ * login adds no part after. Nothing for a login whose parts were not kept: one that a
+ * restarted worker resumed, one that typed on a software keyboard, or one whose parts were
+ * taken already.
  */
 export function takeSpans(rt: Runtime, attemptId: string): AttemptSpans | undefined {
-  const found = close(rt, attemptId);
+  const { spans } = tablesOf(rt);
+  const found = spans.get(attemptId);
   if (!found) return undefined;
+  spans.delete(attemptId);
   const rounded: AttemptSpans = {};
   for (const [name, ms] of Object.entries(found) as [SpanName, number][]) {
     const step = Math.floor(ms / SPAN_STEP_MS) * SPAN_STEP_MS;
@@ -132,7 +125,7 @@ export function takeSpans(rt: Runtime, attemptId: string): AttemptSpans | undefi
 
 /** Drops attempt `attemptId`'s parts and logs none of them, as after a software keyboard. */
 export function withholdSpans(rt: Runtime, attemptId: string): void {
-  close(rt, attemptId);
+  tablesOf(rt).spans.delete(attemptId);
 }
 
 /**

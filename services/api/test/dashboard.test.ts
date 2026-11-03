@@ -413,7 +413,7 @@ describe("dashboard aggregation", () => {
     const parts = { beforeShownMs: 500, saveMs: 100, statusMs: 0, checkMs: 0, vaultMs: 100 };
     const data = summarize({
       logins: [
-        // 3 s of its own, 1.7 s of it named.
+        // 3 s of its own, 2.2 s of it named.
         login({ ...parts, totalMs: 5000, pageMs: 2000, startMs: 300, awaitMs: 1200, commandMs: 0 }),
         login({
           ...parts,
@@ -437,8 +437,8 @@ describe("dashboard aggregation", () => {
       checkMs: 0,
       vaultMs: 100,
       commandMs: 0,
-      // 3000 - 1700 and 4000 - 2900: the lower of 1300 and 1100.
-      restMs: 1100,
+      // 3000 - 2200 and 4000 - 3400: the lower of 800 and 600.
+      restMs: 600,
     });
     expect(data.logins.ownParts.withService).toMatchObject({ n: 0, startMs: null, restMs: null });
   });

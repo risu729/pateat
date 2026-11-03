@@ -2390,7 +2390,8 @@ which its [login record](#login-records-on-the-service) also sends to the servic
   fields of one login overlap counts once, in the one that began first, so all but
   `beforeShownMs` add up to at most `otherMs`. Each is rounded down to 100 ms, so the
   rest does not tell a fill's time, and a login that typed on a software keyboard logs
-  none. They are kept in memory and are lost with a worker restart
+  none. They are kept in memory for the logins that started in the running worker, so
+  a login that a restarted worker resumed logs and sends none
   ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-11-03-where-a-logins-own-time-went)).
 
 ### First login results on the service
