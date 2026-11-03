@@ -5,7 +5,8 @@ import { storage } from "wxt/utils/storage";
 import { configureSchema } from "../wire";
 import { DEMO_PROBE_ACCOUNT } from "../dummy";
 import { allowlistOf } from "../pause";
-import { quietly } from "./session-store";
+import { armSiteWait, quietly } from "./session-store";
+import { endLostSiteWaits, endSiteWaits } from "./site-wait";
 import {
   PICKS_KEY,
   CHOICES_KEY,
@@ -55,6 +56,8 @@ import type { Runtime } from "./state";
 import { createRuntimeState } from "./state";
 import type { SettingsRuntime, LoginRuntimeOptions } from "./deps";
 
+export { LOGIN_SITE_WAIT_ALARM } from "./constants";
+
 export function createLoginRuntime(settings: SettingsRuntime, options: LoginRuntimeOptions) {
   const rt = createRuntimeState(settings, options);
   startRuntime(rt);
@@ -84,6 +87,11 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
     /** A site default was saved outside the settings page, as by the passkey chooser. */
     siteDefaultSaved: () => void choiceDefaults(rt),
     active: () => active(rt),
+    /**
+     * The site-wait alarm fired (`siteWait`): ends the logins whose wait for the site ran
+     * out and sets the alarm for the next one (ADR 0022, amended 2026-11-03).
+     */
+    siteWaitDue: () => endSiteWaits(rt),
     loginAccount: (tabId: number, siteOrigin: string) => loginAccount(rt, tabId, siteOrigin),
     passkeyReverification: (tabId: number, siteOrigin: string) =>
       passkeyReverification(rt, tabId, siteOrigin),
@@ -300,7 +308,14 @@ function startRuntime(rt: Runtime) {
       for (const [key, metadata] of rt.persisted)
         if (!liveIds.has(metadata.document.tabId) && !rt.replacedTabs.has(metadata.document.tabId))
           rt.persisted.delete(key);
+      // A wait for the site that ran out while the worker was stopped ends when it ran out
+      // (ADR 0022, amended 2026-11-03): its bound was kept in memory only.
+      endLostSiteWaits(
+        rt,
+        new Map(openTabs.flatMap((tab) => (tab.id === undefined ? [] : [[tab.id, tab.url]]))),
+      );
       await rt.attemptRecords.write([...rt.persisted.values()]);
+      armSiteWait(rt);
     } catch {
       rt.vars.storageHealthy = false;
     }

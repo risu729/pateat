@@ -1,5 +1,5 @@
 import { WATCH_PATH_MAX, type LoginAttemptMetadata } from "@pateat/contracts";
-import { HOLD_MS, WATCH_MS } from "./constants";
+import { HOLD_MS, SITE_WAIT_MS, WATCH_MS } from "./constants";
 import { type Execution } from "./types";
 import { pathNow } from "./steps";
 
@@ -116,6 +116,18 @@ export const settledHere = (run: Execution) =>
   run.metadata.state === "reconciling" &&
   run.metadata.settled === true &&
   run.metadata.watch?.documentId === run.live.document.documentId;
+
+/**
+ * When a login's wait for the site's answer to its step ran out, if it did by `now` (ADR
+ * 0022, amended 2026-11-03): `SITE_WAIT_MS` after it began, or `now` when the clock was set
+ * back before its start. Undefined while it may still last, or when none runs.
+ */
+export const siteWaitOver = (metadata: LoginAttemptMetadata, now: number) => {
+  const since = metadata.timing.pageSince;
+  if (since === undefined || terminal(metadata)) return undefined;
+  if (now < since) return now;
+  return now >= since + SITE_WAIT_MS ? since + SITE_WAIT_MS : undefined;
+};
 
 /** Whether a login's watch is over at `now`; a clock set back ends it too (ADR 0027). */
 export const watchOver = (metadata: LoginAttemptMetadata, now: number) =>

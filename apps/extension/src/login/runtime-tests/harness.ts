@@ -212,6 +212,8 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       otherReprompt?: boolean;
       /** Asks for the master password of a re-prompt item. */
       askMasterPassword?: Parameters<typeof createLoginRuntime>[1]["askMasterPassword"];
+      /** Sets the site-wait alarm (ADR 0022). */
+      siteWait?: Parameters<typeof createLoginRuntime>[1]["siteWait"];
     } = {},
   ) {
     const customFields = (fields: CustomField[]) =>
@@ -396,6 +398,7 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       ...(live.logout ? { logout: live.logout } : {}),
       ...(live.pauses ? { pauses: live.pauses } : {}),
       ...(live.askMasterPassword ? { askMasterPassword: live.askMasterPassword } : {}),
+      ...(live.siteWait ? { siteWait: live.siteWait } : {}),
       ...(live.badge
         ? { badge: live.badge }
         : live.spin

@@ -1,3 +1,5 @@
+import { HELD_CLICK_WAIT_MS } from "../wire";
+
 /**
  * Automatic logins of a site that may end `authenticated` within `RELOGIN_WINDOW_MS`; the
  * next one asks for an account instead (`relogin-limit`, ADR 0062).
@@ -52,6 +54,18 @@ export const SIGN_IN_RECHECKS = 10;
  * answer to the step, read for a sign-in form shown again (ADR 0029).
  */
 export const SITE_MOVE_MS = 30_000;
+
+/**
+ * The longest a login waits for the site's answer to a step (ADR 0022, amended 2026-11-03):
+ * the waits kept in memory, as for a held click's button (`HELD_CLICK_WAIT_MS`) or for the
+ * tab's next page after a page of another origin asked for a passkey, decide before it. It
+ * bounds a wait that a worker stop lost, which then ends when it ran out, however much later
+ * that is noticed.
+ */
+export const SITE_WAIT_MS = HELD_CLICK_WAIT_MS + SITE_MOVE_MS;
+
+/** The `browser.alarms` alarm that wakes the worker when such a wait runs out. */
+export const LOGIN_SITE_WAIT_ALARM = "pateat.login-site-wait";
 
 /**
  * How long after the passkey bridge answered a tab's top document outside a login no new

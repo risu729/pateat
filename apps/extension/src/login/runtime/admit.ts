@@ -10,7 +10,7 @@ import { observedPath } from "../../observation/path";
 import { keep } from "./session-store";
 import { frameKey, documentKey } from "./steps";
 import { checkAfterPress } from "./entry-press";
-import { AFTER_SIGN_IN_MS, SITE_MOVE_MS } from "./constants";
+import { AFTER_SIGN_IN_MS, SITE_MOVE_MS, WATCH_MS } from "./constants";
 import { pauseOf, endPickedPause } from "./pause";
 import { identify } from "./messages";
 import { send, reportAttempt, publish, report, noteSignedIn } from "./attempt";
@@ -29,7 +29,7 @@ import {
 import { leaveConfirm, previousPage, confirmSigns } from "./markers";
 import { noteUnadmitted, note, loginRelated } from "./generation";
 import { tabAttempt } from "./hold";
-import { terminal, finishedLogin } from "./attempt-state";
+import { terminal, finishedLogin, siteWaitOver, watchOver } from "./attempt-state";
 import { dropReprompt } from "./master-password";
 import { type MoveMiss } from "./report";
 import { countRelogin, signedInNow } from "./relogin";
@@ -458,16 +458,24 @@ export async function admit(
     signedIn: boolean,
   ) => {
     const before = run?.metadata ?? recoverLoginAttempt(latest);
-    const ended = transitionLoginAttempt(before, {
-      type: "NAVIGATED",
-      document: moved,
-      ...(signedIn ? { signedIn } : {}),
-    });
+    // A login that did not sign in here ended when its wait for the site or its watch ran
+    // out, if one did before this page showed; the time between counts for nothing (ADR
+    // 0019, ADR 0022 amended 2026-11-03).
+    const now = Date.now();
+    const endedAt = signedIn
+      ? now
+      : (siteWaitOver(before, now) ??
+        (watchOver(before, now) ? Math.min(now, before.watch!.since + WATCH_MS) : now));
+    const ended = transitionLoginAttempt(
+      before,
+      { type: "NAVIGATED", document: moved, ...(signedIn ? { signedIn } : {}) },
+      endedAt,
+    );
     noteSignedIn(rt, before, ended, moved.origin);
     countRelogin(rt, before, ended, ctx.incognito === true);
     if (signedInNow(rt, before, ended)) void endPickedPause(rt, ended, run?.live);
     if (run) run.metadata = ended;
-    reportAttempt(rt, ended, run?.recipe);
+    reportAttempt(rt, ended, run?.recipe, undefined, { endedAt });
     try {
       await keep(rt, ended);
     } catch {

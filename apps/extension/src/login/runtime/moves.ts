@@ -24,7 +24,7 @@ import { usernameShape, readUsernames, hideUsernames } from "./markers";
 import { generationSlotsFor, usernameReads, judgeSlots } from "./generation-scope";
 import { SITE_MOVE_READINGS, SIGN_IN_RECHECK_MS, SITE_MOVE_MS } from "./constants";
 import { tabAttempt } from "./hold";
-import { terminal } from "./attempt-state";
+import { siteWaitOver, terminal } from "./attempt-state";
 import { keep } from "./session-store";
 import type { Runtime } from "./state";
 
@@ -444,12 +444,17 @@ export function holdForPasskey(rt: Runtime, tabId: number): void {
       const run = rt.attempts.get(tabId);
       const latest = run?.metadata ?? tabAttempt(rt, tabId);
       if (latest?.id !== held.attemptId || terminal(latest)) return;
-      const ended = transitionLoginAttempt(run?.metadata ?? recoverLoginAttempt(latest), {
-        type: "NAVIGATED",
-        document: held.document,
-      });
+      const before = run?.metadata ?? recoverLoginAttempt(latest);
+      // A hold kept past the login's wait for the site ends it when that ran out (ADR 0022).
+      const now = Date.now();
+      const endedAt = siteWaitOver(before, now) ?? now;
+      const ended = transitionLoginAttempt(
+        before,
+        { type: "NAVIGATED", document: held.document },
+        endedAt,
+      );
       if (run) run.metadata = ended;
-      reportAttempt(rt, ended, run?.recipe);
+      reportAttempt(rt, ended, run?.recipe, undefined, { endedAt });
       void keep(rt, ended).catch(() => undefined);
     },
     2 * SITE_MOVE_MS + SIGN_IN_RECHECK_MS,

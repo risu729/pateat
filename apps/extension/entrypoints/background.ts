@@ -3,7 +3,7 @@ import { accountPolicy } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
-import { createLoginRuntime } from "../src/login/runtime";
+import { createLoginRuntime, LOGIN_SITE_WAIT_ALARM } from "../src/login/runtime";
 import { createRecipeRepairs } from "../src/login/repair";
 import { createLoginSites } from "../src/login/sites";
 import {
@@ -472,6 +472,11 @@ export default defineBackground(() => {
     void signIns.add(tabId, { origin, ...(rpId === undefined ? {} : { rpId }) }).catch(() => {});
   const login = createLoginRuntime(loginSettings, {
     vault: vaultSync,
+    // Wakes a stopped worker to end a login whose wait for the site ran out (ADR 0022).
+    siteWait: (when) =>
+      when === undefined
+        ? browser.alarms.clear(LOGIN_SITE_WAIT_ALARM).then(() => undefined)
+        : browser.alarms.create(LOGIN_SITE_WAIT_ALARM, { when }),
     fields: combineFieldSources({
       bitwarden: vaultFields,
       ...(catalog ? { dummy: dummyFieldSource } : {}),
@@ -789,6 +794,7 @@ export default defineBackground(() => {
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === VAULT_SYNC_ALARM) vaultSync.refreshIfStale();
     if (alarm.name === VAULT_TIMEOUT_ALARM) void vaultTimeout.check().catch(() => undefined);
+    if (alarm.name === LOGIN_SITE_WAIT_ALARM) void login.siteWaitDue().catch(() => undefined);
   });
   // Wakes the worker at browser start so automatic unlock shows the unlocked icon.
   browser.runtime.onStartup.addListener(() => {

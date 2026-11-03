@@ -32,6 +32,17 @@ except after a rejection, a stopped login or an abandoned watch, which ask and f
 page once without pressing; a third automatic login of a site within 10 minutes asks
 (`relogin-limit`).
 
+Amended on 2026-11-03 (bug fix restoring this ADR's bound on the wait after a step,
+under the owner's rule against fixed waits at 03:31 UTC that day): a login's wait for
+the site's answer to a step lasts at most 150 seconds (`SITE_WAIT_MS`: the held click's
+120 seconds plus 30), also across a worker stop; see "A wait for the site that ran out"
+below. Evidence: a Microsoft login in the owner's Chrome stayed `reconciling` with its
+page clock running after a page of another origin of the site asked for a passkey, and
+ended `left-origin` hours later with `totalMs` 7139740 and `pageMs` 7077918 in its login
+record. The 61-second end of that hold lives in the worker's memory, and an MV3 worker
+that stops after 30 idle seconds loses it; while the record waited it counted as a login
+in progress and held settings writes back.
+
 Date: 2026-10-11
 
 Amended on 2026-10-11 (18:27 UTC, owner's choice in the thread): a finished login in
@@ -178,6 +189,28 @@ fix them now; the SSO policy itself is recorded separately.
     settles as unknown and is watched; so does an advance fill waiting to be tried
     again, which this would take past its step, and a login with a stop or on the
     `passkey` route ends as before.
+  - **A wait for the site that ran out** (amended 2026-11-03). A login that waits for
+    the site's answer to a step (`awaiting-result` or `reconciling`, with its result not
+    settled; the `pageMs` clock of [ADR 0019](0019-local-diagnostics-and-logs.md) runs
+    then) waits at most 150 seconds from when that wait began, service time during it
+    not counted. The waits the worker keeps in memory decide first: the running login's
+    own bounded waits, a page of another origin that asked for a passkey holding it, and
+    the check of the tab's new page. When none of them runs any more, as after a worker
+    stop, the login ends at the time its wait ran out, without resubmitting: a top-level
+    login whose tab shows a page of another origin ends as that move would have
+    (`left-origin` after a possible submission, else `interrupted`); any other settles
+    as a page that proved nothing would (`unknown-submit`, or `challenge` on the
+    `passkey` route or for a login with a stop), and a top-level `password` one is
+    watched from then; one that submitted nothing, which would go on at its step, ends
+    `cancelled` instead, as no step runs any more. A page of the tab being admitted
+    decides first too. Its record keeps the time it last changed, as for a watch that
+    ran out. A worker start checks the stored records before any page announces, and a
+    `browser.alarms` alarm (`pateat.login-site-wait`) at the first such end wakes a
+    stopped worker to check again; one that memory still decides is looked at again 30
+    seconds later, Chrome's shortest alarm delay. A page of the tab that ends such a
+    login only after its wait, or its watch, ran out ends it at that time too, so the
+    time between counts for nothing; a move that completes it still ends it when the
+    page shows. A bound, not a pause: nothing waits for it to pass.
   - **A move after a passkey answer** (amended 2026-10-12). Such an attempt ends
     `authenticated` instead when all of these hold: after its last effect step and at
     most 30 seconds before the move, Pateat returned an assertion to a passkey request
@@ -214,7 +247,8 @@ fix them now; the SSO policy itself is recorded separately.
     and the move rules below for a password submission each end it `left-origin` on the
     tab's next page, as do a page of another site and a request more than 30 seconds
     after the step. A page that asked and stays open ends it `left-origin` 61 seconds
-    after it last held the attempt, once no next page could complete it. The item is
+    after it last held the attempt, once no next page could complete it, or, when the
+    worker stopped meanwhile, when its wait for the site ran out (below). The item is
     kept in memory with the answer only, as the answer is, and so is the waiting: after
     a worker restart, the tab's next page on the attempt's own origin resumes it as the
     page after its last step (ADR 0029), and one on another origin ends it `left-origin`

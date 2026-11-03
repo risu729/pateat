@@ -323,6 +323,12 @@ export type LoginRuntimeOptions = {
     checkAfterMiss?(): Promise<boolean>;
   };
   /**
+   * Wakes the worker at `when`, epoch milliseconds, to end the logins whose wait for the
+   * site ran out (ADR 0022, amended 2026-11-03): a `browser.alarms` alarm whose firing calls
+   * the runtime's `siteWaitDue`, which outlives a stopped worker. Undefined clears it.
+   */
+  siteWait?: (when: number | undefined) => Promise<void> | void;
+  /**
    * Told once the runtime has handled a tab's top-frame announcement, which may count
    * the site's items for the toolbar badge (ADR 0021).
    */

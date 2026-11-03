@@ -498,6 +498,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       counting,
       entryBlocks,
       appliedPolicy,
+      siteWaitAt: undefined,
       sessionRead: undefined!,
       sessionLoaded: undefined!,
       loaded: undefined!,
@@ -519,6 +520,8 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       counting: Promise<unknown> | undefined;
       entryBlocks: Promise<EntryBlock[] | undefined> | undefined;
       appliedPolicy: PausingSettings | undefined;
+      /** When the site-wait alarm was last set for, as `armSiteWait` set it. */
+      siteWaitAt: number | undefined;
       sessionRead: Promise<void>;
       sessionLoaded: Promise<void>;
       loaded: Promise<void>;
