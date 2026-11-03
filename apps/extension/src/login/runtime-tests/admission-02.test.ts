@@ -667,7 +667,8 @@ describe("production login document admission", () => {
       expect(spans!.commandMs).toBeLessThan(480);
       const { beforeShownMs: _before, ...own } = spans!;
       const parts = Object.values(own).reduce((sum, ms) => sum + ms, 0);
-      expect(parts).toBeLessThanOrEqual(times!.otherMs);
+      // The fill's 300 ms is in no part.
+      expect(parts).toBeLessThanOrEqual(times!.otherMs - 300);
     });
     it("counts the wait for the site's answer to a click apart from Pateat's own time", async () => {
       // The site shows the signed-in page 400 ms after the click.

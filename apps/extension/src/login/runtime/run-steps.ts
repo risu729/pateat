@@ -2,6 +2,7 @@ import * as v from "valibot";
 import {
   attemptPlan,
   fillOnlyStops,
+  keypadStep,
   nextLoginOperation,
   loginStepEffect,
   parseAttemptMetadata,
@@ -21,7 +22,7 @@ import {
   type LoginSecretKind,
   type AskedQuestion,
 } from "../wire";
-import { timed } from "./spans";
+import { timed, withholdSpans } from "./spans";
 import { loginFillsUsername, loginSecretKind, loginUsernameFieldId } from "../vault";
 import { newId } from "@pateat/contracts/ids";
 import { type Execution } from "./types";
@@ -590,6 +591,9 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
           ...(siblingsNext.length ? { siblings: siblingsNext.map(({ next }) => next) } : {}),
         });
       // How long a fill took is never recorded: it would tell a value's length (ADR 0012).
+      // A software keyboard's presses take long enough that what is left of the login's
+      // own time would tell it, so such a login logs no parts at all (ADR 0067).
+      if (keypadStep(operation.step)) withholdSpans(rt, run.metadata.id);
       response =
         operation.step.kind === "fill"
           ? await execute()

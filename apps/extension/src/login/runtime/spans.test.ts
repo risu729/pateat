@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { addSpan, ownTime, takeSpans, timed } from "./spans";
+import { addSpan, ownTime, takeSpans, timed, withholdSpans } from "./spans";
 import type { Runtime } from "./state";
 import type { Execution } from "./types";
 
@@ -44,6 +44,23 @@ describe("addSpan and takeSpans", () => {
     expect(takeSpans(rt, "a")).toEqual({ checkMs: 100, awaitMs: 1_000 });
     expect(takeSpans(rt, "a")).toBeUndefined();
   });
+  it("rounds down, so the parts never add up to more than the time they took", () => {
+    const rt = {} as Runtime;
+    addSpan(rt, "a", "checkMs", 199);
+    addSpan(rt, "a", "saveMs", 99);
+    expect(takeSpans(rt, "a")).toEqual({ checkMs: 100 });
+  });
+  it("adds nothing to a login whose parts were taken or withheld", () => {
+    const rt = {} as Runtime;
+    addSpan(rt, "a", "saveMs", 300);
+    takeSpans(rt, "a");
+    addSpan(rt, "a", "saveMs", 300);
+    expect(takeSpans(rt, "a")).toBeUndefined();
+    addSpan(rt, "b", "commandMs", 300);
+    withholdSpans(rt, "b");
+    addSpan(rt, "b", "commandMs", 300);
+    expect(takeSpans(rt, "b")).toBeUndefined();
+  });
   it("hands out nothing when every part rounds to nothing", () => {
     const rt = {} as Runtime;
     addSpan(rt, "a", "statusMs", 20);
@@ -81,6 +98,45 @@ describe("timed", () => {
         clock += 300;
       });
       expect(takeSpans(rt, "a")).toEqual({ checkMs: 400, saveMs: 300 });
+    } finally {
+      now.mockRestore();
+    }
+  });
+  it("gives overlapping parts' time once, and the rest to the part still running", async () => {
+    const rt = {} as Runtime;
+    const run = { metadata: { id: "a", timing: timing() } } as unknown as Execution;
+    let clock = 0;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    try {
+      let endSave!: () => void;
+      let endAwait!: () => void;
+      // A save from another flow begins first; a step's wait begins before it ends.
+      const save = timed(rt, run, "saveMs", () => new Promise<void>((done) => (endSave = done)));
+      clock = 100;
+      const wait = timed(rt, run, "awaitMs", () => new Promise<void>((done) => (endAwait = done)));
+      clock = 200;
+      endSave();
+      await save;
+      clock = 3_200;
+      endAwait();
+      await wait;
+      expect(takeSpans(rt, "a")).toEqual({ saveMs: 200, awaitMs: 3_000 });
+    } finally {
+      now.mockRestore();
+    }
+  });
+  it("counts nothing while the login waits for the site", async () => {
+    const rt = {} as Runtime;
+    const run = {
+      metadata: { id: "a", timing: timing({ pageSince: 0 }) },
+    } as unknown as Execution;
+    let clock = 0;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    try {
+      await timed(rt, run, "saveMs", async () => {
+        clock = 500;
+      });
+      expect(takeSpans(rt, "a")).toBeUndefined();
     } finally {
       now.mockRestore();
     }

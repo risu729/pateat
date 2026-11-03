@@ -2367,10 +2367,11 @@ which its [login record](#login-records-on-the-service) also sends to the servic
   `statusMs` storing the record and telling the page after each change; `checkMs` the
   policy checks around each step; `vaultMs` reading the values to fill; and `commandMs`
   a step's command to the page and its answer, for every step but a fill. Each counts
-  only time outside the waits for the site, the person and the service, and a field
-  inside another counts in the outer one only, so all but `beforeShownMs` add up to at
-  most `otherMs`. Each is rounded to 100 ms, so the rest does not tell a fill's time.
-  They are kept in memory, are lost with a worker restart, and are never sent
+  only time outside the waits for the site, the person and the service, and time where
+  fields of one login overlap counts once, in the one that began first, so all but
+  `beforeShownMs` add up to at most `otherMs`. Each is rounded down to 100 ms, so the
+  rest does not tell a fill's time, and a login that typed on a software keyboard logs
+  none. They are kept in memory, are lost with a worker restart, and are never sent
   ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-11-03-where-a-logins-own-time-went)).
 
 ### First login results on the service

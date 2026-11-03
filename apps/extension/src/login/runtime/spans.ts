@@ -24,11 +24,14 @@ import type { Execution } from "./types";
  *   and it would tell a value's length (ADR 0012).
  *
  * A part counts only time that ran outside the login's waits for the site, the person and
- * the service, and a part inside another, such as a save inside a policy check, counts
- * only in the outer one, so the parts other than `beforeShownMs` never add up to more than
- * `otherMs`. Each part is logged in steps of {@link SPAN_STEP_MS}, so that what is left of
- * `otherMs` after them does not tell how long a fill took either. They are kept in memory
- * only: a worker that stops loses them.
+ * the service, and while parts of one login overlap, as a save inside a policy check, the
+ * time counts once, in the one that began first, so the parts other than `beforeShownMs`
+ * never add up to more than `otherMs`. Each part is logged rounded down to a step of
+ * {@link SPAN_STEP_MS}, so that what is left of `otherMs` after them does not tell how long
+ * a fill took either, and a login that typed on a software keyboard, whose presses take
+ * long enough to count, logs none (ADR 0067). The save and status of the change that ends
+ * a login come after its entry and are not counted. They are kept in memory only: a worker
+ * that stops loses them.
  */
 export type SpanName =
   | "beforeShownMs"
@@ -48,49 +51,86 @@ export const SPAN_STEP_MS = 100;
 /** Logins whose parts are kept at once; the oldest goes first. */
 const KEPT_ATTEMPTS = 64;
 
-const tables = new WeakMap<Runtime, Map<string, AttemptSpans>>();
+type Tables = {
+  /** The parts so far, by attempt. */
+  spans: Map<string, AttemptSpans>;
+  /** Attempts whose parts were taken or withheld, which add none any more. */
+  closed: Set<string>;
+  /** The parts being timed now, by attempt, in the order they began. */
+  clocks: Map<string, Clock>;
+};
 
-/** Attempts with a part being timed now, whose inner parts count in it alone. */
-const timing = new WeakMap<Runtime, Set<string>>();
+/** A login's parts being timed now: since when, with its timing then. */
+type Clock = {
+  at: number;
+  timing: AttemptTiming;
+  active: { name: SpanName; token: object }[];
+};
 
-function table(rt: Runtime): Map<string, AttemptSpans> {
+const tables = new WeakMap<Runtime, Tables>();
+
+function tablesOf(rt: Runtime): Tables {
   let found = tables.get(rt);
   if (!found) {
-    found = new Map();
+    found = { spans: new Map(), closed: new Set(), clocks: new Map() };
     tables.set(rt, found);
   }
   return found;
 }
 
-/** Adds `ms` to attempt `attemptId`'s part `name`; nothing for no time. */
-export function addSpan(rt: Runtime, attemptId: string, name: SpanName, ms: number): void {
-  const add = Math.round(ms);
-  if (!Number.isFinite(add) || add <= 0) return;
-  const spans = table(rt);
-  const kept = spans.get(attemptId) ?? {};
-  spans.delete(attemptId);
-  spans.set(attemptId, { ...kept, [name]: (kept[name] ?? 0) + add });
-  for (const old of spans.keys()) {
-    if (spans.size <= KEPT_ATTEMPTS) break;
-    spans.delete(old);
+/** Keeps the latest `KEPT_ATTEMPTS` keys of `map`, dropping the oldest. */
+function bound(map: {
+  size: number;
+  keys(): IterableIterator<string>;
+  delete(key: string): unknown;
+}) {
+  for (const old of map.keys()) {
+    if (map.size <= KEPT_ATTEMPTS) break;
+    map.delete(old);
   }
 }
 
-/**
- * Attempt `attemptId`'s parts, taken once and rounded to {@link SPAN_STEP_MS}: a login that
- * ended logs them with its times. A part rounded to nothing is left out.
- */
-export function takeSpans(rt: Runtime, attemptId: string): AttemptSpans | undefined {
-  const spans = table(rt);
+/** Adds `ms` to attempt `attemptId`'s part `name`; nothing for no time or a closed login. */
+export function addSpan(rt: Runtime, attemptId: string, name: SpanName, ms: number): void {
+  const add = Math.round(ms);
+  if (!Number.isFinite(add) || add <= 0) return;
+  const { spans, closed } = tablesOf(rt);
+  if (closed.has(attemptId)) return;
+  const kept = spans.get(attemptId) ?? {};
+  spans.delete(attemptId);
+  spans.set(attemptId, { ...kept, [name]: (kept[name] ?? 0) + add });
+  bound(spans);
+}
+
+function close(rt: Runtime, attemptId: string): AttemptSpans | undefined {
+  const { spans, closed } = tablesOf(rt);
   const found = spans.get(attemptId);
   spans.delete(attemptId);
+  closed.delete(attemptId);
+  closed.add(attemptId);
+  bound(closed);
+  return found;
+}
+
+/**
+ * Attempt `attemptId`'s parts, taken once and rounded down to {@link SPAN_STEP_MS}: a login
+ * that ended logs them with its times. A part rounded to nothing is left out, and the
+ * login adds no part after.
+ */
+export function takeSpans(rt: Runtime, attemptId: string): AttemptSpans | undefined {
+  const found = close(rt, attemptId);
   if (!found) return undefined;
   const rounded: AttemptSpans = {};
   for (const [name, ms] of Object.entries(found) as [SpanName, number][]) {
-    const step = Math.round(ms / SPAN_STEP_MS) * SPAN_STEP_MS;
+    const step = Math.floor(ms / SPAN_STEP_MS) * SPAN_STEP_MS;
     if (step > 0) rounded[name] = step;
   }
   return Object.keys(rounded).length ? rounded : undefined;
+}
+
+/** Drops attempt `attemptId`'s parts and logs none of them, as after a software keyboard. */
+export function withholdSpans(rt: Runtime, attemptId: string): void {
+  close(rt, attemptId);
 }
 
 /**
@@ -116,9 +156,19 @@ export function ownTime(
   return Math.max(0, end - started - added);
 }
 
+/** Gives the time since the clock's last reading to the part of the login that began first. */
+function tick(rt: Runtime, id: string, clock: Clock, timing: AttemptTiming): void {
+  const now = Date.now();
+  const owner = clock.active[0];
+  if (owner) addSpan(rt, id, owner.name, ownTime(clock.timing, timing, clock.at, now));
+  clock.at = now;
+  clock.timing = timing;
+}
+
 /**
- * Runs `work` and adds the login's own time it took to part `name` of `run`'s login; inside
- * another part of the same login, it adds nothing, as the outer part counts it.
+ * Runs `work` and adds the login's own time it took to part `name` of `run`'s login. While
+ * another part of the same login runs too, as a save inside a policy check, the time counts
+ * once, in the part that began first.
  */
 export async function timed<T>(
   rt: Runtime,
@@ -127,20 +177,20 @@ export async function timed<T>(
   work: () => Promise<T>,
 ): Promise<T> {
   const id = run.metadata.id;
-  let active = timing.get(rt);
-  if (!active) {
-    active = new Set();
-    timing.set(rt, active);
+  const { clocks } = tablesOf(rt);
+  let clock = clocks.get(id);
+  if (clock) tick(rt, id, clock, run.metadata.timing);
+  else {
+    clock = { at: Date.now(), timing: run.metadata.timing, active: [] };
+    clocks.set(id, clock);
   }
-  if (active.has(id)) return work();
-  const before = run.metadata.timing;
-  const started = Date.now();
-  active.add(id);
+  const token = {};
+  clock.active.push({ name, token });
   try {
     return await work();
   } finally {
-    active.delete(id);
-    if (run.metadata.id === id)
-      addSpan(rt, id, name, ownTime(before, run.metadata.timing, started));
+    if (run.metadata.id === id) tick(rt, id, clock, run.metadata.timing);
+    clock.active = clock.active.filter((entry) => entry.token !== token);
+    if (!clock.active.length && clocks.get(id) === clock) clocks.delete(id);
   }
 }
