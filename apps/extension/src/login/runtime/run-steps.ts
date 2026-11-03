@@ -49,6 +49,7 @@ import { submittedByPage, codeSubmitted } from "./handlers";
 import { listOf, listReadiness, listUsernames, listButtons } from "./markers";
 import { waitFor } from "./reconcile";
 import { switchLayout, siblingsAt } from "./continuation";
+import { continueBefore, replaceableClick } from "./continue-before";
 import { detailFill, reportDetail } from "./detail-fill";
 import { pause } from "./session-store";
 import type { Runtime } from "./state";
@@ -188,17 +189,29 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       if (!current(rt, run) || run.metadata.state !== "ready") return;
       // A chooser login's click on its list waits for the list (ADR 0028).
       const onList = run.metadata.stepIndex === 0 ? listOf(rt, run) : undefined;
+      // A final advance click also watches for a password input opening beside its
+      // disabled button, whose page then replaces it (ADR 0018 amendment of 2026-11-03).
+      const revealing = !onList && replaceableClick(rt, run, upcoming);
       let miss: AwaitMiss | undefined;
       const waited = await timed(rt, run, "awaitMs", () =>
         waitFor(
           rt,
           run,
-          onList ? listReadiness(rt, onList.chooser) : loginReadiness(upcoming),
+          onList
+            ? listReadiness(rt, onList.chooser)
+            : { ...loginReadiness(upcoming), ...(revealing ? { revealed: true as const } : {}) },
           undefined,
           (reason) => (miss = reason),
         ),
       );
       if (!current(rt, run) || run.metadata.state !== "ready") return;
+      if (waited === "revealed") {
+        // Taken over, the login goes on at the page's first step; otherwise it waits for
+        // its click again, as for any step, and does not ask again.
+        await continueBefore(rt, run);
+        if (!current(rt, run) || run.metadata.state !== "ready") return;
+        continue;
+      }
       if (waited === "timeout") {
         if (
           afterCode &&

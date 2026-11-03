@@ -7,6 +7,7 @@ import {
   chooserRoute,
   CHOOSER_ENTRY_TARGET,
   continuesRecipe,
+  replacesClick,
   DETAIL_HANDLER_SLOT,
   detailFieldFormat,
   detailFieldInputs,
@@ -57,6 +58,7 @@ import {
   type ChooserClick,
   type LoginAccountBinding,
   type LoginRecipe,
+  type LoginStep,
   type LoginTarget,
   type StoredLoginRecipe,
   findChooserLayout,
@@ -1762,6 +1764,80 @@ describe("second-factor page handlers (ADR 0027)", () => {
       const handled = parseLoginRecipe({ ...first, handlers: [passkeyHandler()] });
       expect(continuesRecipe(handled, next({}))).toBe(false);
       expect(continuesRecipe(handled, next({ handlers: [passkeyHandler()] }))).toBe(true);
+    });
+  });
+
+  describe("replacing a disabled final advance (ADR 0018 amendment of 2026-11-03)", () => {
+    const email = { by: "id", value: "email" } as const;
+    const login = { by: "text", value: "Log In" } as const;
+    // The email, then a Log In that stays disabled until a password input opens.
+    const first = parseLoginRecipe({
+      version: 1,
+      id: "mail-login",
+      revision: 1,
+      origin: "https://mail.example",
+      pageKind: "sign-in",
+      slots: ["username"],
+      steps: [
+        {
+          kind: "fill",
+          effect: "prepare",
+          path: "/login",
+          fields: [{ slot: "username", target: email }],
+        },
+        { kind: "click", path: "/login", target: login, purpose: "advance" },
+      ],
+      maxSubmissions: 1,
+    });
+    const password = {
+      kind: "fill",
+      effect: "prepare",
+      path: "/login",
+      fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+    } as const;
+    const submit = { kind: "click", path: "/login", target: login, purpose: "submit" } as const;
+    const replaced = (steps: LoginStep[] = [password, submit], change: Partial<LoginRecipe> = {}) =>
+      parseLoginRecipe({
+        ...first,
+        revision: 2,
+        slots: ["username", "password"],
+        steps: [first.steps[0]!, ...steps],
+        ...change,
+      });
+
+    it("accepts the page's password and the same click in place of the final click", () => {
+      expect(continuesRecipe(first, replaced(), { replacesLast: true })).toBe(true);
+      expect(replacesClick(first.steps[1]!, [password, submit])).toBe(true);
+      // Without the option, the steps must follow the click instead.
+      expect(continuesRecipe(first, replaced())).toBe(false);
+      const following = replaced([first.steps[1]!, password, submit], { maxSubmissions: 2 });
+      expect(continuesRecipe(first, following)).toBe(true);
+      expect(continuesRecipe(first, following, { replacesLast: true })).toBe(false);
+    });
+
+    it.each<[string, LoginStep[]]>([
+      ["no password", [submit]],
+      [
+        "another final button",
+        [password, { ...submit, target: { by: "text", value: "Continue" } }],
+      ],
+      ["a final fill", [submit, password]],
+      ["the email again", [first.steps[0]!, password, submit]],
+    ])("refuses steps with %s", (_label, steps) => {
+      const next = parseLoginRecipe({
+        ...replaced(),
+        steps: [first.steps[0]!, ...steps],
+      });
+      expect(continuesRecipe(first, next, { replacesLast: true })).toBe(false);
+    });
+
+    it("refuses to replace a final fill or a recipe that ends without advancing", () => {
+      expect(replacesClick(first.steps[0]!, [password, submit])).toBe(false);
+      expect(
+        continuesRecipe(replaced(), replaced([password, submit], { revision: 3 }), {
+          replacesLast: true,
+        }),
+      ).toBe(false);
     });
   });
 

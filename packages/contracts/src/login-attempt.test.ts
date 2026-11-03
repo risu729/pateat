@@ -2779,6 +2779,151 @@ describe("continuation guards, probed independently (ADR 0018)", () => {
   });
 });
 
+describe("a disabled final advance replaced by its page (ADR 0018 amendment of 2026-11-03)", () => {
+  // An email page whose Log In stays disabled until a password input opens after the email.
+  const first: LoginRecipe = {
+    ...recipe,
+    revision: 1,
+    slots: ["username"],
+    steps: [
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/login",
+        fields: [{ slot: "username", target: { by: "id", value: "email" } }],
+      },
+      { kind: "click", path: "/login", target: { by: "id", value: "login" }, purpose: "advance" },
+    ],
+  };
+  const step = (
+    attempt: LoginAttemptMetadataLike,
+    events: Parameters<typeof transitionLoginAttempt>[1][],
+  ) => events.reduce((current, event) => transitionLoginAttempt(current, event), attempt);
+  /** At the disabled click: the email is filled, nothing is in flight. */
+  const atClick = (selected = first) =>
+    step(transitionLoginAttempt(detected(selected), { type: "RESOLVE" }), [
+      { type: "PREPARE", operationId: "fill-one", kind: "fill" },
+      { type: "MUTATION_INTENT", operationId: "fill-one" },
+      { type: "OPERATION_OK", operationId: "fill-one" },
+    ]);
+  const continuing = { type: "CONTINUING" as const, before: 1 };
+  const replaced = (change: Record<string, unknown> = {}) => ({
+    type: "CONTINUED" as const,
+    recipeRevision: 2,
+    steps: 2,
+    effects: 1,
+    document,
+    replacesLast: true as const,
+    ...change,
+  });
+
+  it("records one request for the final step and takes the page's steps in its place", () => {
+    const ready = atClick();
+    expect(ready).toMatchObject({ state: "ready", stepIndex: 1, stepCount: 2 });
+    const sent = transitionLoginAttempt(ready, continuing);
+    expect(sent).toMatchObject({ state: "ready", continuation: { before: 1 } });
+    expect(parseAttemptMetadata(sent)).toEqual(sent);
+    // A second request for the same step is ignored.
+    expect(transitionLoginAttempt(sent, continuing)).toEqual(sent);
+    // Fill the password, then Log In: the login stays at its step, now the page's first.
+    const taken = transitionLoginAttempt(sent, replaced());
+    expect(taken).toMatchObject({
+      state: "ready",
+      recipeRevision: 2,
+      stepIndex: 1,
+      stepCount: 3,
+      maxSubmissions: 1,
+      submissions: 0,
+    });
+    expect(taken.continuation).toBeUndefined();
+    expect(parseAttemptMetadata(taken)).toEqual(taken);
+    // The request is spent: the same step never asks again, nor takes another revision.
+    expect(transitionLoginAttempt(taken, replaced({ recipeRevision: 3 }))).toEqual(taken);
+  });
+
+  it("gives back a request that reached no model, once", () => {
+    const sent = transitionLoginAttempt(atClick(), continuing);
+    const back = transitionLoginAttempt(sent, { type: "UNCONTINUED", before: 1 });
+    expect(back.continuation).toBeUndefined();
+    expect(transitionLoginAttempt(back, { type: "UNCONTINUED", before: 1 })).toEqual(back);
+    expect(transitionLoginAttempt(sent, { type: "UNCONTINUED", before: 0 })).toEqual(sent);
+    expect(transitionLoginAttempt(sent, { type: "UNCONTINUED", operationId: "fill-one" })).toEqual(
+      sent,
+    );
+  });
+
+  it("refuses a step other than the final one, and a login in flight", () => {
+    const start = transitionLoginAttempt(detected(first), { type: "RESOLVE" });
+    expect(start.stepIndex).toBe(0);
+    expect(transitionLoginAttempt(start, { type: "CONTINUING", before: 0 })).toEqual(start);
+    const ready = atClick();
+    expect(transitionLoginAttempt(ready, { type: "CONTINUING", before: 0 })).toEqual(ready);
+    const clicking = transitionLoginAttempt(ready, {
+      type: "PREPARE",
+      operationId: "login-one",
+      kind: "click",
+      effect: "advance",
+    });
+    expect(clicking.state).toBe("executing");
+    expect(transitionLoginAttempt(clicking, continuing)).toEqual(clicking);
+  });
+
+  it("refuses a login with a stop, a handler, another route or variant, or only filling", () => {
+    const ready = atClick();
+    for (const change of [
+      { stopAt: 2, document: { ...document, frameId: 0 } },
+      { route: "passkey" },
+      { variant: 1 },
+      { fillOnly: true },
+      { retryRequired: true },
+    ]) {
+      const record = { ...ready, ...change } as LoginAttemptMetadataLike;
+      expect(transitionLoginAttempt(record, continuing)).toEqual(record);
+    }
+    // Without a recorded request, or with an advance's, the page's steps are refused.
+    expect(transitionLoginAttempt(ready, replaced())).toEqual(ready);
+    const stale = { ...ready, continuation: { before: 0 } } as LoginAttemptMetadataLike;
+    expect(transitionLoginAttempt(stale, replaced())).toEqual(stale);
+  });
+
+  it("keeps the caps and the scope, and needs a newer revision", () => {
+    const sent = transitionLoginAttempt(atClick(), continuing);
+    expect(transitionLoginAttempt(sent, replaced({ recipeRevision: 1 }))).toEqual(sent);
+    expect(transitionLoginAttempt(sent, replaced({ stopAt: 2 }))).toEqual(sent);
+    expect(
+      transitionLoginAttempt(sent, replaced({ document: { ...document, frameId: 0 } })),
+    ).toEqual(sent);
+    // 9 steps in, at the last: 32 in its place reach the attempt's 40 steps exactly.
+    const long = parseAttemptMetadata({
+      ...sent,
+      stepCount: 9,
+      stepIndex: 8,
+      continuation: { before: 8 },
+    });
+    expect(transitionLoginAttempt(long, replaced({ steps: 32 }))).toMatchObject({
+      stepIndex: 8,
+      stepCount: 40,
+    });
+    const longer = parseAttemptMetadata({
+      ...long,
+      stepCount: 10,
+      stepIndex: 9,
+      continuation: { before: 9 },
+    });
+    expect(transitionLoginAttempt(longer, replaced({ steps: 32 }))).toEqual(longer);
+    // 12 submissions at most: 8 effects in place of one of 5 reach them exactly.
+    const budget = parseAttemptMetadata({ ...sent, maxSubmissions: 5 });
+    expect(transitionLoginAttempt(budget, replaced({ effects: 8 }))).toMatchObject({
+      maxSubmissions: 12,
+    });
+    const over = parseAttemptMetadata({ ...sent, maxSubmissions: 6 });
+    expect(transitionLoginAttempt(over, replaced({ effects: 8 }))).toEqual(over);
+    // An advance's continuation takes no replacing page, nor the reverse.
+    const { replacesLast: _replaces, ...following } = replaced();
+    expect(transitionLoginAttempt(sent, following)).toEqual(sent);
+  });
+});
+
 describe("a login on a chooser's list (ADR 0028)", () => {
   const listed = (chooser?: "entry" | "continue" | "other") =>
     transitionLoginAttempt(

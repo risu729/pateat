@@ -177,6 +177,72 @@ describe("generated recipe assembly", () => {
   });
 });
 
+describe("a page replacing a disabled final advance (ADR 0018 amendment of 2026-11-03)", () => {
+  const login = { by: "text", value: "Log In" } as const;
+  // The email, then a Log In that stays disabled until a password input opens.
+  const first = built([
+    {
+      kind: "fill",
+      path: "/login",
+      effect: "prepare",
+      fields: [{ slot: "username", target: target("email") }],
+    },
+    { kind: "click", path: "/login", target: login, purpose: "advance" },
+  ]);
+  const password: LoginStep = {
+    kind: "fill",
+    path: "/login",
+    effect: "prepare",
+    fields: [{ slot: "password", target: target("password") }],
+  };
+  const submit: LoginStep = { kind: "click", path: "/login", target: login, purpose: "submit" };
+  const replace = (steps: LoginStep[], base = first) =>
+    appendPageSteps(base, { pageKind: "sign-in", id: "gen-1", origin, steps, replacesLast: true });
+
+  it("drops the final click and appends the page's steps in its place", () => {
+    const next = replace([password, submit]);
+    if (!next.ok) throw new Error(next.reason);
+    expect(next.recipe).toMatchObject({
+      revision: 2,
+      slots: ["username", "password"],
+      maxSubmissions: 1,
+      steps: [first.steps[0], password, submit],
+    });
+    expect(continuesRecipe(first, next.recipe, { replacesLast: true })).toBe(true);
+    expect(continuesRecipe(first, next.recipe)).toBe(false);
+  });
+
+  it("refuses steps without a password, ending elsewhere, or filling the email again", () => {
+    for (const steps of [
+      [submit],
+      [password, { ...submit, target: target("continue") }],
+      [password, submit, password],
+      [submit, password, submit],
+    ])
+      expect(replace(steps)).toEqual({ ok: false, reason: "invalid-recipe" });
+    expect(replace([first.steps[0]!, password, submit])).toEqual({
+      ok: false,
+      reason: "slot-refilled",
+    });
+  });
+
+  it("refuses a first page, and a base that submits", () => {
+    expect(
+      appendPageSteps(undefined, {
+        pageKind: "sign-in",
+        id: "gen-1",
+        origin,
+        steps: [password, submit],
+        replacesLast: true,
+      }),
+    ).toEqual({ ok: false, reason: "invalid-recipe" });
+    expect(replace([password, submit], built(page("/login", "username", "submit")))).toEqual({
+      ok: false,
+      reason: "not-advancing",
+    });
+  });
+});
+
 describe("judged completion", () => {
   const recipe = built([
     ...page("/login", "username", "advance"),

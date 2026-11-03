@@ -148,6 +148,13 @@ export const loginReadinessSchema = v.strictObject({
    * neither the password input nor its form is marked `new-password`.
    */
   absent: v.optional(v.pipe(v.array(loginTargetSchema), v.minLength(1), v.maxLength(20))),
+  /**
+   * A recipe's final `advance` click whose page may be sent to replace it (ADR 0018
+   * amendment of 2026-11-03): the wait also ends, as `revealed`, once its one target shows
+   * but takes no click while a visible writable password input, no new password or
+   * one-time code, shares its form.
+   */
+  revealed: v.optional(v.literal(true)),
 });
 export type LoginReadiness = v.InferOutput<typeof loginReadinessSchema>;
 /** What a later step a new login may start at waits for (ADR 0049). */
@@ -1008,7 +1015,8 @@ export const AWAIT_MISSES = [
 export type AwaitMiss = (typeof AWAIT_MISSES)[number];
 export const awaitResultSchema = v.strictObject({
   ok: v.boolean(),
-  reason: v.optional(v.picklist(["timeout", "cancelled"])),
+  /** `revealed`: a password input opened beside the disabled button (`revealed` readiness). */
+  reason: v.optional(v.picklist(["timeout", "cancelled", "revealed"])),
   /** With `timeout`, why the step was not ready at the last check. */
   miss: v.optional(v.picklist(AWAIT_MISSES)),
 });
