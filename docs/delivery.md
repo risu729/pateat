@@ -294,9 +294,11 @@ release-plz (owner, 2026-11-03 03:19 UTC:
 
 The release PR and the tag are made with the bot GitHub App's token, because a PR or tag
 made with `GITHUB_TOKEN` starts no workflow and the release PR would get no `CI Check`.
-The `release` environment holds the App's client ID in the variable `BOT_APP_CLIENT_ID`
-and its private key in the secret `BOT_PRIVATE_KEY`; the App needs contents and pull
-requests write access to this repository. Nothing uploads to the Chrome Web Store or
+The App's client ID is the repository variable `BOT_APP_CLIENT_ID`, which a job's `if`
+can read (an environment's variables come only after the job starts), and its private
+key is the `release` environment's secret `BOT_PRIVATE_KEY`; the App needs contents and
+pull requests write access to this repository. Until the variable is set, the
+`Release PR` job is skipped. Nothing uploads to the Chrome Web Store or
 uses a signing key.
 
 Started by hand with the `dry-run` input, on any branch, the workflow only runs `Pack`

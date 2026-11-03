@@ -29,7 +29,8 @@ env:
 jobs:
   release-please:
     name: Release PR
-    if: ${{ github.repository_owner == 'risu729' && github.ref == 'refs/heads/main' && !inputs.dry-run }}
+    # Skipped until the release environment's bot App is set up (docs/delivery.md).
+    if: ${{ github.repository_owner == 'risu729' && github.ref == 'refs/heads/main' && !inputs.dry-run && vars.BOT_APP_CLIENT_ID != '' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions: {}
