@@ -257,11 +257,13 @@ export async function admit(
     rt.pending.get(document.tabId)?.document.documentId === document.documentId ||
     (pick?.attemptId === undefined && pick?.documentId === document.documentId);
   const announcing = Boolean(start || signIn || entryHello || list);
+  // A sign-in shown without a ready first step counts as showing it again too.
+  const showsSignIn = announcing || Boolean(shown && (shown.miss || shown.later || shown.accounts));
   const restart =
     !sameDocument ||
     oldLive.reason === "vault-unavailable" ||
     oldLive.path !== path ||
-    (oldLive.loginStarted === true && announcing && !choosing);
+    (oldLive.loginStarted === true && showsSignIn && !choosing);
   // What the document keeps of its current path: nothing once its time starts again.
   const keepsPath = sameDocument && oldLive.path === path && !restart;
 
@@ -293,7 +295,7 @@ export async function admit(
       : oldLive.timing,
     // Kept until the document shows a sign-in that starts the time again, so a sign-in it
     // shows later on a path it moved to after the login still does.
-    ...(sameDocument && oldLive.loginStarted && !(restart && announcing)
+    ...(sameDocument && oldLive.loginStarted && !(restart && showsSignIn)
       ? { loginStarted: true as const }
       : {}),
     ...(sameDocument && oldLive.path === path && oldLive.entryRefusals

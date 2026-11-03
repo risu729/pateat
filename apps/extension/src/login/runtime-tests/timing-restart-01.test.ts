@@ -3,7 +3,7 @@ const fake = await vi.hoisted(async () => (await import("./browser-fake")).creat
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
-const { harness } = createRuntimeTestHarness(fake);
+const { harness, shownHello } = createRuntimeTestHarness(fake);
 
 describe("when a login's time starts again (ADR 0019)", () => {
   afterEach(() => {
@@ -114,6 +114,33 @@ describe("when a login's time starts again (ADR 0019)", () => {
     await vi.waitFor(() =>
       expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "authenticated", timing: { since: shownAgain } },
+      ]),
+    );
+  });
+  it("starts the time again once when a moved page shows its form before it is ready", async () => {
+    // After the login, the site moves in place and back to its sign-in page, which shows
+    // its form a while before its first step is ready (owner 2026-11-03).
+    const signInUrl = fake.state.pageUrl;
+    const h = harness();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+        { state: "authenticated" },
+      ]),
+    );
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => void vi.useRealTimers());
+    fake.state.pageUrl = "https://login.example/home";
+    await h.hello({ url: fake.state.pageUrl }, false);
+    const shown = Date.now() + 60_000;
+    vi.setSystemTime(shown);
+    fake.state.pageUrl = signInUrl;
+    await shownHello(h, { url: signInUrl }, { later: { steps: 1, partial: 0, miss: "target" } });
+    vi.setSystemTime(shown + 20_000);
+    expect(await h.hello({ url: signInUrl })).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+        { state: "authenticated", timing: { since: shown } },
       ]),
     );
   });

@@ -576,7 +576,8 @@ a form is ready still counts:
   the login itself moves to, as an identifier step followed by a password step, does not
   either: a running login keeps the time stored with it.
 - A document that shows a sign-in again (a ready first step, a sign-in form offered for
-  generation, a sign-in entry or an account list) after a login it started, as after a
+  generation, a sign-in entry, an account list, or a sign-in still shown without a ready
+  first step after the step wait) after a login it started, as after a
   sign-out in place, starts its next login's time again from then, even when it moved to
   other paths meanwhile. Not while the popup offers the document a choice of account
   after a fill-only login, or after the person picked one there: that login still counts
