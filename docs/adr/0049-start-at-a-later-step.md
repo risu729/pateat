@@ -249,4 +249,9 @@ content script and is cleared after the comparison or when the document is cance
 
 Consequences: a password-only page fills without the 1 to 5 second wait. A page that
 shows its account only after the press is no longer caught: the password was typed into
-the form, but nothing is pressed only when the account shows by the press.
+the form, but nothing is pressed only when the account shows by the press. The
+password is also sent unchecked when something other than Pateat's press submits it
+before that press: the person pressing Sign in while the press waits, or a page that
+submits or replaces its form by itself after the fill, where the login observes
+instead of clicking. An attempt that ends before its press leaves the typed password in
+the form.
