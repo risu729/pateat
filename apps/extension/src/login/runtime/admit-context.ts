@@ -19,6 +19,11 @@ import type { AskReason } from "../choice-wire";
 
 export type AdmitContext = {
   document: LoginDocument;
+  /**
+   * When this announcement reached the worker, and the document's service and person time
+   * then, for the local log's `startMs` (ADR 0019).
+   */
+  received: { at: number; spentMs: number };
   key: string;
   incognito: boolean | undefined;
   siteOrigin: string;

@@ -60,6 +60,8 @@ export async function admit(
   unoffered?: Unoffered,
   switchedInPlace?: true,
 ): Promise<Readiness> {
+  const receivedAt = Date.now();
+
   await rt.vars.loaded;
 
   await rt.vars.sessionLoaded;
@@ -259,6 +261,12 @@ export async function admit(
       ? { notStarted: oldLive.notStarted }
       : {}),
     seenAt: sameDocument ? oldLive.seenAt : Date.now(),
+    // When it first announced a sign-in on this path, for the local log (ADR 0019).
+    ...(start || signIn || entryHello || list
+      ? { shownAt: (sameDocument && oldLive.path === path && oldLive.shownAt) || receivedAt }
+      : sameDocument && oldLive.path === path && oldLive.shownAt !== undefined
+        ? { shownAt: oldLive.shownAt }
+        : {}),
     // A document that waited for a locked vault starts its login's time again once it can
     // read it: unlocking the vault comes before any login (ADR 0019).
     timing:
@@ -311,6 +319,7 @@ export async function admit(
 
   const ctx: AdmitContext = {
     document: document,
+    received: { at: receivedAt, spentMs: live.timing.serviceMs + live.timing.personMs },
     key: key,
     incognito: incognito,
     siteOrigin: siteOrigin,

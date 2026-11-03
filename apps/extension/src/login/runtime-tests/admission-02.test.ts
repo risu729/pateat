@@ -647,6 +647,28 @@ describe("production login document admission", () => {
         { state: "authenticated", timing: { since: expect.any(Number), serviceMs: 0 } },
       ]);
     });
+    it("logs where Pateat's own time went, never how long a fill took", async () => {
+      // The page takes 300 ms to answer a fill and 200 ms to answer a click.
+      fake.state.onExecute = async (message) => {
+        const { step } = message["operation"] as { step: LoginStep };
+        await new Promise((resolve) => setTimeout(resolve, step.kind === "fill" ? 300 : 200));
+      };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(attemptReports(report).map((entry) => entry.state)).toContain("authenticated"),
+      );
+      const reports = attemptReports(report);
+      expect(reports.filter((entry) => entry.spans)).toHaveLength(1);
+      const { times, spans } = reports.find((entry) => entry.state === "authenticated")!;
+      // The click's answer counts; the fill's does not.
+      expect(spans!.commandMs).toBeGreaterThanOrEqual(180);
+      expect(spans!.commandMs).toBeLessThan(480);
+      const { beforeShownMs: _before, ...own } = spans!;
+      const parts = Object.values(own).reduce((sum, ms) => sum + ms, 0);
+      expect(parts).toBeLessThanOrEqual(times!.otherMs);
+    });
     it("counts the wait for the site's answer to a click apart from Pateat's own time", async () => {
       // The site shows the signed-in page 400 ms after the click.
       fake.state.present = new Set(["password", "login"]);

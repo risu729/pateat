@@ -21,6 +21,7 @@ import {
   type LoginSecretKind,
   type AskedQuestion,
 } from "../wire";
+import { timed } from "./spans";
 import { loginFillsUsername, loginSecretKind, loginUsernameFieldId } from "../vault";
 import { newId } from "@pateat/contracts/ids";
 import { type Execution } from "./types";
@@ -154,7 +155,7 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       if (current(rt, run) && run.metadata.state === "ready" && atStop(run.metadata)) return;
       continue;
     }
-    if (!(await allowed(rt, run))) return;
+    if (!(await timed(rt, run, "checkMs", () => allowed(rt, run)))) return;
     // A fill or click waits for its elements before any intent, vault read or value
     // delivery; a slow render is not a failure until the owner-approved limit passes.
     const upcoming = attemptPlan(run.recipe, run.metadata)?.[run.metadata.stepIndex]?.step;
@@ -187,12 +188,14 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       // A chooser login's click on its list waits for the list (ADR 0028).
       const onList = run.metadata.stepIndex === 0 ? listOf(rt, run) : undefined;
       let miss: AwaitMiss | undefined;
-      const waited = await waitFor(
-        rt,
-        run,
-        onList ? listReadiness(rt, onList.chooser) : loginReadiness(upcoming),
-        undefined,
-        (reason) => (miss = reason),
+      const waited = await timed(rt, run, "awaitMs", () =>
+        waitFor(
+          rt,
+          run,
+          onList ? listReadiness(rt, onList.chooser) : loginReadiness(upcoming),
+          undefined,
+          (reason) => (miss = reason),
+        ),
       );
       if (!current(rt, run) || run.metadata.state !== "ready") return;
       if (waited === "timeout") {
@@ -221,7 +224,7 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
         );
         return;
       }
-      if (waited !== "ready" || !(await allowed(rt, run))) return;
+      if (waited !== "ready" || !(await timed(rt, run, "checkMs", () => allowed(rt, run)))) return;
       // A request the page made while the step waited still decides the route before the
       // first submission, as a chooser login's click on its list is (ADR 0034).
       if (await switchToPasskey(rt, run)) continue;
@@ -266,7 +269,7 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       await change(rt, run, { type: "SUBMIT_INTENT", operationId: operation.operationId });
     else if (operation.step.kind === "fill")
       await change(rt, run, { type: "MUTATION_INTENT", operationId: operation.operationId });
-    const authorized = await allowed(rt, run);
+    const authorized = await timed(rt, run, "checkMs", () => allowed(rt, run));
     if (!authorized) return;
     if (
       !validateLoginOperation(
@@ -384,12 +387,14 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
           const code = field.slot === TOTP_HANDLER_SLOT;
           let value: string | undefined;
           try {
-            value = await rt.fields({
-              account: run.metadata.account,
-              connection: authorized.connection,
-              fieldId: reference.fieldId,
-              ...(code ? { code: true as const } : {}),
-            });
+            value = await timed(rt, run, "vaultMs", () =>
+              rt.fields({
+                account: run.metadata.account,
+                connection: authorized.connection,
+                fieldId: reference.fieldId,
+                ...(code ? { code: true as const } : {}),
+              }),
+            );
           } catch {
             // A failed read is not a page mutation; never reclassify it as uncertain.
             value = undefined;
@@ -437,11 +442,13 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
         ) {
           let username: string | undefined;
           try {
-            username = await rt.fields({
-              account: run.metadata.account,
-              connection: authorized.connection,
-              fieldId: usernameField,
-            });
+            username = await timed(rt, run, "vaultMs", () =>
+              rt.fields({
+                account: run.metadata.account,
+                connection: authorized.connection,
+                fieldId: usernameField,
+              }),
+            );
           } catch {
             username = undefined;
           }
@@ -470,7 +477,7 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       if (operation.step.kind === "fill" || operation.step.kind === "click")
         await pause(rt, "before-delivery");
       if (!current(rt, run)) return;
-      const latest = await allowed(rt, run);
+      const latest = await timed(rt, run, "checkMs", () => allowed(rt, run));
       if (!latest) return;
       // Values belong to the snapshot that authorized them; a replacement withdraws them.
       if (latest.connection.snapshotId !== authorized.connection.snapshotId) {
@@ -547,40 +554,46 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       }
       if (operation.step.kind === "fill" && rt.signInUrls.get(tabId)?.attemptId !== run.metadata.id)
         rt.signInUrls.set(tabId, { attemptId: run.metadata.id, url: run.live.url });
-      response = await send(rt, run.live, {
-        type: "login.execute",
-        operation,
-        values,
-        ...(expected ? { account: expected } : {}),
-        ...(list ? { list } : {}),
-        // One switch per tab: an attempt that follows a switch never clicks another.
-        // A fill-only login never clicks, not even a switch (ADR 0021 D).
-        ...(expected && !run.metadata.accountSwitched && !run.metadata.fillOnly
-          ? run.recipe.accountSwitch
-            ? { accountSwitch: run.recipe.accountSwitch }
-            : { otherSwitch: true as const }
-          : {}),
-        // A `totp` handler's code fill watches for the page submitting the code itself; a
-        // handler's without a button types the code as its submission (ADR 0027).
-        ...(codeSubmit
-          ? { code: { submit: codeSubmit } }
-          : operation.step.kind === "fill" &&
-              operation.step.effect === "submit" &&
-              codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
-            ? { code: {} }
+      const execute = () =>
+        send(rt, run.live, {
+          type: "login.execute",
+          operation,
+          values,
+          ...(expected ? { account: expected } : {}),
+          ...(list ? { list } : {}),
+          // One switch per tab: an attempt that follows a switch never clicks another.
+          // A fill-only login never clicks, not even a switch (ADR 0021 D).
+          ...(expected && !run.metadata.accountSwitched && !run.metadata.fillOnly
+            ? run.recipe.accountSwitch
+              ? { accountSwitch: run.recipe.accountSwitch }
+              : { otherSwitch: true as const }
             : {}),
-        ...(passwordChoice ? { passwordChoice: true as const } : {}),
-        ...(authenticatorChoice ? { authenticatorChoice: true as const } : {}),
-        // A `detail` handler's input is filled after its choosing radio (ADR 0061).
-        ...(operation.step.kind === "fill" &&
-        operation.step.fields.some((field) => isDetailSlot(field.slot))
-          ? { choose: true as const }
-          : {}),
-        // An advance whose next step is on its path has the document measure that step
-        // just before its effect, in the same task (ADR 0013).
-        ...(inPlace ? { next: inPlace } : {}),
-        ...(siblingsNext.length ? { siblings: siblingsNext.map(({ next }) => next) } : {}),
-      });
+          // A `totp` handler's code fill watches for the page submitting the code itself; a
+          // handler's without a button types the code as its submission (ADR 0027).
+          ...(codeSubmit
+            ? { code: { submit: codeSubmit } }
+            : operation.step.kind === "fill" &&
+                operation.step.effect === "submit" &&
+                codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
+              ? { code: {} }
+              : {}),
+          ...(passwordChoice ? { passwordChoice: true as const } : {}),
+          ...(authenticatorChoice ? { authenticatorChoice: true as const } : {}),
+          // A `detail` handler's input is filled after its choosing radio (ADR 0061).
+          ...(operation.step.kind === "fill" &&
+          operation.step.fields.some((field) => isDetailSlot(field.slot))
+            ? { choose: true as const }
+            : {}),
+          // An advance whose next step is on its path has the document measure that step
+          // just before its effect, in the same task (ADR 0013).
+          ...(inPlace ? { next: inPlace } : {}),
+          ...(siblingsNext.length ? { siblings: siblingsNext.map(({ next }) => next) } : {}),
+        });
+      // How long a fill took is never recorded: it would tell a value's length (ADR 0012).
+      response =
+        operation.step.kind === "fill"
+          ? await execute()
+          : await timed(rt, run, "commandMs", execute);
     } finally {
       for (const entry of values) entry.value = "";
       if (expected) expected.username = "";

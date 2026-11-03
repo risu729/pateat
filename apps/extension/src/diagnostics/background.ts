@@ -853,6 +853,7 @@ export function createDiagnosticsLog(options: {
             layoutFrom: report.layoutFrom,
             stop: report.stop,
             ...report.times,
+            ...report.spans,
           },
           {
             source,

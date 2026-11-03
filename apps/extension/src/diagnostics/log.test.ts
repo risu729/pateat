@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createDefaultSettings,
   LOCAL_ONLY_EVENTS,
+  LOCAL_ONLY_FIELDS,
   LOCAL_ONLY_FLAG,
   PROBLEM_EVENT_FIELDS,
   problemEntrySchema,
@@ -3353,6 +3354,31 @@ describe("problem lines (ADR 0066)", () => {
     expect(lines.at(-1)?.fields).not.toHaveProperty("reason");
   });
 
+  it("keeps where a login's own time went on the device, with its times sent (ADR 0019)", async () => {
+    const { logger } = setup();
+    await logger.log(
+      "login.attempt",
+      {
+        origin: "https://bank.example",
+        state: "blocked",
+        outcome: "retry-limit",
+        totalMs: 9_000,
+        otherMs: 6_000,
+        startMs: 300,
+        awaitMs: 1_200,
+        saveMs: 100,
+        commandMs: 200,
+      },
+      { level: "warn" },
+    );
+    const [entry] = await logger.entries();
+    expect(entry?.fields).toMatchObject({ startMs: 300, awaitMs: 1_200, commandMs: 200 });
+    const line = problemLine(entry!);
+    expect(line?.fields).toMatchObject({ totalMs: 9_000, otherMs: 6_000 });
+    for (const field of LOCAL_ONLY_FIELDS["login.attempt"])
+      expect(line?.fields).not.toHaveProperty(field);
+  });
+
   it("lets the info lines that say why Pateat did nothing leave, under the same rules", async () => {
     const { logger } = setup();
     const page = { origin: "https://bank.example", url: "https://bank.example/u/alice/login?x=1" };
@@ -3412,6 +3438,13 @@ describe("problem lines (ADR 0066)", () => {
             .filter(([field, kind]) => kind !== "url" || field === "url")
             // The flag of a fill-only login, whose lines stay on the device.
             .filter(([field]) => field !== LOCAL_ONLY_FLAG)
+            // Where a login's own time went, which stays on the device (ADR 0019).
+            .filter(
+              ([field]) =>
+                !((LOCAL_ONLY_FIELDS as Record<string, readonly string[]>)[event] ?? []).includes(
+                  field,
+                ),
+            )
             .map(([field, kind]) => [field, kind === "url" ? "path" : kind]),
         ),
       ]),

@@ -516,6 +516,44 @@ Not confirmed by the owner (the agent's choices):
   from a service deployed before it sent `Server-Timing`
   ([ADR 0055](0055-login-records-sent-to-the-service.md)).
 
+## Amendment 2026-11-03: where a login's own time went
+
+On 2026-11-03 the owner asked why logins are slow (「遅くない？なんでこんな遅いの」,
+03:20 UTC). Production records of the week before showed most of a login without
+generation in `otherMs`, which does not say what took the time. So the `login.attempt`
+entry that carries a login's times also carries, as `count` fields, where Pateat's own
+time went. These fields stay on the device: a problem line
+([ADR 0066](0066-problem-lines-sent-to-the-service.md)) leaves them out
+(`LOCAL_ONLY_FIELDS`), and the login record sent to the service is unchanged
+([ADR 0055](0055-login-records-sent-to-the-service.md)).
+
+- `beforeShownMs`: from when the extension saw the document until it first announced a
+  sign-in on the path the login started on: a ready first step, a sign-in form offered
+  for generation, a sign-in entry or an account list. It is part of `totalMs` as the
+  time is defined now, and is logged apart because generation may run inside it.
+- `startMs`: from that announcement, as last received, until the login started: its
+  admission, settings, plan and account choice.
+- `awaitMs`: waiting for a step's elements before it runs, mostly the site rendering
+  them.
+- `saveMs` and `statusMs`: storing the attempt's record, and telling the page its new
+  state, after each change.
+- `checkMs`: the policy checks before a step and after its values are read.
+- `vaultMs`: reading the values a fill types and the username a secret's fill compares.
+- `commandMs`: a step's command to the page and its answer, for every step but a fill.
+  How long a fill took is still never recorded
+  ([how long requests and logins take](#amendment-2026-10-18-how-long-requests-and-logins-take)).
+
+Not confirmed by the owner (the agent's choices):
+
+- Each field counts only time outside the login's waits for the site, the person and the
+  service, and time inside another field, such as a save inside a policy check, counts
+  in the outer one only, so the fields other than `beforeShownMs` never add up to more
+  than `otherMs`; what is left is filling and work no field names.
+- Each field is logged rounded to 100 ms, and one that rounds to nothing is left out, so
+  that `otherMs` less the fields does not tell how long a fill took either.
+- The fields are kept in memory only, for the 64 most recent logins: a worker that stops
+  loses them, and a login whose entry has no times logs none.
+
 ## Amendment: signed-in page samples
 
 On 2026-10-18 the owner chose (08:05 UTC,

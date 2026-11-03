@@ -150,6 +150,12 @@ export type LiveDocument = {
    */
   seenAt: number;
   /**
+   * When the document first announced a sign-in on its current path: a ready first step, a
+   * sign-in form offered for generation or a sign-in entry. For the local log only
+   * (`beforeShownMs`, ADR 0019).
+   */
+  shownAt?: number;
+  /**
    * The time a login this document starts takes before it starts, for the local log (ADR
    * 0019): since when it waits for one, and its service and person time so far, such as
    * its first page's generation or an account pick. Shared with the same document's later

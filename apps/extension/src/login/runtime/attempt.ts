@@ -44,6 +44,7 @@ import { remember } from "./choice-save";
 import { settleDetails, forgetDetail, removeRefused } from "./detail-fill";
 import { askFor, offerChoice } from "./choice";
 import { DocumentGone } from "./document-gone";
+import { takeSpans, timed } from "./spans";
 import type { Runtime } from "./state";
 
 /** Spins the tab's badge from a model request's `sent` until `stop`, once the request returns. */
@@ -96,6 +97,8 @@ export const reportAttempt = (
   // A login that just ended, signed in or blocked, says how long it took (ADR 0019); a
   // watched one only when its watch ends, which may have been before it was noticed.
   const times = terminal(metadata) && !flags.repeat ? attemptTimes(metadata, endedAt) : undefined;
+  // Where its own time went, for the local log only (ADR 0019).
+  const spans = times ? takeSpans(rt, metadata.id) : undefined;
   // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
   const handler =
     recipe && metadata.handlers.length
@@ -126,6 +129,7 @@ export const reportAttempt = (
     ...(stop ? { cause: stop } : {}),
     ...marks,
     ...(times ? { times } : {}),
+    ...(spans ? { spans } : {}),
   });
 };
 
@@ -405,8 +409,8 @@ export async function change(
     rt.vars.storageHealthy = false;
     throw new Error("Synthetic intent write failed");
   }
-  await save(rt, run);
-  await publish(rt, run.live, run.metadata);
+  await timed(rt, run, "saveMs", () => save(rt, run));
+  await timed(rt, run, "statusMs", () => publish(rt, run.live, run.metadata));
   // A conditional request of the page waits for how this login ends (ADR 0034).
   if (terminal(run.metadata) || idle(run.metadata)) reviewRequests(rt);
   if (run.metadata.state === "authenticated" && !run.metadata.unconfirmed && run.choice)
