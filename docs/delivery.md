@@ -286,11 +286,11 @@ release-plz (owner, 2026-11-03 03:19 UTC:
    then `.github/scripts/extension-release.mjs pack`, and checks that the packed tag is
    the one release-please made.
 4. The `Publish release` job, which alone holds `contents: write` and never checks out
-   or runs repository code, downloads the packed files, checks `SHA256SUMS` and that
-   `release.json` names this commit and tag, attaches the ZIP, the source archive,
-   `release.json` and `SHA256SUMS` to the draft, appends the file list to its text and
-   publishes it as the latest release. If `Pack` or `Publish release` fails, the release
-   stays a draft with its tag; fix the cause and re-run the failed jobs.
+   or runs repository code, downloads the packed files, checks `SHA256SUMS` and that the
+   release text names this commit and tag, attaches the ZIP and `SHA256SUMS` to the
+   draft, appends the release text to it and publishes it as the latest release. If
+   `Pack` or `Publish release` fails, the release stays a draft with its tag; fix the
+   cause and re-run the failed jobs.
 
 The release PR and the tag are made with the bot GitHub App's token, because a PR or tag
 made with `GITHUB_TOKEN` starts no workflow and the release PR would get no `CI Check`.
@@ -312,39 +312,22 @@ Started by hand with the `dry-run` input, on any branch, the workflow only runs 
 for that branch and keeps the files as the run's artifact. Use it to check a release's
 files before merging its release PR.
 
-Every WXT build, including the Worker bundle, records the third-party packages it
-bundles in `apps/extension/.output/<output directory>.packages.json` (for the production
-build, `chrome-mv3.packages.json`)
-(`apps/extension/bundled-packages.ts`, a Vite plugin that does not change the output):
-the installed package of each module in each chunk, and each package whose license
-banner (`/*! name vX.Y.Z | ...`) a stylesheet keeps, which is how Tailwind's own CSS
-shows up, since Tailwind inlines it without making it a module.
 The pack script refuses a dirty checkout, another revision than `PATEAT_REVISION`, and a
 manifest that is not the production build of that version (fixed `key`, HTTPS-only host
 access). It writes to `work/extension-release/`:
 
 - `pateat-<version>-chrome.zip`: the built extension.
-- `pateat-<version>-source.tar.gz`: `git archive` of the revision under
-  `pateat-<version>/`, plus `third-party-source/` with a `README.md`, the Bitwarden
-  SDK source at the commit the installed package's `VERSION` names (downloaded from
-  `github.com/bitwarden/sdk-internal/archive/<commit>.tar.gz`), and under `npm/` the
-  registry tarball of every recorded package with an `index.json`. Each recorded package
-  must be pinned in `bun.lock`, and each tarball must match its `bun.lock` integrity. On
-  2026-10-15 the production build recorded 38 packages, among them `wxt`'s own run-time
-  modules, `@bitwarden/sdk-internal` and `tailwindcss`; a local dry run with a stand-in
-  for the SDK archive, which that container could not download, made a source archive of
-  about 24 MB.
-- `release.json`: repository, revision, version, tag, event, ref, workflow run, the SDK
-  version, commit, archive URL and digest, every bundled package with its integrity, and
-  the size and SHA-256 of both files above.
-- `SHA256SUMS` of the ZIP, the source archive and `release.json`, and `notes.md`, the
-  file list with the same digests and links to the revision, the run and the SDK source.
+- `SHA256SUMS`: its SHA-256.
+- `notes.md`: the release text, with links to the revision and the run, the tag's
+  "Source code" archives that GitHub attaches to every release, and the Bitwarden SDK
+  source at the commit the bundled package's `VERSION` names.
 
-Before the first release PR is merged, the owner settles the
-[open questions](sdk-source.md#release-archives) on what the source must include; until
-then the release text calls the archive "its source", not Corresponding Source. Each
-published release and its files are kept for as long as
-[the gate](sdk-source.md#binary-distribution-gate) requires.
+The release attaches no source archive of its own: like most GPL projects, its source is
+the repository at the release tag, with `bun.lock` pinning the other packages, and the
+SDK's upstream archive (owner, 2026-11-03 12:45 UTC:
+「一般より手厚くするの不要なため、できるだけ配布物が小さくなるようにして」;
+[release source](sdk-source.md#release-source)). Releases are never deleted (owner,
+2026-11-03 12:34 UTC, "ずっと残す").
 
 ## Repository configuration
 

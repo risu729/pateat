@@ -54,56 +54,29 @@ notices as a reproducible-build result.
 
 ## Binary distribution gate
 
-Before conveying an extension ZIP, place its exact Pateat source revision and
-matching SDK/dependency source with equivalent access directly beside the
-binary. Include build/install scripts, configuration, lockfiles, interfaces,
-copyright notices and license texts. A source archive may exclude unrelated
-service code and unmodified general-purpose build tools, but must retain all
-non-system source needed to build, install, run and modify the extension.
+Before conveying an extension ZIP, make its exact Pateat source revision and the
+matching SDK source available from the same release page, as most GPL projects do
+(GPLv3 section 6(d)): the repository at the release tag holds the build and install
+scripts, configuration, lockfiles, interfaces, copyright notices and license texts, and
+`bun.lock` pins every other package. Verify the links for that artifact. Keep the source
+available as long as the binary is offered; Pateat never deletes a release. A notice
+promising future source does not satisfy this gate.
 
-Verify the download links and contents for that artifact. Keep source available
-for as long as the chosen GPL distribution method requires. A mutable homepage,
-a compiled npm tarball, or a notice promising future source does not satisfy
-this gate. Public extension publishing remains outside the initial delivery
-scope; local build checks do not establish public distribution compliance.
+### Release source
 
-### Release archives
+The [extension release workflow](delivery.md#extension-releases) attaches only the ZIP
+and `SHA256SUMS` to each GitHub Release; the owner chose the smallest release that
+matches common practice over packing every dependency's source (2026-11-03 12:45 UTC:
+「一般より手厚くするの不要なため、できるだけ配布物が小さくなるようにして」). It replaced
+an archive of the revision, the SDK's upstream archive and the registry tarball of every
+bundled package (about 24 MB), which went further than other projects. The release text
+links:
 
-The [extension release workflow](delivery.md#extension-releases) packs each release's
-source beside its ZIP on the same GitHub Release:
+- the tag's "Source code" archives, which GitHub attaches to every release: the exact
+  Pateat revision, including the service code, which the gate allows but does not
+  require;
+- the SDK source: `bitwarden/sdk-internal` at the commit the installed package's
+  `VERSION` names, with its archive URL, as the built notices also do;
+- `bun.lock`, in the tag archive, for the version of every other package.
 
-- Exact Pateat revision: `pateat-<version>-source.tar.gz` is `git archive` of the
-  revision the ZIP was built from, in the same job from a clean checkout. It holds the
-  build and install tasks (`mise.toml`, `tasks.toml`, each project's `mise.toml`), the
-  tool and dependency lockfiles (`mise.lock`, `bun.lock`), configuration, interfaces,
-  `LICENSING.md`, `LICENSE-GPL-3.0.txt` and the notice templates. It also holds the
-  service code, which the gate allows but does not require.
-- SDK source: `third-party-source/bitwarden-sdk-internal-<commit>.tar.gz`, upstream's
-  archive at the commit the installed package's `VERSION` names, copied into the release
-  rather than linked, so its availability does not depend on upstream.
-- Dependency source: `third-party-source/npm/` holds the registry tarball of every
-  third-party package the production build recorded as bundled (from its module graph
-  and the license banners its stylesheets keep), each matching its `bun.lock`
-  integrity, including the compiled `@bitwarden/sdk-internal` package and WXT's own
-  run-time modules.
-- Digests: `release.json` and `SHA256SUMS` record every file with its SHA-256, and
-  `release.json` the workflow run that packed it.
-
-Whether this meets the gate is not settled, so the release text calls the archive the
-extension's source rather than its Corresponding Source. Still for a person to check or
-decide before the first release PR is merged (Claude's reading, pending the owner's
-confirmation):
-
-- The contents of the files, from a `dry-run` of the workflow, as the gate requires; the
-  workflow checks digests and integrity hashes, not that the files open and build.
-- Whether a registry tarball counts as source for a package that publishes only built
-  JavaScript (for example `react-dom`); its repository at the matching tag would be the
-  preferred form for modification. The gate above already rules out a compiled npm
-  tarball as the SDK's source, which is why the SDK's upstream archive is included.
-- The SDK's own Rust dependencies: the SDK archive has their `Cargo.lock`, but the
-  crates are not vendored. Vendoring them would need a Rust toolchain, which `mise.toml`
-  does not pin.
-- Code the bundler adds itself (the Rolldown runtime, Vite's preload helper and
-  WXT's virtual entry modules) is not recorded as a package; Claude treats it like the
-  unmodified build tools that the gate lets the archive leave out.
-- How long the published release must stay, under the chosen GPL distribution method.
+Releases and their files are kept forever (owner, 2026-11-03 12:34 UTC, "ずっと残す").

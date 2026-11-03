@@ -1,8 +1,8 @@
 name: Extension release
 # Like biwa's release-plz: every push to main updates one release PR (the version in
 # apps/extension/package.json and CHANGELOG.md, from Conventional Commits). Merging that PR
-# tags v<version>, builds the release extension (PATEAT_RELEASE=true) and the source
-# provided with it, and publishes the GitHub Release (docs/delivery.md#extension-releases).
+# tags v<version>, builds the release extension (PATEAT_RELEASE=true) and publishes the
+# GitHub Release; its source is the tag's own archive (docs/delivery.md#extension-releases).
 # Nothing here uploads to the Chrome Web Store or uses a signing key.
 
 on:
@@ -104,16 +104,15 @@ jobs:
           fi
       - name: Summarize the packed release
         working-directory: work/extension-release
+        env:
+          VERSION: ${{ steps.pack.outputs.version }}
         run: |
           {
-            echo "### Pateat $(jq -r .version release.json) from ${PATEAT_REVISION}"
+            echo "### Pateat ${VERSION} from ${PATEAT_REVISION}"
             echo
             echo '```text'
             cat SHA256SUMS
             echo '```'
-            echo
-            echo "SDK $(jq -r '.sdk.package + "@" + .sdk.version + " at " + .sdk.revision' release.json)," \
-              "$(jq '.packages | length' release.json) bundled packages."
           } >> "${GITHUB_STEP_SUMMARY}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -145,9 +144,9 @@ jobs:
         working-directory: work/extension-release
         run: |
           sha256sum --check --strict SHA256SUMS
-          jq -e --arg revision "${REVISION}" --arg tag "${TAG}" \
-            '.revision == $revision and .tag == $tag and .repository == env.GITHUB_REPOSITORY' \
-            release.json > /dev/null
+          # The release text names the commit and tag it was packed for.
+          grep -qF "/commit/${REVISION})" notes.md
+          grep -qF "repository at \`${TAG}\`" notes.md
       - name: Attach the files and publish the release
         working-directory: work/extension-release
         env:
@@ -157,7 +156,7 @@ jobs:
           gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json body --jq .body > body.md
           { cat body.md; echo; echo '---'; echo; cat notes.md; } > release.md
           gh release upload "${TAG}" --repo "${GITHUB_REPOSITORY}" --clobber \
-            "pateat-${VERSION}-chrome.zip" "pateat-${VERSION}-source.tar.gz" release.json SHA256SUMS
+            "pateat-${VERSION}-chrome.zip" SHA256SUMS
           gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --notes-file release.md \
             --title "Pateat ${VERSION}" --draft=false --latest
           echo "Released: $(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json url --jq .url)" \

@@ -2,11 +2,6 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "wxt";
 import tailwindcss from "@tailwindcss/vite";
-import {
-  bundledPackagesPlugin,
-  resetBundledPackages,
-  writeBundledPackages,
-} from "./bundled-packages";
 import { MANIFEST_KEY } from "./manifest-key";
 import { bitwardenSdkSourceAssets, readBitwardenSdkSource } from "./sdk-source";
 
@@ -36,13 +31,11 @@ function bitwardenSdkVersion(): string {
 
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
-  // The release asset name; the source archive is packed from git, not by WXT.
+  // The release asset name; the source is the release tag's own GitHub archive.
   zip: { artifactTemplate: "pateat-{{version}}-chrome.zip" },
   vite: () => ({
-    plugins: [tailwindcss(), bundledPackagesPlugin()],
+    plugins: [tailwindcss()],
     build: { cssTarget: "chrome145" },
-    // The crypto Worker is its own bundle with its own plugins.
-    worker: { plugins: () => [bundledPackagesPlugin()] },
     define: {
       PATEAT_BUILD_REVISION: JSON.stringify(buildRevision()),
       PATEAT_BITWARDEN_SDK_VERSION: JSON.stringify(bitwardenSdkVersion()),
@@ -86,13 +79,6 @@ export default defineConfig({
         { key: MANIFEST_KEY }),
   }),
   hooks: {
-    "build:before"() {
-      resetBundledPackages();
-    },
-    "build:done"(wxt) {
-      // The release packs the source of exactly these packages (docs/delivery.md).
-      writeBundledPackages(wxt.config.outDir);
-    },
     "build:publicAssets"(_wxt, files) {
       for (const record of bitwardenSdkSourceAssets()) {
         const index = files.findIndex((file) => file.relativeDest === record.relativeDest);
