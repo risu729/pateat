@@ -517,6 +517,22 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const submitsBefore = new WeakSet<Element>();
   let submitsTaken = false;
   let filledAttempt: string | undefined;
+  /**
+   * A fill's check of the account the page shows, left to the next click or Enter of the
+   * same attempt because the page showed no identifier when it filled (ADR 0049 amendment
+   * of 2026-11-03): the item's username, the form, the inputs it filled and the switch the
+   * fill was sent. It never leaves this content script.
+   */
+  let deferredAccount:
+    | {
+        username: string;
+        masked: boolean;
+        form: HTMLFormElement | null;
+        inputs: Control[];
+        accountSwitch?: LoginTarget;
+        otherSwitch?: true;
+      }
+    | undefined;
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
     | {
@@ -1723,8 +1739,89 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         filled = new WeakSet();
         chosen = [];
         shownBefore = undefined;
+        if (deferredAccount) deferredAccount.username = "";
+        deferredAccount = undefined;
         filledAttempt = operation.attemptId;
       }
+      // The page shows another account: its switch, the recipe's or the page's own (ADR
+      // 0078), is clicked only by `login.switch`, once the background has recorded it.
+      const otherAccount = (switches: {
+        accountSwitch?: LoginTarget | undefined;
+        otherSwitch?: true | undefined;
+      }) => {
+        const target = switches.accountSwitch;
+        const find = target
+          ? () => {
+              const named = findTargets(document, target, { links: true });
+              return named.length === 1 && switchable(named[0]) ? named : [];
+            }
+          : switches.otherSwitch
+            ? () => accountSwitchControls(document)
+            : undefined;
+        const found = find?.() ?? [];
+        const element = found.length === 1 ? found[0] : undefined;
+        if (find && element instanceof HTMLElement) {
+          pendingSwitch = {
+            operationId: operation.operationId,
+            element,
+            find,
+            path: pagePath(),
+            expiresAt: Date.now() + switchTimeoutMs,
+          };
+          return { ...fail("wrong-account"), switchable: true as const };
+        }
+        return fail("wrong-account");
+      };
+      /**
+       * The check a fill left to this click or Enter (`deferredAccount`): on another account
+       * the values it typed are cleared and nothing is pressed. While the page still shows
+       * no identifier to compare with and has not loaded, its `load` is waited for first,
+       * until the operation expires (ADR 0082).
+       */
+      const deferredOther = async () => {
+        const deferred = deferredAccount;
+        deferredAccount = undefined;
+        if (!deferred) return undefined;
+        if (
+          document.readyState !== "complete" &&
+          comparableAccounts(formAccounts(document, deferred.form), deferred.username, {
+            masked: deferred.masked,
+          })?.length === 0
+        ) {
+          await new Promise<void>((resolve) => {
+            const done = () => {
+              clearTimeout(timer);
+              removeEventListener("load", done);
+              resolve();
+            };
+            const timer = setTimeout(done, Math.max(0, operation.expiresAt - Date.now()));
+            addEventListener("load", done);
+          });
+          const stopped = cancelled
+            ? "document-cancelled"
+            : Date.now() >= operation.expiresAt
+              ? "operation-expired"
+              : step.path !== pagePath()
+                ? "page-changed"
+                : undefined;
+          if (stopped) {
+            deferred.username = "";
+            return fail("cancelled", stopped);
+          }
+        }
+        const other = showsOtherAccount(formAccounts(document, deferred.form), deferred.username, {
+          masked: deferred.masked,
+        });
+        deferred.username = "";
+        if (!other) return undefined;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        for (const input of deferred.inputs)
+          if (input instanceof HTMLInputElement && input.isConnected && setter) {
+            setter.call(input, "");
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+        return otherAccount(deferred);
+      };
       // With an advance whose next step is on its path, that step's elements just before
       // the click or the first input; the answer reports them (ADR 0013).
       const measureNext = () => {
@@ -1799,6 +1896,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           })
         )
           return fail("structural-mismatch", "form-changed");
+        const other = await deferredOther();
+        if (other) return other;
         measureNext();
         submitted = submittedPage(document, formInputs.filter(writable));
         if (showsCaptcha(document) && !passedCaptcha(document)) return fail("captcha");
@@ -1808,10 +1907,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return { ok: true, mutation: "possible" } as const;
       };
       if (step.kind === "fill") {
-        // A fill compared with the shown account waits for the page to settle while the
-        // page shows nothing to compare with, so an account it shows after its fields is
-        // compared too (`accountQuietMs`).
+        // A fill compared with the shown account, while the page shows nothing to compare
+        // with, is compared just before the next click instead, so an account the page shows
+        // after its fields is compared too (Duolingo, 2026-10-23); a fill that may submit
+        // has no later click and waits for the page to settle (`accountQuietMs`).
         const masked = command.values.some((entry) => maskedSecret(entry.secret));
+        let deferLater = false;
         if (command.account) {
           const first = step.fields[0] ? matches(step.fields[0].target) : [];
           const form =
@@ -1821,7 +1922,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             command.account.username,
             { masked },
           );
-          if (comparable?.length === 0) {
+          if (comparable?.length === 0 && step.effect === "prepare") deferLater = true;
+          else if (comparable?.length === 0) {
             await settled(
               document,
               accountQuietMs,
@@ -1894,38 +1996,28 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         )
           return fail("structural-mismatch", "secret-refused");
         // A secret goes only to the account the page shows, when it shows one (owner
-        // decision, 2026-10-11). The comparison stays in this content script.
+        // decision, 2026-10-11). The comparison stays in this content script. A page that
+        // showed no identifier yet is compared just before the next click instead
+        // (`deferredAccount`, ADR 0049 amendment of 2026-11-03).
         if (command.account) {
-          const other = showsOtherAccount(formAccounts(document, form), command.account.username, {
-            masked,
-          });
-          command.account.username = "";
-          if (other) {
-            // The recipe's account switch is clicked once the background has recorded the
-            // switch, so a recipe that starts on the page it leads to can log in. Without
-            // one, the page's own control for another account is (ADR 0078).
-            const target = command.accountSwitch;
-            const find = target
-              ? () => {
-                  const named = findTargets(document, target, { links: true });
-                  return named.length === 1 && switchable(named[0]) ? named : [];
-                }
-              : command.otherSwitch
-                ? () => accountSwitchControls(document)
-                : undefined;
-            const found = find?.() ?? [];
-            const element = found.length === 1 ? found[0] : undefined;
-            if (find && element instanceof HTMLElement) {
-              pendingSwitch = {
-                operationId: operation.operationId,
-                element,
-                find,
-                path: pagePath(),
-                expiresAt: Date.now() + switchTimeoutMs,
-              };
-              return { ...fail("wrong-account"), switchable: true as const };
-            }
-            return fail("wrong-account");
+          if (deferLater) {
+            deferredAccount = {
+              username: command.account.username,
+              masked,
+              form,
+              inputs: writableInputs,
+              ...(command.accountSwitch ? { accountSwitch: command.accountSwitch } : {}),
+              ...(command.otherSwitch ? { otherSwitch: true as const } : {}),
+            };
+            command.account.username = "";
+          } else {
+            const other = showsOtherAccount(
+              formAccounts(document, form),
+              command.account.username,
+              { masked },
+            );
+            command.account.username = "";
+            if (other) return otherAccount(command);
           }
         }
         // A `totp` handler without a button types its code as the submission: the page
@@ -2323,6 +2415,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           })
         )
           return fail("structural-mismatch", "form-changed");
+        const other = await deferredOther();
+        if (other) return other;
         // An advance's next step is measured in this task, just before the click, and so
         // is what the page shows before it (ADR 0029).
         measureNext();
