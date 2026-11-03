@@ -63,12 +63,15 @@ export async function typeOnKeypad<Cause extends string>(
     onPress,
     openMs = KEYPAD_OPEN_MS,
     pressMs = KEYPAD_PRESS_MS,
+    stop,
   }: {
     between?: (() => Cause | undefined) | undefined;
     beforePress?: (() => Promise<Cause | undefined>) | undefined;
     onPress?: () => void;
     openMs?: number;
     pressMs?: number;
+    /** Ends a wait for the page at once, so `between` can say why. */
+    stop?: AbortSignal;
   } = {},
 ): Promise<Cause | KeypadStop | undefined> {
   const current = () => (valueProperty?.get ? valueProperty.get.call(input) : input.value);
@@ -87,7 +90,7 @@ export async function typeOnKeypad<Cause extends string>(
     const until = Date.now() + openMs;
     while (!open() && Date.now() < until) {
       // eslint-disable-next-line no-await-in-loop
-      await pageChange(input.ownerDocument, until);
+      await pageChange(input.ownerDocument, until, stop);
       const stopped = between?.();
       if (stopped) return stopped;
     }
@@ -123,7 +126,7 @@ export async function typeOnKeypad<Cause extends string>(
       await (wait === 0
         ? gap()
         : input.ownerDocument.hidden
-          ? pageChange(input.ownerDocument, until)
+          ? pageChange(input.ownerDocument, until, stop)
           : nextFrame());
       const stopped = between?.();
       if (stopped) return stopped;

@@ -291,12 +291,12 @@ describe("typeValue", () => {
     const started = performance.now();
     expect(await typeValue(field, "abcdefgh", setter)).toBeUndefined();
     expect(values).toEqual(["a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh"]);
-    // Only the two waits after the last character wait for a frame (about 16 ms each);
-    // seven 25 ms timers between the characters would add 175 ms.
+    // Only the two waits after the last character are timers; seven between the
+    // characters would add 175 ms.
     expect(performance.now() - started).toBeLessThan(150);
   });
 
-  it("waits a task rather than a frame after the last character in a hidden tab", async () => {
+  it("waits a task rather than a timer after the last character in a hidden tab", async () => {
     Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
     cleanups.push(() => Reflect.deleteProperty(document, "hidden"));
     document.body.innerHTML = '<input id="field">';

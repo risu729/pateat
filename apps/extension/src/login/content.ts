@@ -377,6 +377,8 @@ function credentialInputs(targets: readonly LoginMarkerTarget[]): {
   };
 }
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/** How long after a change the page watch checks at the latest when the page stays busy. */
+const checkBoundMs = 100;
 /**
  * How long a preparing fill waits for the page's own input handlers before checking that
  * the page accepted the values (ADR 0010). A set time still to be replaced (ADR 0082): a
@@ -574,20 +576,24 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let observedRoots = new WeakSet<ShadowRoot>();
   const submitRoots = new WeakSet<ShadowRoot>();
   const submitListeners = new AbortController();
-  // A start's retry (`retry`), and whether a check waits for the page's next frame.
+  // A start's retry (`retry`), and whether a check waits for the page to be idle.
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let framed = false;
+  let idle = false;
   const navigation = (globalThis as unknown as { navigation?: EventTarget }).navigation;
-  // Checks once at the page's next frame, however many changes come before it (ADR 0082);
-  // a pending retry checks then instead.
+  // Checks once the page is idle after a change, however many changes come before it, and
+  // at most `checkBoundMs` after the first (ADR 0082), so a page that changes every frame,
+  // as a spinner does, is not checked every frame while it is watched. A pending retry
+  // checks then instead.
   const schedule = () => {
-    if (framed || timer !== undefined) return;
-    framed = true;
-    void nextFrame().then(() => {
-      framed = false;
-      if (timer === undefined) check();
-      return undefined;
-    });
+    if (idle || timer !== undefined) return;
+    idle = true;
+    requestIdleCallback(
+      () => {
+        idle = false;
+        if (timer === undefined) check();
+      },
+      { timeout: checkBoundMs },
+    );
   };
   function clearDecision(): void {
     clearTimeout(offerQuiet);
@@ -789,7 +795,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    */
   function watchShadowRoots(): void {
     const roots = shadowRoots(document);
-    askDefinitions(document, roots);
+    // After the read: the ask runs the page's listeners, which a read must not.
+    queueMicrotask(() => askDefinitions(document, roots));
     for (const root of roots) {
       if (observer && !observedRoots.has(root)) {
         observer.observe(root, pageWatch);
@@ -2082,6 +2089,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               let pressed = false;
               // eslint-disable-next-line no-await-in-loop
               const stopped = await typeOnKeypad(keyed, value.value, () => keypadOf(index), {
+                stop: waits.signal,
                 // The background learns of the presses before the first one, so only a
                 // page replaced after it may count as the page's own submission.
                 beforePress: async () =>

@@ -1047,8 +1047,9 @@ gets Chrome's `focus` again when the person returns; a focus move the page's own
 for one of them makes gets no events. Key events carry Shift for the characters a US
 layout types with it. A page that cancels a character's `keydown`, `keypress` or
 `beforeinput` keeps it out, as a browser does. One more wait follows the last character,
-the page's next rendered frame on a shown page and one task on a hidden one (a framework
-writes a key it cancelled only once its handlers ran); then the fill stops as
+25 ms on a shown page and one task on a hidden one (a framework writes a key it
+cancelled only once its handlers ran; a set time still to be replaced,
+[ADR 0082](adr/0082-waits-on-signals.md#still-to-replace)); then the fill stops as
 `fill-rejected` without `change`, blur or a click, so a value the page changed is never
 submitted, when the input does not hold the value after a cancelled event, or holds a
 value of another length. Since 2026-10-13, when a bank's password field held one

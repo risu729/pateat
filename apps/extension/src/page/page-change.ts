@@ -7,6 +7,15 @@ import { nextFrame } from "./frames";
 import { shadowRoots } from "./shadow";
 
 /**
+ * How long one wait for a change lasts at most before the caller checks again anyway, a
+ * bound for a change no signal reports: a shadow root attached to an element already in
+ * the page with no other change, a CSSOM edit, a Web Animations API animation or a font
+ * load. A page that signals its change is checked at once; only a missed signal costs up
+ * to this.
+ */
+const RECHECK_BOUND_MS = 500;
+
+/**
  * Events after which what a check reads may differ without a DOM change: a stylesheet,
  * image or frame loading (`load` and `error` do not bubble, so they are heard while
  * capturing), a CSS animation or transition ending, a popover or `<details>` toggling,
@@ -36,7 +45,8 @@ const windowEvents = ["load", "resize", "popstate", "hashchange", "pageshow", EL
  * {@link windowEvents}, a same-document navigation, the document's ready state or
  * visibility changing, or one of the page's custom elements becoming defined
  * ({@link askDefinitions}), as an element defined late may attach its shadow tree and
- * render into it, which no observer reports. The caller checks again after it resolves,
+ * render into it, which no observer reports. Without a sign it resolves after
+ * {@link RECHECK_BOUND_MS} at the latest. The caller checks again after it resolves,
  * whatever resolved it, so a wait for something to show is a loop around this call.
  */
 export function pageChange(document: Document, until: number, stop?: AbortSignal): Promise<void> {
@@ -80,7 +90,7 @@ export function pageChange(document: Document, until: number, stop?: AbortSignal
       options,
     );
     stop?.addEventListener("abort", settle, { signal: listening.signal });
-    bound = setTimeout(settle, until - Date.now());
+    bound = setTimeout(settle, Math.min(until - Date.now(), RECHECK_BOUND_MS));
     askDefinitions(document, roots);
   });
 }

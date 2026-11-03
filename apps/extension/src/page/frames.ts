@@ -35,14 +35,19 @@ export function nextFrame(view: Window = window): Promise<void> {
   const { document } = view;
   if (document.hidden) return nextTask();
   return new Promise<void>((resolve) => {
+    let frame: number | undefined;
     let bound: ReturnType<typeof setTimeout> | undefined;
     const done = () => {
       clearTimeout(bound);
+      if (frame !== undefined) view.cancelAnimationFrame(frame);
       document.removeEventListener("visibilitychange", done);
       resolve();
     };
     bound = setTimeout(done, FRAME_BOUND_MS);
     document.addEventListener("visibilitychange", done);
-    view.requestAnimationFrame(done);
+    frame = view.requestAnimationFrame(() => {
+      frame = undefined;
+      done();
+    });
   });
 }

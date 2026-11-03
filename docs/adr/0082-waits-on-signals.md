@@ -41,14 +41,20 @@ a poll adds half its interval on average to every wait.
    `hashchange` or `pageshow`; a same-document navigation (Navigation API
    `currententrychange`); the document's ready state or visibility changing; or the page
    defining one of its custom elements. Changes are taken together until the page's next
-   frame, so a page that changes all the time is checked at most once a frame.
-4. A wait for the page's own handlers after Pateat's events (after a value's characters,
-   between a fill's fields and a split code's digits) waits for the page's next rendered
-   frame (`nextFrame` in `src/page/frames.ts`): by then the handlers, their microtasks
-   and the timers they set for now have run, and what they changed is rendered. A hidden
-   page renders no frame and waits one task. A document that reads as shown but whose
-   frame Chrome does not render, as an off-screen frame, gets no animation frame, so
-   this wait has a 100 ms bound.
+   frame, so a page that changes all the time is checked at most once a frame. A change
+   that sends none of these signals is still seen within 500 ms: each wait for a change
+   ends then at the latest and the caller checks again, a bound that a page signalling
+   its change never reaches. The page watch that looks for a login's first step checks
+   once the page is idle after a change (`requestIdleCallback`), or 100 ms after it at
+   the latest, so a page that changes every frame, as a spinner does, is not checked
+   every frame for as long as it is watched.
+4. A wait for the page's own handlers after Pateat's events (between a fill's fields and
+   a split code's digits) waits for the page's next rendered frame (`nextFrame` in
+   `src/page/frames.ts`): by then the handlers, their microtasks and the timers they set
+   for now have run, and what they changed is rendered. A hidden page renders no frame
+   and waits one task. A document that reads as shown but whose frame Chrome does not
+   render, as an off-screen frame, gets no animation frame, so this wait has a 100 ms
+   bound.
 5. When the page defines a custom element it had not defined, the content script checks
    the page at the next frame. Chrome's isolated world has no `customElements` (it is
    `null` there), so the main-world script waits with `customElements.whenDefined` for
@@ -60,9 +66,9 @@ a poll adds half its interval on average to every wait.
 
 | Wait until then | Where | Now |
 | --- | --- | --- |
-| 25 ms between fields, digits and after each value (`FIELD_GAP_MS`) | `page/enter-value.ts`, `login/content.ts` | Decision 4 |
+| 25 ms between fields and digits (`FIELD_GAP_MS`) | `login/content.ts` | Decision 4 |
 | 500 ms count of undefined custom elements, for ten seconds (`watchUpgrades`) | `login/content.ts` | Decision 5 |
-| 100 ms debounce before the page watch's check (`schedule`) | `login/content.ts` | Next frame after a change |
+| 100 ms debounce before the page watch's check (`schedule`) | `login/content.ts` | Idle after a change, 100 ms at the latest |
 | 50 ms polls of `login.await` and a `wait` step | `login/content.ts` | Decision 3 |
 | 100 ms polls of the entry inspect and check and the switch's control and reaction | `login/content.ts` | Decision 3 |
 | 100 ms poll of the URL after an entry press (`watchPressedUrl`) | `login/content.ts` | `popstate`, `hashchange`, `currententrychange` |
@@ -82,6 +88,9 @@ change, in the order of the inventory (largest added time first):
   timer, as the end-to-end fixture's alert 100 ms after `input` does, would show it only
   after the click. Its replacement needs a signal for "the timers the page's handlers
   set for the fill have run".
+- The 25 ms after a value's characters and after its `change` and blur (`VALUE_GAP_MS`
+  in `page/enter-value.ts`), for the same reason: a masked field that writes a key it
+  cancelled from a 10 ms timer was refused in 33 of 50 tries with a frame instead.
 - The 3 s observation budget of a result no marker proves, `WATCH_SETTLE_MS`,
   `SIGN_IN_RECHECK_MS` and the cross-origin move's readings (`quietMove`) after a
   submission ([ADR 0027](0027-per-account-login-routes.md),
@@ -103,13 +112,14 @@ change, in the order of the inventory (largest added time first):
 
 ## Consequences
 
-- Each field is about 50 ms faster to fill, and a page whose form or next step shows
-  after a change is checked within a frame instead of up to 50-500 ms later.
+- Each field after the first is up to 25 ms faster to fill, and a page whose form or
+  next step shows after a change is checked within a frame instead of up to 50-500 ms
+  later.
 - A change that sends none of the signals of decision 3, as a shadow root attached to an
-  element already defined with no other change, a stylesheet rule changed through the
-  CSSOM or a Web Animations API animation ending, is seen at the page's next signal, or
-  not before the wait's bound. Before, a poll saw it within its interval.
-- Bitwarden's autofill waits 20 ms between actions; Pateat waits for a frame instead
-  ([differences](../bitwarden-differences.md)).
+  element already in the page with no other change, a stylesheet rule changed through
+  the CSSOM or a Web Animations API animation ending, is seen at the page's next signal,
+  or up to 500 ms later. Before, a poll saw it within 50-100 ms.
+- Bitwarden's autofill waits 20 ms between actions; Pateat waits for a frame between
+  fields instead ([differences](../bitwarden-differences.md)).
 - The main world's events tell a page that Pateat is installed, as its main-world click
   already does.

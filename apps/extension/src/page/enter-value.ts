@@ -8,7 +8,7 @@
 // as the page's handlers allow (owner decision, 2026-10-13).
 
 import { blurElement, focusElement, focusedElement } from "./focus";
-import { nextFrame, nextTask } from "./frames";
+import { nextTask } from "./frames";
 import { widthFolded } from "./text";
 
 const valueProperty = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
@@ -71,14 +71,21 @@ function keyOf(character: string): KeyboardEventInit {
 }
 
 /**
- * Waits for the page after a value's characters, and between a preparing fill's inputs
- * and a split code's digits: its next rendered frame and one task after it
- * ({@link nextFrame}), so the page's handlers, their microtasks and zero-delay timers ran
- * and what they render shows; one task on a hidden page. No set time (ADR 0082); Bitwarden's
- * autofill waits 20 ms between actions instead.
+ * How long the typing waits after a value's characters on a shown page, so the page's
+ * handlers for them, their microtasks and short timers run first: a masked field may write
+ * a key it cancelled from a 10 ms timer. A set time still to be replaced (ADR 0082), once
+ * a signal says the timers the page's handlers set have run. Bitwarden's autofill waits 20
+ * ms between actions.
+ */
+const VALUE_GAP_MS = 25;
+
+/**
+ * Waits for the page after a value's characters: {@link VALUE_GAP_MS} on a shown page, or
+ * one task on a hidden one.
  */
 export function gap(): Promise<void> {
-  return nextFrame();
+  if (!document.hidden) return new Promise((resolve) => setTimeout(resolve, VALUE_GAP_MS));
+  return nextTask();
 }
 
 /**
