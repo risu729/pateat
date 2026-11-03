@@ -470,13 +470,21 @@ export default defineBackground(() => {
   );
   const noteSignIn = (tabId: number, origin: string, rpId?: string) =>
     void signIns.add(tabId, { origin, ...(rpId === undefined ? {} : { rpId }) }).catch(() => {});
+  let siteWaitAwake: ReturnType<typeof setInterval> | undefined;
   const login = createLoginRuntime(loginSettings, {
     vault: vaultSync,
     // Wakes a stopped worker to end a login whose wait for the site ran out (ADR 0022).
-    siteWait: (when) =>
-      when === undefined
+    siteWait: (when) => {
+      // While a login waits for the site, the worker stays up as for a model call, so the
+      // waits kept in memory end it; the alarm covers a worker stopped anyway.
+      if (when === undefined) {
+        clearInterval(siteWaitAwake);
+        siteWaitAwake = undefined;
+      } else siteWaitAwake ??= setInterval(() => void browser.runtime.getPlatformInfo(), 20_000);
+      return when === undefined
         ? browser.alarms.clear(LOGIN_SITE_WAIT_ALARM).then(() => undefined)
-        : browser.alarms.create(LOGIN_SITE_WAIT_ALARM, { when }),
+        : browser.alarms.create(LOGIN_SITE_WAIT_ALARM, { when });
+    },
     fields: combineFieldSources({
       bitwarden: vaultFields,
       ...(catalog ? { dummy: dummyFieldSource } : {}),
