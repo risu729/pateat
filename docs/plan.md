@@ -1177,7 +1177,7 @@ Once the fixes have settled:
   to main updates a release PR, and merging it builds the release extension with its
   source and publishes the GitHub Release
   ([extension releases](delivery.md#extension-releases); owner, 2026-11-03 03:19 UTC).
-  Open: the bot App token in the `release` environment, the
+  The bot App `pateat-release-bot` is set up (2026-11-03). Open: the
   [human checks](sdk-source.md#release-archives) on the source archive before the first
   release PR is merged, and loading the first release's ZIP in the owner's Chrome. The
   owner has a Chrome Web Store developer account and will also publish there if the
