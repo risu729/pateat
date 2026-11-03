@@ -183,6 +183,7 @@ export function startTiming(
 ): StartTiming & { pageMs: number } {
   const { tabId, documentId, frameId } = live.document;
   const timing = { ...live.timing, pageMs: 0 };
+  const documentSince = live.timing.since;
   const press = rt.entryPresses.get(tabId);
   const pressedAt = press && isoTimeMs(press.pressedAt);
   if (
@@ -209,7 +210,11 @@ export function startTiming(
     pick.connectionId === chosen.connectionId &&
     pick.itemId === chosen.itemId
   )
-    timing.personMs += pick.waitedMs;
+    // Only the part of the wait since this document's time started is the person's: a
+    // choice keeps when it was first offered, while the document's time starts again after
+    // a worker restart or a vault unlock, which would count more person time than the login
+    // took (ADR 0019).
+    timing.personMs += Math.min(pick.waitedMs, Math.max(0, Date.now() - documentSince));
   // The document's time so far is this login's; another login it starts later counts
   // from now (ADR 0019).
   Object.assign(live.timing, { since: Date.now(), serviceMs: 0, networkMs: 0, personMs: 0 });

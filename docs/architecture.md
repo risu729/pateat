@@ -2330,7 +2330,10 @@ which its [login record](#login-records-on-the-service) also sends to the servic
   spent before the attempt existed, such as the first page's generation and an account
   picked in the popup, is carried into it once: a later login of the same page counts
   from when the one before it started. A page that waited for a locked vault starts
-  again once it can read it.
+  again once it can read it. An account pick counts as the person's time only since the
+  document's time started, which also starts again when a restarted worker sees the page
+  announce itself, so a choice first offered before never counts more than the login
+  took.
 - `serviceMs` is the time spent waiting for generation (with the recipe sync that
   follows a generated answer) and judgement; `networkMs` the network part of those
   requests that named the service's time. A request without the service's time adds
