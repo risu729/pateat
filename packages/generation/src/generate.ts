@@ -258,6 +258,8 @@ export type LayoutPage = {
   carriedNames: ReadonlyMap<string, string>;
   /** The page's kind (ADR 0035); a continuation keeps the layout's own. */
   pageKind: PageKind;
+  /** The page's steps replace `base`'s final `advance` click (ADR 0018). */
+  replacesLast?: true;
 };
 /**
  * Builds the layout a model's answer for one page makes (ADR 0060), without writing it:
@@ -319,6 +321,7 @@ export function buildLoginLayout(
     ...(passkey ? { passkey } : {}),
     ...(value.passkeyOnly && startPage ? { passkeyOnly: true } : {}),
     pageKind: page.pageKind,
+    ...(page.replacesLast ? { replacesLast: true } : {}),
   });
   // A page that fills one of the recipe's slots again, as its identifier form shown again
   // where it posted, is refused before anything is stored (ADR 0018).
@@ -486,6 +489,10 @@ export async function generateRecipe(
   if (!observation.complete) return unsent(failed("incomplete-observation"));
   // A list of accounts is only ever a recipe's first page.
   if (list && base) return unsent(failed("invalid-request"));
+  // Only a layout's own route replaces its final click, never a chooser branch's (ADR 0018).
+  const replacesLast = base?.replacesLast === true;
+  if (replacesLast && branch !== undefined && parseRecipeBranch(branch)?.branch !== undefined)
+    return unsent(failed("invalid-request"));
   /** Whether a stored recipe is the one generated for this origin under this ID. */
   const generatedHere = async (recipe: StoredLoginRecipe) =>
     recipe.origin === origin &&
@@ -593,7 +600,13 @@ export async function generateRecipe(
     // A branch's first page has nothing to continue yet.
     if (chooser && !route) return { base: undefined, chooser };
     const last = route?.steps.at(-1);
-    if (!route || route.completion || !last || loginStepEffect(last) !== "advance")
+    if (
+      !route ||
+      route.completion ||
+      !last ||
+      loginStepEffect(last) !== "advance" ||
+      (replacesLast && last.kind !== "click")
+    )
       return { answer: unavailable("recipe-conflict") };
     return { base: route, ...(chooser ? { chooser } : {}) };
   };
@@ -865,6 +878,7 @@ export async function generateRecipe(
       // The first page's kind (ADR 0035): a continuation keeps the layout's own, and every
       // page of a chooser branch follows a list of accounts, a sign-in page.
       pageKind: chooserSide ? "sign-in" : value.pageKind,
+      ...(replacesLast ? { replacesLast: true } : {}),
     },
     meta,
   );
@@ -932,12 +946,16 @@ export async function generateRecipe(
   const head = active(headAtStart);
   const written = head && stored(head.recipe, branch, next);
   if (!written || !named) return failed("recipe-invalid");
-  // The page's steps follow the route's: a branch's first page starts at 0 (ADR 0060). A
+  // The page's steps follow the route's: a branch's first page starts at 0 (ADR 0060), and
+  // a page that replaces the final click starts where that click stood (ADR 0018). A
   // rebased write keeps them, as it takes only a head whose route is still `baseRecipe`.
   const units = [
     {
       layout: named.layout,
-      unit: branchUnit(chooserSide, pageUnit(baseRecipe?.steps.length ?? 0)),
+      unit: branchUnit(
+        chooserSide,
+        pageUnit((baseRecipe?.steps.length ?? 0) - (replacesLast ? 1 : 0)),
+      ),
     },
   ];
   return save(written, units, customSlots, async (latest) => {

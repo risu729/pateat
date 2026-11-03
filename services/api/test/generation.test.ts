@@ -8606,6 +8606,68 @@ describe("generation provenance (ADR 0060)", () => {
       expect(document).not.toContain(value);
   });
 
+  it("records a page that replaced a disabled final click where that click stood (ADR 0018)", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    const { recipeId } = first.change;
+    const key = (await layoutKey(device.ownerId, recipeId))!;
+    // The same page once the email is typed: a password input opened, Next still disabled.
+    const opened = observation("/login", [
+      element("email", "email", "Email"),
+      element("password", "password", "Password"),
+      element("next", "button", "Next"),
+    ]);
+    replies.push({ text: plan([["password", "password"]], "next", "submit") });
+    const replaced = await generate(device, opened, {
+      recipeId,
+      revision: 1,
+      replacesLast: true,
+    });
+    expect(replaced).toMatchObject({ status: "recipe", change: { revision: 2 } });
+    if (replaced.status !== "recipe") throw new Error(replaced.status);
+    expect(route(replaced.change.recipe!)).toMatchObject({
+      slots: ["email", "password"],
+      maxSubmissions: 1,
+      steps: [
+        { kind: "fill", fields: [{ slot: "email" }] },
+        { kind: "fill", fields: [{ slot: "password" }] },
+        { kind: "click", target: { by: "id", value: "next" }, purpose: "submit" },
+      ],
+    });
+    // The email fill keeps its call, with the digest of what is left of its page.
+    expect(await summary(device.ownerId, recipeId)).toEqual([
+      `${key} page:0 generated 1`,
+      `${key} page:1 generated 2`,
+    ]);
+    await digestsMatch(device.ownerId, recipeId);
+  });
+
+  it("refuses a replacing page that does not end with the replaced click (ADR 0018)", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    const opened = observation("/login", [
+      element("email", "email", "Email"),
+      element("password", "password", "Password"),
+      element("next", "button", "Next"),
+      element("help", "button", "Help"),
+    ]);
+    replies.push({ text: plan([["password", "password"]], "help", "submit") });
+    expect(
+      await generate(device, opened, {
+        recipeId: first.change.recipeId,
+        revision: 1,
+        replacesLast: true,
+      }),
+    ).toMatchObject({ status: "failed", error: "recipe-invalid" });
+    expect(await storedHead(device.ownerId, first.change.recipeId)).toMatchObject({
+      revision: 1,
+    });
+  });
+
   it("records a judged detail handler (ADR 0061) as a handler unit of its layout", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);

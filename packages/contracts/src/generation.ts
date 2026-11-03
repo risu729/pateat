@@ -171,7 +171,8 @@ export const generationOutputRejectionSchema = v.variant("check", [
 ]);
 
 /**
- * `POST /v1/recipes/generate`: one page; `base` continues a recipe after an advance, and
+ * `POST /v1/recipes/generate`: one page; `base` continues a recipe after an advance, or
+ * with `replacesLast` in place of its final advance click (ADR 0018), and
  * `branch` names the layout it continues (ADR 0060). With a chooser branch in `branch`,
  * `base` is a chooser recipe (ADR 0028) and the page is the next one of that branch: its
  * first page, after the click on the list, or a later one. With `repair`, the page is a
@@ -185,7 +186,18 @@ export const recipeGenerationRequestSchema = v.pipe(
     observation: loginObservationSchema,
     slots: v.union([semanticSlotsSchema, v.strictTuple([])]),
     passkeyOnly: v.optional(v.literal(true)),
-    base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
+    base: v.optional(
+      v.strictObject({
+        recipeId: syncRecipeIdSchema,
+        revision: writtenRevision,
+        /**
+         * The page is the one the recipe's final `advance` click stands on, whose button
+         * stayed disabled while a password input opened: its steps replace that click
+         * instead of following it (ADR 0018 amendment of 2026-11-03).
+         */
+        replacesLast: v.optional(v.literal(true)),
+      }),
+    ),
     branch: v.optional(recipeBranchSchema),
     /**
      * A hint for the page's kind (ADR 0035): whether a signed-in marker of the origin's

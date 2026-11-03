@@ -962,7 +962,12 @@ revision over when it only appends steps and still resolves to the login's accou
 runs the new steps
 ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)); so is the
 page after a learned `password` handler's click that follows that step
-([ADR 0048](adr/0048-password-method-button.md)). Any other page that an effect step
+([ADR 0048](adr/0048-password-method-button.md)). A final `advance` click whose button
+stays disabled while a password input opens in its form is not waited out: its page is
+sent once with `base.replacesLast`, and the login takes over the revision whose page's
+password fill and click on the same button replace that click, at the same plan step
+([ADR 0018](adr/0018-recipe-generation-route.md#replacing-a-disabled-final-advance)).
+Any other page that an effect step
 leads to and no check explains is sent to be judged, which can learn a signed-in marker,
 a second-factor handler or a button that goes on to the password
 ([ADR 0018](adr/0018-recipe-generation-route.md),

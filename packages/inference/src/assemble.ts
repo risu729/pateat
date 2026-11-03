@@ -13,6 +13,7 @@ import {
   namesPasswordChoice,
   passwordVariants,
   refillsLoginSlot,
+  replacesClick,
   routeFillTargets,
   sameLoginTarget as sameTarget,
   splitCodeInputs,
@@ -131,7 +132,11 @@ export function entryRecipe(page: {
  * `alternatives`, the steps of its other identifier sets, which become the password
  * route's other variants, and `passkey`, the start page's passkey sign-in button, which
  * becomes the `passkey` route (ADR 0027); a continuation needs a single-variant recipe and
- * a page with neither. The revision is the next one; the caller stores it with a
+ * a page with neither. With `replacesLast`, the page's steps take the place of the base's
+ * final `advance` click, whose button stayed disabled while a password input opened on
+ * its page, instead of following it: they must fill the `password` slot and click the
+ * same element only as their last step (`replacesClick`, ADR 0018 amendment of
+ * 2026-11-03). The revision is the next one; the caller stores it with a
  * conditional write. The recipe keeps the first account switch a page names that is not
  * also one of its click targets, its passkey button, a handler's element, its rejection or
  * a signed-in marker.
@@ -149,9 +154,14 @@ export function appendPageSteps(
     passkeyOnly?: true;
     /** The page's kind (ADR 0035); a continuation keeps the recipe's own. */
     pageKind: PageKind;
+    /** The page's steps replace the base's final `advance` click (ADR 0018). */
+    replacesLast?: true;
   },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: AssemblyRejection } {
   const alternatives = page.alternatives ?? [];
+  // The base's steps the page's follow: all of them, or all but the click it replaces.
+  const before = page.replacesLast ? (base?.steps.slice(0, -1) ?? []) : (base?.steps ?? []);
+  if (page.replacesLast && !base) return { ok: false, reason: "invalid-recipe" };
   if (base) {
     if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
     if (base.completion) return { ok: false, reason: "already-complete" };
@@ -160,9 +170,11 @@ export function appendPageSteps(
       return { ok: false, reason: "not-advancing" };
     // Variants and routes all start on the start page, so a later page never brings its own.
     if (alternatives.length || page.passkey) return { ok: false, reason: "invalid-recipe" };
-    if (refillsLoginSlot(base.steps, page.steps)) return { ok: false, reason: "slot-refilled" };
+    if (page.replacesLast && !replacesClick(last, page.steps))
+      return { ok: false, reason: "invalid-recipe" };
+    if (refillsLoginSlot(before, page.steps)) return { ok: false, reason: "slot-refilled" };
   }
-  const steps = [...(base?.steps ?? []), ...page.steps];
+  const steps = [...before, ...page.steps];
   const variants = [steps, ...alternatives];
   const { accountSwitch: kept, ...rest } = base ?? {};
   const passkey = base?.passkey?.target ?? page.passkey;

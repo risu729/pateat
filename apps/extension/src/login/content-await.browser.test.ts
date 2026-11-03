@@ -150,3 +150,60 @@ describe("a step's wait for a change of the page (ADR 0082)", () => {
     expect(reply.value).toEqual({ ok: false, reason: "cancelled" });
   });
 });
+
+describe("a final advance click beside a password input that opens (ADR 0018 amendment of 2026-11-03)", () => {
+  // The password block shows only once the email is typed; Log In stays disabled.
+  const resendLike = (form = "", other = "") => `<main><form>
+    <input type="email" id="email" name="email">
+    <div id="block" style="visibility: hidden; height: 0; overflow: hidden">
+      <input type="password" id="password" name="password" ${form}>
+    </div>
+    <button type="submit" disabled>Log In</button></form>${other}</main>`;
+  const watching = (token: string, revealed = true) =>
+    command({
+      version: 1,
+      type: "login.await",
+      token,
+      timeoutMs: 200,
+      readiness: {
+        path: "/login",
+        require: "clickable",
+        targets: [{ by: "text", value: "Log In" }],
+        ...(revealed ? { revealed: true } : {}),
+      },
+    });
+  const reveal = () => {
+    const block = document.querySelector<HTMLElement>("#block")!;
+    block.style.visibility = "visible";
+    block.style.height = "auto";
+  };
+
+  it("answers `revealed` once the password input shows beside the disabled button", async () => {
+    const token = await open(resendLike());
+    expect(await watching(token)).toEqual({ ok: false, reason: "timeout", miss: "not-clickable" });
+    reveal();
+    expect(await watching(token)).toEqual({ ok: false, reason: "revealed" });
+    // Asked without it, the wait runs out as any step's.
+    expect(await watching(token, false)).toEqual({
+      ok: false,
+      reason: "timeout",
+      miss: "not-clickable",
+    });
+    // An enabled button is ready, whatever shows beside it.
+    document.querySelector("button")!.removeAttribute("disabled");
+    expect(await watching(token)).toEqual({ ok: true });
+  });
+
+  it("ignores a new password, and a password input of another form", async () => {
+    let token = await open(resendLike('autocomplete="new-password"'));
+    reveal();
+    expect(await watching(token)).toEqual({ ok: false, reason: "timeout", miss: "not-clickable" });
+    uninstall?.();
+    sent.length = 0;
+    token = await open(
+      `<main><form><input type="email" id="email"><button type="submit" disabled>Log In</button></form>
+      <form><input type="password" id="other"></form></main>`,
+    );
+    expect(await watching(token)).toEqual({ ok: false, reason: "timeout", miss: "not-clickable" });
+  });
+});

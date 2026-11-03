@@ -197,7 +197,8 @@ export async function hasRecipeRoom(db: D1Database, ownerId: string): Promise<bo
  * the recipe used.
  * The same batch keeps `recipe_unit_sources` (ADR 0060): it deletes the rows of layouts the
  * document no longer has and every row of a revoked recipe, and with a call's `sources`
- * writes a row for each unit named there, replacing that unit's earlier row. A `device`
+ * writes a row for each unit named there, replacing that unit's earlier row, and gives
+ * every other row of a unit its document holds that unit's digest there. A `device`
  * write keeps the rows of units whose digest it left unchanged, deletes the rows of units
  * its document no longer has, and writes a `device` row for each unit it changed or
  * added. `writer` is each row's device.
@@ -449,6 +450,27 @@ export async function writeRecipe(
         ),
       ]
     : [];
+  // A row the call's document holds takes its unit's digest there: a page that replaced the
+  // final click of the page before it shortened that page, which keeps its own call
+  // (ADR 0018 amendment of 2026-11-03). Every other unit a call holds is unchanged.
+  const heldUnit = sql`json_extract(held_row.value, '$.unit') = ${recipeUnitSources.unit} AND json_extract(held_row.value, '$.layout') IS ${recipeUnitSources.layout}`;
+  const refreshedSources = held.length
+    ? [
+        orm
+          .update(recipeUnitSources)
+          .set({
+            digest: sql`(SELECT json_extract(held_row.value, '$.digest') FROM ${heldRows} WHERE ${heldUnit})`,
+          })
+          .where(
+            and(
+              eq(recipeUnitSources.ownerId, ownerId),
+              eq(recipeUnitSources.recipeId, recipeId),
+              won,
+              sql`EXISTS (SELECT 1 FROM ${heldRows} WHERE ${heldUnit} AND json_extract(held_row.value, '$.digest') <> ${recipeUnitSources.digest})`,
+            ),
+          ),
+      ]
+    : [];
   // Drizzle fills INSERT ... SELECT positionally, as below.
   const copiedSources =
     document !== null && copied?.units.length
@@ -496,6 +518,7 @@ export async function writeRecipe(
     ...copiedSources,
     staleSources,
     ...writtenSources,
+    ...refreshedSources,
   ]);
   if (claimed.meta.changes === 1 && recorded.meta.changes !== 1)
     throw new Error("Recipe head was claimed without its history row");

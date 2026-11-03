@@ -226,9 +226,17 @@ export const attemptMetadataSchema = v.pipe(
     /**
      * The page after the final `advance` step `operationId` was sent to continue the
      * recipe (ADR 0018): at most one request per effect step, recorded before the request
-     * so a restart never sends it again.
+     * so a restart never sends it again. `before` instead names the plan step of a final
+     * `advance` click whose button stayed disabled while a password input opened, whose
+     * page was sent to replace that click (ADR 0018 amendment of 2026-11-03): at most one
+     * request per such step, recorded the same way.
      */
-    continuation: v.optional(v.strictObject({ operationId: identifier })),
+    continuation: v.optional(
+      v.union([
+        v.strictObject({ operationId: identifier }),
+        v.strictObject({ before: integer(MAX_ATTEMPT_STEPS) }),
+      ]),
+    ),
     /** This attempt follows an account switch in its tab; it never clicks another one. */
     accountSwitched: v.optional(v.literal(true)),
     /**
@@ -344,6 +352,7 @@ export const attemptMetadataSchema = v.pipe(
   v.check(
     (metadata) =>
       metadata.continuation === undefined ||
+      !("operationId" in metadata.continuation) ||
       metadata.usedOperationIds.includes(metadata.continuation.operationId),
     "Continued operation ID is not recorded",
   ),
@@ -478,8 +487,15 @@ export const loginAttemptEventSchema = v.variant("type", [
    * the recipe (ADR 0018). Recorded before the request: one request per effect step.
    */
   v.strictObject({ type: v.literal("CONTINUING"), operationId: identifier }),
+  /**
+   * The page at plan step `before`, the final `advance` click whose button stayed disabled
+   * while a password input opened, is about to be sent to replace that click (ADR 0018
+   * amendment of 2026-11-03). Recorded before the request: one request per such step.
+   */
+  v.strictObject({ type: v.literal("CONTINUING"), before: integer(MAX_ATTEMPT_STEPS) }),
   /** The request sent under `CONTINUING` reached no model, so it is given back. */
   v.strictObject({ type: v.literal("UNCONTINUED"), operationId: identifier }),
+  v.strictObject({ type: v.literal("UNCONTINUED"), before: integer(MAX_ATTEMPT_STEPS) }),
   /**
    * The attempt takes over the revision that continues its recipe on the page after its
    * final `advance` step (`continuesRecipe`, ADR 0018): its `steps` follow that step, and
@@ -495,6 +511,12 @@ export const loginAttemptEventSchema = v.variant("type", [
     effects: v.pipe(integer(MAX_RECIPE_EFFECTS), v.minValue(1)),
     document: loginDocumentSchema,
     stopAt: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
+    /**
+     * The `steps` replace the plan's final `advance` click the attempt is at, which never
+     * ran (`continuation.before`), instead of following it; that click's effect is no
+     * longer counted (ADR 0018 amendment of 2026-11-03).
+     */
+    replacesLast: v.optional(v.literal(true)),
   }),
   /**
    * The login runs another layout of its recipe from here on (ADR 0060): one whose steps
@@ -626,6 +648,22 @@ const maySubmit = (context: LoginAttemptMetadata) =>
   context.mutationIntent === true ||
   (context.operationKind === "fill" && context.retryRequired !== true) ||
   (context.operationKind === "click" && context.submissions > 0);
+/**
+ * Whether the login stands, with nothing in flight, at its plan's last step on a `password`
+ * route of its recipe's own steps, with no handler entered, no stop, no chooser and not
+ * only filling: the only step whose click a continued page may replace (ADR 0018
+ * amendment of 2026-11-03). That the step is an `advance` click is the runtime's to check.
+ */
+const replaceable = (context: LoginAttemptMetadata) =>
+  context.operationId === undefined &&
+  context.retryRequired !== true &&
+  context.route === "password" &&
+  context.variant === 0 &&
+  context.handlers.length === 0 &&
+  context.chooser === undefined &&
+  context.stopAt === undefined &&
+  context.fillOnly !== true &&
+  context.stepIndex + 1 === context.stepCount;
 const operationMatches = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
   "operationId" in event && event.operationId === context.operationId;
 /**
@@ -826,10 +864,23 @@ function record(
         },
       };
     case "CONTINUING":
-      return { continuation: { operationId: event.operationId } };
+      return {
+        continuation:
+          "before" in event ? { before: event.before } : { operationId: event.operationId },
+      };
     case "UNCONTINUED":
       return { continuation: undefined };
     case "CONTINUED":
+      // The replaced click never ran: the login stays at its step, now the page's first.
+      if (event.replacesLast)
+        return {
+          recipeRevision: event.recipeRevision,
+          stepCount: context.stepCount - 1 + event.steps,
+          maxSubmissions: context.maxSubmissions - 1 + event.effects,
+          document: event.document,
+          continuation: undefined,
+          retryRequired: undefined,
+        };
       return {
         recipeRevision: event.recipeRevision,
         stepIndex: context.stepIndex + 1,
@@ -1199,15 +1250,58 @@ function createLoginAttemptMachine() {
       // a stop asks only when the stop lies just past that advance (ADR 0036).
       canContinue: ({ context, event }) =>
         event.type === "CONTINUING" &&
+        "operationId" in event &&
         operationMatches(context, event) &&
         (context.stopAt === undefined || stopsPastPlan(context)) &&
         context.operationEffect === "advance" &&
         context.mutationIntent === true &&
         context.submissions > 0 &&
         context.stepIndex + 1 === context.stepCount &&
-        context.continuation?.operationId !== event.operationId,
+        !(
+          context.continuation !== undefined &&
+          "operationId" in context.continuation &&
+          context.continuation.operationId === event.operationId
+        ),
       canUncontinue: ({ context, event }) =>
-        event.type === "UNCONTINUED" && context.continuation?.operationId === event.operationId,
+        event.type === "UNCONTINUED" &&
+        "operationId" in event &&
+        context.continuation !== undefined &&
+        "operationId" in context.continuation &&
+        context.continuation.operationId === event.operationId,
+      // One request per final `advance` click whose button stayed disabled while a password
+      // input opened, before anything of that click ran (ADR 0018 amendment of 2026-11-03):
+      // only a `password` login on its recipe's own steps, with no handler entered, no stop,
+      // no chooser and not only filling.
+      canContinueBefore: ({ context, event }) =>
+        event.type === "CONTINUING" &&
+        "before" in event &&
+        replaceable(context) &&
+        event.before === context.stepIndex &&
+        !(
+          context.continuation !== undefined &&
+          "before" in context.continuation &&
+          context.continuation.before === event.before
+        ),
+      canUncontinueBefore: ({ context, event }) =>
+        event.type === "UNCONTINUED" &&
+        "before" in event &&
+        context.continuation !== undefined &&
+        "before" in context.continuation &&
+        context.continuation.before === event.before,
+      // The page's steps replace the click whose page was sent, within the caps; at least
+      // one of them still submits.
+      continuedBefore: ({ context, event }) =>
+        event.type === "CONTINUED" &&
+        event.replacesLast === true &&
+        event.stopAt === undefined &&
+        event.recipeRevision > context.recipeRevision &&
+        replaceable(context) &&
+        context.continuation !== undefined &&
+        "before" in context.continuation &&
+        context.continuation.before === context.stepIndex &&
+        context.stepCount - 1 + event.steps <= MAX_ATTEMPT_STEPS &&
+        context.maxSubmissions - 1 + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
+        sameScope(context.document, event.document),
       // The continued steps follow the final advance whose page was sent, and stay within
       // the attempt's step and submission caps.
       // A login with a stop just past its plan names its new stop, at or after the first
@@ -1216,6 +1310,7 @@ function createLoginAttemptMachine() {
       // runtime's `continuedStop` to get right, since bindings are not visible here.
       continued: ({ context, event }) =>
         event.type === "CONTINUED" &&
+        event.replacesLast !== true &&
         event.recipeRevision > context.recipeRevision &&
         (context.stopAt === undefined
           ? event.stopAt === undefined
@@ -1224,7 +1319,9 @@ function createLoginAttemptMachine() {
             event.stopAt >= context.stepCount &&
             event.stopAt <= context.stepCount + event.steps) &&
         context.operationId !== undefined &&
-        context.continuation?.operationId === context.operationId &&
+        context.continuation !== undefined &&
+        "operationId" in context.continuation &&
+        context.continuation.operationId === context.operationId &&
         context.operationEffect === "advance" &&
         context.mutationIntent === true &&
         context.submissions > 0 &&
@@ -1390,6 +1487,9 @@ function createLoginAttemptMachine() {
           HANDLER: { guard: "canEnterHandlerAtStop", target: "ready", actions: "record" },
           ROUTE: { guard: "canSwitchRoute", target: "ready", actions: "record" },
           LAYOUT: { guard: "canSwitchLayout", target: "ready", actions: "record" },
+          CONTINUING: { guard: "canContinueBefore", actions: "record" },
+          UNCONTINUED: { guard: "canUncontinueBefore", actions: "record" },
+          CONTINUED: { guard: "continuedBefore", target: "ready", actions: "record" },
           NOT_LISTED: {
             guard: ({ context }) =>
               context.chooser !== undefined &&

@@ -282,6 +282,12 @@ export type Execution = {
    */
   continuationRefused?: string;
   /**
+   * The final `advance` click, by plan step, whose page this document will not send or
+   * take over again in its place: its request was spent or its answer could not be used
+   * (ADR 0018 amendment of 2026-11-03). Kept in memory only.
+   */
+  revealRefused?: number;
+  /**
    * When the `passkey` route's answer to its page's own request went back (ADR 0034), or a
    * login's answer at its stop (ADR 0036). Kept per document in memory only, so a new
    * document or a worker restart counts as long after it.

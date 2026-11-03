@@ -2491,10 +2491,18 @@ export function refillsLoginSlot(
  * route and the rejection are unchanged, the handlers extend the old ones in order, the
  * account switch is unchanged or newly added, and signed-in markers may be new. A running
  * login at its final advance takes over only such a revision, so the steps it ran keep
- * their meaning.
+ * their meaning. With `replacesLast`, `next`'s steps are `previous`'s without its final
+ * `advance` click, then a page's steps that replace it (`replacesClick`, ADR 0018
+ * amendment of 2026-11-03), since that click never ran.
  */
-export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {
+export function continuesRecipe(
+  previous: LoginRecipe,
+  next: LoginRecipe,
+  { replacesLast = false }: { replacesLast?: boolean } = {},
+): boolean {
   const last = previous.steps.at(-1);
+  // With `replacesLast`, the page's steps take the place of `previous`'s last step.
+  const kept = replacesLast ? previous.steps.slice(0, -1) : previous.steps;
   if (
     next.id !== previous.id ||
     next.origin !== previous.origin ||
@@ -2505,15 +2513,16 @@ export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boole
     next.alternatives !== undefined ||
     !last ||
     loginStepEffect(last) !== "advance" ||
-    next.steps.length <= previous.steps.length
+    next.steps.length <= kept.length ||
+    (replacesLast && !replacesClick(last, next.steps.slice(kept.length)))
   )
     return false;
   const same = (left: unknown, right: unknown) => canonicalJson(left) === canonicalJson(right);
   const before = previous.handlers ?? [];
   const after = next.handlers ?? [];
   return (
-    previous.steps.every((step, index) => same(step, next.steps[index])) &&
-    !refillsLoginSlot(previous.steps, next.steps.slice(previous.steps.length)) &&
+    kept.every((step, index) => same(step, next.steps[index])) &&
+    !refillsLoginSlot(kept, next.steps.slice(kept.length)) &&
     previous.slots.every((slot) => next.slots.includes(slot)) &&
     next.maxSubmissions >= previous.maxSubmissions &&
     previous.pageKind === next.pageKind &&
@@ -2523,6 +2532,26 @@ export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boole
     (previous.accountSwitch === undefined || same(previous.accountSwitch, next.accountSwitch)) &&
     after.length >= before.length &&
     before.every((handler, index) => same(handler, after[index]))
+  );
+}
+/**
+ * Whether `steps`, a continued page's, may replace the recipe's final `advance` click
+ * `last` whose button stayed disabled while a password input opened (ADR 0018 amendment
+ * of 2026-11-03): they fill the built-in `password` slot and click the same element as
+ * `last` only as their last step, since a disabled button would stall them again.
+ */
+export function replacesClick(last: LoginStep, steps: readonly LoginStep[]): boolean {
+  const end = steps.at(-1);
+  return (
+    last.kind === "click" &&
+    end?.kind === "click" &&
+    sameLoginTarget(end.target, last.target) &&
+    steps
+      .slice(0, -1)
+      .every((step) => step.kind !== "click" || !sameLoginTarget(step.target, last.target)) &&
+    steps.some(
+      (step) => step.kind === "fill" && step.fields.some((field) => field.slot === "password"),
+    )
   );
 }
 /** JSON with object keys sorted, so equal values compare equal whatever their key order. */

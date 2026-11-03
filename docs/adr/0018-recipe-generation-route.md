@@ -54,6 +54,10 @@ alternatives takes its action's `advance` or `submit` from its fields, not from 
 model's answer ([the action's purpose](#the-actions-purpose)); implemented.
 Amended on 2026-10-23 by the owner (22:05 and 22:06 UTC): an owner's requests make
 [at most five model calls at a time](#five-calls-at-a-time) instead of one; implemented.
+Amended on 2026-11-03 by the owner (11:13 UTC,
+[#1139](https://github.com/risu729/pateat/issues/1139)): a final `advance` click whose
+button stays disabled while a password input opens beside it is
+[replaced by its page's steps](#replacing-a-disabled-final-advance); implemented.
 
 Date: 2026-10-11
 
@@ -332,6 +336,55 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   page is sent to be continued rather than judged. A sign-in form whose only password
   field is marked `new-password`, which a first page may fill since 2026-10-12, is not
   continued after an `advance` step: such a page is judged.
+
+### Replacing a disabled final advance
+
+The owner chose this amendment on 2026-11-03 at 11:13 UTC
+([#1139](https://github.com/risu729/pateat/issues/1139)). Some email-first forms keep
+their password input hidden until the email is typed and keep their one button disabled
+until the password is filled too. The first page's recipe then fills the email and
+clicks that button as an `advance`, which never becomes clickable: the login timed out
+with `elements-timeout` (`not-clickable`). The page is now sent so its steps replace
+that click, and the recipe becomes "fill the email, fill the password, click the
+button".
+
+- **Which logins.** The same logins as
+  [Continuing after an advance](#continuing-after-an-advance), standing at their plan's
+  last step with nothing in flight: a click of the recipe itself, not a handler's, whose
+  effect is `advance`, of a recipe that fills no `password` and has no completion or
+  alternatives, with no handler entered, no stop, no chooser and not only filling.
+- **Which page.** While that click waits for its button, the content script also answers
+  `revealed` once the button shows but takes no click and a visible writable password
+  input, not marked `new-password` or `one-time-code`, shares its form (outside any
+  form, the page outside forms). It checks on each change of the page, as every step's
+  wait does ([ADR 0082](0082-waits-on-signals.md)), with no second of stability first:
+  the disabled button and the opened input are the condition. A button that becomes
+  clickable is ready as before.
+- **One request per step.** The page is described and checked as a page after an advance
+  is (a password input must be described, the login's own item must match, only the
+  slots the recipe does not fill yet are offered), and sent with `base.replacesLast`.
+  The attempt records it first as `continuation.before`, the click's plan step
+  (`CONTINUING`), so a restart never sends it again; a request that did not reach the
+  model is given back (`UNCONTINUED`) for the login's next document. The document that
+  asked does not ask again: a spent request, an unusable answer or a page that was not
+  sent leaves the login waiting for its click as any step, which then times out as
+  before. A login resumed with the request spent takes the replacing revision from the
+  cache when it is there.
+- **The service.** It drops the base's last step only when that step is a click, the
+  page's steps fill the `password` slot and click the same element only as their last
+  step (`replacesClick` in `packages/contracts`), and they fill no slot of the kept
+  steps; otherwise the answer is `recipe-invalid` and nothing is stored. A chooser
+  branch's page never replaces a click (`invalid-request`). The page is recorded as the
+  unit `page:<n>` at the replaced click's index `n` (ADR 0060), and the page before it
+  keeps its own call, with the digest of what is left of it.
+- **Taking over.** `continuesRecipe` with `replacesLast` accepts only such a revision
+  (the kept steps unchanged, the rest as above). The login stays at the same plan step,
+  now the page's first; the click's effect is no longer counted and the page's effects
+  are (`CONTINUED` with `replacesLast`), within the same caps.
+- **Limitations.** An account whose form never shows a password input after its email,
+  as a single sign-on account on the same form, waits on the replaced recipe's password
+  step and ends `elements-timeout`. A form that enables its button only after another
+  input than a password is not handled.
 
 ### Retention purge failures
 
