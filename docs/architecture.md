@@ -966,7 +966,12 @@ revision over when it only appends steps and still resolves to the login's accou
 runs the new steps
 ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)); so is the
 page after a learned `password` handler's click that follows that step
-([ADR 0048](adr/0048-password-method-button.md)). Any other page that an effect step
+([ADR 0048](adr/0048-password-method-button.md)). A final `advance` click whose button
+stays disabled while a password input opens in its form is not waited out: its page is
+sent once with `base.replacesLast`, and the login takes over the revision whose page's
+password fill and click on the same button replace that click, at the same plan step
+([ADR 0018](adr/0018-recipe-generation-route.md#replacing-a-disabled-final-advance)).
+Any other page that an effect step
 leads to and no check explains is sent to be judged, which can learn a signed-in marker,
 a second-factor handler or a button that goes on to the password
 ([ADR 0018](adr/0018-recipe-generation-route.md),
@@ -2389,8 +2394,9 @@ which its [login record](#login-records-on-the-service) also sends to the servic
 - How long a fill or typing took is never recorded, since values are typed one
   character at a time ([ADR 0012](adr/0012-inference-request-log.md)).
 - The same `login.attempt` entry carries where Pateat's own time went
-  (`apps/extension/src/login/runtime/spans.ts`), on the device only: a problem line
-  leaves these fields out (`LOCAL_ONLY_FIELDS` in `packages/contracts/src/problems.ts`).
+  (`apps/extension/src/login/runtime/spans.ts`), which the
+  [login record](#login-records-on-the-service) also sends; a problem line leaves these
+  fields out (`LOCAL_ONLY_FIELDS` in `packages/contracts/src/problems.ts`).
   `beforeShownMs` is from when the document was seen until it first announced a sign-in
   on the login's path; `startMs` from that announcement until the login started;
   `awaitMs` waiting for a step's elements (mostly the site rendering them); `saveMs` and
@@ -2401,7 +2407,8 @@ which its [login record](#login-records-on-the-service) also sends to the servic
   fields of one login overlap counts once, in the one that began first, so all but
   `beforeShownMs` add up to at most `otherMs`. Each is rounded down to 100 ms, so the
   rest does not tell a fill's time, and a login that typed on a software keyboard logs
-  none. They are kept in memory, are lost with a worker restart, and are never sent
+  none. They are kept in memory for the logins that started in the running worker, so
+  a login that a restarted worker resumed logs and sends none
   ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-11-03-where-a-logins-own-time-went)).
 
 ### First login results on the service
@@ -2448,8 +2455,11 @@ blocked (a watched one when its watch ends), is sent by the worker
 (`apps/extension/src/service/login-records.ts`) as one record to
 `POST /v1/recipes/:recipeId/logins`: the revision, the layout and chooser branch,
 the `login.attempt` outcome, the cause as for the first login's result code, the
-extension build, and `totalMs`, `serviceMs`, `networkMs`, `personMs` and `pageMs` from
-the [login's times](#request-and-login-timing). No URL, origin, reason text, label,
+extension build, `totalMs`, `serviceMs`, `networkMs`, `personMs` and `pageMs` from
+the [login's times](#request-and-login-timing), and the parts of its own time
+(`LOGIN_RECORD_PARTS`) when the device kept them
+([ADR 0055](adr/0055-login-records-sent-to-the-service.md#amendment-2026-11-03-where-pateats-own-time-went)).
+No URL, origin, reason text, label,
 value, username or typing time is sent; the service takes the site from the recipe
 revision it holds and adds the time. The logins that send no first-login result code
 send no record either (no recipe revision, fill-only, an item without a password,

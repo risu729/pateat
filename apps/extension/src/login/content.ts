@@ -274,6 +274,34 @@ function stepMiss(readiness: LoginReadiness): LaterMiss | undefined {
   if (readiness.later && credentialInputs(readiness.targets).identifier) return "identifier";
   return readiness.absent ? passwordAloneMiss(readiness.targets, readiness.absent) : undefined;
 }
+/**
+ * Whether a recipe's final `advance` click waits on a button the page keeps from clicks
+ * beside a password input that opened in its form (ADR 0018 amendment of 2026-11-03): its
+ * one target shows but takes no click, and a visible writable password input that is no
+ * new password or one-time code shares the button's form (outside any form, the page
+ * outside forms). Its page may then be sent to replace the click.
+ */
+function revealsPassword(readiness: LoginReadiness): boolean {
+  const [target] = readiness.targets;
+  if (pagePath() !== readiness.path || readiness.targets.length !== 1 || !target) return false;
+  if (targetCheck(document, target, "clickable") !== "not-clickable") return false;
+  const button = matches(target)[0]!;
+  const form =
+    button instanceof HTMLButtonElement || button instanceof HTMLInputElement
+      ? formOf(button)
+      : (closestAcross(button, "form") as HTMLFormElement | null);
+  return queryAll<HTMLInputElement>(document, "input").some((input) => {
+    const tokens = autocompleteTokens(input);
+    return (
+      input.type === "password" &&
+      formOf(input) === form &&
+      writable(input) &&
+      presence(input) === "visible" &&
+      !tokens.includes("new-password") &&
+      !tokens.includes("one-time-code")
+    );
+  });
+}
 /** Input types a person types an account identifier or a code into. */
 const textTypes = new Set(["text", "email", "tel", "number", "url"]);
 /**
@@ -1339,6 +1367,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // Cancellation is set by the independent background message listener.
         // eslint-disable-next-line no-unmodified-loop-condition
         while (!cancelled && !ready(command.readiness)) {
+          if (command.readiness.revealed && readingPage(() => revealsPassword(command.readiness)))
+            return { ok: false, reason: "revealed" };
           if (Date.now() >= until) {
             const miss = readingPage(() => readinessMiss(command.readiness));
             return { ok: false, reason: "timeout", ...(miss ? { miss } : {}) };

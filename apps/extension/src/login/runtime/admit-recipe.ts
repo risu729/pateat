@@ -721,6 +721,18 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       continuesRecipe(held, ctx.recipe)
     )
       ctx.recipe = held;
+    // So is a revision whose page replaces the final advance click the login stands at,
+    // with its request recorded and nothing in flight (ADR 0018 amendment of 2026-11-03).
+    else if (
+      held &&
+      ctx.previous.operationId === undefined &&
+      ctx.previous.continuation !== undefined &&
+      "before" in ctx.previous.continuation &&
+      ctx.previous.continuation.before === ctx.previous.stepIndex &&
+      ctx.previous.stepIndex + 1 === ctx.previous.stepCount &&
+      continuesRecipe(held, ctx.recipe, { replacesLast: true })
+    )
+      ctx.recipe = held;
     else {
       ctx.recipe = undefined;
       replaced = true;

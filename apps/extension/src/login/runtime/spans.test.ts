@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { addSpan, ownTime, takeSpans, timed, withholdSpans } from "./spans";
+import { addSpan, openSpans, ownTime, takeSpans, timed, withholdSpans } from "./spans";
 import type { Runtime } from "./state";
 import type { Execution } from "./types";
 
@@ -33,6 +33,7 @@ describe("ownTime", () => {
 describe("addSpan and takeSpans", () => {
   it("adds the time per part, and hands it out once in steps of 100 ms", () => {
     const rt = {} as Runtime;
+    openSpans(rt, "a");
     addSpan(rt, "a", "saveMs", 10.4);
     addSpan(rt, "a", "saveMs", 5);
     addSpan(rt, "a", "checkMs", 0);
@@ -46,34 +47,48 @@ describe("addSpan and takeSpans", () => {
   });
   it("rounds down, so the parts never add up to more than the time they took", () => {
     const rt = {} as Runtime;
+    openSpans(rt, "a");
     addSpan(rt, "a", "checkMs", 199);
     addSpan(rt, "a", "saveMs", 99);
     expect(takeSpans(rt, "a")).toEqual({ checkMs: 100 });
   });
   it("adds nothing to a login whose parts were taken or withheld", () => {
     const rt = {} as Runtime;
+    openSpans(rt, "a");
     addSpan(rt, "a", "saveMs", 300);
     takeSpans(rt, "a");
     addSpan(rt, "a", "saveMs", 300);
     expect(takeSpans(rt, "a")).toBeUndefined();
+    openSpans(rt, "b");
     addSpan(rt, "b", "commandMs", 300);
     withholdSpans(rt, "b");
     addSpan(rt, "b", "commandMs", 300);
     expect(takeSpans(rt, "b")).toBeUndefined();
   });
-  it("hands out nothing when every part rounds to nothing", () => {
+  it("keeps nothing for a login that did not start in this worker", () => {
+    // As one a restarted worker resumed, whose parts before the restart are lost.
     const rt = {} as Runtime;
-    addSpan(rt, "a", "statusMs", 20);
+    addSpan(rt, "a", "checkMs", 300);
     expect(takeSpans(rt, "a")).toBeUndefined();
+  });
+  it("hands out no part when every part rounds to nothing", () => {
+    const rt = {} as Runtime;
+    openSpans(rt, "a");
+    addSpan(rt, "a", "statusMs", 20);
+    expect(takeSpans(rt, "a")).toEqual({});
   });
   it("keeps the parts of the latest 64 logins", () => {
     const rt = {} as Runtime;
-    for (let index = 0; index < 65; index++) addSpan(rt, `${index}`, "startMs", 100);
+    for (let index = 0; index < 65; index++) {
+      openSpans(rt, `${index}`);
+      addSpan(rt, `${index}`, "startMs", 100);
+    }
     expect(takeSpans(rt, "0")).toBeUndefined();
     expect(takeSpans(rt, "64")).toEqual({ startMs: 100 });
   });
   it("keeps each runtime's parts apart", () => {
     const one = {} as Runtime;
+    openSpans(one, "a");
     addSpan(one, "a", "awaitMs", 700);
     expect(takeSpans({} as Runtime, "a")).toBeUndefined();
     expect(takeSpans(one, "a")).toEqual({ awaitMs: 700 });
@@ -84,6 +99,7 @@ describe("timed", () => {
   it("counts a part inside another only in the outer one", async () => {
     const rt = {} as Runtime;
     const run = { metadata: { id: "a", timing: timing() } } as unknown as Execution;
+    openSpans(rt, "a");
     let clock = 0;
     const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
     try {
@@ -105,6 +121,7 @@ describe("timed", () => {
   it("gives overlapping parts' time once, and the rest to the part still running", async () => {
     const rt = {} as Runtime;
     const run = { metadata: { id: "a", timing: timing() } } as unknown as Execution;
+    openSpans(rt, "a");
     let clock = 0;
     const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
     try {
@@ -130,13 +147,14 @@ describe("timed", () => {
     const run = {
       metadata: { id: "a", timing: timing({ pageSince: 0 }) },
     } as unknown as Execution;
+    openSpans(rt, "a");
     let clock = 0;
     const now = vi.spyOn(Date, "now").mockImplementation(() => clock);
     try {
       await timed(rt, run, "saveMs", async () => {
         clock = 500;
       });
-      expect(takeSpans(rt, "a")).toBeUndefined();
+      expect(takeSpans(rt, "a")).toEqual({});
     } finally {
       now.mockRestore();
     }

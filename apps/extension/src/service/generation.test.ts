@@ -223,6 +223,23 @@ describe("recipe generation requests", () => {
     expect(await h.generation.available(observation.origin, "/login")).toBe(true);
   });
 
+  it("claims a page replacing a final advance click apart, keeping the other claims (ADR 0018)", async () => {
+    const h = setup();
+    expect(await h.generation.generate(request)).toMatchObject({ outcome: "recipe" });
+    const base = { recipeId: recipeChange.recipeId, revision: 1 };
+    const replacing = { ...request, base: { ...base, replacesLast: true as const }, branch: KEY };
+    expect(await h.generation.generate(replacing)).toMatchObject({ outcome: "recipe" });
+    // The store still reads: the first page's claim holds, and so does the replacement's.
+    expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
+    expect(await h.generation.generate(request)).toEqual({ outcome: "skipped", reason: "sent" });
+    expect(await h.generation.generate(replacing)).toEqual({ outcome: "skipped", reason: "sent" });
+    // A continuation of the same revision is claimed apart from the replacement.
+    expect(await h.generation.generate({ ...request, base, branch: KEY })).toMatchObject({
+      outcome: "recipe",
+    });
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(3);
+  });
+
   it("takes a chooser recipe (ADR 0028) as the answer to a list of accounts only", async () => {
     const runsChooser = {
       version: 1 as const,

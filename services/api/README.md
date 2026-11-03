@@ -279,15 +279,20 @@ the plan check's code (such as `incompatible-role`).
   `<key>:account` / `<key>:other` for a chooser's branch), and a branch the stored
   recipe does not have answers `recipe-conflict`. Without `base`, an active recipe is
   returned as is; with `base`, the page's steps are appended after that layout's last
-  `advance` step. A continuation whose write loses to a write of another layout, or of
-  the chooser layout's other branch, is written once more onto that newer revision while
-  its own layout or branch is unchanged. A stale `base` gets the current recipe back, a
-  `base` whose recipe is revoked answers `recipe-revoked` while the revoked recipe's
-  start page is generated again as the revision after its tombstone, a `base` whose
-  recipe was not generated for this origin and its start path answers `recipe-conflict`.
-  A first page needs room under the active recipe count limit; every generated page,
-  including continuations and entry pages, needs at least 32 KiB of byte room before the
-  model call. A refused write after the call also answers `recipe-limit`. A judge write
+  `advance` step, or with `base.replacesLast` take the place of that step when it is a
+  click whose button stayed disabled while a password input opened: the page's steps
+  must fill `password` and click the same element only as their last step, or the answer
+  is `recipe-invalid`
+  ([ADR 0018](../../docs/adr/0018-recipe-generation-route.md#replacing-a-disabled-final-advance)).
+  A continuation whose write loses to a write of another layout, or of the chooser
+  layout's other branch, is written once more onto that newer revision while its own
+  layout or branch is unchanged. A stale `base` gets the current recipe back, a `base`
+  whose recipe is revoked answers `recipe-revoked` while the revoked recipe's start page
+  is generated again as the revision after its tombstone, a `base` whose recipe was not
+  generated for this origin and its start path answers `recipe-conflict`. A first page
+  needs room under the active recipe count limit; every generated page, including
+  continuations and entry pages, needs at least 32 KiB of byte room before the model
+  call. A refused write after the call also answers `recipe-limit`. A judge write
   refused for bytes keeps the page's answer (`challenge`, or `signed-in` once the recipe
   has a marker or the page is on another origin of the site) and is logged; only a first
   marker on the recipe's own origin refused for bytes answers `recipe-limit`. A `base`

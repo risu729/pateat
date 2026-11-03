@@ -65,6 +65,14 @@ function login(overrides: Partial<DashboardLogin> = {}): DashboardLogin {
     networkMs: 0,
     personMs: 0,
     pageMs: 0,
+    beforeShownMs: null,
+    startMs: null,
+    awaitMs: null,
+    saveMs: null,
+    statusMs: null,
+    checkMs: null,
+    vaultMs: null,
+    commandMs: null,
     createdAt: NOW - HOUR_MS,
     ...overrides,
   };
@@ -399,6 +407,40 @@ describe("dashboard aggregation", () => {
       logins: [login({ totalMs: 3500, personMs: 500, serviceMs: 1000, pageMs: 9000 })],
     });
     expect(data.logins.parts.withService).toMatchObject({ pageMs: 2000, otherMs: 0 });
+  });
+
+  it("gives the median of each part of Pateat's own time over the logins that sent them", () => {
+    const parts = { beforeShownMs: 500, saveMs: 100, statusMs: 0, checkMs: 0, vaultMs: 100 };
+    const data = summarize({
+      logins: [
+        // 3 s of its own, 2.2 s of it named.
+        login({ ...parts, totalMs: 5000, pageMs: 2000, startMs: 300, awaitMs: 1200, commandMs: 0 }),
+        login({
+          ...parts,
+          totalMs: 6000,
+          pageMs: 2000,
+          startMs: 500,
+          awaitMs: 2000,
+          commandMs: 200,
+        }),
+        // From a build before the parts: left out of them, kept in the login time.
+        login({ totalMs: 60_000 }),
+      ],
+    });
+    expect(data.logins.ownParts.recipeOnly).toEqual({
+      n: 2,
+      beforeShownMs: 500,
+      startMs: 300,
+      awaitMs: 1200,
+      saveMs: 100,
+      statusMs: 0,
+      checkMs: 0,
+      vaultMs: 100,
+      commandMs: 0,
+      // 3000 - 2200 and 4000 - 3400: the lower of 800 and 600.
+      restMs: 600,
+    });
+    expect(data.logins.ownParts.withService).toMatchObject({ n: 0, startMs: null, restMs: null });
   });
 
   it("keeps the latest 20 of a code", () => {

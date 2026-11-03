@@ -768,10 +768,14 @@ describe("production login document admission", () => {
         await vi.waitFor(() =>
           expect(attemptReports(report).map((entry) => entry.state)).toContain("authenticated"),
         );
-        const { times } = attemptReports(report).find((entry) => entry.state === "authenticated")!;
+        const { times, spans } = attemptReports(report).find(
+          (entry) => entry.state === "authenticated",
+        )!;
         expect(times).toMatchObject({ serviceMs: 5_000, networkMs: 800, personMs: 1_000 });
         expect(times!.totalMs).toBeGreaterThanOrEqual(60_000);
         expect(times!.otherMs).toBe(times!.totalMs - 6_000 - times!.pageMs);
+        // Its parts before the restart are lost, so it tells none.
+        expect(spans).toBeUndefined();
       } finally {
         fake.browser.tabs.query = query;
       }

@@ -522,10 +522,11 @@ On 2026-11-03 the owner asked why logins are slow (「遅くない？なんで�
 03:20 UTC). Production records of the week before showed most of a login without
 generation in `otherMs`, which does not say what took the time. So the `login.attempt`
 entry that carries a login's times also carries, as `count` fields, where Pateat's own
-time went. These fields stay on the device: a problem line
+time went. A problem line
 ([ADR 0066](0066-problem-lines-sent-to-the-service.md)) leaves them out
-(`LOCAL_ONLY_FIELDS`), and the login record sent to the service is unchanged
-([ADR 0055](0055-login-records-sent-to-the-service.md)).
+(`LOCAL_ONLY_FIELDS`). They were first kept on the device only; since the owner's answer
+of 11:15 UTC the same day the login record sends them too
+([ADR 0055](0055-login-records-sent-to-the-service.md#amendment-2026-11-03-where-pateats-own-time-went)).
 
 - `beforeShownMs`: from when the extension saw the document until it first announced a
   sign-in on the path the login started on: a ready first step, a sign-in form offered
@@ -556,8 +557,10 @@ Not confirmed by the owner (the agent's choices):
   ([ADR 0067](0067-software-keyboard-entry.md)), whose presses take long enough to show
   through that rounding, logs none of them.
 - The save and status of the change that ends a login come after its entry and are not
-  counted. The fields are kept in memory only, for the 64 most recent logins: a worker
-  that stops loses them, and a login whose entry has no times logs none.
+  counted. The fields are kept in memory only, for the 64 most recent logins that
+  started in this worker: a login that a restarted worker resumed logs none, since its
+  fields before the restart are lost and whether it typed on a software keyboard may be
+  too, and a login whose entry has no times logs none.
 
 ## Amendment 2026-11-03: when a login's time starts again
 

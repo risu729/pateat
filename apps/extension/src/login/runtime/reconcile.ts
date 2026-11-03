@@ -73,7 +73,9 @@ export async function observe(
 
 /**
  * Asks the document to wait for a step's elements. A document that went away or was
- * cancelled leaves the attempt as it is; its replacement document resumes it.
+ * cancelled leaves the attempt as it is; its replacement document resumes it. `revealed`:
+ * a final `advance` click's button stayed disabled while a password input opened beside it
+ * (ADR 0018 amendment of 2026-11-03), for a readiness that asks for it.
  */
 export async function waitFor(
   rt: Runtime,
@@ -82,7 +84,7 @@ export async function waitFor(
   timeoutMs = stepWaitMs(rt),
   /** Told why the step was not ready when its wait ran out, for the log. */
   onMiss?: (miss: AwaitMiss) => void,
-): Promise<"ready" | "timeout" | "gone"> {
+): Promise<"ready" | "timeout" | "revealed" | "gone"> {
   try {
     const response = await send(rt, run.live, {
       type: "login.await",
@@ -92,7 +94,10 @@ export async function waitFor(
     const parsed = v.safeParse(awaitResultSchema, response);
     if (!parsed.success) return "gone";
     if (parsed.output.reason === "timeout" && parsed.output.miss) onMiss?.(parsed.output.miss);
-    return parsed.output.ok ? "ready" : parsed.output.reason === "timeout" ? "timeout" : "gone";
+    if (parsed.output.ok) return "ready";
+    return parsed.output.reason === "timeout" || parsed.output.reason === "revealed"
+      ? parsed.output.reason
+      : "gone";
   } catch {
     return "gone";
   }
