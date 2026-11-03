@@ -62,6 +62,13 @@ export type CompletionRejection =
   /** The marker is not an element of the judged page. */
   | "not-on-page"
   /**
+   * The marker is a button whose text names the authenticator app's code
+   * (`namesAuthenticatorChoice`, ADR 0081): a sign-in step's button, which the extension
+   * may name by its text even when it is a `role="button"` widget that a marker's lookup
+   * never finds. The page is then a challenge, as with `login-page`.
+   */
+  | "sign-in-choice"
+  /**
    * The page still shows an element a step or handler uses on that path, a field any step
    * fills, or the rejection: it is a login page again.
    */
@@ -274,6 +281,8 @@ export function addCompletion(
     return { ok: false, reason: "login-page" };
   if (recipeElements(base).some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };
+  if (target.by === "text" && namesAuthenticatorChoice(target.value))
+    return { ok: false, reason: "sign-in-choice" };
   const absent = steps
     .filter((step) => !moved && step.path === page.path && step.kind === "fill")
     .flatMap(stepTargets)

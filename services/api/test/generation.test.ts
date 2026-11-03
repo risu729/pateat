@@ -3172,6 +3172,33 @@ describe("page judgement (ADR 0027)", () => {
     expect(await head(device, change.recipeId)).toBe(3);
   });
 
+  it("fails closed on a marker that chooses the authenticator app (ADR 0081)", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    // The extension may name a `role="button"` choice by its text on a judged page, which a
+    // marker's lookup never finds; such a button is a sign-in step's in any case.
+    const chooser = observation("/login/verify", [
+      {
+        ...element("app", "button", "Use code from authenticator"),
+        target: { by: "text", value: "Use code from authenticator" },
+      },
+    ]);
+    replies.push(judgeReply({ decision: "signed-in", marker: "app" }));
+    expect((await complete(device, change.recipeId, 2, chooser)).body).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+    });
+    const calls = sent.length;
+    expect((await complete(device, change.recipeId, 2, chooser)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judged-challenge",
+    });
+    expect(sent).toHaveLength(calls);
+    expect(await head(device, change.recipeId)).toBe(2);
+  });
+
   it("does not judge a page that shows a route fill field or a signed-in marker", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);

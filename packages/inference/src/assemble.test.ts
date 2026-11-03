@@ -856,6 +856,20 @@ describe("judged authenticator handler (ADR 0081)", () => {
       reason: "step-target",
     });
   });
+
+  it("is never learned as a signed-in marker, which the extension may not find again", () => {
+    // The extension names a `role="button"` choice by its text on a judged page; a
+    // marker's lookup takes links, never such a widget (ADR 0081 amendment of 2026-11-03).
+    expect(addCompletion(recipe, { ...chooser(), path: "/home" }, app)).toEqual({
+      ok: false,
+      reason: "sign-in-choice",
+    });
+    const sms = { by: "text", value: "Text me a code" } as const;
+    expect(addCompletion(recipe, { ...chooser(), path: "/home" }, sms).ok).toBe(true);
+    // A page that still shows the login's own button is a login page first.
+    const login = { ...chooser(candidate("next", target("password-next"))), path: "/login" };
+    expect(addCompletion(recipe, login, app)).toEqual({ ok: false, reason: "login-page" });
+  });
 });
 
 describe("judged totp handler (ADR 0027)", () => {

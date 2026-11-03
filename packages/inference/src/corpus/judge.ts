@@ -463,6 +463,26 @@ const cases: JudgeCase[] = [
     },
   },
   {
+    id: "en-second-factor-chooser-alone",
+    summary:
+      "The same choice where the other ways are widgets the extension leaves out, so only the authenticator one is described",
+    loginPaths: ["/login"],
+    observation: page(
+      "notes",
+      "/login",
+      "en",
+      [byText(button("opt-app", "Bitwarden Use code from authenticator"))],
+      { title: "Log in", headings: ["Verify your identity"] },
+    ),
+    expected: {
+      decisions: ["challenge"],
+      authenticatorButton: "opt-app",
+      passwordButton: null,
+      passkeyButton: null,
+      code: null,
+    },
+  },
+  {
     id: "ja-second-factor-chooser",
     summary: "パスワードの後、認証アプリか SMS かを選ぶページ",
     loginPaths: ["/signin"],

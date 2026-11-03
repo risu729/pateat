@@ -648,8 +648,12 @@ than in this repository.
   that goes on to the authenticator app's code as an `authenticator` handler, pressed
   only after the password, for an item with a TOTP code, when its text names an
   authenticator app by a shared English and Japanese word list
-  ([ADR 0081](adr/0081-authenticator-method-button.md)). Local tests only; check Notion
-  in the owner's Chrome, two judge calls on the first login. On 2026-10-19 at 12:50 UTC,
+  ([ADR 0081](adr/0081-authenticator-method-button.md)). On 2026-11-03 at 03:01 UTC,
+  on main `3db9e3d`, the owner's Chrome judged Notion's chooser `unclear` and ended
+  `authenticated` unconfirmed, since its ways are `<div role="button">` widgets the
+  extractor left out on a judged page; since the ADR's amendment of 2026-11-03 the one
+  that names the authenticator app's code is described by its text. Check Notion in the
+  owner's Chrome again, two judge calls on the first login. On 2026-10-19 at 12:50 UTC,
   on build `cfce11f`, the login pressed "Select" for the password and the service
   returned the continuation (fill the password, press Verify), but the login did not
   take it over and settled `unknown`. The item's saved binding of the recipe, saved on
