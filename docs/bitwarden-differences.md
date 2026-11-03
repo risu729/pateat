@@ -406,3 +406,13 @@ Accepted by the owner on 2026-10-23
   names the page's keypad by pressing the key that shows each character, and stops
   without submitting when a character has no single key or the field does not take a
   press. Such pages would otherwise always be left to the person.
+
+## Waits during a fill
+
+Accepted by the owner on 2026-11-03 ([ADR 0082](adr/0082-waits-on-signals.md)).
+
+- The official extension waits a set 20 ms between its fill actions
+  ([insert-autofill-content.service.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/services/insert-autofill-content.service.ts)).
+  Pateat waits for the page's next rendered frame instead, between fields, between a
+  split code's digits and after each value, and one task on a hidden page; it never
+  waits a set time for the page to react.

@@ -1015,75 +1015,78 @@ top-level document's current path from the tab's committed URL. The vault match 
 generation (`generationSlotsFor`) uses that URL too, on a first page as on the page
 after an `advance` step.
 
-A preparing fill (`prepare`) enters its inputs in order, 25 ms apart so the page's
-handlers for one field run before the next. A field that already holds its value, as a
-password field filled earlier holds it behind its mask, is left as it is, with no focus,
-key or event (owner decision, 2026-10-18, after a Cloudflare login filled fields that
-already held the values again). That is a known limit for a page that keeps its own copy
-of a value and never saw one the browser restored without an event, or one an earlier
-fill typed but stopped before `change` and blur, which may then submit it empty. Any
-other field is typed as a keyboard would type it: focus without scrolling, which blurs
-the field before; a field that already holds text is cleared first (`beforeinput` and
-`input` of type `deleteContentBackward`); then each character, one task apart, so the
-page's handlers for it and their microtasks run first (no timer, which Chrome throttles
-on a hidden page to a second, or to a minute after five minutes hidden), as `keydown`
-and `keypress` naming its key (no `keypress` for a control character), `beforeinput`,
-the character appended through the native `HTMLInputElement` value setter (so a
-framework that tracks the value, such as React, sees a change; a number input gets the
-characters typed so far, as Chrome empties one that is not yet a number, such as `1.`),
-`input` (an `InputEvent` of type `insertText` with the character as its data) and
-`keyup`; then `change`, and blur unless the page moved focus elsewhere. Chrome moves
-focus without sending the page `focus`, `focusin`, `blur` or `focusout` while the page
-does not have focus (`document.hasFocus()` is false), because its window is not the
-focused one, as when the person works in another application during a login, or its tab
-is in the background; then the fill sends them itself, in Chrome's order and naming the
-other element as `relatedTarget`, so a page that reads a field only on blur still sees
-the value (`src/page/focus.ts`, owner, 2026-10-17 04:41 UTC), and so does a press's
-focus. Those events are a known limit too: the element that had focus already got
-Chrome's `blur` when the page lost focus, so it gets a second one, and the element left
-focused gets Chrome's `focus` again when the person returns; a focus move the page's own
-handler for one of them makes gets no events. Key events carry Shift for the characters
-a US layout types with it. A page that cancels a character's `keydown`, `keypress` or
+A preparing fill (`prepare`) enters its inputs in order, one rendered frame of the page
+apart (one task on a hidden page; `nextFrame` in `src/page/frames.ts`,
+[ADR 0082](adr/0082-waits-on-signals.md)) so the page's handlers for one field run
+before the next. A field that already holds its value, as a password field filled
+earlier holds it behind its mask, is left as it is, with no focus, key or event (owner
+decision, 2026-10-18, after a Cloudflare login filled fields that already held the
+values again). That is a known limit for a page that keeps its own copy of a value and
+never saw one the browser restored without an event, or one an earlier fill typed but
+stopped before `change` and blur, which may then submit it empty. Any other field is
+typed as a keyboard would type it: focus without scrolling, which blurs the field
+before; a field that already holds text is cleared first (`beforeinput` and `input` of
+type `deleteContentBackward`); then each character, one task apart, so the page's
+handlers for it and their microtasks run first (no timer, which Chrome throttles on a
+hidden page to a second, or to a minute after five minutes hidden), as `keydown` and
+`keypress` naming its key (no `keypress` for a control character), `beforeinput`, the
+character appended through the native `HTMLInputElement` value setter (so a framework
+that tracks the value, such as React, sees a change; a number input gets the characters
+typed so far, as Chrome empties one that is not yet a number, such as `1.`), `input` (an
+`InputEvent` of type `insertText` with the character as its data) and `keyup`; then
+`change`, and blur unless the page moved focus elsewhere. Chrome moves focus without
+sending the page `focus`, `focusin`, `blur` or `focusout` while the page does not have
+focus (`document.hasFocus()` is false), because its window is not the focused one, as
+when the person works in another application during a login, or its tab is in the
+background; then the fill sends them itself, in Chrome's order and naming the other
+element as `relatedTarget`, so a page that reads a field only on blur still sees the
+value (`src/page/focus.ts`, owner, 2026-10-17 04:41 UTC), and so does a press's focus.
+Those events are a known limit too: the element that had focus already got Chrome's
+`blur` when the page lost focus, so it gets a second one, and the element left focused
+gets Chrome's `focus` again when the person returns; a focus move the page's own handler
+for one of them makes gets no events. Key events carry Shift for the characters a US
+layout types with it. A page that cancels a character's `keydown`, `keypress` or
 `beforeinput` keeps it out, as a browser does. One more wait follows the last character,
-25 ms on a shown page and one task on a hidden one (a framework writes a key it
-cancelled only once its handlers ran); then the fill stops as `fill-rejected` without
-`change`, blur or a click, so a value the page changed is never submitted, when the
-input does not hold the value after a cancelled event, or holds a value of another
-length. Since 2026-10-13, when a bank's password field held one character fewer than the
-typed value with no event cancelled and the login was sent and rejected, the length is
-checked after every typing; a value of the same length, such as a mask or a case the
-page changed, is kept, while a page that reformats a value, as by adding hyphens,
-refuses it. A value the page rewrote between full-width and half-width characters, as an
-address form turns `１－２－３` into `1-2-3` or a kana field turns `ガ` into `ｶﾞ`, is
-kept whatever its length, and also after a cancelled key, as when the page writes the
-rewritten character itself (owner, 2026-10-18 02:07 UTC), unless it no longer fits the
-field's `maxlength`. The held value and the typed one are compared with their full-width
-and half-width forms (U+3000 and U+FF01 to U+FFEF) folded as Unicode NFKC folds them and
-then composed, so `ｶﾞ` matches `ガ`; other compatibility characters, such as `①` or `…`,
-are not folded, so a page that rewrites one into characters of another length is still
-refused. Until then such a value was refused as `fill-rejected` whenever its length
-changed or a key was cancelled. A rewrite the fold does not cover, such as hiragana into
-katakana or `-` into `ー`, is kept only at the same length with no key cancelled. The
-length is checked again one wait after `change` and blur, whose handlers may rewrite the
-value, and a fill refused then has sent both; a field emptied then, as by a form that
-switches to other fields, is left to the checks before the click. A same-length change
-is a known limit: a page that turns one symbol into another still has its value
-submitted, as it would be from a person's typing. A page that cancels the clearing
-`beforeinput` and does not clear the field itself by that wait refuses the value the
-same way before any character is typed. A code split into one-digit inputs gets the same
-per digit, 25 ms apart. Typed keys are only a value's characters, so a page's Enter
-handler does not run. Each field's scope checks, and a split code's per-digit checks,
-run after the wait before it and again after each wait of its typing, including the
-waits after its last character; a typing they stop leaves the characters typed so far in
-the field and fails the step, so nothing is clicked, unless the code watch of
-[ADR 0027](adr/0027-per-account-login-routes.md) saw the page take the code, as a page
-that replaces its form once the last digit is in does: that ends as `submitted`. The 500
-ms check of [ADR 0010](adr/0010-inference-field-hints.md) follows the last field. A fill
-that advances or submits through the page's own event sets the value and sends that one
-`input` or `change` event alone, with no focus, keys or blur that could run its effect
-again. Known limits: the events are not trusted (`isTrusted` is false), so a page that
-checks that, or opens a software keyboard on focus, can still refuse a fill (a
-read-only field on a page's software keyboard is typed by pressing its keys instead,
+the page's next rendered frame on a shown page and one task on a hidden one (a framework
+writes a key it cancelled only once its handlers ran); then the fill stops as
+`fill-rejected` without `change`, blur or a click, so a value the page changed is never
+submitted, when the input does not hold the value after a cancelled event, or holds a
+value of another length. Since 2026-10-13, when a bank's password field held one
+character fewer than the typed value with no event cancelled and the login was sent and
+rejected, the length is checked after every typing; a value of the same length, such as
+a mask or a case the page changed, is kept, while a page that reformats a value, as by
+adding hyphens, refuses it. A value the page rewrote between full-width and half-width
+characters, as an address form turns `１－２－３` into `1-2-3` or a kana field turns
+`ガ` into `ｶﾞ`, is kept whatever its length, and also after a cancelled key, as when the
+page writes the rewritten character itself (owner, 2026-10-18 02:07 UTC), unless it no
+longer fits the field's `maxlength`. The held value and the typed one are compared with
+their full-width and half-width forms (U+3000 and U+FF01 to U+FFEF) folded as Unicode
+NFKC folds them and then composed, so `ｶﾞ` matches `ガ`; other compatibility characters,
+such as `①` or `…`, are not folded, so a page that rewrites one into characters of
+another length is still refused. Until then such a value was refused as `fill-rejected`
+whenever its length changed or a key was cancelled. A rewrite the fold does not cover,
+such as hiragana into katakana or `-` into `ー`, is kept only at the same length with no
+key cancelled. The length is checked again one wait after `change` and blur, whose
+handlers may rewrite the value, and a fill refused then has sent both; a field emptied
+then, as by a form that switches to other fields, is left to the checks before the
+click. A same-length change is a known limit: a page that turns one symbol into another
+still has its value submitted, as it would be from a person's typing. A page that
+cancels the clearing `beforeinput` and does not clear the field itself by that wait
+refuses the value the same way before any character is typed. A code split into
+one-digit inputs gets the same per digit, a frame apart. Typed keys are only a value's
+characters, so a page's Enter handler does not run. Each field's scope checks, and a
+split code's per-digit checks, run after the wait before it and again after each wait of
+its typing, including the waits after its last character; a typing they stop leaves the
+characters typed so far in the field and fails the step, so nothing is clicked, unless
+the code watch of [ADR 0027](adr/0027-per-account-login-routes.md) saw the page take the
+code, as a page that replaces its form once the last digit is in does: that ends as
+`submitted`. The check of [ADR 0010](adr/0010-inference-field-hints.md) follows the last
+field, one frame after its typing's last wait. A fill that advances or submits through
+the page's own event sets the value and sends that one `input` or `change` event alone,
+with no focus, keys or blur that could run its effect again. Known limits: the events
+are not trusted (`isTrusted` is false), so a page that checks that, or opens a software
+keyboard on focus, can still refuse a fill (a read-only field on a page's software
+keyboard is typed by pressing its keys instead,
 [ADR 0067](adr/0067-software-keyboard-entry.md))
 (`chrome.debugger` is the only extension API that sends trusted events, and the rule
 above keeps Pateat's own debugger detached); no `compositionstart`, `compositionupdate`
@@ -1092,27 +1095,29 @@ method's composition ends gets none (read from the code; no such page has been s
 key events name the key and Chrome's `keyCode` that a US layout types the character
 with, as `{ key: "@", code: "Digit2", keyCode: 50, shiftKey: true }`, whatever the
 person's own layout, and a character no US key types, such as `é`, gets an empty `code`
-and `keyCode` 0 (owner, 2026-10-17 04:41 UTC, which added the symbols); a hidden tab's
-timers are throttled, so the waits between fields and between the digits of a split code
-may stretch; a page that writes the field from its own timer after each key may drop
-characters, and its fill then stops at the check after typing, while one that keeps its
-own copy of the value from such a timer may hold another value while the field passes
-that check, and the copy is submitted (a page's zero-delay timer runs before the next
-character only when Chrome queues it first, which it does not once it clamps nested
-timers to 4 ms); and a page that submits on its own from a key or blur handler of a
-preparing fill is not watched for, so the click after the 500 ms check still runs if its
-button stays clickable. Before 2026-10-13 a preparing fill sent only `input` and
-`change` after the setter, in one task; that day a bank page showed its required-field
-error under its filled fields. Until later that day it then set the whole value at once
-between bare key events, as Bitwarden's autofill does; the same page's React inputs kept
-their state empty after that (a dummy-value probe in the owner's Chrome), and took each
-value when it was typed a character at a time. Characters were 25 ms apart, about 0.5 s
-for a username and a password, until the owner chose one task apart that day
-(2026-10-13), for speed: a character the page drops from the field still stops the fill
-before the click. Fields are not typed at the same time: only one input has focus, and
-typing two at once would move focus, and run the page's blur and focus checks, at every
-character; one task apart, a field's characters take a few milliseconds, so typing the
-fields in turn costs little (owner, 2026-10-13).
+and `keyCode` 0 (owner, 2026-10-17 04:41 UTC, which added the symbols); a frame Chrome
+does not render while its document reads as shown, as an off-screen one, gets no
+animation frame, so each wait for its next frame ends at its 100 ms bound instead; a
+page that writes the field from its own timer after each key may drop characters, and
+its fill then stops at the check after typing, while one that keeps its own copy of the
+value from such a timer may hold another value while the field passes that check, and
+the copy is submitted (a page's zero-delay timer runs before the next character only
+when Chrome queues it first, which it does not once it clamps nested timers to 4 ms);
+and a page that submits on its own from a key or blur handler of a preparing fill is not
+watched for, so the click after the fill check still runs if its button stays clickable;
+a page validator that shows its error only after a debounce longer than a frame shows it
+after the click (until 2026-11-03 the check waited 500 ms, ADR 0082). Before 2026-10-13
+a preparing fill sent only `input` and `change` after the setter, in one task; that day
+a bank page showed its required-field error under its filled fields. Until later that
+day it then set the whole value at once between bare key events, as Bitwarden's autofill
+does; the same page's React inputs kept their state empty after that (a dummy-value
+probe in the owner's Chrome), and took each value when it was typed a character at a
+time. Characters were 25 ms apart, about 0.5 s for a username and a password, until the
+owner chose one task apart that day (2026-10-13), for speed: a character the page drops
+from the field still stops the fill before the click. Fields are not typed at the same
+time: only one input has focus, and typing two at once would move focus, and run the
+page's blur and focus checks, at every character; one task apart, a field's characters
+take a few milliseconds, so typing the fields in turn costs little (owner, 2026-10-13).
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to blindly
 replay a submit. Input and change handlers can submit without a click. Declare whether a
@@ -1189,26 +1194,24 @@ recipe cannot place them in a search box. A Hidden custom field goes only into a
 password or short numeric input, and a Linked custom field follows the field it reads.
 Before a fill step that writes a secret but not the username (a site that remembers the
 account and asks only for the password), the background sends the selected item's
-username to the content script with that one fill. While the page shows no identifier
-to compare with, the content script first waits until the document has loaded and its
-DOM has not changed for 1 second, for at most 5 seconds and until 2 seconds before the
+username to the content script with that one fill. While the page shows no identifier to
+compare with, the content script first waits until the document has loaded and its DOM
+has not changed for 1 second, for at most 5 seconds and until 2 seconds before the
 operation expires, because a page can show the remembered account after its password
-field (Duolingo, 2026-10-23). It then compares
-the username with the account identifiers shown in the form, or the page when there
-is no form, and the first eight `h1`-`h3` headings; every element boundary but a
-`<wbr>` separates words, format characters are left out (so
-`taro.yamada@<wbr>example.com` is one address), and
-`mailto:` links, `<address>` and `<footer>` are skipped as contact addresses. An
-unmasked address in a hidden or read-only input for an identifier (type `email`,
-autocomplete `username` or `email`, or a name or ID with `user`, `mail`, `login`,
-`account` or `ident`) counts too, as the form submits it: a form for a remembered
-account may keep the address only there ([ADR 0049](adr/0049-start-at-a-later-step.md)).
-An input the person can type into is never read. The username never leaves the content
-script or reaches status. An email username is
-compared with shown email addresses. A username of digits only is compared with masked
-IDs that show at least two characters (`****1234`), and only on a step that fills a
-password or Hidden field, because a one-time-code page usually shows the masked phone
-number the code was sent to. If comparable identifiers are shown and none fits
+field (Duolingo, 2026-10-23). It then compares the username with the account identifiers
+shown in the form, or the page when there is no form, and the first eight `h1`-`h3`
+headings; every element boundary but a `<wbr>` separates words, format characters are
+left out (so `taro.yamada@<wbr>example.com` is one address), and `mailto:` links,
+`<address>` and `<footer>` are skipped as contact addresses. An unmasked address in a
+hidden or read-only input for an identifier (type `email`, autocomplete `username` or
+`email`, or a name or ID with `user`, `mail`, `login`, `account` or `ident`) counts too,
+as the form submits it: a form for a remembered account may keep the address only there
+([ADR 0049](adr/0049-start-at-a-later-step.md)). An input the person can type into is
+never read. The username never leaves the content script or reaches status. An email
+username is compared with shown email addresses. A username of digits only is compared
+with masked IDs that show at least two characters (`****1234`), and only on a step that
+fills a password or Hidden field, because a one-time-code page usually shows the masked
+phone number the code was sent to. If comparable identifiers are shown and none fits
 (`myaccount@example.com` or `****9999` shown while `my2@example.com` or `00001234` is
 selected), the step fills nothing and the attempt ends `wrong-account` without a retry
 or a spent submission. A masked value consistent with the username (`m***@example.com`,
@@ -1216,51 +1219,50 @@ or a spent submission. A masked value consistent with the username (`m***@exampl
 (`taro99`) or a page that shows no comparable identifier. A masked number that is not
 the account, such as a card number on a password page, still stops a digits-only
 username: a known limitation. A recipe can name an `accountSwitch` target: the control
-that switches to another account
-(`{ "by": "text", "value": "Use another account" }`; text locators match link text only
-here and in a signed-in marker; the recipe must not use it for a click step, a handler,
-`rejection` or a signed-in marker). When the page shows another account, nothing was
-submitted in the attempt, and that target matches exactly one shown element that may be
-clicked by the one rule for a control for another account (entry-like as ADR 0028
-defines it, no address, masked text, four or more digits or word for another action in
-its text, and its click reaches no submit button of a form with a shown field;
-[ADR 0078](adr/0078-the-pages-own-account-switch.md), which a list's `other` button also
-follows), the background first records the attempt as `account-switched`
-(blocked, no submission spent) and then has the content script click it. The click
-happens only within 10 seconds, on the same path, while the target still matches exactly
-that element; otherwise the record becomes `wrong-account` and keeps holding that origin
-in the tab. After the click, the tab's next document of that origin that reports ready
-starts a new attempt instead of resuming, so a recipe that starts on the page the switch
-leads to logs in, such as an email page at `/signin/id` after a password page at
-`/signin/pwd` that showed `myaccount@example.com` (owner decision, 2026-10-11). That
-attempt carries the switch and never clicks another: a page that still shows another
-account ends it `wrong-account`. A recipe without the target clicks the page's own
-control for another account instead, when exactly one entry-like control outside page
-chrome has words for another account and passes the same rule
+that switches to another account (`{ "by": "text", "value": "Use another account" }`;
+text locators match link text only here and in a signed-in marker; the recipe must not
+use it for a click step, a handler, `rejection` or a signed-in marker). When the page
+shows another account, nothing was submitted in the attempt, and that target matches
+exactly one shown element that may be clicked by the one rule for a control for another
+account (entry-like as ADR 0028 defines it, no address, masked text, four or more digits
+or word for another action in its text, and its click reaches no submit button of a form
+with a shown field; [ADR 0078](adr/0078-the-pages-own-account-switch.md), which a list's
+`other` button also follows), the background first records the attempt as
+`account-switched` (blocked, no submission spent) and then has the content script click
+it. The click happens only within 10 seconds, on the same path, while the target still
+matches exactly that element; otherwise the record becomes `wrong-account` and keeps
+holding that origin in the tab. After the click, the tab's next document of that origin
+that reports ready starts a new attempt instead of resuming, so a recipe that starts on
+the page the switch leads to logs in, such as an email page at `/signin/id` after a
+password page at `/signin/pwd` that showed `myaccount@example.com` (owner decision,
+2026-10-11). That attempt carries the switch and never clicks another: a page that still
+shows another account ends it `wrong-account`. A recipe without the target clicks the
+page's own control for another account instead, when exactly one entry-like control
+outside page chrome has words for another account and passes the same rule
 ([ADR 0078](adr/0078-the-pages-own-account-switch.md)). When the target is missing or
 ambiguous, or no single such control shows, the attempt ends `wrong-account` as above. A
 switch that changes the page in place, without loading a new document, continues once
 the page has settled (load and 1 second of DOM quiet, at most 5 seconds) and the switch
 no longer shows: the document announces itself again, marked as switched, so a recipe
 that starts on its path starts a new attempt and a page without one may be offered for
-generation once more. Before a fill step writes
-anything, the content script checks every value against its input
-([ADR 0010](adr/0010-inference-field-hints.md)): non-empty, within the input's
-`maxlength` and `minlength` (ignored on `number` inputs), and a valid email or number
-for those input types (`valueMismatch` in `packages/contracts/src/values.ts`). A
-22-character password and an input with `maxlength="8"` fills nothing and ends the
-attempt `value-mismatch` without a retry or a spent submission. After a preparing fill,
-the content script waits 500 ms for the page's own handlers and ends the attempt
-`fill-rejected`, without a retry or the click, when a filled input is invalid
-(`validity.valid`, which unlike `checkValidity()` fires no `invalid` event), became
-`aria-invalid="true"`, or a visible alert shows text that no such region showed before
-the fill. Alerts are `role="alert"` and `aria-live="assertive"` regions anywhere, and
-`role="status"` and polite regions inside the filled form or named by a filled input's
-`aria-describedby` or `aria-errormessage`. Named feedback resolves in the input's own
-document or shadow tree, for both the fill check and the sign-in state reading; a
-matching ID in another tree does not name that region (ADR 0070). A message the page
-already showed and renders again is not new, nor is a mark the input had before the
-fill. The text stays in the
+generation once more. Before a fill step writes anything, the content script checks
+every value against its input ([ADR 0010](adr/0010-inference-field-hints.md)):
+non-empty, within the input's `maxlength` and `minlength` (ignored on `number` inputs),
+and a valid email or number for those input types (`valueMismatch` in
+`packages/contracts/src/values.ts`). A 22-character password and an input with
+`maxlength="8"` fills nothing and ends the attempt `value-mismatch` without a retry or a
+spent submission. After a preparing fill, the content script waits for the page's next
+rendered frame after the typing's last wait, so its own handlers ran
+([ADR 0082](adr/0082-waits-on-signals.md)), and ends the attempt `fill-rejected`,
+without a retry or the click, when a filled input is invalid (`validity.valid`, which
+unlike `checkValidity()` fires no `invalid` event), became `aria-invalid="true"`, or a
+visible alert shows text that no such region showed before the fill. Alerts are
+`role="alert"` and `aria-live="assertive"` regions anywhere, and `role="status"` and
+polite regions inside the filled form or named by a filled input's `aria-describedby` or
+`aria-errormessage`. Named feedback resolves in the input's own document or shadow tree,
+for both the fill check and the sign-in state reading; a matching ID in another tree
+does not name that region (ADR 0070). A message the page already showed and renders
+again is not new, nor is a mark the input had before the fill. The text stays in the
 content script; only the outcome leaves it. A fill that submits through its own event is
 checked only before filling. When a filled input was replaced during the wait, nothing
 is clicked and the attempt observes the page instead. A click is not made, and the

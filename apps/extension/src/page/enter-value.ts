@@ -8,15 +8,8 @@
 // as the page's handlers allow (owner decision, 2026-10-13).
 
 import { blurElement, focusElement, focusedElement } from "./focus";
+import { nextFrame, nextTask } from "./frames";
 import { widthFolded } from "./text";
-
-/**
- * How long a preparing fill waits between its inputs, between the digits of a split code
- * and after a value's last character, so the page's handlers for one, their microtasks
- * and short timers, run before the next. Bitwarden's autofill waits 20 ms between
- * actions.
- */
-export const FIELD_GAP_MS = 25;
 
 const valueProperty = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
 
@@ -78,28 +71,14 @@ function keyOf(character: string): KeyboardEventInit {
 }
 
 /**
- * Waits one task, so the page's handlers for a typed character and their microtasks run
- * before the next one. It is no timer, which Chrome throttles on a hidden page to a
- * second or, after five minutes hidden, to a minute.
- */
-export function nextTask(): Promise<void> {
-  return new Promise((resolve) => {
-    const channel = new MessageChannel();
-    channel.port1.onmessage = () => {
-      channel.port1.close();
-      resolve();
-    };
-    channel.port2.postMessage(undefined);
-  });
-}
-
-/**
- * Waits for the page after a value's characters: {@link FIELD_GAP_MS} on a shown page, so
- * a framework's short timers run too, or one task on a hidden one.
+ * Waits for the page after a value's characters, and between a preparing fill's inputs
+ * and a split code's digits: its next rendered frame and one task after it
+ * ({@link nextFrame}), so the page's handlers, their microtasks and zero-delay timers ran
+ * and what they render shows; one task on a hidden page. No set time (ADR 0082); Bitwarden's
+ * autofill waits 20 ms between actions instead.
  */
 export function gap(): Promise<void> {
-  if (!document.hidden) return new Promise((resolve) => setTimeout(resolve, FIELD_GAP_MS));
-  return nextTask();
+  return nextFrame();
 }
 
 /**

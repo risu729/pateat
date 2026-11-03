@@ -5,7 +5,7 @@
 // them for a mouse moved onto the control and pressed. The events are not trusted
 // (`isTrusted` is false) and carry no user activation, as the click itself does not.
 
-import { nextTask } from "./enter-value";
+import { nextTask } from "./frames";
 import { blurElement, focusElement, focusedElement } from "./focus";
 
 /** The pointer a mouse is, as Chrome reports it. */

@@ -3,17 +3,22 @@
 
 import { gap } from "./enter-value";
 import { focusElement } from "./focus";
+import { nextFrame } from "./frames";
 import { keyLabel, keypadCovers, keypadOpen, keysFor, pressable } from "./keypad";
+import { pageChange } from "./page-change";
 import { pressElement } from "./script-url-click";
 
-/** How long a keypad that opens when its field is pressed may take to show its keys. */
+/**
+ * How long a keypad that opens when its field is pressed may take to show its keys. They
+ * are looked for again at each change of the page (`pageChange`, ADR 0082).
+ */
 export const KEYPAD_OPEN_MS = 2_000;
-/** How often the executor looks for the keys while the keypad opens. */
-const openPollMs = 50;
-/** How long a press may take to show its character in the field. */
+/**
+ * How long a press may take to show its character in the field. The field is read again
+ * at each frame the page renders, as a keypad's script may write it with no event or DOM
+ * change, and at each change of a hidden page, which renders no frame (ADR 0082).
+ */
 export const KEYPAD_PRESS_MS = 1_000;
-/** How often the field is read again while a press has not shown yet. */
-const pressPollMs = 25;
 
 /** Why typing on a keypad stopped, besides the caller's own causes. */
 export type KeypadStop =
@@ -37,7 +42,7 @@ const valueProperty = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype
  * since some keypads shuffle or redraw their keys after each one, and the typing stops at
  * the first character without exactly one key. After each press, the field must come to
  * hold one more character, masked or not, within {@link KEYPAD_PRESS_MS}, read after the
- * page's pause (`gap`) and then every 25 ms; more characters, or none in time, stop the typing as
+ * page's pause (`gap`) and then at each frame; more characters, or none in time, stop the typing as
  * `refused`: a keypad
  * that ignored the press, as one that checks `isTrusted` would, or that keeps the value
  * elsewhere, is never submitted with a value Pateat cannot see. Nothing is ever pressed
@@ -82,7 +87,7 @@ export async function typeOnKeypad<Cause extends string>(
     const until = Date.now() + openMs;
     while (!open() && Date.now() < until) {
       // eslint-disable-next-line no-await-in-loop
-      await new Promise((resolve) => setTimeout(resolve, openPollMs));
+      await pageChange(input.ownerDocument, until);
       const stopped = between?.();
       if (stopped) return stopped;
     }
@@ -111,10 +116,15 @@ export async function typeOnKeypad<Cause extends string>(
     if (cause) return cause;
     if (pressed !== "clicked") return "refused";
     const until = Date.now() + pressMs;
-    // The page's own pause first, then a timer, so a hidden tab never spins for the wait.
+    // The page's own pause first, then its frames; a hidden page, which renders none, is
+    // read at its changes, so a hidden tab never spins for the wait.
     for (let wait = 0; ; wait++) {
       // eslint-disable-next-line no-await-in-loop
-      await (wait === 0 ? gap() : new Promise((resolve) => setTimeout(resolve, pressPollMs)));
+      await (wait === 0
+        ? gap()
+        : input.ownerDocument.hidden
+          ? pageChange(input.ownerDocument, until)
+          : nextFrame());
       const stopped = between?.();
       if (stopped) return stopped;
       const length = [...current()].length;

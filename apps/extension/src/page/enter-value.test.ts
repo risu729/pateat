@@ -2,10 +2,10 @@ import { createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { afterEach, describe, expect, it } from "vitest";
-import { FIELD_GAP_MS, typeValue } from "./enter-value";
+import { typeValue } from "./enter-value";
+import { nextFrame } from "./frames";
 
 const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const cleanups: (() => void)[] = [];
 
 afterEach(() => {
@@ -17,7 +17,7 @@ afterEach(() => {
 async function fill(entries: readonly [HTMLInputElement, string][]): Promise<void> {
   for (const [index, [input, value]] of entries.entries()) {
     // eslint-disable-next-line no-await-in-loop
-    if (index > 0) await pause(FIELD_GAP_MS);
+    if (index > 0) await nextFrame();
     // eslint-disable-next-line no-await-in-loop
     await typeValue(input, value, setter);
   }
@@ -291,12 +291,12 @@ describe("typeValue", () => {
     const started = performance.now();
     expect(await typeValue(field, "abcdefgh", setter)).toBeUndefined();
     expect(values).toEqual(["a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh"]);
-    // Only the two waits after the last character are timers; seven between the
-    // characters would add 175 ms.
-    expect(performance.now() - started).toBeLessThan(FIELD_GAP_MS * 6);
+    // Only the two waits after the last character wait for a frame (about 16 ms each);
+    // seven 25 ms timers between the characters would add 175 ms.
+    expect(performance.now() - started).toBeLessThan(150);
   });
 
-  it("waits a task rather than a timer after the last character in a hidden tab", async () => {
+  it("waits a task rather than a frame after the last character in a hidden tab", async () => {
     Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
     cleanups.push(() => Reflect.deleteProperty(document, "hidden"));
     document.body.innerHTML = '<input id="field">';
@@ -304,7 +304,20 @@ describe("typeValue", () => {
     const started = performance.now();
     expect(await typeValue(field, "abcdefgh", setter)).toBeUndefined();
     expect(field.value).toBe("abcdefgh");
-    expect(performance.now() - started).toBeLessThan(FIELD_GAP_MS * 4);
+    expect(performance.now() - started).toBeLessThan(100);
+  });
+
+  it("accepts a page that writes a cancelled key in its next animation frame", async () => {
+    document.body.innerHTML = '<input id="field">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    field.addEventListener("keydown", (event) => {
+      if (event.key.length !== 1) return;
+      event.preventDefault();
+      const { key } = event;
+      requestAnimationFrame(() => (field.value += key));
+    });
+    expect(await typeValue(field, "42", setter)).toBeUndefined();
+    expect(field.value).toBe("42");
   });
 
   it("accepts a page that types a cancelled key itself, as a masked field does", async () => {
@@ -453,7 +466,7 @@ describe("typeValue", () => {
     flushSync(() => root.render(createElement(Field)));
     const field = document.getElementById("react-field") as HTMLInputElement;
     await typeValue(field, "sato-7", setter);
-    await pause(FIELD_GAP_MS);
+    await nextFrame();
     expect(document.getElementById("react-state")!.textContent).toBe("sato-7");
     expect(field.value).toBe("sato-7");
   });
@@ -478,7 +491,7 @@ describe("typeValue", () => {
     flushSync(() => root.render(createElement(Field)));
     const field = document.getElementById("react-blur") as HTMLInputElement;
     expect(await typeValue(field, "pass-word", setter)).toBeUndefined();
-    await pause(FIELD_GAP_MS);
+    await nextFrame();
     expect(field.value).toBe("pass-word");
   });
 });

@@ -83,11 +83,13 @@ accepts (`SHADOW_ROOT_CANDIDATE_NODE_NAMES`), the closed root that
   crosses into or out of a shadow tree. Attaching a shadow root is no change an observer
   reports, so a sign-in input in a root attached with no other change is found at the
   latest when the page's offer is decided (once its DOM is quiet, ADR 0057), which then
-  checks the page first. While custom elements of the page are not yet defined, the
-  watch counts them every half second and checks the page when the count changes, as an
-  element defined late may attach its root then; it stops once the count stays the same
-  for ten seconds and starts again only for another count, so elements a page never
-  defines cost nothing after that.
+  checks the page first. For each name of a custom element the page has not defined yet,
+  the page's main world waits for its definition (`customElements.whenDefined`, as the
+  isolated world has no `customElements`) and the watch checks the page at the next
+  frame once it is defined, as an element defined late may attach its root then; a name
+  a page never defines costs nothing ([ADR 0082](0082-waits-on-signals.md)). Until
+  2026-11-03 the watch counted the undefined elements every half second instead, for ten
+  seconds after the count last changed.
 - Form destinations (ADR 0051): a field or submit control in a component's shadow tree
   is checked against its own form and every form that holds the component, as the
   component may submit its value with any of them. Each form's destination is checked on
