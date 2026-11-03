@@ -555,12 +555,28 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       }
       if (operation.step.kind === "fill" && rt.signInUrls.get(tabId)?.attemptId !== run.metadata.id)
         rt.signInUrls.set(tabId, { attemptId: run.metadata.id, url: run.live.url });
+      // The comparison with the shown account may wait for the click that follows the fill
+      // on its path, unless the page may submit without it (ADR 0049 amendment of
+      // 2026-11-03).
+      const following = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex + 1]?.step;
+      const accountAtPress =
+        expected !== undefined &&
+        !run.metadata.fillOnly &&
+        operation.step.kind === "fill" &&
+        loginStepEffect(operation.step) === "prepare" &&
+        !keypadStep(operation.step) &&
+        !codeSubmit &&
+        codeStep(run.recipe, run.metadata, operation.stepIndex) === undefined &&
+        selfSubmitStep(run.recipe, run.metadata, operation.stepIndex) === undefined &&
+        following?.kind === "click" &&
+        following.path === operation.step.path;
       const execute = () =>
         send(rt, run.live, {
           type: "login.execute",
           operation,
           values,
           ...(expected ? { account: expected } : {}),
+          ...(accountAtPress ? { accountAtPress: true as const } : {}),
           ...(list ? { list } : {}),
           // One switch per tab: an attempt that follows a switch never clicks another.
           // A fill-only login never clicks, not even a switch (ADR 0021 D).

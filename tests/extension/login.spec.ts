@@ -1762,6 +1762,14 @@ test("a page showing another account is not filled, and its account switch is cl
       expect(await clicks(late)).toBe(0);
       await late.close();
       await expect.poll(status).not.toContain("wrong-account");
+      // The password goes in at once and is checked before the click: a late account that
+      // is the item's logs in.
+      const lateSame = await context.newPage();
+      await lateSame.goto(`${fixture.origin}/single?shown-late=****1234`);
+      await expect(lateSame.locator("#authenticated")).toBeVisible();
+      expect(await clicks(lateSame)).toBe(1);
+      await lateSame.close();
+      await expect.poll(status).not.toContain("authenticated");
       const same = await context.newPage();
       await same.goto(`${fixture.origin}/single?shown=****1234`);
       await expect(same.locator("#authenticated")).toBeVisible();

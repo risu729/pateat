@@ -113,6 +113,14 @@ export async function startLoginFixture(
       });
       return;
     }
+    if (path === "/slow-image") {
+      // An image that takes 1.5 s, so the page's `load` comes late (`?shown-late`).
+      setTimeout(() => {
+        response.writeHead(200, { "content-type": "image/gif" });
+        response.end(Buffer.from("R0lGODlhAQABAAAAACw=", "base64"));
+      }, 1500);
+      return;
+    }
     if (path === "/slow-switch") {
       // An account switch whose next page takes 2.5 s, as a server-side sign-out does.
       const shown = fixtureUrl.searchParams.get("shown") ?? "";
@@ -739,8 +747,9 @@ export async function startLoginFixture(
       const shown = fixtureUrl.searchParams.get("shown");
       const switchTo = fixtureUrl.searchParams.get("switch");
       const masked = /^[A-Za-z0-9@.*]+$/u;
-      // `?shown-late` shows the account only after a loading text changes for 1.6 s, as
-      // Duolingo's remembered account shows after its password field (2026-10-23).
+      // `?shown-late` shows the account only once the page has loaded, after an image that
+      // takes 1.5 s, as Duolingo's remembered account shows after its password field
+      // (2026-10-23).
       const shownLate = fixtureUrl.searchParams.get("shown-late");
       // `?switch-pointer` names the account a "Use another account" element with only a
       // pointer cursor, inside the form after the password field, loads next (Duolingo,
@@ -780,7 +789,7 @@ export async function startLoginFixture(
         html(
           `<h1>Synthetic single-page login</h1>${
             shown !== null && masked.test(shown) ? `<p id="shown">Signed in as ${shown}</p>` : ""
-          }${shownLate !== null && masked.test(shownLate) ? `<p id="account" data-shown="Signed in as ${shownLate}">Loading</p>` : ""}${
+          }${shownLate !== null && masked.test(shownLate) ? `<p id="account" data-shown="Signed in as ${shownLate}">Loading</p><img alt="" src="/slow-image">` : ""}${
             // `switch` names the account the "Use another account" link shows next;
             // `switch-submit` makes it the submit button of its own form, with a shown field.
             switchTo === null || !masked.test(switchTo)
@@ -842,7 +851,7 @@ export async function startLoginFixture(
           document.getElementById('use-another')?.addEventListener('click', (event) => { const { shown, next } = event.currentTarget.dataset; if (shown) { document.getElementById('shown').textContent = shown; event.currentTarget.remove(); } else location.assign(next); });
           ${
             shownLate !== null && masked.test(shownLate)
-              ? `{ let ticks = 0; const loading = setInterval(() => { ticks += 1; document.getElementById('account').textContent = 'Loading' + '.'.repeat(ticks % 4); if (ticks === 8) { clearInterval(loading); document.getElementById('account').textContent = document.getElementById('account').dataset.shown; } }, 200); }`
+              ? "addEventListener('load', () => { document.getElementById('account').textContent = document.getElementById('account').dataset.shown; });"
               : ""
           }
           ${form === null || form === "script" ? "" : "document.getElementById('login').form?.addEventListener('submit', (event) => event.preventDefault());"}

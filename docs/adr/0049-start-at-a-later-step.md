@@ -29,9 +29,11 @@ the account, of the page's language, then the newest. Any layout's signed-in mar
 keeps a later step from starting.
 
 Amended on 2026-10-24 (owner, 10:48 UTC, decision card "A: パスワード欄だけで始める",
-implemented): [a fill step that fills the password with an account identifier may start
-with its password alone](#amendment-2026-10-24-a-one-page-form-with-its-password-alone),
-which the Consequences listed as not fixed.
+implemented):
+[a fill step that fills the password with an account identifier may start with its password alone](#amendment-2026-10-24-a-one-page-form-with-its-password-alone),
+which the Consequences listed as not fixed. Amended on 2026-11-03 (owner, 11:14 UTC,
+decision card "送信クリックの直前に確認"):
+[a password-only fill no longer waits for the page to settle; the shown account is compared just before the next click](#amendment-2026-11-03-the-shown-account-checked-at-the-click).
 
 Date: 2026-10-18
 
@@ -211,3 +213,45 @@ first, so a page showing another account ends `wrong-account` as before. That ch
 also reads an unmasked address the form keeps in a hidden or read-only identifier input,
 as the form would submit it with the password; an input the person can type into is
 never read. `login.start` logs `startPartial`.
+
+## Amendment 2026-11-03: the shown account checked at the click
+
+Status: accepted by the owner on 2026-11-03 (11:14 UTC, decision card
+"パスワードだけの画面:
+表示中アカウントの確認を、ページが落ち着く前から送信クリック時に移してよいですか",
+option "送信クリックの直前に確認"), over checking once the account shows (B) or keeping
+the wait (C). Implemented; local tests only.
+
+Context: before a fill that writes a secret but not the username, while the page showed
+no identifier to compare with, the content script waited for the document's `load` and
+1 second without a DOM change, at most 5 seconds (`accountQuietMs`, `accountWaitMs`),
+because Duolingo shows its remembered account after its password field (2026-10-23). A
+page with ads or animations never goes quiet, so it paid the whole 5 seconds. The owner
+forbade fixed waits on 2026-11-03 ([ADR 0082](0082-waits-on-signals.md)), after the
+production logins without a model took 11.3 seconds at the median.
+
+Decision: such a fill whose effect is `prepare`, followed on its path by a click, fills
+at once and leaves the comparison to that click or Enter (`accountAtPress`, sent by the
+background). The press first waits, while the page still shows no comparable identifier
+and has not loaded, for `load`, at most 5 seconds and until 2 seconds before the
+operation expires, and then runs its own checks (the form's destination, the form still
+holding its values); the comparison runs last, with no wait before the press. On another
+account the content script clears the inputs the fill typed into, presses nothing, and
+the attempt ends `wrong-account`, or clicks the recipe's switch or the page's own
+control as before ([ADR 0078](0078-the-pages-own-account-switch.md)); the attempt's
+state machine now takes a wrong account from that click as from a fill. An advance on a
+page that still shows no identifier leaves the comparison to the next press; a submit
+uses it up. A page that shows an identifier when the fill starts is compared then, as
+before. A fill-only login (ADR 0021 D), a fill on a software keyboard (ADR 0067), a code
+fill (ADR 0027) and a fill that may submit by itself, whose page may submit without the
+click, still wait for the page to settle before they fill. The username stays in the
+content script and is cleared after the comparison or when the document is cancelled.
+
+Consequences: a password-only page fills without the 1 to 5 second wait. A page that
+shows its account only after the press is no longer caught: the password was typed into
+the form, but nothing is pressed only when the account shows by the press. The
+password is also sent unchecked when something other than Pateat's press submits it
+before that press: the person pressing Sign in while the press waits, or a page that
+submits or replaces its form by itself after the fill, where the login observes
+instead of clicking. An attempt that ends before its press leaves the typed password in
+the form.

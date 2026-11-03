@@ -98,8 +98,10 @@ change, in the order of the inventory (largest added time first):
   [ADR 0029](0029-local-sign-in-state.md),
   [ADR 0022](0022-login-attempts-per-tab-and-origin.md)).
 - The shown-account check's `accountQuietMs`/`accountWaitMs` before a password-only
-  fill, and the same quiet after an in-place account switch
-  ([ADR 0078](0078-the-pages-own-account-switch.md)).
+  fill that may submit by itself, and the same quiet after an in-place account switch
+  ([ADR 0078](0078-the-pages-own-account-switch.md)). A `prepare` fill no longer waits:
+  its check moved to the next press
+  ([ADR 0049 amendment of 2026-11-03](0049-start-at-a-later-step.md#amendment-2026-11-03-the-shown-account-checked-at-the-click)).
 - `CODE_SETTLE_MS` of a code fill ([ADR 0027](0027-per-account-login-routes.md)): a page
   that verifies a code late may give no earlier signal, so a shorter residual bound may
   have to stay; that is the owner's call.
