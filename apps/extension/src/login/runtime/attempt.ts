@@ -222,6 +222,7 @@ export function startTiming(
   // The document's time so far is this login's; another login it starts later counts
   // from now (ADR 0019).
   Object.assign(live.timing, { since: Date.now(), serviceMs: 0, networkMs: 0, personMs: 0 });
+  live.loginStarted = true;
   return timing;
 }
 

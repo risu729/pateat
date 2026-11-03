@@ -245,6 +245,28 @@ export async function admit(
 
   const previousUrl = previousPage(rt, document, oldLive, sameDocument, path);
 
+  // The document's time for its next login starts again (ADR 0019, owner 2026-11-03), from
+  // when this announcement arrived: on a new document; once a locked vault can be read,
+  // since unlocking comes before any login; when the document announces from another path
+  // it moved to in place, as a single-page site's route to its sign-in; and when it shows a
+  // sign-in again after a login it started, as after a sign-out in place, unless the popup
+  // offers it a choice of account or the person picked one, as after a fill-only login,
+  // whose next login counts from the login before it.
+  const pick = rt.picked.get(document.tabId);
+  const choosing =
+    rt.pending.get(document.tabId)?.document.documentId === document.documentId ||
+    (pick?.attemptId === undefined && pick?.documentId === document.documentId);
+  const announcing = Boolean(start || signIn || entryHello || list);
+  // A sign-in shown without a ready first step counts as showing it again too.
+  const showsSignIn = announcing || Boolean(shown && (shown.miss || shown.later || shown.accounts));
+  const restart =
+    !sameDocument ||
+    oldLive.reason === "vault-unavailable" ||
+    oldLive.path !== path ||
+    (oldLive.loginStarted === true && showsSignIn && !choosing);
+  // What the document keeps of its current path: nothing once its time starts again.
+  const keepsPath = sameDocument && oldLive.path === path && !restart;
+
   const live: LiveDocument = {
     document,
     token,
@@ -262,17 +284,20 @@ export async function admit(
       : {}),
     seenAt: sameDocument ? oldLive.seenAt : Date.now(),
     // When it first announced a sign-in on this path, for the local log (ADR 0019).
-    ...(start || signIn || entryHello || list
-      ? { shownAt: (sameDocument && oldLive.path === path && oldLive.shownAt) || receivedAt }
-      : sameDocument && oldLive.path === path && oldLive.shownAt !== undefined
+    ...(announcing
+      ? { shownAt: (keepsPath && oldLive.shownAt) || receivedAt }
+      : keepsPath && oldLive.shownAt !== undefined
         ? { shownAt: oldLive.shownAt }
         : {}),
-    // A document that waited for a locked vault starts its login's time again once it can
-    // read it: unlocking the vault comes before any login (ADR 0019).
-    timing:
-      sameDocument && oldLive.reason !== "vault-unavailable"
-        ? oldLive.timing
-        : { since: Date.now(), serviceMs: 0, networkMs: 0, personMs: 0 },
+    // A new object, so time a request of the earlier one adds later stays with it.
+    timing: restart
+      ? { since: receivedAt, serviceMs: 0, networkMs: 0, personMs: 0 }
+      : oldLive.timing,
+    // Kept until the document shows a sign-in that starts the time again, so a sign-in it
+    // shows later on a path it moved to after the login still does.
+    ...(sameDocument && oldLive.loginStarted && !(restart && showsSignIn)
+      ? { loginStarted: true as const }
+      : {}),
     ...(sameDocument && oldLive.path === path && oldLive.entryRefusals
       ? { entryRefusals: oldLive.entryRefusals }
       : {}),

@@ -159,9 +159,15 @@ export type LiveDocument = {
    * The time a login this document starts takes before it starts, for the local log (ADR
    * 0019): since when it waits for one, and its service and person time so far, such as
    * its first page's generation or an account pick. Shared with the same document's later
-   * announcements, so time added to an earlier one counts too.
+   * announcements, so time added to an earlier one counts too, unless its time starts
+   * again.
    */
   timing: StartTiming;
+  /**
+   * A login started in this document since its time last started, so a sign-in it shows
+   * again starts the time of its next login (ADR 0019).
+   */
+  loginStarted?: true;
   /** Why this document's sign-in entry was not pressed, each reason logged once at info. */
   entryRefusals?: string[];
   /**
