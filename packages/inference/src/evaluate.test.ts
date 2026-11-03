@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluationCorpus, expectedFields, type EvaluationCase } from "./corpus/cases";
+import { logPageCorpus } from "./corpus/log";
 import { japanesePageCorpus } from "./corpus/real";
 import { evaluateRole, judge } from "./evaluate";
 import type { InferenceOutcome } from "./outcome";
@@ -147,6 +148,28 @@ describe("evaluation harness", () => {
     expect(judge(entry.expected, { status: "ok", value: result.plan, calls: 1, usage })).toBe(
       "false-submit",
     );
+  });
+
+  it("judges a plan that fills one of the truth's alternative sets as correct", () => {
+    const entry = logPageCorpus.find((item) => item.id === "log-c6a69115f74b-f43bf0b4")!;
+    if (entry.expected.kind !== "plan") throw new Error("expected a plan");
+    const plan = (fields: Record<string, string>, action: string) => {
+      const result = validatePagePlan(entry.observation, entry.slots, {
+        fields: Object.entries(fields).map(([slot, candidate]) => ({ slot, candidate })),
+        action: { candidate: action, purpose: "submit" },
+      });
+      if (!result.ok) throw new Error("expected a valid plan");
+      return { status: "ok" as const, value: result.plan, calls: 1, usage };
+    };
+    const [alternative] = entry.expected.alternatives!;
+    expect(judge(entry.expected, plan(alternative!.fields, alternative!.action))).toBe("correct");
+    expect(judge(entry.expected, plan(entry.expected.fields, entry.expected.action))).toBe(
+      "correct",
+    );
+    // Half of one set and half of another is no set the page signs in with.
+    expect(
+      judge(entry.expected, plan({ "custom-1": "c1", password: "c7" }, entry.expected.action)),
+    ).toBe("false-submit");
   });
 
   it("scores the passkey sign-in button apart from the plan verdict (ADR 0027)", async () => {

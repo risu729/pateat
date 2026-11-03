@@ -317,6 +317,34 @@ the labellers, who agreed on 166. The owner's review:
   accommodation payment page stays out (13:32 UTC, 「ok」 to the agent's
   recommendation). 154 cases are in the repository and 31 outside it.
 
+The first Claude run on it (Opus 5.5, low effort, 2026-11-03) answered 176 of 185, with
+five false submits. At the owner's ask (13:55 UTC 「まずそこらへん直しませんか？」) the
+agent changed the generation instructions for the four kinds of miss that the right
+answer is clear for, and scoring for one:
+
+- A one-time-code slot is the authenticator app's code, never one the page says it sent
+  by email, text message or call: Claude had filled the vault's TOTP into claude.ai's
+  emailed login code (ADR 0027 already leaves emailed codes to `challenge`).
+- A form with a password field but no identifier field takes the secret alone, and a
+  page fills only the slots it asks for even when it shows other fields: Claude had
+  abstained on Duolingo's remembered-account form, which the extension fills
+  since #1222.
+- A page that shows one account only to ask for consent to share it with another app, or
+  for another sign-in factor, is no account list (ADR 0028): Claude had answered
+  Google's OAuth consent and an Oracle "Verify" page as lists and would have pressed
+  Continue or Verify.
+- The entry line names "the one link" instead of "the one control", since only a link is
+  pressed (ADR 0031).
+- Scoring counts a plan that fills one of the truth's alternative identifier sets as
+  correct (ADR 0027): MUFG's contract-number set signs in as well as the branch and
+  account set.
+
+Re-run on the pages these touch (all lists, entries, code slots, password-only and later
+pages, 2026-11-03): no false submit, and 7 of the 9 misses right in every run, among
+them OpenAI's list, whose miss no change addresses. Duolingo's home page with the same
+form is still an abstention in about one run of three, and x.ai's "Login with email"
+stays a refused `entry`, since it is a button (a known limit of ADR 0031).
+
 The agent's choices, not confirmed by the owner:
 
 - The login of a case comes from `login_outcomes` only: the first login of the row's

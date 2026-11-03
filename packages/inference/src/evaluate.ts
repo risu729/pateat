@@ -105,11 +105,22 @@ function scoreSide(score: SideScore, truth: string | undefined, named: string | 
   else score.wrong += 1;
 }
 
+const sameSet = (
+  set: { fields: Record<string, string>; action: string },
+  plan: ValidatedPagePlan,
+) =>
+  plan.action.candidate === set.action &&
+  plan.fields.length === Object.keys(set.fields).length &&
+  plan.fields.every((field) => set.fields[field.slot] === field.candidate);
+
+/**
+ * The plan fills the truth's fields and presses its action, or one of the truth's
+ * alternative identifier sets (ADR 0027): each signs in to the same account, so a plan
+ * whose main set is another of the page's sets logs in as well.
+ */
 const matches = (expected: Extract<ExpectedResult, { kind: "plan" }>, plan: ValidatedPagePlan) =>
-  plan.action.candidate === expected.action &&
   plan.action.purpose === expected.purpose &&
-  plan.fields.length === Object.keys(expected.fields).length &&
-  plan.fields.every((field) => expected.fields[field.slot] === field.candidate);
+  [expected, ...(expected.alternatives ?? [])].some((set) => sameSet(set, plan));
 
 /**
  * Scores one outcome. Any answer other than the truth's own decision is a false submit:

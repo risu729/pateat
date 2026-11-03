@@ -242,14 +242,16 @@ As implemented, the answer is `{"decision":"account-list","other":"c1","continue
 with optional candidate IDs, and the instructions say: "An observation with accounts
 lists saved accounts and has no fields: answer account-list when choosing one of them
 leads on to signing in, else abstain. Never choose an account." (since 2026-10-23 it
-also says the request has no slots, [below](#amendment-2026-10-23-sent-without-slots)).
-The service checks the
-answer before writing anything: the page must have `accounts` (and a form page's answer
-must be a plan), and each named control must be a button or link of the page, not the
-other control, with no `[email]`, `[masked]`, `[number]`, `@` or run of four digits in
-its text or label. A refused answer fails as `invalid-output` with its check's code,
-such as `unexpected-plan` or `account-text`. The extension's own check of the control
-on the page comes with execution.
+also says the request has no slots, [below](#amendment-2026-10-23-sent-without-slots);
+since 2026-11-03, that a page showing one account only to ask for consent to share it
+with another app, or for another sign-in factor, is no list, after the first request-log
+corpus of [ADR 0012](0012-inference-request-log.md)). The service checks the answer
+before writing anything: the page must have `accounts` (and a form page's answer must be
+a plan), and each named control must be a button or link of the page, not the other
+control, with no `[email]`, `[masked]`, `[number]`, `@` or run of four digits in its
+text or label. A refused answer fails as `invalid-output` with its check's code, such as
+`unexpected-plan` or `account-text`. The extension's own check of the control on the
+page comes with execution.
 
 Amended on 2026-10-13, after myUNSW's sign-in page was saved as a chooser that named no
 control and every login on it ended `account-not-listed`. Its one listed account was a
