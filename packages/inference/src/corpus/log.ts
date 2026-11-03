@@ -31,7 +31,7 @@ export type LoggedAnswer = {
 
 /**
  * How the first reported login of the kept row's recipe revision ended (`login_outcomes`,
- * ADR 0012): of that revision (`same`) or of the next one the recipe wrote (`later`).
+ * ADR 0012): of that revision (`same`) or of the revision right after it (`later`).
  */
 export type LoggedLogin = {
   outcome: string;

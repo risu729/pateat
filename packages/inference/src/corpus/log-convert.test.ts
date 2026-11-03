@@ -96,6 +96,10 @@ describe("request-log corpus conversion", () => {
     // Full-width digits too, and distinct runs stay distinct.
     expect(scrubText("口座番号 １２３４５６７", replacements)).toBe("口座番号 1234567");
     const scrub = textScrubber(new Map());
+    // Five distinct 4-digit runs, where a suffix of the index alone would repeat the first.
+    const four = textScrubber(new Map());
+    const runs = ["9001", "9002", "9003", "9004", "9005"].map((run) => four(run));
+    expect(new Set(runs).size).toBe(5);
     expect([scrub("acct-98765"), scrub("acct-56789"), scrub("again 98765")]).toEqual([
       "acct-12345",
       "acct-12341",
@@ -119,6 +123,22 @@ describe("request-log corpus conversion", () => {
       target: { by: "text", value: "Account 1 [email]" },
     });
     expect(scrubbed.origin).toBe(listed.origin);
+    // Replacements never chain, and an entry that is only a mark changes only the list.
+    const two = v.parse(loginObservationSchema, {
+      ...observation,
+      candidates: [
+        { id: "c1", role: "button", target: { by: "text", value: "Taro [email]" } },
+        { id: "c2", role: "button", target: { by: "text", value: "[email]でログイン" } },
+      ],
+      accounts: ["Taro [email]", "[email]"],
+      accountEntries: 1,
+    });
+    const both = scrubObservation(two, new Map());
+    expect(both.accounts).toEqual(["Account 1 [email]", "Account 2 [email]"]);
+    expect(both.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "Account 1 [email]",
+      "[email]でログイン",
+    ]);
   });
 
   it("names vault fields synthetically and coarsens value shapes", () => {
@@ -240,6 +260,9 @@ describe("request-log corpus conversion", () => {
     expect(again.drafts.map((draft) => draft.id).sort()).toEqual(
       drafts.map((draft) => draft.id).sort(),
     );
+    // A case keeps its ID when a later export adds another way the page was asked.
+    const alone = draftLogCases([row({ id: "a" })], []);
+    expect(drafts.map((draft) => draft.id)).toContain(alone.drafts[0]!.id);
   });
 
   it("leaves out a page whose scrubbed text no longer fits the observation's limits", () => {
@@ -311,20 +334,21 @@ describe("request-log corpus conversion", () => {
       action: "c3",
       purpose: "submit" as const,
     };
+    const idOf = (hash: string) => drafts.find((draft) => draft.id.startsWith(`log-${hash}-`))!.id;
     const assembled = assembleLogCorpus(
       drafts,
       {
-        "log-0123456789ab": { expected: plan, labelSource: "agreed" },
-        "log-bbbbbbbbbbbb": { expected: plan, labelSource: "owner" },
-        "log-cccccccccccc": { exclude: "labellers unsure" },
+        [idOf("0123456789ab")]: { expected: plan, labelSource: "agreed" },
+        [idOf("bbbbbbbbbbbb")]: { expected: plan, labelSource: "owner" },
+        [idOf("cccccccccccc")]: { exclude: "labellers unsure" },
         "log-gone": { exclude: "an earlier export's case" },
       },
       "2026-11-03",
     );
-    expect(assembled.public.cases.map((entry) => entry.id)).toEqual(["log-0123456789ab"]);
+    expect(assembled.public.cases.map((entry) => entry.id)).toEqual([idOf("0123456789ab")]);
     expect(assembled.private.cases).toEqual([]);
-    expect(assembled.undecided).toEqual(["log-bbbbbbbbbbbb"]);
-    expect(assembled.unlabelled).toEqual(["log-dddddddddddd"]);
+    expect(assembled.undecided).toEqual([idOf("bbbbbbbbbbbb")]);
+    expect(assembled.unlabelled).toEqual([idOf("dddddddddddd")]);
     expect(assembled.unknownLabels).toEqual(["log-gone"]);
     expect(assembled.public.cases[0]).not.toHaveProperty("privateHints");
   });

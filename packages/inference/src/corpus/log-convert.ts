@@ -95,28 +95,39 @@ const digitRun = /[0-9０-９]{4,}/gu;
 const accountMarks = /\[(?:email|masked|number|account)\]/gu;
 
 /**
- * A synthetic digit string of the same length, so length constraints still read the same;
- * the `index`th distinct run on a page ends in its index, so distinct runs stay distinct.
+ * A synthetic digit string of the same length, so length constraints still read the same,
+ * and unused on the page so far, so distinct runs stay distinct.
  */
-const syntheticDigits = (length: number, index: number) => {
+function syntheticDigits(length: number, used: ReadonlySet<string>): string {
   const base = Array.from({ length }, (_, position) => String((position + 1) % 10)).join("");
-  const suffix = index === 0 ? "" : String(index);
-  return base.slice(0, length - suffix.length) + suffix;
-};
+  for (let attempt = 0; ; attempt += 1) {
+    const suffix = attempt === 0 ? "" : String(attempt);
+    const candidate = base.slice(0, Math.max(0, length - suffix.length)) + suffix;
+    if (!used.has(candidate)) return candidate;
+  }
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
 /** A text scrubber for one page: the same original run always gets the same synthetic one. */
 export function textScrubber(replacements: ReadonlyMap<string, string>): (text: string) => string {
-  // Longest first, so a full name is replaced before a part of it.
-  const ordered = [...replacements].sort((a, b) => b[0].length - a[0].length);
+  // One pass, longest first, so a full name is replaced before a part of it and no
+  // replacement is scanned again.
+  const keys = [...replacements.keys()].filter((key) => key !== "");
+  keys.sort((a, b) => b.length - a.length);
+  const pattern =
+    keys.length === 0 ? undefined : new RegExp(keys.map(escapeRegExp).join("|"), "gu");
   const runs = new Map<string, string>();
+  const used = new Set<string>();
   return (text) => {
-    let scrubbed = text;
-    for (const [from, to] of ordered) scrubbed = scrubbed.split(from).join(to);
-    return scrubbed.replace(email, "user@example.com").replace(digitRun, (run) => {
+    const replaced =
+      pattern === undefined ? text : text.replace(pattern, (match) => replacements.get(match)!);
+    return replaced.replace(email, "user@example.com").replace(digitRun, (run) => {
       const known = runs.get(run);
       if (known !== undefined) return known;
-      const synthetic = syntheticDigits(run.length, runs.size);
+      const synthetic = syntheticDigits(run.length, used);
       runs.set(run, synthetic);
+      used.add(synthetic);
       return synthetic;
     });
   };
@@ -148,6 +159,13 @@ const structuralKeys = new Set([
   "slot",
   "candidate",
   "purpose",
+  "recipeId",
+  "layout",
+  "kind",
+  "status",
+  "reason",
+  "outcome",
+  "check",
 ]);
 
 function scrubValue(value: unknown, key: string, replace: (text: string) => string): unknown {
@@ -163,21 +181,36 @@ function scrubValue(value: unknown, key: string, replace: (text: string) => stri
   return value;
 }
 
+// A listed account as `Account N` with the redaction marks its text had (`Account 1 [email]`).
+const accountName = (entry: string, index: number) =>
+  [`Account ${index + 1}`, ...(entry.match(accountMarks) ?? [])].join(" ");
+
 /**
- * The page's replacements plus each listed account as `Account N` with the redaction marks
- * its text had (`Account 1 [email]`), wherever its text shows, since a list shows the
- * owner's own names and the role tells account text by those marks.
+ * The page's replacements plus each listed account's text, wherever it shows, as its
+ * {@link accountName}: a list shows the owner's own names, and the role tells account text
+ * by those marks. An entry that is only marks, or shown twice, is replaced in the list
+ * alone, since its text says nothing of the owner and also shows elsewhere.
  */
 function pageReplacements(
   observation: LoginObservation,
   replacements: ReadonlyMap<string, string>,
 ): Map<string, string> {
   const all = new Map(replacements);
-  observation.accounts?.forEach((entry, index) => {
-    const marks = entry.match(accountMarks) ?? [];
-    all.set(entry, [`Account ${index + 1}`, ...marks].join(" "));
+  const entries = observation.accounts ?? [];
+  entries.forEach((entry, index) => {
+    const onlyMarks = entry.replace(accountMarks, "").trim() === "";
+    const repeated = entries.indexOf(entry) !== index || entries.lastIndexOf(entry) !== index;
+    if (!onlyMarks && !repeated && !all.has(entry)) all.set(entry, accountName(entry, index));
   });
   return all;
+}
+
+/** Scrubs an observation's page text, and names each listed account by its position. */
+function scrubPage(observation: LoginObservation, replace: (text: string) => string): unknown {
+  const scrubbed = scrubValue(observation, "", replace) as LoginObservation;
+  return observation.accounts === undefined
+    ? scrubbed
+    : { ...scrubbed, accounts: observation.accounts.map(accountName) };
 }
 
 /** The observation with its page text scrubbed; see {@link pageReplacements}. */
@@ -186,7 +219,7 @@ export function scrubObservation(
   replacements: ReadonlyMap<string, string>,
 ): LoginObservation {
   const replace = textScrubber(pageReplacements(observation, replacements));
-  return scrubValue(observation, "", replace) as LoginObservation;
+  return scrubPage(observation, replace) as LoginObservation;
 }
 
 /**
@@ -280,14 +313,20 @@ export function loginOf(row: LogRow, outcomes: readonly OutcomeRow[]): LoggedLog
   if (row.recipe_id === null || row.revision === null || row.layout === null) return undefined;
   const layout = row.layout;
   const branch = row.branch ?? "";
+  // A first page prefers the layout's own branch, then the chooser branches in order, so
+  // the result does not depend on the export's row order.
   const matching = (revision: number) =>
-    outcomes.find(
-      (outcome) =>
-        outcome.owner_id === row.owner_id &&
-        outcome.recipe_id === row.recipe_id &&
-        outcome.revision === revision &&
-        (branch === "" ? outcomeLayout(outcome.branch) === layout : outcome.branch === branch),
-    );
+    outcomes
+      .filter(
+        (outcome) =>
+          outcome.owner_id === row.owner_id &&
+          outcome.recipe_id === row.recipe_id &&
+          outcome.revision === revision &&
+          (branch === "" ? outcomeLayout(outcome.branch) === layout : outcome.branch === branch),
+      )
+      .sort((a, b) =>
+        a.branch === layout ? -1 : b.branch === layout ? 1 : a.branch.localeCompare(b.branch),
+      )[0];
   const same = matching(row.revision);
   const found = same ?? matching(row.revision + 1);
   if (found === undefined) return undefined;
@@ -314,6 +353,8 @@ const parseJson = (text: string | null): unknown => (text === null ? undefined :
 type Parsed = {
   row: LogRow;
   key: string;
+  /** What the case asks, from values a re-export or new replacements do not change. */
+  idKey: string;
   flags: CaseRequest | undefined;
   slots: SemanticSlot[];
   unnamed: string[];
@@ -358,7 +399,7 @@ function parseRow(row: LogRow, replacements: Replacements): Parsed | { reason: s
     new Map(Object.entries(replacements.text ?? {})),
   );
   const replace = textScrubber(page);
-  const scrubbed = v.safeParse(loginObservationSchema, scrubValue(observation.output, "", replace));
+  const scrubbed = v.safeParse(loginObservationSchema, scrubPage(observation.output, replace));
   if (!scrubbed.success) return { reason: "scrubbed observation no longer parses" };
   const flags = caseRequest(row, request);
   return {
@@ -366,6 +407,7 @@ function parseRow(row: LogRow, replacements: Replacements): Parsed | { reason: s
     // The same request of the same page, after scrubbing, so one site's accounts with
     // different field names or lengths do not each become a case.
     key: JSON.stringify([row.observation_hash ?? scrubbed.output, row.recipe_page, flags, slots]),
+    idKey: JSON.stringify([row.recipe_page, flags, slots.map((slot) => [slot.id, slot.kind])]),
     flags,
     slots,
     unnamed,
@@ -381,8 +423,8 @@ function parseRow(row: LogRow, replacements: Replacements): Parsed | { reason: s
  * generation requests, rows of the owner's local test servers and rows that no longer
  * parse are left out. Rows asking the same thing of the same observation become one case,
  * kept from the latest row with a model answer (else the latest row), with every row's ID.
- * A case's ID is its observation hash, plus a hash of what it asks when that observation
- * is asked more than one way, so a label stays with its case across exports.
+ * A case's ID is its observation hash and a hash of what it asks (recipe page, flags, slot
+ * IDs and kinds), so a label stays with its case across exports.
  */
 export function draftLogCases(
   rows: readonly LogRow[],
@@ -399,20 +441,22 @@ export function draftLogCases(
     }
     groups.set(parsed.key, [...(groups.get(parsed.key) ?? []), parsed]);
   }
-  const perHash = new Map<string, number>();
   const hashOf = (group: Parsed[]) =>
     group[0]!.row.observation_hash ?? shortHash(JSON.stringify(group[0]!.observation));
+  const baseId = (group: Parsed[]) => `log-${hashOf(group)}-${shortHash(group[0]!.idKey)}`;
+  const perId = new Map<string, number>();
   for (const group of groups.values())
-    perHash.set(hashOf(group), (perHash.get(hashOf(group)) ?? 0) + 1);
+    perId.set(baseId(group), (perId.get(baseId(group)) ?? 0) + 1);
   const drafts: LogPageDraft[] = [];
   for (const [key, group] of groups) {
     const byTime = [...group].sort((a, b) => b.row.created_at - a.row.created_at);
     const kept = byTime.find((entry) => entry.answer !== undefined) ?? byTime[0]!;
     const { row } = kept;
-    const hash = hashOf(group);
     const login = loginOf(row, outcomes);
+    const id = baseId(group);
     drafts.push({
-      id: perHash.get(hash) === 1 ? `log-${hash}` : `log-${hash}-${shortHash(key)}`,
+      // Two cases ask the same of one page only when their slots' names or shapes differ.
+      id: perId.get(id) === 1 ? id : `${id}-${shortHash(key)}`,
       source: {
         dataset: "log",
         logIds: group.map((entry) => entry.row.id).sort(),
