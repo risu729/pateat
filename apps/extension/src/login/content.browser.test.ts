@@ -92,8 +92,8 @@ describe("a sign-in form in a shadow root (ADR 0070)", () => {
         }
       },
     );
-    // Once the page is idle (at most 100 ms), long before the quiet decision at one second.
-    await vi.advanceTimersByTimeAsync(110);
+    // Within a frame, long before the quiet decision at one second.
+    await vi.advanceTimersByTimeAsync(50);
     expect(offers()).toEqual([
       expect.objectContaining({ type: "login.document.ready", signIn: expect.anything() }),
     ]);

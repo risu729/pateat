@@ -377,8 +377,12 @@ function credentialInputs(targets: readonly LoginMarkerTarget[]): {
   };
 }
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-/** How long after a change the page watch checks at the latest when the page stays busy. */
-const checkBoundMs = 100;
+/**
+ * How often at most the page watch checks a page that keeps changing (ADR 0082). A set
+ * time that bounds the watch's work, not a wait for the page: the first change after a
+ * quiet spell is checked at the next frame.
+ */
+const checkGapMs = 100;
 /**
  * How long a preparing fill waits for the page's own input handlers before checking that
  * the page accepted the values (ADR 0010). A set time still to be replaced (ADR 0082): a
@@ -576,24 +580,25 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let observedRoots = new WeakSet<ShadowRoot>();
   const submitRoots = new WeakSet<ShadowRoot>();
   const submitListeners = new AbortController();
-  // A start's retry (`retry`), and whether a check waits for the page to be idle.
+  // A start's retry (`retry`), whether a check is pending, and when the last one ran.
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let idle = false;
+  let checking = false;
+  let checkedAt = Number.NEGATIVE_INFINITY;
   const navigation = (globalThis as unknown as { navigation?: EventTarget }).navigation;
-  // Checks once the page is idle after a change, however many changes come before it, and
-  // at most `checkBoundMs` after the first (ADR 0082), so a page that changes every frame,
-  // as a spinner does, is not checked every frame while it is watched. A pending retry
+  // Checks at the page's next frame after a change, however many changes come before it
+  // (ADR 0082), and at most once per `checkGapMs`, so a page that changes every frame, as
+  // a spinner does, is not checked every frame while it is watched. A pending retry
   // checks then instead.
   const schedule = () => {
-    if (idle || timer !== undefined) return;
-    idle = true;
-    requestIdleCallback(
-      () => {
-        idle = false;
-        if (timer === undefined) check();
-      },
-      { timeout: checkBoundMs },
-    );
+    if (checking || timer !== undefined) return;
+    checking = true;
+    const run = () => {
+      checking = false;
+      if (timer === undefined) check();
+    };
+    const gap = checkedAt + checkGapMs - Date.now();
+    if (gap <= 0) void nextFrame().then(run);
+    else setTimeout(() => void nextFrame().then(run), gap);
   };
   function clearDecision(): void {
     clearTimeout(offerQuiet);
@@ -818,6 +823,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   function checkNow(): void {
     clearTimeout(timer);
     timer = undefined;
+    checkedAt = Date.now();
     if (!observer) return;
     watchShadowRoots();
     noteConfirm();

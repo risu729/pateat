@@ -45,9 +45,10 @@ a poll adds half its interval on average to every wait.
    that sends none of these signals is still seen within 500 ms: each wait for a change
    ends then at the latest and the caller checks again, a bound that a page signalling
    its change never reaches. The page watch that looks for a login's first step checks
-   once the page is idle after a change (`requestIdleCallback`), or 100 ms after it at
-   the latest, so a page that changes every frame, as a spinner does, is not checked
-   every frame for as long as it is watched.
+   at the next frame after a change, but at most once per 100 ms, so a page that changes
+   every frame, as a spinner does, is not checked every frame for as long as it is
+   watched. That 100 ms bounds the watch's work, not a wait for the page: a change after
+   a quiet spell is checked at once.
 4. A wait for the page's own handlers after Pateat's events (between a fill's fields and
    a split code's digits) waits for the page's next rendered frame (`nextFrame` in
    `src/page/frames.ts`): by then the handlers, their microtasks and the timers they set
@@ -68,7 +69,7 @@ a poll adds half its interval on average to every wait.
 | --- | --- | --- |
 | 25 ms between fields and digits (`FIELD_GAP_MS`) | `login/content.ts` | Decision 4 |
 | 500 ms count of undefined custom elements, for ten seconds (`watchUpgrades`) | `login/content.ts` | Decision 5 |
-| 100 ms debounce before the page watch's check (`schedule`) | `login/content.ts` | Idle after a change, 100 ms at the latest |
+| 100 ms debounce before the page watch's check (`schedule`) | `login/content.ts` | Next frame after a change, at most once per 100 ms |
 | 50 ms polls of `login.await` and a `wait` step | `login/content.ts` | Decision 3 |
 | 100 ms polls of the entry inspect and check and the switch's control and reaction | `login/content.ts` | Decision 3 |
 | 100 ms poll of the URL after an entry press (`watchPressedUrl`) | `login/content.ts` | `popstate`, `hashchange`, `currententrychange` |
