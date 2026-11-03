@@ -17,12 +17,19 @@ export function releaseTag(version) {
   return `v${version}`;
 }
 
-/** Only the production build is released: it has the fixed key and no probe host access. */
+/**
+ * Only the production build is released: it has the fixed key and the HTTP(S) host access of
+ * ADR 0050, not the probe build's local fixture host.
+ */
 export function verifyManifest(manifest, version) {
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.version, version, "The built manifest has another version");
   assert.equal(typeof manifest.key, "string", "Release only the production build");
-  assert.deepEqual(manifest.host_permissions, ["https://*/*"], "Release only the production build");
+  assert.deepEqual(
+    manifest.host_permissions,
+    ["https://*/*", "http://*/*"],
+    "Release only the production build",
+  );
 }
 
 export function sha256(contents) {

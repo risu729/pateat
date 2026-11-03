@@ -313,7 +313,7 @@ for that branch and keeps the files as the run's artifact. Use it to check a rel
 files before merging its release PR.
 
 The pack script refuses a dirty checkout, another revision than `PATEAT_REVISION`, and a
-manifest that is not the production build of that version (fixed `key`, HTTPS-only host
+manifest that is not the production build of that version (fixed `key`, HTTP(S) host
 access). It writes to `work/extension-release/`:
 
 - `pateat-<version>-chrome.zip`: the built extension.

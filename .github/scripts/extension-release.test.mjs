@@ -21,7 +21,7 @@ test("only the production manifest of the packaged version is released", () => {
     manifest_version: 3,
     version: "0.1.0",
     key: "MIIB",
-    host_permissions: ["https://*/*"],
+    host_permissions: ["https://*/*", "http://*/*"],
   };
   verifyManifest(manifest, "0.1.0");
   assert.throws(() => verifyManifest(manifest, "0.2.0"), /another version/u);
