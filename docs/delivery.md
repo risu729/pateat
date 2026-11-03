@@ -267,8 +267,9 @@ release-plz (owner, 2026-11-03 03:19 UTC:
 1. Every push to main runs the `Release PR` job, which opens or updates one release PR.
    It raises `version` in the root `package.json` and in `apps/extension/package.json`
    (x.y.z) and adds the release's section to `CHANGELOG.md`, from the Conventional
-   Commit titles since the last release: `feat` raises the minor version and `fix`,
-   `perf` and `revert` the patch version, while 0.x lasts. Commits that touch only
+   Commit titles since the last release: `feat` and breaking changes raise the minor
+   version and `fix`, `perf` and `revert` the patch version, while 0.x lasts
+   (`bump-minor-pre-major`). Commits that touch only
    `services/`, `apps/docs/`, `docs/` or `tests/` are left out, since the service and
    the docs website deploy on their own. `release-please-config.json` and
    `.release-please-manifest.json` hold the settings and the last released version;

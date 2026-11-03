@@ -15,7 +15,8 @@ on:
         description: Build and pack only, without a release PR or a release (any branch).
         type: boolean
         default: false
-# Runs on main never overlap, so a release PR merged during a run waits for it.
+# Runs on main never overlap. GitHub keeps one pending run per group, so a merge's run can be
+# cancelled by a later push; that later run still finds the merged release PR and releases it.
 concurrency:
   group: extension-release-${{ github.ref }}-${{ inputs.dry-run || false }}
   cancel-in-progress: false
