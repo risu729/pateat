@@ -248,7 +248,7 @@ describe("production login document admission", () => {
       expect(fake.state.reconnects).toEqual([]);
       expect(executes()).toEqual([]);
     });
-    it("lets the tab's running login follow its own answer, and log in again on its page", async () => {
+    it("lets the tab's running login follow its own answer, and ask again on its page", async () => {
       let release!: () => void;
       const clicked = new Promise<void>((resolve) => (release = resolve));
       fake.state.onExecute = async (message) => {
@@ -267,11 +267,13 @@ describe("production login document admission", () => {
         ]),
       );
       await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
-      // Its first step showing again on that page, as after a logout, logs in again within
-      // the answer's window: that answer was the login's, not a sign-in of its own.
+      // Its first step showing again on that page within the answer's window is not refused
+      // as the page's own passkey sign-in: that answer was the login's. As the document the
+      // login just completed in, it corrects the result, so the tab asks rather than logging
+      // in again (ADR 0029, amended 2026-11-03).
       expect(Date.now() - at).toBeLessThan(15_000);
-      expect(await h.hello()).toEqual({ ok: true });
-      await vi.waitFor(() => expect(executes()).toHaveLength(4));
+      expect(await h.hello()).toMatchObject({ ok: false, reason: "account-asked" });
+      expect(executes()).toHaveLength(2);
     });
     it("logs in with an account picked in the popup on that page", async () => {
       const popup = {

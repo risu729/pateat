@@ -165,6 +165,12 @@ export type LoginReport = (
       /** An undecided page ended the login without a confirmed sign-in (ADR 0029). */
       unconfirmed?: true;
       /**
+       * The login had completed, and the document it completed in showed the sign-in form
+       * again soon after: its result is corrected to this one (ADR 0029, amended
+       * 2026-11-03). Its times were logged, and sent, with the completion.
+       */
+      corrected?: true;
+      /**
        * For a `policy-changed` outcome: its cause, and a refused plan's reason. For a login
        * that failed or was cancelled: why, as the worker or the page saw it (ADR 0019).
        */

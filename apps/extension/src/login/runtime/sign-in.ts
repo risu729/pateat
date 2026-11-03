@@ -22,9 +22,9 @@ import { type Execution, type SignInReading } from "./types";
 import { type AdvanceMiss } from "./report";
 import { formAgain, sameMarkers, markerProof } from "./steps";
 import {
-  SIGN_IN_RECHECKS,
-  SIGN_IN_RECHECK_MS,
   ADVANCE_LOG_TARGETS,
+  SIGN_IN_LOAD_WAIT_MS,
+  WATCH_POLL_MS,
   WATCH_SETTLE_MS,
 } from "./constants";
 import { current, report, send, stepWaitMs, change } from "./attempt";
@@ -36,10 +36,9 @@ import type { Runtime } from "./state";
 
 /**
  * Reads and logs the sign-in state of ADR 0029 for a page no check explained: its signs
- * and what the ADR does with it. Returns the decision, `confirmed` only when a later
- * reading, a second apart, agrees in the fully loaded document, on the passkey route too
- * (ADR 0029 amendment of 2026-10-24). A login in a frame is not read, as the ADR reads
- * the top document.
+ * and what the ADR does with it. Returns the decision, `confirmed` when it was read in the
+ * fully loaded document, on the passkey route too (ADR 0029 amendments of 2026-10-24 and
+ * 2026-11-03). A login in a frame is not read, as the ADR reads the top document.
  */
 export async function signInState(
   rt: Runtime,
@@ -47,36 +46,53 @@ export async function signInState(
   advance?: AdvanceMiss,
 ): Promise<SignInReading | undefined> {
   let reading = await readSignInState(rt, run);
-  let confirmed = false;
-  // A decision counts once a later reading agrees in a fully loaded document, so a page
-  // that is still redirecting or about to ask for a second factor is not settled; a
-  // document still loading is read again, a second apart, up to `SIGN_IN_RECHECKS` times.
-  // `unknown` changes nothing and is not read again, unless it is the sign-in form shown
-  // again with nothing else, on which the tab asks again (ADR 0021 D). Each reading
-  // depends on the time passed since the last, so they run one after another.
-  /* eslint-disable no-await-in-loop */
-  for (
-    let recheck = 0;
-    reading !== undefined &&
-    (reading.decision !== "unknown" || formAgain(reading.signs)) &&
-    recheck < SIGN_IN_RECHECKS;
-    recheck++
-  ) {
-    await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
+  // A decision counts once it is read in a fully loaded document, so a page whose signs
+  // are still rendering is not settled; a document still loading is read again once its
+  // `load` event fired, waited for as a signal and at most `SIGN_IN_LOAD_WAIT_MS` (ADR
+  // 0082), and then read afresh, so no sign it gives was read before the load. `unknown`
+  // changes nothing and is not read again, unless it is the sign-in form shown again with
+  // nothing else, on which the tab asks again (ADR 0021 D).
+  if (reading && !reading.loaded && acts(reading)) {
     if (!current(rt, run) || terminal(run.metadata)) return undefined;
-    const next = await readSignInState(rt, run);
-    const agrees =
-      next?.decision === reading.decision &&
-      formAgain(next.signs) === formAgain(reading.signs) &&
-      next.loaded;
-    reading = next;
-    if (agrees) {
-      confirmed = true;
-      break;
-    }
+    reading = await readSignInState(rt, run, SIGN_IN_LOAD_WAIT_MS);
+    if (reading?.loaded && current(rt, run) && !terminal(run.metadata))
+      reading = await readSignInState(rt, run);
   }
-  /* eslint-enable no-await-in-loop */
-  if (!reading) return undefined;
+  if (!reading || !current(rt, run) || terminal(run.metadata)) return undefined;
+  reportReading(rt, run, reading, advance);
+  return {
+    decision: reading.decision,
+    confirmed: reading.loaded && acts(reading),
+    ...(reading.signs.reshown ? { reshown: true as const } : {}),
+    ...(formAgain(reading.signs) ? { formAgain: true as const } : {}),
+    ...(reading.signs.s2 && !reading.signs.s4 ? { asksPassword: true as const } : {}),
+  };
+}
+
+/**
+ * Reads the sign-in state once while the result of a step is still observed, before its
+ * budget ran out (ADR 0029, amended 2026-11-03): true when the fully loaded document reads
+ * `signed-in`, after logging that reading as {@link signInState} does, so the login
+ * completes at once. If the same document shows the sign-in form again soon after, the
+ * result is corrected (`admitRecord`). Any other reading is not logged and waits for the
+ * budget: a failure shown in the submitted document may be one from before the site
+ * answered, and a page with no sign is only judged once the budget ran out.
+ */
+export async function signedInAtOnce(rt: Runtime, run: Execution): Promise<boolean> {
+  const reading = await readSignInState(rt, run);
+  if (!reading || !current(rt, run) || terminal(run.metadata)) return false;
+  if (reading.decision !== "signed-in" || !reading.loaded) return false;
+  reportReading(rt, run, reading);
+  return true;
+}
+
+type Reading = NonNullable<Awaited<ReturnType<typeof readSignInState>>>;
+
+/** Whether a reading would change the login: any decision but `unknown`, or the form again. */
+const acts = (reading: Reading) => reading.decision !== "unknown" || formAgain(reading.signs);
+
+/** Logs one reading of the sign-in state as `login.state` (ADR 0019). */
+function reportReading(rt: Runtime, run: Execution, reading: Reading, advance?: AdvanceMiss) {
   report(rt, run.live.document, {
     type: "state",
     tabId: run.live.document.tabId,
@@ -90,13 +106,6 @@ export async function signInState(
     ...reading.misses,
     ...advance,
   });
-  return {
-    decision: reading.decision,
-    confirmed,
-    ...(reading.signs.reshown ? { reshown: true as const } : {}),
-    ...(formAgain(reading.signs) ? { formAgain: true as const } : {}),
-    ...(reading.signs.s2 && !reading.signs.s4 ? { asksPassword: true as const } : {}),
-  };
 }
 
 /**
@@ -172,9 +181,20 @@ export async function otherLayoutsMarked(
   return false;
 }
 
+/** The username each run read for E2, kept only as long as the run is. */
+const runUsernames = new WeakMap<
+  Execution,
+  { itemId: string; fieldId: string; username: string | undefined }
+>();
+
 export async function readSignInState(
   rt: Runtime,
   run: Execution,
+  /**
+   * When given, the page is read once its document has loaded, or when this many
+   * milliseconds ran out first: the content script waits for its `load` event.
+   */
+  loadWithinMs?: number,
 ): Promise<
   | {
       signs: SignInSigns;
@@ -228,16 +248,28 @@ export async function readSignInState(
       ? loginUsernameFieldId(authorized.connection, metadata.account.itemId)
       : undefined;
   if (usernameField) {
-    try {
-      username = await rt.fields({
-        account: metadata.account,
-        connection: authorized.connection,
-        fieldId: usernameField,
-      });
-    } catch {
-      username = undefined;
+    // The state is read every round of a step's observation (ADR 0029, amended
+    // 2026-11-03), so the run's username is taken from the vault once per account.
+    const kept = runUsernames.get(run);
+    if (kept?.itemId === metadata.account.itemId && kept.fieldId === usernameField)
+      ({ username } = kept);
+    else {
+      try {
+        username = await rt.fields({
+          account: metadata.account,
+          connection: authorized.connection,
+          fieldId: usernameField,
+        });
+        runUsernames.set(run, {
+          itemId: metadata.account.itemId,
+          fieldId: usernameField,
+          username,
+        });
+      } catch {
+        username = undefined;
+      }
+      if (!current(rt, run)) return undefined;
     }
-    if (!current(rt, run)) return undefined;
   }
   const s1 = observed.targets.slice(0, fills.length).some((state) => state === "unique");
   const { tabId, origin: pageOrigin } = run.live.document;
@@ -269,6 +301,7 @@ export async function readSignInState(
       type: "login.state",
       ...(username ? { account: { username } } : {}),
       ...(reshown ? { fields: fills } : {}),
+      ...(loadWithinMs === undefined ? {} : { loadWithinMs }),
     });
   } catch {
     return undefined;
@@ -330,7 +363,10 @@ export async function readSignInState(
 /* eslint-disable no-await-in-loop */
 export async function reconcileBounded(rt: Runtime, run: Execution): Promise<void> {
   // An advance is confirmed by the next step's elements, which get the same wait as any
-  // fill or click; other results keep the shorter observation budget.
+  // fill or click; other results keep the shorter observation budget. A page that proves
+  // the sign-in completes the login in the round that reads it, also by its sign-in state
+  // (ADR 0029, amended 2026-11-03); only a page nothing proves waits for the budget to run
+  // out before it is settled or judged.
   let until = Date.now() + (run.metadata.operationEffect === "advance" ? stepWaitMs(rt) : 3000);
   // A held click's button may show this long before the page is left to the person.
   const holdUntil = Date.now() + HELD_CLICK_WAIT_MS;
@@ -367,38 +403,46 @@ export async function reconcileBounded(rt: Runtime, run: Execution): Promise<voi
 
 /**
  * Checks a new page of the tab while the login is watched after a `challenge` (ADR 0027),
- * reading only: it never fills or clicks. The login completes on a signed-in marker,
- * read for a short while as after a click, or on a confirmed sign-in state (ADR 0029: E1
- * to E3). A page with no sign of a sign-in going on and no evidence is judged, from the
- * watch's own pages: `signed-in` completes and `rejected` ends the login as a refused
- * password, while any other answer, a refusal or a spent budget leaves it watched, with a
- * warning in the log. The document the watch began in is not checked again.
+ * reading only: it never fills or clicks. The login completes on a signed-in marker or on
+ * a `signed-in` reading of the loaded document, each as soon as the page shows it (ADR
+ * 0029 amendment of 2026-11-03), and once `WATCH_SETTLE_MS` ran out without either, on a
+ * confirmed sign-in state (ADR 0029: E1 to E3). A page with no sign of a sign-in going on
+ * and no evidence is judged, from the watch's own pages: `signed-in` completes and
+ * `rejected` ends the login as a refused password, while any other answer, a refusal or a
+ * spent budget leaves it watched, with a warning in the log. The document the watch began
+ * in is not checked again.
  */
 export async function watchPage(rt: Runtime, run: Execution, routed = false): Promise<void> {
   const { watch } = run.metadata;
   if (!watch || (run.live.document.documentId === watch.documentId && !routed)) return;
   const proof = markerProof(run.recipe);
   const watching = () => current(rt, run) && run.metadata.state === "watching";
-  if (proof.targets.length > 0) {
-    const until = Date.now() + WATCH_SETTLE_MS;
-    for (;;) {
+  const authenticated = () =>
+    change(rt, run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
+  // Only a sign of a sign-in acts before the bound; the other readings, and the judge,
+  // wait for it as after a click. Each reading waits for the one before.
+  const until = Date.now() + WATCH_SETTLE_MS;
+  for (;;) {
+    if (proof.targets.length > 0) {
       const observed = await observe(rt, run, proof.targets, proof.shown, {
         links: proof.links,
         hidden: proof.hidden,
       });
       if (!observed || !watching()) return;
       if (proof.proves(observed.targets)) {
-        await change(rt, run, {
-          type: "OBSERVED",
-          result: "authenticated",
-          document: run.live.document,
-        });
+        await authenticated();
         return;
       }
-      if (Date.now() >= until) break;
-      await new Promise<void>((resolve) => setTimeout(resolve, 250));
     }
-  } else await new Promise<void>((resolve) => setTimeout(resolve, WATCH_SETTLE_MS));
+    const signedIn = await signedInAtOnce(rt, run);
+    if (!watching()) return;
+    if (signedIn) {
+      await authenticated();
+      return;
+    }
+    if (Date.now() >= until) break;
+    await new Promise<void>((resolve) => setTimeout(resolve, WATCH_POLL_MS));
+  }
   if (!watching()) return;
   const state = await signInState(rt, run);
   if (!watching()) return;

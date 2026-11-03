@@ -1,5 +1,6 @@
 import type { LoginAttemptMetadata } from "@pateat/contracts";
 import { finishedLogin, holdsSite, stoppedByPateat, terminal, watchOver } from "./attempt-state";
+import { RESULT_CORRECTION_MS } from "./constants";
 
 /** Each phase is visited once, preserving the order of the asynchronous record effects. */
 export type RecordPhase =
@@ -23,6 +24,16 @@ export interface RecordPage {
   readonly paused: boolean;
   readonly probe: boolean;
   readonly pickedAttemptId: string | undefined;
+  /** An account switch from the popup runs in the tab or waits for its login page. */
+  readonly switching?: boolean;
+  /** The tab holds an account picked in the popup, for this login or a later one. */
+  readonly picked?: boolean;
+  /**
+   * When the tab's stored record of this login last changed (`changedAt`): a record read
+   * from its running login does not carry it, and one a resumed login carries may be older
+   * than the stored one, which each change updates.
+   */
+  readonly recordedAt?: number | undefined;
 }
 
 export interface RecordSeen {
@@ -31,6 +42,7 @@ export interface RecordSeen {
   readonly confirm?: boolean | undefined;
   readonly withdrawn?: boolean | undefined;
   readonly rejectedHere?: boolean | undefined;
+  readonly correctedHere?: boolean | undefined;
 }
 
 export type RecordStep =
@@ -43,9 +55,11 @@ export type RecordStep =
       kind: "read-confirm";
       read: boolean;
       rejectedHere: boolean;
+      /** A completion its own document's sign-in form corrects (ADR 0029, 2026-11-03). */
+      correctedHere?: boolean;
       next: "finished-confirmed" | "submitted-confirmed";
     }
-  | { kind: "release-finished"; next: "stopped" }
+  | { kind: "release-finished"; corrected: boolean; next: "stopped" }
   | { kind: "release-stopped"; next: "submitted" }
   | { kind: "read-withdrawn"; read: boolean; next: "submitted-withdrawn" }
   | { kind: "ask-after-stop"; next: "done" }
@@ -94,17 +108,36 @@ export function nextRecordStep(
       const rejectedHere =
         recorded.outcome === "credential-rejected" &&
         recorded.document.documentId === page.documentId;
+      // A login that completed in this document shortly before it shows the sign-in form
+      // again did not sign in: its result was read at once and is corrected, not taken for
+      // a logout (ADR 0029, amended 2026-11-03). A switch or a pick of the person's own
+      // logs in as before.
+      const age = now - (page.recordedAt ?? recorded.changedAt ?? Number.NEGATIVE_INFINITY);
+      const correctedHere =
+        recorded.state === "authenticated" &&
+        recorded.document.documentId === page.documentId &&
+        page.showsFirstStep &&
+        !page.switching &&
+        (!page.picked || page.pickedAttemptId === recorded.id) &&
+        // A clock set back corrects nothing.
+        age >= 0 &&
+        age < RESULT_CORRECTION_MS;
       return {
         kind: "read-confirm",
         read: !rejectedHere && !page.hasTopUrl,
         rejectedHere,
+        ...(correctedHere ? { correctedHere } : {}),
         next: "finished-confirmed",
       };
     }
     case "finished-confirmed":
       return (!page.showsFirstStep || seen.confirm) && !seen.rejectedHere
         ? { kind: "keep-watching", reason: "logged-in" }
-        : { kind: "release-finished", next: "stopped" };
+        : {
+            kind: "release-finished",
+            corrected: seen.correctedHere === true && !seen.rejectedHere,
+            next: "stopped",
+          };
     case "stopped":
       return stoppedByPateat(recorded) &&
         !finishedLogin(recorded) &&

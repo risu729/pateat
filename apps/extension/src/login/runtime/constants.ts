@@ -39,14 +39,24 @@ export const AFTER_SIGN_IN_MS = 60_000;
 export const SIGNED_IN_ELSEWHERE_MS = 60 * 60_000;
 
 /**
- * How long after evidence of a sign-in the page is read again before the login completes
- * on it (ADR 0029), so a page that is still redirecting or about to ask for a second
- * factor does not settle the login, and how many times it is read again at most while
- * the document is still loading.
+ * How far apart the pages Pateat does not fill (ADR 0035) and the new page of a move to
+ * another origin of the site (ADR 0022) are read while they render.
  */
 export const SIGN_IN_RECHECK_MS = 1000;
 
-export const SIGN_IN_RECHECKS = 10;
+/**
+ * The longest the sign-in state of a page whose document is still loading waits for its
+ * `load` event before it is read again (ADR 0029, amended 2026-11-03): only the bound of
+ * that wait, which a page that loads ends at once (ADR 0082).
+ */
+export const SIGN_IN_LOAD_WAIT_MS = 10_000;
+
+/**
+ * How long after a login completed its document showing the sign-in form again corrects
+ * the result instead of being taken for a logout (ADR 0029, amended 2026-11-03): the tab
+ * then asks for an account, as after a refused password, rather than logging in again.
+ */
+export const RESULT_CORRECTION_MS = 30_000;
 
 /**
  * How soon after a passkey answer, or after a password login's last effect step, a move to
@@ -85,12 +95,20 @@ export const SITE_MOVE_READINGS = 5;
 
 /**
  * How long a login stays watched after its result stopped at `challenge` or settled as
- * unknown (ADR 0027, owner's choice on 2026-10-12), and how long each new page of its tab
- * is checked for a signed-in marker before its sign-in state is read, as after a click.
+ * unknown (ADR 0027, owner's choice on 2026-10-12).
  */
 export const WATCH_MS = 10 * 60_000;
 
+/**
+ * How long each new page of a watched login's tab is read before a reading that shows no
+ * sign-in is acted on or the page is judged, as the result of a click is (ADR 0027). A
+ * signed-in marker or a `signed-in` reading of the loaded document completes the login as
+ * soon as it shows (ADR 0029, amended 2026-11-03); only the other readings wait for it.
+ */
 export const WATCH_SETTLE_MS = 3000;
+
+/** How far apart a watched login's new page is read meanwhile, as a result's poll is. */
+export const WATCH_POLL_MS = 50;
 
 /** A tab presses a sign-in entry at most once in this time (ADR 0031). */
 export const ENTRY_PRESS_MS = 10 * 60_000;

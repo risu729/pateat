@@ -513,8 +513,8 @@ describe("production login document admission", () => {
         expect(states).toEqual([
           expect.objectContaining({ s1: false, s5: false, e3: true, decision: "signed-in" }),
         ]);
-        // Read twice, a second apart, and completed without a model call.
-        expect(fake.state.messages.filter((entry) => entry.type === "login.state")).toHaveLength(2);
+        // Read once in the loaded document, and completed without a model call.
+        expect(fake.state.messages.filter((entry) => entry.type === "login.state")).toHaveLength(1);
         expect(service.judge).not.toHaveBeenCalled();
       }, 12_000);
       it("completes when the username shows in the header, without the judge", async () => {
@@ -600,8 +600,15 @@ describe("production login document admission", () => {
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 16_000 });
         expect(status()).not.toMatchObject([{ state: "authenticated" }]);
+        // Once the budget ran out, the page is read again on its `load` event, waited for at
+        // most 10 s, instead of a second apart (ADR 0029, amended 2026-11-03).
+        expect(fake.state.messages.filter((entry) => entry.type === "login.state")).toContainEqual(
+          expect.objectContaining({ loadWithinMs: 10_000 }),
+        );
       }, 20_000);
-      it("leaves the page to the judge when the second reading shows no evidence", async () => {
+      it("completes on the first signed-in reading, before the result's budget ran out", async () => {
+        // ADR 0029, amended 2026-11-03: the result is read at once, not after 3 s and a
+        // second reading a second later.
         realTime();
         fake.state.extracted = { "signed-in": homePage };
         fake.state.signs = { ...noSigns, username: true };
@@ -616,25 +623,181 @@ describe("production login document admission", () => {
         });
         h.recipes.recipe.mockResolvedValue(generated);
         fake.state.present = new Set(["user", "password", "login"]);
+        let clicked = 0;
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          clicked = Date.now();
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 2_000,
+          interval: 10,
+        });
+        expect(Date.now() - clicked).toBeLessThan(1_000);
+        expect(fake.state.messages.filter((entry) => entry.type === "login.state")).toHaveLength(1);
+        expect(service.judge).not.toHaveBeenCalled();
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : [])),
+        ).toEqual([expect.objectContaining({ e2: true, decision: "signed-in" })]);
+      }, 12_000);
+      it("completes a watched login on its next page's first signed-in reading", async () => {
+        // ADR 0029, amended 2026-11-03: a watched login's new page is no longer read only
+        // after `WATCH_SETTLE_MS`.
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = { ...noSigns, username: false };
+        const service = generation({ judge: async () => ({ verdict: "challenge" }) });
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
         fake.state.onExecute = async (message) => {
           if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
           fake.state.present = new Set();
           fake.state.observedPath = "/home";
         };
         expect(await h.hello()).toEqual({ ok: true });
-        // The header changes after the first reading, as on a page still redirecting.
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
+          { timeout: 8_000 },
+        );
+        // The person types the code; the site's next page shows the account in its header.
+        fake.state.signs = { ...noSigns, username: true };
+        fake.state.observedPath = "/home";
+        fake.state.gone.add("synthetic-document");
+        const shown = Date.now();
+        await h.hello({ documentId: "document-home" }, false);
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 2_000,
+        });
+        expect(Date.now() - shown).toBeLessThan(1_000);
+      }, 15_000);
+      it("waits for the budget before acting on a failure shown in the submitted document", async () => {
+        // A failure beside the form in the document that submitted may be one from before the
+        // site answered: only a sign of a sign-in acts at once.
+        realTime();
+        fake.state.signs = { ...noSigns, alert: true };
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        let clicked = 0;
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          clicked = Date.now();
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "blocked" }]), {
+          timeout: 6_000,
+          interval: 10,
+        });
+        expect(status()).toMatchObject([{ outcome: "credential-rejected" }]);
+        expect(Date.now() - clicked).toBeGreaterThanOrEqual(2_900);
+        // The state is read every round, but the run's username comes from the vault once:
+        // the fill's username and password, and the first reading's username.
+        expect(h.fields.mock.calls.length).toBeLessThanOrEqual(3);
+      }, 12_000);
+      it("reads a document that finished loading during the wait afresh", async () => {
+        realTime();
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.loaded = false;
+        // The document finishes loading while the content script waits for it.
+        fake.state.signs = (message) => {
+          if (message["loadWithinMs"] !== undefined) fake.state.loaded = true;
+          return { ...noSigns, username: true };
+        };
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 8_000,
+          interval: 10,
+        });
+        const reads = fake.state.messages.filter((entry) => entry.type === "login.state");
+        // The reading after the load is taken again, so none of its signs is from before it.
+        expect(
+          reads.slice(-2).map((entry) => (entry as { loadWithinMs?: number }).loadWithinMs),
+        ).toEqual([10_000, undefined]);
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 12_000);
+      it("never completes at once after an advance whose next step is still rendering", async () => {
+        // An identifier-first page may name the account in its header before its password
+        // input renders (E2): the page after an advance is decided once the budget ran out.
+        realTime();
+        const advancing = parseLoginRecipe({
+          ...generated,
+          steps: [
+            {
+              kind: "fill",
+              path: "/signin",
+              fields: [{ slot: "username", target: target("user") }],
+            },
+            { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+            {
+              kind: "fill",
+              path: "/signin",
+              fields: [{ slot: "password", target: target("password") }],
+            },
+            { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+          ],
+          maxSubmissions: 2,
+        });
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = { ...noSigns, username: false };
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+        });
+        h.recipes.recipe.mockResolvedValue(advancing);
+        fake.state.present = new Set(["user", "next"]);
+        fake.state.onExecute = async (message) => {
+          const { step } = message["operation"] as { step: { kind: string; purpose?: string } };
+          if (step.kind !== "click" || step.purpose !== "advance") return;
+          fake.state.present = new Set();
+          fake.state.signs = { ...noSigns, username: true };
+          setTimeout(() => {
+            fake.state.present = new Set(["password", "login"]);
+            fake.state.signs = { ...noSigns, password: true, username: true };
+          }, 500);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(
           () =>
             expect(
-              fake.state.messages.filter((entry) => entry.type === "login.state"),
+              fake.state.messages.filter(
+                (entry) =>
+                  entry.type === "login.execute" &&
+                  (entry as { operation?: { step: { purpose?: string } } }).operation?.step
+                    .purpose === "submit",
+              ),
             ).toHaveLength(1),
-          { timeout: 6_000, interval: 10 },
+          { timeout: 8_000, interval: 10 },
         );
-        fake.state.signs = noSigns;
-        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 8_000 });
-        expect(
-          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : [])),
-        ).toEqual([expect.objectContaining({ e2: false, decision: "judge" })]);
       }, 12_000);
     });
     describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => {

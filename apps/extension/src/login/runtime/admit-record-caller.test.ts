@@ -95,6 +95,8 @@ function harness(entry = record()) {
   const rt = {
     documents,
     picked,
+    switchStates: new Map(),
+    persisted: new Map(),
     attempts: new Map(),
     rejectedAsks: new Set(),
     stoppedAsks: new Set(),

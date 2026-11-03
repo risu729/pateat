@@ -92,11 +92,15 @@ change, in the order of the inventory (largest added time first):
 - The 25 ms after a value's characters and after its `change` and blur (`VALUE_GAP_MS`
   in `page/enter-value.ts`), for the same reason: a masked field that writes a key it
   cancelled from a 10 ms timer was refused in 33 of 50 tries with a frame instead.
-- The 3 s observation budget of a result no marker proves, `WATCH_SETTLE_MS`,
-  `SIGN_IN_RECHECK_MS` and the cross-origin move's readings (`quietMove`) after a
-  submission ([ADR 0027](0027-per-account-login-routes.md),
-  [ADR 0029](0029-local-sign-in-state.md),
-  [ADR 0022](0022-login-attempts-per-tab-and-origin.md)).
+- The cross-origin move's readings a second apart (`quietMove`) after a submission
+  ([ADR 0022](0022-login-attempts-per-tab-and-origin.md)). The 3 s observation budget of
+  a result no marker proves, `WATCH_SETTLE_MS` and `SIGN_IN_RECHECK_MS` no longer delay
+  a page that reads signed in: it completes at once, and the sign-in form shown again in
+  its document within 30 s corrects the result (owner, 2026-11-03 11:15 UTC,
+  [ADR 0029 amendment](0029-local-sign-in-state.md#amendment-read-the-result-at-once-and-correct-it-2026-11-03)).
+  The budget and `WATCH_SETTLE_MS` stay as the bound before a page with no sign of a
+  sign-in is acted on or judged, and a document still loading is read again on its
+  `load` event.
 - The shown-account check's `accountQuietMs`/`accountWaitMs` before a password-only
   fill that may submit by itself, and the same quiet after an in-place account switch
   ([ADR 0078](0078-the-pages-own-account-switch.md)). A `prepare` fill no longer waits:

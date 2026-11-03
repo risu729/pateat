@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseLoginRecipe, type LoginStep } from "@pateat/contracts";
 import type { LoginReport } from "../runtime/report";
+import { RESULT_CORRECTION_MS } from "../runtime/constants";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
@@ -497,7 +498,41 @@ describe("production login document admission", () => {
             reason: "logged-in",
             starts: [signinStart],
           });
+          // Past the window in which that document's form corrects the result (ADR 0029,
+          // amended 2026-11-03), it is a logout.
+          vi.setSystemTime(Date.now() + RESULT_CORRECTION_MS);
           await signedIn(h);
+          expect(attempts()).toHaveLength(1);
+        });
+        it("corrects the result when that document shows the form again at once, and asks", async () => {
+          // ADR 0029, amended 2026-11-03: the result is read at once, so the sign-in form
+          // showing again in the document the login completed in, soon after, means the
+          // login did not sign in. The tab asks instead of logging in again.
+          const report = vi.fn<(entry: LoginReport) => void>();
+          const h = matched(report);
+          await signedIn(h);
+          const before = steps().length;
+          vi.setSystemTime(Date.now() + RESULT_CORRECTION_MS - 1_000);
+          expect(await h.hello()).toMatchObject({ ok: false, reason: "account-asked" });
+          expect(steps()).toHaveLength(before);
+          expect(attempts()).toEqual([]);
+          const attemptsLogged = report.mock.calls
+            .map(([entry]) => entry)
+            .filter((entry) => entry.type === "attempt");
+          expect(attemptsLogged.at(-1)).toMatchObject({
+            state: "blocked",
+            outcome: "unknown-submit",
+            reason: "sign-in-shown",
+            corrected: true,
+          });
+          // Its times went with the completion, and are not sent again.
+          expect(attemptsLogged.at(-1)).not.toHaveProperty("times");
+          expect(attemptsLogged.filter((entry) => entry.times !== undefined)).toHaveLength(1);
+        });
+        it("does not correct a completion when a new document shows the form", async () => {
+          const h = matched();
+          await signedIn(h);
+          await signedIn(h, { documentId: "signed-out" });
           expect(attempts()).toHaveLength(1);
         });
         it("logs in again in another tab of the site, whose session the logout ended too", async () => {

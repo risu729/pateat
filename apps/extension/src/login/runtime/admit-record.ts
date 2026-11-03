@@ -36,6 +36,13 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
         paused: ctx.paused,
         probe: probeMode && ctx.document.origin === rt.vars.origin,
         pickedAttemptId: rt.picked.get(ctx.document.tabId)?.attemptId,
+        picked: rt.picked.has(ctx.document.tabId),
+        recordedAt: ((stored) => (stored?.id === ctx.recorded?.id ? stored?.changedAt : undefined))(
+          rt.persisted.get(ctx.askKey),
+        ),
+        switching: ["running", "signed-out"].includes(
+          rt.switchStates.get(ctx.document.tabId)?.state ?? "",
+        ),
       },
       { phase, ...seen },
       now,
@@ -56,15 +63,19 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
    * Releases a tab's finished login of this origin once its first step shows again (ADR
    * 0021 D, ADR 0062): the page then logs in as on any visit. After the site rejected that
    * login, the tab and the origin's other tabs ask for an account instead, and the page
-   * that showed the rejection is never filled again. Returns a refusal when it could not,
-   * else undefined.
+   * that showed the rejection is never filled again; so after a completion that its own
+   * document corrects (`corrected`, ADR 0029 amended 2026-11-03), which is logged as such.
+   * Returns a refusal when it could not, else undefined.
    */
   const releaseFinished = async (
     released: LoginAttemptMetadata,
+    corrected: boolean,
   ): Promise<Readiness | undefined> => {
     const { tabId } = released.document;
     const releasedKey = recordKey(tabId, ctx.document.origin);
-    const rejected = released.outcome === "credential-rejected";
+    const rejected = released.outcome === "credential-rejected" || corrected;
+    const own = rt.attempts.get(tabId);
+    const recipe = own?.metadata.id === released.id ? own.recipe : undefined;
     if (rt.attempts.get(tabId)?.metadata.id === released.id) rt.attempts.delete(tabId);
     const unpicked = rt.picked.get(tabId)?.attemptId === released.id && rt.picked.delete(tabId);
     // The page that showed the rejection is never filled with an account again: the site
@@ -91,6 +102,16 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
     }
     // A page of that tab admitted meanwhile may have resumed the record; it stops too.
     if (rt.attempts.get(tabId)?.metadata.id === released.id) rt.attempts.delete(tabId);
+    // The completion becomes an unknown result with the sign-in form shown, as for a form
+    // shown again before the login settled; its times went with the completion.
+    if (corrected)
+      reportAttempt(
+        rt,
+        { ...released, state: "blocked", outcome: "unknown-submit" },
+        recipe,
+        undefined,
+        { corrected: true, reason: "sign-in-shown" },
+      );
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
     return undefined;
   };
@@ -196,13 +217,13 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
     ctx.recorded = undefined;
   }
 
-  const finished = recordStep("finished");
+  const finished = recordStep("finished", {}, Date.now());
 
   if (ctx.recorded && finished.kind === "read-confirm") {
     // Until the recipe's first step shows again, the page keeps watching for it. The page
     // a rejection was read in shows the sign-in form again with the failure, which may be
     // on another path, such as the one the form posted to: it asks at once.
-    const rejectedHere = finished.rejectedHere;
+    const { rejectedHere, correctedHere } = finished;
     // A page generated as a verification while signed in is no logout either, even when
     // it announces a start from starts read before its recipe was generated again (ADR
     // 0035): the service keeps one recipe per path, so no sign-in recipe starts there.
@@ -210,10 +231,12 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
       ? await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path)
       : undefined;
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-    if (
-      recordStep(finished.next, { confirm: confirm !== undefined, rejectedHere }).kind ===
-      "keep-watching"
-    ) {
+    const release = recordStep(finished.next, {
+      confirm: confirm !== undefined,
+      rejectedHere,
+      correctedHere,
+    });
+    if (release.kind === "keep-watching") {
       const starts = await startsFor(rt, ctx.document.origin);
       if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
       // Not a recipe's first step on its path, so the login stays (ADR 0021 D).
@@ -228,8 +251,13 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
       };
     }
     // It shows again after a finished login, as after a logout. Only this tab's record
-    // for this origin is released, and the page logs in again (ADR 0062).
-    const refused = await releaseFinished(ctx.recorded);
+    // for this origin is released, and the page logs in again (ADR 0062), unless it is the
+    // document the login just completed in: then the login did not sign in, and the tab
+    // asks (ADR 0029, amended 2026-11-03).
+    const refused = await releaseFinished(
+      ctx.recorded,
+      release.kind === "release-finished" && release.corrected,
+    );
     if (refused) return refused;
     ctx.recorded = undefined;
   }

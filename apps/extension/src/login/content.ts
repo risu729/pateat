@@ -54,6 +54,7 @@ import { typeValue } from "../page/enter-value";
 import { askDefinitions, ELEMENT_DEFINED } from "../page/element-definitions";
 import { nextFrame } from "../page/frames";
 import { pageChange } from "../page/page-change";
+import { documentLoaded } from "../page/document-load";
 import {
   extractAccountListObservation,
   extractEntryObservation,
@@ -1629,28 +1630,37 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (command.account) command.account.username = "";
       // The sign-in form shown again in a new document: its inputs each target names alone,
       // read-only ones when entered on the page's keypad (ADR 0067).
-      const keyed = new Set<HTMLInputElement>();
-      const reshown = command.fields?.flatMap((target) => {
-        const found = matches(target);
-        if (found.length !== 1) return [];
-        if (writable(found[0])) return [found[0]];
-        if (!keyable(found[0]) || !keypadField(found[0], findKeypad(document, found[0]))) return [];
-        keyed.add(found[0]);
-        return [found[0]];
-      });
-      respond(
-        cancelled
-          ? { ok: false }
-          : {
-              ok: true,
-              signs: pageSigns(document, {
-                ...(reshown ? { reshown, keyed } : submitted ? { submitted } : {}),
-                ...(username === undefined ? {} : { username }),
-              }),
-              loaded: document.readyState === "complete",
-            },
-      );
-      return false;
+      // They are found when the page is read, after any wait for its load below.
+      const read = () => {
+        if (cancelled) return { ok: false };
+        const keyed = new Set<HTMLInputElement>();
+        const reshown = command.fields?.flatMap((target) => {
+          const found = matches(target);
+          if (found.length !== 1) return [];
+          if (writable(found[0])) return [found[0]];
+          if (!keyable(found[0]) || !keypadField(found[0], findKeypad(document, found[0])))
+            return [];
+          keyed.add(found[0]);
+          return [found[0]];
+        });
+        return {
+          ok: true,
+          signs: pageSigns(document, {
+            ...(reshown ? { reshown, keyed } : submitted ? { submitted } : {}),
+            ...(username === undefined ? {} : { username }),
+          }),
+          loaded: document.readyState === "complete",
+        };
+      };
+      if (command.loadWithinMs === undefined || document.readyState === "complete") {
+        respond(read());
+        return false;
+      }
+      // A document still loading is read once it loaded (ADR 0029, amended 2026-11-03).
+      void documentLoaded(document, Date.now() + command.loadWithinMs, waits.signal)
+        .then(read)
+        .then(respond, () => respond({ ok: false }));
+      return true;
     }
     if (command.type === "login.observe") {
       if (cancelled) {
