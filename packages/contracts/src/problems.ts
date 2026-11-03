@@ -65,9 +65,10 @@ export const LOCAL_ONLY_EVENTS = ["passkey.request", "passkey.create"] as const;
 export const LOCAL_ONLY_FLAG = "fillOnly";
 
 /**
- * Fields of a local log event that never leave the device, even on a line that does: where
- * a login's own time went (ADR 0019, amendment of 2026-11-03). {@link PROBLEM_EVENT_FIELDS}
- * lists none of them, so a problem line leaves them out and the service refuses them too.
+ * Fields of a local log event that a problem line leaves out: where a login's own time went
+ * (ADR 0019, amendment of 2026-11-03), which only the login record sends (ADR 0055).
+ * {@link PROBLEM_EVENT_FIELDS} lists none of them, so the service refuses them on a problem
+ * line too.
  */
 export const LOCAL_ONLY_FIELDS = {
   "login.attempt": [

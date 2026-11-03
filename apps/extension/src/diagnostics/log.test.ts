@@ -3354,7 +3354,7 @@ describe("problem lines (ADR 0066)", () => {
     expect(lines.at(-1)?.fields).not.toHaveProperty("reason");
   });
 
-  it("keeps where a login's own time went on the device, with its times sent (ADR 0019)", async () => {
+  it("leaves where a login's own time went out of its problem line (ADR 0019)", async () => {
     const { logger } = setup();
     await logger.log(
       "login.attempt",

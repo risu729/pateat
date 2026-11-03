@@ -66,6 +66,28 @@ describe("loginRecordOf", () => {
     });
   });
 
+  it("sends every part of Pateat's own time the login kept, 0 for a part it left out", () => {
+    const found = loginRecordOf(
+      ended({ spans: { startMs: 300, awaitMs: 1_200, commandMs: 100 } }),
+      BUILD,
+    );
+    expect(found).toMatchObject({
+      record: {
+        totalMs: 9_000,
+        beforeShownMs: 0,
+        startMs: 300,
+        awaitMs: 1_200,
+        saveMs: 0,
+        statusMs: 0,
+        checkMs: 0,
+        vaultMs: 0,
+        commandMs: 100,
+      },
+    });
+    // A login that kept none, as after a software keyboard, sends none.
+    expect(loginRecordOf(ended(), BUILD)).not.toHaveProperty("record.startMs");
+  });
+
   it("keeps the chooser branch and a listed cause of a blocked login", () => {
     expect(
       loginRecordOf(

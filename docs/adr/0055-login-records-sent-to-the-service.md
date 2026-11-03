@@ -119,6 +119,36 @@ Not confirmed by the owner (the agent's choices):
   only requests that got no answer from the service, whose round trip still counts in
   `serviceMs`, leave it short. The dashboard calls it a lower bound.
 
+## Amendment 2026-11-03: where Pateat's own time went
+
+On 2026-11-03 the local log began to say where a login's own time (`otherMs`) went
+([ADR 0019](0019-local-diagnostics-and-logs.md#amendment-2026-11-03-where-a-logins-own-time-went)),
+on the device only, so as not to widen this record without the owner. The owner asked
+「なんで端末内だけ？」 (11:11 UTC) and, after the reason and a proposal to send them,
+answered 「はい、それで」 (11:15 UTC). So the record also carries those parts, and the
+dashboard shows their medians:
+
+- `beforeShownMs`, `startMs`, `awaitMs`, `saveMs`, `statusMs`, `checkMs`, `vaultMs` and
+  `commandMs` (`LOGIN_RECORD_PARTS`), each in milliseconds rounded down to 100. All of
+  them, 0 for a part the login had no time in, or none when the device kept none: a
+  login that typed on a software keyboard, or one that a restarted worker resumed, whose
+  parts before the restart are lost. The contract refuses a record with only some of
+  them. Older builds send none, and their rows hold null. A service older than this
+  amendment refuses a record with the parts, since the record is a strict object; the
+  service deploys from `main` before a build that sends them is released.
+- The time typing took is still never sent: no part times a fill, the parts are rounded
+  down, and a login that typed on a software keyboard sends none, so `otherMs` less the
+  parts does not tell it either.
+- The dashboard's "Where the rest of the login goes" table gives, for the signed-in
+  logins that sent them, the median of each part and of the rest of the login less all
+  of them, never below 0. `beforeShownMs` is part of the login's time and mostly of
+  `otherMs`; generation may run inside it, so the service's time may overlap it.
+
+Not confirmed by the owner (the agent's choices): the parts are flat optional fields of
+the record and nullable columns of `login_timings`; the contract takes only whole steps
+of 100 ms; the dashboard groups them as its other login parts are, by whether the login
+waited on the service.
+
 ## Consequences
 
 - The service now learns when, and on which site, each login with a recipe happened,

@@ -1,4 +1,4 @@
-import { loginRecordSchema, type LoginRecord } from "@pateat/contracts";
+import { LOGIN_RECORD_PARTS, loginRecordSchema, type LoginRecord } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginReport } from "../login/runtime/report";
 import { loginOutcomeOf } from "./outcomes";
@@ -50,6 +50,11 @@ export function loginRecordOf(
   if (!found) return undefined;
   const { revision, branch, outcome, cause } = found.report;
   const { totalMs, serviceMs, networkMs, personMs, pageMs } = report.times;
+  // Where Pateat's own time went, every part, when the login kept them (ADR 0055).
+  const spans = report.spans;
+  const parts = spans
+    ? Object.fromEntries(LOGIN_RECORD_PARTS.map((part) => [part, spans[part] ?? 0]))
+    : {};
   const parsed = v.safeParse(loginRecordSchema, {
     version: 1,
     revision,
@@ -62,6 +67,7 @@ export function loginRecordOf(
     networkMs,
     personMs,
     pageMs,
+    ...parts,
   });
   return parsed.success
     ? { recipeId: found.recipeId, record: parsed.output }

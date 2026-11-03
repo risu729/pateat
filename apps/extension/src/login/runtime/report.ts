@@ -197,7 +197,10 @@ export type LoginReport = (
       stop?: "password";
       /** For a login that just ended, signed in or blocked: how long it took (ADR 0019). */
       times?: AttemptTimes;
-      /** With `times`: where the login's own time went, for the local log only (ADR 0019). */
+      /**
+       * With `times`: where the login's own time went, for the local log and the login record
+       * (ADR 0019, ADR 0055).
+       */
       spans?: AttemptSpans;
     }
   | {

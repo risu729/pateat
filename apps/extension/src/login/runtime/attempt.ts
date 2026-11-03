@@ -97,7 +97,7 @@ export const reportAttempt = (
   // A login that just ended, signed in or blocked, says how long it took (ADR 0019); a
   // watched one only when its watch ends, which may have been before it was noticed.
   const times = terminal(metadata) && !flags.repeat ? attemptTimes(metadata, endedAt) : undefined;
-  // Where its own time went, for the local log only (ADR 0019).
+  // Where its own time went, for the local log and the login record (ADR 0019, ADR 0055).
   const spans = times ? takeSpans(rt, metadata.id) : undefined;
   // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
   const handler =

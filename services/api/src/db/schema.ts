@@ -529,6 +529,19 @@ export const loginTimings = sqliteTable(
     personMs: integer("person_ms").notNull(),
     /** Waiting for the site's answer to the login's steps, page loads included. */
     pageMs: integer("page_ms").notNull(),
+    /**
+     * Where Pateat's own time went (`LOGIN_RECORD_PARTS`, ADR 0055 amendment of
+     * 2026-11-03), rounded down to 100 ms; null in rows of devices that sent none, as
+     * before these parts or after a software keyboard's fill.
+     */
+    beforeShownMs: integer("before_shown_ms"),
+    startMs: integer("start_ms"),
+    awaitMs: integer("await_ms"),
+    saveMs: integer("save_ms"),
+    statusMs: integer("status_ms"),
+    checkMs: integer("check_ms"),
+    vaultMs: integer("vault_ms"),
+    commandMs: integer("command_ms"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
