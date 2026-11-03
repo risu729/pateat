@@ -1,6 +1,7 @@
 // The Claude run is paid: it needs the owner's approval for each run (ADR 0014) and reads
-// only ANTHROPIC_API_KEY. The heuristic run is free and local. Both print the report as
-// JSON; the report carries no page text.
+// only ANTHROPIC_API_KEY. The Clef run is paid too, on Workers AI, and reads only
+// CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID. The heuristic run is free and local. All
+// print the report as JSON; the report carries no page text.
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import {
@@ -8,6 +9,7 @@ import {
   runClaudeJudgeBenchmark,
   runHeuristicBenchmark,
 } from "../packages/inference/src/bench";
+import { runClefBenchmark } from "../packages/inference/src/bench-clef";
 import { evaluationCorpus } from "../packages/inference/src/corpus/cases";
 import { judgeCorpus } from "../packages/inference/src/corpus/judge";
 import {
@@ -26,6 +28,7 @@ import {
   claudeModelRates,
   type ClaudeEffort,
 } from "../packages/inference/src/providers/claude";
+import { clefModels, isClefModel } from "../packages/inference/src/providers/clef";
 
 const corpora = {
   synthetic: evaluationCorpus,
@@ -51,6 +54,9 @@ const { values } = parseArgs({
     model: { type: "string", default: claudeGeneration.modelId },
     effort: { type: "string", default: claudeGeneration.effort },
     speed: { type: "string", default: "standard" },
+    // Clef only: the role's threshold, and whether to reverse each question's options.
+    "min-probability": { type: "string", default: "0.5" },
+    "reverse-options": { type: "boolean", default: false },
   },
 });
 if (!Object.hasOwn(corpora, values.corpus)) {
@@ -94,8 +100,44 @@ if (values.provider === "heuristic") {
   );
   process.exit(0);
 }
+if (values.provider === "clef") {
+  if (values.corpus === "judge") {
+    console.error("Clef has no judge; run the judge corpus with Claude.");
+    process.exit(2);
+  }
+  if (!values.paid) {
+    console.error("This run calls paid Workers AI. Pass --paid once the owner has approved it.");
+    process.exit(2);
+  }
+  const modelId = values.model === claudeGeneration.modelId ? "clef-flash" : values.model;
+  if (!isClefModel(modelId)) {
+    console.error(`Choose a Clef model: ${Object.keys(clefModels).join(", ")}.`);
+    process.exit(2);
+  }
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  if (apiToken === undefined || apiToken.trim() === "" || accountId === undefined) {
+    console.error("Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in the environment.");
+    process.exit(2);
+  }
+  const result = await runClefBenchmark({
+    accountId,
+    apiToken,
+    modelId,
+    maxCostUsd: Number(values["max-cost-usd"]),
+    cases: cases as typeof evaluationCorpus,
+    minProbability: Number(values["min-probability"]),
+    reverseOptions: values["reverse-options"],
+  });
+  console.log(JSON.stringify(result, null, 2));
+  if (result.report.stoppedBefore !== undefined) {
+    console.error(`Stopped at the cost cap before ${result.report.stoppedBefore}.`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
 if (values.provider !== "claude") {
-  console.error("Choose a provider: claude, heuristic.");
+  console.error("Choose a provider: claude, clef, heuristic.");
   process.exit(2);
 }
 if (!values.paid) {
