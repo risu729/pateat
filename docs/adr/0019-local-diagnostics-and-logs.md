@@ -570,17 +570,21 @@ again in those two cases only, and to keep everything else, so Pateat's own work
 a form is ready still counts:
 
 - A document that moves in place to another path, as a single-page site's route to its
-  sign-in, starts its next login's time again from that move. A path the login itself
-  moves to, as an identifier step followed by a password step, does not: a running
-  login keeps the time stored with it.
+  sign-in, starts its next login's time again when it first announces itself on the new
+  path, not at the move itself. A change of only the query or the hash, as a hash-routed
+  site's move, does not start it again, since the path is the URL's path alone. A path
+  the login itself moves to, as an identifier step followed by a password step, does not
+  either: a running login keeps the time stored with it.
 - A document that shows a sign-in again (a ready first step, a sign-in form offered for
   generation, a sign-in entry or an account list) after a login it started, as after a
-  sign-out in place, starts its next login's time again from then. A login picked in the
-  popup after a fill-only login, and any login while the popup offers the document a
-  choice, still counts from the login before it, as
+  sign-out in place, starts its next login's time again from then, even when it moved to
+  other paths meanwhile. Not while the popup offers the document a choice of account
+  after a fill-only login, or after the person picked one there: that login still counts
+  from the login before it, as
   [above](#amendment-2026-10-18-how-long-requests-and-logins-take).
-- Starting again takes a new record of the time, so time a request of the earlier one,
-  such as a generation, adds later stays out of the next login.
+- Starting again takes a new record of the time, from when the announcement reached the
+  extension, so the extension's own work on it still counts, and time a request of the
+  earlier one, such as a generation, adds later stays out of the next login.
 
 ## Amendment: signed-in page samples
 

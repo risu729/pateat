@@ -245,21 +245,25 @@ export async function admit(
 
   const previousUrl = previousPage(rt, document, oldLive, sameDocument, path);
 
-  // The document's time for its next login starts again (ADR 0019, owner 2026-11-03):
-  // on a new document; once a locked vault can be read, since unlocking comes before any
-  // login; when the document moved in place to another path, as a single-page site's route
-  // to its sign-in; and when it shows a sign-in again after a login it started, as after a
-  // sign-out in place, unless the popup offers it a choice of account or the person picked
-  // one, as after a fill-only login, whose next login counts from the login before it.
+  // The document's time for its next login starts again (ADR 0019, owner 2026-11-03), from
+  // when this announcement arrived: on a new document; once a locked vault can be read,
+  // since unlocking comes before any login; when the document announces from another path
+  // it moved to in place, as a single-page site's route to its sign-in; and when it shows a
+  // sign-in again after a login it started, as after a sign-out in place, unless the popup
+  // offers it a choice of account or the person picked one, as after a fill-only login,
+  // whose next login counts from the login before it.
   const pick = rt.picked.get(document.tabId);
   const choosing =
     rt.pending.get(document.tabId)?.document.documentId === document.documentId ||
     (pick?.attemptId === undefined && pick?.documentId === document.documentId);
+  const announcing = Boolean(start || signIn || entryHello || list);
   const restart =
     !sameDocument ||
     oldLive.reason === "vault-unavailable" ||
     oldLive.path !== path ||
-    (oldLive.loginStarted === true && Boolean(start || signIn || entryHello || list) && !choosing);
+    (oldLive.loginStarted === true && announcing && !choosing);
+  // What the document keeps of its current path: nothing once its time starts again.
+  const keepsPath = sameDocument && oldLive.path === path && !restart;
 
   const live: LiveDocument = {
     document,
@@ -278,16 +282,20 @@ export async function admit(
       : {}),
     seenAt: sameDocument ? oldLive.seenAt : Date.now(),
     // When it first announced a sign-in on this path, for the local log (ADR 0019).
-    ...(start || signIn || entryHello || list
-      ? { shownAt: (sameDocument && oldLive.path === path && oldLive.shownAt) || receivedAt }
-      : sameDocument && oldLive.path === path && oldLive.shownAt !== undefined
+    ...(announcing
+      ? { shownAt: (keepsPath && oldLive.shownAt) || receivedAt }
+      : keepsPath && oldLive.shownAt !== undefined
         ? { shownAt: oldLive.shownAt }
         : {}),
     // A new object, so time a request of the earlier one adds later stays with it.
     timing: restart
-      ? { since: Date.now(), serviceMs: 0, networkMs: 0, personMs: 0 }
+      ? { since: receivedAt, serviceMs: 0, networkMs: 0, personMs: 0 }
       : oldLive.timing,
-    ...(!restart && oldLive.loginStarted ? { loginStarted: true as const } : {}),
+    // Kept until the document shows a sign-in that starts the time again, so a sign-in it
+    // shows later on a path it moved to after the login still does.
+    ...(sameDocument && oldLive.loginStarted && !(restart && announcing)
+      ? { loginStarted: true as const }
+      : {}),
     ...(sameDocument && oldLive.path === path && oldLive.entryRefusals
       ? { entryRefusals: oldLive.entryRefusals }
       : {}),

@@ -693,6 +693,34 @@ describe("production login document admission", () => {
       const [second] = fake.state.storage["pateat.login-attempts.v5"] as { id: string }[];
       expect(second!.id).not.toBe(first!.id);
     });
+    it("starts the time again for a form shown after a login and moves in place", async () => {
+      // A single-page site moves to its home page after the login, back to its sign-in
+      // page later, and only then shows its form again (owner 2026-11-03).
+      const signInUrl = fake.state.pageUrl;
+      const h = harness();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          { state: "authenticated" },
+        ]),
+      );
+      vi.useFakeTimers({ toFake: ["Date"] });
+      onTestFinished(() => void vi.useRealTimers());
+      fake.state.pageUrl = "https://login.example/home";
+      await h.hello({ url: fake.state.pageUrl }, false);
+      const back = Date.now() + 60_000;
+      vi.setSystemTime(back);
+      fake.state.pageUrl = signInUrl;
+      await h.hello({ url: signInUrl }, false);
+      const shownAgain = back + 3_600_000;
+      vi.setSystemTime(shownAgain);
+      expect(await h.hello({ url: signInUrl })).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+          { state: "authenticated", timing: { since: shownAgain } },
+        ]),
+      );
+    });
     it("keeps the time of a page that shows its form later on the same path", async () => {
       const h = harness();
       const seen = Date.now();
