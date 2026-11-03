@@ -146,6 +146,20 @@ const stillAsks = (input: Control, question: AskedQuestion | undefined) =>
 /** An input a fill types into, or a select a split date's part sets (ADR 0061). */
 type Control = HTMLInputElement | HTMLSelectElement;
 /**
+ * Empties inputs a fill typed into, with the page's `input` and `change` events, as when
+ * the account check it left to the click found another account (ADR 0049).
+ */
+function clearTyped(inputs: Control[]): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  if (!setter) return;
+  for (const input of inputs)
+    if (input instanceof HTMLInputElement && input.isConnected && input.value !== "") {
+      setter.call(input, "");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+}
+/**
  * Whether `element` may take a value of `secret` now: a writable input, or, for a split
  * birth date's or card expiry date's part only (ADR 0061), a choosable select.
  */
@@ -518,6 +532,22 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const submitsBefore = new WeakSet<Element>();
   let submitsTaken = false;
   let filledAttempt: string | undefined;
+  /**
+   * A fill's check of the account the page shows, left to the next click or Enter of the
+   * same attempt because the page showed no identifier when it filled (ADR 0049 amendment
+   * of 2026-11-03): the item's username, the form, the inputs it filled and the switch the
+   * fill was sent. It never leaves this content script.
+   */
+  let deferredAccount:
+    | {
+        username: string;
+        masked: boolean;
+        form: HTMLFormElement | null;
+        inputs: Control[];
+        accountSwitch?: LoginTarget;
+        otherSwitch?: true;
+      }
+    | undefined;
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
     | {
@@ -1223,6 +1253,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     if (command.type === "login.cancel") {
       cancelled = true;
+      if (deferredAccount) deferredAccount.username = "";
+      deferredAccount = undefined;
       waits.abort();
       unwatch();
       frameWatch?.();
@@ -1733,8 +1765,94 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         filled = new WeakSet();
         chosen = [];
         shownBefore = undefined;
+        if (deferredAccount) deferredAccount.username = "";
+        deferredAccount = undefined;
         filledAttempt = operation.attemptId;
       }
+      // The page shows another account: its switch, the recipe's or the page's own (ADR
+      // 0078), is clicked only by `login.switch`, once the background has recorded it.
+      const otherAccount = (switches: {
+        accountSwitch?: LoginTarget | undefined;
+        otherSwitch?: true | undefined;
+      }) => {
+        const target = switches.accountSwitch;
+        const find = target
+          ? () => {
+              const named = findTargets(document, target, { links: true });
+              return named.length === 1 && switchable(named[0]) ? named : [];
+            }
+          : switches.otherSwitch
+            ? () => accountSwitchControls(document)
+            : undefined;
+        const found = find?.() ?? [];
+        const element = found.length === 1 ? found[0] : undefined;
+        if (find && element instanceof HTMLElement) {
+          pendingSwitch = {
+            operationId: operation.operationId,
+            element,
+            find,
+            path: pagePath(),
+            expiresAt: Date.now() + switchTimeoutMs,
+          };
+          return { ...fail("wrong-account"), switchable: true as const };
+        }
+        return fail("wrong-account");
+      };
+      const nothingShown = (deferred: NonNullable<typeof deferredAccount>) =>
+        comparableAccounts(formAccounts(document, deferred.form), deferred.username, {
+          masked: deferred.masked,
+        })?.length === 0;
+      /**
+       * Before a click or Enter's own checks: while a fill left its account check to it
+       * (`deferredAccount`) and the page still shows no identifier and has not loaded, waits
+       * for `load`, at most `accountWaitMs` and until `accountReserveMs` before the operation
+       * expires (ADR 0082), or the document's cancel. A wait that ran out goes on.
+       */
+      const deferredLoad = async () => {
+        const deferred = deferredAccount;
+        if (!deferred || document.readyState === "complete" || !nothingShown(deferred))
+          return undefined;
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            clearTimeout(loadTimer);
+            removeEventListener("load", done);
+            waits.signal.removeEventListener("abort", done);
+            resolve();
+          };
+          const loadTimer = setTimeout(
+            done,
+            Math.max(
+              0,
+              Math.min(accountWaitMs, operation.expiresAt - accountReserveMs - Date.now()),
+            ),
+          );
+          addEventListener("load", done);
+          waits.signal.addEventListener("abort", done);
+        });
+        if (cancelled) return fail("cancelled", "document-cancelled");
+        if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
+        if (step.path !== pagePath()) return fail("cancelled", "page-changed");
+        return undefined;
+      };
+      /**
+       * The check a fill left to this click or Enter, run with no wait just before the press:
+       * on another account the values the fill typed are cleared and nothing is pressed. It
+       * is used up by a submitting press or once the page shows an identifier; an advance
+       * on a page that still shows none leaves it for the next press.
+       */
+      const deferredOther = (submit: boolean) => {
+        const deferred = deferredAccount;
+        if (!deferred) return undefined;
+        if (!submit && nothingShown(deferred)) return undefined;
+        deferredAccount = undefined;
+        const other = showsOtherAccount(formAccounts(document, deferred.form), deferred.username, {
+          masked: deferred.masked,
+        });
+        deferred.username = "";
+        if (!other) return undefined;
+        clearTyped(deferred.inputs);
+        return otherAccount(deferred);
+      };
       // With an advance whose next step is on its path, that step's elements just before
       // the click or the first input; the answer reports them (ADR 0013).
       const measureNext = () => {
@@ -1758,6 +1876,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
        * person, who then presses Enter or the button.
        */
       const pressEnter = async (target: LoginTarget, submit: boolean) => {
+        const waited = await deferredLoad();
+        if (waited) return waited;
         const found = matches(target);
         const field = found.length === 1 ? found[0] : undefined;
         const form = writable(field) ? formOf(field) : null;
@@ -1809,6 +1929,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           })
         )
           return fail("structural-mismatch", "form-changed");
+        const other = deferredOther(submit);
+        if (other) return other;
         measureNext();
         submitted = submittedPage(document, formInputs.filter(writable));
         if (showsCaptcha(document) && !passedCaptcha(document)) return fail("captcha");
@@ -1818,10 +1940,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return { ok: true, mutation: "possible" } as const;
       };
       if (step.kind === "fill") {
-        // A fill compared with the shown account waits for the page to settle while the
-        // page shows nothing to compare with, so an account it shows after its fields is
-        // compared too (`accountQuietMs`).
+        // A fill compared with the shown account, while the page shows nothing to compare
+        // with, is compared just before its click instead when the background says one
+        // follows (`accountAtPress`), so an account the page shows after its fields is
+        // compared too (Duolingo, 2026-10-23); any other such fill, whose page may submit
+        // without that click, waits for the page to settle (`accountQuietMs`).
         const masked = command.values.some((entry) => maskedSecret(entry.secret));
+        let deferLater = false;
         if (command.account) {
           const first = step.fields[0] ? matches(step.fields[0].target) : [];
           const form =
@@ -1831,7 +1956,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             command.account.username,
             { masked },
           );
-          if (comparable?.length === 0) {
+          if (comparable?.length === 0 && command.accountAtPress) deferLater = true;
+          else if (comparable?.length === 0) {
             await settled(
               document,
               accountQuietMs,
@@ -1904,38 +2030,30 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         )
           return fail("structural-mismatch", "secret-refused");
         // A secret goes only to the account the page shows, when it shows one (owner
-        // decision, 2026-10-11). The comparison stays in this content script.
+        // decision, 2026-10-11). The comparison stays in this content script. A page that
+        // showed no identifier yet is compared just before the next click instead
+        // (`deferredAccount`, ADR 0049 amendment of 2026-11-03).
         if (command.account) {
-          const other = showsOtherAccount(formAccounts(document, form), command.account.username, {
-            masked,
-          });
-          command.account.username = "";
-          if (other) {
-            // The recipe's account switch is clicked once the background has recorded the
-            // switch, so a recipe that starts on the page it leads to can log in. Without
-            // one, the page's own control for another account is (ADR 0078).
-            const target = command.accountSwitch;
-            const find = target
-              ? () => {
-                  const named = findTargets(document, target, { links: true });
-                  return named.length === 1 && switchable(named[0]) ? named : [];
-                }
-              : command.otherSwitch
-                ? () => accountSwitchControls(document)
-                : undefined;
-            const found = find?.() ?? [];
-            const element = found.length === 1 ? found[0] : undefined;
-            if (find && element instanceof HTMLElement) {
-              pendingSwitch = {
-                operationId: operation.operationId,
-                element,
-                find,
-                path: pagePath(),
-                expiresAt: Date.now() + switchTimeoutMs,
-              };
-              return { ...fail("wrong-account"), switchable: true as const };
-            }
-            return fail("wrong-account");
+          if (deferLater) {
+            const earlier = deferredAccount;
+            if (earlier) earlier.username = "";
+            deferredAccount = {
+              username: command.account.username,
+              masked,
+              form,
+              inputs: [...(earlier?.inputs ?? []), ...writableInputs],
+              ...(command.accountSwitch ? { accountSwitch: command.accountSwitch } : {}),
+              ...(command.otherSwitch ? { otherSwitch: true as const } : {}),
+            };
+            command.account.username = "";
+          } else {
+            const other = showsOtherAccount(
+              formAccounts(document, form),
+              command.account.username,
+              { masked },
+            );
+            command.account.username = "";
+            if (other) return otherAccount(command);
           }
         }
         // A `totp` handler without a button types its code as the submission: the page
@@ -2254,6 +2372,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (step.kind === "click" && step.press === "enter")
         return await pressEnter(step.target, step.purpose === "submit");
       if (step.kind === "click") {
+        const waited = await deferredLoad();
+        if (waited) return waited;
         let element: HTMLElement | undefined;
         if (command.list) {
           // A chooser's click on its list goes where the list's choice is now (ADR 0028).
@@ -2333,6 +2453,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           })
         )
           return fail("structural-mismatch", "form-changed");
+        const other = deferredOther(step.purpose === "submit");
+        if (other) return other;
         // An advance's next step is measured in this task, just before the click, and so
         // is what the page shows before it (ADR 0029).
         measureNext();

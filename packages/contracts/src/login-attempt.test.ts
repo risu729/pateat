@@ -793,6 +793,18 @@ describe("submission and failure reconciliation", () => {
       });
       expect(switched).toMatchObject({ state: "blocked", outcome: "wrong-account" });
     }
+    // A click the fill left its account check to ends the same way, before anything was
+    // submitted (ADR 0049 amendment of 2026-11-03).
+    const clicking = submitting();
+    expect(clicking).toMatchObject({ state: "submit-intent", submissions: 1 });
+    expect(
+      transitionLoginAttempt(clicking, {
+        type: "WRONG_ACCOUNT",
+        operationId: "click-one",
+        document,
+        switched: true,
+      }),
+    ).toMatchObject({ state: "blocked", outcome: "account-switched", submissions: 0 });
     // A switch that was not clicked after all ends as `wrong-account`.
     const withdrawn = withdrawAccountSwitch(
       transitionLoginAttempt(intent, {
@@ -829,11 +841,11 @@ describe("submission and failure reconciliation", () => {
     expect(
       transitionLoginAttempt(submit, { type: "WRONG_ACCOUNT", operationId: "input-one", document }),
     ).toMatchObject({ state: "blocked", outcome: "wrong-account", submissions: 0 });
-    // A click never reports a wrong account.
+    // A click reports one only for its own operation.
     expect(
       transitionLoginAttempt(submitting(), {
         type: "WRONG_ACCOUNT",
-        operationId: "click-one",
+        operationId: "click-two",
         document,
       }).state,
     ).toBe("submit-intent");

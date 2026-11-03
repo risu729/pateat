@@ -210,7 +210,12 @@ fix them now; the SSO policy itself is recorded separately.
     seconds later, Chrome's shortest alarm delay. A page of the tab that ends such a
     login only after its wait, or its watch, ran out ends it at that time too, so the
     time between counts for nothing; a move that completes it still ends it when the
-    page shows. A bound, not a pause: nothing waits for it to pass.
+    page shows. A bound, not a pause: nothing waits for it to pass. While any stored
+    login waits for the site, or one whose wait ran out is still decided in memory, the
+    worker calls an extension API every 20 seconds, as
+    it does during a model call, so Chrome's 30-second idle stop does not lose the waits
+    kept in memory (owner's question at 11:16 UTC on 2026-11-03); an update, a reload,
+    a browser restart or a crash still stops it, which the bound covers.
   - **A move after a passkey answer** (amended 2026-10-12). Such an attempt ends
     `authenticated` instead when all of these hold: after its last effect step and at
     most 30 seconds before the move, Pateat returned an assertion to a passkey request

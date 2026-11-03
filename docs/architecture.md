@@ -1199,10 +1199,16 @@ password or short numeric input, and a Linked custom field follows the field it 
 Before a fill step that writes a secret but not the username (a site that remembers the
 account and asks only for the password), the background sends the selected item's
 username to the content script with that one fill. While the page shows no identifier to
-compare with, the content script first waits until the document has loaded and its DOM
-has not changed for 1 second, for at most 5 seconds and until 2 seconds before the
-operation expires, because a page can show the remembered account after its password
-field (Duolingo, 2026-10-23). It then compares the username with the account identifiers
+compare with, a `prepare` fill followed on its path by a click fills at once and the
+comparison runs just before that click or Enter instead, after waiting for the
+document's `load` (at most 5 seconds) if the page still shows none, because a page can
+show the remembered account after its password field (Duolingo, 2026-10-23); on another
+account the typed values are cleared and nothing is pressed
+([ADR 0049](adr/0049-start-at-a-later-step.md#amendment-2026-11-03-the-shown-account-checked-at-the-click)).
+A fill-only login's, a software keyboard's or a code's fill, or one that may submit by
+itself, first waits until the document has loaded and its DOM has not changed for 1
+second, for at most 5 seconds and until 2 seconds before the
+operation expires. The content script compares the username with the account identifiers
 shown in the form, or the page when there is no form, and the first eight `h1`-`h3`
 headings; every element boundary but a `<wbr>` separates words, format characters are
 left out (so `taro.yamada@<wbr>example.com` is one address), and `mailto:` links,
@@ -2344,10 +2350,15 @@ which its [login record](#login-records-on-the-service) also sends to the servic
   spent before the attempt existed, such as the first page's generation and an account
   picked in the popup, is carried into it once: a later login of the same page counts
   from when the one before it started. A page that waited for a locked vault starts
-  again once it can read it. An account pick counts as the person's time only since the
-  document's time started, which also starts again when a restarted worker sees the page
-  announce itself, so a choice first offered before never counts more than the login
-  took.
+  again once it can read it. So does a document that announces itself from another path
+  it moved to in place, as a single-page site's route to its sign-in, and one that shows
+  a sign-in again after a login it started, as after a sign-out in place, unless the
+  popup offers it a choice of account after a fill-only login or the person picked one
+  there
+  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-11-03-when-a-logins-time-starts-again)).
+  An account pick counts as the person's time only since the document's time started,
+  which also starts again when a restarted worker sees the page announce itself, so a
+  choice first offered before never counts more than the login took.
 - `serviceMs` is the time spent waiting for generation (with the recipe sync that
   follows a generated answer) and judgement; `networkMs` the network part of those
   requests that named the service's time. A request without the service's time adds
