@@ -241,6 +241,41 @@ describe("replacing a disabled final advance by its page (ADR 0018 amendment of 
     ]);
   });
 
+  it("takes the replacing revision from the cache in a new document of the login", async () => {
+    revealing();
+    // The page keeps Next disabled beside the opened input in every document.
+    const reply = fake.state.awaitReply!;
+    fake.state.awaitReply = (readiness) => {
+      const first = reply(readiness);
+      return (readiness as { revealed?: boolean }).revealed
+        ? { ok: false, reason: "revealed" }
+        : first;
+    };
+    let h!: ReturnType<typeof harness>;
+    let answer!: () => void;
+    const service = generation(async () => {
+      h.recipes.recipe.mockResolvedValue(replaced);
+      await new Promise<void>((resolve) => (answer = resolve));
+      return { outcome: "recipe", recipe: replaced };
+    });
+    h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => service.generate.mock.calls.length === 1);
+    // The page reloads before the answer; the cache already holds the replacing revision.
+    fake.state.gone.add("synthetic-document");
+    expect(await h.hello({ documentId: "again" }, false)).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(["fill:email", "fill:password", "click:next"]);
+    expect(status()![0]).toMatchObject({
+      recipeRevision: 2,
+      stepCount: 3,
+      document: { documentId: "again" },
+    });
+    answer();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(service.generate).toHaveBeenCalledTimes(1);
+  });
+
   it("waits for the click again, without asking twice, when the answer cannot be used", async () => {
     revealing({ ok: false, reason: "timeout", miss: "not-clickable" });
     fake.state.awaited = { ok: false, reason: "timeout", miss: "not-clickable" };

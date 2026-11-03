@@ -82,6 +82,8 @@ const attemptsSchema = v.strictObject({
           v.strictObject({
             recipeId: syncRecipeIdSchema,
             revision: v.pipe(v.number(), v.integer(), v.minValue(1)),
+            /** The page replaces the recipe's final advance click (ADR 0018). */
+            replacesLast: v.optional(v.literal(true)),
           }),
         ),
         /**
@@ -437,6 +439,7 @@ export function createLoginGeneration(options: {
       entry.path === path &&
       entry.base?.recipeId === base?.recipeId &&
       entry.base?.revision === base?.revision &&
+      entry.base?.replacesLast === base?.replacesLast &&
       entry.branch === branch &&
       entry.repair?.recipeId === repair?.recipeId &&
       entry.repair?.revision === repair?.revision &&

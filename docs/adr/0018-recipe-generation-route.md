@@ -368,8 +368,11 @@ button".
   model is given back (`UNCONTINUED`) for the login's next document. The document that
   asked does not ask again: a spent request, an unusable answer or a page that was not
   sent leaves the login waiting for its click as any step, which then times out as
-  before. A login resumed with the request spent takes the replacing revision from the
-  cache when it is there.
+  before. A later document of the login, as after a reload during the request, keeps
+  the revision it ran and takes the replacing revision from the cache once it is there;
+  after a worker restart, a cache that already holds it ends the login as replaced, as
+  for a continuation. The device claims such a page apart from a continuation of the
+  same revision (`base.replacesLast` is part of the claim).
 - **The service.** It drops the base's last step only when that step is a click, the
   page's steps fill the `password` slot and click the same element only as their last
   step (`replacesClick` in `packages/contracts`), and they fill no slot of the kept
@@ -384,7 +387,10 @@ button".
 - **Limitations.** An account whose form never shows a password input after its email,
   as a single sign-on account on the same form, waits on the replaced recipe's password
   step and ends `elements-timeout`. A form that enables its button only after another
-  input than a password is not handled.
+  input than a password is not handled. A request whose document was left before an
+  answer that gives it back stays spent for that step. A description that cannot be sent
+  at the moment the input opens, as one read mid-render, is not tried again by that
+  document, which then times out as before.
 
 ### Retention purge failures
 
