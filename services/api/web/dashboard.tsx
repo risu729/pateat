@@ -246,7 +246,8 @@ function LoginSpeed({ data }: { data: ManageDashboard }) {
         the sign-in showed is the time from when the page was seen until it showed a sign-in; with
         generation, it may overlap the service&apos;s time. Waiting for a step&apos;s elements is
         mostly the site rendering them. Filling and the rest is what no part names; a fill&apos;s
-        own time is never sent. Medians of parts do not add up exactly to the median of the rest.
+        own time is never sent. Medians of the parts and the rest do not add up exactly to the
+        median of the login&apos;s own time.
       </p>
       {withOwnParts.length ? (
         <Table
