@@ -7,6 +7,7 @@ import {
   type ManageDashboardRange,
   type ManageDurations,
   type ManageLoginParts,
+  type ManageLoginOwnParts,
 } from "@pateat/contracts";
 import { and, count, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
@@ -66,6 +67,15 @@ export type DashboardLogin = {
   networkMs: number;
   personMs: number;
   pageMs: number;
+  /** Where Pateat's own time went; null when the device sent none (ADR 0055). */
+  beforeShownMs: number | null;
+  startMs: number | null;
+  awaitMs: number | null;
+  saveMs: number | null;
+  statusMs: number | null;
+  checkMs: number | null;
+  vaultMs: number | null;
+  commandMs: number | null;
   createdAt: number;
 };
 export type DashboardInput = {
@@ -125,6 +135,49 @@ function loginParts(rows: DashboardLogin[]): ManageLoginParts {
     pageMs: median(rows.map(pageTime)),
     otherMs: median(rows.map((row) => Math.max(0, loginTime(row) - row.serviceMs - pageTime(row)))),
     personMs: median(rows.map((row) => row.personMs)),
+  };
+}
+
+/** The parts of the rest of the login, which add up to at most its `otherMs`. */
+const OWN_PARTS = [
+  "startMs",
+  "awaitMs",
+  "saveMs",
+  "statusMs",
+  "checkMs",
+  "vaultMs",
+  "commandMs",
+] as const;
+
+/**
+ * The median of each part of Pateat's own time over the logins whose record carried them,
+ * and of the rest of the login less those parts (`manageLoginOwnPartsSchema`).
+ */
+function loginOwnParts(rows: DashboardLogin[]): ManageLoginOwnParts {
+  const carried = rows.filter((row) => row.startMs !== null);
+  const part = (name: (typeof OWN_PARTS)[number] | "beforeShownMs") =>
+    median(present(carried, (row) => row[name]));
+  return {
+    n: carried.length,
+    beforeShownMs: part("beforeShownMs"),
+    startMs: part("startMs"),
+    awaitMs: part("awaitMs"),
+    saveMs: part("saveMs"),
+    statusMs: part("statusMs"),
+    checkMs: part("checkMs"),
+    vaultMs: part("vaultMs"),
+    commandMs: part("commandMs"),
+    restMs: median(
+      carried.map((row) =>
+        Math.max(
+          0,
+          loginTime(row) -
+            row.serviceMs -
+            pageTime(row) -
+            OWN_PARTS.reduce((sum, name) => sum + (row[name] ?? 0), 0),
+        ),
+      ),
+    ),
   };
 }
 
@@ -340,6 +393,7 @@ export function summarizeDashboard(input: DashboardInput): ManageDashboard {
       withService: durations(waited.map(loginTime)),
       recipeOnly: durations(recipeOnly.map(loginTime)),
       parts: { withService: loginParts(waited), recipeOnly: loginParts(recipeOnly) },
+      ownParts: { withService: loginOwnParts(waited), recipeOnly: loginOwnParts(recipeOnly) },
       perSite: loginSites,
       perBuild: loginBuilds,
     },
@@ -443,6 +497,14 @@ export async function readDashboard(
         networkMs: loginTimings.networkMs,
         personMs: loginTimings.personMs,
         pageMs: loginTimings.pageMs,
+        beforeShownMs: loginTimings.beforeShownMs,
+        startMs: loginTimings.startMs,
+        awaitMs: loginTimings.awaitMs,
+        saveMs: loginTimings.saveMs,
+        statusMs: loginTimings.statusMs,
+        checkMs: loginTimings.checkMs,
+        vaultMs: loginTimings.vaultMs,
+        commandMs: loginTimings.commandMs,
         createdAt: loginTimings.createdAt,
       })
       .from(loginTimings)

@@ -27,6 +27,23 @@ export const LOGIN_PART_CONFIG = {
 export type LoginPart = keyof typeof LOGIN_PART_CONFIG;
 export const LOGIN_PARTS = Object.keys(LOGIN_PART_CONFIG) as LoginPart[];
 
+/**
+ * The parts of the rest of a login, Pateat's own time, in the order they happen
+ * (`manageLoginOwnPartsSchema`); `restMs` is filling and work no part names.
+ */
+export const LOGIN_OWN_PART_LABELS = {
+  startMs: "Starting the login",
+  awaitMs: "Waiting for a step's elements",
+  checkMs: "Policy checks",
+  vaultMs: "Vault reads",
+  commandMs: "Commands to the page",
+  saveMs: "Saving the login",
+  statusMs: "Telling the page",
+  restMs: "Filling and the rest",
+} as const;
+export type LoginOwnPart = keyof typeof LOGIN_OWN_PART_LABELS;
+export const LOGIN_OWN_PARTS = Object.keys(LOGIN_OWN_PART_LABELS) as LoginOwnPart[];
+
 export const LOGIN_TREND_CONFIG = {
   loginP50: { label: "Login time", color: "var(--chart-1)" },
 } satisfies ChartConfig;

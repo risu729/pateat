@@ -225,6 +225,13 @@
       "when": 1792805740588,
       "tag": "0035_old_account_references",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1793704746832,
+      "tag": "0036_login_record_parts",
+      "breakpoints": true
     }
   ]
 }

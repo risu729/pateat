@@ -61,10 +61,11 @@ describe("addSpan and takeSpans", () => {
     addSpan(rt, "b", "commandMs", 300);
     expect(takeSpans(rt, "b")).toBeUndefined();
   });
-  it("hands out nothing when every part rounds to nothing", () => {
+  it("hands out no part when every part rounds to nothing, and nothing for no part", () => {
     const rt = {} as Runtime;
     addSpan(rt, "a", "statusMs", 20);
-    expect(takeSpans(rt, "a")).toBeUndefined();
+    expect(takeSpans(rt, "a")).toEqual({});
+    expect(takeSpans(rt, "b")).toBeUndefined();
   });
   it("keeps the parts of the latest 64 logins", () => {
     const rt = {} as Runtime;

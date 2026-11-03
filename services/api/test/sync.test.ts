@@ -1713,6 +1713,50 @@ describe("login records", () => {
     expect(await stored(stranger.ownerId)).toEqual([]);
   });
 
+  it("keeps where Pateat's own time went, and nothing for a record without it", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    const parts = {
+      beforeShownMs: 400,
+      startMs: 300,
+      awaitMs: 1200,
+      saveMs: 100,
+      statusMs: 0,
+      checkMs: 0,
+      vaultMs: 100,
+      commandMs: 200,
+    };
+    expect((await send(device, "bank-login", { ...record, ...parts })).status).toBe(204);
+    expect((await send(device, "bank-login", { ...record, totalMs: 9500 })).status).toBe(204);
+    const { results } = await env.DB.prepare(
+      "SELECT before_shown_ms, start_ms, await_ms, save_ms, status_ms, check_ms, vault_ms, command_ms FROM login_timings WHERE owner_id = ? ORDER BY total_ms",
+    )
+      .bind(device.ownerId)
+      .all();
+    expect(results).toEqual([
+      {
+        before_shown_ms: 400,
+        start_ms: 300,
+        await_ms: 1200,
+        save_ms: 100,
+        status_ms: 0,
+        check_ms: 0,
+        vault_ms: 100,
+        command_ms: 200,
+      },
+      {
+        before_shown_ms: null,
+        start_ms: null,
+        await_ms: null,
+        save_ms: null,
+        status_ms: null,
+        check_ms: null,
+        vault_ms: null,
+        command_ms: null,
+      },
+    ]);
+  });
+
   it("takes the site from the newest kept revision once the reported one is pruned", async () => {
     const device = await enrollOwner();
     expect((await publish(device, "bank-login", 0)).status).toBe(200);
@@ -1746,6 +1790,10 @@ describe("login records", () => {
       { ...record, serviceMs: 1.5 },
       { ...record, pageMs: -1 },
       { ...record, pageMs: undefined },
+      // Parts of Pateat's own time are whole steps of 100 ms (ADR 0055).
+      { ...record, startMs: 150 },
+      { ...record, awaitMs: -100 },
+      { ...record, fillMs: 300 },
       { ...record, branch: "list" },
       { ...record, revision: 0 },
       { ...record, version: 2 },

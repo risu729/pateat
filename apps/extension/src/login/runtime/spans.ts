@@ -3,9 +3,10 @@ import type { Runtime } from "./state";
 import type { Execution } from "./types";
 
 /**
- * Where a login's own time went, in milliseconds, for the local log only (ADR 0019,
- * amendment of 2026-11-03): parts of `otherMs`, so that a log tells which of Pateat's own
- * work to speed up. None of them leaves the device (`LOCAL_ONLY_FIELDS`).
+ * Where a login's own time went, in milliseconds (ADR 0019, amendment of 2026-11-03):
+ * parts of `otherMs`, so that the local log and the login record sent to the service
+ * (ADR 0055, amendment of 2026-11-03) tell which of Pateat's own work to speed up. Problem
+ * lines leave them out (`LOCAL_ONLY_FIELDS`).
  *
  * - `beforeShownMs`: from when the extension saw the document until it first announced a
  *   sign-in on the path the login started on (a ready first step, a sign-in form offered
@@ -115,7 +116,8 @@ function close(rt: Runtime, attemptId: string): AttemptSpans | undefined {
 /**
  * Attempt `attemptId`'s parts, taken once and rounded down to {@link SPAN_STEP_MS}: a login
  * that ended logs them with its times. A part rounded to nothing is left out, and the
- * login adds no part after.
+ * login adds no part after. Nothing for a login with no part kept, as after a software
+ * keyboard or a worker restart.
  */
 export function takeSpans(rt: Runtime, attemptId: string): AttemptSpans | undefined {
   const found = close(rt, attemptId);
@@ -125,7 +127,7 @@ export function takeSpans(rt: Runtime, attemptId: string): AttemptSpans | undefi
     const step = Math.floor(ms / SPAN_STEP_MS) * SPAN_STEP_MS;
     if (step > 0) rounded[name] = step;
   }
-  return Object.keys(rounded).length ? rounded : undefined;
+  return rounded;
 }
 
 /** Drops attempt `attemptId`'s parts and logs none of them, as after a software keyboard. */

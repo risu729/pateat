@@ -289,11 +289,33 @@ const loginMilliseconds = v.pipe(
   v.maxValue(MAX_LOGIN_RECORD_MS),
 );
 /**
+ * Where a login's own time (`otherMs`) went, in milliseconds rounded down to 100 (ADR 0019,
+ * amendment of 2026-11-03), as the login record carries them (ADR 0055, amendment of
+ * 2026-11-03): `beforeShownMs` from when the document was seen until it first showed a
+ * sign-in on the login's path, a reference apart from `otherMs`; `startMs` from that until
+ * the login started; `awaitMs` waiting for a step's elements; `saveMs` and `statusMs`
+ * storing the record and telling the page after each change; `checkMs` the policy checks;
+ * `vaultMs` reading the values to fill; and `commandMs` a step's command to the page and
+ * its answer, never a fill's.
+ */
+export const LOGIN_RECORD_PARTS = [
+  "beforeShownMs",
+  "startMs",
+  "awaitMs",
+  "saveMs",
+  "statusMs",
+  "checkMs",
+  "vaultMs",
+  "commandMs",
+] as const;
+export type LoginRecordPart = (typeof LOGIN_RECORD_PARTS)[number];
+const loginPart = v.optional(v.pipe(loginMilliseconds, v.multipleOf(100)));
+/**
  * `POST /v1/recipes/:recipeId/logins`: one login on a recipe revision that ended, signed in
  * or blocked (ADR 0055), with its result code, a cause from the fixed list, the extension
- * build and how long it took, for the owner's dashboard. Codes and whole milliseconds
- * only: never a URL, origin, page text, reason text, label, value, username or typing
- * time. The service adds the site, from the recipe revision, and the time.
+ * build and how long it took, with where Pateat's own time went, for the owner's
+ * dashboard. Codes and whole milliseconds only: never a URL, origin, page text, reason
+ * text, label, value, username or typing time. The service adds the site, from the recipe revision, and the time.
  */
 export const loginRecordSchema = v.strictObject({
   version: v.literal(1),
@@ -320,6 +342,19 @@ export const loginRecordSchema = v.strictObject({
    * before the login, until the login read the page's answer, a page load included.
    */
   pageMs: loginMilliseconds,
+  /**
+   * Where Pateat's own time went ({@link LOGIN_RECORD_PARTS}): all of them, 0 for none, or
+   * none when the device logged none, as after a software keyboard's fill or a worker
+   * restart.
+   */
+  beforeShownMs: loginPart,
+  startMs: loginPart,
+  awaitMs: loginPart,
+  saveMs: loginPart,
+  statusMs: loginPart,
+  checkMs: loginPart,
+  vaultMs: loginPart,
+  commandMs: loginPart,
 });
 /**
  * `POST /v1/recipes/:recipeId/use`: a login started on this recipe revision and layout,

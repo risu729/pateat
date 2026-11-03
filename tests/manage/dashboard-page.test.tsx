@@ -83,6 +83,14 @@ test("is the first section and shows speed, stats and failures for 7 days", asyn
     .element(loginParts.getByRole("row").nth(1))
     .toMatchTextContent("Waited on the service420 ms8.9 s1.1 s400 ms0 ms5");
   await expect.element(loginParts).toMatchTextContent("Waiting for the site");
+  // Only the logins that sent the parts of Pateat's own time are in their table.
+  const ownParts = page.getByRole("table", {
+    name: "Median of each part of the rest of the login",
+  });
+  await expect
+    .element(ownParts.getByRole("row").nth(1))
+    .toMatchTextContent("Recipe only200 ms300 ms100 ms0 ms100 ms0 ms0 ms100 ms600 ms30");
+  await expect.element(ownParts.getByRole("row")).toHaveLength(2);
   const loginTrend = page.getByRole("table", { name: /^Median login time by UTC day/ });
   await expect
     .element(

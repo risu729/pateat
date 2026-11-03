@@ -241,6 +241,25 @@ export const manageLoginPartsSchema = v.strictObject({
   personMs: v.nullable(milliseconds),
 });
 /**
+ * The median of each part of Pateat's own time (`LOGIN_RECORD_PARTS`, ADR 0055 amendment
+ * of 2026-11-03) over the `n` signed-in logins whose record carried them, and of `restMs`,
+ * the rest of the login (`otherMs` of {@link manageLoginPartsSchema}) less those parts but
+ * `beforeShownMs`: filling and work no part names. `beforeShownMs` is a reference apart
+ * from the login time.
+ */
+export const manageLoginOwnPartsSchema = v.strictObject({
+  n: rowCount,
+  beforeShownMs: v.nullable(milliseconds),
+  startMs: v.nullable(milliseconds),
+  awaitMs: v.nullable(milliseconds),
+  saveMs: v.nullable(milliseconds),
+  statusMs: v.nullable(milliseconds),
+  checkMs: v.nullable(milliseconds),
+  vaultMs: v.nullable(milliseconds),
+  commandMs: v.nullable(milliseconds),
+  restMs: v.nullable(milliseconds),
+});
+/**
  * The owner dashboard over one range, aggregated by the service from the request log, the
  * login records and result codes devices sent, recipes and spend. Latency counts only the
  * recorded times; request log rows logged before they were recorded have none.
@@ -267,6 +286,11 @@ export const manageDashboardSchema = v.strictObject({
     parts: v.strictObject({
       withService: manageLoginPartsSchema,
       recipeOnly: manageLoginPartsSchema,
+    }),
+    /** Where the rest of the login went, for the logins that waited on the service and the rest. */
+    ownParts: v.strictObject({
+      withService: manageLoginOwnPartsSchema,
+      recipeOnly: manageLoginOwnPartsSchema,
     }),
     /** Logins per site (the recipe's origin), slowest median login time first. */
     perSite: v.array(
@@ -520,6 +544,7 @@ export type ManageProblems = v.InferOutput<typeof manageProblemsSchema>;
 export type ManageDashboardRange = v.InferOutput<typeof manageDashboardRangeSchema>;
 export type ManageDurations = v.InferOutput<typeof manageDurationsSchema>;
 export type ManageLoginParts = v.InferOutput<typeof manageLoginPartsSchema>;
+export type ManageLoginOwnParts = v.InferOutput<typeof manageLoginOwnPartsSchema>;
 export type ManageDashboardEvent = v.InferOutput<typeof manageDashboardEventSchema>;
 export type ManageDashboardFailure = v.InferOutput<typeof manageDashboardFailureSchema>;
 export type ManageDashboard = v.InferOutput<typeof manageDashboardSchema>;

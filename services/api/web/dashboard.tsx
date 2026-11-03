@@ -9,6 +9,8 @@ import { ChevronRight } from "lucide-react";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { describeError, type ManageClient } from "./api";
 import {
+  LOGIN_OWN_PART_LABELS,
+  LOGIN_OWN_PARTS,
   LOGIN_PART_CONFIG,
   LOGIN_PARTS,
   PART_CONFIG,
@@ -164,6 +166,7 @@ function LoginSpeed({ data }: { data: ManageDashboard }) {
   const { logins } = data;
   const timed = logins.withService.n + logins.recipeOnly.n;
   const withParts = LOGIN_GROUPS.filter(([key]) => logins.parts[key].n > 0);
+  const withOwnParts = LOGIN_GROUPS.filter(([key]) => logins.ownParts[key].n > 0);
   const timedDays = data.daily.some((day) => day.loginP50 !== null);
   return (
     <>
@@ -234,6 +237,37 @@ function LoginSpeed({ data }: { data: ManageDashboard }) {
         </>
       ) : (
         <p className="text-sm">No login in this range signed in.</p>
+      )}
+
+      <SubHeading>Where the rest of the login goes</SubHeading>
+      <p className="text-sm text-ink-muted">
+        The median of each part of the rest of the login, Pateat&apos;s own time, over signed-in
+        logins from builds that send them, each rounded down to 0.1 s. Waiting for a step&apos;s
+        elements is mostly the site rendering them. Filling and the rest is what no part names; a
+        fill&apos;s own time is never sent. Before the sign-in showed is the time from when the page
+        was seen until it showed a sign-in, apart from the login time.
+      </p>
+      {withOwnParts.length ? (
+        <Table
+          caption="Median of each part of the rest of the login"
+          head={[
+            "Logins",
+            ...LOGIN_OWN_PARTS.map((part) => LOGIN_OWN_PART_LABELS[part]),
+            "Before the sign-in showed, apart",
+            "n",
+          ]}
+          rows={withOwnParts.map(([key, label]) => ({
+            key,
+            cells: [
+              label,
+              ...LOGIN_OWN_PARTS.map((part) => optionalMs(logins.ownParts[key][part])),
+              optionalMs(logins.ownParts[key].beforeShownMs),
+              logins.ownParts[key].n,
+            ],
+          }))}
+        />
+      ) : (
+        <p className="text-sm">No signed-in login in this range sent its parts.</p>
       )}
 
       <SubHeading>Login time by day</SubHeading>

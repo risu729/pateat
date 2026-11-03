@@ -50,6 +50,32 @@ export function syntheticDashboard(now: number): ManageDashboard {
           personMs: 0,
         },
       },
+      ownParts: {
+        withService: {
+          n: 0,
+          beforeShownMs: null,
+          startMs: null,
+          awaitMs: null,
+          saveMs: null,
+          statusMs: null,
+          checkMs: null,
+          vaultMs: null,
+          commandMs: null,
+          restMs: null,
+        },
+        recipeOnly: {
+          n: 30,
+          beforeShownMs: 600,
+          startMs: 200,
+          awaitMs: 300,
+          saveMs: 0,
+          statusMs: 0,
+          checkMs: 100,
+          vaultMs: 0,
+          commandMs: 100,
+          restMs: 100,
+        },
+      },
       perSite: [
         {
           origin: "https://bank.example",
