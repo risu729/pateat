@@ -1078,7 +1078,7 @@ Once the fixes have settled:
   logging on until it is turned off, is now behind a build flag (owner, 2026-10-18 01:50
   UTC: turn it off, remove it, or keep it only behind a feature flag): a build made with
   `PATEAT_RELEASE=true` leaves it off and reads a stored `DEBUG_UNTIL_TURNED_OFF`
-  deadline as off, and every other build keeps it on. The release workflow must build
+  deadline as off, and every other build keeps it on. The release workflow builds
   the published zip with `PATEAT_RELEASE=true`
   ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-debug-logging-stays-on-before-publishing)).
 - Done (2026-11-03): sending a record of every login (its result, times, site and time
@@ -1169,33 +1169,33 @@ Once the fixes have settled:
   [vault adapter](architecture.md#vault-adapter); implemented).
 - Anyone can use Pateat. The service is not opened to other people. Continuous delivery
   publishes each extension release on GitHub Releases and meets the
-  [Corresponding Source](sdk-source.md) requirements. Done so far: a manual workflow
-  packs the production ZIP and the source provided with it and opens a draft release
-  that the owner publishes by hand
-  ([extension releases](delivery.md#extension-releases)); starting it by hand only, and
-  never publishing from the workflow, are Claude's defaults pending the owner's
-  confirmation. Open: a first draft made on main and checked by the owner, loading its
-  ZIP in the owner's Chrome, the [human checks](sdk-source.md#release-archives) on the
-  source archive, and releasing without a manual start. The owner has a Chrome Web Store
-  developer account and will also publish there if the store's policies allow it
-  (2026-10-11). The owner accepted on 2026-10-11 (18:36 UTC) that a store item gets a
-  store-assigned extension ID, so devices pair again, and that the store requires a
-  privacy policy and a Limited Use statement; drafts of both are on the docs website's
-  privacy page (`apps/docs/src/privacy.md`), not reviewed by the owner yet. Risk: the
+  [Corresponding Source](sdk-source.md) requirements. Done so far: like biwa, every push
+  to main updates a release PR, and merging it builds the release extension with its
+  source and publishes the GitHub Release
+  ([extension releases](delivery.md#extension-releases); owner, 2026-11-03 03:19 UTC).
+  Open: the bot App token in the `release` environment, the
+  [human checks](sdk-source.md#release-archives) on the source archive before the first
+  release PR is merged, and loading the first release's ZIP in the owner's Chrome. The
+  owner has a Chrome Web Store developer account and will also publish there if the
+  store's policies allow it (2026-10-11). The owner accepted on 2026-10-11 (18:36 UTC)
+  that a store item gets a store-assigned extension ID, so devices pair again, and that
+  the store requires a privacy policy and a Limited Use statement; drafts of both are on
+  the docs website's privacy page (`apps/docs/src/privacy.md`), not reviewed by the
+  owner yet. Risk: the
   [MV3 code rules](https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements)
   forbid "building an interpreter to run complex commands fetched from a remote source,
   even if those commands are fetched as data". A reviewer may count service-held recipes
-  (`fill`, `click` and handler steps) as such commands and reject the item; then
-  GitHub Releases stays the only channel. The
+  (`fill`, `click` and handler steps) as such commands and reject the item; then GitHub
+  Releases stays the only channel. The
   [research note](research/2026-10-17-chrome-web-store-remote-code.md) (2026-10-17)
   finds the risk real but undecidable from the documentation: recipes have no control
   flow and are the user's own synced data, which the policy allows, but AdGuard reports
   rejections that cited scriptlets and their parameters. Proposed, not decided by the
   owner: keep the recipe vocabulary closed (no control flow, expressions, selectors,
-  URLs beyond exact same-origin paths, or values), explain recipes, their schema and
-  how to test them in the submission, have the owner submit a Private trusted-tester
-  item early to get a review verdict, and consider an unminified store build. A mode
-  without the service that gets recipes from a model API directly reopens the question.
+  URLs beyond exact same-origin paths, or values), explain recipes, their schema and how
+  to test them in the submission, have the owner submit a Private trusted-tester item
+  early to get a review verdict, and consider an unminified store build. A mode without
+  the service that gets recipes from a model API directly reopens the question.
 - Proposed: the checks that matter once other people install Pateat: the install-time
   site-access warning and the prompt after site access was withheld, installed-Chrome
   dummy-account tests and measured limits. The

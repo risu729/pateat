@@ -70,7 +70,7 @@ scope; local build checks do not establish public distribution compliance.
 ### Release archives
 
 The [extension release workflow](delivery.md#extension-releases) packs each release's
-source beside its ZIP on the same draft GitHub Release:
+source beside its ZIP on the same GitHub Release:
 
 - Exact Pateat revision: `pateat-<version>-source.tar.gz` is `git archive` of the
   revision the ZIP was built from, in the same job from a clean checkout. It holds the
@@ -91,11 +91,11 @@ source beside its ZIP on the same draft GitHub Release:
 
 Whether this meets the gate is not settled, so the release text calls the archive the
 extension's source rather than its Corresponding Source. Still for a person to check or
-decide before publishing (Claude's reading, pending the
-owner's confirmation):
+decide before the first release PR is merged (Claude's reading, pending the owner's
+confirmation):
 
-- The download links and contents of each draft, as the gate requires; the workflow
-  checks digests and integrity hashes, not that the files open and build.
+- The contents of the files, from a `dry-run` of the workflow, as the gate requires; the
+  workflow checks digests and integrity hashes, not that the files open and build.
 - Whether a registry tarball counts as source for a package that publishes only built
   JavaScript (for example `react-dom`); its repository at the matching tag would be the
   preferred form for modification. The gate above already rules out a compiled npm

@@ -1,5 +1,5 @@
 [global]
-exclude = ["node_modules", "**/.wxt", "**/.output", "**/.cloudflare", "**/.vitepress/cache", "**/.vitepress/dist"]
+exclude = ["node_modules", "CHANGELOG.md", "**/.wxt", "**/.output", "**/.cloudflare", "**/.vitepress/cache", "**/.vitepress/dist"]
 
 [MD013]
 line_length = 88

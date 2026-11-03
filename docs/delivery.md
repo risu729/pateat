@@ -259,17 +259,49 @@ promotion/failure acknowledgement.
 
 ## Extension releases
 
-`release.yml` ("Extension release") packs the production extension and the source meant
-to meet the [binary distribution gate](sdk-source.md#binary-distribution-gate) and opens
-a draft GitHub Release; the owner checks and publishes the draft by hand. These defaults
-are Claude's, pending the owner's confirmation: the workflow runs only when started by
-hand (`workflow_dispatch`), it never publishes a release, it uploads nothing to the
-Chrome Web Store and it uses no signing key. The version is `version` in
-`apps/extension/package.json` (x.y.z), and the release's tag is `v<version>`.
+`release.yml` ("Extension release") releases the extension the way biwa does with
+release-plz (owner, 2026-11-03 03:19 UTC:
+「リリースworkflowはbiwaみたく、マージしたら走る感じで」), with
+[release-please](https://github.com/googleapis/release-please-action):
 
-The `Pack` job (read-only token) checks out the revision, installs the locked tools and
-dependencies, runs `mise run check:sdk-source` and `mise run //apps/extension:zip`
-(WXT's production build and ZIP), then `.github/scripts/extension-release.mjs pack`.
+1. Every push to main runs the `Release PR` job, which opens or updates one release PR.
+   It raises `version` in the root `package.json` and in `apps/extension/package.json`
+   (x.y.z) and adds the release's section to `CHANGELOG.md`, from the Conventional
+   Commit titles since the last release: `feat` raises the minor version and `fix`,
+   `perf` and `revert` the patch version, while 0.x lasts. Commits that touch only
+   `services/`, `apps/docs/`, `docs/` or `tests/` are left out, since the service and
+   the docs website deploy on their own. `release-please-config.json` and
+   `.release-please-manifest.json` hold the settings and the last released version;
+   `bootstrap-sha` is where the history starts. `bun.lock` keeps the old workspace
+   version, which installs accept.
+2. Merging the release PR is the release. On that push the same job tags `v<version>`
+   at the merge commit and creates a draft GitHub Release with the changelog section.
+   Only the owner merges a release PR, or Claude on the owner's word; the rule that
+   Claude merges its own green PRs does not cover it.
+3. The `Pack` job (read-only token) checks out that commit, installs the locked tools
+   and dependencies, runs `mise run check:sdk-source` and
+   `mise run //apps/extension:zip` with `PATEAT_RELEASE=true`, the release build
+   ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-debug-logging-stays-on-before-publishing)),
+   then `.github/scripts/extension-release.mjs pack`, and checks that the packed tag is
+   the one release-please made.
+4. The `Publish release` job, which alone holds `contents: write` and never checks out
+   or runs repository code, downloads the packed files, checks `SHA256SUMS` and that
+   `release.json` names this commit and tag, attaches the ZIP, the source archive,
+   `release.json` and `SHA256SUMS` to the draft, appends the file list to its text and
+   publishes it as the latest release. If `Pack` or `Publish release` fails, the release
+   stays a draft with its tag; fix the cause and re-run the failed jobs.
+
+The release PR and the tag are made with the bot GitHub App's token, because a PR or tag
+made with `GITHUB_TOKEN` starts no workflow and the release PR would get no `CI Check`.
+The `release` environment holds the App's client ID in the variable `BOT_APP_CLIENT_ID`
+and its private key in the secret `BOT_PRIVATE_KEY`; the App needs contents and pull
+requests write access to this repository. Nothing uploads to the Chrome Web Store or
+uses a signing key.
+
+Started by hand with the `dry-run` input, on any branch, the workflow only runs `Pack`
+for that branch and keeps the files as the run's artifact. Use it to check a release's
+files before merging its release PR.
+
 Every WXT build, including the Worker bundle, records the third-party packages it
 bundles in `apps/extension/.output/<output directory>.packages.json` (for the production
 build, `chrome-mv3.packages.json`)
@@ -277,7 +309,7 @@ build, `chrome-mv3.packages.json`)
 the installed package of each module in each chunk, and each package whose license
 banner (`/*! name vX.Y.Z | ...`) a stylesheet keeps, which is how Tailwind's own CSS
 shows up, since Tailwind inlines it without making it a module.
-That script refuses a dirty checkout, another revision than `PATEAT_REVISION`, and a
+The pack script refuses a dirty checkout, another revision than `PATEAT_REVISION`, and a
 manifest that is not the production build of that version (fixed `key`, HTTPS-only host
 access). It writes to `work/extension-release/`:
 
@@ -296,32 +328,13 @@ access). It writes to `work/extension-release/`:
   version, commit, archive URL and digest, every bundled package with its integrity, and
   the size and SHA-256 of both files above.
 - `SHA256SUMS` of the ZIP, the source archive and `release.json`, and `notes.md`, the
-  release text with the same digests and links to the revision, the run and the SDK
-  source.
+  file list with the same digests and links to the revision, the run and the SDK source.
 
-The job summary lists the digests, and the files are uploaded as the
-`extension-release-<sha>` artifact. With the `dry-run` input, which any branch may use,
-the run stops there. Otherwise only main may run it, and the `Draft release` job, which
-alone holds `contents: write` and never checks out or runs repository code, downloads
-that artifact, checks `SHA256SUMS` and that `release.json` names this revision, requires
-the revision's latest `CI Check` to have passed, refuses a version that already has a
-release (draft or published) or tag, and stops on any lookup error other than "not
-found", since `gh` would attach the draft to an existing tag, and creates the draft for
-`v<version>` targeting the revision with the ZIP, the source archive, `release.json` and
-`SHA256SUMS`. A draft creates no tag; publishing it creates `v<version>` at that
-revision. Raise the version in `apps/extension/package.json` before the next release.
-
-Before publishing a draft, the owner:
-
-1. Downloads its files and runs `sha256sum --check SHA256SUMS`.
-2. Unpacks the source archive and checks that `third-party-source/` holds the SDK
-   archive and the package tarballs its `README.md` lists, then loads the ZIP with Load
-   unpacked in Chrome and checks that `legal.html` links the same SDK commit.
-3. Settles the [open questions](sdk-source.md#release-archives) on what the source must
-   include; until then the release text calls the archive "its source", not
-   Corresponding Source.
-4. Publishes it, and keeps the published release and its files for as long as
-   [the gate](sdk-source.md#binary-distribution-gate) requires.
+Before the first release PR is merged, the owner settles the
+[open questions](sdk-source.md#release-archives) on what the source must include; until
+then the release text calls the archive "its source", not Corresponding Source. Each
+published release and its files are kept for as long as
+[the gate](sdk-source.md#binary-distribution-gate) requires.
 
 ## Repository configuration
 

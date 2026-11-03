@@ -1,19 +1,23 @@
 name: Extension release
-# Builds the production extension ZIP and the source provided with it and opens a draft GitHub
-# Release. The owner reviews and publishes the draft by hand; nothing here publishes it,
-# uploads to the Chrome Web Store or uses a signing key (docs/delivery.md#extension-releases).
+# Like biwa's release-plz: every push to main updates one release PR (the version in
+# apps/extension/package.json and CHANGELOG.md, from Conventional Commits). Merging that PR
+# tags v<version>, builds the release extension (PATEAT_RELEASE=true) and the source
+# provided with it, and publishes the GitHub Release (docs/delivery.md#extension-releases).
+# Nothing here uploads to the Chrome Web Store or uses a signing key.
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       dry-run:
-        description: Build and pack only, without a draft release (any branch).
+        description: Build and pack only, without a release PR or a release (any branch).
         type: boolean
         default: false
-# One run per branch and mode at a time, so that two drafts never race for the same tag;
-# a dry run never waits for a release.
+# Runs on main never overlap, so a release PR merged during a run waits for it.
 concurrency:
-  group: extension-release-${{ github.ref }}-${{ inputs.dry-run }}
+  group: extension-release-${{ github.ref }}-${{ inputs.dry-run || false }}
   cancel-in-progress: false
 permissions: {}
 defaults:
@@ -21,48 +25,88 @@ defaults:
     shell: bash
 env:
   CI: "true"
-  PATEAT_REVISION: ${{ github.sha }}
 jobs:
+  release-please:
+    name: Release PR
+    if: ${{ github.repository_owner == 'risu729' && github.ref == 'refs/heads/main' && !inputs.dry-run }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions: {}
+    environment: release
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      # A PR or tag made with GITHUB_TOKEN starts no workflow, so the release PR would get no
+      # CI Check; the bot App's token does.
+      - name: Create the bot GitHub App token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: github-app
+        with:
+          client-id: ${{ vars.BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write # for the release PR branch, the tag and the draft release
+          permission-pull-requests: write # for the release PR
+      - name: Update the release PR, or tag and draft a merged one
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        id: release
+        with:
+          token: ${{ steps.github-app.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
   pack:
     name: Pack
+    needs: [release-please]
+    # A dry run packs whatever branch it was started on; otherwise only a merged release PR.
+    if: ${{ !cancelled() && (inputs.dry-run || needs.release-please.outputs.created == 'true') }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: read
+    env:
+      # The release build leaves debug logging off (ADR 0019).
+      PATEAT_RELEASE: "true"
+      PATEAT_REVISION: ${{ needs.release-please.outputs.sha || github.sha }}
     outputs:
       tag: ${{ steps.pack.outputs.tag }}
       version: ${{ steps.pack.outputs.version }}
     steps:
-      - name: Release only from main
-        if: ${{ !inputs.dry-run && github.ref != 'refs/heads/main' }}
-        env:
-          REF: ${{ github.ref }}
-        run: |
-          echo "::error::A draft release is made from main only, not ${REF}; use dry-run elsewhere."
-          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.PATEAT_REVISION }}
           persist-credentials: false
-      - uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
-          version: 2026.10.11
+          version: 2026.10.25
           install_args: --locked
           # Release tools come from the lockfile's downloads, not a cache another run wrote.
           cache: false
       - name: Install frozen dependencies
-        run: aube ci
+        run: mise deps --force aube_workspace
       - name: Check the pinned SDK source metadata
         run: mise run check:sdk-source
-      - name: Build and zip the production extension
+      - name: Build and zip the release extension
         run: mise run //apps/extension:zip
       - name: Pack the extension with its source
         id: pack
         run: mise exec -- node .github/scripts/extension-release.mjs pack
+      - name: Require the tag release-please made
+        if: ${{ !inputs.dry-run }}
+        env:
+          EXPECTED: ${{ needs.release-please.outputs.tag }}
+          PACKED: ${{ steps.pack.outputs.tag }}
+        run: |
+          if [[ "${PACKED}" != "${EXPECTED}" ]]; then
+            echo "::error::Packed ${PACKED}, but release-please tagged ${EXPECTED}."
+            exit 1
+          fi
       - name: Summarize the packed release
         working-directory: work/extension-release
         run: |
           {
-            echo "### Pateat $(jq -r .version release.json) from ${GITHUB_SHA}"
+            echo "### Pateat $(jq -r .version release.json) from ${PATEAT_REVISION}"
             echo
             echo '```text'
             cat SHA256SUMS
@@ -73,78 +117,48 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: extension-release-${{ github.sha }}
+          name: extension-release-${{ env.PATEAT_REVISION }}
           path: work/extension-release/
           if-no-files-found: error
           # "Re-run all jobs" packs the revision again under the same name.
           overwrite: true
           retention-days: 14
-  draft:
-    name: Draft release
-    needs: [pack]
-    if: ${{ !inputs.dry-run && github.ref == 'refs/heads/main' }}
+  publish:
+    name: Publish release
+    needs: [release-please, pack]
+    if: ${{ !cancelled() && needs.pack.result == 'success' && needs.release-please.outputs.created == 'true' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
-      checks: read # Require a passing CI Check on the released revision.
-      contents: write # Create the draft release and upload its files.
+      contents: write # Upload the files to the draft release and publish it.
     env:
-      TAG: ${{ needs.pack.outputs.tag }}
+      TAG: ${{ needs.release-please.outputs.tag }}
+      REVISION: ${{ needs.release-please.outputs.sha }}
       VERSION: ${{ needs.pack.outputs.version }}
     steps:
       # No checkout: this job runs no repository code while it holds a write token.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: extension-release-${{ github.sha }}
+          name: extension-release-${{ needs.release-please.outputs.sha }}
           path: work/extension-release/
       - name: Verify the packed files
         working-directory: work/extension-release
         run: |
           sha256sum --check --strict SHA256SUMS
-          jq -e --arg revision "${GITHUB_SHA}" --arg tag "${TAG}" \
+          jq -e --arg revision "${REVISION}" --arg tag "${TAG}" \
             '.revision == $revision and .tag == $tag and .repository == env.GITHUB_REPOSITORY' \
             release.json > /dev/null
-      - name: Require a passing CI Check on this revision
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          conclusion="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?check_name=CI%20Check&filter=latest" \
-            --jq '[.check_runs[] | select(.app.slug == "github-actions")] | max_by(.started_at) | .conclusion // empty')"
-          if [[ "${conclusion}" != success ]]; then
-            echo "::error::CI Check on ${GITHUB_SHA} is '${conclusion:-missing}'; release a revision whose CI passed."
-            exit 1
-          fi
-      - name: Refuse a version that already has a release or tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Only a definite "not found" lets the release go ahead; any other error (rate
-          # limit, outage) stops it, since gh would attach the draft to an existing tag.
-          # Drafts have no tag yet, so list them by tag name.
-          releases="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
-            --jq '.[] | select(.tag_name == env.TAG) | .html_url')"
-          if [[ -n "${releases}" ]]; then
-            echo "::error::A release for ${TAG} exists (${releases}); raise the version in apps/extension/package.json."
-            exit 1
-          fi
-          if output="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" 2>&1)"; then
-            echo "::error::Tag ${TAG} exists; raise the version in apps/extension/package.json."
-            exit 1
-          elif [[ "${output}" != *"HTTP 404"* ]]; then
-            echo "::error::Could not check for tag ${TAG}: ${output}"
-            exit 1
-          fi
-      - name: Create the draft release
+      - name: Attach the files and publish the release
         working-directory: work/extension-release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # A draft creates no tag; publishing it creates the tag at this revision.
-          url="$(gh release create "${TAG}" --repo "${GITHUB_REPOSITORY}" --draft \
-            --target "${GITHUB_SHA}" --title "Pateat ${VERSION}" --notes-file notes.md \
-            "pateat-${VERSION}-chrome.zip" "pateat-${VERSION}-source.tar.gz" release.json SHA256SUMS)"
-          {
-            echo "Draft release: ${url}"
-            echo
-            echo "Before publishing it, check the steps in docs/delivery.md#extension-releases."
-          } >> "${GITHUB_STEP_SUMMARY}"
+          # release-please wrote the changelog as the draft's text; the file list follows it.
+          gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json body --jq .body > body.md
+          { cat body.md; echo; echo '---'; echo; cat notes.md; } > release.md
+          gh release upload "${TAG}" --repo "${GITHUB_REPOSITORY}" --clobber \
+            "pateat-${VERSION}-chrome.zip" "pateat-${VERSION}-source.tar.gz" release.json SHA256SUMS
+          gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --notes-file release.md \
+            --title "Pateat ${VERSION}" --draft=false --latest
+          echo "Released: $(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json url --jq .url)" \
+            >> "${GITHUB_STEP_SUMMARY}"
