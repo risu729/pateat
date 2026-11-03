@@ -4216,6 +4216,51 @@ describe("extractSignedInObservation", () => {
       expect(byName(observe())).toEqual([]);
     });
   });
+
+  describe("role buttons that choose the authenticator app (ADR 0081, #1152)", () => {
+    // Notion's "Verify your identity" page in the owner's Chrome on 2026-11-03: each way is
+    // a `<div role="button">` with no attribute that names it, its app's name above.
+    const option = (...lines: string[]) =>
+      `<div role="button" tabindex="0">${lines.map((line) => `<div>${line}</div>`).join("")}</div>`;
+    const chooser = (app = option("Bitwarden", "Use code from authenticator")) =>
+      page(
+        `<main><h1>Verify your identity</h1>${app}${option("+81 •••• ••• 12", "Text me a code")}
+          ${option("Use backup code", "Use a one-time backup code")}
+          <div role="button" tabindex="0">Log into another account</div></main>`,
+        "Notion",
+      );
+    const app = { by: "text", value: "Bitwarden Use code from authenticator" } as const;
+
+    it("offers the authenticator one by its text, and no other way or widget", () => {
+      chooser();
+      const observation = signedIn();
+      expect(observation.headings).toEqual(["Verify your identity"]);
+      expect(summary(observation)).toEqual([{ role: "button", target: app, label: app.value }]);
+      // The login presses the same element by it.
+      expect(findTargets(document, app)).toEqual([document.querySelector("[role=button]")]);
+      // A signed-in marker's lookup takes links, never such a widget.
+      expect(findTargets(document, app, { links: true })).toEqual([]);
+    });
+
+    it("never offers one that names another way, even in hidden text", () => {
+      chooser(
+        `<div role="button" tabindex="0"><div>Use code from authenticator</div>
+          <span style="display:none">or text me</span></div>`,
+      );
+      expect(extractSignedInObservation()).toEqual({ ok: false, reason: "no-candidates" });
+      chooser(option("Set up an authenticator app"));
+      expect(extractSignedInObservation()).toEqual({ ok: false, reason: "no-candidates" });
+    });
+
+    it("locates the native button, never the widget, when both carry the same text", () => {
+      chooser();
+      document
+        .querySelector("main")!
+        .insertAdjacentHTML("beforeend", `<button>Bitwarden Use code from authenticator</button>`);
+      expect(summary(signedIn())).toEqual([{ role: "button", target: app, label: app.value }]);
+      expect(findTargets(document, app)).toEqual([document.querySelector("button")]);
+    });
+  });
 });
 
 describe("extractAccountListObservation", () => {

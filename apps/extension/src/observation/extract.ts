@@ -20,6 +20,7 @@ import {
 import * as v from "valibot";
 import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
+import { authenticatorChoice } from "../page/authenticator-choice";
 import { splitCodeInputs } from "../page/code-submission";
 import {
   findLogoutTargets,
@@ -2745,7 +2746,11 @@ function describeSignedIn(document: Document): ObservationResult {
   // ID, as on a login page, rather than leave the page incomplete, and is located by its
   // visible name before it (ADR 0037), as a recipe's fill and a `totp` handler's code
   // field name it; a name with a number, which this page's text never shows, is not used
-  // unless it numbers an input of a split code (`numbersCodeDigit`).
+  // unless it numbers an input of a split code (`numbersCodeDigit`). A `role="button"`
+  // element is located by its text only when it names the authenticator app's code
+  // (`authenticatorChoice`, ADR 0081 amendment of 2026-11-03), as the method buttons of a
+  // "Verify your identity" page often are: a login presses such a button by that text,
+  // while a signed-in marker is looked up among links, never among such widgets.
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
       const { element } = entry.draft;
@@ -2757,6 +2762,7 @@ function describeSignedIn(document: Document): ObservationResult {
         lasting: !signIn,
         labels: signIn,
         hidden: !signIn,
+        roles: isRoleButton(element) && authenticatorChoice(element),
         paths: headerWords,
       });
       return target && !(target.by === "text" && /\p{Number}/u.test(target.value))

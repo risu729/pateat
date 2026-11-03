@@ -19,12 +19,12 @@ import {
   choosable,
   clickable,
   keyable,
-  authenticatorChoice,
   passwordChoice,
   targetCheck,
   targetState,
   writable,
 } from "../page/target-state";
+import { authenticatorChoice } from "../page/authenticator-choice";
 import { chooseOption, optionFor, type WantedOption } from "../page/select-option";
 import { answerInput, identifierInput } from "../page/identifier-field";
 import { showsAmount } from "../page/amount";

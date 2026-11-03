@@ -130,3 +130,37 @@ judge's answer on the choice page is not known; the reasons above follow from th
   again, judge a path already judged and run handlers while watched, which changes the
   owner's 2026-10-12 decision that a watched login only reads.
 - **Keep it as is.** The person types the code on such sites.
+
+## Amendment: a role button that chooses the authenticator app
+
+Made by Claude on 2026-11-03 to fix what the owner's Chrome showed, under the decision
+above; not put to the owner separately.
+
+### What Real Chrome showed
+
+On 2026-11-03 at 03:01 UTC, in the owner's Chrome on main `3db9e3d`, Pateat filled the
+email and password on `https://app.notion.com/login`, the "Verify your identity" chooser
+showed on the same URL, the judge answered `unclear`, and the login ended
+`authenticated` with an unconfirmed sign-in ([ADR 0029](0029-local-sign-in-state.md));
+no button was pressed. Each way on that page is a `<div role="button" tabindex="0">`
+with no `aria-label`, `id`, `name` or test attribute; their texts read "Bitwarden Use
+code from authenticator", a masked phone number and "Text me a code", "Use backup code
+Use a one-time backup code", and "Log into another account". The extractor names such an
+element by its text only inside a login form or beside a password form, so the judged
+page was described with none of them and the judge could name no `authenticatorButton`.
+
+### Decision
+
+1. On a judged page, a `role="button"` element that `authenticatorChoice` accepts (the
+   same check the login makes before pressing, item 5 above) is located by its rendered
+   text, under the same rules as on a login page: no native button, shown or hidden,
+   script link or other `role="button"` element carries that text, and it holds no
+   number. Other such elements on a judged page stay undescribed, so the judge sees the
+   authenticator one and none of the other ways, such as "Text me a code" with a masked
+   phone number.
+2. The executor already finds such an element by text in a handler's lookup, which never
+   names a link. A signed-in marker's lookup compares links instead and never finds it,
+   so the service refuses a text marker whose text passes `namesAuthenticatorChoice`
+   (`sign-in-choice`), as it is a sign-in step's button in any case.
+3. The judge corpus gains `en-second-factor-chooser-alone`, the chooser described with
+   only that button.

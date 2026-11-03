@@ -1,12 +1,11 @@
 import {
-  namesAuthenticatorChoice,
-  namesOtherThanAuthenticator,
   namesPasswordChoice,
   namesPasswordControl,
   type LoginMarkerTarget,
 } from "@pateat/contracts";
 import type { TargetCheck, TargetRequirement, TargetState } from "../login/wire";
 import { presence, presenceMiss } from "../observation/extract";
+import { authenticatorChoice } from "./authenticator-choice";
 import { visible } from "./code-submission";
 import { findTargets } from "./targets";
 import { closestAcross } from "./shadow";
@@ -98,32 +97,6 @@ export function passwordChoice(
   if (name !== undefined) return namesPasswordControl(name, controlContent(element));
   const text = controlText(element);
   return text !== undefined && namesPasswordChoice(text);
-}
-/**
- * A shown button or script button whose rendered text names an authenticator app's code as
- * the way to confirm the sign-in (`namesAuthenticatorChoice`, ADR 0081), such as "Use code
- * from authenticator", and none of whose text, hidden text included ({@link
- * controlContent}), and accessible name names another way, so a "Text me a code" button
- * with a visually hidden word or a label that says otherwise is never pressed; a text too
- * long to read in full refuses it. Links, radio buttons and fragment links never count.
- */
-export function authenticatorChoice(element: Element | undefined): boolean {
-  if (
-    !(element instanceof HTMLElement) ||
-    !visible(element) ||
-    !(isButton(element) || isScriptButton(element))
-  )
-    return false;
-  const text = controlText(element);
-  const content = controlContent(element);
-  const name = controlName(element);
-  return (
-    text !== undefined &&
-    namesAuthenticatorChoice(text) &&
-    content !== undefined &&
-    !namesOtherThanAuthenticator(content) &&
-    (name === undefined || !namesOtherThanAuthenticator(name))
-  );
 }
 /** Whether a target names its element by its accessible name, which a fragment link may be. */
 const byName = (target: LoginMarkerTarget) => target.by === "accessible-name";
