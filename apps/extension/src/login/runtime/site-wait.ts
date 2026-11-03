@@ -85,7 +85,12 @@ function reportLapse(
  */
 export async function endSiteWaits(rt: Runtime): Promise<void> {
   await rt.vars.loaded;
-  if (!rt.vars.storageHealthy) return;
+  if (!rt.vars.storageHealthy) {
+    // Nothing is ended without storage; the alarm and the worker's wake are given up.
+    void Promise.try(() => rt.options.siteWait?.(undefined)).catch(() => undefined);
+    rt.vars.siteWaitAt = undefined;
+    return;
+  }
   const latest = (stored: LoginAttemptMetadata) => {
     const run = rt.attempts.get(stored.document.tabId);
     return run?.metadata.id === stored.id ? run : undefined;
