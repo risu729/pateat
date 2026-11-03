@@ -281,10 +281,9 @@ and at 11:36 UTC 「あと入れていいか迷うものあったら確認して
   this corpus the owner's rule replaces "public by default" with its review of each
   page.
 - Before either file, vault field names become synthetic names of the same meaning,
-  value shapes keep their character classes and email flag but round a length over 8 up
-  to a multiple of 4, every email address and run of four or more digits in page text
-  becomes a synthetic one, and each listed account becomes `Account N` wherever its text
-  shows.
+  value shapes stay exactly as production sent them, every email address and run of four
+  or more digits in page text becomes a synthetic one, and each listed account becomes
+  `Account N` wherever its text shows.
 - The truth: when the revision's first reported login (`login_outcomes`) was
   `authenticated`, the plan that ran; otherwise two labellers, an agent session and a
   subagent, label the page each without seeing the logged answer. The owner checks the
@@ -305,8 +304,10 @@ The agent's choices, not confirmed by the owner:
   branch; a first page's row matches any branch of its layout (ADR 0060), so a list of
   accounts counts its chooser branches' logins. Rows from before layouts join none,
   since that migration removed every login outcome and restarted revisions.
-- Value shapes keep their exact length when a field on the page declares a length bound,
-  since the role compares the two.
+- Value shapes are not coarsened. Rounding a length over 8 up to a multiple of 4 made a
+  9-digit member number look like a 12-character email, so the labellers saw less than
+  the role did (owner's review of `www.apahotel.com`, 2026-11-03 13:12 UTC). A case is
+  asked with the slots production sent, field names aside.
 - Hosts and paths treated as naming a tenant (`*.slack.com` other than `app.slack.com`,
   `*.oraclecloud.com`, `*.smarthr.jp`, `*.snar.jp`, `*.starrezhousing.com`,
   `*.atlassian.net`, `*.okta.com`, `*.my.salesforce.com`, `*.zendesk.com`,
