@@ -914,6 +914,9 @@ describe("account lists (ADR 0028)", () => {
     // The slot mapping of the generation role's instructions does not apply to a list.
     expect(accountListInstruction).toContain("has no slots");
     expect(accountListInstruction).toContain("Never choose an account.");
+    expect(accountListInstruction).toContain(
+      "A page that shows one account only to ask for consent to share it with another app, or for another sign-in factor, is no list: abstain.",
+    );
     expect(generationInstructions).not.toContain("account-list");
   });
 });

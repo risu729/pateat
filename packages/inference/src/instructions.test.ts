@@ -123,9 +123,14 @@ describe("instructions sent to the model", () => {
         "code comes from.",
     );
     expect(generationInstructions).toContain("Abstain rather than guess.");
+    // A one-time-code slot holds the vault's TOTP, which never fits a code the site sent
+    // (ADR 0027, "Not handled").
+    expect(generationInstructions).toContain(
+      "one-time-code (the code of the user's authenticator app, never one the page says it sent by email, text message or call)",
+    );
     // ADR 0031's entry line, by meaning only, goes only into requests without slots.
     expect(entryInstruction).toBe(
-      "If the page has no sign-in fields, name in `entry` the one control that opens sign-in " +
+      "If the page has no sign-in fields, name in `entry` the one link that opens sign-in " +
         "to an existing account for a visitor who is not signed in; never one that creates an " +
         "account or signs in through another service; otherwise abstain.",
     );
