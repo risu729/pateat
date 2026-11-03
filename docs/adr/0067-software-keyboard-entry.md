@@ -114,7 +114,8 @@ their character by `aria-label`, by an image's `alt`, or only as an image.
   person's mouse events (`pressElement`); the press stops before its click when the key
   no longer shows its character, as a keypad that relabels its keys on `mousedown`.
   After each press the field must come to hold exactly one more character, masked or
-  not, within 1 second, read after the page's pause and then every 25 ms; more
+  not, within 1 second, read after the page's pause and then at each frame it renders
+  (at each change of a hidden page; every 25 ms until 2026-11-03, ADR 0082); more
   characters, or none in time, stop the step as `fill-rejected`. Just before the first
   key press the page tells the background, which allows the presses only while the fill
   is still the attempt's own and authorized. A page that moves to another path, or takes

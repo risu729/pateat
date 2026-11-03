@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installMainWorldDefinitions } from "../page/element-definitions";
 import { installLoginContent } from "./content";
 
 const { sent } = vi.hoisted(() => ({ sent: [] as Record<string, unknown>[] }));
@@ -71,7 +72,13 @@ describe("a sign-in form in a shadow root (ADR 0070)", () => {
     // A name of its own on each run, as a registry defines a name only once.
     const name = `x-late-login-${crypto.randomUUID().slice(0, 8)}`;
     document.body.innerHTML = `<main><${name}></${name}></main>`;
-    uninstall = installLoginContent();
+    // This page plays the main world too, which waits for the definition (ADR 0082).
+    const mainWorld = installMainWorldDefinitions();
+    const content = installLoginContent();
+    uninstall = () => {
+      content();
+      mainWorld();
+    };
     await vi.advanceTimersByTimeAsync(300);
     // The upgrade attaches the shadow root and renders into it: no observer sees it.
     customElements.define(
@@ -85,8 +92,8 @@ describe("a sign-in form in a shadow root (ADR 0070)", () => {
         }
       },
     );
-    // Before the quiet decision at one second.
-    await vi.advanceTimersByTimeAsync(400);
+    // Within a frame, long before the quiet decision at one second.
+    await vi.advanceTimersByTimeAsync(50);
     expect(offers()).toEqual([
       expect.objectContaining({ type: "login.document.ready", signIn: expect.anything() }),
     ]);

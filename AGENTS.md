@@ -44,6 +44,8 @@
   scripts or download-on-demand tool commands.
 - Follow the [merge procedure](docs/delivery.md#merging) and the
   [Windows notes](docs/development.md#windows-notes).
+- Never make the extension wait a set time for a page to react; wait on a signal and
+  use a timer only as the bound ([ADR 0082](docs/adr/0082-waits-on-signals.md)).
 - Implement no site-specific features unless strictly necessary, and tell the owner
   about any that exist; fix a problem seen on one site as a general page rule
   ([ADR 0033](docs/adr/0033-no-site-specific-features.md)).

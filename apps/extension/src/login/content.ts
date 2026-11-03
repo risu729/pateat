@@ -50,7 +50,10 @@ import {
   formDestinations,
   type FormDestination,
 } from "../page/form-destination";
-import { FIELD_GAP_MS, typeValue } from "../page/enter-value";
+import { typeValue } from "../page/enter-value";
+import { askDefinitions, ELEMENT_DEFINED } from "../page/element-definitions";
+import { nextFrame } from "../page/frames";
+import { pageChange } from "../page/page-change";
 import {
   extractAccountListObservation,
   extractEntryObservation,
@@ -375,8 +378,15 @@ function credentialInputs(targets: readonly LoginMarkerTarget[]): {
 }
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 /**
+ * How often at most the page watch checks a page that keeps changing (ADR 0082). A set
+ * time that bounds the watch's work, not a wait for the page: the first change after a
+ * quiet spell is checked at the next frame.
+ */
+const checkGapMs = 100;
+/**
  * How long a preparing fill waits for the page's own input handlers before checking that
- * the page accepted the values (ADR 0010).
+ * the page accepted the values (ADR 0010). A set time still to be replaced (ADR 0082): a
+ * page validator debounced by 100 ms or more would show its error only after a click.
  */
 const fillSettleMs = 500;
 /**
@@ -472,6 +482,8 @@ export interface LoginContentOptions {
 export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
   const token = newId();
   let cancelled = false;
+  // Ends every wait for a change of the page once `cancelled` is set.
+  const waits = new AbortController();
   // Whether the background asked for the value the page set in an account input.
   let siteAccountAsked = false;
   // Set once this document's login has ended; it then watches for its first step to show
@@ -568,14 +580,25 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let observedRoots = new WeakSet<ShadowRoot>();
   const submitRoots = new WeakSet<ShadowRoot>();
   const submitListeners = new AbortController();
-  // The check for custom elements the page has yet to define (`watchUpgrades`).
-  let upgrades: ReturnType<typeof setInterval> | undefined;
-  // The count of undefined elements at which that check last stopped unchanged.
-  let definedCount: number | undefined;
+  // A start's retry (`retry`), whether a check is pending, and when the last one ran.
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let checking = false;
+  let checkedAt = Number.NEGATIVE_INFINITY;
   const navigation = (globalThis as unknown as { navigation?: EventTarget }).navigation;
+  // Checks at the page's next frame after a change, however many changes come before it
+  // (ADR 0082), and at most once per `checkGapMs`, so a page that changes every frame, as
+  // a spinner does, is not checked every frame while it is watched. A pending retry
+  // checks then instead.
   const schedule = () => {
-    timer ??= setTimeout(check, 100);
+    if (checking || timer !== undefined) return;
+    checking = true;
+    const run = () => {
+      checking = false;
+      if (timer === undefined) check();
+    };
+    const gap = checkedAt + checkGapMs - Date.now();
+    if (gap <= 0) void nextFrame().then(run);
+    else setTimeout(() => void nextFrame().then(run), gap);
   };
   function clearDecision(): void {
     clearTimeout(offerQuiet);
@@ -602,10 +625,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     shownTimer = undefined;
     observer?.disconnect();
     observer = undefined;
-    clearInterval(upgrades);
-    upgrades = undefined;
     clearTimeout(timer);
     timer = undefined;
+    removeEventListener(ELEMENT_DEFINED, schedule);
     removeEventListener("popstate", pageChanged);
     navigation?.removeEventListener("currententrychange", pageChanged);
   }
@@ -735,7 +757,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       observer.observe(document, pageWatch);
       observedRoots = new WeakSet();
       watchShadowRoots();
-      watchUpgrades();
+      addEventListener(ELEMENT_DEFINED, schedule);
       addEventListener("popstate", pageChanged);
       navigation?.addEventListener("currententrychange", pageChanged);
     }
@@ -770,9 +792,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     clearTimeout(timer);
     timer = setTimeout(check, 500);
   }
-  /** Watches the shadow trees found since the last check as the document is watched. */
+  /**
+   * Watches the shadow trees found since the last check as the document is watched, and
+   * asks to hear when the page defines an element it has not defined yet: the element may
+   * attach a shadow root and render into it then, which no observer reports (ADR 0070,
+   * ADR 0082).
+   */
   function watchShadowRoots(): void {
-    for (const root of shadowRoots(document)) {
+    const roots = shadowRoots(document);
+    // After the read: the ask runs the page's listeners, which a read must not.
+    queueMicrotask(() => askDefinitions(document, roots));
+    for (const root of roots) {
       if (observer && !observedRoots.has(root)) {
         observer.observe(root, pageWatch);
         observedRoots.add(root);
@@ -786,30 +816,6 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       }
     }
   }
-  /**
-   * Checks the page again when one of its custom elements is defined: the element may
-   * attach a shadow root and render into it then, which no observer reports (ADR 0070). It
-   * counts the elements yet to be defined every half second while any are, and stops once
-   * the count has stayed the same for ten seconds; a later check starts it again only for
-   * another count, so elements a page never defines are not counted on and on.
-   */
-  function watchUpgrades(): void {
-    if (upgrades !== undefined || !observer) return;
-    const undefinedCount = () => readingPage(() => queryAll(document, ":not(:defined)").length);
-    let waiting = undefinedCount();
-    if (!waiting || waiting === definedCount) return;
-    let still = 0;
-    upgrades = setInterval(() => {
-      const now = undefinedCount();
-      still = now === waiting ? still + 1 : 0;
-      if (now !== waiting) schedule();
-      waiting = now;
-      if (now && still < 20) return;
-      definedCount = now;
-      clearInterval(upgrades);
-      upgrades = undefined;
-    }, 500);
-  }
   // Announce once per appearance; a form that disappears and reappears announces again.
   function check(): void {
     readingPage(checkNow);
@@ -817,9 +823,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   function checkNow(): void {
     clearTimeout(timer);
     timer = undefined;
+    checkedAt = Date.now();
     if (!observer) return;
     watchShadowRoots();
-    watchUpgrades();
     noteConfirm();
     const startable = starts.some(ready);
     // A step that shows on another path of the same document is a new appearance too, as
@@ -1188,7 +1194,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const control = controls[position] as Control;
           // The page's handlers for the previous input run first.
           // eslint-disable-next-line no-await-in-loop
-          if (position > 0) await pause(FIELD_GAP_MS);
+          if (position > 0) await nextFrame();
           // The radio's click may change the input, so its checks run again.
           if (
             cancelled ||
@@ -1216,6 +1222,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     if (command.type === "login.cancel") {
       cancelled = true;
+      waits.abort();
       unwatch();
       frameWatch?.();
       followConfirmPath(undefined);
@@ -1292,7 +1299,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       return true;
     }
     if (command.type === "login.await") {
-      // Polls the current DOM serially until the step's elements are ready; never mutates.
+      // Checks the current DOM serially, again at each change of the page, until the step's
+      // elements are ready; never mutates.
       void (async () => {
         const until = Date.now() + command.timeoutMs;
         // Cancellation is set by the independent background message listener.
@@ -1303,7 +1311,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             return { ok: false, reason: "timeout", ...(miss ? { miss } : {}) };
           }
           // eslint-disable-next-line no-await-in-loop
-          await pause(50);
+          await pageChange(document, until, waits.signal);
         }
         return cancelled ? { ok: false, reason: "cancelled" } : { ok: true };
       })().then(respond, () => respond({ ok: false, reason: "cancelled" }));
@@ -1340,7 +1348,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       return false;
     }
     if (command.type === "login.entry.inspect") {
-      // Polls the current DOM until the target names one shown element; never mutates.
+      // Checks the current DOM, again at each change of the page, until the target names one
+      // shown element; never mutates.
       void (async () => {
         const until = Date.now() + command.timeoutMs;
         const find = () => matches(command.target, true);
@@ -1353,7 +1362,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             (found.length === 1 && entryElementRefusal(found[0]!) === "hidden");
           if (cancelled || Date.now() >= until || !waiting) break;
           // eslint-disable-next-line no-await-in-loop
-          await pause(100);
+          await pageChange(document, until, waits.signal);
           found = find();
         }
         if (cancelled) return { ok: false };
@@ -1441,7 +1450,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         for (;;) {
           if (cancelled || found.length > 0 || Date.now() >= until) break;
           // eslint-disable-next-line no-await-in-loop
-          await pause(100);
+          await pageChange(document, until, waits.signal);
           found = find();
         }
         if (cancelled) return { ok: false, reason: "cancelled" };
@@ -1467,7 +1476,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           if (!control.isConnected || !visible(control)) return { ok: true, reacted: "changed" };
           if (Date.now() >= watchUntil) return { ok: true, reacted: "none" };
           // eslint-disable-next-line no-await-in-loop
-          await pause(100);
+          await pageChange(document, watchUntil, waits.signal);
         }
       })().then(respond, () => respond({ ok: false, reason: "missing" }));
       return true;
@@ -1482,8 +1491,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       return true;
     }
     if (command.type === "login.entry.check") {
-      // The page after an entry press: polls until a sign-in input, an input that asks for
-      // an account identifier alone (ADR 0016), or a first step shows.
+      // The page after an entry press: checks, again at each change of the page, until a
+      // sign-in input, an input that asks for an account identifier alone (ADR 0016), or a
+      // first step shows.
       void (async () => {
         const until = Date.now() + command.timeoutMs;
         for (;;) {
@@ -1508,7 +1518,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             };
           }
           // eslint-disable-next-line no-await-in-loop
-          await pause(100);
+          await pageChange(document, until, waits.signal);
         }
       })().then(respond, () => respond({ ok: false }));
       return true;
@@ -1995,7 +2005,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             const input = inputs[index] as Control;
             // A preparing fill lets the page's handlers for the previous field run first.
             // eslint-disable-next-line no-await-in-loop
-            if (index > 0 && step.effect === "prepare") await pause(FIELD_GAP_MS);
+            if (index > 0 && step.effect === "prepare") await nextFrame();
             // Each mutation repeats scope/connected checks; events and the wait between
             // fields may change the page.
             const current = matches(field.target);
@@ -2044,7 +2054,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               // As typed: the code is in with its last digit.
               for (const [place, digit] of split.entries()) {
                 // eslint-disable-next-line no-await-in-loop
-                if (place > 0) await pause(FIELD_GAP_MS);
+                if (place > 0) await nextFrame();
                 // The page's handlers for an earlier digit may have changed this input; the
                 // same checks run after each wait of the digit's own typing.
                 const scope = () =>
@@ -2085,6 +2095,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               let pressed = false;
               // eslint-disable-next-line no-await-in-loop
               const stopped = await typeOnKeypad(keyed, value.value, () => keypadOf(index), {
+                stop: waits.signal,
                 // The background learns of the presses before the first one, so only a
                 // page replaced after it may count as the page's own submission.
                 beforePress: async () =>
@@ -2352,9 +2363,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // eslint-disable-next-line no-unmodified-loop-condition
       while (!cancelled && Date.now() < until && pagePath() === step.path) {
         if (satisfied()) return { ok: true, mutation: "none" };
-        // Poll the current DOM serially; parallel polls cannot observe later render states.
+        // Check the current DOM serially, again at each change of the page; parallel checks
+        // cannot observe later render states.
         // eslint-disable-next-line no-await-in-loop
-        await pause(50);
+        await pageChange(document, until, waits.signal);
       }
       // The page moving to another path ends the wait early; that is not a timeout.
       return cancelled
@@ -2404,14 +2416,24 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    */
   function watchPressedUrl(): void {
     const from = location.href;
-    const until = Date.now() + LOGIN_STEP_WAIT_MS;
-    const poll = setInterval(() => {
-      if (cancelled || Date.now() > until) clearInterval(poll);
-      else if (location.href !== from) {
-        clearInterval(poll);
-        void announce(false).catch(() => undefined);
-      }
-    }, 100);
+    const listening = new AbortController();
+    const options = { signal: listening.signal };
+    // Every same-document URL change sends one of these (ADR 0082).
+    const look = () => {
+      if (cancelled) return stop();
+      if (location.href === from) return;
+      stop();
+      void announce(false).catch(() => undefined);
+    };
+    const end = setTimeout(stop, LOGIN_STEP_WAIT_MS);
+    function stop(): void {
+      listening.abort();
+      clearTimeout(end);
+    }
+    addEventListener("popstate", look, options);
+    addEventListener("hashchange", look, options);
+    navigation?.addEventListener("currententrychange", look, options);
+    waits.signal.addEventListener("abort", stop, options);
   }
   /**
    * A form with a password input submitted in this document: its next path here, and the
@@ -2468,27 +2490,33 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     offerUrl = pageUrl();
     if (!mayOffer || !offered || offerWindow !== undefined) return;
     urlWatch?.();
-    let pending: ReturnType<typeof setTimeout> | undefined;
+    // One look per frame of the page, however many changes come before it (ADR 0082).
+    let pending = false;
+    let stopped = false;
     const look = () => {
-      pending = undefined;
+      pending = false;
+      if (stopped) return;
       if (cancelled || !mayOffer) return stop();
       if (!showsSignIn() || starts.some(ready) || afterSubmitted()) return;
       stop();
       void announce(false, true, undefined, false, false, true).catch(() => undefined);
     };
-    const changes = new MutationObserver(() => {
-      pending ??= setTimeout(look, 100);
-    });
+    const later = () => {
+      if (pending) return;
+      pending = true;
+      void nextFrame().then(look);
+    };
+    const changes = new MutationObserver(later);
     changes.observe(document, pageWatch);
     const end = setTimeout(stop, LOGIN_STEP_WAIT_MS);
     function stop(): void {
+      stopped = true;
       changes.disconnect();
-      clearTimeout(pending);
       clearTimeout(end);
-      urlWatch = undefined;
+      if (urlWatch === stop) urlWatch = undefined;
     }
     urlWatch = stop;
-    pending = setTimeout(look, 100);
+    later();
   };
   document.addEventListener("submit", onSubmit, true);
   addEventListener("popstate", urlChanged);
@@ -2497,6 +2525,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   void announce(false).catch(() => undefined);
   return () => {
     cancelled = true;
+    waits.abort();
     removeEventListener("popstate", urlChanged);
     navigation?.removeEventListener("currententrychange", urlChanged);
     urlWatch?.();

@@ -109,3 +109,44 @@ describe("a step's wait that runs out (#1139)", () => {
     ).toEqual({ ok: true });
   });
 });
+
+describe("a step's wait for a change of the page (ADR 0082)", () => {
+  const ready = (token: string, timeoutMs: number) =>
+    ({
+      version: 1,
+      type: "login.await",
+      token,
+      timeoutMs,
+      readiness: {
+        path: "/login",
+        require: "clickable",
+        targets: [{ by: "text", value: "Log In" }],
+      },
+    }) as const;
+  /** Sends `message` and returns the page's answer once it comes, without advancing time. */
+  function sendNow(message: Record<string, unknown>): { value?: unknown } {
+    const reply: { value?: unknown } = {};
+    for (const listener of listeners)
+      listener(message, { id: "synthetic-extension" }, (value) => (reply.value = value));
+    return reply;
+  }
+
+  it("answers within a frame once the button is enabled", async () => {
+    const token = await open(page);
+    const reply = sendNow(ready(token, 5_000));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(reply.value).toBeUndefined();
+    document.querySelector("button[type=submit]")!.removeAttribute("disabled");
+    await vi.advanceTimersByTimeAsync(20);
+    expect(reply.value).toEqual({ ok: true });
+  });
+
+  it("ends at once when the login is cancelled", async () => {
+    const token = await open(page);
+    const reply = sendNow(ready(token, 5_000));
+    await vi.advanceTimersByTimeAsync(100);
+    sendNow({ version: 1, type: "login.cancel", token });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reply.value).toEqual({ ok: false, reason: "cancelled" });
+  });
+});
