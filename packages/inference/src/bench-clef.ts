@@ -26,13 +26,16 @@ export function clefLimits(modelId: ClefModelId) {
 
 /**
  * Whether Clef's questions can express the case's truth: a sign-in form's fields and
- * action, or an abstention. Lists of accounts (ADR 0028), sign-in entries (ADR 0031) and
- * passkey-only pages (ADR 0053) still run, to count the plans Clef would wrongly submit.
+ * action, or an abstention, on a request with slots to map. Lists of accounts (ADR 0028),
+ * sign-in entries (ADR 0031), passkey-only pages (ADR 0053) and other requests without
+ * slots still run, to count the plans Clef would wrongly submit; a request without slots
+ * fails as `invalid-request` before any call.
  */
 export function clefCanAnswer(testCase: EvaluationCase<ScoredResult>): boolean {
   const { request, expected } = testCase;
   return (
     (expected.kind === "plan" || expected.kind === "abstain") &&
+    testCase.slots.length > 0 &&
     request?.entry !== true &&
     request?.passkeyOnly !== true
   );

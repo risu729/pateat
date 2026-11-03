@@ -50,12 +50,13 @@ describe("Clef benchmark runner", () => {
     expect(clefLimits("clef").maxInputBytes).toBeLessThanOrEqual(64 * 1024);
   });
 
-  it("marks lists, entries and passkey-only pages as beyond Clef's questions", () => {
+  it("marks lists, entries, passkey-only pages and requests without slots as beyond Clef's questions", () => {
     for (const testCase of logPageCorpus) {
       const { kind } = testCase.expected;
       const beyond =
         kind === "account-list" ||
         kind === "entry" ||
+        testCase.slots.length === 0 ||
         testCase.request?.entry === true ||
         testCase.request?.passkeyOnly === true;
       expect(clefCanAnswer(testCase)).toBe(!beyond);
