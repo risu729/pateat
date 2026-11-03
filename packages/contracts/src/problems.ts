@@ -139,6 +139,7 @@ export const PROBLEM_EVENT_FIELDS = {
     reason: "code",
     settled: "flag",
     unconfirmed: "flag",
+    corrected: "flag",
     unsubmitted: "flag",
     routeChange: "code",
     layout: "code",
