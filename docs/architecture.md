@@ -2358,7 +2358,9 @@ which its [login record](#login-records-on-the-service) also sends to the servic
   add up to more than the time that passed: Pateat's own work and waits, such as reading
   pages, waiting for a step's elements before it runs, filling and clicking. `pageMs` is
   cut so the parts never add up to more than `totalMs`. A watch that ran out ends when
-  it ran out, however much later a page notices it.
+  it ran out, however much later a page notices it, and so does a wait for the site,
+  which lasts at most 150 seconds, also across a worker stop
+  ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md), amended 2026-11-03).
 - How long a fill or typing took is never recorded, since values are typed one
   character at a time ([ADR 0012](adr/0012-inference-request-log.md)).
 
@@ -2707,7 +2709,8 @@ login. Writes of personal-details links wait the same way
 ([ADR 0025](adr/0025-automatic-vault-sync.md)), and so does the settings sync's local
 write, for at most two minutes, counted from the first deferred write until a sync runs
 with no login in progress. An attempt counts until it ends or its result settles as
-unknown, also between pages and after a worker restart, and a settled one counts again
+unknown, also between pages and after a worker restart, at most until its wait for
+the site ran out (ADR 0022), and a settled one counts again
 only while the extension checks or judges one of its pages. A settled attempt can stay
 until its tab closes (a top-level `password` one for at most its 10-minute watch), so
 counting it would use up the two minutes for every later login. A policy write while an

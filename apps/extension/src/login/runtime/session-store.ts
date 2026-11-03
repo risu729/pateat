@@ -1,5 +1,7 @@
 import { parseAttemptMetadata, type LoginAttemptMetadata } from "@pateat/contracts";
 import { recordKey } from "./steps";
+import { terminal } from "./attempt-state";
+import { SITE_MOVE_MS, SITE_WAIT_MS } from "./constants";
 import type { Runtime } from "./state";
 
 // Toolbar and session storage failures only lose the badge or a pick; never a login.
@@ -80,10 +82,34 @@ export async function write(rt: Runtime): Promise<void> {
     await rt.attemptRecords.write(snapshot);
     return undefined;
   });
+  armSiteWait(rt);
   try {
     await rt.vars.storageQueue;
   } catch {
     rt.vars.storageHealthy = false;
     throw new Error("storage-failed");
   }
+}
+
+/**
+ * Sets the site-wait alarm for the first stored login whose wait for the site runs out
+ * (ADR 0022, amended 2026-11-03), or clears it when none waits. One that already ran out
+ * and still waits, as while the tab's running login or a page that asked for a passkey
+ * decides it, is looked at again `SITE_MOVE_MS` later, Chrome's shortest alarm delay.
+ */
+export function armSiteWait(rt: Runtime, now = Date.now()): void {
+  const schedule = rt.options.siteWait;
+  if (!schedule) return;
+  let when: number | undefined;
+  for (const stored of rt.persisted.values()) {
+    const run = rt.attempts.get(stored.document.tabId)?.metadata;
+    const record = run?.id === stored.id ? run : stored;
+    const since = record.timing.pageSince;
+    if (since === undefined || terminal(record)) continue;
+    const due = since + SITE_WAIT_MS > now ? since + SITE_WAIT_MS : now + SITE_MOVE_MS;
+    when = Math.min(when ?? due, due);
+  }
+  if (when === rt.vars.siteWaitAt) return;
+  rt.vars.siteWaitAt = when;
+  void Promise.try(() => schedule(when)).catch(() => undefined);
 }
