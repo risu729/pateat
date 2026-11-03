@@ -38,7 +38,6 @@ jobs:
     outputs:
       created: ${{ steps.release.outputs.release_created }}
       tag: ${{ steps.release.outputs.tag_name }}
-      version: ${{ steps.release.outputs.version }}
       sha: ${{ steps.release.outputs.sha }}
     steps:
       # A PR or tag made with GITHUB_TOKEN starts no workflow, so the release PR would get no
@@ -72,7 +71,6 @@ jobs:
       PATEAT_RELEASE: "true"
       PATEAT_REVISION: ${{ needs.release-please.outputs.sha || github.sha }}
     outputs:
-      tag: ${{ steps.pack.outputs.tag }}
       version: ${{ steps.pack.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
