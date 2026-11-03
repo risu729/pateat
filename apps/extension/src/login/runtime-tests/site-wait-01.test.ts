@@ -165,6 +165,28 @@ describe("a login whose wait for the site ran out", () => {
     expect(record.timing.pageSince).toBeUndefined();
   });
 
+  it("ends cancelled a login that submitted nothing, which no step goes on with", async () => {
+    await askedThere();
+    stoppedWorker(SITE_WAIT_MS + 60_000);
+    const [record] = stored() as unknown as Record<string, unknown>[];
+    const {
+      operationId: _id,
+      operationKind: _kind,
+      operationEffect: _effect,
+      mutationIntent: _intent,
+      outcome: _outcome,
+      ...rest
+    } = record!;
+    fake.state.storage["pateat.login-attempts.v5"] = [
+      { ...rest, state: "ready", stepIndex: 0, submissions: 0, usedOperationIds: [] },
+    ];
+    fake.state.tabUrls[1] = `${origin}/signin`;
+    const restarted = twoSites();
+    expect(await restarted.login.active()).toBe(false);
+    expect(at(origin)).toMatchObject({ state: "blocked", outcome: "cancelled" });
+    expect(at(origin)!.timing.pageMs).toBe(SITE_WAIT_MS);
+  });
+
   it("wakes the stopped worker by the alarm when the wait runs out later", async () => {
     await askedThere();
     const ranOut = stoppedWorker(10_000);

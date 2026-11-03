@@ -55,7 +55,12 @@ export function lapsed(
   // with a stop never settle as unknown.
   const result =
     metadata.route === "passkey" || metadata.stopAt !== undefined ? "challenge" : "unknown";
-  return transitionLoginAttempt(metadata, { type: "OBSERVED", result }, at);
+  const settled = transitionLoginAttempt(metadata, { type: "OBSERVED", result }, at);
+  // A login that submitted nothing goes on at its step instead, which no running step
+  // decides any more: it ends `cancelled`, which does not hold the site.
+  return terminal(settled) || idle(settled)
+    ? settled
+    : transitionLoginAttempt(metadata, { type: "CANCEL" }, at);
 }
 
 /** Logs a login ended or settled by its wait for the site running out at `at`. */
@@ -87,6 +92,8 @@ export async function endSiteWaits(rt: Runtime): Promise<void> {
   };
   const decided = (stored: LoginAttemptMetadata) =>
     latest(stored)?.running === true ||
+    // A page of the tab being admitted may resume the login.
+    [...rt.admitting.keys()].some((key) => key.startsWith(`${stored.document.tabId}:`)) ||
     rt.passkeyPages.get(stored.document.tabId)?.attemptId === stored.id ||
     rt.siteMoves.has(stored.document.tabId);
   for (const [key, stored] of [...rt.persisted]) {

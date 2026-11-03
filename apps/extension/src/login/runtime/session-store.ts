@@ -106,10 +106,15 @@ export function armSiteWait(rt: Runtime, now = Date.now()): void {
     const record = run?.id === stored.id ? run : stored;
     const since = record.timing.pageSince;
     if (since === undefined || terminal(record)) continue;
-    const due = since + SITE_WAIT_MS > now ? since + SITE_WAIT_MS : now + SITE_MOVE_MS;
+    // A clock set back before the wait began ends it too (`siteWaitOver`).
+    const due =
+      since <= now && since + SITE_WAIT_MS > now ? since + SITE_WAIT_MS : now + SITE_MOVE_MS;
     when = Math.min(when ?? due, due);
   }
   if (when === rt.vars.siteWaitAt) return;
   rt.vars.siteWaitAt = when;
-  void Promise.try(() => schedule(when)).catch(() => undefined);
+  // A failed call is made again by the next write.
+  void Promise.try(() => schedule(when)).catch(() => {
+    if (rt.vars.siteWaitAt === when) rt.vars.siteWaitAt = Number.NaN;
+  });
 }

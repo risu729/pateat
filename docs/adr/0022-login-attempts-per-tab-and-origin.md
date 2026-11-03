@@ -201,7 +201,9 @@ fix them now; the SSO policy itself is recorded separately.
     (`left-origin` after a possible submission, else `interrupted`); any other settles
     as a page that proved nothing would (`unknown-submit`, or `challenge` on the
     `passkey` route or for a login with a stop), and a top-level `password` one is
-    watched from then. Its record keeps the time it last changed, as for a watch that
+    watched from then; one that submitted nothing, which would go on at its step, ends
+    `cancelled` instead, as no step runs any more. A page of the tab being admitted
+    decides first too. Its record keeps the time it last changed, as for a watch that
     ran out. A worker start checks the stored records before any page announces, and a
     `browser.alarms` alarm (`pateat.login-site-wait`) at the first such end wakes a
     stopped worker to check again; one that memory still decides is looked at again 30
