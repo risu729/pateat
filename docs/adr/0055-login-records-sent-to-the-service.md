@@ -36,8 +36,14 @@ during a retry wait, are passed over too. Settings that cannot be read send noth
 first login result of each recipe revision
 ([ADR 0019](0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation))
 and the recipe use of [ADR 0058](0058-automatic-recipe-removal.md) are not covered: the
-first keeps the evaluation corpus and the second keeps recipes from being removed. The
-revisit of this decision before Pateat has other users is still open.
+first keeps the evaluation corpus and the second keeps recipes from being removed.
+
+Revisited on 2026-11-03 for other users: on a decision card asking whether login records
+and problem lines should stay on by default once other people use Pateat, the owner
+chose "既定オンのまま" (keep them on by default; 03:19 UTC). Other people run their own
+Pateat service rather than sharing the owner's, so what a device sends goes to a service
+its own user runs, and the checkbox above turns it off. Logs still never go from the
+service to a device.
 
 Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (layouts accepted by the
 owner on 2026-10-23 at 11:41 UTC; implemented on a branch, local tests only): a record
@@ -81,8 +87,8 @@ learned nothing of them, and a dashboard could not show how fast logins are.
   local log keeps the login's `login.attempt` line with its times, and the send is
   logged as a value-free `service.login` line.
 - The dashboard's speed section starts with these logins.
-- Logs still never go from the service to a device. Before Pateat has other users, this
-  decision is revisited ([plan](../plan.md#phase-3-public-release)).
+- Logs still never go from the service to a device. The decision was revisited for other
+  users on 2026-11-03 and kept, on by default (see the status above).
 
 Not confirmed by the owner (the agent's choices):
 

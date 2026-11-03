@@ -1081,11 +1081,11 @@ Once the fixes have settled:
   deadline as off, and every other build keeps it on. The release workflow must build
   the published zip with `PATEAT_RELEASE=true`
   ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-debug-logging-stays-on-before-publishing)).
-- Before Pateat has other users, revisit sending a record of every login (its result,
-  times, site and time on the service side) to the service, and keep logs from ever
-  going from the service to a device (owner, 2026-10-18 08:38 UTC:
-  「リリース前の考慮事項として記録はしておいて。一旦ユーザー私だけなので大丈夫」;
-  [ADR 0055](adr/0055-login-records-sent-to-the-service.md)).
+- Done (2026-11-03): sending a record of every login (its result, times, site and time
+  on the service side) and the problem lines to the service was revisited for other
+  users. They stay on by default, with the off switch below; other people run their own
+  service, and logs never go from the service to a device (owner, 2026-11-03 03:19 UTC,
+  "既定オンのまま"; [ADR 0055](adr/0055-login-records-sent-to-the-service.md)).
 - Done (2026-11-02): a setting that turns off what a device sends on its own, the login
   records of [ADR 0055](adr/0055-login-records-sent-to-the-service.md) and the problem
   log lines of [ADR 0066](adr/0066-problem-lines-sent-to-the-service.md). It is a synced
