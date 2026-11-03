@@ -9,6 +9,7 @@ import {
   type LoginEntryRecipe,
   type LogoutPurpose,
 } from "@pateat/contracts";
+import type { AttemptSpans } from "./spans";
 import type { ServiceTiming } from "../../service/transport";
 import { type ListMissReport as ListMiss, type ExecutionDetail, type LaterMiss } from "../wire";
 import { type AskReason } from "../choice-wire";
@@ -196,6 +197,8 @@ export type LoginReport = (
       stop?: "password";
       /** For a login that just ended, signed in or blocked: how long it took (ADR 0019). */
       times?: AttemptTimes;
+      /** With `times`: where the login's own time went, for the local log only (ADR 0019). */
+      spans?: AttemptSpans;
     }
   | {
       type: "refused";

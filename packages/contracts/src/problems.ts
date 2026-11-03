@@ -64,6 +64,24 @@ export const LOCAL_ONLY_EVENTS = ["passkey.request", "passkey.create"] as const;
  */
 export const LOCAL_ONLY_FLAG = "fillOnly";
 
+/**
+ * Fields of a local log event that never leave the device, even on a line that does: where
+ * a login's own time went (ADR 0019, amendment of 2026-11-03). {@link PROBLEM_EVENT_FIELDS}
+ * lists none of them, so a problem line leaves them out and the service refuses them too.
+ */
+export const LOCAL_ONLY_FIELDS = {
+  "login.attempt": [
+    "beforeShownMs",
+    "startMs",
+    "awaitMs",
+    "saveMs",
+    "statusMs",
+    "checkMs",
+    "vaultMs",
+    "commandMs",
+  ],
+} as const satisfies Record<string, readonly string[]>;
+
 /** Whether a local log line stays on the device whatever its level (ADR 0066). */
 export function problemLocalOnly(
   event: string,
@@ -77,7 +95,7 @@ export function problemLocalOnly(
 /**
  * The fields each local log event may carry to the service, by kind. The extension's test
  * holds it equal to its log's events, less {@link LOCAL_ONLY_EVENTS}, item and connection
- * pseudonyms and {@link LOCAL_ONLY_FLAG}.
+ * pseudonyms, {@link LOCAL_ONLY_FLAG} and {@link LOCAL_ONLY_FIELDS}.
  */
 export const PROBLEM_EVENT_FIELDS = {
   "runtime.started": { build: "revision" },

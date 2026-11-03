@@ -2365,6 +2365,21 @@ which its [login record](#login-records-on-the-service) also sends to the servic
   ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md), amended 2026-11-03).
 - How long a fill or typing took is never recorded, since values are typed one
   character at a time ([ADR 0012](adr/0012-inference-request-log.md)).
+- The same `login.attempt` entry carries where Pateat's own time went
+  (`apps/extension/src/login/runtime/spans.ts`), on the device only: a problem line
+  leaves these fields out (`LOCAL_ONLY_FIELDS` in `packages/contracts/src/problems.ts`).
+  `beforeShownMs` is from when the document was seen until it first announced a sign-in
+  on the login's path; `startMs` from that announcement until the login started;
+  `awaitMs` waiting for a step's elements (mostly the site rendering them); `saveMs` and
+  `statusMs` storing the record and telling the page after each change; `checkMs` the
+  policy checks around each step; `vaultMs` reading the values to fill; and `commandMs`
+  a step's command to the page and its answer, for every step but a fill. Each counts
+  only time outside the waits for the site, the person and the service, and time where
+  fields of one login overlap counts once, in the one that began first, so all but
+  `beforeShownMs` add up to at most `otherMs`. Each is rounded down to 100 ms, so the
+  rest does not tell a fill's time, and a login that typed on a software keyboard logs
+  none. They are kept in memory, are lost with a worker restart, and are never sent
+  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-11-03-where-a-logins-own-time-went)).
 
 ### First login results on the service
 
