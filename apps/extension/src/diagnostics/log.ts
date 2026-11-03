@@ -193,6 +193,8 @@ export const LOG_EVENTS = {
       reason: "code",
       settled: "flag",
       unconfirmed: "flag",
+      // A completion its document's sign-in form corrected (ADR 0029, amended 2026-11-03).
+      corrected: "flag",
       // Nothing submitted yet, in the document the login began in (ADR 0066).
       unsubmitted: "flag",
       // A fill-only login of a tab that asks (ADR 0062 B), whose lines stay local (ADR 0066).

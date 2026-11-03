@@ -884,6 +884,13 @@ export const commandSchema = v.variant("type", [
     token: id,
     account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
     fields: v.optional(v.pipe(v.array(loginTargetSchema), v.maxLength(24))),
+    /**
+     * Reads the page once its document has loaded, waiting for its `load` event at most
+     * this many milliseconds (ADR 0029, amended 2026-11-03; ADR 0082).
+     */
+    loadWithinMs: v.optional(
+      v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(LOGIN_STEP_WAIT_MS)),
+    ),
   }),
   v.strictObject({
     version: v.literal(1),

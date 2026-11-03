@@ -80,6 +80,16 @@ route reads the sign-in state as the `password` route does; see
 [the amendment below](#amendment-the-passkey-route-reads-the-sign-in-state-2026-10-24).
 This also amends [ADR 0027](0027-per-account-login-routes.md).
 
+Amended on 2026-11-03 (owner, 11:15 UTC, option 「すぐ読み、外れたら直す」 of a decision
+card): a `signed-in` reading completes the login as soon as the loaded document shows
+it, without the 3-second budget or a second reading a second later, and the sign-in form
+showing again in that document within 30 seconds corrects the result to a failure; see
+[the amendment below](#amendment-read-the-result-at-once-and-correct-it-2026-11-03).
+This replaces "a confirmed result never changes" and also amends
+[ADR 0027](0027-per-account-login-routes.md),
+[ADR 0062](0062-log-in-again-after-a-logout.md) and
+[ADR 0082](0082-waits-on-signals.md).
+
 Date: 2026-10-12
 
 ## Context
@@ -657,3 +667,79 @@ reviewed by a subagent against the code and the ADRs):
   fields (`rejected`) still rejects no credential on this route and goes on as before;
   an `optional` page (ADR 0065) still never completes it, as no password or code was
   sent.
+
+## Amendment: read the result at once, and correct it (2026-11-03)
+
+Context: after the owner ruled out fixed waits ([ADR 0082](0082-waits-on-signals.md),
+2026-11-03 03:31 UTC), the waits of this ADR were the largest left after a submission: a
+page that no marker, rejection or next step explained was read for its sign-in state
+only once a 3-second budget had run out (`reconcileBounded`), then again a second later
+(`SIGN_IN_RECHECK_MS`) before the reading counted, and each new page of a watched login
+was read only after `WATCH_SETTLE_MS` (3 s). A login whose page showed the account's
+username in its header still took 4 to 4.5 s to complete. The waits were there so that a
+page still redirecting, or about to ask for a second factor, did not settle the login.
+
+The owner was asked on a decision card at 03:47 UTC "サインイン結果の判定:
+3秒待ちをやめ、 すぐ読んでよいですか" and chose at 11:15 UTC 「すぐ読み、外れたら直す」,
+whose stated consequence was
+"結果をすぐ確定し、同じページが後でサインイン画面に戻ったら失敗に直す。ADR 0029
+の『確定した結果は変えない』を改める必要がある。" (settle the result at once, and
+correct it to a failure if the same page later goes back to the sign-in screen; this
+changes "a confirmed result never changes"). The other options were to wait for a signal
+with a bound, or to keep the 3 s.
+
+Decision:
+
+- While a step's result is observed, every round of the observation that no marker,
+  rejection, next step or handler explained reads the sign-in state once. A `signed-in`
+  reading (E1 to E3) in a document that has finished loading completes the login as
+  `authenticated` at once, on the `password` and `passkey` routes, and so does it on a
+  watched login's new page (ADR 0027). A document still loading is read again in the
+  next round, as the observation's poll reads its other checks.
+- Every other reading still waits for the budget: a failure shown next to the sign-in
+  fields in the document that submitted may be one from before the site answered, and a
+  page with no sign is only judged, and only settles as unknown, once the budget ran
+  out. The 3 s budget, and `WATCH_SETTLE_MS` for a watched login's new page, stay as the
+  bound of those readings only.
+- When the budget ran out, the reading counts at once when the document has loaded. A
+  document still loading is read again once its `load` event fired, waited for in the
+  content script as a signal and at most 10 seconds (`SIGN_IN_LOAD_WAIT_MS`), instead of
+  every second up to ten times. There is no second reading a second later any more.
+- If the document a login completed in shows the recipe's first step again within 30
+  seconds of the completion (`RESULT_CORRECTION_MS`), the login did not sign in: its
+  result is corrected, and the tab asks for an account as after a refused password (ADR
+  0021 D), without logging in again and never filling that document. Before, that was a
+  logout and the page logged in again (ADR 0062). The local log gets a `login.attempt`
+  line marked `corrected`, `blocked` with `unknown-submit` and the reason
+  `sign-in-shown`, as for a form shown again before the login settled, and the badge
+  turns to unsettled.
+
+The agent's choices, not part of the card:
+
+- "The same page" is read as the same document. A new document of the tab that shows the
+  sign-in form, as after a redirect, is still a logout, logged in again under ADR 0062's
+  limit of two automatic logins per site in 10 minutes. A page whose script redirects to
+  the sign-in form only after `load` has no signal before it; it was the one case the
+  second reading a second later could catch.
+- The 30 seconds are the bound of the correction, not a wait: nothing waits for them.
+  After them, or in another document, the form showing again is a logout as before, so a
+  person who signs out of a single-page site within 30 seconds of a Pateat sign-in gets
+  the account question instead of a new login.
+- The correction applies to every completion in that document, also one by a signed-in
+  marker or the judge, which were never delayed. It does not apply while an account
+  switch from the popup runs or waits for its login page (ADR 0063), nor while the tab
+  holds an account picked for another login; a pick of the login being corrected is
+  corrected too.
+- What the completion already did stays: the login record sent to the service (ADR 0055)
+  and the revision's first result code (ADR 0019) keep `authenticated`, since the
+  service takes one record per report and has no way to change one, so the corrected
+  line carries no times and sends nothing more; the completion still counts towards the
+  relogin limit (ADR 0062); and an account choice, a detail link or a site pick the
+  completion saved, and "Pateat signed in here" (ADR 0007), are not taken back.
+- A page after the final `advance` that may be the next sign-in step (ADR 0018), a page
+  that may still be exchanging Pateat's passkey answer (ADR 0034, ADR 0036) and a login
+  on its way to a stop are not read early; they are decided once the budget ran out, as
+  before.
+- A second factor that the same document asks for after the early completion, as a code
+  field shown after a header that already named the account, is left to the person: the
+  login has completed, so no handler runs there.

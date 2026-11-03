@@ -51,6 +51,12 @@ what an exclusion rule stops in [ADR 0007](0007-existing-passkey-assertions.md),
 [ADR 0038](0038-login-status-badge.md), [ADR 0049](0049-start-at-a-later-step.md) and
 [ADR 0052](0052-immediate-ui-stored-passkeys.md).
 
+Amended on 2026-11-03 by the
+[ADR 0029 amendment of 2026-11-03](0029-local-sign-in-state.md#amendment-read-the-result-at-once-and-correct-it-2026-11-03)
+(owner, 11:15 UTC): the first step showing again in the document a login completed in,
+within 30 seconds of the completion, is no logout. It corrects the result, and the tab
+asks for an account instead of logging in again.
+
 Date: 2026-10-23
 
 ## Context

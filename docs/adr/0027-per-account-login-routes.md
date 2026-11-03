@@ -116,7 +116,11 @@ widened) and [ADR 0018](0018-recipe-generation-route.md) (the takeover); impleme
 Amended on 2026-10-23 by [ADR 0065](0065-optional-pages-after-a-sign-in.md) (owner,
 12:27 UTC): a watched login's page judged `optional`, with no sign and no evidence,
 completes it as `signed-in` does once the password or a second factor was sent
-(implemented, local tests only).
+(implemented, local tests only). Amended on 2026-11-03 by the
+[ADR 0029 amendment of 2026-11-03](0029-local-sign-in-state.md#amendment-read-the-result-at-once-and-correct-it-2026-11-03)
+(owner, 11:15 UTC): each new page of a watched login completes on a signed-in marker or
+a `signed-in` reading of its loaded document as soon as it shows them; only the other
+readings, and the judge, still wait for `WATCH_SETTLE_MS` (3 s).
 
 Date: 2026-10-11
 

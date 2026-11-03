@@ -33,7 +33,7 @@ import { fallBack, parkedFor, bridgeAnswer, reviewRequests } from "./passkey";
 import { switchLayout, continueOn } from "./continuation";
 import { listOf, listReadiness } from "./markers";
 import { enterHandler } from "./handlers";
-import { advanceMiss, signInState } from "./sign-in";
+import { advanceMiss, signInState, signedInAtOnce } from "./sign-in";
 import { repairLaterStep } from "./repair-run";
 import { addAskFill } from "./relogin";
 import { quietly, forget } from "./session-store";
@@ -355,7 +355,46 @@ export async function reconcile(
       if (continued === "moved") return undefined;
     }
   }
-  if (!settleUnknown) return undefined;
+  // After answering the page's own request, a page still on the start page's path may be
+  // exchanging the assertion before the site moves on, with its form already gone (ADR
+  // 0034); so may the page after an answer at a login's stop, on the path of the step it
+  // stopped at, or for a stop just past the plan's last step, on the path it answered on
+  // (ADR 0036).
+  const answered = plan[run.metadata.stepIndex];
+  const answeredPath =
+    answered === undefined
+      ? answeredAtStop(run.metadata)
+        ? run.answeredPath
+        : undefined
+      : answered.handler === undefined
+        ? answered.step.path
+        : undefined;
+  const answering =
+    ((run.metadata.route === "passkey" && passkeyAnswersRequest(run.recipe)) ||
+      answeredAtStop(run.metadata)) &&
+    answeredPath !== undefined &&
+    observed.path === answeredPath &&
+    run.answeredAt !== undefined;
+  if (!settleUnknown) {
+    // Before the budget runs out, a page whose loaded document reads signed in completes
+    // the login at once (ADR 0029, amended 2026-11-03); the sign-in form shown again in
+    // that document soon after corrects it. Not while such an answer may still be
+    // exchanged, on the way to a stop, or on a page that may be the next sign-in step
+    // after the final advance (ADR 0018), which the settled page decides below.
+    if (
+      effectful(run.metadata) &&
+      continued !== "qualified" &&
+      !answering &&
+      !advancingToStop(run.metadata) &&
+      (await signedInAtOnce(rt, run))
+    )
+      await change(rt, run, {
+        type: "OBSERVED",
+        result: "authenticated",
+        document: run.live.document,
+      });
+    return undefined;
+  }
   // Otherwise that page is continued as any login's, or judged once the step's wait ran
   // out, and the login goes on to its stop when neither moved it on. An advance the record
   // cannot go on from, as one that failed before its intent, ends here unjudged.
@@ -367,28 +406,11 @@ export async function reconcile(
     });
     return undefined;
   }
-  // After answering the page's own request, a page still on the start page's path may be
-  // exchanging the assertion before the site moves on, with its form already gone: it is
-  // not judged until the request's hold ends, nor while it shows nothing to describe, as
-  // a loader does, until the held click's wait ends (ADR 0034).
-  // So is the page after an answer at a login's stop, on the path of the step it stopped at,
-  // or for a stop just past the plan's last step, on the path it answered on (ADR 0036).
-  const answered = plan[run.metadata.stepIndex];
-  const answeredPath =
-    answered === undefined
-      ? answeredAtStop(run.metadata)
-        ? run.answeredPath
-        : undefined
-      : answered.handler === undefined
-        ? answered.step.path
-        : undefined;
+  // Such a page is not judged until the request's hold ends, nor while it shows nothing to
+  // describe, as a loader does, until the held click's wait ends.
   if (
-    ((run.metadata.route === "passkey" && passkeyAnswersRequest(run.recipe)) ||
-      answeredAtStop(run.metadata)) &&
-    answeredPath !== undefined &&
-    observed.path === answeredPath &&
-    run.answeredAt !== undefined &&
-    (Date.now() - run.answeredAt < REQUEST_HOLD_MS || (await showsNothing(rt, run)))
+    answering &&
+    (Date.now() - (run.answeredAt ?? 0) < REQUEST_HOLD_MS || (await showsNothing(rt, run)))
   )
     return current(rt, run) ? "held" : undefined;
   // An advance on the next step's own path that was never confirmed says why in the log,

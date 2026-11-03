@@ -54,6 +54,7 @@ import { typeValue } from "../page/enter-value";
 import { askDefinitions, ELEMENT_DEFINED } from "../page/element-definitions";
 import { nextFrame } from "../page/frames";
 import { pageChange } from "../page/page-change";
+import { documentLoaded } from "../page/document-load";
 import {
   extractAccountListObservation,
   extractEntryObservation,
@@ -1576,7 +1577,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         keyed.add(found[0]);
         return [found[0]];
       });
-      respond(
+      const read = () =>
         cancelled
           ? { ok: false }
           : {
@@ -1586,9 +1587,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 ...(username === undefined ? {} : { username }),
               }),
               loaded: document.readyState === "complete",
-            },
-      );
-      return false;
+            };
+      if (command.loadWithinMs === undefined || document.readyState === "complete") {
+        respond(read());
+        return false;
+      }
+      // A document still loading is read once it loaded (ADR 0029, amended 2026-11-03).
+      void documentLoaded(document, Date.now() + command.loadWithinMs, waits.signal)
+        .then(read)
+        .then(respond, () => respond({ ok: false }));
+      return true;
     }
     if (command.type === "login.observe") {
       if (cancelled) {

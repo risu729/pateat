@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LoginAttemptMetadata } from "@pateat/contracts";
 import { nextRecordStep, type RecordPage, type RecordPhase } from "./admit-record-policy";
+import { RESULT_CORRECTION_MS } from "./constants";
 
 const origin = "https://login.example.com";
 const now = 4_000_000;
@@ -191,6 +192,84 @@ describe("ordered record phases", () => {
   );
 });
 
+describe("a completion its own document corrects (ADR 0029, amended 2026-11-03)", () => {
+  const completed = (overrides: Partial<LoginAttemptMetadata> = {}) =>
+    record({
+      state: "authenticated",
+      outcome: "authenticated",
+      document: { origin, tabId: 1, frameId: 0, documentId: "current" },
+      changedAt: now - 5_000,
+      ...overrides,
+    });
+  const finished = (entry: LoginAttemptMetadata, overrides: Partial<RecordPage> = {}) =>
+    nextRecordStep(entry, page(overrides), { phase: "finished" }, now);
+
+  it("corrects when the completion's document shows the first step within the window", () => {
+    expect(finished(completed())).toEqual({
+      kind: "read-confirm",
+      read: true,
+      rejectedHere: false,
+      correctedHere: true,
+      next: "finished-confirmed",
+    });
+    // A running login's record carries no time of its own; the stored one's counts.
+    expect(
+      finished(completed({ changedAt: undefined }), { recordedAt: now - 5_000 }),
+    ).toMatchObject({ correctedHere: true });
+    expect(
+      nextRecordStep(
+        completed(),
+        page(),
+        { phase: "finished-confirmed", confirm: false, correctedHere: true },
+        now,
+      ),
+    ).toEqual({ kind: "release-finished", corrected: true, next: "stopped" });
+  });
+
+  it.each([
+    [
+      "another document",
+      completed({ document: { origin, tabId: 1, frameId: 0, documentId: "earlier" } }),
+      {},
+    ],
+    ["no first step", completed(), { showsFirstStep: false }],
+    ["past the window", completed({ changedAt: now - RESULT_CORRECTION_MS }), {}],
+    ["a clock set back", completed({ changedAt: now + 1 }), {}],
+    ["no time known", completed({ changedAt: undefined }), {}],
+    ["an account switch", completed(), { switching: true }],
+    ["another pick", completed(), { picked: true, pickedAttemptId: undefined }],
+    [
+      "a failure",
+      record({
+        state: "blocked",
+        outcome: "credential-rejected",
+        document: { origin, tabId: 1, frameId: 0, documentId: "current" },
+        changedAt: now - 5_000,
+      }),
+      {},
+    ],
+  ] as const)("does not correct after %s", (_case, entry, overrides) => {
+    expect(finished(entry, overrides)).not.toHaveProperty("correctedHere");
+  });
+
+  it("corrects the person's own pick of that login too", () => {
+    expect(finished(completed(), { picked: true, pickedAttemptId: "attempt" })).toMatchObject({
+      correctedHere: true,
+    });
+  });
+
+  it("keeps watching a page generated as a verification while signed in", () => {
+    expect(
+      nextRecordStep(
+        completed(),
+        page(),
+        { phase: "finished-confirmed", confirm: true, correctedHere: true },
+        now,
+      ),
+    ).toEqual({ kind: "keep-watching", reason: "logged-in" });
+  });
+});
+
 describe("finished records precede stopped records", () => {
   it("handles wrong-account as finished before its overlapping stopped classification", () => {
     const entry = record({ state: "blocked", outcome: "wrong-account", submissions: 0 });
@@ -273,7 +352,9 @@ describe("finished records precede stopped records", () => {
         now,
       );
       expect(action).toEqual(
-        kind === "keep-watching" ? { kind, reason: "logged-in" } : { kind, next: "stopped" },
+        kind === "keep-watching"
+          ? { kind, reason: "logged-in" }
+          : { kind, corrected: false, next: "stopped" },
       );
     },
   );
