@@ -1077,10 +1077,12 @@ function createLoginAttemptMachine() {
         context.submissions < stepBudget(context),
       clickMatches: ({ context, event }) =>
         operationMatches(context, event) && context.operationKind === "click",
+      // A fill's, or the click a fill left its account check to (ADR 0049 amendment of
+      // 2026-11-03).
       wrongAccount: ({ context, event }) =>
         event.type === "WRONG_ACCOUNT" &&
         operationMatches(context, event) &&
-        context.operationKind === "fill" &&
+        (context.operationKind === "fill" || context.operationKind === "click") &&
         sameLoginDocument(context.document, event.document),
       valueRejected: ({ context, event }) => valueRejected(context, event),
       valueRejectedWatched: ({ context, event }) =>

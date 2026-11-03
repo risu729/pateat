@@ -58,7 +58,7 @@ import { ready } from "./generation";
 import { destinationRefusal } from "./plan";
 import { allowed } from "./plan-2";
 import { reviewRequests } from "./passkey";
-import { quietly, scopes } from "./session-store";
+import { armSiteWait, quietly, scopes } from "./session-store";
 import { leaveConfirm } from "./markers";
 import { rejectedElsewhere, recordFor } from "./hold";
 import { forgetClosedSites } from "./relogin";
@@ -583,6 +583,8 @@ export function forgetTab(rt: Runtime, tabId: number): void {
       await rt.vars.loaded;
       for (const [key, metadata] of rt.persisted)
         if (metadata.document.tabId === tabId) rt.persisted.delete(key);
+      // A closed tab's login no longer waits for the site (ADR 0022).
+      armSiteWait(rt);
       await rt.attemptRecords.write([...rt.persisted.values()]);
       return undefined;
     })
