@@ -65,7 +65,7 @@ export type CompletionRejection =
    * The marker is a button whose text names the authenticator app's code
    * (`namesAuthenticatorChoice`, ADR 0081): a sign-in step's button, which the extension
    * may name by its text even when it is a `role="button"` widget that a marker's lookup
-   * never finds.
+   * never finds. The page is then a challenge, as with `login-page`.
    */
   | "sign-in-choice"
   /**
@@ -260,8 +260,6 @@ export function addCompletion(
     return { ok: false, reason: "origin-mismatch" };
   if (!page.candidates.some((candidate) => sameTarget(candidate.target, target)))
     return { ok: false, reason: "not-on-page" };
-  if (target.by === "text" && namesAuthenticatorChoice(target.value))
-    return { ok: false, reason: "sign-in-choice" };
   const steps = passwordVariants(base).flatMap((variant) => variant.steps);
   // Buttons such as "Next" may recur on signed-in pages elsewhere; fill fields do not. A
   // handler's element on this path shows its page, as a `totp` handler's code field does
@@ -283,6 +281,8 @@ export function addCompletion(
     return { ok: false, reason: "login-page" };
   if (recipeElements(base).some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };
+  if (target.by === "text" && namesAuthenticatorChoice(target.value))
+    return { ok: false, reason: "sign-in-choice" };
   const absent = steps
     .filter((step) => !moved && step.path === page.path && step.kind === "fill")
     .flatMap(stepTargets)

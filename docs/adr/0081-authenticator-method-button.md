@@ -153,14 +153,17 @@ page was described with none of them and the judge could name no `authenticatorB
 
 1. On a judged page, a `role="button"` element that `authenticatorChoice` accepts (the
    same check the login makes before pressing, item 5 above) is located by its rendered
-   text, under the same rules as on a login page: no native button, shown or hidden,
-   script link or other `role="button"` element carries that text, and it holds no
-   number. Other such elements on a judged page stay undescribed, so the judge sees the
-   authenticator one and none of the other ways, such as "Text me a code" with a masked
-   phone number.
+   text when no native button, shown or hidden, script link, link or other
+   `role="button"` element carries that text and it holds no number. A link with that
+   text keeps it, so two candidates never share a target. Other such elements on a
+   judged page stay undescribed, so the judge sees the authenticator one and none of the
+   other ways, such as "Text me a code" with a masked phone number.
 2. The executor already finds such an element by text in a handler's lookup, which never
    names a link. A signed-in marker's lookup compares links instead and never finds it,
    so the service refuses a text marker whose text passes `namesAuthenticatorChoice`
-   (`sign-in-choice`), as it is a sign-in step's button in any case.
+   (`sign-in-choice`), after the `login-page` check. Such a button is a sign-in step's,
+   so a judge that names it as the marker answered a challenge page: like `login-page`,
+   the page keeps `challenge` and the request fails closed, rather than complete
+   signed in.
 3. The judge corpus gains `en-second-factor-chooser-alone`, the chooser described with
    only that button.

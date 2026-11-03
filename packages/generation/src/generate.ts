@@ -1400,7 +1400,11 @@ export async function judgeCompletion(
     judgement.decision === "signed-in"
       ? addCompletion(recipe, observation, judgement.target)
       : undefined;
-  const loginPage = learned?.ok === false && learned.reason === "login-page";
+  // A marker that chooses the authenticator app is a sign-in step's button, so its page is
+  // a challenge too (ADR 0081 amendment of 2026-11-03).
+  const loginPage =
+    learned?.ok === false &&
+    (learned.reason === "login-page" || learned.reason === "sign-in-choice");
   if (!beside)
     await keepVerdict(
       loginPage

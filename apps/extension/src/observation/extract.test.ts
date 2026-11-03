@@ -4260,6 +4260,19 @@ describe("extractSignedInObservation", () => {
       expect(summary(signedIn())).toEqual([{ role: "button", target: app, label: app.value }]);
       expect(findTargets(document, app)).toEqual([document.querySelector("button")]);
     });
+
+    it("leaves it out when a link shows the same text, keeping the page described", () => {
+      chooser();
+      document
+        .querySelector("main")!
+        .insertAdjacentHTML(
+          "beforeend",
+          `<a href="/help">Bitwarden Use code from authenticator</a>`,
+        );
+      expect(summary(signedIn())).toEqual([
+        { role: "link", target: { by: "href", value: "/help" }, label: app.value },
+      ]);
+    });
   });
 });
 

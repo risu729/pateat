@@ -866,6 +866,9 @@ describe("judged authenticator handler (ADR 0081)", () => {
     });
     const sms = { by: "text", value: "Text me a code" } as const;
     expect(addCompletion(recipe, { ...chooser(), path: "/home" }, sms).ok).toBe(true);
+    // A page that still shows the login's own button is a login page first.
+    const login = { ...chooser(candidate("next", target("password-next"))), path: "/login" };
+    expect(addCompletion(recipe, login, app)).toEqual({ ok: false, reason: "login-page" });
   });
 });
 
