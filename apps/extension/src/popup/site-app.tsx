@@ -697,14 +697,12 @@ export function SiteApp({
       ]),
     ],
     queryFn: async () => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const over = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new ListingTimeout()), listingWaitMs);
-      });
+      const over = Promise.withResolvers<never>();
+      const timer = setTimeout(() => over.reject(new ListingTimeout()), listingWaitMs);
       try {
         return await Promise.race([
           client.findSiteAccounts(origin!, saved!.snapshot.settings),
-          over,
+          over.promise,
         ]);
       } finally {
         clearTimeout(timer);
