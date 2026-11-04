@@ -20,15 +20,14 @@ import type { GenerationBackend, UnsentRequest } from "./backend";
 import {
   active,
   answerUnsent,
-  attemptWindow,
   failed,
   failureOf,
-  MIN_GENERATION_RECIPE_ROOM_BYTES,
   modelCall,
   roleConfig,
   unavailable,
   type UnsentAnswer,
-} from "./generate";
+} from "./generate/responses";
+import { attemptWindow, MIN_GENERATION_RECIPE_ROOM_BYTES } from "./generate/policy";
 import { LOGOUT_UNIT } from "./units";
 
 // The logout route of an account switch (ADR 0063): a signed-in page of the tab the switch

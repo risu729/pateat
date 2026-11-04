@@ -30,6 +30,16 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 `mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
+The shared settings contract lives under `packages/contracts/src/settings/`.
+`schema.ts` owns validation, inferred types and the URL, detail-format and timestamp
+helpers used by validation. `defaults.ts` owns the synthetic catalog and default
+settings; `vault-policy.ts` owns account, item and custom-field eligibility;
+`site-policy.ts` owns site rules and saved-account resolution. The existing
+`settings.ts` entrypoint re-exports the same public names. Internal modules import
+`schema.ts` directly, and site policy imports vault eligibility, so schemas have no
+policy imports or initialization cycles. This source split preserves schema order,
+validation messages and policy behavior; its tests keep their existing files.
+
 The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
 `apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
@@ -489,6 +499,19 @@ Harness modules are excluded from coverage. Test files and helpers follow the
 expanded test count. The owner approved this organization with the runtime split
 on 2026-10-30. Compare the full Verify job as well as test counts when changing the
 suite layout, since each file loads the runtime and harness separately.
+
+### Login wire contracts
+
+The login message contracts live under `apps/extension/src/login/wire/`.
+`primitives.ts` owns shared schema inputs and target states, `constants.ts` owns wait
+bounds, and `readiness.ts` owns step readiness and start-miss schemas. `messages.ts`
+owns content-to-background messages, `commands.ts` owns background-to-content commands,
+and `results.ts` owns their answers. `probe.ts` owns the synthetic probe controls.
+The existing `wire.ts` entrypoint explicitly re-exports the same public names;
+internal schema inputs stay private to these modules. Messages, commands and results
+import primitives and readiness directly, with no imports between those three
+families, so schema initialization has no cycle. Schemas, bounds and tests retain
+their behavior and existing test-file layout.
 
 ## Windows notes
 
@@ -1139,6 +1162,15 @@ revision writes and D1 batch behavior; an ORM does not supply authorization or
 cross-request atomicity. Use Valibot at application boundaries, including the
 chosen Hono/Drizzle integrations; transitive Zod does not change that decision.
 
+The generation routes in `packages/generation/src/generate.ts` retain their public
+exports and delegate to `generate/recipe.ts`, `generate/entry.ts` and
+`generate/completion.ts` (the judge and page sampler). Shared response and inference
+outcome handling live in `generate/responses.ts`, retry and judgement windows and
+head checks in `generate/policy.ts`, and layout assembly and writes in
+`generate/layout.ts`. These internal modules import their shared owners directly;
+logout generation uses the same response and retry helpers. The split preserves
+request shapes, response codes, call ordering, storage writes and limits.
+
 AI SDK is transport/structured-output infrastructure, not an autonomous agent
 loop. Keep generation and finite-choice contracts distinct; use a direct typed
 provider adapter when that API is not represented faithfully by the SDK. Set
@@ -1164,12 +1196,20 @@ two devices' syncs and edits in random orders while uploads, their answers and s
 writes fail. Where every state is small enough to list, walk them all instead of
 sampling: the `packages/contracts/src/*.orders-*.test.ts` files apply every event of a
 fixed set to every state a small login attempt reaches, and CI runs them in the
-`Event orders` job ([CI](delivery.md#current-foundation-workflows)). Component tests
-cover drafts, conflicts, validation and keyboard behavior; Playwright covers real
-extension boundaries and lifecycle. Automated accessibility checks supplement
-manual keyboard/focus inspection. Browser component tests do not establish
-extension API or MV3 lifecycle behavior. Knip must understand WXT-generated entrypoints
-before treating reported unused files as removable.
+`Event orders` job ([CI](delivery.md#current-foundation-workflows)). The set holds every
+event type of the attempt machine; those that carry what the runtime works out from a
+recipe (a handler's steps, a continued page, another layout or route) are built from the
+walk's recipes as the runtime builds them, and those it sends only for a kind of step (a
+code the page submitted, a disabled final advance) only at such a step. One file per
+kind of login start (a stop before a missing password, the passkey route, handlers, a
+continued recipe, layouts, a chooser's list, a frame, fill-only) keeps each walk under
+20,000 states (a walk fails past 60,000), and those beside the two plain recipes leave
+out the events that only multiply their states (`focused` in
+`__fixtures__/login-orders.ts`). Component tests cover drafts, conflicts, validation and
+keyboard behavior; Playwright covers real extension boundaries and lifecycle. Automated
+accessibility checks supplement manual keyboard/focus inspection. Browser component
+tests do not establish extension API or MV3 lifecycle behavior. Knip must understand
+WXT-generated entrypoints before treating reported unused files as removable.
 
 We continue to implement domain behavior independently, without copying feature
 code from Fenko, auto-filler, Superfill, Boltwarden or bronzewarden. Extra global

@@ -371,3 +371,42 @@ nothing. A list of accounts, an identifier alone, a sign-in entry or a passkey b
 still offered only after a load, and a form shown later without a URL change, such as a
 sign-in dialog, is still not sent. A document that carries a login keeps watching for it
 when announced again.
+
+## Amendment 2026-11-04: a default chosen in the popup opens the window again
+
+By
+[ADR 0021](0021-account-choice-outside-settings.md#amendment-a-default-chosen-in-the-popup-logs-in-at-once-2026-11-04)
+(owner's request, 13:45 UTC): when the popup's **Use as default** saves the site
+default, the tab's frames announce again as new pages, so a form shown in place after
+the window closed, as Discord's after "Add an account", may be sent once more under the
+rules above. Since the next amendment such a form is sent once per path without that
+choice too; the choice sends it once more.
+
+## Amendment 2026-11-04: a form shown in place later is sent once per path
+
+Status: accepted by the owner on 2026-11-04 (14:04 UTC, decision card 「送る
+(パスごとに1回)」), over keeping the rule of the 2026-10-24 amendment that a form shown
+later without a URL change is not sent.
+
+Real Chrome on 2026-11-04 (13:43 UTC): Discord's `/login` first shows Discord's own list
+of remembered accounts, which is not sent (`nothing-offered`, `no-list`). Its "Add an
+account" button swaps in the email and password form at the same URL, long after the
+page's window closed, so the form was never sent and no login could follow. The
+2026-10-24 rule came from one site (Duolingo), where the URL changed; Discord, a sign-in
+dialog and any single-page app that renders its form in place without a route change
+were left out.
+
+Decision: once the page's window to be sent has closed, and while the background's last
+answer said the page may be sent with no login taking the document over since, the
+content script keeps watching the document. When a password, username or one-time-code
+input shows, no recipe's first step is ready, and the path is not the one shown right
+after a submitted password form, the document announces it, once per path of the
+document: a path whose input was already announced, within the window, after a URL
+change or by this watch, is not announced again by it. The background decides as for a
+new page, so the vault match, the pause and the retry window per origin and path apply
+as before. The watch reads the page at most once per frame and once per 100 ms, as the
+page watch does (ADR 0082), and also watches the shadow trees it finds (ADR 0070). Once
+the document submitted a form with a password input, the watch stops, so a password
+asked again later on the signed-in page, as before a settings change, is not sent. A
+default chosen in the popup still announces the page as new (amendment above), which
+offers its form once more (implemented).

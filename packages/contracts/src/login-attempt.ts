@@ -423,6 +423,12 @@ export const loginAttemptEventSchema = v.variant("type", [
     signedIn: v.optional(v.literal(true)),
   }),
   v.strictObject({ type: v.literal("INTERRUPTED") }),
+  /**
+   * The tab's top page is no web page Pateat can read, as `about:blank` or a browser page,
+   * once the login's wait for the site ran out (ADR 0022, amended 2026-11-04): a top-level
+   * attempt ends as a move to another origin would.
+   */
+  v.strictObject({ type: v.literal("LEFT") }),
   v.strictObject({
     type: v.literal("FAILED"),
     reason: v.picklist(["structural-mismatch", "timeout"]),
@@ -792,27 +798,38 @@ function record(
         document: sameScope(context.document, event.document) ? event.document : context.document,
         outcome: maySubmit(context) ? "unknown-submit" : "interrupted",
       };
+    case "LEFT":
+      // As a move to another origin without a sign-in confirmed there.
+      return {
+        outcome: watched(context)
+          ? context.outcome
+          : !maySubmit(context)
+            ? "interrupted"
+            : "left-origin",
+      };
     case "INTERRUPTED":
       return { outcome: maySubmit(context) ? "unknown-submit" : "interrupted" };
-    case "FAILED":
+    case "FAILED": {
+      // A trusted preflight failure proves that this fill never initiated its reserved
+      // effect, but only before the page said it took the step (`SUBMITTED`).
+      const unsent = confirmedNoMutation(context, event) && context.state !== "awaiting-result";
       return {
         outcome: event.reason,
-        // A trusted preflight failure proves that this fill never initiated its
-        // reserved effect. Keep its used ID and the independent retry budget.
+        // Keep its used ID and the independent retry budget.
         submissions:
-          confirmedNoMutation(context, event) &&
+          unsent &&
           context.mutationIntent === true &&
           context.operationKind === "fill" &&
           ["advance", "submit"].includes(context.operationEffect ?? "prepare")
             ? context.submissions - 1
             : context.submissions,
-        mutationIntent: confirmedNoMutation(context, event) ? undefined : context.mutationIntent,
+        mutationIntent: unsent ? undefined : context.mutationIntent,
         retryRequired:
-          context.operationKind !== "click" &&
-          (!context.mutationIntent || confirmedNoMutation(context, event))
+          context.operationKind !== "click" && (!context.mutationIntent || unsent)
             ? true
             : context.retryRequired,
       };
+    }
     case "WRONG_ACCOUNT": {
       // Like a confirmed preflight failure, the reserved fill effect never started.
       const submissions =
@@ -1012,7 +1029,14 @@ function record(
         retryRequired: undefined,
       };
     case "POLICY_CHANGED":
-      if (event.undelivered === undefined || event.undelivered !== context.operationId)
+      // Only an operation still being sent, or one whose check failed before it went out
+      // (`reconciling`), can be undelivered: one the page said it took (`SUBMITTED`), and a
+      // watched login's, was delivered, whatever the runtime names.
+      if (
+        event.undelivered === undefined ||
+        event.undelivered !== context.operationId ||
+        !["executing", "submit-intent", "reconciling"].includes(context.state)
+      )
         return { outcome: "policy-changed" };
       return {
         outcome: "policy-changed",
@@ -1155,6 +1179,7 @@ function createLoginAttemptMachine() {
         event.type === "NAVIGATED" && sameScope(context.document, event.document),
       leftOrigin: ({ context, event }) =>
         event.type === "NAVIGATED" && leftOrigin(context.document, event.document),
+      leftPage: ({ context, event }) => event.type === "LEFT" && context.document.frameId === 0,
       leftSignedIn: ({ context, event }) =>
         event.type === "NAVIGATED" &&
         event.signedIn === true &&
@@ -1413,6 +1438,8 @@ function createLoginAttemptMachine() {
       // steps are a `totp` handler's or a route's fill of the `totp` slot and its click.
       canAutoSubmit: ({ context, event }) =>
         event.type === "AUTO_SUBMITTED" &&
+        // A fill-only login never types a code (ADR 0021 D), so no page submits one for it.
+        context.fillOnly !== true &&
         !context.usedOperationIds.includes(event.operationId) &&
         context.usedOperationIds.length < 96 &&
         context.submissions < stepBudget(context) &&
@@ -1470,6 +1497,7 @@ function createLoginAttemptMachine() {
         { guard: "leftOrigin", target: ".blocked", actions: "record" },
         { target: ".blocked", actions: "invalidNavigation" },
       ],
+      LEFT: { guard: "leftPage", target: ".blocked", actions: "record" },
       INTERRUPTED: { target: ".reconciling", actions: "record" },
     },
     states: {
@@ -1601,6 +1629,7 @@ function createLoginAttemptMachine() {
             { guard: "leftOrigin", target: "blocked", actions: "record" },
             { target: "blocked", actions: "invalidNavigation" },
           ],
+          LEFT: { guard: "leftPage", target: "blocked", actions: "record" },
         },
       },
       authenticated: { type: "final" },
@@ -1824,10 +1853,20 @@ export const effectfulStep = (step: LoginStep): boolean => {
   return effect !== undefined && effect !== "prepare";
 };
 /**
- * A step a fill-only login never takes (ADR 0021 D): one with an effect, or a fill on a
- * page's software keyboard, whose presses the page may act on (ADR 0067).
+ * What a fill-only login takes of `step` (ADR 0021 D): nothing of a step with an effect or
+ * of a fill on a page's software keyboard, whose presses the page may act on (ADR 0067),
+ * and a fill without its TOTP code, whose input may submit at its last digit as a PIN pad
+ * does (ADR 0027 amendment of 2026-10-23); nothing of a fill of the code alone.
  */
-export const fillOnlyStops = (step: LoginStep): boolean => effectfulStep(step) || keypadStep(step);
+export function fillOnlyStep(step: LoginStep): LoginStep | undefined {
+  if (effectfulStep(step) || keypadStep(step)) return undefined;
+  if (step.kind !== "fill") return step;
+  const fields = step.fields.filter((field) => field.slot !== TOTP_HANDLER_SLOT);
+  if (fields.length === 0) return undefined;
+  return fields.length === step.fields.length ? step : { ...step, fields };
+}
+/** A step a fill-only login never takes any of (`fillOnlyStep`). */
+export const fillOnlyStops = (step: LoginStep): boolean => fillOnlyStep(step) === undefined;
 
 /**
  * Applies one event. `now` starts the watch of a login that becomes watched (ADR 0027); a
@@ -2008,7 +2047,7 @@ export function nextLoginOperation(
     // The step that fills the password of an item without one, and every later step, never
     // runs (ADR 0036).
     !beforeStop(metadata, metadata.stepIndex) ||
-    // A fill-only attempt never takes a step with an effect or a keypad (ADR 0021 D).
+    // A fill-only attempt never takes a step with an effect, a keypad or a code (ADR 0021 D).
     (metadata.fillOnly === true && fillOnlyStops(step)) ||
     (effectfulStep(step) && metadata.submissions >= stepBudget(metadata))
   )
@@ -2020,7 +2059,8 @@ export function nextLoginOperation(
     policyRevision: metadata.policyRevision,
     document,
     stepIndex: metadata.stepIndex,
-    step,
+    // A fill-only attempt fills a step's other fields without its code.
+    step: metadata.fillOnly === true ? fillOnlyStep(step) : step,
     expiresAt: now + 15000,
   });
 }
@@ -2043,7 +2083,7 @@ export function validateLoginOperation(
       : metadata.state === "executing";
   return (
     readyToExecute &&
-    !(metadata.fillOnly === true && fillOnlyStops(operation.step)) &&
+    !(metadata.fillOnly === true && fillOnlyStep(operation.step) !== operation.step) &&
     beforeStop(metadata, operation.stepIndex) &&
     (!(operation.step.kind === "fill" || operation.step.kind === "click") ||
       metadata.mutationIntent === true) &&

@@ -128,7 +128,8 @@ export const en = {
     "No default account. With exactly one matching item, Pateat uses that item.",
   "Some vaults or items could not be checked, so this list may be incomplete.":
     "Some vaults or items could not be checked, so this list may be incomplete.",
-  "A default takes effect at the next login.": "A default takes effect at the next login.",
+  "Choosing a default logs in with it on this page when it shows a sign-in.":
+    "Choosing a default logs in with it on this page when it shows a sign-in.",
   "Use as default": "Use as default",
   "and its subdomains": "and its subdomains",
   "Change in settings for {{hostname}}": "Change in settings for {{hostname}}",

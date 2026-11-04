@@ -202,8 +202,9 @@ fix them now; the SSO policy itself is recorded separately.
     the check of the tab's new page. When none of them runs any more, as after a worker
     stop, the login ends at the time its wait ran out, without resubmitting: a top-level
     login whose tab shows a page of another origin ends as that move would have
-    (`left-origin` after a possible submission, else `interrupted`); any other settles
-    as a page that proved nothing would (`unknown-submit`, or `challenge` on the
+    (`left-origin` after a possible submission, else `interrupted`), and so does one
+    whose tab shows no web page Pateat can read (amended 2026-11-04, below); any other
+    settles as a page that proved nothing would (`unknown-submit`, or `challenge` on the
     `passkey` route or for a login with a stop), and a top-level `password` one is
     watched from then; one that submitted nothing, which would go on at its step, ends
     `cancelled` instead, as no step runs any more. A page of the tab being admitted
@@ -216,10 +217,21 @@ fix them now; the SSO policy itself is recorded separately.
     time between counts for nothing; a move that completes it still ends it when the
     page shows. A bound, not a pause: nothing waits for it to pass. While any stored
     login waits for the site, or one whose wait ran out is still decided in memory, the
-    worker calls an extension API every 20 seconds, as
-    it does during a model call, so Chrome's 30-second idle stop does not lose the waits
-    kept in memory (owner's question at 11:16 UTC on 2026-11-03); an update, a reload,
-    a browser restart or a crash still stops it, which the bound covers.
+    worker calls an extension API every 20 seconds, as it does during a model call, so
+    Chrome's 30-second idle stop does not lose the waits kept in memory (owner's
+    question at 11:16 UTC on 2026-11-03); an update, a reload, a browser restart or a
+    crash still stops it, which the bound covers. Amended on 2026-11-04 (agent's choice,
+    not confirmed by the owner): an app.notion.com tab went to `about:blank` right after
+    its password submit; at the bound the login settled as unknown and was watched for
+    10 minutes, so the site's other tabs were refused `origin-busy` for about 11 minutes
+    until the tab closed. Pateat may read the URL of every HTTP(S) page and of no other
+    page, so a tab without a URL shows `about:blank`, a new tab page or another browser
+    page, where the login can neither go on nor show its result: such a top-level login
+    ends as a move to another origin (`LEFT` in the attempt machine). It is not watched,
+    and its record holds the site for 5 minutes from its last change, as any
+    `left-origin` record does. A tab that could not be read at all, as one
+    Chrome is replacing, still settles as unknown; a site's own `blob:` page counts as
+    its origin.
   - **A move after a passkey answer** (amended 2026-10-12). Such an attempt ends
     `authenticated` instead when all of these hold: after its last effect step and at
     most 30 seconds before the move, Pateat returned an assertion to a passkey request
@@ -374,31 +386,34 @@ fix them now; the SSO policy itself is recorded separately.
   intent, a click the page may have received, or a result settled as unknown. A
   withdrawn authorization before the page received the prepared fill or click takes back
   that operation's reserved effect, so such a record shows nothing in flight; a record a
-  restarted worker finds with an intent pending keeps holding. Such a record does not
-  hold: the login form showing in a new tab means the site's session has ended, as when
-  the first tab is closed, and a stop by Pateat says nothing about the password. This
-  includes a stop on a second-factor handler step after the password was accepted. The
-  tab then logs in as a new tab would, with the saved default or by asking when several
-  items match. While an automatic account choice is being saved, or if one was saved
-  after the tab read its settings, the new login waits for the save and is checked again
-  with the new settings, because the save bumps the policy revision it would otherwise
-  be stopped by. A record in any other state keeps holding, for example one that is
-  running, `retryable` (it is tried again from the same step at once, or, after a
-  restart, once a new page of its tab shows, until its retries are spent), still
-  reconciling, settled as unknown, watched after a `challenge` (`watching`, ADR 0027),
-  ended `interrupted` after a submission, stopped by Pateat while a fill or click may
-  have reached the page, or ended `credential-rejected`, `challenge`, `submission-limit`
-  or `left-origin`. A watched login, settled or `watching`, stops holding once its first
-  step shows in another tab's page first seen after the watch began (ADR 0027). A
-  top-level password login whose page shows its sign-in form again right after the
-  submission, or that ends `credential-rejected`, is released as after a logout once
-  that page announces, so other tabs ask instead of being held (ADR 0021 D, 2026-10-13).
-  So a password is not submitted again while a first submission may still be in flight
-  or was refused, or while the user may be answering a challenge Pateat does not handle.
-  Releasing `account-switched` lets another tab start between the switch click and the
-  first tab's fresh attempt, which then waits as `origin-busy`. A refused tab's tooltip
-  says that another tab's login holds the site and that closing that tab, or waiting 5
-  minutes and reloading, lets it log in, and is reset when the tab logs in
+  restarted worker finds with an intent pending keeps holding. Once the page said it
+  took the step (`SUBMITTED`), neither a withdrawn authorization nor a failure that
+  reports no change takes the effect back (2026-11-04, found by the walk over every
+  order of events). Such a record does not hold: the login
+  form showing in a new tab means the site's session has ended, as when the first tab is
+  closed, and a stop by Pateat says nothing about the password. This includes a stop on
+  a second-factor handler step after the password was accepted. The tab then logs in as
+  a new tab would, with the saved default or by asking when several items match. While
+  an automatic account choice is being saved, or if one was saved after the tab read its
+  settings, the new login waits for the save and is checked again with the new settings,
+  because the save bumps the policy revision it would otherwise be stopped by. A record
+  in any other state keeps holding, for example one that is running, `retryable` (it is
+  tried again from the same step at once, or, after a restart, once a new page of its
+  tab shows, until its retries are spent), still reconciling, settled as unknown,
+  watched after a `challenge` (`watching`, ADR 0027), ended `interrupted` after a
+  submission, stopped by Pateat while a fill or click may have reached the page, or
+  ended `credential-rejected`, `challenge`, `submission-limit` or `left-origin`. A
+  watched login, settled or `watching`, stops holding once its first step shows in
+  another tab's page first seen after the watch began (ADR 0027). A top-level password
+  login whose page shows its sign-in form again right after the submission, or that ends
+  `credential-rejected`, is released as after a logout once that page announces, so
+  other tabs ask instead of being held (ADR 0021 D, 2026-10-13). So a password is not
+  submitted again while a first submission may still be in flight or was refused, or
+  while the user may be answering a challenge Pateat does not handle. Releasing
+  `account-switched` lets another tab start between the switch click and the first tab's
+  fresh attempt, which then waits as `origin-busy`. A refused tab's tooltip says that
+  another tab's login holds the site and that closing that tab, or waiting 5 minutes and
+  reloading, lets it log in, and is reset when the tab logs in
   ([Background execution](../architecture.md#background-execution)). A refused page does
   not announce again when the hold ends; reloading it starts the login, as does a pick
   in the toolbar popup while the page waits for an account choice
