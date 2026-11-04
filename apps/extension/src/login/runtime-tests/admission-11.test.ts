@@ -351,6 +351,54 @@ describe("production login document admission", () => {
         );
         expect(service.generate.mock.calls[0]![0]).not.toHaveProperty("signedIn");
       });
+      it("sends no page that shows one of the recipe's handlers on its path (#1248)", async () => {
+        // A second-factor page on the sign-in form's own URL: the account's email above
+        // the "Verify" button the recipe learned as a handler, and no field.
+        const verify = { by: "text" as const, value: "Verify" };
+        const { service, h, repairLog } = setup();
+        h.recipes.recipe.mockResolvedValue(
+          parseLoginRecipe({
+            ...generated,
+            revision: 2,
+            handlers: [{ kind: "passkey", path: "/signin", target: verify }],
+          }),
+        );
+        const shown = page("/signin", [
+          { id: "c1", role: "button", target: verify, label: "Verify" },
+        ]);
+        fake.state.extracted = {
+          accounts: { ...shown, observation: { ...shown.observation, accounts: ["[email]"] } },
+        };
+        const listHello = (documentId: string) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              shown: { path: "/signin", miss: { missing, status: 200 }, accounts: true },
+            },
+            sender({ documentId }),
+          );
+        fake.state.observed = ["unique"];
+        await listHello("verify");
+        await vi.waitFor(() => expect(repairLog()).toHaveLength(1));
+        expect(repairLog()[0]).toMatchObject({ outcome: "skipped", reason: "handler" });
+        expect(
+          fake.state.messages.filter((entry) => entry.type === "login.observe").at(-1),
+        ).toMatchObject({ targets: [verify] });
+        expect(service.generate).not.toHaveBeenCalled();
+        // Without the handler's button, the list is sent.
+        fake.state.observed = ["missing"];
+        await listHello("list");
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        // A form beside the button is sent too: it only adds a layout.
+        for (const listener of fake.state.removed) listener(1);
+        fake.state.storage["repairs"] = undefined;
+        fake.state.observed = ["unique"];
+        fake.state.extracted = { login: loginPage };
+        await missHello(h, "form");
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(2));
+      });
       it("holds a recipe the service answered back unchanged for the day", async () => {
         // The answer equaled a layout the recipe already has, so the service wrote nothing.
         const { service, h, repairLog } = setup(async () => ({

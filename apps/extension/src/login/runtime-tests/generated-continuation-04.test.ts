@@ -13,8 +13,17 @@ const fake = await vi.hoisted(async () => (await import("./browser-fake")).creat
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
-const { origin, connectionId, itemId, target, otherItemId, uriMatch, liveDefault, harness } =
-  createRuntimeTestHarness(fake);
+const {
+  origin,
+  connectionId,
+  itemId,
+  target,
+  otherItemId,
+  uriMatch,
+  liveDefault,
+  harness,
+  sender,
+} = createRuntimeTestHarness(fake);
 
 describe("continuing a generated recipe after its final advance (ADR 0018)", () => {
   afterEach(() => {
@@ -420,6 +429,161 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(reports.filter((entry) => entry.type === "repair")).toEqual([
         expect.objectContaining({ recipeId: listed.id, outcome: "due" }),
       ]);
+    });
+    describe("a chooser without a button for another account whose path shows a form (#1248)", () => {
+      // A page that showed only the signed-in account's email above "Verify" was stored as
+      // a chooser; the sign-in form on the same path is no branch of it.
+      const verify = { by: "text" as const, value: "Verify" };
+      const continueOnly: LoginChooserRecipe = {
+        ...listed,
+        chooser: { path: "/signin", continue: verify },
+      };
+      const form = describedPage("/signin", [
+        { id: "c1", role: "email", target: target("email"), label: "User Name" },
+        { id: "c2", role: "password", target: target("password"), label: "Password" },
+        { id: "c3", role: "button", target: target("login"), label: "Sign In" },
+      ]);
+      const login = parseLoginRecipe({
+        version: 1,
+        id: listed.id,
+        revision: 2,
+        origin,
+        pageKind: "sign-in",
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [
+              { slot: "username", target: target("email") },
+              { slot: "password", target: target("password") },
+            ],
+          },
+          { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+        ],
+        maxSubmissions: 1,
+      });
+      const shownForm = (h: ReturnType<typeof onList>, documentId = "synthetic-document") =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            shown: { path: "/signin", miss: { missing: [verify], status: 200 } },
+          },
+          sender({ documentId }),
+        );
+      const setup = (service: ReturnType<typeof generation>, reports: LoginReport[]) => {
+        const h = onList(service, reports, {
+          repairs: createRecipeRepairs({
+            read: async () => fake.state.storage["repairs"],
+            write: async (value) => {
+              fake.state.storage["repairs"] = value;
+            },
+          }),
+        });
+        h.recipes.chooser.mockResolvedValue(continueOnly);
+        h.recipes.starts.mockResolvedValue([{ path: "/signin", steps: [], list: [verify] }]);
+        fake.state.present = new Set(["email", "password", "login"]);
+        fake.state.extracted = { login: form };
+        fake.state.awaitReply = (readiness) =>
+          readiness.accounts === true ? { ok: false, reason: "timeout" } : { ok: true };
+        return h;
+      };
+      it("sends the form for repair, and the login recipe it answers starts", async () => {
+        const reports: LoginReport[] = [];
+        let h!: ReturnType<typeof onList>;
+        const service = generation(async (_request, sent) => {
+          sent?.();
+          h.recipes.chooser.mockResolvedValue(undefined);
+          h.recipes.recipe.mockResolvedValue(login);
+          h.recipes.starts.mockResolvedValue([{ path: "/signin", steps: [login.steps[0]!] }]);
+          return { outcome: "recipe", recipe: login };
+        });
+        h = setup(service, reports);
+        expect(await shownForm(h)).toMatchObject({ ok: false, reason: "form-not-ready" });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        expect(service.generate.mock.calls[0]![0]).toMatchObject({
+          observation: form.observation,
+          repair: { recipeId: listed.id, revision: 1 },
+        });
+        expect(service.generate.mock.calls[0]![0]).not.toHaveProperty("base");
+        expect(reports.filter((entry) => entry.type === "repair")).toEqual([
+          expect.objectContaining({ recipeId: listed.id, recipeRevision: 1, outcome: "due" }),
+        ]);
+        await vi.waitFor(() =>
+          expect(fake.state.messages.map((entry) => entry.type)).toContain("login.reconnect"),
+        );
+        // The page announces again and runs the login recipe on the form.
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => executed().length > 0);
+        expect(executed()[0]).toBe("fill:email,password");
+      });
+      it("sends nothing while the list shows, nor for a chooser with that button", async () => {
+        const reports: LoginReport[] = [];
+        const service = generation();
+        const h = setup(service, reports);
+        // The list renders after the form reported itself.
+        fake.state.awaitReply = () => ({ ok: true });
+        await shownForm(h, "list-shown");
+        await vi.waitFor(() =>
+          expect(reports.filter((entry) => entry.type === "repair")).toEqual([
+            expect.objectContaining({ outcome: "skipped", reason: "list-shown" }),
+          ]),
+        );
+        // A chooser with a button for another account takes the form as that branch's page.
+        fake.state.awaitReply = (readiness) =>
+          readiness.accounts === true ? { ok: false, reason: "timeout" } : { ok: true };
+        h.recipes.chooser.mockResolvedValue({ ...continueOnly, chooser: { ...listed.chooser } });
+        await shownForm(h, "with-other");
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(reports.filter((entry) => entry.type === "repair")).toHaveLength(1);
+        expect(service.generate).not.toHaveBeenCalled();
+      });
+      const fillPassword = {
+        kind: "fill",
+        path: "/signin",
+        fields: [{ slot: "password", target: target("password") }],
+      } as const;
+      const spinnerGone = { kind: "wait", path: "/signin", target: target("spin"), present: false };
+      it.each([
+        // The person pressed "Continue" themselves: that branch's form shows on the same URL.
+        ["shows the shown account's branch", [fillPassword], 0],
+        // A first step that names no element shows anywhere, so it says nothing.
+        ["starts that branch by waiting", [{ ...spinnerGone, timeoutMs: 1000 }, fillPassword], 1],
+      ])("on a page that %s", async (_name, first, sends) => {
+        const reports: LoginReport[] = [];
+        const service = generation();
+        const h = setup(service, reports);
+        const afterAccount = parseLoginRecipe({
+          ...login,
+          slots: ["password"],
+          steps: [...first, login.steps[1]!],
+        });
+        const chooser = { ...continueOnly.chooser, afterAccount };
+        h.recipes.chooser.mockResolvedValue({ ...continueOnly, chooser });
+        await shownForm(h, "branch");
+        await vi.waitFor(() =>
+          expect(reports.filter((entry) => entry.type === "repair")).toEqual([
+            sends
+              ? expect.objectContaining({ outcome: "due" })
+              : expect.objectContaining({ outcome: "skipped", reason: "branch" }),
+          ]),
+        );
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(sends));
+      });
+      it("sends nothing when the chooser's layouts cannot be read", async () => {
+        const service = generation();
+        const h = setup(service, []);
+        Object.assign(h.recipes, {
+          choosers: vi.fn(async () => {
+            throw new Error("storage");
+          }),
+        });
+        await shownForm(h, "unreadable");
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(service.generate).not.toHaveBeenCalled();
+      });
     });
     it("ends account-not-listed without a click when nothing fits and there is no button", async () => {
       const miss = {

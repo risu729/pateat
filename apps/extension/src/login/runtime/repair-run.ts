@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  handlerTargets,
   loginStepEffect,
   recipeStartSteps,
   type LoginChooserRecipe,
@@ -8,7 +9,7 @@ import {
   type LoginEntryRecipe,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import { entryCheckResultSchema, type StartMiss } from "../wire";
+import { entryCheckResultSchema, loginReadiness, type StartMiss } from "../wire";
 import { classifyStartMiss } from "../repair";
 import { type LiveDocument, type Execution, type GenerationMiss } from "./types";
 import { frameKey, rawPath } from "./steps";
@@ -20,7 +21,7 @@ import {
 } from "./report";
 import { note, generateFor } from "./generation";
 import { restartForRequest } from "./passkey";
-import { listedNames, showsAnyMarker } from "./markers";
+import { listReadiness, listedNames, showsAnyMarker, shownTargets, showsNow } from "./markers";
 import { generationSlotsFor } from "./generation-scope";
 import { vaultMatches, generateEntryFor } from "./entry-press";
 import { tabAttempt } from "./hold";
@@ -163,7 +164,8 @@ export async function repairStale(
     rt.recipes.layouts?.(live.document.origin, live.path),
   ).catch(() => undefined);
   if (rt.documents.get(key) !== live) return;
-  const firstSteps = (layouts?.length ? layouts.map((entry) => entry.recipe) : [recipe])
+  const all = layouts?.length ? layouts.map((entry) => entry.recipe) : [recipe];
+  const firstSteps = all
     .flatMap((layout) => recipeStartSteps(layout))
     .filter((step) => step.path === live.path);
   if (!firstSteps.length) return;
@@ -185,7 +187,93 @@ export async function repairStale(
     return;
   }
   if (rt.documents.get(key) !== live) return;
+  // A list that shows every element of one of the recipe's handlers on this path is a
+  // later page of the recipe's own login, as a second-factor page that shows the account's
+  // email above its "Verify" button on the sign-in form's own URL: it is never sent as a
+  // list that would replace the recipe (#1248). A form beside such a button is still sent,
+  // as a redesigned form that kept its "Use passkey" button: a form adds a layout.
+  if (accounts && (await showsOwnHandler(rt, live, all))) {
+    if (rt.documents.get(key) === live) log("skipped", "handler");
+    return;
+  }
+  if (rt.documents.get(key) !== live) return;
   await sendRepair(rt, live, recipe, accounts ? { kind: "list" } : {});
+}
+
+/** Whether the page shows every element of one handler of `layouts` on its own path. */
+async function showsOwnHandler(
+  rt: Runtime,
+  live: LiveDocument,
+  layouts: readonly LoginRecipe[],
+): Promise<boolean> {
+  const handlers = layouts
+    .flatMap((layout) => layout.handlers ?? [])
+    .filter((handler) => handler.path === live.path)
+    .map(handlerTargets);
+  if (!handlers.length) return false;
+  const shown = await shownTargets(rt, live, handlers.flat());
+  return handlers.some((targets) => targets.every((target) => shown(target) === true));
+}
+
+/**
+ * Sends a generated chooser's start page for repair as a form (ADR 0041 section 6,
+ * amended for #1248) when it shows a sign-in form instead of its list and no layout of the
+ * chooser has a button for another account, so the form cannot be its `other` branch's
+ * page: as after a page that only showed the signed-in account above a button was taken
+ * for a list. The service replaces the chooser with a login recipe, once per document and
+ * chooser revision, under a start page's limits.
+ */
+export async function repairChooserForm(
+  rt: Runtime,
+  live: LiveDocument,
+  chooser: LoginChooserRecipe,
+  miss: StartMiss | undefined,
+): Promise<void> {
+  if (!rt.repairs || !rt.generation || live.document.frameId !== 0 || live.topUrl) return;
+  if (!chooser.id.startsWith("gen-")) return;
+  const key = frameKey(live.document);
+  // Every layout is checked; a lookup that fails sends nothing, as one may have the button.
+  let layouts: { recipe: LoginChooserRecipe }[] | undefined;
+  try {
+    layouts = await rt.recipes.choosers?.(live.document.origin, live.path);
+  } catch {
+    return;
+  }
+  if (rt.documents.get(key) !== live) return;
+  const all = layouts?.length ? layouts.map((entry) => entry.recipe) : [chooser];
+  // A chooser with that button takes the form as its `other` branch (ADR 0028).
+  if (all.some((layout) => layout.chooser.other)) return;
+  const log = repairLog(rt, live, chooser);
+  // The page after the list's own click for the shown account may be a form on the same
+  // path, as after the person pressed "Continue" themselves: that branch's page shows.
+  const branchSteps = all
+    .map((layout) => layout.chooser.afterAccount?.steps[0])
+    // A first step that names no element, as a wait for something to go, shows anywhere.
+    .filter((step) => step?.path === live.path && loginReadiness(step).targets.length > 0);
+  for (const step of branchSteps)
+    if (await showsNow(rt, live, loginReadiness(step!))) {
+      if (rt.documents.get(key) === live) log("skipped", "branch");
+      return;
+    }
+  if (!miss) {
+    log("skipped", "no-detail");
+    return;
+  }
+  if (miss.status !== undefined && (miss.status < 200 || miss.status > 299)) {
+    log("skipped", "status");
+    return;
+  }
+  if (rt.afterSignIn.get(live.document.tabId) === live.document.documentId) {
+    log("skipped", "after-sign-in");
+    return;
+  }
+  // A list that shows by now is the chooser's own page: its login clicks there.
+  if (await showsNow(rt, live, listReadiness(rt, chooser))) {
+    if (rt.documents.get(key) === live) log("skipped", "list-shown");
+    return;
+  }
+  if (rt.documents.get(key) !== live) return;
+  await sendRepair(rt, live, chooser, { kind: "form" });
 }
 
 /**
