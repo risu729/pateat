@@ -421,8 +421,9 @@ export function reviewRequests(rt: Runtime): void {
  * Whether a login takes the `passkey` route because its page asked for a passkey by
  * itself (ADR 0034): only before anything was submitted, so a chooser login only before
  * its click on the list, on a recipe without a passkey
- * button, for an item that held a discoverable passkey when the login started. Fields
- * already filled stay as they are.
+ * button, for an item that held a discoverable passkey when the login started, and once:
+ * a login that went back to the password route keeps it. Fields already filled stay as
+ * they are.
  */
 export async function switchToPasskey(rt: Runtime, run: Execution): Promise<boolean> {
   const { metadata } = run;
@@ -430,6 +431,8 @@ export async function switchToPasskey(rt: Runtime, run: Execution): Promise<bool
     metadata.route !== "password" ||
     !passkeyAnswersRequest(run.recipe) ||
     run.passkeyFailed ||
+    // Back on the password route, a login never takes the passkey route again.
+    metadata.passkeyLeft ||
     metadata.fillOnly ||
     !metadata.facts.discoverablePasskey ||
     metadata.submissions > 0 ||

@@ -458,6 +458,10 @@ function broken(
     !(type === "ROUTE" && to.route !== from.route)
   )
     names.push("possibly submitted step taken again");
+  // Before a submission a login changes route once each way (ADR 0034): back on the
+  // password route, it never takes the passkey route again.
+  if (from.passkeyLeft === true && to.route === "passkey" && from.route !== "passkey")
+    names.push("passkey route taken again");
   // A `watching` login only reads pages until it ends (ADR 0027).
   if (from.state === "watching" && !["watching", "authenticated", "blocked"].includes(to.state))
     names.push("watched login acted");
@@ -508,20 +512,11 @@ function broken(
   return names;
 }
 
-/**
- * How often a walk changes route. The machine lets a login that submitted nothing switch
- * route again each time the page's request comes and goes (ADR 0034), each time from its
- * first step, so the walk would only stop at the attempt's cap of operation IDs; a walk
- * switches at most this often, and the states are keyed by how often they did.
- */
-const MAX_ROUTE_CHANGES = 2;
-
-type Reached = { metadata: LoginAttemptMetadata; routes: number };
+type Reached = { metadata: LoginAttemptMetadata };
 
 // No guard reads `timing`, which only adds up where the time went; with `now` fixed at 0 it
 // never differs, and leaving it out keeps the key from depending on that.
-const key = ({ metadata, routes }: Reached) =>
-  JSON.stringify({ ...metadata, timing: undefined, routes });
+const key = ({ metadata }: Reached) => JSON.stringify({ ...metadata, timing: undefined });
 
 /**
  * Walks every state a login of `recipes[0]` can reach; the other recipes are revisions and
@@ -567,7 +562,7 @@ export function exploreLogin(
     0,
   );
   // Each reached state with the event that first reached it and the state before.
-  const first: Reached = { metadata: initial, routes: 0 };
+  const first: Reached = { metadata: initial };
   const reached = new Map<string, { event: AttemptEvent; from: Reached } | null>([
     [key(first), null],
   ]);
@@ -586,7 +581,6 @@ export function exploreLogin(
     // An ended attempt takes no more events: transitionLoginAttempt returns it as it is.
     if (from.state === "authenticated" || from.state === "blocked") continue;
     for (const event of eventsFor(from, recipes, document, start)) {
-      if (event["type"] === "ROUTE" && state.routes >= MAX_ROUTE_CHANGES) continue;
       let to: LoginAttemptMetadata;
       try {
         to = transitionLoginAttempt(from, event, 0);
@@ -594,10 +588,7 @@ export function exploreLogin(
         failures.push({ broken: [String(error)], events: [...path(state), event] });
         continue;
       }
-      const next: Reached = {
-        metadata: to,
-        routes: state.routes + (to.route === from.route ? 0 : 1),
-      };
+      const next: Reached = { metadata: to };
       const nextKey = key(next);
       if (nextKey === key(state)) continue;
       types.add(String(event["type"]));

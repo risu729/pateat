@@ -250,6 +250,11 @@ export const attemptMetadataSchema = v.pipe(
      */
     fillOnly: v.optional(v.literal(true)),
     /**
+     * The login went back to the `password` route (ADR 0034): it never takes the `passkey`
+     * route again, so before a submission it changes route at most once each way.
+     */
+    passkeyLeft: v.optional(v.literal(true)),
+    /**
      * For an item without a password (ADR 0036): where in the attempt's plan the step that
      * fills the password is, recorded when the login starts (`passwordStopOrMiss`), or the
      * plan's step count for a route that fills none and ends with an `advance`, so the stop
@@ -593,7 +598,8 @@ export const loginAttemptEventSchema = v.variant("type", [
   /**
    * The login changes route (ADR 0034), with `steps`, the new route's step count. Before
    * anything was submitted, a `password` login switches to the `passkey` route when the
-   * start page asks for a passkey by itself, or back when that request goes away. After
+   * start page asks for a passkey by itself, or back when that request goes away, once
+   * each way. After
    * the `passkey` route's answer, a page that still shows the sign-in form falls back to
    * the `password` route's recorded variant, once. The runtime checks the recipe.
    */
@@ -999,6 +1005,7 @@ function record(
     case "ROUTE":
       return {
         route: event.route,
+        ...(event.route === "password" ? { passkeyLeft: true as const } : {}),
         // A login that started at a later step goes back to it (ADR 0049).
         stepIndex: event.route === "password" ? (context.startStep ?? 0) : 0,
         stepCount: event.steps,
@@ -1387,10 +1394,12 @@ function createLoginAttemptMachine() {
           sameScope(context.document, event.document)
         );
       },
-      // Before anything was submitted, between steps, on the first route a login took.
+      // Before anything was submitted, between steps, once each way: a login back on the
+      // password route never takes the passkey route again (ADR 0034).
       canSwitchRoute: ({ context, event }) =>
         event.type === "ROUTE" &&
         event.route !== context.route &&
+        !(event.route === "passkey" && context.passkeyLeft === true) &&
         context.variant !== undefined &&
         context.operationId === undefined &&
         context.submissions === 0 &&

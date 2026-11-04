@@ -187,10 +187,10 @@ password when the item has one. The proposal reviewed with the owner is
   whether the list still shows after the answer is read as the click's wait for the list
   reads it, since an account entry's target names no element.
 - The attempt machine has a `ROUTE` event. Before any submission or handler, it changes
-  route between steps; after the `passkey` route's answer, it goes back to the
-  `password` route once. The attempt keeps its `password` variant while on the `passkey`
-  route, so the fallback needs no new plan, and the fallback adds the answer to the
-  password route's submission budget.
+  route between steps, once each way (amendment of 2026-11-04); after the `passkey`
+  route's answer, it goes back to the `password` route once. The attempt keeps its
+  `password` variant while on the `passkey` route, so the fallback needs no new plan,
+  and the fallback adds the answer to the password route's submission budget.
 - The judge request names the `password` route for this route, since the service accepts
   the `passkey` route only for a recipe that has the button. The extension still never
   sends a page that shows the sign-in form.
@@ -283,3 +283,22 @@ uses the item's passkey when it has one:
   rule 5 says.
 - Nothing else changes: a document that was not marked hands the request on after three
   seconds as before, and an item without a discoverable passkey is never restarted.
+
+## Amendment: once each way (2026-11-04)
+
+The walk over every order of a login attempt's events found that a login that had
+submitted nothing could switch from the `password` route to the `passkey` route and
+back again each time the page's own request came and went, each time starting over at
+its first step. The runtime already took the `passkey` route only once per login (its
+fallback marks the passkey as failed), but only in the worker's memory, and the attempt
+machine allowed the loop until its cap of 96 operation IDs.
+
+The owner chose on 2026-11-04 at 14:52 UTC to allow each way once before a submission:
+
+- The attempt records `passkeyLeft` when it goes to the `password` route. A login with
+  it never takes the `passkey` route again: the machine refuses the `ROUTE` event, and
+  the runtime does not send it. A login that started on the `password` route switches at
+  most to the `passkey` route and back; one that started on the `passkey` route goes
+  back once and stays.
+- The fallback after the passkey answer is unchanged: it comes after a submission and
+  was already once.

@@ -1185,7 +1185,8 @@ Once the fixes have settled:
   files, with the four cases they found fixed. On 2026-11-04 (owner, 13:35 UTC: look for
   more to widen) the walk over every order of a login's events took in all 30 event
   types and sixteen logins instead of 14 types and two recipes, and the three cases it
-  found are fixed.
+  found are fixed. A fourth, a login switching route without end before a submission,
+  now switches once each way (owner, 2026-11-04 14:52 UTC; ADR 0034 amendment).
 - Before Pateat is public: settings for the two protections Pateat does not honour today
   (owner, 2026-10-13 21:57 UTC). Passkey user presence and user verification: Pateat
   sets UP and UV on every assertion it claims without a gesture or a check
