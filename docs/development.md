@@ -56,6 +56,16 @@ the original effects and stale-document checks. Every runtime module stays withi
 1,000-line limit. Cross-tab holds, admission record phases and the relogin guard use
 pure decisions with separate tests; see [policy inputs](#login-runtime-policy-inputs).
 
+The diagnostics log keeps its public entry point in
+`apps/extension/src/diagnostics/log.ts`, with the serialized IndexedDB writer, rate
+windows and retention work together. `log-events.ts` owns event field allowlists,
+levels and limits; `log-fields.ts` owns the stored-value schemas; `log-format.ts`
+owns URL filtering and the pure export, problem-line and recent-log projections.
+The writer uses those same schemas and projections, so values written, downloaded
+and sent to the service share their checks. Existing callers keep importing from
+`log.ts`; its browser test suite stays in one file with its assertions and tables
+unchanged.
+
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
 while reusing unchanged artifacts. The repository-wide tasks live in the root
