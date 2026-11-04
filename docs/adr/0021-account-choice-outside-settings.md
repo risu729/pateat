@@ -302,6 +302,15 @@ page's software keyboard counts as a step with an effect here, since a key press
 submit, as a PIN pad does at its last digit. The fill-only login ends before it and the
 contract refuses it, so after a logout a keypad login is left to the person.
 
+Amended on 2026-11-04 by Claude as a fix (agent-written), found by the walk over every
+order of a login's events: a fill of a TOTP code counts the same way, since its input
+may submit at its last digit as a PIN pad does
+([ADR 0027](0027-per-account-login-routes.md)). A fill-only login whose page asks for
+its account, password and code together filled the code, and the attempt then counted
+the page's own submission of it. The fill-only login now ends before a code fill, the
+contract refuses to issue one, and the attempt never takes a page's submission of a code
+for a fill-only login.
+
 Implementation detail, not confirmed by the owner (2026-10-21,
 [#831](https://github.com/risu729/pateat/issues/831)): a document is filled once on
 each path, so a start on another path of the same document, as the password step

@@ -794,25 +794,27 @@ function record(
       };
     case "INTERRUPTED":
       return { outcome: maySubmit(context) ? "unknown-submit" : "interrupted" };
-    case "FAILED":
+    case "FAILED": {
+      // A trusted preflight failure proves that this fill never initiated its reserved
+      // effect, but only before the page said it took the step (`SUBMITTED`).
+      const unsent = confirmedNoMutation(context, event) && context.state !== "awaiting-result";
       return {
         outcome: event.reason,
-        // A trusted preflight failure proves that this fill never initiated its
-        // reserved effect. Keep its used ID and the independent retry budget.
+        // Keep its used ID and the independent retry budget.
         submissions:
-          confirmedNoMutation(context, event) &&
+          unsent &&
           context.mutationIntent === true &&
           context.operationKind === "fill" &&
           ["advance", "submit"].includes(context.operationEffect ?? "prepare")
             ? context.submissions - 1
             : context.submissions,
-        mutationIntent: confirmedNoMutation(context, event) ? undefined : context.mutationIntent,
+        mutationIntent: unsent ? undefined : context.mutationIntent,
         retryRequired:
-          context.operationKind !== "click" &&
-          (!context.mutationIntent || confirmedNoMutation(context, event))
+          context.operationKind !== "click" && (!context.mutationIntent || unsent)
             ? true
             : context.retryRequired,
       };
+    }
     case "WRONG_ACCOUNT": {
       // Like a confirmed preflight failure, the reserved fill effect never started.
       const submissions =
@@ -1012,7 +1014,13 @@ function record(
         retryRequired: undefined,
       };
     case "POLICY_CHANGED":
-      if (event.undelivered === undefined || event.undelivered !== context.operationId)
+      // Only an operation the page has not answered can still be undelivered: once it said
+      // it submitted, or the page submitted by itself, the page has it.
+      if (
+        event.undelivered === undefined ||
+        event.undelivered !== context.operationId ||
+        (context.state !== "executing" && context.state !== "submit-intent")
+      )
         return { outcome: "policy-changed" };
       return {
         outcome: "policy-changed",
@@ -1413,6 +1421,8 @@ function createLoginAttemptMachine() {
       // steps are a `totp` handler's or a route's fill of the `totp` slot and its click.
       canAutoSubmit: ({ context, event }) =>
         event.type === "AUTO_SUBMITTED" &&
+        // A fill-only login never types a code (ADR 0021 D), so no page submits one for it.
+        context.fillOnly !== true &&
         !context.usedOperationIds.includes(event.operationId) &&
         context.usedOperationIds.length < 96 &&
         context.submissions < stepBudget(context) &&
@@ -1824,10 +1834,15 @@ export const effectfulStep = (step: LoginStep): boolean => {
   return effect !== undefined && effect !== "prepare";
 };
 /**
- * A step a fill-only login never takes (ADR 0021 D): one with an effect, or a fill on a
- * page's software keyboard, whose presses the page may act on (ADR 0067).
+ * A step a fill-only login never takes (ADR 0021 D): one with an effect, a fill on a
+ * page's software keyboard, whose presses the page may act on (ADR 0067), or a fill of a
+ * TOTP code, whose input may submit at its last digit as a PIN pad does (ADR 0027
+ * amendment of 2026-10-23).
  */
-export const fillOnlyStops = (step: LoginStep): boolean => effectfulStep(step) || keypadStep(step);
+export const fillOnlyStops = (step: LoginStep): boolean =>
+  effectfulStep(step) ||
+  keypadStep(step) ||
+  (step.kind === "fill" && step.fields.some((field) => field.slot === TOTP_HANDLER_SLOT));
 
 /**
  * Applies one event. `now` starts the watch of a login that becomes watched (ADR 0027); a

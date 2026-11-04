@@ -1182,7 +1182,10 @@ Once the fixes have settled:
   the other pure functions where that checks more than their table tests, without
   lengthening CI (owner, 2026-10-23 22:25 UTC), followed in
   [#1194](https://github.com/risu729/pateat/pull/1194): the `*.exhaustive.test.ts`
-  files, with the four cases they found fixed.
+  files, with the four cases they found fixed. On 2026-11-04 (owner, 13:35 UTC: look for
+  more to widen) the walk over every order of a login's events took in all 30 event
+  types and sixteen logins instead of 11 types and two recipes, and the
+  three cases it found are fixed.
 - Before Pateat is public: settings for the two protections Pateat does not honour today
   (owner, 2026-10-13 21:57 UTC). Passkey user presence and user verification: Pateat
   sets UP and UV on every assertion it claims without a gesture or a check

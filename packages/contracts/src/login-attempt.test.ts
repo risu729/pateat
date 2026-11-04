@@ -296,6 +296,50 @@ describe("attempt identity and metadata", () => {
     expect(nextLoginOperation(fillOnly, keypadRecipe, document, "fill-one", 1000)).toBeUndefined();
     expect(validateLoginOperation(operation, intent(fillOnly), document, 3, 1001)).toBe(false);
   });
+  it("never issues a code fill for a fill-only attempt, nor takes the page's submission of one", () => {
+    // A code input may submit at its last digit, as a PIN pad does (ADR 0021 D, ADR 0027).
+    const codeRecipe: LoginRecipe = {
+      ...recipe,
+      slots: ["password", "totp"],
+      steps: [
+        recipe.steps[0]!,
+        {
+          kind: "fill",
+          effect: "prepare",
+          path: "/login",
+          fields: [{ slot: "totp", target: { by: "id", value: "otp" } }],
+        },
+        ...recipe.steps.slice(1),
+      ],
+    };
+    let ready = transitionLoginAttempt(detected(codeRecipe), { type: "RESOLVE" });
+    ready = transitionLoginAttempt(ready, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    ready = transitionLoginAttempt(ready, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    ready = transitionLoginAttempt(ready, { type: "OPERATION_OK", operationId: "fill-one" });
+    expect(nextLoginOperation(ready, codeRecipe, document, "code-one")).toMatchObject({
+      step: { fields: [{ slot: "totp" }] },
+    });
+    const fillOnly = { ...ready, fillOnly: true as const };
+    expect(nextLoginOperation(fillOnly, codeRecipe, document, "code-one")).toBeUndefined();
+    // Even a code fill already in flight is never counted as the page's own submission.
+    let filling = transitionLoginAttempt(fillOnly, {
+      type: "PREPARE",
+      operationId: "code-one",
+      kind: "fill",
+    });
+    filling = transitionLoginAttempt(filling, { type: "MUTATION_INTENT", operationId: "code-one" });
+    expect(
+      transitionLoginAttempt(filling, {
+        type: "AUTO_SUBMITTED",
+        operationId: "page-one",
+        routeStep: true,
+      }),
+    ).toEqual(filling);
+  });
 });
 
 describe("submission and failure reconciliation", () => {
@@ -380,6 +424,16 @@ describe("submission and failure reconciliation", () => {
       document,
     });
     expect(preflight).toMatchObject({ state: "retryable", submissions: 0 });
+    // Once the page said it took the input, no failure proves it was never sent.
+    expect(
+      transitionLoginAttempt(awaiting, {
+        type: "FAILED",
+        reason: "timeout",
+        mutation: "none",
+        operationId: "input-one",
+        document,
+      }),
+    ).toMatchObject({ state: "reconciling", mutationIntent: true, submissions: 1 });
     const retry = transitionLoginAttempt(preflight, { type: "RETRY" });
     expect(nextLoginOperation(retry, inputRecipe, document, "input-one")).toBeUndefined();
     expect(nextLoginOperation(retry, inputRecipe, document, "input-two")).toBeDefined();
@@ -1350,6 +1404,14 @@ describe("submission and failure reconciliation", () => {
     // Another operation's name leaves the reserved effect in place.
     expect(
       transitionLoginAttempt(intent, { type: "POLICY_CHANGED", undelivered: "other-one" }),
+    ).toMatchObject({ state: "blocked", submissions: 1, mutationIntent: true });
+    // So does an operation the page said it took: it was delivered.
+    const submitted = transitionLoginAttempt(intent, {
+      type: "SUBMITTED",
+      operationId: "click-one",
+    });
+    expect(
+      transitionLoginAttempt(submitted, { type: "POLICY_CHANGED", undelivered: "click-one" }),
     ).toMatchObject({ state: "blocked", submissions: 1, mutationIntent: true });
   });
 });

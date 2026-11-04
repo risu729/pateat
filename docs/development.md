@@ -1154,7 +1154,15 @@ two devices' syncs and edits in random orders while uploads, their answers and s
 writes fail. Where every state is small enough to list, walk them all instead of
 sampling: the `packages/contracts/src/*.orders-*.test.ts` files apply every event of a
 fixed set to every state a small login attempt reaches, and CI runs them in the
-`Event orders` job ([CI](delivery.md#current-foundation-workflows)). Component tests
+`Event orders` job ([CI](delivery.md#current-foundation-workflows)). The set holds every
+event type of the attempt machine; those that carry what the runtime works out from a
+recipe (a handler's steps, a continued page, another layout or route) are built from the
+walk's recipes as the runtime builds them, and those it sends only for a kind of step (a
+code the page submitted, a disabled final advance) only at such a step. One file per
+kind of login start (a stop before a missing password, the passkey route, handlers, a
+continued recipe, layouts, a chooser's list, a frame, fill-only) keeps each walk under
+20,000 states, and those beside the two plain recipes leave out the events that only
+multiply their states (`focused` in `__fixtures__/login-orders.ts`). Component tests
 cover drafts, conflicts, validation and keyboard behavior; Playwright covers real
 extension boundaries and lifecycle. Automated accessibility checks supplement
 manual keyboard/focus inspection. Browser component tests do not establish
