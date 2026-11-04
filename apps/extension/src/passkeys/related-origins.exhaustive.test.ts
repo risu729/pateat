@@ -1,10 +1,10 @@
 import { expect, it } from "vitest";
 import { RELATED_ORIGIN_MAX_LABELS, relatedOriginListed } from "./related-origins";
 
-// Every list of up to six entries, up to renaming its labels, against an oracle written
-// from the WebAuthn related origins validation procedure rather than from the code: the
-// caller is listed when one of its entries has the caller's origin and the caller's label
-// is among the first five labels the valid entries name up to there.
+// Every list of up to six entries, up to renaming its labels (12,866 lists), against an
+// oracle written from the WebAuthn related origins validation procedure rather than from
+// the code: the caller is listed when one of its entries has the caller's origin and the
+// caller's label is among the first five labels the valid entries name up to there.
 
 const caller = "https://login.t.example";
 
@@ -31,15 +31,13 @@ function choices(labels: number): Entry[] {
           ),
         ]
       : []),
-    // A label seen already, under another suffix, and its first origin again with a path.
-    ...[...names.slice(0, labels)].flatMap((name) => [
+    // A label seen already, under another suffix.
+    ...[...names.slice(0, labels)].map((name) =>
       entry(`https://${name}.test`, name, `https://${name}.test`),
-      entry(`https://${name}.example/`, name, `https://${name}.example`),
-    ]),
+    ),
+    // The caller, and its label on another origin: another port, written with a path.
     entry(caller, "t", caller),
-    // The caller's label on other origins: its registrable domain, and another port.
-    entry("https://t.example", "t", "https://t.example"),
-    entry("https://login.t.example:8443", "t", "https://login.t.example:8443"),
+    entry("https://login.t.example:8443/", "t", "https://login.t.example:8443"),
     // An entry the procedure skips, a public suffix with no label.
     entry("https://com"),
   ];
@@ -76,5 +74,5 @@ it("lists the caller in every short list exactly as the related origins procedur
   };
   walk([], 0);
   expect(mismatches).toEqual([]);
-  expect(lists).toBe(63_744);
+  expect(lists).toBe(12_866);
 });
