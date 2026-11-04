@@ -229,7 +229,9 @@ fix them now; the SSO policy itself is recorded separately.
     page, where the login can neither go on nor show its result: such a top-level login
     ends as a move to another origin (`LEFT` in the attempt machine). It is not watched,
     and its record holds the site for 5 minutes from its last change, as any
-    `left-origin` record does.
+    `left-origin` record does. A tab that could not be read at all, as one
+    Chrome is replacing, still settles as unknown; a site's own `blob:` page counts as
+    its origin.
   - **A move after a passkey answer** (amended 2026-10-12). Such an attempt ends
     `authenticated` instead when all of these hold: after its last effect step and at
     most 30 seconds before the move, Pateat returned an assertion to a passkey request

@@ -10,16 +10,19 @@ import { armSiteWait, keep } from "./session-store";
 import { frameKey } from "./steps";
 import type { Runtime } from "./state";
 
-/** The HTTP(S) origin of a tab's URL, or undefined for any other page or none. */
+/**
+ * The HTTP(S) origin of a tab's URL, also of a `blob:` page a site made, or undefined for
+ * any other page or none.
+ */
 const webOrigin = (url: string | undefined) => {
   if (url === undefined || !URL.canParse(url)) return undefined;
-  const parsed = new URL(url);
-  return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.origin : undefined;
+  const { origin } = new URL(url);
+  return origin.startsWith("https://") || origin.startsWith("http://") ? origin : undefined;
 };
 
 /**
  * The record of a login whose wait for the site ran out at `at` (ADR 0022, amended
- * 2026-11-03), with its tab's top page at `tabUrl`. A top-level login whose tab shows a
+ * 2026-11-03), with its tab, if it could be read. A top-level login whose tab shows a
  * page of another origin ends as that move would have, `left-origin` after a possible
  * submission, and so does one whose tab shows no web page Pateat can read (amended
  * 2026-11-04): Pateat may read every HTTP(S) page, so a tab without a URL shows
@@ -30,11 +33,19 @@ const webOrigin = (url: string | undefined) => {
 export function lapsed(
   rt: Runtime,
   metadata: LoginAttemptMetadata,
-  tabUrl: string | undefined,
+  tab: { url?: string | undefined } | undefined,
   at: number,
 ): LoginAttemptMetadata {
+  const tabUrl = tab?.url;
   const origin = webOrigin(tabUrl);
-  if (metadata.document.frameId === 0 && origin === undefined)
+  // A tab that could not be read, as one Chrome replaced whose record has not moved yet,
+  // says nothing about its page.
+  if (
+    metadata.document.frameId === 0 &&
+    tab !== undefined &&
+    !rt.replacedTabs.has(metadata.document.tabId) &&
+    origin === undefined
+  )
     return transitionLoginAttempt(metadata, { type: "LEFT" }, at);
   if (
     metadata.document.frameId === 0 &&
@@ -110,8 +121,8 @@ export async function endSiteWaits(rt: Runtime): Promise<void> {
     const record = latest(stored)?.metadata ?? stored;
     if (siteWaitOver(record, Date.now()) === undefined || decided(stored)) continue;
     // eslint-disable-next-line no-await-in-loop
-    const tabUrl = await browser.tabs.get(stored.document.tabId).then(
-      (tab) => tab.url,
+    const tab = await browser.tabs.get(stored.document.tabId).then(
+      (found) => ({ url: found.url }),
       () => undefined,
     );
     // The tab's pages may have moved the login on meanwhile.
@@ -121,7 +132,7 @@ export async function endSiteWaits(rt: Runtime): Promise<void> {
     const before = run?.metadata ?? now;
     const at = siteWaitOver(before, Date.now());
     if (at === undefined) continue;
-    const after = lapsed(rt, before, tabUrl, at);
+    const after = lapsed(rt, before, tab, at);
     if (run) run.metadata = after;
     if (terminal(after) || idle(after)) rt.continuations.delete(after.id);
     reportLapse(rt, before, after, run?.recipe, at);
@@ -137,11 +148,14 @@ export async function endSiteWaits(rt: Runtime): Promise<void> {
  * ran out while the worker was stopped, with their tabs' URLs, end as `endSiteWaits` ends
  * them. Changes `rt.persisted` only; the caller writes it.
  */
-export function endLostSiteWaits(rt: Runtime, tabUrls: Map<number, string | undefined>): void {
+export function endLostSiteWaits(
+  rt: Runtime,
+  tabs: Map<number, { url?: string | undefined }>,
+): void {
   for (const [key, stored] of rt.persisted) {
     const at = siteWaitOver(stored, Date.now());
     if (at === undefined) continue;
-    const after = lapsed(rt, stored, tabUrls.get(stored.document.tabId), at);
+    const after = lapsed(rt, stored, tabs.get(stored.document.tabId), at);
     reportLapse(rt, stored, after, undefined, at);
     rt.persisted.set(key, after);
   }

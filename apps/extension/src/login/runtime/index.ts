@@ -319,7 +319,9 @@ function startRuntime(rt: Runtime) {
       // (ADR 0022, amended 2026-11-03): its bound was kept in memory only.
       endLostSiteWaits(
         rt,
-        new Map(openTabs.flatMap((tab) => (tab.id === undefined ? [] : [[tab.id, tab.url]]))),
+        new Map(
+          openTabs.flatMap((tab) => (tab.id === undefined ? [] : [[tab.id, { url: tab.url }]])),
+        ),
       );
       await rt.attemptRecords.write([...rt.persisted.values()]);
       armSiteWait(rt);

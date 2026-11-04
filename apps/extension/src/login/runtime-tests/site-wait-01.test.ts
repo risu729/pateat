@@ -273,6 +273,28 @@ describe("a login whose wait for the site ran out", () => {
     expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
   });
 
+  it("settles as unknown when the tab could not be read, as one Chrome is replacing", async () => {
+    fake.state.onExecute = async (message) => {
+      if ((message["operation"] as { step: { kind: string } }).step.kind === "click")
+        fake.state.gone.add("synthetic-document");
+    };
+    const h = twoSites({ siteWait: () => undefined });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(at(origin)?.timing.pageSince).toBeDefined());
+    const get = fake.browser.tabs.get;
+    fake.browser.tabs.get = async () => {
+      throw new Error("No tab with id: 1.");
+    };
+    onTestFinished(() => {
+      fake.browser.tabs.get = get;
+    });
+    const now = Date.now.bind(Date);
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + SITE_WAIT_MS);
+    onTestFinished(() => clock.mockRestore());
+    await h.login.siteWaitDue();
+    expect(at(origin)).toMatchObject({ state: "reconciling", settled: true });
+  });
+
   it("leaves a login that a page that asked for a passkey holds to that page", async () => {
     const siteWait = vi.fn<(when: number | undefined) => void>();
     // The submit replaces the document, so the login waits for the tab's next page.
