@@ -875,15 +875,15 @@ describe("diagnostics log", () => {
     expect(
       first.filter((entry) => entry.event === "log.dropped").map((entry) => entry.fields),
     ).toEqual([
-      { origin: source.origin, dropped: "login.refused", count: 1 },
-      { origin: source.origin, dropped: "login.refused", count: 2 },
-      { origin: source.origin, dropped: "recipe.judge", count: 1 },
+      { origin: source.origin, dropped: "login.refused", count: 1, tab: 4 },
+      { origin: source.origin, dropped: "login.refused", count: 2, tab: 4 },
+      { origin: source.origin, dropped: "recipe.judge", count: 1, tab: 4 },
     ]);
     advance(60_000);
     await logger.log("login.refused", { origin: source.origin, reason: "tab-busy" }, { source });
     const entries = await logger.entries();
     expect(entries.slice(-2).map((entry) => [entry.event, entry.fields])).toEqual([
-      ["log.dropped", { origin: source.origin, dropped: "recipe.judge", count: 1 }],
+      ["log.dropped", { origin: source.origin, dropped: "recipe.judge", count: 1, tab: 4 }],
       ["login.refused", { origin: source.origin, reason: "tab-busy", tab: 4 }],
     ]);
     // A download keeps the entry's own event name next to the dropped one.
@@ -2756,6 +2756,60 @@ describe("unhandled errors", () => {
       .map((line) => JSON.parse(line) as Record<string, unknown>)
       .filter((line) => line["event"] !== undefined);
     expect(exported.map((line) => line["tab"])).toEqual([4, 5]);
+    vi.restoreAllMocks();
+  });
+
+  it("logs a running login whose tab closed as info, also when it was watched (ADR 0019)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const origin = "https://login.example";
+    const closed = {
+      type: "attempt-closed",
+      tabId: 4,
+      origin,
+      recipeId: "recipe-1",
+      recipeRevision: 2,
+      route: "password",
+      stepIndex: 3,
+      stepCount: 4,
+      cause: "tab-closed",
+    } as const;
+    log.login({ ...closed, state: "awaiting-result" });
+    log.login({ ...closed, state: "watching", outcome: "challenge", settled: true });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
+    expect(
+      (await log.logger.entries()).map((entry) => [entry.event, entry.level, entry.fields]),
+    ).toEqual([
+      [
+        "login.attempt",
+        "info",
+        {
+          origin: expect.any(String),
+          recipe: "recipe-1",
+          recipeRevision: 2,
+          route: "password",
+          state: "awaiting-result",
+          step: 3,
+          steps: 4,
+          cause: "tab-closed",
+          tab: 4,
+        },
+      ],
+      [
+        "login.attempt",
+        "info",
+        expect.objectContaining({ state: "watching", outcome: "challenge", settled: true }),
+      ],
+    ]);
     vi.restoreAllMocks();
   });
 

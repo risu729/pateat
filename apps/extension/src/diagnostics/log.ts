@@ -67,8 +67,12 @@ export const PAGE_EVENTS_PER_MINUTE = 30;
  * counted on their own so a long login still logs how it ended; one attempt writes a few.
  */
 export const PAGE_ATTEMPT_EVENTS_PER_MINUTE = 60;
-/** `debug` events caused by a web page, per tab and origin, counted on their own. */
-export const PAGE_DEBUG_EVENTS_PER_MINUTE = 20;
+/**
+ * `debug` events caused by a web page, per tab and origin, counted on their own. One
+ * login with a second factor writes over 20 step lines in its first 15 seconds
+ * (app.notion.com, 2026-11-04), so debug logging keeps a few logins' detail a minute.
+ */
+export const PAGE_DEBUG_EVENTS_PER_MINUTE = 120;
 export const MAX_FIELD_LENGTH = 512;
 export const TRUNCATED = "[truncated]";
 
@@ -757,6 +761,8 @@ export function createLogger(deps: LoggerDependencies) {
       dropped: Map<string, number>;
       reported: Map<string, number>;
       origin: string;
+      /** The tab whose events were dropped; none for the window tabs share. */
+      tab: number | undefined;
       debug: boolean;
     }
   >();
@@ -924,6 +930,7 @@ export function createLogger(deps: LoggerDependencies) {
             "log.dropped",
             { origin: window.origin, dropped: event, count: pending },
             window.debug ? "debug" : "warn",
+            window.tab,
           ),
         ).catch(() => undefined);
       }
@@ -966,6 +973,7 @@ export function createLogger(deps: LoggerDependencies) {
         dropped: new Map(),
         reported: new Map(),
         origin: overflow ? "" : source.origin,
+        tab: overflow || !v.is(integer, source.tabId) ? undefined : source.tabId,
         debug: band === "debug",
       };
       windows.set(key, window);

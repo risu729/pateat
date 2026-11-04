@@ -3,6 +3,7 @@ import {
   keypadStep,
   sameLoginDocument,
   validateLoginOperation,
+  type LoginAttemptMetadata,
   type LoginDocument,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
@@ -39,7 +40,7 @@ import {
 } from "../detail-wire";
 import { probeMode } from "./constants";
 import { type Sender, type Execution } from "./types";
-import { change, send, current, saveSession, report, inProgress } from "./attempt";
+import { change, send, current, saveSession, report, inProgress, unsubmitted } from "./attempt";
 import { popupChoice, popupStatus, pickFor, clearChoice } from "./choice";
 import {
   pauseFor,
@@ -527,8 +528,12 @@ export async function incognitoClosed(rt: Runtime): Promise<void> {
   ]);
 }
 
-/** Forgets a closed tab, or the gone page of a replaced one. */
-export function forgetTab(rt: Runtime, tabId: number): void {
+/**
+ * Forgets a closed tab, or the gone page of a replaced one. A closed tab's login that had
+ * not ended is logged as ended there (ADR 0019, amended 2026-11-04); a replaced tab's
+ * goes on in the new tab, which its record moved to first.
+ */
+export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
   rt.switchStates.delete(tabId);
   void rt.accountPicks.endSwitch(tabId);
   const visit = rt.confirmVisits.get(tabId);
@@ -540,8 +545,8 @@ export function forgetTab(rt: Runtime, tabId: number): void {
   for (const key of rt.hellos.keys()) if (key.startsWith(`${tabId}:`)) rt.hellos.delete(key);
   for (const [key, live] of rt.documents)
     if (live.document.tabId === tabId) rt.documents.delete(key);
-  const closed = rt.attempts.get(tabId);
-  if (closed) rt.continuations.delete(closed.metadata.id);
+  const gone = rt.attempts.get(tabId);
+  if (gone) rt.continuations.delete(gone.metadata.id);
   rt.attempts.delete(tabId);
   rt.effects.delete(tabId);
   rt.passkeyPages.delete(tabId);
@@ -600,8 +605,16 @@ export function forgetTab(rt: Runtime, tabId: number): void {
   rt.vars.storageQueue = rt.vars.storageQueue
     .then(async () => {
       await rt.vars.loaded;
+      const ended = new Map<string, LoginAttemptMetadata>();
       for (const [key, metadata] of rt.persisted)
-        if (metadata.document.tabId === tabId) rt.persisted.delete(key);
+        if (metadata.document.tabId === tabId) {
+          ended.set(metadata.id, metadata);
+          rt.persisted.delete(key);
+        }
+      // The running login's own metadata may be newer than its stored record.
+      if (gone && gone.metadata.document.tabId === tabId)
+        ended.set(gone.metadata.id, gone.metadata);
+      if (closed) for (const metadata of ended.values()) reportClosed(rt, metadata);
       // A closed tab's login no longer waits for the site (ADR 0022).
       armSiteWait(rt);
       await rt.attemptRecords.write([...rt.persisted.values()]);
@@ -610,6 +623,35 @@ export function forgetTab(rt: Runtime, tabId: number): void {
     .catch(() => {
       rt.vars.storageHealthy = false;
     });
+}
+
+/**
+ * Logs a closed tab's login that had not ended, without its page's URL (ADR 0019), also
+ * one whose tab closed while the worker was stopped.
+ */
+export function reportClosed(rt: Runtime, metadata: LoginAttemptMetadata): void {
+  if (terminal(metadata)) return;
+  report(
+    rt,
+    { frameId: 0 },
+    {
+      type: "attempt-closed",
+      tabId: metadata.document.tabId,
+      origin: metadata.document.origin,
+      recipeId: metadata.recipeId,
+      recipeRevision: metadata.recipeRevision,
+      route: metadata.route,
+      state: metadata.state,
+      stepIndex: metadata.stepIndex,
+      stepCount: metadata.stepCount,
+      ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
+      ...(metadata.settled ? { settled: true as const } : {}),
+      ...(unsubmitted(rt, metadata) ? { unsubmitted: true as const } : {}),
+      // A fill-only login's lines stay on the device (ADR 0066).
+      ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
+      cause: "tab-closed",
+    },
+  );
 }
 
 /**
