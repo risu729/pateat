@@ -35,6 +35,7 @@ import { probeMode } from "./constants";
 import { pausingSettings, showTabPause, pauseOf } from "./pause";
 import {
   forgetTab,
+  reportClosed,
   incognitoClosed,
   active,
   handle,
@@ -306,8 +307,14 @@ function startRuntime(rt: Runtime) {
           rt.incognitoTabs.set(tab.id, tab.incognito);
       const liveIds = new Set(openTabs.map((tab) => tab.id));
       for (const [key, metadata] of rt.persisted)
-        if (!liveIds.has(metadata.document.tabId) && !rt.replacedTabs.has(metadata.document.tabId))
+        if (
+          !liveIds.has(metadata.document.tabId) &&
+          !rt.replacedTabs.has(metadata.document.tabId)
+        ) {
           rt.persisted.delete(key);
+          // Its tab closed while the worker was stopped (ADR 0019, amended 2026-11-04).
+          reportClosed(rt, metadata);
+        }
       // A wait for the site that ran out while the worker was stopped ends when it ran out
       // (ADR 0022, amended 2026-11-03): its bound was kept in memory only.
       endLostSiteWaits(

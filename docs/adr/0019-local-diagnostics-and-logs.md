@@ -621,7 +621,10 @@ minute. The agent made these changes (not confirmed by the owner):
 
 - A tab that closes while its login of an origin has not ended, or is still watched,
   writes `login.attempt` (info) with the state, step, outcome and `settled` it had
-  reached, `unsubmitted` when nothing was submitted, and `cause` `tab-closed`. It names
+  reached, `unsubmitted` when nothing was submitted, `fillOnly` for a fill-only login,
+  and `cause` `tab-closed`. A tab that closed while the worker was stopped writes it
+  when the worker starts and finds the tab gone, with the state its record was
+  recovered to (a submission in flight reads as `reconciling`). It names
   no URL, is never a problem line sent to the service (ADR 0066), and sends no outcome
   or login record: the person closed the tab, and the login says nothing about the
   recipe. A tab Chrome replaces keeps its login in the new tab and writes nothing.

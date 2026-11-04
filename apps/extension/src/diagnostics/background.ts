@@ -512,6 +512,7 @@ export function createDiagnosticsLog(options: {
             cause: report.cause,
             settled: report.settled,
             unsubmitted: report.unsubmitted,
+            fillOnly: report.fillOnly,
           },
           { source, level: "info" },
         );

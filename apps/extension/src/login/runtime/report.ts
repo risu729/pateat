@@ -322,6 +322,8 @@ export type LoginReport = (
       settled?: true;
       /** Nothing had been submitted yet (ADR 0066). */
       unsubmitted?: true;
+      /** A fill-only login of a tab that asks (ADR 0062 B). */
+      fillOnly?: true;
       cause: "tab-closed";
     }
   | {

@@ -652,6 +652,34 @@ describe("production login document admission", () => {
       });
       expect(fake.state.badges[2]?.title).toBe("Pateat");
     });
+    it("logs the end of a login whose tab closed while the worker was stopped", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(at(origin)).toMatchObject({ state: "submit-intent" });
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [];
+      try {
+        const report = vi.fn<(entry: LoginReport) => void>();
+        const restarted = twoSites({ report });
+        expect(await restarted.login.active()).toBe(false);
+        expect(stored()).toEqual([]);
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "attempt-closed",
+            tabId: 1,
+            origin,
+            // A restarted worker recovers a submission in flight as reconciling.
+            state: "reconciling",
+            outcome: "unknown-submit",
+            cause: "tab-closed",
+          }),
+        );
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
     it("logs no end for a running login whose tab Chrome replaced", async () => {
       holdClicks(origin);
       const report = vi.fn<(entry: LoginReport) => void>();

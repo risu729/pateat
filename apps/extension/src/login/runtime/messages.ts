@@ -625,9 +625,12 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
     });
 }
 
-/** Logs a closed tab's login that had not ended, without its page's URL (ADR 0019). */
-function reportClosed(rt: Runtime, metadata: LoginAttemptMetadata): void {
-  if (terminal(metadata) && !metadata.watch) return;
+/**
+ * Logs a closed tab's login that had not ended, without its page's URL (ADR 0019), also
+ * one whose tab closed while the worker was stopped.
+ */
+export function reportClosed(rt: Runtime, metadata: LoginAttemptMetadata): void {
+  if (terminal(metadata)) return;
   report(
     rt,
     { frameId: 0 },
@@ -644,6 +647,8 @@ function reportClosed(rt: Runtime, metadata: LoginAttemptMetadata): void {
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(metadata.settled ? { settled: true as const } : {}),
       ...(unsubmitted(rt, metadata) ? { unsubmitted: true as const } : {}),
+      // A fill-only login's lines stay on the device (ADR 0066).
+      ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
       cause: "tab-closed",
     },
   );
