@@ -421,10 +421,16 @@ function scriptHref(link: HTMLAnchorElement): boolean {
  * A link's `href` as URL parsing reads it: tabs and newlines go anywhere, C0 controls and
  * spaces at the ends.
  */
-const parsedHref = (link: HTMLAnchorElement) =>
-  (link.getAttribute("href") ?? "")
-    .replace(/[\t\n\r]/gu, "")
-    .replace(/^[\0-\x20]+|[\0-\x20]+$/gu, "");
+const parsedHref = (link: HTMLAnchorElement) => {
+  const href = (link.getAttribute("href") ?? "").replace(/[\t\n\r]/gu, "");
+  // Index loops rather than `/[\0-\x20]+$/`, which backtracks quadratically on a long run
+  // of spaces inside a page's `href`.
+  let start = 0;
+  let end = href.length;
+  while (start < end && href.charCodeAt(start) <= 0x20) start += 1;
+  while (end > start && href.charCodeAt(end - 1) <= 0x20) end -= 1;
+  return href.slice(start, end);
+};
 
 /**
  * Where a link opens: its own `target`, else the document's first `<base target>`, as the

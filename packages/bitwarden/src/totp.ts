@@ -57,6 +57,13 @@ const base32Key = /^[a-z2-7]+=*$/iu;
  */
 const minimumKeyLength = 16;
 
+/** The key without its trailing `=` padding; a loop, as `/=+$/` backtracks quadratically. */
+function withoutPadding(key: string): string {
+  let end = key.length;
+  while (end > 0 && key[end - 1] === "=") end -= 1;
+  return key.slice(0, end);
+}
+
 /**
  * Whether a bare key looks like a Base32 TOTP secret: Base32 letters and digits 2-7, the
  * letters all upper or all lower case, with at least one letter and at least one digit;
@@ -69,7 +76,7 @@ const minimumKeyLength = 16;
  * built-in TOTP field or as an `otpauth://` URI.
  */
 function isBareBase32Key(key: string): boolean {
-  const body = key.replace(/=+$/u, "");
+  const body = withoutPadding(key);
   if (key.length - body.length > 6) return false;
   const groups = body.split(" ");
   if (
@@ -113,7 +120,7 @@ export function isTotpSeed(value: unknown): boolean {
   }
   if (lower.startsWith("steam://")) {
     const steam = key.slice(8);
-    return base32Key.test(steam) && steam.replace(/=+$/u, "").length >= minimumKeyLength;
+    return base32Key.test(steam) && withoutPadding(steam).length >= minimumKeyLength;
   }
   return isBareBase32Key(key);
 }
