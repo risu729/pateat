@@ -90,9 +90,16 @@ describe("the watch for a page that described nothing", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(reports()).toHaveLength(1);
   });
-  it("says nothing after its time, after a cancel or for another document's token", async () => {
+  it("says nothing for another document's token, after its time or after a cancel", async () => {
     const token = await open(`<main><p>Loading</p></main>`);
-    command({ version: 1, type: "login.extract.watch", token: "other-token", timeoutMs: 60_000 });
+    // Another document's token starts nothing.
+    expect(
+      command({ version: 1, type: "login.extract.watch", token: "other-token", timeoutMs: 60_000 }),
+    ).toBeUndefined();
+    document.querySelector("main")!.innerHTML = `<button type="button" id="verify">Verify</button>`;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(reports()).toEqual([]);
+    document.querySelector("main")!.innerHTML = `<p>Loading</p>`;
     command({ version: 1, type: "login.extract.watch", token, timeoutMs: 1_000 });
     await vi.advanceTimersByTimeAsync(1_500);
     document.querySelector("main")!.innerHTML = `<button type="button" id="verify">Verify</button>`;

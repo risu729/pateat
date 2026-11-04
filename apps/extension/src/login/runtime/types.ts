@@ -324,6 +324,8 @@ export type Execution = {
    * amendment of 2026-11-04). Kept in memory only.
    */
   emptyJudged?: string;
+  /** How many times that document was asked so (`DESCRIBED_WATCHES`). In memory only. */
+  emptyWatches?: { documentId: string; count: number };
   /**
    * That document since said it shows something: it is read once more as the tab's next
    * page, though the watch began there. Kept in memory only.

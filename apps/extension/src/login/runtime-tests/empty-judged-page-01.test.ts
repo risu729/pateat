@@ -136,7 +136,7 @@ describe("a judged page that described nothing", () => {
     expect(watches).toEqual([expect.objectContaining({ timeoutMs: 600_000 })]);
     const described = (from: Record<string, unknown> = {}, token = "synthetic-token") =>
       h.login.handle({ version: 1, type: "login.document.described", token }, sender(from));
-    return { judge, judged, described };
+    return { judge, judged, described, h };
   }
 
   it("judges the page again once it shows something, as Oracle's Verify page", async () => {
@@ -175,6 +175,53 @@ describe("a judged page that described nothing", () => {
     await quiet();
     expect(judge).toHaveBeenCalledTimes(1);
   }, 20_000);
+
+  it("reads a later document of the tab that showed something, as the first one", async () => {
+    const { judge, described, h } = await settledEmpty("signed-in");
+    // The tab's next document is still loading too when it is read.
+    fake.state.gone.add("synthetic-document");
+    await h.hello({ documentId: "document-2" }, false);
+    await vi.waitFor(
+      () =>
+        expect(
+          fake.state.messages.filter((entry) => entry.type === "login.extract.watch"),
+        ).toHaveLength(2),
+      { timeout: 8_000 },
+    );
+    expect(judge).not.toHaveBeenCalled();
+    fake.state.extracted = { "signed-in": verifyPage };
+    await described({ documentId: "document-2" });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+      timeout: 8_000,
+    });
+    expect(judge).toHaveBeenCalledTimes(1);
+  }, 20_000);
+
+  it("asks a page that keeps turning empty again at most three times", async () => {
+    const { judge, described } = await settledEmpty("signed-in");
+    const watches = () =>
+      fake.state.messages.filter((entry) => entry.type === "login.extract.watch");
+    // Each report is read on a page that is empty again by then.
+    for (const count of [2, 3]) {
+      // eslint-disable-next-line no-await-in-loop
+      await described();
+      // eslint-disable-next-line no-await-in-loop
+      await vi.waitFor(() => expect(watches()).toHaveLength(count), { timeout: 8_000 });
+    }
+    await described();
+    await vi.waitFor(
+      () =>
+        expect(status()).toMatchObject([
+          { state: "reconciling", outcome: "unknown-submit", settled: true },
+        ]),
+      { timeout: 8_000 },
+    );
+    await quiet();
+    await described();
+    await quiet();
+    expect(watches()).toHaveLength(3);
+    expect(judge).not.toHaveBeenCalled();
+  }, 30_000);
 });
 
 /** Lets a report that would read the page again run, if it did. */

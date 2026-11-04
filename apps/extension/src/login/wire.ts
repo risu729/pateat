@@ -222,7 +222,7 @@ export const LOGOUT_REACTION_MS = 5000;
  * passkey", during a WebAuthn exchange; the passkey chooser's limit.
  */
 export const HELD_CLICK_WAIT_MS = 120_000;
-/** The longest a `login.extract.watch` lasts: a watched login's 10 minutes (ADR 0027). */
+/** The longest a `login.extract.watch` lasts: a watched login's 10 minutes (`WATCH_MS`, ADR 0027). */
 export const DESCRIBED_WATCH_MAX_MS = 10 * 60_000;
 /**
  * Why a page offered for generation sent nothing by the end of the step wait: it showed no

@@ -29,7 +29,7 @@ import { effectful, terminal } from "./attempt-state";
 import { observe, passkeyStepAnswered, toStop } from "./reconcile";
 import { passkeyButton, readSignInState } from "./sign-in";
 import { takeOver } from "./continuation";
-import { WATCH_MS } from "./constants";
+import { DESCRIBED_WATCHES, WATCH_MS } from "./constants";
 import type { Runtime } from "./state";
 
 /**
@@ -187,6 +187,10 @@ export function watchDescribed(rt: Runtime, run: Execution): void {
   const since = run.metadata.watch?.since;
   const left = since === undefined ? WATCH_MS : WATCH_MS - (Date.now() - since);
   if (left <= 0) return;
+  // A page that keeps turning empty again asks at most `DESCRIBED_WATCHES` times.
+  const asked = run.emptyWatches?.documentId === document.documentId ? run.emptyWatches.count : 0;
+  if (asked >= DESCRIBED_WATCHES) return;
+  run.emptyWatches = { documentId: document.documentId, count: asked + 1 };
   run.emptyJudged = document.documentId;
   delete run.described;
   void send(rt, run.live, {
@@ -411,7 +415,9 @@ export async function learn(
     if (!besideCandidate && described.unsent === "no-candidates") watchDescribed(rt, run);
     return notSent(besideCandidate ? "sign-in-shown" : described.unsent);
   }
+  // A page described here is read as it is now: a report of it showing something is moot.
   delete run.emptyJudged;
+  delete run.described;
   const { observation, disabledLeftOut, inputLeftOut, usernameShape: shape } = described;
   // The sign-in form beside another form with a text-like input and its own button, on a
   // path without a `detail` handler, as the service checks (ADR 0061); otherwise the page

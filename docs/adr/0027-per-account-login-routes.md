@@ -1499,13 +1499,17 @@ wait waits on a signal):
   with nothing of the page, the first time a page after the sign-in would describe
   something there. A later watch replaces it, and a cancelled login ends it.
 - The worker takes that report only from the document it asked, with that document's
-  token, and only once per page that described nothing; the asking and the report are
+  token, and only once per asking; one document is asked at most 3 times, so a page that
+  keeps turning empty again is not read again without end. The asking and the report are
   kept in memory, so a restarted worker forgets them. While the login is watched
-  (settled as unknown, or `watching`) in that document, the page is then read once as
-  the tab's next page, as a route is: its next step, a handler, the markers, the sign-in
-  state and the judge for a settled login, reading only for a `watching` one. A report
-  that comes while the login is being read is read once that reading ends with the login
-  watched.
+  (settled as unknown, or `watching`), in the document its watch began in or a later one
+  of the tab, the page is then read once as the tab's next page, as a route is: its next
+  step, a handler, the markers, the sign-in state and the judge for a settled login,
+  reading only for a `watching` one. A report that comes while the login is being read
+  is read once that reading ends with the login watched. In the watch's own document the
+  path read is recorded, as for a route, so a route reported with the same page is not
+  read again, and a page described since the asking makes its report moot. The document
+  stops watching once the login ended there.
 - A page that described nothing still does not count toward the judged pages, and a
   page read this way counts as any judged page. Nothing is read on a timer, and a page
   that never shows anything is never read again, as before.

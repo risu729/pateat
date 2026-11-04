@@ -10,6 +10,7 @@ import {
   recoverLoginAttempt,
   awaitPerson,
   TOTP_HANDLER_SLOT,
+  WATCH_PATH_MAX,
   detailSlot,
   isDetailSlot,
   type DatePart,
@@ -113,17 +114,27 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
   // sign-in, is read once as the tab's next page, recorded first so a restarted worker
   // does not read it again (ADR 0027 amendment of 2026-10-25).
   const routed = routedHere(run);
-  if (routed) {
+  // So is a document of the login once it shows something after its judged page described
+  // nothing, as a page still loading does (ADR 0027 amendment of 2026-11-04); in memory
+  // only. In the watch's own document its path is recorded too, as a route's, so a route
+  // reported with it is not read again.
+  const described = describedHere(run);
+  if (described) delete run.described;
+  const { watch } = run.metadata;
+  if (
+    routed ||
+    (described &&
+      watch !== undefined &&
+      watch.documentId === run.live.document.documentId &&
+      watch.path !== pathNow(run.live) &&
+      pathNow(run.live).length <= WATCH_PATH_MAX)
+  ) {
     run.metadata = parseAttemptMetadata({
       ...run.metadata,
       watch: { ...run.metadata.watch, path: pathNow(run.live) },
     });
     await save(rt, run);
   }
-  // So is that document once it shows something after its judged page described nothing,
-  // as a page still loading does (ADR 0027 amendment of 2026-11-04); in memory only.
-  const described = describedHere(run);
-  if (described) delete run.described;
   if (run.metadata.state === "watching") {
     await watchPage(rt, run, routed || described);
     return;

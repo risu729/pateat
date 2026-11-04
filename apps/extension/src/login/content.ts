@@ -1407,6 +1407,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (command.state === "executing") ended = false;
       if (!ended && (command.state === "authenticated" || command.state === "blocked")) {
         ended = true;
+        // An ended login reads no page again here (ADR 0027 amendment of 2026-11-04).
+        describedWatch?.abort();
         rejected = command.outcome === "credential-rejected";
         void announce(false).catch(() => undefined);
       }
