@@ -1474,6 +1474,52 @@ document or route comes (reading on every change of the page was not chosen, sin
 page left to the person changes often and each reading may ask the judge), and a route
 in place of a later document of the tab than the one the watch began in.
 
+## Amendment 2026-11-04: a judged page that described nothing yet
+
+**Problem.** On 2026-11-04 in the owner's Chrome, Oracle Cloud's login (recipe revision
+5) filled the password and clicked submit at 11:26:37 UTC. At 11:26:45 the page after
+the click, Oracle's "Verify your identity" FIDO page, was still loading in the same
+document and on its final path: its description had no field, button or link
+(`recipe.judge` `not-sent`, reason `no-candidates`), so nothing was sent and the result
+settled as unknown. The page then filled in, but no new document or route came, so the
+watched login never read it again; the tab sat until 11:34:06, when the person moved on
+(`login.move` `no-factor`, `login.attempt` `blocked` `unknown-submit`). In a fresh tab
+the judge read the same page filled in, answered `challenge` with a passkey handler,
+and the sign-in completed.
+
+**Decision** (Claude, 2026-11-04, extending the amendment of 2026-10-25 above; built as
+the owner allowed on 2026-10-23 05:28 UTC, under the owner's rule of ADR 0082 that a
+wait waits on a signal):
+
+- When a judged page of a top-level `password` login describes nothing
+  (`no-candidates`), the worker asks that document to say once it shows something
+  (`login.extract.watch`, for what is left of the watch's 10 minutes). The document
+  reads its page at once and again at each change of it (`pageChange`, ADR 0082), at
+  most once per 100 ms as the page watch does, and reports `login.document.described`,
+  with nothing of the page, the first time a page after the sign-in would describe
+  something there. A later watch replaces it, and a cancelled login ends it.
+- The worker takes that report only from the document it asked, with that document's
+  token, and only once per asking; one document is asked at most 3 times, so a page that
+  keeps turning empty again is not read again without end. The asking and the report are
+  kept in memory, so a restarted worker forgets them. While the login is watched
+  (settled as unknown, or `watching`), in the document its watch began in or a later one
+  of the tab, the page is then read once as the tab's next page, as a route is: its next
+  step, a handler, the markers, the sign-in state and the judge for a settled login,
+  reading only for a `watching` one. A report that comes while the login is being read
+  is read once that reading ends with the login watched. In the watch's own document the
+  path read is recorded, as for a route, so a route reported with the same page is not
+  read again, and a page described since the asking makes its report moot. The document
+  stops watching once the login ended there.
+- A page that described nothing still does not count toward the judged pages, and a
+  page read this way counts as any judged page. Nothing is read on a timer, and a page
+  that never shows anything is never read again, as before.
+
+**Consequences.** A page still loading when the judge reads it, as a FIDO or approval
+page that renders after its document loads, is now judged once it renders, so the
+learned handler or the sign-in completes the watched login. Still not covered: a
+restarted worker, and a page that showed something when judged and changed later in the
+same document and path (the consequence of the amendment of 2026-10-25 above).
+
 ## Amendment 2026-11-04: split code inputs without maxlength
 
 **Problem** ([#1152](https://github.com/risu729/pateat/issues/1152)). On 2026-11-04 at

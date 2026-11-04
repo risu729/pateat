@@ -17,6 +17,7 @@ import {
   statusSchema,
   submittedSchema,
   movedSchema,
+  describedSchema,
   personSubmittedSchema,
   probeControlSchema,
 } from "../wire";
@@ -51,7 +52,7 @@ import {
 import { switchFor } from "./switch-run";
 import { popupDetail, popupDetailFill, popupDetailRemove } from "./detail-popup";
 import { repromptFor, dropReprompt } from "./master-password";
-import { routedHere, terminal, idle } from "./attempt-state";
+import { routedHere, describedHere, terminal, idle } from "./attempt-state";
 import { drive } from "./run-steps";
 import { frameKey, choiceKey } from "./steps";
 import { ready } from "./generation";
@@ -247,6 +248,24 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     if (!observed.success || !current(rt, run)) return undefined;
     run.live.route = observed.output.path;
     if (routedHere(run)) void drive(rt, run);
+    return undefined;
+  }
+  const described = v.safeParse(describedSchema, message);
+  if (described.success) {
+    // The document whose judged page described nothing now shows something: it is read
+    // once more as the tab's next page (ADR 0027 amendment of 2026-11-04).
+    const document = await identify(rt, sender);
+    const run = document ? rt.attempts.get(document.tabId) : undefined;
+    if (!document || document.frameId !== 0 || !run || !current(rt, run)) return undefined;
+    if (
+      !sameLoginDocument(run.live.document, document) ||
+      run.live.token !== described.output.token ||
+      run.emptyJudged !== document.documentId
+    )
+      return undefined;
+    delete run.emptyJudged;
+    run.described = document.documentId;
+    if (describedHere(run)) void drive(rt, run);
     return undefined;
   }
   if (v.safeParse(submittedSchema, message).success) {

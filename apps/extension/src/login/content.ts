@@ -528,6 +528,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let cancelled = false;
   // Ends every wait for a change of the page once `cancelled` is set.
   const waits = new AbortController();
+  // Ends the running `login.extract.watch`, once another replaces it or the login cancels.
+  let describedWatch: AbortController | undefined;
   // Whether the background asked for the value the page set in an account input.
   let siteAccountAsked = false;
   // Set once this document's login has ended; it then watches for its first step to show
@@ -1284,6 +1286,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     if (command.type === "login.cancel") {
       cancelled = true;
+      describedWatch?.abort();
       if (deferredAccount) deferredAccount.username = "";
       deferredAccount = undefined;
       waits.abort();
@@ -1404,6 +1407,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (command.state === "executing") ended = false;
       if (!ended && (command.state === "authenticated" || command.state === "blocked")) {
         ended = true;
+        // An ended login reads no page again here (ADR 0027 amendment of 2026-11-04).
+        describedWatch?.abort();
         rejected = command.outcome === "credential-rejected";
         void announce(false).catch(() => undefined);
       }
@@ -1626,6 +1631,51 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         result = { ok: false, reason: "extract-error" };
       }
       respond(result);
+      return false;
+    }
+    if (command.type === "login.extract.watch") {
+      // Reads the page at once and again at each change of it (ADR 0082), at most once per
+      // `checkGapMs` as the page watch does, until a page after the sign-in would describe
+      // something there; then says so once (ADR 0027 amendment of 2026-11-04).
+      describedWatch?.abort();
+      const watching = new AbortController();
+      describedWatch = watching;
+      const until = Date.now() + command.timeoutMs;
+      const stopped = () => cancelled || watching.signal.aborted;
+      void (async () => {
+        // Each reading waits for the change before it, as the other waits here do.
+        /* eslint-disable no-await-in-loop */
+        for (;;) {
+          if (stopped()) return;
+          const checked = Date.now();
+          let empty = true;
+          try {
+            const result = extractSignedInObservation(document) as { reason?: unknown };
+            empty = result.reason === "no-candidates";
+          } catch {
+            // A page the extractor cannot read is not reported.
+          }
+          if (stopped()) return;
+          if (!empty) {
+            await sendMessage("login", {
+              version: 1,
+              type: "login.document.described",
+              token,
+            });
+            return;
+          }
+          if (Date.now() >= until) return;
+          await pageChange(document, until, watching.signal);
+          const gap = checked + checkGapMs - Date.now();
+          if (gap > 0 && !stopped()) await pause(gap);
+        }
+        /* eslint-enable no-await-in-loop */
+      })()
+        .catch(() => undefined)
+        .finally(() => {
+          if (describedWatch === watching) describedWatch = undefined;
+        });
+      respond({ ok: true });
       return false;
     }
     if (command.type === "login.state") {

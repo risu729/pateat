@@ -150,6 +150,19 @@ export const routedHere = (run: Execution) =>
   pathNow(run.live).length <= WATCH_PATH_MAX &&
   !watchOver(run.metadata, Date.now());
 
+/**
+ * Whether a watched login's top document, whose judged page described nothing as a page
+ * still loading does, has since shown something to describe while the watch still lasts:
+ * that page is read once as the tab's next page (ADR 0027 amendment of 2026-11-04), in
+ * the document the watch began in or a later one.
+ */
+export const describedHere = (run: Execution) =>
+  run.live.document.frameId === 0 &&
+  run.described === run.live.document.documentId &&
+  (run.metadata.state === "watching" ||
+    (run.metadata.state === "reconciling" && run.metadata.settled === true)) &&
+  !watchOver(run.metadata, Date.now());
+
 /** The step may have submitted or moved the page, so its result can show a handler. */
 export const effectful = (metadata: LoginAttemptMetadata) =>
   metadata.operationKind === "click" ||

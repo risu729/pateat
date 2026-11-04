@@ -1,4 +1,4 @@
-import { HELD_CLICK_WAIT_MS } from "../wire";
+import { DESCRIBED_WATCH_MAX_MS, HELD_CLICK_WAIT_MS } from "../wire";
 
 /**
  * Automatic logins of a site that may end `authenticated` within `RELOGIN_WINDOW_MS`; the
@@ -97,7 +97,13 @@ export const SITE_MOVE_READINGS = 5;
  * How long a login stays watched after its result stopped at `challenge` or settled as
  * unknown (ADR 0027, owner's choice on 2026-10-12).
  */
-export const WATCH_MS = 10 * 60_000;
+export const WATCH_MS = DESCRIBED_WATCH_MAX_MS;
+
+/**
+ * How many times one document of a watched login is asked to say it shows something after
+ * a judged page there described nothing (ADR 0027 amendment of 2026-11-04).
+ */
+export const DESCRIBED_WATCHES = 3;
 
 /**
  * How long each new page of a watched login's tab is read before a reading that shows no

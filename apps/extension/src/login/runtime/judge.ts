@@ -15,7 +15,7 @@ import {
   type ValueShape,
 } from "@pateat/contracts";
 import type { ServiceTiming } from "../../service/transport";
-import { extractResultSchema } from "../wire";
+import { DESCRIBED_WATCH_MAX_MS, extractResultSchema } from "../wire";
 import { observedPath } from "../../observation/path";
 import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "../completion-policy";
 import { type Execution, type SignInReading } from "./types";
@@ -29,6 +29,7 @@ import { effectful, terminal } from "./attempt-state";
 import { observe, passkeyStepAnswered, toStop } from "./reconcile";
 import { passkeyButton, readSignInState } from "./sign-in";
 import { takeOver } from "./continuation";
+import { DESCRIBED_WATCHES, WATCH_MS } from "./constants";
 import type { Runtime } from "./state";
 
 /**
@@ -170,6 +171,32 @@ export async function describeForJudge(
     inputLeftOut,
     ...(usernames?.shape ? { usernameShape: usernames.shape } : {}),
   };
+}
+
+/**
+ * Asks the top document of a `password` login, whose judged page described nothing, to say
+ * once it shows something to describe, while the login may still be watched (ADR 0027
+ * amendment of 2026-11-04): a page still loading, as Oracle's "Verify your identity" page
+ * read eight seconds after the click (2026-11-04 11:26 UTC), is then read again as the
+ * tab's next page, instead of never, since a settled login's own document is not read
+ * again. The document checks at each change of the page (ADR 0082), never on a timer.
+ */
+export function watchDescribed(rt: Runtime, run: Execution): void {
+  const { document } = run.live;
+  if (document.frameId !== 0 || run.metadata.route !== "password") return;
+  const since = run.metadata.watch?.since;
+  const left = since === undefined ? WATCH_MS : WATCH_MS - (Date.now() - since);
+  if (left <= 0) return;
+  // A page that keeps turning empty again asks at most `DESCRIBED_WATCHES` times.
+  const asked = run.emptyWatches?.documentId === document.documentId ? run.emptyWatches.count : 0;
+  if (asked >= DESCRIBED_WATCHES) return;
+  run.emptyWatches = { documentId: document.documentId, count: asked + 1 };
+  run.emptyJudged = document.documentId;
+  delete run.described;
+  void send(rt, run.live, {
+    type: "login.extract.watch",
+    timeoutMs: Math.min(Math.ceil(left), DESCRIBED_WATCH_MAX_MS),
+  }).catch(() => undefined);
 }
 
 /**
@@ -382,8 +409,15 @@ export async function learn(
     return notSent("marker-shown");
   const described = await describeForJudge(rt, run, remaining.path);
   if (!described) return true;
-  // A page that cannot be described completely is not sent and does not count.
-  if ("unsent" in described) return notSent(besideCandidate ? "sign-in-shown" : described.unsent);
+  // A page that cannot be described completely is not sent and does not count. One that
+  // describes nothing, as a page still loading, is read again once it shows something.
+  if ("unsent" in described) {
+    if (!besideCandidate && described.unsent === "no-candidates") watchDescribed(rt, run);
+    return notSent(besideCandidate ? "sign-in-shown" : described.unsent);
+  }
+  // A page described here is read as it is now: a report of it showing something is moot.
+  delete run.emptyJudged;
+  delete run.described;
   const { observation, disabledLeftOut, inputLeftOut, usernameShape: shape } = described;
   // The sign-in form beside another form with a text-like input and its own button, on a
   // path without a `detail` handler, as the service checks (ADR 0061); otherwise the page

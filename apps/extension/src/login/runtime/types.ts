@@ -318,6 +318,19 @@ export type Execution = {
    * password (ADR 0034). It does not reject the password in this document until it has gone.
    */
   staleRejection?: true;
+  /**
+   * The top document whose judged page described nothing (`no-candidates`), as a page
+   * still loading, and which was asked to say when it shows something (ADR 0027
+   * amendment of 2026-11-04). Kept in memory only.
+   */
+  emptyJudged?: string;
+  /** How many times that document was asked so (`DESCRIBED_WATCHES`). In memory only. */
+  emptyWatches?: { documentId: string; count: number };
+  /**
+   * That document since said it shows something: it is read once more as the tab's next
+   * page, though the watch began there. Kept in memory only.
+   */
+  described?: string;
 };
 
 export /**
