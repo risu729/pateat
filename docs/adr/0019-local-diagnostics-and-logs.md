@@ -24,7 +24,9 @@ Amended on 2026-10-23 by [ADR 0066](0066-problem-lines-sent-to-the-service.md): 
 log's `warn` and `error` lines, and its `info` lines that say why Pateat did nothing,
 are sent to the service (implemented, local tests only). The diagnostics page, the logs,
 the Bitwarden server information, recent log lines and the Pateat service's record for
-the device are implemented.
+the device are implemented. Amended on 2026-11-04 (see
+[Amendment 2026-11-04: a closed tab's login, and dropped debug lines](#amendment-2026-11-04-a-closed-tabs-login-and-dropped-debug-lines),
+implemented, local tests only).
 
 Date: 2026-10-11
 
@@ -606,6 +608,29 @@ due. Like `service.outcome`, it records no request time
 ([how long requests and logins take](#amendment-2026-10-18-how-long-requests-and-logins-take)):
 it goes after the login ended, so it is not part of the login's time. The event name,
 levels and the missing timing are the agent's choice, not confirmed by the owner.
+
+## Amendment 2026-11-04: a closed tab's login, and dropped debug lines
+
+On 2026-11-04 (12:46 UTC) a login to app.notion.com was running in one tab (its
+password submitted, awaiting the result) when the tab was closed, and a new tab's login
+started 4 seconds later. The log could not show that the first login ended: closing its
+tab removed its record, which ends its hold on the site as ADR 0022 says, but wrote
+nothing. With debug logging on, the second login's 21st step line in 11 seconds (its
+code page's submit) was dropped, because one tab and origin had 20 `debug` entries a
+minute. The agent made these changes (not confirmed by the owner):
+
+- A tab that closes while its login of an origin has not ended, or is still watched,
+  writes `login.attempt` (info) with the state, step, outcome and `settled` it had
+  reached, `unsubmitted` when nothing was submitted, and `cause` `tab-closed`. It names
+  no URL, is never a problem line sent to the service (ADR 0066), and sends no outcome
+  or login record: the person closed the tab, and the login says nothing about the
+  recipe. A tab Chrome replaces keeps its login in the new tab and writes nothing.
+- `debug` entries a page caused get 120 a minute per tab and origin instead of 20, so a
+  login with a second factor keeps its whole step-by-step detail. Debug logging is
+  turned on by the person and its entries expire after 24 hours, so the larger
+  allowance only bounds a page that floods.
+- `log.dropped` names the `tab` the dropped entries came from, except for the window
+  pages share once too many tabs or origins are open.
 
 ## Amendment 2026-10-19: tab numbers and closed tabs that asked
 

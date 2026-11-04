@@ -325,7 +325,7 @@ function startRuntime(rt: Runtime) {
     rt.vars.appliedPolicy ??= await pausingSettings(rt);
   })();
 
-  browser.tabs.onRemoved.addListener((tabId) => forgetTab(rt, tabId));
+  browser.tabs.onRemoved.addListener((tabId) => forgetTab(rt, tabId, true));
 
   browser.windows?.onRemoved?.addListener(() => void incognitoClosed(rt));
 

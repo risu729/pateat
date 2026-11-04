@@ -495,6 +495,26 @@ export function createDiagnosticsLog(options: {
           },
           { source },
         );
+      else if (report.type === "attempt-closed")
+        // A login whose tab closed ended there; the person closed it, so it is not a
+        // problem line (ADR 0019, amended 2026-11-04).
+        void logger.log(
+          "login.attempt",
+          {
+            origin: report.origin,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            route: report.route,
+            state: report.state,
+            step: report.stepIndex,
+            steps: report.stepCount,
+            outcome: report.outcome,
+            cause: report.cause,
+            settled: report.settled,
+            unsubmitted: report.unsubmitted,
+          },
+          { source, level: "info" },
+        );
       else if (report.type === "ask-ended")
         void logger.log(
           "login.ask-ended",

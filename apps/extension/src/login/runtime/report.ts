@@ -304,6 +304,28 @@ export type LoginReport = (
     }
   | {
       /**
+       * The tab closed while its login of the origin had not ended (ADR 0019, amended
+       * 2026-11-04): the login ends there, and its record no longer holds the site in other
+       * tabs (ADR 0022). What it had reached is named as its last `attempt` line did.
+       */
+      type: "attempt-closed";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      recipeRevision: number;
+      route: LoginRoute;
+      state: LoginAttemptMetadata["state"];
+      stepIndex: number;
+      stepCount: number;
+      outcome?: string;
+      /** The result had settled as unknown (`unknown-submit`). */
+      settled?: true;
+      /** Nothing had been submitted yet (ADR 0066). */
+      unsubmitted?: true;
+      cause: "tab-closed";
+    }
+  | {
+      /**
        * The tab stopped asking for an account of the origin after a rejection or a stopped
        * login (ADR 0021 D), because it closed. After a rejection, the origin's other tabs
        * stop asking with it unless `elsewhere`; a stopped login asked in its own tab only.

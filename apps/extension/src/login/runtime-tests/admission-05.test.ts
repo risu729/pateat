@@ -615,7 +615,8 @@ describe("production login document admission", () => {
     );
     it("keeps another tab off an origin whose login still runs, and says why", async () => {
       holdClicks(origin);
-      const h = twoSites();
+      const report = vi.fn<(entry: LoginReport) => void>();
+      const h = twoSites({ report });
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(executes()).toHaveLength(2));
       expect(at(origin)).toMatchObject({ state: "submit-intent" });
@@ -632,10 +633,44 @@ describe("production login document admission", () => {
       fake.state.onExecute = undefined;
       for (const listener of fake.state.removed) listener(1);
       await vi.waitFor(() => expect(stored()).toEqual([]));
+      // The closed tab's login ended there, and the log says so (ADR 0019, 2026-11-04).
+      const closed = report.mock.calls.filter(([entry]) => entry.type === "attempt-closed");
+      expect(closed).toEqual([
+        [
+          expect.objectContaining({
+            type: "attempt-closed",
+            tabId: 1,
+            origin,
+            state: "submit-intent",
+            cause: "tab-closed",
+          }),
+        ],
+      ]);
+      expect(closed[0]?.[0]).not.toHaveProperty("url");
       expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab-again" })).toEqual({
         ok: true,
       });
       expect(fake.state.badges[2]?.title).toBe("Pateat");
+    });
+    it("logs no end for a running login whose tab Chrome replaced", async () => {
+      holdClicks(origin);
+      const report = vi.fn<(entry: LoginReport) => void>();
+      const h = twoSites({ report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      fake.state.tabUrls[3] = fake.state.pageUrl;
+      for (const listener of fake.state.replaced) listener(3, 1);
+      await vi.waitFor(() =>
+        expect(stored()).toMatchObject([{ state: "submit-intent", document: { tabId: 3 } }]),
+      );
+      // The login goes on in the new tab: only that tab's close ends it, once.
+      for (const listener of fake.state.removed) listener(3);
+      await vi.waitFor(() => expect(stored()).toEqual([]));
+      expect(
+        report.mock.calls
+          .filter(([entry]) => entry.type === "attempt-closed")
+          .map(([entry]) => entry.tabId),
+      ).toEqual([3]);
     });
     it("keeps each origin's record of a tab across a restart", async () => {
       holdClicks(origin);
