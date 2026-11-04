@@ -3262,7 +3262,9 @@ the one shown element with that name in a form with a shown password input not m
 `id` ([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
 locator when its text matches exactly one button and redaction leaves it unchanged, and
 a script link when its text matches no button and exactly one script link. The page
-includes every shadow root, open or closed, as the official Bitwarden extension reads it
+includes every shadow root, open or closed, as the official Bitwarden extension reads
+it, except another extension's overlay, a closed root on a host right under the
+`<body>` or `<html>` element that is no custom element the page defined
 ([ADR 0070](adr/0070-shadow-roots-as-page-content.md)): a shadow tree's fields, buttons
 and text are described, counted for the locators and found by the executor as the
 document's own, and a control in a component's shadow tree belongs to the form that

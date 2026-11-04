@@ -92,9 +92,10 @@ describe("queryAll", () => {
     ).join("");
     for (const host of document.querySelectorAll("x-field"))
       shadow(host, `<label>Field <input id="in-${host.id}"></label><x-icon></x-icon>`, "closed");
-    // The `body`, the light tree's 100 `x-field`, 100 `div` and 100 `span`, and the 100
-    // `x-icon` inside: each element `attachShadow` accepts, once.
-    const candidates = 401;
+    // The `body`, the light tree's 100 `x-field` and 100 `span`, and the 100 `x-icon`
+    // inside: each element `attachShadow` accepts, once. The 100 `div` right under the
+    // body are never asked, as a closed root there is another extension's overlay.
+    const candidates = 301;
     asked.count = 0;
     readingPage(() => {
       for (let read = 0; read < 10; read++) {
@@ -104,6 +105,51 @@ describe("queryAll", () => {
       expect(shadowRoots(document)).toHaveLength(100);
     });
     expect(asked.count).toBe(candidates);
+  });
+});
+
+describe("another extension's overlay", () => {
+  // As Claude in Chrome 1.0.105 draws "Claude is active in this tab group" (2026-11-04):
+  // a closed root on an attribute-less `<div>` kept as the body's last child.
+  const overlay = `<div id="claude-static-indicator-container">Claude is active in this tab group
+    <button id="claude-static-chat-button"></button><button id="claude-static-close-button"></button></div>`;
+
+  it("leaves out a closed root right under the body or the html element", () => {
+    document.body.innerHTML = `<main><button id="own">Own</button></main>`;
+    const host = document.createElement("div");
+    document.body.append(host);
+    shadow(host, overlay, "closed");
+    const under = document.createElement("span");
+    document.documentElement.append(under);
+    shadow(under, `<button id="beside"></button>`, "closed");
+    try {
+      for (const read of [
+        () => queryAll(document, "button"),
+        () => readingPage(() => queryAll(document, "button")),
+      ])
+        expect(ids(read())).toEqual(["own"]);
+      expect(shadowRoots(document)).toEqual([]);
+      const texts: string[] = [];
+      const walker = textWalker(document.body, (text) => text.data.trim() !== "");
+      for (let text = walker.nextNode(); text; text = walker.nextNode())
+        texts.push(text.data.trim());
+      expect(texts).toEqual(["Own"]);
+      // An undefined custom element there is no page's component either.
+      host.replaceWith(document.createElement("x-overlay"));
+      shadow(document.querySelector("x-overlay")!, overlay, "closed");
+      expect(ids(queryAll(document, "button"))).toEqual(["own"]);
+    } finally {
+      under.remove();
+    }
+  });
+
+  it("reads an open root there, a closed one deeper, and a custom element the page defined", () => {
+    customElements.define("pateat-test-app", class extends HTMLElement {});
+    document.body.innerHTML = `<div id="open"></div><main><div id="deep"></div></main><pateat-test-app id="app"></pateat-test-app>`;
+    shadow(document.querySelector("#open")!, `<button id="a"></button>`);
+    shadow(document.querySelector("#deep")!, `<button id="b"></button>`, "closed");
+    shadow(document.querySelector("#app")!, `<button id="c"></button>`, "closed");
+    expect(ids(queryAll(document, "button"))).toEqual(["a", "b", "c"]);
   });
 });
 
@@ -142,7 +188,7 @@ describe("ancestors across shadow boundaries", () => {
 
 describe("textWalker", () => {
   it("walks the text of shadow trees in the page's order", () => {
-    document.body.innerHTML = `<p>one</p><x-host id="host"><b>three</b></x-host><p>four</p>`;
+    document.body.innerHTML = `<div><p>one</p><x-host id="host"><b>three</b></x-host><p>four</p></div>`;
     shadow(document.querySelector("#host")!, `two <slot></slot>`, "closed");
     const walker = textWalker(document.body, (text) => text.data.trim() !== "");
     const texts: string[] = [];
