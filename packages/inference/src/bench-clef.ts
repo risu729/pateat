@@ -121,7 +121,8 @@ export async function runClefBenchmark(options: {
     doDecide: async (call) => {
       const result = await clef.doDecide(call);
       servedModels.add(result.response?.modelId ?? "unreported");
-      answers[current] = result.answers;
+      // The role asks each page in two calls; both answers stay under the page.
+      answers[current] = { ...answers[current], ...result.answers };
       return result;
     },
   };
@@ -138,7 +139,14 @@ export async function runClefBenchmark(options: {
     shouldRun: () => spent + (limits.maxRetries + 1) * worstCaseCallUsd <= options.maxCostUsd,
     run: async (testCase) => {
       current = testCase.id;
-      const outcome = await decide({ observation: testCase.observation, slots: testCase.slots });
+      // As the service asks: a later page and the signed-in hint as the log recorded them.
+      const { startPage, signedIn } = testCase.request ?? {};
+      const outcome = await decide({
+        observation: testCase.observation,
+        slots: testCase.slots,
+        ...(startPage === undefined ? {} : { startPage }),
+        ...(signedIn === undefined ? {} : { signedIn }),
+      });
       spent +=
         estimateClefCostUsd(outcome.usage.inputTokens, modelId) ?? outcome.calls * worstCaseCallUsd;
       return outcome;

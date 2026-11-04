@@ -87,7 +87,7 @@ export function decisionModel(
     specificationVersion: "v4",
     provider: "fake",
     modelId: "fake-decider",
-    supportedQuestionTypes: ["choice"],
+    supportedQuestionTypes: ["choice", "boolean"],
     calls,
     doDecide: (options) => {
       calls.push(options);
@@ -113,21 +113,54 @@ export const decisionState = (options: DecideOptions) => {
   return part.value as { page: { origin: string; path: string } };
 };
 
+/**
+ * The truth's answer to one finite-choice question of `buildFieldQuestions`, by the role's
+ * question ID: an option ID, or a yes probability for a yes/no question.
+ */
+export function oracleAnswer(
+  expected: EvaluationCase["expected"],
+  id: string,
+  options: readonly string[] | undefined,
+): string | number {
+  const plan = expected.kind === "plan" ? expected : undefined;
+  if (options === undefined) {
+    if (id === "signin") return plan ? 0.95 : 0.05;
+    if (id === "otherSets") return plan?.alternatives ? 0.95 : 0.05;
+    return 0.05;
+  }
+  let choice = "none";
+  if (plan) {
+    const filled = Object.values(plan.fields);
+    if (id.startsWith("el:")) {
+      const slot = Object.entries(plan.fields).find(([, candidate]) => `el:${candidate}` === id);
+      if (slot) choice = `s:${slot[0]}`;
+    } else if (id.startsWith("slot:")) {
+      const candidate = plan.fields[id.slice("slot:".length)];
+      if (candidate !== undefined) choice = `c:${candidate}`;
+    } else if (id === "action")
+      choice = filled.includes(plan.action) ? "enter" : `c:${plan.action}`;
+    else if (id === "passkey" && plan.passkeyButton) choice = `c:${plan.passkeyButton}`;
+    else if (id === "switch" && plan.accountSwitch) choice = `c:${plan.accountSwitch}`;
+  }
+  return options.includes(choice) ? choice : "none";
+}
+
 /** A decision fake that answers every corpus page with its ground truth. */
 export const oracleDecider = () =>
   decisionModel(async (options) => {
     const expected = caseFor(decisionState(options).page).expected;
     const answers: DecideResult["answers"] = {};
     for (const [id, question] of Object.entries(options.questions)) {
+      if (question.type === "boolean") {
+        answers[id] = {
+          type: "boolean",
+          probability: oracleAnswer(expected, id, undefined) as number,
+        };
+        continue;
+      }
       if (question.type !== "choice") throw new Error("Unexpected question type");
       const keys = Object.keys(question.criteria);
-      const target =
-        expected.kind === "abstain"
-          ? undefined
-          : id === "action"
-            ? expected.action
-            : expected.fields[id.slice("slot:".length)];
-      const choice = target === undefined ? "none" : `c:${target}`;
+      const choice = oracleAnswer(expected, id, keys) as string;
       answers[id] = { type: "choice", choice, probabilities: distribution(keys, choice) };
     }
     return { answers, usage: { inputTokens: 300 }, warnings: [] };

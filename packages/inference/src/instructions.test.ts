@@ -88,9 +88,15 @@ describe("instructions sent to the model", () => {
         for (const text of sent) expect(text).not.toMatch(nonAscii);
         for (const text of pageText) expect(user).toContain(text);
       }
-      for (const question of Object.values(buildFieldQuestions(page.observation, page.slots))) {
-        expect(question.instructions).not.toMatch(nonAscii);
-        expect(question.criteria["none"]).not.toMatch(nonAscii);
+      const built = buildFieldQuestions(page.observation, page.slots)!;
+      for (const question of Object.values({ ...built.form, ...built.page })) {
+        const { instructions } = question;
+        // A slot question quotes the user's own field name, as the state's slot does.
+        let sent = typeof instructions === "string" ? instructions : instructions.question;
+        for (const slot of page.slots)
+          if (slot.fieldName !== undefined) sent = sent.replaceAll(`"${slot.fieldName}"`, '""');
+        expect(sent).not.toMatch(nonAscii);
+        if (question.type === "choice") expect(question.criteria["none"]).not.toMatch(nonAscii);
       }
     },
   );

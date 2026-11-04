@@ -91,19 +91,86 @@ const answerSchema = v.variant("type", [
   v.object({ type: v.literal("noul"), noul: v.pipe(v.number(), v.minValue(0), v.maxValue(1)) }),
 ]);
 const count = v.pipe(v.number(), v.integer(), v.minValue(0));
-const responseSchema = v.object({
-  success: v.literal(true),
-  result: v.object({
-    model: v.string(),
-    answers: v.record(v.string(), answerSchema),
-    usage: v.optional(
-      v.object({ input_tokens: v.optional(count), output_tokens: v.optional(count) }),
-    ),
-  }),
+const resultSchema = v.object({
+  model: v.string(),
+  answers: v.record(v.string(), answerSchema),
+  usage: v.optional(
+    v.object({ input_tokens: v.optional(count), output_tokens: v.optional(count) }),
+  ),
 });
+const responseSchema = v.object({ success: v.literal(true), result: resultSchema });
 const errorSchema = v.object({
   errors: v.optional(v.array(v.object({ code: v.optional(v.number()) })), []),
 });
+
+type ClefResult = v.InferOutput<typeof resultSchema>;
+
+/** The body of one Clef call, under Clef-safe question IDs, and how to map its answers back. */
+function clefRequest(call: DecideOptions, modelId: ClefModelId) {
+  const ids = clefQuestionIds(Object.keys(call.questions));
+  const original = new Map([...ids].map(([id, safe]) => [safe, id]));
+  const body = {
+    model: modelId,
+    state: clefState(call.state),
+    questions: Object.fromEntries(
+      Object.entries(call.questions).map(([id, question]) => [
+        ids.get(id)!,
+        clefQuestion(id, question),
+      ]),
+    ),
+  };
+  return { body, original };
+}
+
+/** A Clef result as the decision contract answers it, under the role's question IDs. */
+function decisionResult(result: ClefResult, original: ReadonlyMap<string, string>): DecideResult {
+  const answers: Record<string, Answer> = {};
+  for (const [safe, answer] of Object.entries(result.answers)) {
+    const id = original.get(safe);
+    if (id === undefined)
+      throw new InvalidResponseDataError({
+        data: undefined,
+        message: "Clef answered a question that was not asked.",
+      });
+    answers[id] =
+      answer.type === "noul"
+        ? { type: "boolean", probability: answer.noul }
+        : answer.type === "choice"
+          ? { type: "choice", choice: answer.choice, probabilities: answer.probabilities }
+          : { type: "score", score: answer.score, probabilities: answer.probabilities };
+  }
+  return {
+    answers,
+    rounding: { probabilityDecimals: 4, scoreDecimals: 4 },
+    usage: {
+      ...(result.usage?.input_tokens === undefined
+        ? {}
+        : { inputTokens: result.usage.input_tokens }),
+      ...(result.usage?.output_tokens === undefined
+        ? {}
+        : { outputTokens: result.usage.output_tokens }),
+    },
+    warnings: [],
+    response: { modelId: result.model },
+  };
+}
+
+const invalidAnswer = () =>
+  new InvalidResponseDataError({
+    data: undefined,
+    message: "Workers AI returned no Clef answer in the documented shape.",
+  });
+
+function decisionModel(modelId: ClefModelId, doDecide: FiniteChoiceModel["doDecide"]) {
+  if (!isClefModel(modelId)) throw new TypeError(`Unknown Clef model ${String(modelId)}.`);
+  return {
+    specificationVersion: "v4",
+    provider: "cloudflare.workers-ai",
+    modelId,
+    supportedQuestionTypes: ["choice", "score", "boolean"],
+    doDecide,
+  } satisfies FiniteChoiceModel;
+}
 
 /**
  * A Clef model behind the AI SDK decision contract, calling the Workers AI REST API
@@ -116,98 +183,83 @@ export function createClefDecisionModel(options: {
   accountId: string;
   apiToken: string;
   modelId: ClefModelId;
-  /** Test seam only. */
+  /** Test seam, and the relay of a call a device makes (ADR 0083). */
   fetch?: typeof globalThis.fetch;
 }): FiniteChoiceModel {
   const account = v.parse(accountId, options.accountId);
   const token = v.parse(credentialValue, options.apiToken);
   const { modelId } = options;
-  if (!isClefModel(modelId)) throw new TypeError(`Unknown Clef model ${String(modelId)}.`);
-  const url = `${apiBase}/${account}/ai/run/@cf/cloudflare/${modelId}`;
+  const url = clefUrl(account, modelId);
   const fetch = options.fetch ?? globalThis.fetch;
-  return {
-    specificationVersion: "v4",
-    provider: "cloudflare.workers-ai",
-    modelId,
-    supportedQuestionTypes: ["choice", "score", "boolean"],
-    doDecide: async (call) => {
-      const ids = clefQuestionIds(Object.keys(call.questions));
-      const original = new Map([...ids].map(([id, safe]) => [safe, id]));
-      const body = {
-        model: modelId,
-        state: clefState(call.state),
-        questions: Object.fromEntries(
-          Object.entries(call.questions).map(([id, question]) => [
-            ids.get(id)!,
-            clefQuestion(id, question),
-          ]),
-        ),
-      };
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(body),
-        ...(call.abortSignal === undefined ? {} : { signal: call.abortSignal }),
+  return decisionModel(modelId, async (call) => {
+    const { body, original } = clefRequest(call, modelId);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+      ...(call.abortSignal === undefined ? {} : { signal: call.abortSignal }),
+    });
+    const text = await response.text();
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = undefined;
+    }
+    if (!response.ok) {
+      const parsed = v.safeParse(errorSchema, json);
+      const codes = parsed.success ? parsed.output.errors.flatMap((error) => error.code ?? []) : [];
+      throw new APICallError({
+        message: `Workers AI answered ${response.status}${codes.length ? ` (codes ${codes.join(", ")})` : ""}.`,
+        url,
+        requestBodyValues: { model: modelId },
+        statusCode: response.status,
+        isRetryable: response.status === 429 || response.status >= 500,
       });
-      const text = await response.text();
-      let json: unknown;
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = undefined;
-      }
-      if (!response.ok) {
-        const parsed = v.safeParse(errorSchema, json);
-        const codes = parsed.success
-          ? parsed.output.errors.flatMap((error) => error.code ?? [])
-          : [];
-        throw new APICallError({
-          message: `Workers AI answered ${response.status}${codes.length ? ` (codes ${codes.join(", ")})` : ""}.`,
-          url,
-          requestBodyValues: { model: modelId },
-          statusCode: response.status,
-          isRetryable: response.status === 429 || response.status >= 500,
-        });
-      }
-      const parsed = v.safeParse(responseSchema, json);
-      if (!parsed.success)
-        throw new InvalidResponseDataError({
-          data: undefined,
-          message: "Workers AI returned no Clef answer in the documented shape.",
-        });
-      const { result } = parsed.output;
-      const answers: Record<string, Answer> = {};
-      for (const [safe, answer] of Object.entries(result.answers)) {
-        const id = original.get(safe);
-        if (id === undefined)
-          throw new InvalidResponseDataError({
-            data: undefined,
-            message: "Clef answered a question that was not asked.",
-          });
-        answers[id] =
-          answer.type === "noul"
-            ? { type: "boolean", probability: answer.noul }
-            : answer.type === "choice"
-              ? { type: "choice", choice: answer.choice, probabilities: answer.probabilities }
-              : { type: "score", score: answer.score, probabilities: answer.probabilities };
-      }
-      return {
-        answers,
-        rounding: { probabilityDecimals: 4, scoreDecimals: 4 },
-        usage: {
-          ...(result.usage?.input_tokens === undefined
-            ? {}
-            : { inputTokens: result.usage.input_tokens }),
-          ...(result.usage?.output_tokens === undefined
-            ? {}
-            : { outputTokens: result.usage.output_tokens }),
-        },
-        warnings: [],
-        response: { modelId: result.model },
-      };
-    },
-  };
+    }
+    const parsed = v.safeParse(responseSchema, json);
+    if (!parsed.success) throw invalidAnswer();
+    return decisionResult(parsed.output.result, original);
+  });
+}
+
+/** The Workers AI REST URL of a Clef model for an account, the only one the adapter calls. */
+export const clefUrl = (account: string, modelId: ClefModelId) =>
+  `${apiBase}/${v.parse(accountId, account)}/ai/run/@cf/cloudflare/${modelId}`;
+
+/** What the adapter needs of a Worker's Workers AI binding (`env.AI`). */
+export type WorkersAiBinding = { run(model: string, input: unknown): Promise<unknown> };
+
+/**
+ * A Clef model behind the AI SDK decision contract, called through a Worker's Workers AI
+ * binding (ADR 0083), which bills the Worker's own Cloudflare account and needs no token.
+ * The binding answers the REST result's contents. A failed call throws an `APICallError`
+ * without the binding's message, which may quote the request.
+ */
+export function createClefBindingModel(options: {
+  ai: WorkersAiBinding;
+  modelId: ClefModelId;
+}): FiniteChoiceModel {
+  const { ai, modelId } = options;
+  if (typeof ai?.run !== "function") throw new TypeError("Pass the Workers AI binding");
+  return decisionModel(modelId, async (call) => {
+    const { body, original } = clefRequest(call, modelId);
+    let output: unknown;
+    try {
+      output = await ai.run(`@cf/cloudflare/${modelId}`, body);
+    } catch {
+      throw new APICallError({
+        message: "The Workers AI binding failed the Clef call.",
+        url: `workers-ai:@cf/cloudflare/${modelId}`,
+        requestBodyValues: { model: modelId },
+        isRetryable: false,
+      });
+    }
+    const parsed = v.safeParse(resultSchema, output);
+    if (!parsed.success) throw invalidAnswer();
+    return decisionResult(parsed.output, original);
+  });
 }

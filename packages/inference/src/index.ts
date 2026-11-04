@@ -35,7 +35,23 @@ export {
   type LogoutGenerationRequest,
   type ValidatedLogout,
 } from "./logout";
-export { buildFieldQuestions, createFieldMappingDecider, type FiniteChoiceModel } from "./decision";
+export {
+  buildFieldQuestions,
+  createFieldMappingDecider,
+  fieldDecisionPromptVersion,
+  type FieldDecisionRequest,
+  type FiniteChoiceModel,
+} from "./decision";
+export {
+  clefModels,
+  clefUrl,
+  createClefBindingModel,
+  createClefDecisionModel,
+  estimateClefCostUsd,
+  isClefModel,
+  type ClefModelId,
+  type WorkersAiBinding,
+} from "./providers/clef";
 export { evaluationCorpus, type EvaluationCase, type ExpectedResult } from "./corpus/cases";
 export { slots as corpusSlots } from "./corpus/slots";
 export * from "./evaluate";
