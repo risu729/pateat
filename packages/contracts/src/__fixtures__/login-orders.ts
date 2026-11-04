@@ -523,9 +523,30 @@ function broken(
     from.mutationIntent === true &&
     ["awaiting-result", "reconciling"].includes(from.state) &&
     from.fillOnly !== true &&
-    event["undelivered"] === undefined;
+    // As the machine takes it back: only the operation in flight, before the page took it.
+    !(event["undelivered"] === from.operationId && from.state === "reconciling");
   if (delivered && to.state === "blocked" && !holdsOrigin(to))
     names.push("released an origin while a submission may still be answered");
+  // And the other way: a login Pateat stopped before anything went out holds nothing, so
+  // the site's other tabs log in at once (ADR 0022).
+  const unsent =
+    to.state === "blocked" &&
+    to.submissions === 0 &&
+    to.mutationIntent !== true &&
+    to.settled !== true &&
+    !(to.operationKind === "click" && to.operationId !== undefined);
+  const pateatStop = [
+    "policy-changed",
+    "value-mismatch",
+    "wrong-account",
+    "account-switched",
+    "retry-limit",
+    "account-not-listed",
+    "cancelled",
+    "interrupted",
+  ].includes(to.outcome ?? "");
+  if (((unsent && pateatStop) || to.fillOnly === true) && holdsOrigin(to))
+    names.push("held an origin for a login that sent nothing");
   return names;
 }
 

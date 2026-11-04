@@ -175,47 +175,58 @@ describe("a recipe that holds a sign-in form and a list of accounts (#1248)", ()
         [false, true].map((formShows) => ({ listShows, branchShows, formShows })),
       ),
     ),
-  )("chooses by what shows: %o", async ({ listShows, branchShows, formShows }) => {
-    // As above, an account the list can name.
-    const h = harness(
-      { siteDefaults: [], bindings: [] },
-      { allowedOrigins: [], uris, username: true, custom: [], generation: generation() },
-    );
-    h.recipes.chooser.mockResolvedValue(withOther());
-    h.recipes.starts.mockResolvedValue([
-      { path: "/signin", steps: [recipe.steps[0]!], list: [verify] },
-    ]);
-    fake.state.present = new Set([
-      ...(branchShows ? ["other-password", "other-login"] : []),
-      ...(formShows ? ["password", "login"] : []),
-    ]);
-    fake.state.awaitReply = (readiness) =>
-      readiness.accounts === true
-        ? listShows
-          ? { ok: true }
-          : { ok: false, reason: "timeout" }
-        : (readiness as unknown as { targets: { value: string }[] }).targets.every((entry) =>
-              fake.state.present!.has(entry.value),
-            )
-          ? { ok: true }
-          : { ok: false, reason: "timeout" };
-    const reply = await h.hello();
-    const expected = listShows
-      ? "list"
-      : branchShows && !formShows
-        ? "other-password"
-        : formShows
-          ? "password"
-          : "none";
-    expect(reply).toEqual({ ok: true });
-    // With nothing there, the form's login waits for its first step.
-    if (expected === "none") return expect(executions()).toEqual([]);
-    await vi.waitFor(() => expect(executions().length).toBeGreaterThan(0));
-    const first = executions()[0]!;
-    if (expected === "list") expect(first.list).toBeDefined();
-    else
-      expect(first).toMatchObject({
-        operation: { step: { kind: "fill", fields: [{ target: target(expected) }] } },
-      });
-  });
+  )(
+    "chooses by what shows: list $listShows, branch $branchShows, form $formShows",
+    async ({ listShows, branchShows, formShows }) => {
+      // As above, an account the list can name.
+      const h = harness(
+        { siteDefaults: [], bindings: [] },
+        { allowedOrigins: [], uris, username: true, custom: [], generation: generation() },
+      );
+      h.recipes.chooser.mockResolvedValue(withOther());
+      h.recipes.starts.mockResolvedValue([
+        { path: "/signin", steps: [recipe.steps[0]!], list: [verify] },
+      ]);
+      fake.state.present = new Set([
+        ...(branchShows ? ["other-password", "other-login"] : []),
+        ...(formShows ? ["password", "login"] : []),
+      ]);
+      fake.state.awaitReply = (readiness) =>
+        readiness.accounts === true
+          ? listShows
+            ? { ok: true }
+            : { ok: false, reason: "timeout" }
+          : (readiness as unknown as { targets: { value: string }[] }).targets.every((entry) =>
+                fake.state.present!.has(entry.value),
+              )
+            ? { ok: true }
+            : { ok: false, reason: "timeout" };
+      const reply = await h.hello();
+      const expected = listShows
+        ? "list"
+        : branchShows && !formShows
+          ? "other-password"
+          : formShows
+            ? "password"
+            : "none";
+      expect(reply).toEqual({ ok: true });
+      // With nothing there, the form's login waits for its first step.
+      if (expected === "none") {
+        // It waits for the form's first step, not the list's or the branch's.
+        await vi.waitFor(() => {
+          const waits = fake.state.messages.filter((entry) => entry.type === "login.await");
+          const last = waits.at(-1) as unknown as { readiness: { targets?: unknown[] } };
+          expect(last.readiness.targets).toEqual([target("password")]);
+        });
+        return expect(executions()).toEqual([]);
+      }
+      await vi.waitFor(() => expect(executions().length).toBeGreaterThan(0));
+      const first = executions()[0]!;
+      if (expected === "list") expect(first.list).toBeDefined();
+      else
+        expect(first).toMatchObject({
+          operation: { step: { kind: "fill", fields: [{ target: target(expected) }] } },
+        });
+    },
+  );
 });
