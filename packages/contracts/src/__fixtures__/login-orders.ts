@@ -460,8 +460,13 @@ function broken(
     names.push("possibly submitted step taken again");
   // Before a submission a login changes route once each way (ADR 0034): back on the
   // password route, it never takes the passkey route again.
+  // The record of it never goes away, and every way back to the password route makes it.
   if (from.passkeyLeft === true && to.route === "passkey" && from.route !== "passkey")
     names.push("passkey route taken again");
+  if (from.passkeyLeft === true && to.passkeyLeft !== true)
+    names.push("lost that the login left the passkey route");
+  if (from.route === "passkey" && to.route === "password" && to.passkeyLeft !== true)
+    names.push("left the passkey route without recording it");
   // A `watching` login only reads pages until it ends (ADR 0027).
   if (from.state === "watching" && !["watching", "authenticated", "blocked"].includes(to.state))
     names.push("watched login acted");
