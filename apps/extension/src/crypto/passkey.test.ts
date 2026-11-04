@@ -5,6 +5,7 @@ import {
   findStoredPasskeys,
   selectPasskeyItem,
   signStoredPasskey,
+  storedPasskeyRpIds,
   type PasskeySignRequest,
 } from "./passkey";
 import {
@@ -331,6 +332,60 @@ describe("stored passkey search by RP ID", () => {
       ok: false,
       error: { code: "crypto-locked" },
     });
+  });
+});
+
+describe("stored passkey RP IDs of one item (ADR 0084)", () => {
+  const source = (stored: unknown, verified = true) => ({
+    verified,
+    ciphers: new Map([[itemId, stored]]),
+    loginUris: new Map([[itemId, []]]),
+  });
+  const encrypted = { login: { fido2Credentials: ["encrypted"] } };
+  const stub = (result: unknown) =>
+    ({ decryptFido2Credentials: vi.fn(async () => result) }) as unknown as LocalCryptoSession;
+
+  it("lists the item's passkey RP ID, secret-free", async () => {
+    const decrypting = stub({ ok: true, data: [{ ...decryptedView, rpId: "openai.com" }] });
+    const listed = await storedPasskeyRpIds(
+      decrypting,
+      binding,
+      source(encrypted),
+      itemId.toUpperCase(),
+    );
+    expect(listed).toEqual({ ok: true, data: { ...binding, itemId, rpIds: ["openai.com"] } });
+    expect(JSON.stringify(listed)).not.toContain(decryptedView.keyValue);
+  });
+
+  it("lists none for an item without passkeys, without decrypting it", async () => {
+    const decrypting = stub({ ok: true, data: [] });
+    expect(await storedPasskeyRpIds(decrypting, binding, source(legacyCipher()), itemId)).toEqual({
+      ok: true,
+      data: { ...binding, itemId, rpIds: [] },
+    });
+    expect(decrypting.decryptFido2Credentials).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unknown, unverified or unreadable item without a retiring code", async () => {
+    const decrypting = stub({ ok: false, error: { code: "crypto-failed" } });
+    expect(
+      await storedPasskeyRpIds(decrypting, binding, source(encrypted), crypto.randomUUID()),
+    ).toEqual({ ok: false, error: { code: "field-missing" } });
+    expect(await storedPasskeyRpIds(decrypting, binding, source(encrypted, false), itemId)).toEqual(
+      { ok: false, error: { code: "invalid-request" } },
+    );
+    expect(await storedPasskeyRpIds(decrypting, binding, source(encrypted), itemId)).toEqual({
+      ok: false,
+      error: { code: "unsupported-crypto" },
+    });
+    expect(
+      await storedPasskeyRpIds(
+        stub({ ok: false, error: { code: "crypto-locked" } }),
+        binding,
+        source(encrypted),
+        itemId,
+      ),
+    ).toEqual({ ok: false, error: { code: "crypto-locked" } });
   });
 });
 

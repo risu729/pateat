@@ -35,6 +35,7 @@ export type VaultCryptoHost = Pick<
   | "loginUsernames"
   | "customFieldDigests"
   | "findPasskeys"
+  | "passkeyRpIds"
   | "signPasskey"
   | "verifyMasterPassword"
 >;
@@ -1015,6 +1016,24 @@ export function createLocalVaultManager(options: {
       if (!before.ok || !validHandle(handle))
         return before.ok ? vaultFailure("stale-vault-handle") : before;
       const result = await options.host.findPasskeys(owner.opened.session, rpId, signal);
+      const after = await checkDurable(owner);
+      if (!after.ok) return after;
+      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+    },
+    /** The RP IDs of one item's stored passkeys in the live accepted snapshot (ADR 0084). */
+    async passkeyRpIds(handle: LocalVaultHandle, itemId: string, signal?: AbortSignal) {
+      try {
+        handle = structuredClone(handle);
+      } catch {
+        return vaultFailure("invalid-request");
+      }
+      if (typeof itemId !== "string") return vaultFailure("invalid-request");
+      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
+      const owner = live;
+      const before = await checkDurable(owner);
+      if (!before.ok || !validHandle(handle))
+        return before.ok ? vaultFailure("stale-vault-handle") : before;
+      const result = await options.host.passkeyRpIds(owner.opened.session, itemId, signal);
       const after = await checkDurable(owner);
       if (!after.ok) return after;
       return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");

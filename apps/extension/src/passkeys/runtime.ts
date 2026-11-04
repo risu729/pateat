@@ -3,6 +3,7 @@ import { senderDocumentOrigin } from "../messaging/sender";
 import { createPasskeyAssertion } from "./assertion";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import { admitGetRequest, describeInvalidRequest } from "./request";
+import { needsRelatedOrigins, type RelatedOrigins } from "./related-origins";
 import {
   matchingPasskeys,
   selectPasskey,
@@ -45,6 +46,11 @@ export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCand
     signal: AbortSignal,
     only?: PasskeyItem,
   ): Promise<PasskeyCandidates<TCandidate> | undefined>;
+  /**
+   * The RP IDs of the item's stored passkeys, each once, for a related origins check (ADR
+   * 0084); undefined when they cannot be read, as in a locked vault.
+   */
+  rpIds?(item: PasskeyItem): Promise<readonly string[] | undefined>;
   sign(
     candidate: TCandidate,
     authenticatorData: Uint8Array<ArrayBuffer>,
@@ -356,6 +362,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       incognito: boolean;
     }) => Promise<ConditionalDecision>;
     /**
+     * Reads whether an RP lists the page's origin, for a request whose RP ID belongs to
+     * another site (WebAuthn related origins, ADR 0084). Without it such a request is handed
+     * on, as before.
+     */
+    relatedOrigins?: RelatedOrigins;
+    /**
      * Holds vault replacement off while the vault is read and signed with for a request,
      * until the returned function is called (ADR 0025).
      */
@@ -379,7 +391,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
    * Requests still reading the device's policy, before they become operations: a page's
    * cancel that arrives meanwhile is kept here, so it is not lost.
    */
-  const reading = new Map<string, { documentId: string; cancelled: boolean }>();
+  const reading = new Map<string, { documentId: string; cancelled: boolean; related?: true }>();
   const settingsChanged = () => {
     for (const [id, operation] of operations) {
       // A person deciding is not interrupted; their choice is checked against the new settings.
@@ -389,6 +401,50 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       operation.cancelledBy ??= "settings-changed";
       operation.controller.abort();
       operations.delete(id);
+    }
+  };
+
+  /**
+   * At most one RP list is read for a document at a time, and at most
+   * `MAX_DOCUMENT_OPERATIONS` across documents (ADR 0084), so a page cannot keep the worker
+   * fetching.
+   */
+  const relatedReadAllowed = (documentId: string) => {
+    const related = [...reading.values()].filter((entry) => entry.related);
+    return (
+      related.length < MAX_DOCUMENT_OPERATIONS &&
+      !related.some((entry) => entry.documentId === documentId)
+    );
+  };
+  /**
+   * Whether a request naming `rpId`, an RP ID of another site, may be answered as one of
+   * that RP ID (ADR 0084): only a request that admission refuses for that RP ID alone, on a
+   * page whose passkeys are not left to the browser, while the vault holds a passkey with
+   * that RP ID, and then only when the RP's list names the page. The page therefore never
+   * picks a host to fetch from that the vault does not already name.
+   */
+  const relatedRpIdFor = async (
+    origin: string,
+    rpId: string,
+    message: { request: unknown; userActivation: boolean },
+    policy: PasskeyPolicy,
+  ) => {
+    const plain = admitGetRequest({
+      origin,
+      request: message.request,
+      userActivation: message.userActivation,
+      policy,
+      conditional: options.conditional !== undefined,
+    });
+    if (plain.kind !== "delegate" || plain.reason !== "rp-id-mismatch") return false;
+    try {
+      if (options.browserSite && (await options.browserSite(origin))) return false;
+      // Never aborted: the vault source does not cancel host queries.
+      const held = await source.candidates(origin, rpId, new AbortController().signal);
+      if (!held?.candidates.some((candidate) => candidate.rpId === rpId)) return false;
+      return await options.relatedOrigins!.allows(origin, rpId);
+    } catch {
+      return false;
     }
   };
 
@@ -403,11 +459,27 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     if (operations.has(message.operationId) || reading.has(message.operationId))
       return { kind: "delegate", reason: "busy" };
     // Read before the limits below, so no wait falls between counting and adding.
-    const pending = { documentId, cancelled: false };
+    const pending: { documentId: string; cancelled: boolean; related?: true } = {
+      documentId,
+      cancelled: false,
+    };
     reading.set(message.operationId, pending);
     let policy: PasskeyPolicy;
+    let relatedRpId: string | undefined;
     try {
       policy = (await options.policy?.(origin)) ?? INITIAL_PASSKEY_POLICY;
+      const requested = (message.request as { rpId?: unknown } | null)?.rpId;
+      if (
+        options.relatedOrigins &&
+        typeof requested === "string" &&
+        needsRelatedOrigins(origin, requested) &&
+        relatedReadAllowed(documentId)
+      ) {
+        pending.related = true;
+        relatedRpId = (await relatedRpIdFor(origin, requested, message, policy))
+          ? requested
+          : undefined;
+      }
     } finally {
       reading.delete(message.operationId);
     }
@@ -430,6 +502,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       userActivation: message.userActivation,
       policy,
       conditional: options.conditional !== undefined,
+      ...(relatedRpId === undefined ? {} : { relatedRpId }),
     });
     if (admission.kind === "delegate") {
       if (admission.reason === "invalid-request") {

@@ -916,6 +916,48 @@ describe("fixed operations, session scope and reply fencing", () => {
     expect(await signed).toEqual({ ok: true, data: passkeySignature });
   });
 
+  it("lists one item's passkey RP IDs inside the Worker and checks the reply's scope (ADR 0084)", async () => {
+    const h = harness();
+    const session = await h.open();
+    const rpIds = {
+      connectionId,
+      userId: accountUserId,
+      snapshotId,
+      itemId,
+      rpIds: ["openai.com"],
+    };
+    const listing = h.host.passkeyRpIds(session, itemId.toUpperCase());
+    const command = await h.command(1);
+    expect(command.operation).toEqual({
+      kind: "passkey-rp-ids",
+      session,
+      itemId: itemId.toUpperCase(),
+    });
+    h.reply(command, { ok: true, data: rpIds });
+    expect(await listing).toEqual({ ok: true, data: rpIds });
+    expect(h.commands).toHaveLength(2);
+  });
+
+  it.each([
+    { itemId: crypto.randomUUID() },
+    { snapshotId: crypto.randomUUID() },
+    { rpIds: ["openai.com", "openai.com"] },
+    { rpIds: ["x".repeat(254)] },
+    { keyValue: "synthetic-key" },
+  ])(
+    "locks the session on a passkey RP ID reply for another scope or shape case %#",
+    async (change) => {
+      const h = harness();
+      const session = await h.open();
+      const pending = h.host.passkeyRpIds(session, itemId);
+      h.reply(await h.command(1), {
+        ok: true,
+        data: { connectionId, userId: accountUserId, snapshotId, itemId, rpIds: [], ...change },
+      });
+      expect(await pending).toEqual({ ok: false, error: { code: "crypto-locked" } });
+    },
+  );
+
   it("sends a master password check to the session's Worker and returns its answer", async () => {
     const h = harness();
     const session = await h.open();

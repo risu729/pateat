@@ -650,6 +650,10 @@ describe("vault passkey source", () => {
     const manager = {
       status: () => ({ handle: "handle" in overrides ? overrides.handle : { synthetic: true } }),
       findPasskeys: vi.fn(async () => ({ ok: true as const, data: matches([first]) })),
+      passkeyRpIds: vi.fn(async (_handle: unknown, itemId: string) => ({
+        ok: true as const,
+        data: { connectionId: "live", userId, snapshotId, itemId, rpIds: ["openai.com"] },
+      })),
       verifyMasterPassword: vi.fn(async (_handle: unknown, password: string) => ({
         ok: true as const,
         data: { matches: password === "right" },
@@ -705,6 +709,26 @@ describe("vault passkey source", () => {
     );
     // The runtime's per-request signal never reaches the vault manager.
     expect(manager.signPasskey.mock.calls[0]).toHaveLength(2);
+  });
+
+  it("reads an item's passkey RP IDs from its own connection's open vault (ADR 0084)", async () => {
+    const { source, manager } = runtime([saved()]);
+    expect(await source.rpIds!({ connectionId: "live", itemId: first })).toEqual(["openai.com"]);
+    expect(manager.passkeyRpIds).toHaveBeenCalledWith({ synthetic: true }, first);
+    // An answer for another connection, a failure or a closed vault gives none.
+    manager.passkeyRpIds.mockResolvedValueOnce({
+      ok: true as const,
+      data: { connectionId: "other", userId, snapshotId, itemId: first, rpIds: ["openai.com"] },
+    });
+    expect(await source.rpIds!({ connectionId: "live", itemId: first })).toBeUndefined();
+    manager.passkeyRpIds.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "crypto-locked" },
+    } as never);
+    expect(await source.rpIds!({ connectionId: "live", itemId: first })).toBeUndefined();
+    const closed = runtime([saved()], { handle: undefined });
+    expect(await closed.source.rpIds!({ connectionId: "live", itemId: first })).toBeUndefined();
+    expect(closed.manager.passkeyRpIds).not.toHaveBeenCalled();
   });
 
   it("marks a re-prompt passkey only on a site that asks, and checks its master password", async () => {

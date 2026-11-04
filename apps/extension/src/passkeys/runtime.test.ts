@@ -67,6 +67,150 @@ describe("passkey runtime sender binding", () => {
     expect(clientData.origin).toBe(origin);
   });
 
+  it("answers another site's RP ID only when that RP lists the page's origin (ADR 0084)", async () => {
+    const chatgpt = "https://chatgpt.com";
+    const page = sender({ origin: chatgpt, url: `${chatgpt}/auth/login` });
+    const related = { ...get(), request: { ...request, rpId: "openai.com" } };
+    const backing = source({
+      candidates: vi.fn(async () => ({
+        candidates: [{ ...candidate, rpId: "openai.com" }],
+        complete: true,
+      })),
+    });
+    expect(await createPasskeyRuntime(backing, { extensionId }).handle(related, page)).toEqual({
+      kind: "delegate",
+      reason: "rp-id-mismatch",
+    });
+    const allows = vi.fn(async (_origin: string, rpId: string) => rpId === "openai.com");
+    const runtime = createPasskeyRuntime(backing, { extensionId, relatedOrigins: { allows } });
+    const result = await runtime.handle(related, page);
+    expect(result).toMatchObject({ kind: "assertion", assertion: { credentialId: "AQID" } });
+    expect(allows).toHaveBeenCalledWith(chatgpt, "openai.com");
+    expect(backing.candidates).toHaveBeenCalledWith(chatgpt, "openai.com", expect.any(AbortSignal));
+    const clientData = JSON.parse(
+      atob(
+        (result as { assertion: { clientDataJSON: string } }).assertion.clientDataJSON
+          .replace(/-/gu, "+")
+          .replace(/_/gu, "/"),
+      ),
+    );
+    expect(clientData).toMatchObject({ origin: chatgpt, crossOrigin: false });
+    // The signature covers openai.com's RP ID hash.
+    const authenticatorData = Uint8Array.from(
+      atob(
+        (result as { assertion: { authenticatorData: string } }).assertion.authenticatorData
+          .replace(/-/gu, "+")
+          .replace(/_/gu, "/"),
+      ),
+      (character) => character.charCodeAt(0),
+    );
+    const rpIdHash = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode("openai.com")),
+    );
+    expect(authenticatorData.subarray(0, 32)).toEqual(rpIdHash);
+    // An RP that does not list the page, and one the page may use anyway, are not asked again.
+    expect(
+      await runtime.handle(
+        {
+          ...related,
+          operationId: crypto.randomUUID(),
+          request: { ...request, rpId: "example.net" },
+        },
+        page,
+      ),
+    ).toEqual({ kind: "delegate", reason: "rp-id-mismatch" });
+    allows.mockClear();
+    const own = createPasskeyRuntime(source(), { extensionId, relatedOrigins: { allows } });
+    expect(await own.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(allows).not.toHaveBeenCalled();
+  });
+
+  it("reads an RP's list only for a passkey the vault holds, on a page not left to the browser (ADR 0084)", async () => {
+    const chatgpt = "https://chatgpt.com";
+    const page = sender({ origin: chatgpt, url: `${chatgpt}/` });
+    const related = () => ({
+      ...get(),
+      request: { ...request, rpId: "openai.com" },
+    });
+    const allows = vi.fn(async () => true);
+    // The vault holds no passkey of openai.com: the page cannot pick a host to fetch.
+    const none = createPasskeyRuntime(
+      source({ candidates: vi.fn(async () => ({ candidates: [candidate], complete: true })) }),
+      { extensionId, relatedOrigins: { allows } },
+    );
+    expect(await none.handle(related(), page)).toEqual({
+      kind: "delegate",
+      reason: "rp-id-mismatch",
+    });
+    expect(allows).not.toHaveBeenCalled();
+    const held = () =>
+      source({
+        candidates: vi.fn(async () => ({
+          candidates: [{ ...candidate, rpId: "openai.com" }],
+          complete: true,
+        })),
+      });
+    // "Always for this site", and a request refused for another reason, read no list.
+    const listed = createPasskeyRuntime(held(), {
+      extensionId,
+      relatedOrigins: { allows },
+      browserSite: () => true,
+    });
+    expect(await listed.handle(related(), page)).toMatchObject({ kind: "delegate" });
+    const runtime = createPasskeyRuntime(held(), { extensionId, relatedOrigins: { allows } });
+    expect(
+      await runtime.handle(
+        { ...related(), request: { ...request, rpId: "openai.com", mediation: "silent" } },
+        page,
+      ),
+    ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
+    expect(allows).not.toHaveBeenCalled();
+    // A list that cannot be read hands the request on.
+    allows.mockRejectedValueOnce(new Error("offline"));
+    expect(await runtime.handle(related(), page)).toEqual({
+      kind: "delegate",
+      reason: "rp-id-mismatch",
+    });
+  });
+
+  it("keeps a page's cancel that arrives while an RP's list is read (ADR 0084)", async () => {
+    let listed!: (allowed: boolean) => void;
+    const backing = source({
+      candidates: vi.fn(async () => ({
+        candidates: [{ ...candidate, rpId: "openai.com" }],
+        complete: true,
+      })),
+    });
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      relatedOrigins: {
+        allows: () =>
+          new Promise<boolean>((resolve) => {
+            listed = resolve;
+          }),
+      },
+    });
+    const operationId = crypto.randomUUID();
+    const page = sender({ origin: "https://chatgpt.com", url: "https://chatgpt.com/" });
+    const pending = runtime.handle(
+      { ...get(operationId), request: { ...request, rpId: "openai.com" } },
+      page,
+    );
+    await vi.waitFor(() => expect(listed).toBeTypeOf("function"));
+    // One list at a time for a document: another request of it is handed on meanwhile.
+    expect(
+      await runtime.handle({ ...get(), request: { ...request, rpId: "openai.com" } }, page),
+    ).toEqual({ kind: "delegate", reason: "rp-id-mismatch" });
+    expect(await runtime.handle({ version: 1, type: "passkey.cancel", operationId }, page)).toEqual(
+      { ok: true },
+    );
+    listed(true);
+    expect(await pending).toEqual({ kind: "cancelled" });
+    // Only the check for a held passkey searched; nothing was answered.
+    expect(backing.candidates).toHaveBeenCalledTimes(1);
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["another extension", { id: "other" }],
     ["a subframe", { frameId: 3 }],

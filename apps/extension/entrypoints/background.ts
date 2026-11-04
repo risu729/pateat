@@ -30,6 +30,7 @@ import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createPasskeyCreateHandler } from "../src/passkeys/create";
 import { createProbePasskeySource } from "../src/passkeys/probe";
 import { readPasskeyPolicy } from "../src/passkeys/policy";
+import { createRelatedOrigins } from "../src/passkeys/related-origins";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { SETTINGS_STORAGE_KEY } from "../src/settings";
@@ -429,6 +430,8 @@ export default defineBackground(() => {
   };
   const vaultFields = createVaultFieldSource(connections);
   const vaultPasskeys = createVaultPasskeySource(connections);
+  // ADR 0084: RP lists of related origins, shared by logins and passkey requests.
+  const relatedOrigins = createRelatedOrigins();
   // Automatic vault sync (ADR 0025): a revision check on page events and every five
   // minutes; the full sync and its replacement wait for logins and passkey requests.
   const vaultSync = createVaultAutoSync({
@@ -526,7 +529,8 @@ export default defineBackground(() => {
     // ADR 0041: a generated recipe whose start page no longer matches is repaired.
     repairs: createRecipeRepairs(createBrowserRecipeRepairStorage()),
     // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
-    passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
+    // ADR 0084: also a passkey of another site's RP ID that lists the page's origin.
+    passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account, relatedOrigins),
     // ADR 0034: a popup choice keeps the page's request only when an item holds a passkey.
     passkeyItems: (origin) => originPasskeyItems(vaultPasskeys, origin),
     // ADR 0007: a hostname chosen "Always" counts as listed while its write waits.
@@ -688,6 +692,7 @@ export default defineBackground(() => {
       })
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
+        relatedOrigins,
         // ADR 0007: presence and verification as the profile's setting says, read per request.
         policy: () => readPasskeyPolicy(async () => (await settings.read()).settings),
         // Only the local log keeps it; the page never learns why.

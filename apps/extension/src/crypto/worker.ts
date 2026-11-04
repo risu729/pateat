@@ -17,7 +17,12 @@ import { loadBrowserCryptoSdk } from "@pateat/bitwarden/browser-sdk";
 import { customFieldsDigest, importDigestKey } from "./custom-digest";
 import { countsOnHttpPage, pageMatches } from "./http-page";
 import { createRegexRunner } from "./regex";
-import { findStoredPasskeys, selectPasskeyItem, signStoredPasskey } from "./passkey";
+import {
+  findStoredPasskeys,
+  selectPasskeyItem,
+  signStoredPasskey,
+  storedPasskeyRpIds,
+} from "./passkey";
 import {
   commandSchema,
   type CustomDigests,
@@ -360,7 +365,7 @@ async function execute(command: HostCommand) {
     }
     return { ok: true as const, data: { digests } };
   }
-  if (op.kind === "passkey-find" || op.kind === "passkey-sign") {
+  if (op.kind === "passkey-find" || op.kind === "passkey-rp-ids" || op.kind === "passkey-sign") {
     const binding = {
       connectionId: owned.ref.connectionId,
       userId: owned.ref.userId,
@@ -368,6 +373,8 @@ async function execute(command: HostCommand) {
     };
     if (op.kind === "passkey-find")
       return findStoredPasskeys(owned.session, binding, owned, op.rpId);
+    if (op.kind === "passkey-rp-ids")
+      return storedPasskeyRpIds(owned.session, binding, owned, op.itemId);
     const item = selectPasskeyItem(owned, op.itemId);
     if (!item.ok) return item;
     return signStoredPasskey(owned.session, binding, item.data.itemId, item.data.cipher, op);

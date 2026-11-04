@@ -180,6 +180,31 @@ export async function findStoredPasskeys(
 }
 
 /**
+ * The RP IDs of one verified live login item's stored passkeys, each once, for a related
+ * origins check (ADR 0084). An item without a stored passkey has none; one whose passkey
+ * metadata cannot be read fails for that item only. Only secret-free metadata is returned.
+ */
+export async function storedPasskeyRpIds(
+  session: LocalCryptoSession,
+  binding: PasskeyBinding,
+  source: PasskeyItemSource,
+  itemId: string,
+): Promise<
+  BitwardenResult<PasskeyBinding & { readonly itemId: string; readonly rpIds: readonly string[] }>
+> {
+  const item = selectPasskeyItem(source, itemId);
+  if (!item.ok) return item;
+  const done = (rpIds: readonly string[]) => ({
+    ok: true as const,
+    data: Object.freeze({ ...binding, itemId: item.data.itemId, rpIds: Object.freeze(rpIds) }),
+  });
+  if (!storesPasskey(item.data.cipher)) return done([]);
+  const listed = await listStoredPasskeys(session, binding, item.data.itemId, item.data.cipher);
+  if (!listed.ok) return listed;
+  return done([...new Set(listed.data.map((credential) => credential.rpId))]);
+}
+
+/**
  * Sign one assertion with the item's stored key. The Worker re-derives the credential and checks
  * that the data is a zero-counter assertion for that credential's RP ID, so this cannot be used
  * as a general signing service. The private key is imported non-extractable and never returned.

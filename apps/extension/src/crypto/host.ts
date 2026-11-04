@@ -22,12 +22,14 @@ import {
   progressSchema,
   replySchema,
   passkeyMatchesSchema,
+  passkeyRpIdsSchema,
   passkeySignatureSchema,
   sessionSchema,
   uriCandidatesSchema,
   type CustomDigests,
   type LoginUsernames,
   type HostOperation,
+  type PasskeyRpIds,
   type UriCandidates,
   type HostSessionRef,
   type HostUnlock,
@@ -391,6 +393,21 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           !checked.success ||
           Object.keys(checked.output.usernames).length !== requested.length ||
           !requested.every((id) => Object.hasOwn(checked.output.usernames, id))
+        ) {
+          cancelOwned(parsed.output.requestId, "crypto-locked");
+          return;
+        }
+      }
+      if (job.operation.kind === "passkey-rp-ids") {
+        const operation = job.operation;
+        const listed = v.safeParse(passkeyRpIdsSchema, result.data);
+        if (
+          !listed.success ||
+          listed.output.connectionId !== job.connectionId ||
+          listed.output.userId !== operation.session.userId ||
+          listed.output.snapshotId !== operation.session.snapshotId ||
+          listed.output.itemId !== operation.itemId.toLowerCase() ||
+          !unique(listed.output.rpIds)
         ) {
           cancelOwned(parsed.output.requestId, "crypto-locked");
           return;
@@ -878,6 +895,14 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       return request<PasskeyMatches>(
         session.connectionId,
         { kind: "passkey-find", session, rpId },
+        signal,
+      );
+    },
+    /** The RP IDs of one live login item's stored passkeys, each once (ADR 0084). */
+    passkeyRpIds(session: HostSessionRef, itemId: string, signal?: AbortSignal) {
+      return request<PasskeyRpIds>(
+        session.connectionId,
+        { kind: "passkey-rp-ids", session, itemId },
         signal,
       );
     },

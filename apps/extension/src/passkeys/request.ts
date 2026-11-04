@@ -160,6 +160,8 @@ export function describeInvalidRequest(request: unknown): InvalidRequestReport |
  * page data. Anything not explicitly supported delegates to the browser's own implementation.
  * The policy decides whether a gesture or UV requirement limits admission. `conditional`
  * mediation is admitted only for a caller that answers it through a login (ADR 0034).
+ * `relatedRpId` is an RP ID the caller found the RP lists the origin for (WebAuthn related
+ * origins, ADR 0084); a request naming that RP ID is admitted as one the origin may use.
  */
 export function admitGetRequest(input: {
   readonly origin: string;
@@ -167,6 +169,7 @@ export function admitGetRequest(input: {
   readonly userActivation: boolean;
   readonly policy: PasskeyPolicy;
   readonly conditional?: boolean;
+  readonly relatedRpId?: string;
 }): Admission {
   // Gates compare against the permissive value so an unknown stored setting fails closed.
   const parsed = v.safeParse(bridgedGetRequestSchema, input.request);
@@ -188,7 +191,14 @@ export function admitGetRequest(input: {
     return { kind: "delegate", reason: "immediate-allow-credentials" };
   if (request.userVerification === "required" && input.policy.verification !== "always")
     return { kind: "delegate", reason: "user-verification-required" };
-  const rpId = resolveRpId(input.origin, request.rpId);
+  const resolved = resolveRpId(input.origin, request.rpId);
+  const rpId =
+    !resolved.ok &&
+    resolved.reason === "rp-id-mismatch" &&
+    request.rpId !== undefined &&
+    request.rpId === input.relatedRpId
+      ? { ok: true as const, rpId: request.rpId }
+      : resolved;
   if (!rpId.ok) return { kind: "delegate", reason: rpId.reason };
   // Unknown descriptor types are skipped, as the client algorithm requires.
   const allowed = request.allowCredentials.filter((entry) => entry.type === "public-key");

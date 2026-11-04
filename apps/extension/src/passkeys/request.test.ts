@@ -148,6 +148,49 @@ describe("request admission", () => {
     });
   });
 
+  it("admits another site's RP ID only when the caller found the RP lists the origin (ADR 0084)", () => {
+    const related = (request: unknown, relatedRpId?: string) =>
+      admitGetRequest({
+        origin: "https://chatgpt.com",
+        request,
+        userActivation: true,
+        policy: INITIAL_PASSKEY_POLICY,
+        ...(relatedRpId === undefined ? {} : { relatedRpId }),
+      });
+    expect(related({ ...base, rpId: "openai.com" })).toEqual({
+      kind: "delegate",
+      reason: "rp-id-mismatch",
+    });
+    expect(related({ ...base, rpId: "openai.com" }, "openai.com")).toMatchObject({
+      kind: "claim",
+      request: { origin: "https://chatgpt.com", rpId: "openai.com" },
+    });
+    // Only the RP ID that was checked, and never one that is no valid domain.
+    expect(related({ ...base, rpId: "example.net" }, "openai.com")).toEqual({
+      kind: "delegate",
+      reason: "rp-id-mismatch",
+    });
+    expect(related({ ...base, rpId: "OpenAI.com" }, "OpenAI.com")).toEqual({
+      kind: "delegate",
+      reason: "invalid-rp-id",
+    });
+    // A request without an RP ID uses the page's own host.
+    expect(related(base, "openai.com")).toMatchObject({
+      kind: "claim",
+      request: { rpId: "chatgpt.com" },
+    });
+    // The rest of admission still applies.
+    expect(
+      admitGetRequest({
+        origin: "https://chatgpt.com",
+        request: { ...base, rpId: "openai.com" },
+        userActivation: false,
+        policy: ceremony,
+        relatedRpId: "openai.com",
+      }),
+    ).toEqual({ kind: "delegate", reason: "no-user-activation" });
+  });
+
   it("asserts UP and UV without a gesture under the initial policy", () => {
     expect(admit({ ...base, userVerification: "required" }, false)).toMatchObject({
       kind: "claim",
