@@ -907,7 +907,6 @@ export function instantBefore(left: string, right: string): boolean {
   return a !== undefined && b !== undefined && a < b;
 }
 
-
 /** Whether the popup shows its "This page" section: unless the settings hide it. */
 export const popupPageSectionShown = (settings: Pick<LocalSettings, "popupPageSection">) =>
   settings.popupPageSection !== false;
