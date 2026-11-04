@@ -1537,6 +1537,56 @@ function leftOutInputs(document: Document): boolean {
   return false;
 }
 
+/** The ARIA widget roles a signed-in page's marker may be besides links and buttons. */
+const markerWidgetRoles = new Set([
+  "tab",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "treeitem",
+  "link",
+]);
+/**
+ * A signed-in page's ARIA widgets that `describe` does not accept (ADR 0029 amendment of
+ * 2026-11-04): a shown element whose first role is a tab, menu item, tree item or link,
+ * as Notion's sidebar `<div role="tab" id="sidebar-tab-default-home">` is, that is no
+ * native control, `<a>`, script button or part of a link, and holds no `<a>`, control or
+ * `role="button"` element, in its shadow tree either, that would be described itself. It is drafted as a link, which no step or handler
+ * presses, and a marker takes it only by an attribute (`markerWidgetTarget`).
+ */
+function markerWidgets(document: Document): Draft[] {
+  return queryAll<HTMLElement>(document, "[role]").flatMap((element) => {
+    const role = element.getAttribute("role")!.trim().toLowerCase().split(/\s+/u)[0];
+    if (
+      role === undefined ||
+      !markerWidgetRoles.has(role) ||
+      !(element instanceof HTMLElement) ||
+      element instanceof HTMLAnchorElement ||
+      element.matches(controls) ||
+      isScriptButton(element) ||
+      closestAcross(element, "a[href]") !== null ||
+      queryAll(element, `a, [role~='button' i], ${controls}`).length > 0 ||
+      presence(element) !== "visible"
+    )
+      return [];
+    const label = actionLabel(element);
+    return [{ element, role: "link" as const, ...(label ? { label } : {}) }];
+  });
+}
+
+/**
+ * The locator of a signed-in page's ARIA widget (`markerWidgets`): an attribute that names
+ * it alone as a marker's would (`locate` with `lasting`), never its text, as a marker's
+ * text is looked up among links and buttons only, and never an ID shaped like a render
+ * counter (`counterId`), as a widget library numbers its tabs (`headlessui-tabs-tab-1`).
+ */
+function markerWidgetTarget(element: Element, index: LocatorIndex): LoginMarkerTarget | undefined {
+  const target = locate(element, index, { redactAttributes: true, lasting: true, hidden: true });
+  if (!target || target.by === "text") return undefined;
+  const ids = [target, ...("within" in target ? (target.within ?? []) : [])];
+  return ids.some((named) => named.by === "id" && counterId(named.value)) ? undefined : target;
+}
+
 /**
  * Every element the page shows that `describe` accepts, in document order, shadow trees
  * included (ADR 0070).
@@ -2702,7 +2752,9 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * that nothing else names alone, or a link to a fragment of the page, that may go on to
  * the password is located by its accessible name (`passwordChoiceTarget`), such a link as a
  * `button`, so the judge can name it as a `password` handler's button (ADR 0048
- * amendment of 2026-10-19); no other page's description uses that locator. A path
+ * amendment of 2026-10-19); no other page's description uses that locator. A shown tab,
+ * menu item, tree item or link widget an attribute names is a `link` candidate too
+ * (`markerWidgets`, ADR 0029 amendment of 2026-11-04). A path
  * segment that may carry a token is sent as `REDACTED_PATH_SEGMENT` (`observedPath`). A
  * page with a code field also carries up to three texts near the first one
  * (`nearCodeTexts`), and a page without one up to three texts near its buttons
@@ -2841,7 +2893,20 @@ function describeSignedIn(document: Document): ObservationResult {
       },
     ];
   });
-  const ranked = byLandmark(markersFound, openModals(document));
+  // A tab, menu item or tree item an attribute names may be a marker too (ADR 0029
+  // amendment of 2026-11-04), in document order among the links and buttons.
+  const widgetsFound = markerWidgets(document).flatMap((draft) => {
+    const target = markerWidgetTarget(draft.element, index);
+    return target
+      ? [{ form: closestAcross(draft.element, "form") as HTMLFormElement | null, draft, target }]
+      : [];
+  });
+  const ranked = byLandmark(
+    [...markersFound, ...widgetsFound].sort((left, right) =>
+      composedOrder(left.draft.element, right.draft.element),
+    ),
+    openModals(document),
+  );
   const fieldsShown = [...fieldsFound, ...selectsFound].slice(0, maxCandidates);
   const chosen = [
     ...fieldsShown,

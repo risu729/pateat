@@ -749,3 +749,50 @@ The agent's choices, not part of the card:
   page showed it. A site that answers in the same document with a later step and an
   error, or with the form on another path, is not corrected; such a page is a logout as
   before.
+
+## Amendment: ARIA widgets an attribute names (2026-11-04)
+
+On Notion's signed-in workspace (`app.notion.com/p/risu729/[id]`, judge request
+`01a1a699-7657-7032-b880-041dfe7e8b5c` at 12:47 UTC) the judge answered `unclear`, and
+rightly: every candidate was a sidebar link named by one of the person's own page
+titles, which no marker may hold. The sidebar's fixed items were never candidates. The
+owner's Chrome read them at 12:55 UTC: Home, Chat and Meetings are
+`<div role="tab" tabindex="0" id="sidebar-tab-default-home" aria-label="Home">` (and
+`…-chats`, `…-meetings`), whose IDs stayed the same after a reload and with the sidebar
+collapsed, where the elements stay in the page and visible to `checkVisibility()`;
+Library, Connections and "Customise sidebar" are `<div role="button">` with only an
+`aria-label`. The description read neither: it accepted no `role="tab"` element at all,
+and it locates a `role="button"` element by its text only on a code page or for the
+authenticator app's choice.
+
+The owner chose on a decision card at 13:01 UTC (option A) that a signed-in page's
+description also offers a shown ARIA widget whose first role is `tab`, `menuitem`,
+`menuitemcheckbox`, `menuitemradio`, `treeitem` or `link` (`markerWidgets` in
+`apps/extension/src/observation/extract.ts`). It is no `<a>`, native control or script
+button and is inside no `<a href>`, and it holds no `<a>`, control or `role="button"`
+element, in its shadow tree either, since such an element is described itself. It is
+offered only when an attribute names it as a marker's would (`data-testid`, `data-test`,
+an `id` or `name`; never an ID React generated, another load may change or shaped like a
+render counter, such as `headlessui-tabs-tab-1`), never by its text, and is drafted as a
+`link`, in document order among the page's links and buttons, so it ranks with them by
+landmark and counts towards the 48 candidates. Notion's marker is then
+`{ "by": "id", "value": "sidebar-tab-default-home" }`.
+
+- The executor does not change: an attribute locator names any element, and a marker is
+  read as `shown` once, hidden copies counted, as before.
+- It is drafted as a link because the judge's instructions say a password, authenticator
+  or passkey button is never a link: a method chooser's tab could otherwise be named as
+  such a button, which the executor does not count as clickable.
+- Only the signed-in page's description offers them; a login page's, an entry's and a
+  logout page's descriptions are unchanged. A signed-in page that shows only such
+  widgets is now described rather than `no-candidates`, so a watched page with them is
+  judged.
+- A widget's text is not used, as option B on the card would have, since a marker's text
+  is looked up among buttons and links only (`findTargets` with `links`), the lookup an
+  account switch and the logout controls share, where a menu's or toggle's text would
+  stand in for a link.
+- An ID is not checked against the header's words as a link's path is: Notion's header
+  shows "Home" and "Customise sidebar", which would refuse `sidebar-tab-default-home`.
+  An ID that names the person is left to the judge, as a text marker is.
+- A generic ID a signed-out page shows too (`tab-overview`) would match there, the same
+  weakness as a text marker such as "マイページ".

@@ -4368,6 +4368,108 @@ describe("extractSignedInObservation", () => {
       ]);
     });
   });
+
+  describe("ARIA widgets an attribute names (ADR 0029 amendment of 2026-11-04)", () => {
+    // Notion's signed-in sidebar in the owner's Chrome on 2026-11-04: its fixed items are
+    // `<div role="tab">` with a stable ID, or `<div role="button">` with only a label,
+    // beside links named by the person's own page titles.
+    const sidebar = (extra = "") =>
+      page(
+        `<nav>
+          <div role="tablist" aria-label="Sidebar">
+            <div role="tab" tabindex="0" id="sidebar-tab-default-home" aria-label="Home"
+              aria-selected="true"><span>Home</span></div>
+            <div role="tab" tabindex="0" id=":r7m:" aria-label="Chat"><span>Chat</span></div>
+          </div>
+          <div role="button" tabindex="0" aria-label="Library">Library</div>
+          <a href="/p/risu729/cf-scoped-token-0123456789abcdef0123456789abcdef">cf scoped token</a>
+          ${extra}
+        </nav><main><h1>cf scoped token</h1></main>`,
+        "cf scoped token | Notion",
+      );
+    const home = { by: "id", value: "sidebar-tab-default-home" } as const;
+
+    it("offers a tab by its ID as a link, never a widget by its text", () => {
+      sidebar();
+      expect(summary(signedIn())).toEqual([
+        { role: "link", target: home, label: "Home" },
+        {
+          role: "link",
+          target: { by: "text", value: "cf scoped token" },
+          label: "cf scoped token",
+        },
+      ]);
+      // The marker's lookup finds it with no change.
+      expect(findTargets(document, home, { links: true, hidden: true })).toEqual([
+        document.getElementById("sidebar-tab-default-home"),
+      ]);
+    });
+
+    it("offers a menu item, tree item or link widget, and leaves out what holds a link", () => {
+      sidebar(
+        `<div role="menuitem" id="settings-menu" tabindex="0">Settings</div>
+        <div role="treeitem" id="tree-root" tabindex="0">Workspace</div>
+        <span role="link" data-testid="inbox-link" tabindex="0">Inbox</span>
+        <div role="treeitem" id="wrapped-item"><a href="/trash">Trash</a></div>
+        <div role="tab" id="hidden-tab" style="display:none">Hidden</div>
+        <div role="option" id="some-option">Option</div>`,
+      );
+      expect(summary(signedIn()).map(({ target }) => target)).toEqual([
+        home,
+        { by: "text", value: "cf scoped token" },
+        { by: "id", value: "settings-menu" },
+        { by: "id", value: "tree-root" },
+        { by: "test-id", value: "inbox-link" },
+        // The link inside the tree item, which is left out itself.
+        { by: "text", value: "Trash" },
+      ]);
+    });
+
+    it("leaves out a widget that holds a control, and reads only its first role", () => {
+      sidebar(
+        `<div role="tab" id="with-button"><button id="inner-button">Close</button></div>
+        <div role="tab" id="with-role-button"><span role="button">Pin</span></div>
+        <div role="menuitem" id="with-shadow"></div>
+        <div role="option tab" id="option-first">Option</div>
+        <div role="tab option" name="tab-first">First</div>`,
+      );
+      shadow("#with-shadow", `<button>Open</button>`);
+      expect(summary(signedIn()).map(({ target }) => target)).toEqual([
+        home,
+        { by: "text", value: "cf scoped token" },
+        // The controls inside are described themselves; a role button only on a code page.
+        { by: "id", value: "inner-button" },
+        { by: "text", value: "Open" },
+        { by: "name", value: "tab-first" },
+      ]);
+    });
+
+    it("never names one by an ID shaped like a render counter", () => {
+      sidebar(`<div role="tab" id="headlessui-tabs-tab-1" tabindex="0">Billing</div>`);
+      expect(summary(signedIn()).map(({ target }) => target)).toEqual([
+        home,
+        { by: "text", value: "cf scoped token" },
+      ]);
+    });
+
+    it("never names one by an ID two elements share", () => {
+      sidebar(`<div role="tab" id="sidebar-tab-default-home" style="display:none">Home</div>`);
+      expect(summary(signedIn()).map(({ target }) => target)).toEqual([
+        { by: "text", value: "cf scoped token" },
+      ]);
+    });
+
+    it("is never offered on a login page", () => {
+      page(
+        `<form><div role="tab" id="tab-email" tabindex="0">Email</div>
+          <input id="user" autocomplete="username"><button id="go">Next</button></form>`,
+      );
+      expect(summary(observe()).map(({ target }) => target)).toEqual([
+        { by: "id", value: "user" },
+        { by: "id", value: "go" },
+      ]);
+    });
+  });
 });
 
 describe("extractAccountListObservation", () => {
