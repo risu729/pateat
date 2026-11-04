@@ -97,6 +97,11 @@ browser.
   that lists the item's RP and still asks for its own RP ID, or a list that can no
   longer be read when the page asks, hands the request to the browser where the login
   used to stop at `password-empty:no-passkey`.
+- Any page can name another site's RP ID and time Pateat's answer: when the vault holds
+  a passkey of that RP ID, Pateat reads its list before handing the request on, once in
+  ten minutes. Chrome reads the list either way, so the delay tells the page that the
+  vault holds such a passkey (chosen by an agent, to keep a page from choosing hosts for
+  Pateat to fetch).
 - The first login of such an item on a site waits for the RP's list, up to 5 seconds per
   RP ID.
 - Verify with `related-origins.test.ts`, `request.test.ts`, `runtime.test.ts`,
