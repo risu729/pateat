@@ -164,8 +164,8 @@ shadow root on a `<div>` it strips of every attribute and keeps as the body's la
 (the `<html>` element's when there is no body).
 
 **Decision** (Claude, 2026-11-04, built as the owner allowed on 2026-10-23 05:28 UTC; it
-narrows the owner's choice of 2026-10-23 above that no root is skipped, for the reason
-below):
+replaces the rule above that no root is skipped, on its merits; the owner agreed at
+12:27 UTC to read no `chrome-extension://` URL):
 
 - A closed shadow root is no part of the page when its host sits right under the
   `<body>` or the `<html>` element and is no custom element the page defined
@@ -200,6 +200,12 @@ below):
   on the frame body's `<div>` is not found either. None has been seen, and no log code
   records that a root was left out. A declarative closed root on a custom element the
   page has not defined yet is left out until its definition loads.
-- The owner's choice of 2026-10-23 not to skip a root that loads a `chrome-extension://`
-  URL stands: this rule reads no URL and never leaves out a root inside the page's
-  layout, where a password manager's icon beside a site's field sits.
+- No `chrome-extension://` URL is read. It would miss this case, as Claude in Chrome's
+  indicator draws its icons as inline `<svg>` and loads no extension URL, and it would
+  wrongly skip a site's own root that a password manager decorated with its icon beside
+  the site's field. That root sits inside the page's layout, which this rule never
+  leaves out.
+- An open root on a custom element nothing defined, right under the body, was weighed
+  too, as another extension may draw one: it is not left out, since a page's declarative
+  shadow root (`<template shadowrootmode="open">`) sits on such an element until its
+  script loads, and no extension drawing one has been seen in the request log.
