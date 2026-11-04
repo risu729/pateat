@@ -174,15 +174,16 @@ below):
   rest of this ADR reads every other root: the extractor's descriptions of every kind of
   page, the text near buttons and fields, the locators' counts, the executor's lookups,
   the focused element, the sign-in checks and the page watch.
-- Why this shape: a content script's world has no `customElements`, so an extension
-  draws its UI on a built-in element or an undefined name, and it appends that host
-  where the page's own layout does not reach, under the body or the `<html>` element,
-  closed so the page's scripts cannot read it. A page's own component is a custom
-  element it defined, and its sign-in sits inside the page's layout; neither is left
-  out. It reads only the page's structure, never a name of an extension, and no element
-  or URL of one is listed.
-- An open root there, and a closed root anywhere deeper, are still read, as is UI an
-  extension draws without a shadow root; earlier Claude in Chrome builds drew the same
+- Why this shape: a content script's world has no `customElements`, so an extension's
+  content script commonly draws its UI on a built-in element or an undefined name, and
+  appends that host where the page's own layout does not reach, under the body or the
+  `<html>` element, closed so the page's scripts cannot read it. A page's own component
+  is commonly a custom element it defined, and its sign-in sits inside the page's
+  layout; neither is left out. It reads only the page's structure, never a name of an
+  extension, and no element or URL of one is listed.
+- An open root there, a closed root anywhere deeper, and a custom element an extension
+  defined from a script in the page's main world are still read, as is UI an extension
+  draws without a shadow root; earlier Claude in Chrome builds drew the same
   indicator in the document's own tree, as the requests of 2026-10-12 to 2026-10-20
   show, and those are not left out.
 
@@ -194,9 +195,11 @@ below):
 - A field in such a root is never filled, nor does it make a signed-in page still look
   signed out: Pateat never types a vault value into another extension's UI.
 - A site's own closed root on a `<div>` right under the body, as a third-party widget
-  may draw, is not read either; a sign-in drawn there would not be found. None has been
-  seen. A declarative closed root on a custom element the page has not defined yet is
-  left out until its definition loads.
+  may draw, is not read either; a sign-in drawn there would not be found. The rule holds
+  in each frame too (ADR 0017), so a widget's frame whose sign-in sits in a closed root
+  on the frame body's `<div>` is not found either. None has been seen, and no log code
+  records that a root was left out. A declarative closed root on a custom element the
+  page has not defined yet is left out until its definition loads.
 - The owner's choice of 2026-10-23 not to skip a root that loads a `chrome-extension://`
   URL stands: this rule reads no URL and never leaves out a root inside the page's
   layout, where a password manager's icon beside a site's field sits.
