@@ -222,6 +222,8 @@ export const LOGOUT_REACTION_MS = 5000;
  * passkey", during a WebAuthn exchange; the passkey chooser's limit.
  */
 export const HELD_CLICK_WAIT_MS = 120_000;
+/** The longest a `login.extract.watch` lasts: a watched login's 10 minutes (ADR 0027). */
+export const DESCRIBED_WATCH_MAX_MS = 10 * 60_000;
 /**
  * Why a page offered for generation sent nothing by the end of the step wait: it showed no
  * list of accounts, sign-in entry or identifier input when its offer wait ended (ADR 0057)
@@ -382,6 +384,16 @@ export const submittedSchema = v.strictObject({
 export const movedSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.moved"),
+  token: id,
+});
+/**
+ * The page a `login.extract.watch` waits for shows something to describe (ADR 0027
+ * amendment of 2026-11-04). Nothing of the page is sent; the worker reads it as it reads a
+ * new page.
+ */
+export const describedSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.document.described"),
   token: id,
 });
 /**
@@ -812,6 +824,19 @@ export const commandSchema = v.variant("type", [
      * the page's site among those `login.entry.hosts` listed. A link elsewhere is left out.
      */
     onSite: v.optional(hostList),
+  }),
+  /**
+   * After a judged page whose description had nothing to send (`no-candidates`), as a page
+   * still loading shows (ADR 0027 amendment of 2026-11-04): the document reports once, with
+   * `login.document.described`, when a page after the sign-in (`signed-in`) would describe
+   * something, checking at each change of the page (ADR 0082) for up to `timeoutMs`. A
+   * later watch replaces it; it answers at once and never mutates.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.extract.watch"),
+    token: id,
+    timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(DESCRIBED_WATCH_MAX_MS)),
   }),
   /** Lists the hosts the page's URL and its links name (ADR 0031). */
   v.strictObject({ version: v.literal(1), type: v.literal("login.entry.hosts"), token: id }),

@@ -39,7 +39,7 @@ import {
   withdrawSwitch,
 } from "./attempt";
 import { codeStep, pathNow, selfSubmitStep, inPlaceNext } from "./steps";
-import { terminal, routedHere, settledHere, atStop } from "./attempt-state";
+import { terminal, routedHere, settledHere, atStop, describedHere } from "./attempt-state";
 import { DocumentGone } from "./document-gone";
 import { watchPage, reconcileBounded } from "./sign-in";
 import { switchToPasskey, answerRequest } from "./passkey";
@@ -102,7 +102,8 @@ export async function drive(rt: Runtime, run: Execution): Promise<void> {
   } finally {
     run.running = false;
     // A route the document took while the login was read is read once it is watched.
-    if (current(rt, run) && routedHere(run)) void drive(rt, run);
+    // So is a page that showed something after its judged page described nothing.
+    if (current(rt, run) && (routedHere(run) || describedHere(run))) void drive(rt, run);
   }
 }
 
@@ -119,14 +120,19 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
     });
     await save(rt, run);
   }
+  // So is that document once it shows something after its judged page described nothing,
+  // as a page still loading does (ADR 0027 amendment of 2026-11-04); in memory only.
+  const described = describedHere(run);
+  if (described) delete run.described;
   if (run.metadata.state === "watching") {
-    await watchPage(rt, run, routed);
+    await watchPage(rt, run, routed || described);
     return;
   }
   // A result that settled as unknown is watched from the next page on: the document the
   // watch began in is not read again, as when a restarted worker resumes the login there
-  // (ADR 0027), unless it took another route since.
-  if (settledHere(run) && !routed) return;
+  // (ADR 0027), unless it took another route since or showed something after a judged
+  // page that described nothing.
+  if (settledHere(run) && !routed && !described) return;
   if (run.metadata.state === "reconciling" || run.metadata.state === "awaiting-result")
     await reconcileBounded(rt, run);
   while (current(rt, run) && run.metadata.state === "ready") {
