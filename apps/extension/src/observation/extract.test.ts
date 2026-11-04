@@ -4425,6 +4425,33 @@ describe("extractSignedInObservation", () => {
       ]);
     });
 
+    it("leaves out a widget that holds a control, and reads only its first role", () => {
+      sidebar(
+        `<div role="tab" id="with-button"><button id="inner-button">Close</button></div>
+        <div role="tab" id="with-role-button"><span role="button">Pin</span></div>
+        <div role="menuitem" id="with-shadow"></div>
+        <div role="option tab" id="option-first">Option</div>
+        <div role="tab option" name="tab-first">First</div>`,
+      );
+      shadow("#with-shadow", `<button>Open</button>`);
+      expect(summary(signedIn()).map(({ target }) => target)).toEqual([
+        home,
+        { by: "text", value: "cf scoped token" },
+        // The controls inside are described themselves; a role button only on a code page.
+        { by: "id", value: "inner-button" },
+        { by: "text", value: "Open" },
+        { by: "name", value: "tab-first" },
+      ]);
+    });
+
+    it("never names one by an ID shaped like a render counter", () => {
+      sidebar(`<div role="tab" id="headlessui-tabs-tab-1" tabindex="0">Billing</div>`);
+      expect(summary(signedIn()).map(({ target }) => target)).toEqual([
+        home,
+        { by: "text", value: "cf scoped token" },
+      ]);
+    });
+
     it("never names one by an ID two elements share", () => {
       sidebar(`<div role="tab" id="sidebar-tab-default-home" style="display:none">Home</div>`);
       expect(summary(signedIn()).map(({ target }) => target)).toEqual([
