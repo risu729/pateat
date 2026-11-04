@@ -405,6 +405,8 @@ document: a path whose input was already announced, within the window, after a U
 change or by this watch, is not announced again by it. The background decides as for a
 new page, so the vault match, the pause and the retry window per origin and path apply
 as before. The watch reads the page at most once per frame and once per 100 ms, as the
-page watch does (ADR 0082), and watches the document's own tree, not shadow trees. A
+page watch does (ADR 0082), and also watches the shadow trees it finds (ADR 0070). Once
+the document submitted a form with a password input, the watch stops, so a password
+asked again later on the signed-in page, as before a settings change, is not sent. A
 default chosen in the popup still announces the page as new (amendment above), which
 offers its form once more (implemented).

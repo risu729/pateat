@@ -7,11 +7,13 @@ type Listener = (
   sender: { id: string },
   respond: (value: unknown) => void,
 ) => boolean | undefined;
-const { sent, listeners, next } = vi.hoisted(() => ({
+const { sent, listeners, next, signInReply } = vi.hoisted(() => ({
   sent: [] as Record<string, unknown>[],
   listeners: [] as Listener[],
   // Answers for the next plain announcements, before the usual one.
-  next: [] as Record<string, unknown>[],
+  next: [] as (Record<string, unknown> | Promise<Record<string, unknown>>)[],
+  // The answer to an announced sign-in.
+  signInReply: { current: { ok: false, reason: "generating" } as Record<string, unknown> },
 }));
 
 vi.mock("wxt/browser", () => ({
@@ -30,7 +32,7 @@ vi.mock("wxt/browser", () => ({
 vi.mock("../messaging/protocol", () => ({
   sendMessage: async (_channel: string, message: Record<string, unknown>) => {
     sent.push(message);
-    if (message["signIn"]) return { ok: false, reason: "generating" };
+    if (message["signIn"]) return signInReply.current;
     if (message["unoffered"]) return { ok: true };
     const queued = next.shift();
     if (queued) return queued;
@@ -38,11 +40,13 @@ vi.mock("../messaging/protocol", () => ({
   },
 }));
 
+const start = location.pathname;
 let uninstall: (() => void) | undefined;
 beforeEach(() => {
   sent.length = 0;
   listeners.length = 0;
   next.length = 0;
+  signInReply.current = { ok: false, reason: "generating" };
   vi.useFakeTimers();
 });
 afterEach(() => {
@@ -50,6 +54,7 @@ afterEach(() => {
   uninstall = undefined;
   vi.useRealTimers();
   document.body.innerHTML = "";
+  history.replaceState(null, "", start);
 });
 
 // Discord's /login on 2026-11-04: its own list of remembered accounts, and after "Add an
@@ -96,6 +101,62 @@ describe("a form shown in place after the page's window to be sent closed", () =
     // Nor does a restarted worker's reconnect offer it again.
     await reconnect({ version: 1, type: "login.reconnect" });
     expect(offers()).toEqual([offer]);
+  });
+
+  // A background that does not send it, as within the retry window, answers that the page
+  // may still be sent, so the watch goes on.
+  const mayStillSend = { ok: false, reason: "recipe-not-found", starts: [], generate: true };
+
+  it("is offered once per path while the page may still be sent", async () => {
+    signInReply.current = mayStillSend;
+    await formShownLate();
+    expect(offers()).toEqual([offer]);
+    document.body.innerHTML = accountList;
+    await vi.advanceTimersByTimeAsync(500);
+    document.body.innerHTML = form;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(offers()).toEqual([offer]);
+  });
+
+  it("is not offered after the page submitted a password form", async () => {
+    signInReply.current = mayStillSend;
+    await formShownLate();
+    expect(offers()).toEqual([offer]);
+    // The test page stays: the submission is stopped once the content script heard it.
+    const stay = (event: Event) => event.preventDefault();
+    window.addEventListener("submit", stay);
+    document.querySelector("form")!.requestSubmit();
+    window.removeEventListener("submit", stay);
+    // The page signed in moves on, and minutes later asks for the password again on a
+    // settings path, as a re-entry before a change.
+    history.replaceState(null, "", "/pateat-next");
+    await vi.advanceTimersByTimeAsync(500);
+    document.body.innerHTML = accountList;
+    history.replaceState(null, "", "/pateat-settings");
+    await vi.advanceTimersByTimeAsync(LOGIN_STEP_WAIT_MS + 500);
+    document.body.innerHTML = form;
+    await vi.advanceTimersByTimeAsync(1000);
+    history.replaceState(null, "", start);
+    expect(offers()).toEqual([offer]);
+  });
+
+  it("is offered once when a default is chosen while the page changes", async () => {
+    signInReply.current = mayStillSend;
+    await formShownLate();
+    // The fresh announcement's answer comes after the page changed.
+    let answer: (value: Record<string, unknown>) => void = () => undefined;
+    next.push(new Promise((resolve) => (answer = resolve)));
+    for (const listener of listeners)
+      listener(
+        { version: 1, type: "login.reconnect", fresh: true },
+        { id: "synthetic-extension" },
+        () => undefined,
+      );
+    document.querySelector("h1")!.textContent = "Welcome back";
+    await vi.advanceTimersByTimeAsync(500);
+    answer(mayStillSend);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(offers()).toEqual([offer, offer]);
   });
 
   it("is not offered on a path whose input the window already offered", async () => {

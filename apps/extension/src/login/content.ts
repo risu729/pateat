@@ -840,6 +840,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     announced = false;
     retries = 0;
     offered = false;
+    // The new page's window offers its input; a late look would offer it twice.
+    lateWatch?.();
     void announce(false, false, undefined, false, true).catch(() => undefined);
   }
   /**
@@ -1202,6 +1204,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         offered = false;
         entryOffered = false;
         offeredPaths.clear();
+        lateWatch?.();
         // The answer opens the window again; until then nothing is offered.
         generate = false;
         clearOffer();
@@ -2732,15 +2735,24 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const offeredPaths = new Set<string>();
   let lateWatch: (() => void) | undefined;
   function watchLate(): void {
-    if (lateWatch || cancelled || !mayOffer || !offered) return;
+    if (lateWatch || cancelled || !mayOffer || !offered || submitPath !== undefined) return;
     let pending = false;
     let stopped = false;
     let lookedAt = Number.NEGATIVE_INFINITY;
+    const observed = new WeakSet<ShadowRoot>();
     const look = () => {
       pending = false;
       if (stopped) return;
-      if (cancelled || !mayOffer) return stop();
+      // A submitted password form signed the page in: its later forms, as a re-entry of
+      // the password on a settings page, are not sent.
+      if (cancelled || !mayOffer || !offered || submitPath !== undefined) return stop();
       lookedAt = Date.now();
+      // Shadow trees attached since the last look are watched too (ADR 0070).
+      for (const root of shadowRoots(document))
+        if (!observed.has(root)) {
+          observed.add(root);
+          changes.observe(root, pageWatch);
+        }
       // An open window, after a load or a URL change, offers the input itself.
       if (offerWindow !== undefined || urlWatch) return;
       const path = pagePath();
