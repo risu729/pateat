@@ -822,7 +822,10 @@ than in this repository.
   blocked by policy", from a mandatory machine `ExtensionInstallBlocklist` of `["*"]`,
   and the dots pages read on 2026-11-04 describe no extension setting
   ([issue #1156](https://github.com/risu729/pateat/issues/1156)). Stage B cannot run
-  there until OpenAI offers an install path.
+  in that browser until OpenAI offers an install path. A Google Chrome installed
+  separately on the dot's computer accepted an extension for one user
+  ([openai/codex#50057](https://github.com/openai/codex/issues/50057)), but the dot's
+  tasks kept using the managed browser; Pateat has not been tried there.
 - Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
   regularly, such as card statements and AI usage pages, so the Bot never needs a
   password (owner, 2026-10-12 14:00 UTC; a phase 1 goal until the owner moved it here
