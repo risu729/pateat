@@ -293,4 +293,3 @@ export function isFieldExcluded(
   const references = itemPolicyFor(settings, resolved.account, itemId)?.excludedFields ?? [];
   return resolveExcludedFields(references, item.fields).fieldIds.includes(fieldId);
 }
-
