@@ -119,35 +119,37 @@ describe("a recipe that holds a sign-in form and a list of accounts (#1248)", ()
     expect(executions()[0]).toMatchObject({ operation: { step: { kind: "fill" } } });
   });
 
+  const other = { by: "text" as const, value: "Use another account" };
+  /** The list with an `other` branch whose own form starts on the list's path. */
+  const withOther = (): LoginChooserRecipe => ({
+    ...list,
+    chooser: {
+      path: "/signin",
+      other,
+      afterOther: parseLoginRecipe({
+        version: 1,
+        id: recipe.id,
+        revision: recipe.revision,
+        origin,
+        layout: "2000",
+        pageKind: "sign-in",
+        slots: ["password"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [{ slot: "password", target: target("other-password") }],
+          },
+          { kind: "click", path: "/signin", target: target("other-login"), purpose: "submit" },
+        ],
+        maxSubmissions: 1,
+      }),
+    },
+  });
+
   it("runs the list's other branch when only its form shows, and none of the form's", async () => {
-    const other = { by: "text" as const, value: "Use another account" };
-    const withOther: LoginChooserRecipe = {
-      ...list,
-      chooser: {
-        path: "/signin",
-        other,
-        afterOther: parseLoginRecipe({
-          version: 1,
-          id: recipe.id,
-          revision: recipe.revision,
-          origin,
-          layout: "2000",
-          pageKind: "sign-in",
-          slots: ["password"],
-          steps: [
-            {
-              kind: "fill",
-              path: "/signin",
-              fields: [{ slot: "password", target: target("other-password") }],
-            },
-            { kind: "click", path: "/signin", target: target("other-login"), purpose: "submit" },
-          ],
-          maxSubmissions: 1,
-        }),
-      },
-    };
     const h = harness();
-    h.recipes.chooser.mockResolvedValue(withOther);
+    h.recipes.chooser.mockResolvedValue(withOther());
     fake.state.present = new Set(["other-password", "other-login"]);
     fake.state.awaitReply = (readiness) =>
       readiness.accounts === true
@@ -162,5 +164,58 @@ describe("a recipe that holds a sign-in form and a list of accounts (#1248)", ()
     expect(executions()[0]).toMatchObject({
       operation: { step: { kind: "fill", fields: [{ target: target("other-password") }] } },
     });
+  });
+
+  // Every page the recipe's path may show, by which of the list, its `other` branch's form
+  // and the recipe's own form are there: the list goes first, then the branch when the
+  // form is not there, then the form (ADR 0028).
+  it.each(
+    [false, true].flatMap((listShows) =>
+      [false, true].flatMap((branchShows) =>
+        [false, true].map((formShows) => ({ listShows, branchShows, formShows })),
+      ),
+    ),
+  )("chooses by what shows: %o", async ({ listShows, branchShows, formShows }) => {
+    // As above, an account the list can name.
+    const h = harness(
+      { siteDefaults: [], bindings: [] },
+      { allowedOrigins: [], uris, username: true, custom: [], generation: generation() },
+    );
+    h.recipes.chooser.mockResolvedValue(withOther());
+    h.recipes.starts.mockResolvedValue([
+      { path: "/signin", steps: [recipe.steps[0]!], list: [verify] },
+    ]);
+    fake.state.present = new Set([
+      ...(branchShows ? ["other-password", "other-login"] : []),
+      ...(formShows ? ["password", "login"] : []),
+    ]);
+    fake.state.awaitReply = (readiness) =>
+      readiness.accounts === true
+        ? listShows
+          ? { ok: true }
+          : { ok: false, reason: "timeout" }
+        : (readiness as unknown as { targets: { value: string }[] }).targets.every((entry) =>
+              fake.state.present!.has(entry.value),
+            )
+          ? { ok: true }
+          : { ok: false, reason: "timeout" };
+    const reply = await h.hello();
+    const expected = listShows
+      ? "list"
+      : branchShows && !formShows
+        ? "other-password"
+        : formShows
+          ? "password"
+          : "none";
+    expect(reply).toEqual({ ok: true });
+    // With nothing there, the form's login waits for its first step.
+    if (expected === "none") return expect(executions()).toEqual([]);
+    await vi.waitFor(() => expect(executions().length).toBeGreaterThan(0));
+    const first = executions()[0]!;
+    if (expected === "list") expect(first.list).toBeDefined();
+    else
+      expect(first).toMatchObject({
+        operation: { step: { kind: "fill", fields: [{ target: target(expected) }] } },
+      });
   });
 });
