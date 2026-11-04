@@ -78,6 +78,30 @@ runs their build scripts, then `mise run install`, because aube 2.7.0 rewrote
 not checked here yet ([lockfile gaps](research/2026-10-12-aube-lockfile-gaps.md)).
 Renovate updates `bun.lock` with Bun too.
 
+`paranoid: true` runs the `esbuild` and `workerd` install scripts in aube's build jail,
+which on Linux needs Landlock and seccomp in the kernel. Where either is missing, every
+jailed script fails before it starts, and aube 2.9.0 reports any jail setup error as
+`failed to spawn script postinstall: Invalid argument (os error 22)`, whatever the
+kernel returned ([#1155](https://github.com/risu729/pateat/issues/1155)). On 2026-11-04
+the jail worked in a Claude Code cloud session (Linux 6.18, Landlock ABI 7), and
+making the Landlock or seccomp call fail there with `strace -f -e
+inject=landlock_create_ruleset:error=ENOSYS` (or `EOPNOTSUPP`, or `EINVAL`, or the same
+on `seccomp`) gave exactly that message. To check a machine,
+`python3 -c "import ctypes; print(ctypes.CDLL(None).syscall(444, None, 0, 1))"` prints
+the Landlock ABI version, or `-1` when the kernel has no Landlock. In such an
+environment only, turn the bundle into its individual settings for one command and
+leave the jail off, without changing `aube-workspace.yaml`:
+
+```sh
+AUBE_PARANOID=false AUBE_JAIL_BUILDS=false AUBE_TRUST_POLICY=no-downgrade \
+  AUBE_MINIMUM_RELEASE_AGE_STRICT=true AUBE_STRICT_STORE_INTEGRITY=true \
+  AUBE_STRICT_DEP_BUILDS=true AUBE_ADVISORY_CHECK=required mise run install
+```
+
+The `allowBuilds` list and `advisoryBloomCheck` still apply, so only `esbuild` and
+`workerd` scripts run, just without the jail. Never set these variables in CI, in
+`mise.toml` or on a machine whose kernel has Landlock.
+
 `min_version` in the root `mise.toml` stays at 2026.10.8 (owner decision, 2026-10-13).
 The owner's Windows mise comes from winget, which lags mise releases and refuses
 `mise self-update`, so a higher minimum stops every mise command there. Do not lower it
