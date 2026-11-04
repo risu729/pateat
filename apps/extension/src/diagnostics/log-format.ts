@@ -381,7 +381,12 @@ export function recentLog(entries: readonly LogEntry[], now: number): RecentLog 
   const unsent = new Map<string, number>();
   for (const entry of entries) {
     const reason = entry.fields["reason"];
-    if (entry.time < since || typeof reason !== "string" || !v.is(KIND_SCHEMAS.code, reason))
+    if (
+      entry.time < since ||
+      entry.time > now + RECENT_WINDOW_MS ||
+      typeof reason !== "string" ||
+      !v.is(KIND_SCHEMAS.code, reason)
+    )
       continue;
     if (entry.event === "passkey.request" && entry.fields["outcome"] === "delegate")
       delegations.set(reason, (delegations.get(reason) ?? 0) + 1);

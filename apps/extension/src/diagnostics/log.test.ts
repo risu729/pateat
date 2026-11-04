@@ -1311,6 +1311,31 @@ describe("recent log for a bug report", () => {
     expect(JSON.stringify(recent)).not.toContain("bank.example");
     expect(v.is(recentLogSchema, recent)).toBe(true);
   });
+
+  it.each([
+    ["before the oldest accepted time", NOW - 24 * HOUR - 1, false],
+    ["the oldest accepted time", NOW - 24 * HOUR, true],
+    ["the current time", NOW, true],
+    ["the latest accepted time", NOW + 24 * HOUR, true],
+    ["after the latest accepted time", NOW + 24 * HOUR + 1, false],
+  ] as const)("bounds recent counters at %s", (_label, time, included) => {
+    const recent = recentLog(
+      [
+        entry(time, "info", "passkey.request", { outcome: "delegate", reason: "no-credential" }),
+        entry(time, "info", "recipe.generate", { outcome: "skipped", reason: "frame" }),
+        entry(time, "info", "recipe.generate", { outcome: "skipped", reason: "text-answer" }),
+      ],
+      NOW,
+    );
+    const delegation = { reason: "no-credential", count: 1 };
+    const unsent = [
+      { reason: "frame", count: 1 },
+      { reason: "text-answer", count: 1 },
+    ];
+    expect(recent.passkeyDelegations).toEqual(included ? [delegation] : []);
+    expect(recent.unsentVerifications).toEqual(included ? unsent : []);
+    expect(v.is(recentLogSchema, recent)).toBe(true);
+  });
 });
 
 describe("unhandled errors", () => {

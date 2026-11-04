@@ -2204,6 +2204,9 @@ reason, and the count of pages that looked like a verification but were not sent
 and always numbers sites and recipes in them as a download does when they are hidden,
 but separately, so `site-1` there can be another site than in **Download logs**. Labels,
 emails, item names and IDs, URLs and host names are never part of the summary.
+The recent warnings, errors and both counts use the same inclusive time bounds:
+24 hours before the current time through 24 hours after it. The future allowance
+tolerates a clock change; entries farther ahead are left out of all three.
 
 The owner checked the page in installed Chrome on 2026-10-11 against production
 (extension main 8581f1d, service e48b4e7). The Bitwarden cloud server showed as
