@@ -15,6 +15,7 @@ import {
   storedBranchRoute,
   isChooserDocument,
   isLoginRecipeDocument,
+  type RecipeDocument,
   storedLoginRecipeSchema,
   storedRecipeStartPath,
   toChooserLayout,
@@ -865,15 +866,17 @@ export async function generateRecipe(
     // added beside them: the same URL shows either by the state of the browser's session
     // (ADR 0041 section 6, owner 2026-11-04). An entry recipe whose page became a list is
     // replaced by the chooser.
+    // A recipe whose two kinds together would pass its slot or size limit takes the list
+    // alone, as before the kinds were held together.
     const kept = repaired && isLoginRecipeDocument(repaired) ? repaired : undefined;
-    const recipe = document({
+    const listOnly: RecipeDocument = {
       version: 1,
       id: recipeId,
       revision,
       origin,
-      ...(kept ? { layouts: kept.layouts } : {}),
       chooser: { path, layouts: [layout] },
-    });
+    };
+    const recipe = (kept && document({ ...listOnly, layouts: kept.layouts })) || document(listOnly);
     if (!recipe) return failed("recipe-invalid");
     // This call named the button again, so the passkey route's page is its own; a copied
     // layout's handlers and markers keep the calls that made them.
@@ -961,15 +964,17 @@ export async function generateRecipe(
     );
   }
   if (!branch) {
+    // A recipe whose two kinds together would pass its slot or size limit takes the form
+    // alone, as before the kinds were held together.
     const held = repaired && isChooserDocument(repaired) ? repaired.chooser : undefined;
-    const recipe = document({
+    const formOnly: RecipeDocument = {
       version: 1,
       id: recipeId,
       revision,
       origin,
       layouts: [built.layout],
-      ...(held ? { chooser: held } : {}),
-    });
+    };
+    const recipe = (held && document({ ...formOnly, chooser: held })) || document(formOnly);
     return recipe
       ? save(recipe, [{ layout: meta.key, unit: pageUnit(0) }], customSlots)
       : failed("recipe-invalid");

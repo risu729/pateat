@@ -127,6 +127,15 @@ export async function siblingsAt(rt: Runtime, run: Execution, at: number): Promi
   const layouts = await Promise.resolve(rt.recipes.layoutsOf(recipe.origin, recipe.id)).catch(
     () => [],
   );
+  // A recipe may hold a list of accounts beside its sign-in form (ADR 0028), whose branch
+  // routes come with its layouts for their markers: only the form's own layouts, those
+  // that start on its start path, are siblings, never a branch reached by a click there.
+  const forms = await Promise.resolve(
+    rt.recipes.layouts?.(recipe.origin, recipe.steps[0]!.path),
+  ).catch(() => undefined);
+  const formKeys =
+    forms &&
+    new Set(forms.filter((form) => form.recipe.id === recipe.id).map((form) => form.recipe.layout));
   const stepsOf = (entries: { step: LoginStep }[]) =>
     JSON.stringify(entries.map((entry) => entry.step));
   const before = stepsOf(plan.slice(0, at));
@@ -137,6 +146,7 @@ export async function siblingsAt(rt: Runtime, run: Execution, at: number): Promi
         other.id !== recipe.id ||
         other.layout === undefined ||
         other.layout === metadata.layout ||
+        (formKeys !== undefined && !formKeys.has(other.layout)) ||
         other.revision < metadata.recipeRevision ||
         !runsLogin(other)
       )

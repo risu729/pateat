@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LoginChooserRecipe } from "@pateat/contracts";
+import { parseLoginRecipe, type LoginChooserRecipe } from "@pateat/contracts";
 import type { LiveUriMatcher } from "../../vault/site-candidates";
 import type { LoginGeneration } from "../runtime/deps";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
-const { origin, recipe, uriMatch, harness } = createRuntimeTestHarness(fake);
+const { origin, recipe, target, uriMatch, harness } = createRuntimeTestHarness(fake);
 
 // The same URL shows a sign-in form or a list of accounts by the state of the browser's
 // session, so one recipe holds layouts of both (ADR 0028, #1248): a new login runs the list
@@ -117,5 +117,50 @@ describe("a recipe that holds a sign-in form and a list of accounts (#1248)", ()
     expect(listAsked()).toBe(false);
     await vi.waitFor(() => expect(executions().length).toBeGreaterThan(0));
     expect(executions()[0]).toMatchObject({ operation: { step: { kind: "fill" } } });
+  });
+
+  it("runs the list's other branch when only its form shows, and none of the form's", async () => {
+    const other = { by: "text" as const, value: "Use another account" };
+    const withOther: LoginChooserRecipe = {
+      ...list,
+      chooser: {
+        path: "/signin",
+        other,
+        afterOther: parseLoginRecipe({
+          version: 1,
+          id: recipe.id,
+          revision: recipe.revision,
+          origin,
+          layout: "2000",
+          pageKind: "sign-in",
+          slots: ["password"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/signin",
+              fields: [{ slot: "password", target: target("other-password") }],
+            },
+            { kind: "click", path: "/signin", target: target("other-login"), purpose: "submit" },
+          ],
+          maxSubmissions: 1,
+        }),
+      },
+    };
+    const h = harness();
+    h.recipes.chooser.mockResolvedValue(withOther);
+    fake.state.present = new Set(["other-password", "other-login"]);
+    fake.state.awaitReply = (readiness) =>
+      readiness.accounts === true
+        ? { ok: false, reason: "timeout" }
+        : (readiness as unknown as { targets: { value: string }[] }).targets.every((entry) =>
+              fake.state.present!.has(entry.value),
+            )
+          ? { ok: true }
+          : { ok: false, reason: "timeout" };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executions().length).toBeGreaterThan(0));
+    expect(executions()[0]).toMatchObject({
+      operation: { step: { kind: "fill", fields: [{ target: target("other-password") }] } },
+    });
   });
 });

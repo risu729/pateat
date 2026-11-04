@@ -694,6 +694,22 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
           expect.objectContaining({ branch: "1000", layoutFrom: "2000", stepIndex: 2 }),
         ]);
       });
+      it("never goes on with a list's branch that shares the email page (#1248)", async () => {
+        // The recipe holds a list beside its form (ADR 0028): the list's branch comes with
+        // the form's layouts for its markers, but is no layout of the form.
+        const branch = parseLoginRecipe({ ...original, layout: "3000" });
+        const { h, reports } = onEmail([branch, otherForm("2000")], ["password", "login"]);
+        Object.assign(h.recipes, {
+          layouts: vi.fn(async () => [{ recipe: otherForm("2000"), createdAt: 2000 }]),
+        });
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executed()).toContain("click:next"));
+        await vi.waitFor(() => expect(status()?.[0]?.["state"]).not.toBe("running"));
+        expect(executed().slice(0, 2)).toEqual(["fill:email", "click:next"]);
+        expect(executed()).not.toContain("fill:password");
+        expect(switches(reports)).toEqual([]);
+        expect(status()![0]).toMatchObject({ layout: "2000" });
+      });
       it("keeps its own layout while its own password page shows", async () => {
         const { h, reports } = onEmail(
           [original, otherForm("2000")],

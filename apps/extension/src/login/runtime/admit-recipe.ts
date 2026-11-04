@@ -113,7 +113,32 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       );
       const shows = await showsNow(rt, ctx.live, { ...listReadiness(rt, list), targets: buttons });
       if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-      if (shows) ctx.recipe = undefined;
+      // Nor the form's layouts when the page shows the list's `other` branch's form in its
+      // place, as after the person pressed the button for another account, and none of the
+      // form's first steps: the branch starts there below (ADR 0028).
+      const branchStart = chooserRoute(list, "other-shown")?.steps[0];
+      const branchShows =
+        !shows &&
+        branchStart !== undefined &&
+        loginReadiness(branchStart).targets.length > 0 &&
+        (await showsNow(rt, ctx.live, loginReadiness(branchStart)));
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      // Every layout of the form counts (ADR 0060), not only the newest.
+      const forms = branchShows
+        ? ((await Promise.resolve(rt.recipes.layouts?.(ctx.document.origin, ctx.live.path)).catch(
+            () => undefined,
+          )) ?? [{ recipe: ctx.recipe }])
+        : [];
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      let formShows = false;
+      /* eslint-disable no-await-in-loop */
+      for (const step of forms.flatMap((form) => recipeStartSteps(form.recipe))) {
+        formShows = await showsNow(rt, ctx.live, loginReadiness(step));
+        if (formShows) break;
+      }
+      /* eslint-enable no-await-in-loop */
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      if (shows || (branchShows && !formShows)) ctx.recipe = undefined;
     }
   }
 
