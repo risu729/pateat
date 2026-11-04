@@ -371,3 +371,12 @@ nothing. A list of accounts, an identifier alone, a sign-in entry or a passkey b
 still offered only after a load, and a form shown later without a URL change, such as a
 sign-in dialog, is still not sent. A document that carries a login keeps watching for it
 when announced again.
+
+## Amendment 2026-11-04: a default chosen in the popup opens the window again
+
+By
+[ADR 0021](0021-account-choice-outside-settings.md#amendment-a-default-chosen-in-the-popup-logs-in-at-once-2026-11-04)
+(owner's request, 13:45 UTC): when the popup's **Use as default** saves the site
+default, the tab's frames announce again as new pages, so a form shown in place after
+the window closed, as Discord's after "Add an account", may be sent once more under the
+rules above. Without that choice such a form is still not sent.

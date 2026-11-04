@@ -1110,7 +1110,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     entryPage = false,
     /** The document changed in place after an account switch (ADR 0078). */
     switched = false,
-    /** Announced again after a same-document URL change, to be offered once more. */
+    /**
+     * Announced again after a same-document URL change, or as a new page after a default
+     * was chosen, to be offered once more.
+     */
     again = false,
   ): Promise<unknown> {
     announced = start;
@@ -1184,9 +1187,27 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     respond,
   ) => {
     if (sender.id !== browser.runtime.id || sender.tab) return false;
-    if (v.safeParse(reconnectSchema, message).success) {
-      // A restarted worker forgot earlier refusals; a ready form may start again.
-      void announce(starts.some(ready)).then(respond, () => respond({ ok: false }));
+    const reconnect = v.safeParse(reconnectSchema, message);
+    if (reconnect.success) {
+      // A default chosen for this tab (ADR 0021, amended 2026-11-04): the page counts as
+      // a new one, so its form, also one shown only after a click, is offered once more.
+      const fresh = reconnect.output.fresh === true && !cancelled;
+      if (fresh) {
+        ended = false;
+        announced = false;
+        retries = 0;
+        offered = false;
+        entryOffered = false;
+        // The answer opens the window again; until then nothing is offered.
+        generate = false;
+        clearOffer();
+        urlWatch?.();
+      }
+      // A restarted worker forgot earlier refusals; a ready form may start again. A fresh
+      // announcement, like one after a URL change, keeps a login the document carries.
+      void announce(starts.some(ready), false, undefined, false, false, fresh).then(respond, () =>
+        respond({ ok: false }),
+      );
       return true;
     }
     const parsed = v.safeParse(commandSchema, message);
