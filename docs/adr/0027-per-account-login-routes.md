@@ -1491,15 +1491,20 @@ first two inputs ended up holding a digit, and the fill ended `fill-rejected`.
 on split code inputs; built as the owner allowed on 2026-10-23 05:28 UTC):
 
 - A split code is also the inputs of one form (or of no form) that take typed text,
-  every one of them, when there are as many as the code has characters, 6 to 8, the
-  first is marked `autocomplete="one-time-code"` and declares no `maxlength`, and each
-  is a text input with `inputmode="numeric"`, or a `tel` or `number` input, that
-  declares no `maxlength` or 1. Hidden inputs, checkboxes, radio buttons and buttons may
-  sit beside them; any other field in the form, such as an email input, refuses it.
-- The login types the code one digit per input as for a split code with `maxlength` 1,
-  and checks each input again just before its digit by the same shape. Only as one of
-  these inputs does an input without the TOTP fill rule's hints take a code's digit.
+  every shown, writable one of them, when there are as many as the code has characters,
+  6 to 8, the first is marked `autocomplete="one-time-code"` and declares no
+  `maxlength`, and each is a text input with `inputmode="numeric"`, or a `tel` or
+  `number` input, that declares no `maxlength` or 1 and whose `autocomplete` names
+  nothing but `off` or `one-time-code`. Inputs that take no typed text (hidden inputs,
+  checkboxes, radio buttons, buttons and the like) may sit beside them; any other shown,
+  writable text input in the same form, or outside any form when they have none, such
+  as an email or search input, refuses it.
+- The login decides once, from the first input, which shape it fills, and types the
+  code one digit per input as for a split code with `maxlength` 1, checking each input
+  again just before its digit by its own shape. Only as one of these inputs does an
+  input without the TOTP fill rule's hints take a code's digit.
 - The handler, the judge and the service are unchanged: the first input passes the code
   rule on its own, so the handler names it, and the login finds the others from it. The
   page description still leaves the other inputs out, as they are no sign-in fields on
-  their own.
+  their own, but no longer counts them as other fields, so the texts near the code are
+  read past their row, as for a split code with `maxlength` 1.

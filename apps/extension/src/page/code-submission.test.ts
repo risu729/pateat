@@ -371,6 +371,22 @@ describe("splitCodeInputs without maxlength (ADR 0027 amendment of 2026-11-04)",
     expect(splitCodeOf(input("d2") ?? input("d1"), usable)).toBeUndefined();
   });
 
+  it("takes inputs outside any form, unless another field outside any form shows", () => {
+    document.body.innerHTML = `<div>${notion()}</div>`;
+    expect(splitCodeInputs(input("d1"), 6, usable)).toHaveLength(6);
+    document.body.innerHTML = `<header><input type="search"></header><div>${notion()}</div>`;
+    expect(splitCodeInputs(input("d1"), 6, usable)).toBeUndefined();
+    // One the fill cannot use, as a hidden one, does not count.
+    expect(splitCodeInputs(input("d1"), 6, (one) => one.type !== "search")).toHaveLength(6);
+  });
+
+  it("refuses a digit whose autocomplete names a phone number's or card's part", () => {
+    for (const token of ["tel-local", "cc-number", "bday-day"]) {
+      document.body.innerHTML = `<form>${notion(undefined, (place) => (place === 3 ? `autocomplete="${token}"` : 'autocomplete="off"'))}</form>`;
+      expect(splitCodeInputs(input("d1"), 6, usable), token).toBeUndefined();
+    }
+  });
+
   it("refuses one with an input the fill cannot use, or a code of another length", () => {
     document.body.innerHTML = `<form>${notion(undefined, undefined, 7)}</form>`;
     expect(splitCodeInputs(input("d1"), 6, usable)).toBeUndefined();

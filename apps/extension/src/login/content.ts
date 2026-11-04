@@ -2104,6 +2104,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 writable,
               )
             : undefined;
+        // Which shape its digits keep is decided once, from its first input as found.
+        const unmarked = split !== undefined && split[0]!.maxLength !== 1;
         const fits = (input: Control, value: (typeof command.values)[number]) =>
           split
             ? split.every(
@@ -2223,9 +2225,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                       ? "page-changed"
                       : !writable(digit) ||
                           formOf(digit) !== form ||
-                          !(split[0]!.maxLength === 1
-                            ? digit.maxLength === 1 && acceptsSecret(digit, value.secret)
-                            : value.secret === "otp" && unmarkedDigit(digit)) ||
+                          !(unmarked
+                            ? value.secret === "otp" && unmarkedDigit(digit)
+                            : digit.maxLength === 1 && acceptsSecret(digit, value.secret)) ||
                           inputValueMismatch(digit, value.value[place]!) !== undefined
                         ? "field-changed"
                         : undefined;

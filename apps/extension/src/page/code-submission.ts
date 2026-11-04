@@ -22,10 +22,12 @@ const untypedTypes = new Set([
 /**
  * A digit input of a code split into inputs that declare no `maxlength` (ADR 0027
  * amendment of 2026-11-04): a text input with `inputmode="numeric"`, or a tel or number
- * input, that declares no `maxlength` or 1.
+ * input, that declares no `maxlength` or 1, and whose `autocomplete` names nothing but
+ * `off` or `one-time-code`, so a phone number's or card's part is never one.
  */
 export const unmarkedDigit = (input: HTMLInputElement) =>
   (input.maxLength === -1 || input.maxLength === 1) &&
+  autocompleteTokens(input).every((token) => token === "off" || token === "one-time-code") &&
   (input.type === "tel" ||
     input.type === "number" ||
     (input.type === "text" && input.getAttribute("inputmode")?.trim().toLowerCase() === "numeric"));

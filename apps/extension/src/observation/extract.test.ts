@@ -3779,20 +3779,22 @@ describe("extractSignedInObservation", () => {
   it("describes a split code whose inputs declare no maxlength by its first input (ADR 0027 amendment of 2026-11-04)", () => {
     // Notion's code page in the owner's Chrome on 2026-11-04. The other digits are no
     // sign-in fields on their own, so they are left out without flawing the page; the
-    // login finds them from the first one (`splitCodeInputs`).
+    // login finds them from the first one (`splitCodeInputs`). The texts near the code
+    // are read past the row of digits, which are no other field.
     page(
-      `<div><input type="text" inputmode="numeric" autocomplete="one-time-code" aria-label="Enter verification code digit 1">${[
+      `<main><div><p>Enter the code from your authenticator app.</p><div><div><input type="text" inputmode="numeric" autocomplete="one-time-code" aria-label="Enter verification code digit 1">${[
         2, 3, 4, 5, 6,
       ]
         .map(
           (place) =>
             `<input type="text" inputmode="numeric" autocomplete="off" aria-label="Digit ${place}">`,
         )
-        .join("")}</div><button id="go">Continue</button>`,
+        .join("")}</div><button id="go">Continue</button></div></div></main>`,
     );
     const result = extractSignedInObservation();
     if (!result.ok) throw new Error(result.reason);
     expect(result.observation.complete).toBe(true);
+    expect(result.observation.nearCode).toEqual(["Enter the code from your authenticator app."]);
     expect(
       result.observation.candidates.flatMap(({ role, target }) =>
         role === "button" ? [] : [target],
