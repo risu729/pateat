@@ -6,7 +6,8 @@ Pateat のリリースはまだ公開しておらず、リリースの形式も�
 
 ## 必要なもの {#requirements}
 
-- デスクトップの Google Chrome 145 以降。Pateat は自分のコンピューターにインストールした Chrome を対象にしています。ほかの Chromium 系ブラウザーや、クラウド上のブラウザーでは試していません。
+- デスクトップの Google Chrome 145 以降。Pateat は自分のコンピューターにインストールした Chrome を対象にしています。ほかの Chromium 系ブラウザーでは試していません。クラウド上のブラウザーも、下に書いたもの以外は試していません。
+- パッケージ化されていない拡張機能を読み込めるブラウザー。管理者はブラウザーのポリシーで、自分がインストールしたもの以外の拡張機能をすべてブロックできます。そのようなブラウザーには Pateat を読み込めません。ChatGPT dots のクラウドブラウザーがその例です。2026-10-30 に **パッケージ化されていない拡張機能を読み込む** を押すと「extension installation is blocked by policy」と表示され、`chrome://policy` ではマシンの必須ポリシーで `ExtensionInstallBlocklist` が `["*"]` になっていました。2026-11-04 に読んだ dots のヘルプページには、ユーザーやワークスペース管理者が拡張機能を追加する方法は書かれていません（[issue #1156](https://github.com/risu729/pateat/issues/1156)）。
 - Bitwarden クラウド（米国または EU）、セルフホストの Bitwarden サーバー、または最新版の [Vaultwarden](https://github.com/dani-garcia/vaultwarden) の Bitwarden アカウント。HTTPS で接続できること（`localhost` と `127.0.0.1` だけは HTTP でも可）。Bitwarden 自身のサーバーでは、まだ Bitwarden クラウド（米国）のアカウント 1 つでしか試していません。Vaultwarden は最近の版で自動テストしています。
 - ペアリングする Pateat サービス。設定とレシピを保存します。インストールの前に [Pateat サービス](./setup.md#the-pateat-service)を読んでください。
 

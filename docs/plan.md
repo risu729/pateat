@@ -817,8 +817,12 @@ than in this repository.
   Bot computer: stage A checks during a takeover whether `chrome://extensions` or the
   Web Store opens and an unpacked build loads
   ([check 3](research/2026-10-11-browser-agent-logins.md#what-to-check-next)), and
-  stage B pairs the extension and logs in to one site. No documented install exists for
-  that cloud browser yet.
+  stage B pairs the extension and logs in to one site. Stage A ran in a dot's cloud
+  browser on 2026-10-30: **Load unpacked** failed with "extension installation is
+  blocked by policy", from a mandatory machine `ExtensionInstallBlocklist` of `["*"]`,
+  and the dots pages read on 2026-11-04 describe no extension setting
+  ([issue #1156](https://github.com/risu729/pateat/issues/1156)). Stage B cannot run
+  there until OpenAI offers an install path.
 - Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
   regularly, such as card statements and AI usage pages, so the Bot never needs a
   password (owner, 2026-10-12 14:00 UTC; a phase 1 goal until the owner moved it here

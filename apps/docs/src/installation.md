@@ -10,14 +10,15 @@ unpacked extension. Until then, [build it from source](#build-from-source).
 ## Requirements
 
 - Google Chrome 145 or later on a desktop computer. Pateat targets Chrome installed on
-  your own computer; other Chromium browsers and hosted browsers are not tested.
-- A browser that lets you load an unpacked extension. A browser managed by an
-  administrator can block every extension that its administrator did not install, and
-  Pateat cannot be loaded there. The cloud browser of ChatGPT dots is one: on
-  2026-10-30, **Load unpacked** stopped with "extension installation is blocked by
-  policy", and `chrome://policy` showed `ExtensionInstallBlocklist` set to `["*"]` from
-  the machine's mandatory policy. OpenAI documents no way for a user or a workspace
-  administrator to add an extension there
+  your own computer; other Chromium browsers are not tested, and hosted browsers are not
+  tested except as noted below.
+- A browser that lets you load an unpacked extension. An administrator can set a
+  browser's policy to block every extension they did not install, and Pateat cannot be
+  loaded in such a browser. The cloud browser of ChatGPT dots does this: on 2026-10-30,
+  **Load unpacked** failed with "extension installation is blocked by policy", and
+  `chrome://policy` showed `ExtensionInstallBlocklist` set to `["*"]` by the machine's
+  mandatory policy. The dots help pages read on 2026-11-04 describe no way for a user
+  or a workspace administrator to add an extension
   ([issue #1156](https://github.com/risu729/pateat/issues/1156)).
 - A Bitwarden account on Bitwarden Cloud (US or EU), on a self-hosted Bitwarden server,
   or on the latest release of [Vaultwarden](https://github.com/dani-garcia/vaultwarden),

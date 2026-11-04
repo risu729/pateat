@@ -8,6 +8,8 @@ browser of an agent's cloud computer, and how browser agents handle logins today
 the existing solutions. It is the research that the
 [Phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up) item on agents with their
 own cloud computer asks for first. It is not a decision and grants no capability.
+Later dated observations (Grok Bot on 2026-10-12, a dot's cloud browser on 2026-10-30
+and 2026-11-04) were added below and say so where they appear.
 
 ## The agents
 
@@ -80,7 +82,7 @@ into play. This is untested, and only holds where Pateat is installed:
 | --- | --- |
 | The owner's Chrome driven by Claude in Chrome or ChatGPT `@Chrome` | Yes, already installed |
 | ChatGPT desktop app's built-in browser | Unknown. Chrome extensions are supported since 2026-09-18, and OpenAI says "ChatGPT's agent cannot interact with extensions or their data" ([RuntimeWire](https://runtimewire.com/article/openai-chatgpt-desktop-browser-chrome-extensions)). No source says whether unpacked ones load, and Pateat is not on the Web Store. It would also need its own pairing ([ADR 0020](../adr/0020-direct-device-pairing.md)) and Bitwarden login |
-| Cloud browser of dots or ChatGPT Work | No documented way. It "doesn't use your personal browser's … extensions" ([Browser](https://learn.chatgpt.com/docs/browser)), and no page describes installing one. The retired agent mode "cannot … install extensions" (Atlas help article as quoted in search results; the page returned HTTP 403). Observed blocked on 2026-10-30: **Load unpacked** failed with "extension installation is blocked by policy", from a mandatory `ExtensionInstallBlocklist` of `["*"]`. Rechecked on 2026-11-04: the dots pages ([Computers and apps](https://learn.chatgpt.com/docs/dots/computers-and-apps), [admin guide](https://learn.chatgpt.com/codex/enterprise/dots-admin-guide)) list plugins and browser, network and password-manager switches, and no extension setting ([issue #1156](https://github.com/risu729/pateat/issues/1156)) |
+| Cloud browser of dots or ChatGPT Work | Blocked in dots, and no documented way. It "doesn't use your personal browser's … extensions" ([Browser](https://learn.chatgpt.com/docs/browser)), and no page describes installing one. The retired agent mode "cannot … install extensions" (Atlas help article as quoted in search results; the page returned HTTP 403). Observed blocked in a dot's cloud browser on 2026-10-30 (ChatGPT Work not tried): **Load unpacked** failed with "extension installation is blocked by policy", from a mandatory `ExtensionInstallBlocklist` of `["*"]`. Rechecked on 2026-11-04: the dots pages ([Computers and apps](https://learn.chatgpt.com/docs/dots/computers-and-apps), [admin guide](https://learn.chatgpt.com/codex/enterprise/dots-admin-guide)) list plugins and switches for browser use, network access, computer use, password manager and local-computer access, and say nothing about extensions ([issue #1156](https://github.com/risu729/pateat/issues/1156)) |
 | Grok Bot's computer | Yes, observed on 2026-10-12 (see [Observed on a Grok Bot computer](#observed-on-a-grok-bot-computer)), including after the computer slept and after a computer update |
 
 [ADR 0024](../adr/0024-settings-profiles.md) already expects remote agent browsers that
@@ -207,8 +209,8 @@ login form to the extension.
 
 ## What to check next
 
-Items 1 to 3 have not been run. Each needs the owner's ChatGPT, Claude or Grok account,
-so each needs separate owner approval:
+Items 1 and 2 have not been run; item 3 was run on 2026-10-30. Each needs the owner's
+ChatGPT, Claude or Grok account, so each needs separate owner approval:
 
 1. In the owner's Chrome with Pateat installed, have Claude in Chrome and a ChatGPT
    Work task with `@Chrome` open a recipe's start page and record whether the agent
@@ -217,7 +219,9 @@ so each needs separate owner approval:
    can be loaded at all.
 3. On a dot's cloud computer during a takeover, check whether `chrome://extensions`
    or the Web Store opens. This only records what is possible; running Pateat there
-   with a vault is the owner's tradeoff above.
+   with a vault is the owner's tradeoff above. Done 2026-10-30: **Load unpacked** was
+   blocked by a mandatory `ExtensionInstallBlocklist` of `["*"]` (see
+   [Where Pateat fits](#where-pateat-fits)).
 4. On the Grok Bot computer, update Pateat to current main, then have the Bot itself
    open Vpass, MyJCB and the other pages of 14:15 UTC, and check that `service.sync`
    ends in `synced` again.
