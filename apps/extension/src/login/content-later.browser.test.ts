@@ -308,3 +308,20 @@ describe("a document carrying a login that routes in place (ADR 0027)", () => {
     expect(moves()).toHaveLength(1);
   });
 });
+
+describe("a chooser's path that shows a sign-in form instead of its list (ADR 0041 section 6)", () => {
+  it("reports what the list's buttons missed, for its repair as a form (#1248)", async () => {
+    const verify = { by: "text", value: "Verify" };
+    history.replaceState(null, "", "/signin");
+    document.body.innerHTML = `<main><form><label>User Name <input type="text" name="user"
+      autocomplete="username"></label><label>Password <input type="password" name="password"
+      autocomplete="current-password"></label><button type="submit">Sign In</button></form></main>`;
+    const list = [{ path: "/signin", require: "clickable", targets: [verify], accounts: true }];
+    replies.push(() => ({ ok: false, reason: "form-not-ready", starts: list }));
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(300 + LOGIN_STEP_WAIT_MS);
+    const report = sent.find((message) => message["shown"]);
+    expect(report?.["shown"]).toMatchObject({ path: "/signin", miss: { missing: [verify] } });
+    expect(report?.["shown"]).not.toHaveProperty("accounts");
+  });
+});

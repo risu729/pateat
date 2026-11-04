@@ -177,15 +177,16 @@ the kind the page is now, as the next revision of the same ID.
   replaced recipe's layouts go, except that a passkey-only layout whose button the list
   answer names again becomes the new chooser layout's `passkey`, with its handlers and
   markers (ADR 0079). A login recipe's start page that became a list is reported as in
-  section 1. A chooser whose path shows a form instead of its list is its `other`
-  branch's page (ADR 0028) and is not repaired, when a layout of the chooser has a
-  button for another account. Without one, the form is sent as a form, which replaces
-  the chooser with a login recipe, unless its list shows by then (`list-shown`), the
-  first step of the branch for the shown account shows there (`branch`, as after the
-  person pressed "Continue" themselves), the page said nothing of its miss
-  (`no-detail`), the load answered outside 2xx (`status`) or it is the tab's next page
-  after a submitted password form (`after-sign-in`); as for a start page, only a
-  generated chooser's top-frame page with no login of it running is sent, and a failed
+  section 1. On every chooser path, the page's `shown` report carries what the list's
+  buttons missed as its `miss`. A chooser whose path shows a form instead of its list is
+  its `other` branch's page (ADR 0028) and is not repaired, when a layout of the chooser
+  has a button for another account. Without such a button, the form is sent as a form,
+  which replaces the chooser with a login recipe, unless its list shows by then
+  (`list-shown`), the first step of the branch for the shown account shows there
+  (`branch`, as after the person pressed "Continue" themselves), the page said nothing
+  of its miss (`no-detail`), the load answered outside 2xx (`status`) or it is the tab's
+  next page after a submitted password form (`after-sign-in`); as for a start page, only
+  a generated chooser's top-frame page with no login of it running is sent, and a failed
   lookup of the chooser's layouts sends nothing (Claude's rule, 2026-11-04,
   [#1248](https://github.com/risu729/pateat/issues/1248): a second-factor page that
   showed only the account's email above "Verify" was stored as such a chooser, and the

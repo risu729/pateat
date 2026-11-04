@@ -933,10 +933,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    * What the first steps watched on this path miss (ADR 0041): the targets that match no
    * element, several, or one not rendered, and the HTTP status of this document's load, which a maintenance
    * page served on the login page's URL usually answers with (503). Undefined where no
-   * first step is watched.
+   * first step is watched. A chooser's list counts too, so a chooser path that shows a
+   * form instead carries what it missed, for its repair as a form (ADR 0041 section 6).
    */
   function startMiss(): StartMiss | undefined {
-    const watched = watchedHere();
+    const path = pagePath();
+    const watched = starts.filter((start) => start.path === path && !start.later);
     if (!watched.length) return undefined;
     const missing = new Map<string, LoginTarget>();
     let found = false;
