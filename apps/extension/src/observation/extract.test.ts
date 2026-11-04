@@ -3776,6 +3776,30 @@ describe("extractSignedInObservation", () => {
     expect(kept.some((entry) => entry.label === "ログアウト")).toBe(false);
   });
 
+  it("describes a split code whose inputs declare no maxlength by its first input (ADR 0027 amendment of 2026-11-04)", () => {
+    // Notion's code page in the owner's Chrome on 2026-11-04. The other digits are no
+    // sign-in fields on their own, so they are left out without flawing the page; the
+    // login finds them from the first one (`splitCodeInputs`).
+    page(
+      `<div><input type="text" inputmode="numeric" autocomplete="one-time-code" aria-label="Enter verification code digit 1">${[
+        2, 3, 4, 5, 6,
+      ]
+        .map(
+          (place) =>
+            `<input type="text" inputmode="numeric" autocomplete="off" aria-label="Digit ${place}">`,
+        )
+        .join("")}</div><button id="go">Continue</button>`,
+    );
+    const result = extractSignedInObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.complete).toBe(true);
+    expect(
+      result.observation.candidates.flatMap(({ role, target }) =>
+        role === "button" ? [] : [target],
+      ),
+    ).toEqual([{ by: "autocomplete", value: "one-time-code" }]);
+  });
+
   it("locates a split code's inputs by names that number their places (#850)", () => {
     // Slack's two-factor page (Grok Bot, 2026-10-21: `unlocated-field`): six one-digit
     // inputs with no ID or name, outside any form, each named by its place.

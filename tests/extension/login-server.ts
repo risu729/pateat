@@ -599,7 +599,8 @@ export async function startLoginFixture(
         ui === "partial" ||
         ui === "mutate" ||
         ui === "seven" ||
-        ui === "drop"
+        ui === "drop" ||
+        ui === "unmarked"
       )
         flags.set("ui", ui);
       // `/totp-typed` goes on to a code page without Verify that submits the code on its
@@ -613,7 +614,9 @@ export async function startLoginFixture(
       const next = flags.size === 0 ? "/totp-code" : `/totp-code?${flags.toString()}`;
       // A password page followed by an authenticator app code page (ADR 0027). The query
       // goes on to the code page: `?split` asks for it in six one-digit inputs, the first of
-      // them `#code` (with `ui=seven`, seven; with `ui=partial`, Verify is disabled only
+      // them `#code` (with `ui=seven`, seven; with `ui=unmarked`, six text inputs marked
+      // numeric that declare no `maxlength`, only the first marked `one-time-code`, each
+      // keeping one character and moving the focus on, as Notion's do; with `ui=partial`, Verify is disabled only
       // while some but not all digits are in; with `ui=mutate`, the first digit makes the
       // second input a plain text input), `?wrong` shows it again after Verify, `?auto` submits the
       // code by itself on its sixth digit, as some sites do. With `?auto`, `slow` verifies
@@ -651,7 +654,7 @@ export async function startLoginFixture(
       const again = fixtureUrl.searchParams.has("wrong") ? "/totp-code?wrong" : "/totp-code";
       response.end(
         html(
-          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form">${split ? `<fieldset><legend>Authentication code</legend><input id="code" inputmode="numeric" maxlength="1" aria-label="Digit 1">${(ui === "seven" ? [2, 3, 4, 5, 6, 7] : [2, 3, 4, 5, 6]).map((digit) => `<input id="code-${digit}" inputmode="numeric" maxlength="1" aria-label="Digit ${digit}">`).join("")}</fieldset>` : '<label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}${nobutton ? "" : `<button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button>`}<p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
+          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form">${split && ui === "unmarked" ? `<div><input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" aria-label="Enter verification code digit 1">${[2, 3, 4, 5, 6].map((digit) => `<input id="code-${digit}" type="text" inputmode="numeric" autocomplete="off" aria-label="Digit ${digit}">`).join("")}</div>` : split ? `<fieldset><legend>Authentication code</legend><input id="code" inputmode="numeric" maxlength="1" aria-label="Digit 1">${(ui === "seven" ? [2, 3, 4, 5, 6, 7] : [2, 3, 4, 5, 6]).map((digit) => `<input id="code-${digit}" inputmode="numeric" maxlength="1" aria-label="Digit ${digit}">`).join("")}</fieldset>` : '<label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label>'}${nobutton ? "" : `<button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button>`}<p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
           `const digits = [...document.querySelectorAll('#code-form input')];
           const codeValue = () => digits.map((digit) => digit.value).join('');
           function count(name) {
@@ -682,8 +685,9 @@ export async function startLoginFixture(
           function wire(button) {
             button.addEventListener('click', () => submitCode('verifyClicks'));
           }
-          for (const digit of digits) digit.addEventListener('input', () => {
+          for (const [place, digit] of digits.entries()) digit.addEventListener('input', () => {
             count('codeInputs');
+            ${ui === "unmarked" ? "if (digit.value.length > 1) digit.value = digit.value.slice(0, 1); if (digit.value) digits[place + 1]?.focus();" : ""}
             ${ui === "disabled" ? "document.getElementById('verify').disabled = codeValue().length !== 6;" : ""}
             ${ui === "partial" ? "document.getElementById('verify').disabled = codeValue().length > 0 && codeValue().length < 6;" : ""}
             ${ui === "mutate" ? "if (codeValue().length === 1) document.getElementById('code-2')?.removeAttribute('inputmode');" : ""}

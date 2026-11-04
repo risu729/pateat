@@ -1,29 +1,88 @@
 import type { LoginTarget } from "@pateat/contracts";
 import { acceptsSecret } from "../login/inputs";
 import { observedPath } from "../observation/path";
-import { findTargets, visible } from "./targets";
+import { autocompleteTokens, findTargets, visible } from "./targets";
 import { closestAcross, containsAcross, formOf, inputsOf, queryAll, treeOf } from "./shadow";
 
 export { visible };
 
+/** Input types that take no typed text, which a code's form may hold beside its digits. */
+const untypedTypes = new Set([
+  "hidden",
+  "checkbox",
+  "radio",
+  "submit",
+  "button",
+  "reset",
+  "image",
+  "file",
+  "range",
+  "color",
+]);
+/**
+ * A digit input of a code split into inputs that declare no `maxlength` (ADR 0027
+ * amendment of 2026-11-04): a text input with `inputmode="numeric"`, or a tel or number
+ * input, that declares no `maxlength` or 1.
+ */
+export const unmarkedDigit = (input: HTMLInputElement) =>
+  (input.maxLength === -1 || input.maxLength === 1) &&
+  (input.type === "tel" ||
+    input.type === "number" ||
+    (input.type === "text" && input.getAttribute("inputmode")?.trim().toLowerCase() === "numeric"));
+
 /**
  * The inputs of a code split into one input per digit that starts at `first` (ADR 0027,
- * owner decision 2026-10-12 19:21 UTC), in page order: the inputs of its form, or of no
- * form when it has none, that `usable` accepts, the TOTP fill rule accepts and that take
- * one character (`maxlength` 1), when `first` is the first of them and there are `length`
- * of them, 6 to 8. A `totp` handler's code goes into them one digit per input.
+ * owner decision 2026-10-12 19:21 UTC), in page order, when there are `length` of them, 6
+ * to 8, and `first` is the first:
+ *
+ * - the inputs of its form, or of no form when it has none, that `usable` accepts, the
+ *   TOTP fill rule accepts and that take one character (`maxlength` 1); or
+ * - when `first` declares no `maxlength` (ADR 0027 amendment of 2026-11-04, Notion's six
+ *   inputs, where only the first is marked `autocomplete="one-time-code"`): every input
+ *   of its form that takes typed text and that `usable` accepts, when `first` is marked
+ *   `one-time-code` and each of them is an `unmarkedDigit`. Such a digit takes a code's
+ *   digit only as one of these inputs, never on its own.
+ *
+ * A `totp` handler's code goes into them one digit per input.
  */
 export function splitCodeInputs(
   first: HTMLInputElement,
   length: number,
   usable: (input: HTMLInputElement) => boolean,
 ): HTMLInputElement[] | undefined {
-  if (first.maxLength !== 1 || length < 6 || length > 8) return undefined;
+  if (length < 6 || length > 8) return undefined;
   const inputs = inputsOf(formOf(first), first.ownerDocument);
+  if (first.maxLength === 1) {
+    const digits = inputs.filter(
+      (input) => input.maxLength === 1 && acceptsSecret(input, "otp") && usable(input),
+    );
+    if (digits[0] === first && digits.length === length) return digits;
+  }
+  if (first.maxLength !== -1 || !autocompleteTokens(first).includes("one-time-code"))
+    return undefined;
+  const typed = inputs.filter((input) => !untypedTypes.has(input.type) && usable(input));
+  return typed[0] === first && typed.length === length && typed.every(unmarkedDigit)
+    ? typed
+    : undefined;
+}
+
+/**
+ * The inputs of the code split into one input per digit that `input` is one of
+ * ({@link splitCodeInputs}, counting the inputs `usable` accepts), or undefined.
+ */
+export function splitCodeOf(
+  input: HTMLInputElement,
+  usable: (input: HTMLInputElement) => boolean,
+): HTMLInputElement[] | undefined {
+  const inputs = inputsOf(formOf(input), input.ownerDocument);
   const digits = inputs.filter(
-    (input) => input.maxLength === 1 && acceptsSecret(input, "otp") && usable(input),
+    (other) => other.maxLength === 1 && acceptsSecret(other, "otp") && usable(other),
   );
-  return digits[0] === first && digits.length === length ? digits : undefined;
+  const marked = digits[0] && splitCodeInputs(digits[0], digits.length, usable);
+  if (marked?.includes(input)) return marked;
+  const typed = inputs.filter((other) => !untypedTypes.has(other.type) && usable(other));
+  const unmarked = typed[0] && splitCodeInputs(typed[0], typed.length, usable);
+  return unmarked?.includes(input) ? unmarked : undefined;
 }
 
 /**

@@ -18,10 +18,10 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import { acceptsSecret, shortNumericInput } from "../login/inputs";
+import { shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { authenticatorChoice } from "../page/authenticator-choice";
-import { splitCodeInputs } from "../page/code-submission";
+import { splitCodeOf } from "../page/code-submission";
 import {
   findLogoutTargets,
   isMenuItem,
@@ -54,7 +54,6 @@ import {
   controlsOf,
   formOf,
   hostOf,
-  inputsOf,
   queryAll,
   readingPage,
   shadowRootOf,
@@ -715,18 +714,14 @@ function shownWords(text: string | undefined): Set<string> {
  * person types. A name such as "Sent to ••12" or "••• 4 2 7, digit 1" never qualifies.
  */
 function numbersCodeDigit(field: HTMLInputElement, name: string): boolean {
-  if (field.maxLength !== 1 || !acceptsSecret(field, "otp")) return false;
-  const inputs = inputsOf(formOf(field), field.ownerDocument);
-  const digits = inputs.filter(
-    (input) => input.maxLength === 1 && acceptsSecret(input, "otp") && visible(input),
-  );
-  const place = digits.indexOf(field) + 1;
+  const digits = splitCodeOf(field, visible);
+  const place = (digits?.indexOf(field) ?? -1) + 1;
   return (
+    digits !== undefined &&
     place > 0 &&
     (name.match(/\p{Number}+/gu) ?? []).every(
       (number) => number === `${place}` || number === `${digits.length}`,
-    ) &&
-    splitCodeInputs(digits[0]!, digits.length, visible) !== undefined
+    )
   );
 }
 
@@ -1128,6 +1123,9 @@ const typedFields = [
  */
 function otherEntryField(area: Element, field: HTMLElement): boolean {
   const split = field instanceof HTMLInputElement && field.maxLength === 1;
+  // The other inputs of a code split into inputs that declare no `maxlength` (ADR 0027
+  // amendment of 2026-11-04).
+  const digits = field instanceof HTMLInputElement ? splitCodeOf(field, visible) : undefined;
   for (const element of queryAll<HTMLElement>(area, typedFields)) {
     if (element === field || containsAcross(field, element) || !shown(element)) continue;
     // A disabled or read-only field, or one kept out of reach as a form's trap for bots is.
@@ -1139,6 +1137,7 @@ function otherEntryField(area: Element, field: HTMLElement): boolean {
     )
       continue;
     if (split && element instanceof HTMLInputElement && element.maxLength === 1) continue;
+    if (digits?.includes(element as HTMLInputElement)) continue;
     return true;
   }
   return false;

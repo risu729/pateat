@@ -41,6 +41,7 @@ import { typeOnKeypad } from "../page/keypad-typing";
 import {
   CODE_SETTLE_MS,
   splitCodeInputs,
+  unmarkedDigit,
   visible,
   watchCodeSubmission,
 } from "../page/code-submission";
@@ -2222,8 +2223,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                       ? "page-changed"
                       : !writable(digit) ||
                           formOf(digit) !== form ||
-                          digit.maxLength !== 1 ||
-                          !acceptsSecret(digit, value.secret) ||
+                          !(split[0]!.maxLength === 1
+                            ? digit.maxLength === 1 && acceptsSecret(digit, value.secret)
+                            : value.secret === "otp" && unmarkedDigit(digit)) ||
                           inputValueMismatch(digit, value.value[place]!) !== undefined
                         ? "field-changed"
                         : undefined;

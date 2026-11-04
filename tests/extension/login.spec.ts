@@ -1476,6 +1476,8 @@ for (const [mode, query, verifyClicks, autoSubmits] of [
     1,
     0,
   ],
+  // Notion's inputs declare no `maxlength` (ADR 0027 amendment of 2026-11-04).
+  ["whose inputs declare no maxlength gets one click", "split&ui=unmarked", 1, 0],
 ] as const) {
   test(`a code split into one input per digit is typed one digit per input and ${mode} (ADR 0027)`, async () => {
     const fixture = await startLoginFixture();

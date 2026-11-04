@@ -1473,3 +1473,33 @@ covered: a site that shows the signed-in page without changing its path, until a
 document or route comes (reading on every change of the page was not chosen, since a
 page left to the person changes often and each reading may ask the judge), and a route
 in place of a later document of the tab than the one the watch began in.
+
+## Amendment 2026-11-04: split code inputs without maxlength
+
+**Problem** ([#1152](https://github.com/risu729/pateat/issues/1152)). On 2026-11-04 at
+10:02 UTC, in the owner's Chrome on build `e0ad149f`, Notion's login reached its code
+page after the authenticator choice of [ADR 0081](0081-authenticator-method-button.md)
+and its learned `totp` handler. The page shows six `<input type="text"
+inputmode="numeric">` without `maxlength`; the first is marked
+`autocomplete="one-time-code"` and named "Enter verification code digit 1", the others
+`autocomplete="off"` and named "Digit 2" to "Digit 6". Only the first passes the TOTP
+fill rule, so the page read as one code input, the handler's field. The whole code was
+typed into it, the page kept one character per input and moved the focus on, only the
+first two inputs ended up holding a digit, and the fill ended `fill-rejected`.
+
+**Decision** (Claude, 2026-11-04, extending the owner's decision of 2026-10-12 19:21 UTC
+on split code inputs; built as the owner allowed on 2026-10-23 05:28 UTC):
+
+- A split code is also the inputs of one form (or of no form) that take typed text,
+  every one of them, when there are as many as the code has characters, 6 to 8, the
+  first is marked `autocomplete="one-time-code"` and declares no `maxlength`, and each
+  is a text input with `inputmode="numeric"`, or a `tel` or `number` input, that
+  declares no `maxlength` or 1. Hidden inputs, checkboxes, radio buttons and buttons may
+  sit beside them; any other field in the form, such as an email input, refuses it.
+- The login types the code one digit per input as for a split code with `maxlength` 1,
+  and checks each input again just before its digit by the same shape. Only as one of
+  these inputs does an input without the TOTP fill rule's hints take a code's digit.
+- The handler, the judge and the service are unchanged: the first input passes the code
+  rule on its own, so the handler names it, and the login finds the others from it. The
+  page description still leaves the other inputs out, as they are no sign-in fields on
+  their own.
