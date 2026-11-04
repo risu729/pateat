@@ -250,13 +250,11 @@ export async function repairChooserForm(
     .map((layout) => layout.chooser.afterAccount?.steps[0])
     // A first step that names no element, as a wait for something to go, shows anywhere.
     .filter((step) => step?.path === live.path && loginReadiness(step).targets.length > 0);
-  /* eslint-disable no-await-in-loop */
   for (const step of branchSteps)
     if (await showsNow(rt, live, loginReadiness(step!))) {
       if (rt.documents.get(key) === live) log("skipped", "branch");
       return;
     }
-  /* eslint-enable no-await-in-loop */
   if (!miss) {
     log("skipped", "no-detail");
     return;
