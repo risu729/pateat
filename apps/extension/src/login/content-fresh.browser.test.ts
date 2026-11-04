@@ -76,47 +76,67 @@ describe("a form shown in place after the page's window to be sent closed", () =
     document.body.innerHTML = accountList;
     uninstall = installLoginContent();
     await vi.advanceTimersByTimeAsync(LOGIN_STEP_WAIT_MS + 500);
+    expect(offers()).toEqual([]);
     document.body.innerHTML = form;
     await vi.advanceTimersByTimeAsync(1000);
   };
-
-  it("is not offered by itself (ADR 0016)", async () => {
-    await formShownLate();
-    expect(offers()).toEqual([]);
-    // A restarted worker's reconnect does not reopen the window either.
-    await reconnect({ version: 1, type: "login.reconnect" });
-    expect(offers()).toEqual([]);
+  const offer = expect.objectContaining({
+    type: "login.document.ready",
+    signIn: { path: location.pathname },
   });
 
-  it("is offered once a default chosen in the popup announces the page anew (ADR 0021)", async () => {
+  it("is offered once per path (ADR 0016, amended 2026-11-04)", async () => {
+    await formShownLate();
+    expect(offers()).toEqual([offer]);
+    // Shown again on the same path, as a dialog closed and opened again, it is not.
+    document.body.innerHTML = accountList;
+    await vi.advanceTimersByTimeAsync(500);
+    document.body.innerHTML = form;
+    await vi.advanceTimersByTimeAsync(1000);
+    // Nor does a restarted worker's reconnect offer it again.
+    await reconnect({ version: 1, type: "login.reconnect" });
+    expect(offers()).toEqual([offer]);
+  });
+
+  it("is not offered on a path whose input the window already offered", async () => {
+    document.body.innerHTML = form;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(offers()).toEqual([offer]);
+    document.body.innerHTML = accountList;
+    await vi.advanceTimersByTimeAsync(LOGIN_STEP_WAIT_MS + 500);
+    document.body.innerHTML = form;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(offers()).toEqual([offer]);
+  });
+
+  it("is offered once more when a default chosen in the popup announces the page anew (ADR 0021)", async () => {
     await formShownLate();
     await reconnect({ version: 1, type: "login.reconnect", fresh: true });
-    expect(offers()).toEqual([
-      expect.objectContaining({
-        type: "login.document.ready",
-        signIn: { path: location.pathname },
-      }),
-    ]);
-    // It is offered once: the page's later changes send nothing more.
+    expect(offers()).toEqual([offer, offer]);
+    // Then once only: the page's later changes send nothing more.
     document.querySelector("h1")!.textContent = "Welcome back";
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(offers()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(LOGIN_STEP_WAIT_MS + 1000);
+    expect(offers()).toHaveLength(2);
   });
 
-  it("offers nothing later when the fresh announcement is not answered", async () => {
+  it("offers nothing more when the fresh announcement is not answered", async () => {
     await formShownLate();
     // A worker that stops meanwhile answers that the document is stale.
     next.push({ ok: false, reason: "stale-document" });
     await reconnect({ version: 1, type: "login.reconnect", fresh: true });
     document.querySelector("h1")!.textContent = "Welcome back";
     await vi.advanceTimersByTimeAsync(LOGIN_STEP_WAIT_MS + 1000);
-    expect(offers()).toEqual([]);
+    expect(offers()).toEqual([offer]);
   });
 
   it("offers nothing from a document whose login was cancelled", async () => {
-    await formShownLate();
-    const token = sent[0]!["token"];
-    await reconnect({ version: 1, type: "login.cancel" }, token);
+    document.body.innerHTML = accountList;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(LOGIN_STEP_WAIT_MS + 500);
+    await reconnect({ version: 1, type: "login.cancel" }, sent[0]!["token"]);
+    document.body.innerHTML = form;
+    await vi.advanceTimersByTimeAsync(1000);
     await reconnect({ version: 1, type: "login.reconnect", fresh: true });
     await vi.advanceTimersByTimeAsync(1000);
     expect(offers()).toEqual([]);

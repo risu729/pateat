@@ -732,8 +732,9 @@ The owner asked on 2026-11-04 (13:45 UTC) that choosing an account in the popup 
 the login. On Discord's `/login` (build dd8c50f) the page first showed Discord's own
 list of remembered accounts, which was not sent (`nothing-offered`, `no-list`). "Add an
 account" then swapped in its email and password form at the same URL. A form shown after
-the page's window to be sent closed, with no URL change, is not sent
-([ADR 0016](0016-recipe-generation-trigger.md)), so nothing was logged for it. The owner
+the page's window to be sent closed, with no URL change, was not sent then
+([ADR 0016](0016-recipe-generation-trigger.md); it is sent once per path since that
+ADR's second amendment of 2026-11-04), so nothing was logged for it. The owner
 then chose a default with **Use as default**. That only saved the setting: the popup
 said "A default takes effect at the next login", so the open form stayed empty.
 
