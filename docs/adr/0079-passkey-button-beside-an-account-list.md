@@ -30,7 +30,8 @@ implementation chose between them for all items:
 - A list by email went first (`no-input-offer.ts`), so decision 7 never applied to it.
 - Beside a list, items with a passkey used the list, signing in with a passkey only when
   the page made its own request (ADR 0034) or after the list click (ADR 0036).
-- A list repair (ADR 0041 section 6) replaces a login recipe with a chooser, so sending
+- A list repair (ADR 0041 section 6) replaced a login recipe with a chooser (until
+  2026-11-04, since when the list is added beside the recipe's layouts), so sending
   a passkey-only recipe's page as a list would drop the button for every item
   ([#1044](https://github.com/risu729/pateat/pull/1044), closed).
 

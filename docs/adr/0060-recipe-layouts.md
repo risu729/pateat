@@ -26,6 +26,13 @@ Amended on 2026-10-25 by [ADR 0079](0079-passkey-button-beside-an-account-list.m
 chooser layout may also hold `passkey`, named `<key>:passkey`, with its units under
 `passkey/`.
 
+Amended on 2026-11-04 ([#1248](https://github.com/risu729/pateat/issues/1248), owner
+11:30 UTC): one stored recipe of an origin and start path may hold both kinds, the
+sign-in form's `layouts` and a list of accounts under `chooser` with its own `layouts`
+([ADR 0028](0028-account-chooser-login-pages.md)), since the same URL shows either by
+the state of the browser's session. See
+[Both kinds on one path](#both-kinds-on-one-path).
+
 Date: 2026-10-23
 
 ## Context
@@ -81,6 +88,31 @@ accounts in another language fails the same way.
   first-login results and login records, and a use report names the layout. The five
   tables with a `branch` column keep it and store the layout there, so only one table is
   new.
+
+### Both kinds on one path
+
+Added on 2026-11-04 (owner, 11:30 UTC, after
+[#1248](https://github.com/risu729/pateat/issues/1248)).
+
+- A recipe document holds `layouts` (the sign-in form's), `chooser` (a list of accounts
+  with its layouts, [ADR 0028](0028-account-chooser-login-pages.md)), or both; never
+  neither. The list's path is the start path of the form's layouts. Each kind holds one
+  to three layouts, layout keys are unique over both, and every route's slots together
+  fit the recipe's 20.
+- A repair adds the kind the page showed beside the other instead of replacing it
+  ([ADR 0041](0041-repair-stale-recipes.md) section 6), so what each kind learned stays.
+- A new login on the start path runs the list when the document reads it as one now: no
+  sign-in input, and one of the list's buttons or an account listed by email, the same
+  check that reports a list ready. Otherwise the form's layouts are chosen as below. A
+  list never shows beside a sign-in input, so the two kinds never tie, and no model is
+  asked to choose; the model is asked only when no layout fits (repair).
+- A resumed login keeps its kind: a chooser login resumes on its list's layout, a form's
+  login on its own layout.
+- The device watches one start for the recipe: the form's first steps and the list's
+  buttons together.
+- A layout unused for 90 days goes whatever its kind (ADR 0058 B); a kind whose last
+  layout goes leaves the other alone, and a recipe none of whose layouts is used is
+  revoked as before.
 
 ### Running one layout
 

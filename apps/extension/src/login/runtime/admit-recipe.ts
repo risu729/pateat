@@ -81,14 +81,66 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       ? ctx.previous
         ? probeRecipe(rt.vars.origin, `/${ctx.previous.recipeId.replace(/^demo-/, "")}`)
         : probeRecipe(rt.vars.origin, ctx.live.path)
-      : await rt.recipes.recipe(
-          ctx.document.origin,
-          ctx.live.path,
-          ctx.previous?.recipeId,
-          ctx.previous?.layout,
-        );
+      : // A chooser login resumes on its list's layout, never on the recipe's sign-in form.
+        ctx.previous?.chooser
+        ? undefined
+        : await rt.recipes.recipe(
+            ctx.document.origin,
+            ctx.live.path,
+            ctx.previous?.recipeId,
+            ctx.previous?.layout,
+          );
 
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+
+  // A recipe may hold a list of accounts beside its sign-in form, as the same URL shows
+  // either by the state of the browser's session (ADR 0028, owner 2026-11-04). A new login
+  // there runs the list when it shows: no sign-in input, and one of the list's buttons or
+  // an account listed by email, as the document reads a list. Otherwise the form's layouts
+  // are chosen below. A list never shows beside a sign-in input, so the two never tie.
+  if (ctx.recipe && !ctx.previous && !(probeMode && ctx.document.origin === rt.vars.origin)) {
+    const list = await Promise.resolve(
+      rt.recipes.chooser?.(ctx.document.origin, ctx.live.path),
+    ).catch(() => undefined);
+    if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+    if (list?.id === ctx.recipe.id) {
+      const lists = await Promise.resolve(
+        rt.recipes.choosers?.(ctx.document.origin, ctx.live.path),
+      ).catch(() => undefined);
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      const buttons = (lists?.length ? lists.map((entry) => entry.recipe) : [list]).flatMap(
+        (entry) => listReadiness(rt, entry).targets,
+      );
+      const shows = await showsNow(rt, ctx.live, { ...listReadiness(rt, list), targets: buttons });
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      // Nor the form's layouts when the page shows the list's `other` branch's form in its
+      // place, as after the person pressed the button for another account, and none of the
+      // form's first steps: the branch starts there below (ADR 0028).
+      const branchStart = chooserRoute(list, "other-shown")?.steps[0];
+      const branchShows =
+        !shows &&
+        branchStart !== undefined &&
+        loginReadiness(branchStart).targets.length > 0 &&
+        (await showsNow(rt, ctx.live, loginReadiness(branchStart)));
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      // Every layout of the form counts (ADR 0060), not only the newest.
+      const forms = branchShows
+        ? ((await Promise.resolve(rt.recipes.layouts?.(ctx.document.origin, ctx.live.path)).catch(
+            () => undefined,
+          )) ?? [{ recipe: ctx.recipe }])
+        : [];
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      let formShows = false;
+      /* eslint-disable no-await-in-loop */
+      for (const step of forms.flatMap((form) => recipeStartSteps(form.recipe))) {
+        formShows = await showsNow(rt, ctx.live, loginReadiness(step));
+        if (formShows) break;
+      }
+      /* eslint-enable no-await-in-loop */
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      if (shows || (branchShows && !formShows)) ctx.recipe = undefined;
+    }
+  }
 
   // A new login on a recipe with several layouts (ADR 0060) takes the one whose start
   // page elements show most, then one of the page's language, then the newest; the

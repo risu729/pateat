@@ -1592,6 +1592,47 @@ describe("recipe sync", () => {
     });
   });
 
+  it("holds a recipe's sign-in form and its list on one path as one start (#1248)", async () => {
+    const verify = { by: "text" as const, value: "Verify" };
+    const form = recipe("bank-signin", "/login");
+    const both = {
+      ...form,
+      chooser: { path: "/login", layouts: [{ key: "2000", createdAt: 2000, continue: verify }] },
+    };
+    const stored = { version: 2, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [both] };
+    const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
+    const list = {
+      version: 1,
+      id: "bank-signin",
+      revision: 1,
+      origin: SITE,
+      layout: "2000",
+      chooser: { path: "/login", continue: verify },
+    };
+    // The form's layouts and the list each answer their own lookup on the same path.
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(projected(form));
+    expect(await sync.recipes.chooser!(SITE, "/login")).toEqual(list);
+    expect(await sync.recipes.choosers!(SITE, "/login")).toEqual([
+      { recipe: list, createdAt: 2000 },
+    ]);
+    // One start, so the path is not left out as one several recipes start on.
+    expect(await sync.recipes.starts(SITE)).toEqual([
+      {
+        path: "/login",
+        steps: [form.layouts[0]!.steps[0]],
+        list: [verify],
+        later: [expect.objectContaining({ path: "/password", later: true })],
+      },
+    ]);
+    // A login resumes on its own layout of either kind, by keys unique over both.
+    expect(await sync.recipes.withdrawn!(SITE, "bank-signin", "1000")).toBe(false);
+    expect(await sync.recipes.withdrawn!(SITE, "bank-signin", "2000")).toBe(false);
+    expect(await sync.recipes.withdrawn!(SITE, "bank-signin", "3000")).toBe(true);
+    expect(await sync.recipes.chooser!(SITE, "/elsewhere", "bank-signin", "1000")).toBeUndefined();
+    expect(await sync.recipes.recipe(SITE, "/elsewhere", "bank-signin", "2000")).toBeUndefined();
+    expect(await sync.recipes.layoutsOf!(SITE, "bank-signin")).toEqual([projected(form)]);
+  });
+
   it("starts a chooser (ADR 0028) also on its other branch's first step on the list's path", async () => {
     const other = { by: "text" as const, value: "Use another profile" };
     const continueButton = { by: "text" as const, value: "Continue" };

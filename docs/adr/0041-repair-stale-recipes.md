@@ -172,25 +172,34 @@ the kind the page is now, as the next revision of the same ID.
   which answers the entry's next revision (`POST /v1/recipes/generate` with `repair` and
   no slots), or nothing when the model names the same link. A load answered outside 2xx
   is not sent.
-- **Kind changes.** A list answer replaces a login or entry recipe with a chooser, and a
-  form answer replaces a chooser or entry recipe with a login recipe (one layout); the
-  replaced recipe's layouts go, except that a passkey-only layout whose button the list
-  answer names again becomes the new chooser layout's `passkey`, with its handlers and
-  markers (ADR 0079). A login recipe's start page that became a list is reported as in
-  section 1. On every chooser path, the page's `shown` report carries what the list's
-  buttons missed as its `miss`. A chooser whose path shows a form instead of its list is
-  its `other` branch's page (ADR 0028) and is not repaired, when a layout of the chooser
-  has a button for another account. Without such a button, the form is sent as a form,
-  which replaces the chooser with a login recipe, unless its list shows by then
-  (`list-shown`), the first step of the branch for the shown account shows there
-  (`branch`, as after the person pressed "Continue" themselves), the page said nothing
-  of its miss (`no-detail`), the load answered outside 2xx (`status`) or it is the tab's
-  next page after a submitted password form (`after-sign-in`); as for a start page, only
-  a generated chooser's top-frame page with no login of it running is sent, and a failed
-  lookup of the chooser's layouts sends nothing (Claude's rule, 2026-11-04,
-  [#1248](https://github.com/risu729/pateat/issues/1248): a second-factor page that
-  showed only the account's email above "Verify" was stored as such a chooser, and the
-  sign-in form on the same path then never started a login).
+- **Kind changes.** Amended on 2026-11-04 (owner, 11:30 UTC, after
+  [#1248](https://github.com/risu729/pateat/issues/1248)): the same URL shows a sign-in
+  form or a list of accounts by the state of the browser's session, so a recipe holds
+  layouts of both kinds on its start path (ADR 0028, ADR 0060), and a repair adds the
+  kind the page showed beside the other instead of replacing it. A list answer adds a
+  chooser layout to a login recipe, which keeps its layouts with what they learned; a
+  form answer adds a layout to a chooser's recipe, which keeps its list. Only an entry
+  recipe is still replaced by the kind its page shows. A passkey-only layout whose
+  button the list answer names again is copied into the new chooser layout's `passkey`,
+  with its handlers and markers (ADR 0079), and stays as a layout of its own. Each kind
+  keeps at most three layouts, and an unused layout goes after 90 days whatever its kind
+  (ADR 0058 B); a kind whose last layout goes leaves the other alone. A login recipe's
+  start page that became a list is reported as in section 1. On every chooser path, the
+  page's `shown` report carries what the list's buttons missed as its `miss`. A chooser
+  whose path shows a form instead of its list is its `other` branch's page (ADR 0028)
+  and is not repaired, when a layout of the chooser has a button for another account.
+  Without such a button, the form is sent as a form, which adds a login layout to the
+  recipe, unless its list shows by then (`list-shown`), the first step of the branch for
+  the shown account shows there (`branch`, as after the person pressed "Continue"
+  themselves), the page said nothing of its miss (`no-detail`), the load answered
+  outside 2xx (`status`) or it is the tab's next page after a submitted password form
+  (`after-sign-in`); as for a start page, only a generated chooser's top-frame page with
+  no login of it running is sent, and a failed lookup of the chooser's layouts sends
+  nothing (Claude's rule, 2026-11-04, #1248: a second-factor page that showed only the
+  account's email above "Verify" was stored as such a chooser, replacing the login
+  recipe that had signed in, and the sign-in form on the same path then never started a
+  login). Before 2026-11-04 a kind change replaced the recipe, which lost every layout
+  of the other kind each time the page changed kind.
 
 The same limits apply: one repair per recipe, device and UTC day, and the device's hold.
 
@@ -217,6 +226,13 @@ request itself is `recipe.generate` with page `repair`.
   switches language is rewritten back and forth.
 - **Two loads before a repair (#617).** Needed only because a wrong repair overwrote a
   working recipe; adding a layout breaks nothing, so one load is enough.
+- **For a kind change, put back the recipe's previous revision of the other kind without
+  a model call** (2026-11-04, #1248). Keeps what that revision learned, but the recipe
+  still holds one kind at a time, so a page that shows either by the session's state
+  goes back and forth, and it makes the first replacement pointless (owner, 11:29 UTC).
+  Not chosen: both kinds are held instead.
+- **Two pages of the other kind on different days before a kind change** (2026-11-04).
+  Fewer wrong replacements, but a recipe still holds one kind at a time. Not chosen.
 - **Skip a page in the other language (#617).** It would never get a working layout.
 - **Detect maintenance pages by their text.** Language- and site-specific
   ([ADR 0033](0033-no-site-specific-features.md)).

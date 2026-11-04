@@ -723,7 +723,12 @@ export function createLoginGeneration(options: {
       // only those. The login runs the layout its page continues, or the newest one, which
       // a first page creates (ADR 0060).
       const chooserPage = request.observation.accounts !== undefined || chooserBranchOf(branch);
-      const recipe = storedLayoutRecipe(change.recipe, layoutOf(branch));
+      // A recipe may hold both kinds, so a first page takes the newest layout of its own.
+      const recipe = storedLayoutRecipe(
+        change.recipe,
+        layoutOf(branch),
+        chooserPage ? "list" : "form",
+      );
       if (!recipe || chooserPage !== "chooser" in recipe)
         return { outcome: "unavailable", reason: "recipe-conflict", ...timed };
       const fields = customSlots && slotFieldsOf(request, customSlots);

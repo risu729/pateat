@@ -145,10 +145,11 @@ export function repairWrite(
         ),
       };
   }
-  const key = newLayoutKey(
-    options.createdAt,
-    recipe.layouts.map((layout) => layout.key),
-  );
+  // Keys are unique over the recipe's sign-in layouts and its list's (ADR 0060).
+  const key = newLayoutKey(options.createdAt, [
+    ...recipe.layouts.map((layout) => layout.key),
+    ...(recipe.chooser?.layouts ?? []).map((layout) => layout.key),
+  ]);
   const added = toLoginLayout(answer, {
     key,
     ...(options.language ? { language: options.language } : {}),

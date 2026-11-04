@@ -302,9 +302,10 @@ function RecipeDetails({
                 ["Language", layout.language ? languageNames[layout.language] : "Not known"],
                 ["Created", formatTime(layout.createdAt)],
                 ["Last used", lastUsed ? formatTime(lastUsed) : "Not used yet"],
-                // A chooser's first page is its list of accounts.
+                // A chooser layout's first page is its list of accounts; a recipe may hold
+                // both kinds (ADR 0028).
                 [
-                  "chooser" in recipe ? "Account list made by" : "First page made by",
+                  "chooser" in projected ? "Account list made by" : "First page made by",
                   firstPageSource(firstPage),
                 ],
                 ["Steps", `${variants.reduce((sum, variant) => sum + variant.steps.length, 0)}`],

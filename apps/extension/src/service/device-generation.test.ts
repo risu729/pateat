@@ -1,5 +1,6 @@
 import {
   DEVICE_MODEL_URL,
+  isLoginRecipeDocument,
   type LoginObservation,
   type RecipeGenerationRequest,
   type SavedLoginBinding,
@@ -509,7 +510,8 @@ describe("the device's model calls (ADR 0040)", () => {
   it("keeps the last use of a layout the recipe has, and drops it with the layout", async () => {
     const { generation, backend } = setup({ replies: [plan] });
     const change = await recipeOf(generation);
-    if (change.state !== "active" || !("layouts" in change.recipe)) throw new Error("no layouts");
+    if (change.state !== "active" || !isLoginRecipeDocument(change.recipe))
+      throw new Error("no layouts");
     const layout = change.recipe.layouts[0]!.key;
     await backend.markLayoutUsed(change.recipeId, "999");
     expect(await backend.layoutUses(change.recipeId)).toBeUndefined();
