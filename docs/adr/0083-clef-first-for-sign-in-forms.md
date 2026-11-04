@@ -11,8 +11,8 @@ agent" were not asked. The questions and the decision role are implemented in
 `createClefBindingModel`), and the service asks Clef through its binding (`sendClefCall`
 in `services/api/src/claude/calls.ts`). A device without a pairing asks Clef with its
 own Cloudflare token (`callModel` in `apps/extension/src/service/device-generation.ts`);
-a paired device with its own Anthropic key does not call Clef yet, and its requests go to
-Claude as before. Amends [ADR 0003](0003-service-and-ai.md) and
+a paired device with its own Anthropic key does not call Clef yet, and its requests go
+to Claude as before. Amends [ADR 0003](0003-service-and-ai.md) and
 [ADR 0014](0014-claude-generation-provider.md).
 
 Date: 2026-11-04

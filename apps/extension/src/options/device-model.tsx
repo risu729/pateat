@@ -455,7 +455,7 @@ function DeviceClefForm({ client }: { client: DeviceClefClient }) {
             tone: "idle",
             icon: Info,
             text: t(
-              "Create the token with Workers AI's “Use REST API” in the Cloudflare dashboard (Workers AI Read and Edit). It stays on this device and is sent to Cloudflare only, never to the sync service.",
+              "Create the token with Use REST API on the Workers AI page of the Cloudflare dashboard (Workers AI Read and Edit). It stays on this device and is sent to Cloudflare only, never to the sync service.",
             ),
           },
         ]}
