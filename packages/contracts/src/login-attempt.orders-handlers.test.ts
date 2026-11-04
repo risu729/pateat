@@ -33,7 +33,7 @@ it(
     );
     expect(failures).toEqual([]);
     // A guard against events that no longer reach most states, which would pass trivially.
-    expect(states).toBeGreaterThan(3000);
+    expect(states).toBeGreaterThan(6500);
     for (const type of ["HANDLER", "AUTO_SUBMITTED"]) expect(types).toContain(type);
   },
 );
@@ -49,7 +49,7 @@ it(
       },
     ]);
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(3000);
+    expect(states).toBeGreaterThan(6000);
     for (const type of ["HANDLER", "REVISED"]) expect(types).toContain(type);
   },
 );

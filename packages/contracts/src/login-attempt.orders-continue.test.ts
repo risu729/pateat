@@ -41,7 +41,7 @@ it(
       ],
     );
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(5000);
+    expect(states).toBeGreaterThan(9500);
     for (const type of ["CONTINUING", "UNCONTINUED", "CONTINUED"]) expect(types).toContain(type);
   },
 );

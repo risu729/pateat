@@ -16,26 +16,26 @@ describe("keeps an attempt's limits in every order of events", () => {
   it("on a chooser's list", { timeout: 120_000 }, () => {
     const { states, types, failures } = walk(recipe, { chooser: "entry", focused: true });
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(3000);
+    expect(states).toBeGreaterThan(6500);
     expect(types).toContain("NOT_LISTED");
   });
 
   it("only filling", { timeout: 120_000 }, () => {
     const { states, failures } = walk(recipe, { fillOnly: true, focused: true });
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(50);
+    expect(states).toBeGreaterThan(500);
   });
 
   it("in a frame", { timeout: 120_000 }, () => {
     const { states, failures } = walk(recipe, { frame: true, focused: true });
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(1000);
+    expect(states).toBeGreaterThan(4000);
   });
 
   it("after an account switch", { timeout: 120_000 }, () => {
     const { states, types, failures } = walk(recipe, { accountSwitched: true, focused: true });
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(3000);
+    expect(states).toBeGreaterThan(6500);
     expect(types).toContain("WRONG_ACCOUNT");
   });
 });

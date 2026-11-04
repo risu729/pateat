@@ -375,9 +375,9 @@ fix them now; the SSO policy itself is recorded separately.
   withdrawn authorization before the page received the prepared fill or click takes back
   that operation's reserved effect, so such a record shows nothing in flight; a record a
   restarted worker finds with an intent pending keeps holding. Once the page said it
-  took the step (`SUBMITTED`), or submitted a code by itself, neither a withdrawn
-  authorization nor a failure that reports no change takes the effect back (2026-11-04,
-  found by the walk over every order of events). Such a record does not hold: the login
+  took the step (`SUBMITTED`), neither a withdrawn authorization nor a failure that
+  reports no change takes the effect back (2026-11-04, found by the walk over every
+  order of events). Such a record does not hold: the login
   form showing in a new tab means the site's session has ended, as when the first tab is
   closed, and a stop by Pateat says nothing about the password. This includes a stop on
   a second-factor handler step after the password was accepted. The tab then logs in as

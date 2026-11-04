@@ -27,7 +27,7 @@ it(
       { facts: noPassword, stopAt: 2, routes: true, focused: true },
     );
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(5000);
+    expect(states).toBeGreaterThan(15000);
     for (const type of ["STOP_ANSWERED", "STOP_JUDGING", "HANDLER", "JUDGING", "ROUTE"])
       expect(types).toContain(type);
   },

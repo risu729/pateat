@@ -31,7 +31,7 @@ it(
   () => {
     const { states, types, failures } = walk(recipe, { facts, fillOnly: true });
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(500);
+    expect(states).toBeGreaterThan(2200);
     expect(types).not.toContain("AUTO_SUBMITTED");
   },
 );

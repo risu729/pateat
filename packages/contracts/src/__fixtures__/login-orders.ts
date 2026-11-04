@@ -1,6 +1,8 @@
 import {
   attemptPlan,
   createAttemptMetadata,
+  fillOnlyStep,
+  MAX_ATTEMPT_SUBMISSIONS,
   nextLoginOperation,
   transitionLoginAttempt,
   type LoginAttemptMetadata,
@@ -237,7 +239,7 @@ function recipeEvents(
           type: "CONTINUED",
           recipeRevision: next.revision,
           steps: added,
-          effects: Math.max(1, next.maxSubmissions - recipe.maxSubmissions),
+          effects: effects(nextSteps.slice(own.length)),
           document,
           ...(stopAt === undefined ? {} : { stopAt }),
         });
@@ -247,7 +249,7 @@ function recipeEvents(
         type: "CONTINUED",
         recipeRevision: next.revision,
         steps: nextSteps.length - own.length + 1,
-        effects: Math.max(1, next.maxSubmissions - recipe.maxSubmissions + 1),
+        effects: effects(nextSteps.slice(own.length - 1)),
         document,
         replacesLast: true,
       });
@@ -256,8 +258,13 @@ function recipeEvents(
         type: "LAYOUT",
         layout: next.layout,
         recipeRevision: next.revision,
-        steps: nextSteps.length,
-        maxSubmissions: next.maxSubmissions,
+        steps: attemptPlan(next, metadata)?.length ?? nextSteps.length,
+        // What the login holds beyond its recipe's budget stays with it, as the runtime's
+        // `switchLayout` keeps it.
+        maxSubmissions: Math.min(
+          MAX_ATTEMPT_SUBMISSIONS,
+          next.maxSubmissions + Math.max(0, metadata.maxSubmissions - recipe.maxSubmissions),
+        ),
         document,
       });
   }
@@ -292,6 +299,9 @@ function eventsFor(
   const recipe = recipeFor(metadata, recipes);
   const operation =
     recipe && nextLoginOperation(metadata, recipe, metadata.document, operationId, 0);
+  // A fill-only login is issued only what it may fill (ADR 0021 D).
+  if (operation && metadata.fillOnly && fillOnlyStep(operation.step) !== operation.step)
+    throw new Error("Fill-only login issued a step it never takes");
   if (operation) {
     const effect = loginStepEffect(operation.step);
     const prepare = { type: "PREPARE", kind: operation.step.kind, ...(effect ? { effect } : {}) };
@@ -318,8 +328,39 @@ function eventsFor(
   ];
 }
 
-const fillsCode = (step: LoginStep | undefined) =>
-  step?.kind === "fill" && step.fields.some((field) => field.slot === TOTP_HANDLER_SLOT);
+type PlanEntry = { step: LoginStep; handler?: number } | undefined;
+
+/**
+ * Where plan entry `index` stands in a TOTP code the page may submit by itself, as the
+ * runtime's `codeStep` reads it (ADR 0027): a `totp` handler's fill or the click after it,
+ * or a route's fill of the code alone and its submit click on the same path.
+ */
+function codeStep(
+  recipe: LoginRecipe,
+  plan: readonly PlanEntry[],
+  index: number,
+): "fill" | "click" | undefined {
+  const entry = plan[index];
+  if (!entry) return undefined;
+  const before = plan[index - 1];
+  if (entry.handler !== undefined) {
+    if (recipe.handlers?.[entry.handler]?.kind !== "totp") return undefined;
+    if (entry.step.kind === "fill") return "fill";
+    return before?.handler === entry.handler && before.step.kind === "fill" ? "click" : undefined;
+  }
+  const routeCode = (at: PlanEntry) =>
+    at?.handler === undefined &&
+    at?.step.kind === "fill" &&
+    at.step.fields.length === 1 &&
+    at.step.fields[0]!.slot === TOTP_HANDLER_SLOT;
+  const submits = (at: PlanEntry, path: string) =>
+    at?.handler === undefined &&
+    at?.step.kind === "click" &&
+    at.step.purpose === "submit" &&
+    at.step.path === path;
+  if (routeCode(entry)) return submits(plan[index + 1], entry.step.path) ? "fill" : undefined;
+  return routeCode(before) && submits(entry, before!.step.path) ? "click" : undefined;
+}
 
 /**
  * The events the runtime sends only for a kind of step or login, as it checks before it
@@ -333,12 +374,15 @@ function planEvents(
   const plan = recipe && attemptPlan(recipe, metadata);
   const at = plan?.[metadata.stepIndex];
   const events: AttemptEvent[] = [];
+  const code = recipe && plan ? codeStep(recipe, plan, metadata.stepIndex) : undefined;
   // A page that submitted a code by itself, with the code's fill unanswered or after it,
-  // at its click (`codeAwaitsClick`).
+  // at its click (`codeAwaitsClick`). A fill-only login never types the code, so the
+  // runtime never sends it one; it is sent at the code's fill anyway, which only the
+  // machine's own refusal turns away (ADR 0021 D).
   if (
     metadata.operationId === undefined
-      ? fillsCode(plan?.[metadata.stepIndex - 1]?.step) && at?.step.kind === "click"
-      : fillsCode(at?.step)
+      ? code === "click" || (metadata.fillOnly === true && code === "fill")
+      : code === "fill"
   )
     events.push({
       type: "AUTO_SUBMITTED",
@@ -408,8 +452,8 @@ function broken(
     from.operationEffect !== "prepare" &&
     to.state === "ready" &&
     to.stepIndex <= from.stepIndex &&
-    // A handler entered after it, or a continued page, comes in after the step itself.
-    !(type === "HANDLER" || type === "CONTINUED" || type === "LAYOUT" || type === "ROUTE")
+    // The passkey route's answer falls back to the password route's first step (ADR 0034).
+    !(type === "ROUTE" && to.route !== from.route)
   )
     names.push("possibly submitted step taken again");
   // A `watching` login only reads pages until it ends (ADR 0027).
@@ -439,8 +483,10 @@ function broken(
     names.push("counted a submission no step intended");
   if (to.submissions < from.submissions) {
     if (!takesBack(event)) names.push("took back a submission without proof");
-    if (from.state === "awaiting-result" || from.state === "reconciling")
-      names.push("took back a submission the page may have received");
+    // Once the page said it took the step; in `reconciling` the machine trusts the
+    // runtime's own record of what it delivered (ADR 0022).
+    if (from.state === "awaiting-result" || from.state === "watching")
+      names.push("took back a submission the page took");
   }
   // Only a page that proves it, or a confirmed move to another origin, signs in.
   if (

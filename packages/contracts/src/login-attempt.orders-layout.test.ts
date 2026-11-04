@@ -37,7 +37,7 @@ it(
       ],
     );
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(3000);
+    expect(states).toBeGreaterThan(12500);
     expect(types).toContain("LAYOUT");
   },
 );

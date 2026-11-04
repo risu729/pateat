@@ -35,7 +35,7 @@ it(
       ],
     );
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(2000);
+    expect(states).toBeGreaterThan(11000);
     for (const type of ["CONTINUED", "STOP_ANSWERED"]) expect(types).toContain(type);
   },
 );

@@ -24,7 +24,7 @@ it(
       focused: true,
     });
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(3000);
+    expect(states).toBeGreaterThan(6500);
     expect(types).toContain("ROUTE");
   },
 );
@@ -38,7 +38,7 @@ it(
       { facts, routes: true, focused: true },
     );
     expect(failures).toEqual([]);
-    expect(states).toBeGreaterThan(3000);
+    expect(states).toBeGreaterThan(12500);
     expect(types).toContain("ROUTE");
   },
 );

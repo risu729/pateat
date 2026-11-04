@@ -340,6 +340,38 @@ describe("attempt identity and metadata", () => {
       }),
     ).toEqual(filling);
   });
+  it("fills a fill-only attempt's step without the code it holds beside other fields", () => {
+    const combined: LoginRecipe = {
+      ...recipe,
+      slots: ["password", "totp"],
+      steps: [
+        {
+          kind: "fill",
+          effect: "prepare",
+          path: "/login",
+          fields: [
+            { slot: "password", target: { by: "id", value: "password" } },
+            { slot: "totp", target: { by: "id", value: "otp" } },
+          ],
+        },
+        ...recipe.steps.slice(1),
+      ],
+    };
+    const ready = transitionLoginAttempt(detected(combined), { type: "RESOLVE" });
+    const whole = nextLoginOperation(ready, combined, document, "fill-one", 1000)!;
+    expect(whole.step).toMatchObject({ fields: [{ slot: "password" }, { slot: "totp" }] });
+    const fillOnly = { ...ready, fillOnly: true as const };
+    const issued = nextLoginOperation(fillOnly, combined, document, "fill-one", 1000)!;
+    expect(issued.step).toMatchObject({ fields: [{ slot: "password" }] });
+    expect(issued.step).not.toMatchObject({ fields: [{}, {}] });
+    const intent = transitionLoginAttempt(
+      transitionLoginAttempt(fillOnly, { type: "PREPARE", operationId: "fill-one", kind: "fill" }),
+      { type: "MUTATION_INTENT", operationId: "fill-one" },
+    );
+    expect(validateLoginOperation(issued, intent, document, 3, 1001)).toBe(true);
+    // The step with its code is never authorized for it.
+    expect(validateLoginOperation(whole, intent, document, 3, 1001)).toBe(false);
+  });
 });
 
 describe("submission and failure reconciliation", () => {
@@ -1405,7 +1437,13 @@ describe("submission and failure reconciliation", () => {
     expect(
       transitionLoginAttempt(intent, { type: "POLICY_CHANGED", undelivered: "other-one" }),
     ).toMatchObject({ state: "blocked", submissions: 1, mutationIntent: true });
-    // So does an operation the page said it took: it was delivered.
+    // A click whose check failed before it went out is still taken back.
+    const unsent = transitionLoginAttempt(intent, { type: "FAILED", reason: "timeout" });
+    expect(unsent).toMatchObject({ state: "reconciling", submissions: 1 });
+    expect(
+      transitionLoginAttempt(unsent, { type: "POLICY_CHANGED", undelivered: "click-one" }),
+    ).toMatchObject({ state: "blocked", submissions: 0, mutationIntent: undefined });
+    // An operation the page said it took was delivered.
     const submitted = transitionLoginAttempt(intent, {
       type: "SUBMITTED",
       operationId: "click-one",

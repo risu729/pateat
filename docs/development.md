@@ -1161,13 +1161,13 @@ walk's recipes as the runtime builds them, and those it sends only for a kind of
 code the page submitted, a disabled final advance) only at such a step. One file per
 kind of login start (a stop before a missing password, the passkey route, handlers, a
 continued recipe, layouts, a chooser's list, a frame, fill-only) keeps each walk under
-20,000 states, and those beside the two plain recipes leave out the events that only
-multiply their states (`focused` in `__fixtures__/login-orders.ts`). Component tests
-cover drafts, conflicts, validation and keyboard behavior; Playwright covers real
-extension boundaries and lifecycle. Automated accessibility checks supplement
-manual keyboard/focus inspection. Browser component tests do not establish
-extension API or MV3 lifecycle behavior. Knip must understand WXT-generated entrypoints
-before treating reported unused files as removable.
+20,000 states (a walk fails past 60,000), and those beside the two plain recipes leave
+out the events that only multiply their states (`focused` in
+`__fixtures__/login-orders.ts`). Component tests cover drafts, conflicts, validation and
+keyboard behavior; Playwright covers real extension boundaries and lifecycle. Automated
+accessibility checks supplement manual keyboard/focus inspection. Browser component
+tests do not establish extension API or MV3 lifecycle behavior. Knip must understand
+WXT-generated entrypoints before treating reported unused files as removable.
 
 We continue to implement domain behavior independently, without copying feature
 code from Fenko, auto-filler, Superfill, Boltwarden or bronzewarden. Extra global
