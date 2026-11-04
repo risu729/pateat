@@ -438,6 +438,13 @@ export const readySchema = v.strictObject({
 export const reconnectSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.reconnect"),
+  /**
+   * The person chose the site's default account for this tab in the popup (ADR 0021,
+   * amended 2026-11-04): the document announces as a new page, so its login starts now,
+   * and a sign-in form it shows may be offered for generation once more, also one shown
+   * after its window to be sent closed.
+   */
+  fresh: v.optional(v.literal(true)),
 });
 export const authorizeSchema = v.strictObject({
   version: v.literal(1),

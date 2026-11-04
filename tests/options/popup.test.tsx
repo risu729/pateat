@@ -82,6 +82,7 @@ function noChoice() {
     pause: vi.fn<ChoiceClient["pause"]>().mockResolvedValue({ ok: true }),
     pauseState: vi.fn<ChoiceClient["pauseState"]>().mockResolvedValue({ ok: true }),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
+    defaultChosen: vi.fn<ChoiceClient["defaultChosen"]>().mockResolvedValue({ ok: true }),
   };
 }
 
@@ -175,7 +176,8 @@ test("a tab Pateat cannot run on offers only the settings page", async () => {
 
 test("the site default is chosen from the items that match the tab's origin, then removed", async () => {
   const { client, current } = store();
-  await mount(client, "https://bank.example/login");
+  const choices = noChoice();
+  await mount(client, "https://bank.example/login", choices);
   await expect.element(page.getByRole("heading", { name: "bank.example" })).toBeVisible();
   const accounts = page.getByRole("group", { name: "Default account" }).getByRole("radio");
   await expect.element(accounts).toHaveLength(3);
@@ -189,7 +191,11 @@ test("the site default is chosen from the items that match the tab's origin, the
     )
     .toBeVisible();
   await expect.element(page.getByRole("button", { name: "Use as default" })).toBeDisabled();
-  await expect.element(page.getByText("A default takes effect at the next login.")).toBeVisible();
+  await expect
+    .element(
+      page.getByText("Choosing a default logs in with it on this page when it shows a sign-in."),
+    )
+    .toBeVisible();
   expect(client.findSiteAccounts).toHaveBeenCalledWith(
     "https://bank.example",
     current().snapshot.settings,
@@ -221,6 +227,8 @@ test("the site default is chosen from the items that match the tab's origin, the
   ]);
   // Only the site default changed.
   expect({ ...current().snapshot.settings, siteDefaults: [] }).toEqual(createDefaultSettings());
+  // The tab's page logs in with it now (ADR 0021, amended 2026-11-04).
+  await expect.poll(() => choices.defaultChosen).toHaveBeenCalledExactlyOnceWith(7);
   await expect.element(page.getByRole("button", { name: "Use as default" })).toBeDisabled();
 
   await userEvent.click(page.getByRole("button", { name: "Remove default" }));
@@ -231,6 +239,8 @@ test("the site default is chosen from the items that match the tab's origin, the
     .element(page.getByRole("button", { name: "Remove default" }))
     .not.toBeInTheDocument();
   expect(current().snapshot).toMatchObject({ revision: 2, settings: createDefaultSettings() });
+  // Removing the default starts no login.
+  expect(choices.defaultChosen).toHaveBeenCalledOnce();
 });
 
 test("setting and removing the default keeps the listed accounts", async () => {

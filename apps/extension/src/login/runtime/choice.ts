@@ -5,6 +5,7 @@ import {
   pickRequestSchema,
   type AskReason,
   type ChoiceResponse,
+  type DefaultChosenResponse,
   type PickResponse,
   type StatusResponse,
 } from "../choice-wire";
@@ -17,6 +18,7 @@ import { saveSession, report } from "./attempt";
 import { pauseOf, pausedUntil, usedAndSwitch } from "./pause";
 import { type LoginReport } from "./report";
 import { routesOf } from "./generation-scope";
+import { terminal } from "./attempt-state";
 import type { Runtime } from "./state";
 
 /**
@@ -350,4 +352,38 @@ export async function pickFor(
   )
     return { ok: false, reason: "paused-no-password" };
   return { ok: false, reason: "not-started" };
+}
+
+/**
+ * The popup saved the site default for the tab's site (ADR 0021, amended 2026-11-04):
+ * every frame of the tab announces again as a new page, so the login with that account
+ * starts at once instead of at the page's next load, and a sign-in form the page showed
+ * only after its window to be sent closed, as Discord's after "Add an account", may be
+ * sent for a recipe. A choice the page waited for without a default ends first; the
+ * announcement decides anew under the usual rules, so a paused site, a held one or a
+ * signed-in page still logs nothing in.
+ */
+export async function defaultChosenFor(rt: Runtime, tabId: number): Promise<DefaultChosenResponse> {
+  await rt.vars.sessionLoaded;
+  const tab = await browser.tabs.get(tabId).catch(() => undefined);
+  const origin = tab?.url && URL.canParse(tab.url) ? new URL(tab.url).origin : undefined;
+  if (!origin || !/^https?:/.test(origin)) return { ok: false, reason: "no-page" };
+  const snapshot = await rt.settings
+    .handle({ version: 1, type: "settings.get" })
+    .catch(() => undefined);
+  if (
+    !snapshot?.ok ||
+    !snapshot.snapshot.settings.siteDefaults.some((entry) => entry.origin === origin)
+  )
+    return { ok: false, reason: "no-default" };
+  // A login the save did not stop, as a watched one, goes on (ADR 0027).
+  const run = rt.attempts.get(tabId);
+  if (run && !terminal(run.metadata)) return { ok: false, reason: "login-running" };
+  const waiting = rt.pending.get(tabId);
+  if (waiting && waiting.document.origin === origin && !waiting.ask && !waiting.paused)
+    clearChoice(rt, tabId);
+  void browser.tabs
+    .sendMessage(tabId, { version: 1, type: "login.reconnect", fresh: true })
+    .catch(() => undefined);
+  return { ok: true };
 }
