@@ -2,6 +2,7 @@ import {
   DEVICE_MODEL_TIMEOUT_MS,
   DEVICE_MODEL_URL,
   deviceModelHeaderNames,
+  deviceClefCallBody,
   deviceModelRequestHash,
   deviceModelCallBody,
   MAX_DEVICE_MODEL_CALLS,
@@ -27,7 +28,9 @@ import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transpo
 // A paired device's own Anthropic API key (ADR 0040): with one saved, this device makes the
 // model calls of the service's generation and judge routes itself, and the service only
 // keeps the recipes and settings it shares. The key stays in this device's trusted
-// `storage.local`, and is sent to Anthropic only, never to the service.
+// `storage.local`, and is sent to Anthropic only, never to the service. With a Cloudflare
+// token saved too, the device makes Clef's calls the same way (ADR 0083); the token goes
+// to Cloudflare only.
 
 export const DEVICE_MODEL_KEY = "pateat.device-model.v1";
 export const DEVICE_MODEL_SPEND_KEY = "pateat.device-model-spend.v1";
@@ -414,6 +417,17 @@ export function createDeviceModel(options: {
     }
   }
 
+  /** A Clef call the service handed this device, answered as the protocol names it. */
+  async function sendClefFor(
+    clef: DeviceClefSetting,
+    call: DeviceModelCall["call"],
+    body: string,
+  ): Promise<{ response: DeviceModelResponse; cost: number }> {
+    const request = await deviceModelRequestHash(call.body);
+    const { response, cost } = await sendClef(clef, body);
+    return { response: { ...response, request }, cost };
+  }
+
   async function relay<Result extends { status: string }>(
     request: (deviceModel: DeviceModel | undefined) => Promise<InferenceResult<Result>>,
   ): Promise<InferenceResult<Result | Unavailable>> {
@@ -430,17 +444,21 @@ export function createDeviceModel(options: {
     // service's credential.
     if (!setting && stored !== undefined) return { kind: "failed", error: "unexpected-response" };
     if (!setting) return request(undefined);
+    // With a Cloudflare token too, the service may hand this device Clef's calls (ADR 0083);
+    // one that cannot be read leaves them to Claude.
+    const clef = parseDeviceClefSetting(await options.clef?.read().catch(() => undefined));
     const responses: DeviceModelResponse[] = [];
     // A service that keeps asking for calls again is stopped after twice the most a
     // request needs.
     for (let made = 0; ; made += 1) {
       // oxlint-disable-next-line no-await-in-loop -- each call depends on the answer before
-      const answer = await request({ responses: [...responses] });
+      const answer = await request({ responses: [...responses], ...(clef ? { clef: true } : {}) });
       if (answer.kind !== "result" || answer.result.status !== "model-call") return answer;
       const { call } = answer.result as unknown as DeviceModelCall;
       // A call the routes never make (tools, streaming, a larger answer, another beta) is
       // not sent: a service, possibly someone else's, gets no other use of the key.
-      const body = deviceModelCallBody(call);
+      const toClef = call.provider === "cloudflare";
+      const body = toClef ? clef && deviceClefCallBody(call) : deviceModelCallBody(call);
       if (call.index > responses.length || made >= 2 * MAX_DEVICE_MODEL_CALLS || !body)
         return { kind: "failed", error: "unexpected-response", ...timed(answer) };
       let stop: Awaited<ReturnType<typeof stopped>>;
@@ -456,8 +474,11 @@ export function createDeviceModel(options: {
           result: { version: 1, status: "unavailable", reason: stop },
           ...timed(answer),
         };
-      // oxlint-disable-next-line no-await-in-loop
-      const { response, cost } = await send(setting.apiKey, call, body);
+      const { response, cost } = toClef
+        ? // oxlint-disable-next-line no-await-in-loop
+          await sendClefFor(clef!, call, body)
+        : // oxlint-disable-next-line no-await-in-loop
+          await send(setting.apiKey, call, body);
       try {
         // oxlint-disable-next-line no-await-in-loop
         await charge(cost);

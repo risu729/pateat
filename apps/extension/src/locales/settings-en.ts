@@ -225,8 +225,8 @@ export const settingsEn = {
   "Cloudflare token saved for the account ending in {{ending}}.":
     "Cloudflare token saved for the account ending in {{ending}}.",
   "The saved token could not be read.": "The saved token could not be read.",
-  "With a Cloudflare token as well, a device without a paired sync service asks Cloudflare's Clef first for a sign-in form, and Claude when Clef is not sure. Clef's spend counts toward the same limits.":
-    "With a Cloudflare token as well, a device without a paired sync service asks Cloudflare's Clef first for a sign-in form, and Claude when Clef is not sure. Clef's spend counts toward the same limits.",
+  "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and Claude when Clef is not sure. Clef's spend counts toward the same limits.":
+    "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and Claude when Clef is not sure. Clef's spend counts toward the same limits.",
   "Create the token with Use REST API on the Workers AI page of the Cloudflare dashboard (Workers AI Read and Edit). It stays on this device and is sent to Cloudflare only, never to the sync service.":
     "Create the token with Use REST API on the Workers AI page of the Cloudflare dashboard (Workers AI Read and Edit). It stays on this device and is sent to Cloudflare only, never to the sync service.",
   "Daily limit (USD)": "Daily limit (USD)",

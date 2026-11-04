@@ -10,10 +10,10 @@ import * as v from "valibot";
 /** The only URL a device sends a model call to; never one the service names. */
 export const DEVICE_MODEL_URL = "https://api.anthropic.com/v1/messages";
 /**
- * The most model calls one request makes: three model choices, each fast and then at the
- * standard speed (`CLAUDE_CALL_LIMITS.lockMs` in the service).
+ * The most model calls one request makes: Clef's two (ADR 0083), then three model choices,
+ * each fast and then at the standard speed (`CLAUDE_CALL_LIMITS.lockMs` in the service).
  */
-export const MAX_DEVICE_MODEL_CALLS = 6;
+export const MAX_DEVICE_MODEL_CALLS = 8;
 /** How long the device waits for one model call, as the service waits for its own. */
 export const DEVICE_MODEL_TIMEOUT_MS = 10_000;
 /** A provider response the device passes back; an answer is at most 1,024 tokens. */
@@ -59,18 +59,26 @@ export const deviceModelResponseSchema = v.variant("kind", [
  */
 export const deviceModelSchema = v.strictObject({
   responses: v.pipe(v.array(deviceModelResponseSchema), v.maxLength(MAX_DEVICE_MODEL_CALLS)),
+  /**
+   * The device also holds a Cloudflare token for Clef (ADR 0083), so the service may ask it
+   * for Clef's calls (`provider: "cloudflare"`) before Claude's.
+   */
+  clef: v.optional(v.literal(true)),
 });
 
 /**
  * The answer to a request with `deviceModel` that needs a model call: the device sends
  * `body` to `DEVICE_MODEL_URL` with `headers` and its key, and sends the request again with
- * its first `index` responses and this one.
+ * its first `index` responses and this one. A call with `provider: "cloudflare"` is one of
+ * Clef's (ADR 0083): the device sends `body` to its own account's Clef URL with its
+ * Cloudflare token instead.
  */
 export const deviceModelCallSchema = v.strictObject({
   version: v.literal(1),
   status: v.literal("model-call"),
   call: v.strictObject({
     index: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(MAX_DEVICE_MODEL_CALLS - 1)),
+    provider: v.optional(v.literal("cloudflare")),
     headers: v.record(
       v.picklist(deviceModelHeaderNames),
       v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
@@ -130,6 +138,7 @@ const deviceModelBodySchema = v.strictObject({
  * given twice never reaches Anthropic with the value the check did not see.
  */
 export function deviceModelCallBody(call: DeviceModelCall["call"]): string | undefined {
+  if (call.provider !== undefined) return undefined;
   const betas = call.headers["anthropic-beta"]?.split(",").map((beta) => beta.trim()) ?? [];
   if (!betas.every((beta) => (deviceModelBetas as readonly string[]).includes(beta)))
     return undefined;
@@ -145,6 +154,64 @@ export function deviceModelCallBody(call: DeviceModelCall["call"]): string | und
     return undefined;
   }
   return v.is(deviceModelBodySchema, body) ? JSON.stringify(body) : undefined;
+}
+
+/** Text, or the structured description of an element, as the Clef questions give them. */
+const clefText = v.union([v.string(), v.record(v.string(), v.unknown())]);
+const clefCriteria = v.record(v.string(), clefText);
+/**
+ * The Clef request a device sends with its Cloudflare token (ADR 0083): the `clef` model,
+ * a state and finite-choice questions, nothing else, so a service can use the token only
+ * for Clef's answers to the routes' questions.
+ */
+const deviceClefBodySchema = v.strictObject({
+  model: v.literal("clef"),
+  state: v.unknown(),
+  questions: v.pipe(
+    v.record(
+      v.pipe(v.string(), v.regex(/^[A-Za-z0-9_.-]{1,100}$/u)),
+      v.variant("type", [
+        v.strictObject({
+          type: v.literal("choice"),
+          instructions: clefText,
+          criteria: clefCriteria,
+        }),
+        v.strictObject({
+          type: v.literal("score"),
+          instructions: clefText,
+          criteria: clefCriteria,
+        }),
+        v.strictObject({
+          type: v.literal("noul"),
+          instructions: clefText,
+          criteria: v.optional(clefCriteria),
+        }),
+      ]),
+    ),
+    v.check((questions) => Object.keys(questions).length > 0, "A Clef call without questions"),
+  ),
+});
+
+/**
+ * The body a device sends to its Clef URL for this call with its Cloudflare token, or none
+ * when it is not a Clef call the routes make (`deviceClefBodySchema`). As for Anthropic's,
+ * it is the checked body written again.
+ */
+export function deviceClefCallBody(call: DeviceModelCall["call"]): string | undefined {
+  if (call.provider !== "cloudflare") return undefined;
+  if (Object.keys(call.headers).some((name) => name !== "content-type")) return undefined;
+  if (
+    call.headers["content-type"] !== undefined &&
+    call.headers["content-type"] !== "application/json"
+  )
+    return undefined;
+  let body: unknown;
+  try {
+    body = JSON.parse(call.body);
+  } catch {
+    return undefined;
+  }
+  return v.is(deviceClefBodySchema, body) ? JSON.stringify(body) : undefined;
 }
 
 export type DeviceModelResponse = v.InferOutput<typeof deviceModelResponseSchema>;

@@ -231,8 +231,8 @@ export const settingsJa = {
   "Cloudflare token saved for the account ending in {{ending}}.":
     "末尾が {{ending}} のアカウントの Cloudflare トークンを保存しています。",
   "The saved token could not be read.": "保存したトークンを読み込めませんでした。",
-  "With a Cloudflare token as well, a device without a paired sync service asks Cloudflare's Clef first for a sign-in form, and Claude when Clef is not sure. Clef's spend counts toward the same limits.":
-    "Cloudflare のトークンも保存すると、同期サービスとペアリングしていないデバイスは、ログインフォームについてまず Cloudflare の Clef に問い合わせ、Clef が判断できないときは Claude に問い合わせます。Clef の利用額も同じ上限に含めます。",
+  "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and Claude when Clef is not sure. Clef's spend counts toward the same limits.":
+    "Cloudflare のトークンも保存すると、このデバイスはログインフォームについてまず Cloudflare の Clef に問い合わせ、Clef が判断できないときは Claude に問い合わせます。同期サービスとペアリングしていても同じです。Clef の利用額も同じ上限に含めます。",
   "Create the token with Use REST API on the Workers AI page of the Cloudflare dashboard (Workers AI Read and Edit). It stays on this device and is sent to Cloudflare only, never to the sync service.":
     "トークンは Cloudflare のダッシュボードで、Workers AI の「Use REST API」から作成してください（Workers AI の Read と Edit）。トークンはこのデバイスにだけ保存し、Cloudflare にだけ送ります。同期サービスには送りません。",
   "Daily limit (USD)": "1 日の上限（米ドル）",

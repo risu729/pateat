@@ -329,8 +329,8 @@ const CLEF_QUERY_KEY = ["settings", "device-clef"] as const;
 
 /**
  * This device's Cloudflare account and API token for Clef (ADR 0083): with them and the
- * Anthropic key, a device without a paired sync service asks Clef first for a sign-in
- * form. They stay on the device like the key, and count toward the same limits.
+ * Anthropic key, this device asks Clef first for a sign-in form, paired or not. They stay
+ * on the device like the key, and Clef's spend counts toward the same limits.
  */
 function DeviceClefForm({ client }: { client: DeviceClefClient }) {
   const { t } = useTranslation(undefined, { i18n });
@@ -448,7 +448,7 @@ function DeviceClefForm({ client }: { client: DeviceClefClient }) {
               : view.isError
                 ? t("The saved token could not be read.")
                 : t(
-                    "With a Cloudflare token as well, a device without a paired sync service asks Cloudflare's Clef first for a sign-in form, and Claude when Clef is not sure. Clef's spend counts toward the same limits.",
+                    "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and Claude when Clef is not sure. Clef's spend counts toward the same limits.",
                   ),
           },
           {
