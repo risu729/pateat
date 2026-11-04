@@ -149,6 +149,18 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   ([ADR 0017](adr/0017-login-forms-in-frames.md)): no person is there to answer a
   prompt during an automatic login.
 
+## Shadow roots of another extension
+
+- The official extension's `DomQueryService` reads every closed shadow root a content
+  script can reach, wherever its host sits
+  ([dom-query.service.ts](https://github.com/bitwarden/clients/blob/dd4d85816be0bed40c92d0890d6e7f1a497a85e8/apps/browser/src/autofill/services/dom-query.service.ts)).
+  Pateat leaves out a closed root whose host sits right under the `<body>` or `<html>`
+  element and is no custom element the page defined
+  ([ADR 0070 amendment of 2026-11-04](adr/0070-shadow-roots-as-page-content.md#amendment-2026-11-04-another-extensions-overlay-is-no-part-of-the-page)):
+  that is where another extension draws its overlay, such as Claude in Chrome's "Claude
+  is active in this tab group" buttons, which the AI judge would otherwise read as the
+  site's page.
+
 ## Toolbar badge
 
 - The official extension counts the ciphers that match the tab's full URL and shows

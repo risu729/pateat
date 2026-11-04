@@ -128,6 +128,8 @@ accepts (`SHADOW_ROOT_CANDIDATE_NODE_NAMES`), the closed root that
   form are left out as above. No element records which extension made it, and skipping a
   root that loads a `chrome-extension://` URL would also skip a site's own field that a
   password manager decorated with its icon, so no root is skipped (owner, 2026-10-23).
+  The amendment of 2026-11-04 below leaves out one kind: a closed root laid over the
+  page right under the `<body>` or `<html>` element.
 - A page's software keyboard (ADR 0067) is still looked for in the document's own tree
   only, as its locator by position walks the document's elements; a keypad drawn in a
   shadow tree is not found, and its field is described as any read-only field is. No
@@ -143,3 +145,58 @@ accepts (`SHADOW_ROOT_CANDIDATE_NODE_NAMES`), the closed root that
   the owner chose to add one for fields that no other locator names.
 - Hosts on every shadow tree's element: a recipe would break whenever a site rebuilt
   its components, and Reddit's recipes would change for nothing.
+
+## Amendment 2026-11-04: another extension's overlay is no part of the page
+
+**Problem.** On 2026-11-04 at 12:00:26 UTC in the owner's Chrome, Notion's login reached
+`/` while the page was still its empty loading shell. Its judged description held only
+two buttons, `{ "by": "id", "value": "claude-static-chat-button" }` and
+`{ "by": "id", "value": "claude-static-close-button" }`, and the near text "Claude is
+active in this tab group": the Claude in Chrome extension's indicator, not Notion's. As
+the page described something, the read again of ADR 0027's amendment of 2026-11-04 did
+not apply; the judge answered `unclear` and the login ended authenticated but
+unconfirmed. The production request log holds 13 judge requests from 2026-10-12 to
+2026-11-04 with the same two buttons among their candidates (GitHub, Oracle Cloud,
+UniSuper, Microsoft, Resend, Wise and Notion). Claude in Chrome 1.0.105
+(`agent-visual-indicator.js`, read from the Chrome Web Store package on 2026-11-04)
+draws its indicator, its "Stop Claude" button, its cursor and its glow in one closed
+shadow root on a `<div>` it strips of every attribute and keeps as the body's last child
+(the `<html>` element's when there is no body).
+
+**Decision** (Claude, 2026-11-04, built as the owner allowed on 2026-10-23 05:28 UTC; it
+narrows the owner's choice of 2026-10-23 above that no root is skipped, for the reason
+below):
+
+- A closed shadow root is no part of the page when its host sits right under the
+  `<body>` or the `<html>` element and is no custom element the page defined
+  (`:defined`): a built-in element such as a `<div>`, or a custom element name nothing
+  defined. Every read of the page leaves it out as one that has no shadow root, as the
+  rest of this ADR reads every other root: the extractor's descriptions of every kind of
+  page, the text near buttons and fields, the locators' counts, the executor's lookups,
+  the focused element, the sign-in checks and the page watch.
+- Why this shape: a content script's world has no `customElements`, so an extension
+  draws its UI on a built-in element or an undefined name, and it appends that host
+  where the page's own layout does not reach, under the body or the `<html>` element,
+  closed so the page's scripts cannot read it. A page's own component is a custom
+  element it defined, and its sign-in sits inside the page's layout; neither is left
+  out. It reads only the page's structure, never a name of an extension, and no element
+  or URL of one is listed.
+- An open root there, and a closed root anywhere deeper, are still read, as is UI an
+  extension draws without a shadow root; earlier Claude in Chrome builds drew the same
+  indicator in the document's own tree, as the requests of 2026-10-12 to 2026-10-20
+  show, and those are not left out.
+
+**Consequences.**
+
+- Notion's loading shell with only Claude in Chrome's indicator describes nothing
+  (`no-candidates`), so ADR 0027's amendment of 2026-11-04 reads it again once Notion
+  shows its own content, and the judge never sees the indicator's buttons on any page.
+- A field in such a root is never filled, nor does it make a signed-in page still look
+  signed out: Pateat never types a vault value into another extension's UI.
+- A site's own closed root on a `<div>` right under the body, as a third-party widget
+  may draw, is not read either; a sign-in drawn there would not be found. None has been
+  seen. A declarative closed root on a custom element the page has not defined yet is
+  left out until its definition loads.
+- The owner's choice of 2026-10-23 not to skip a root that loads a `chrome-extension://`
+  URL stands: this rule reads no URL and never leaves out a root inside the page's
+  layout, where a password manager's icon beside a site's field sits.

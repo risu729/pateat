@@ -2217,8 +2217,8 @@ describe("extractLoginObservation", () => {
       `<span id="label">${label}</span>
       <input id="input" name="${name}" type="${type}" autocomplete="${tokens}" aria-labelledby="label">`;
     page(
-      `<h1>Log In</h1><text-field id="user"></text-field><text-field id="pass"></text-field>
-      <button id="login">Log In</button>`,
+      `<div><h1>Log In</h1><text-field id="user"></text-field><text-field id="pass"></text-field>
+      <button id="login">Log In</button></div>`,
     );
     shadow("#user", field("username", "text", "username webauthn", "Email or username"));
     const closed = shadow(
@@ -2299,8 +2299,8 @@ describe("extractLoginObservation", () => {
   it("names a shadow tree's field inside its host when nothing names it in the whole page (ADR 0070)", () => {
     // Each component reuses its inner ID and has no name, token or label of its own.
     page(
-      `<text-field id="user"></text-field><text-field id="pass"></text-field>
-      <button id="login">Log In</button>`,
+      `<div><text-field id="user"></text-field><text-field id="pass"></text-field>
+      <button id="login">Log In</button></div>`,
     );
     shadow("#user", `<input id="input">`);
     shadow("#pass", `<x-box><input id="input" type="password"></x-box>`, "closed");
@@ -4020,7 +4020,7 @@ describe("extractSignedInObservation", () => {
     page(`<button id="logout">Sign out</button><div id="host"></div>`);
     shadow("#host", "<input>");
     expect(gap()).toEqual([true, undefined]);
-    page(`<button id="logout">Sign out</button><div id="host"></div>`);
+    page(`<button id="logout">Sign out</button><main><div id="host"></div></main>`);
     shadow("#host", `<input type="password">`, "closed");
     expect(gap()).toEqual([false, "unlocated-field"]);
     page(`<button id="logout">Sign out</button><input id="q">`);
@@ -4102,6 +4102,30 @@ describe("extractSignedInObservation", () => {
   it("refuses a page with nothing to describe", () => {
     page(`<p>Loading</p>`);
     expect(extractSignedInObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
+  it("leaves out another extension's overlay, as on Notion's loading page (2026-11-04)", () => {
+    // Notion's empty shell at `/` in the owner's Chrome, read with only Claude in Chrome's
+    // buttons (1.0.105): a closed root on an attribute-less `<div>` at the body's end.
+    page(`<div id="notion-app"></div>`, "Notion");
+    const host = document.createElement("div");
+    document.body.append(host);
+    shadow(
+      "body > div:last-child",
+      `<div id="claude-static-indicator-container"><span>Claude is active in this tab group</span>
+        <button id="claude-static-chat-button"><span>Open chat</span></button>
+        <button id="claude-static-close-button"><span>Close</span></button></div>`,
+      "closed",
+    );
+    expect(extractSignedInObservation()).toEqual({ ok: false, reason: "no-candidates" });
+    // Nor does it join the page once the page shows its own content.
+    document.querySelector("#notion-app")!.innerHTML =
+      `<nav><a href="/settings" id="settings">Settings</a></nav>`;
+    const observation = signedIn();
+    expect(observation.nearButtons).toBeUndefined();
+    expect(summary(observation).map(({ target }) => target)).toEqual([
+      { by: "id", value: "settings" },
+    ]);
   });
 
   // A page that asks how to confirm the sign-in, as read in the owner's Chrome on

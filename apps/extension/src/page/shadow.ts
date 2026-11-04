@@ -1,6 +1,7 @@
 // The page as the content script reads it includes every shadow root, open or closed
-// (ADR 0070): a content script reaches a closed one through `dom.openOrClosedShadowRoot`,
-// as the official Bitwarden extension's `DomQueryService` does. These helpers walk the
+// (ADR 0070), but another extension's closed overlay: a content script reaches a closed
+// one through `dom.openOrClosedShadowRoot`, as the official Bitwarden extension's
+// `DomQueryService` does. These helpers walk the
 // document and every shadow tree in it in one order, a host's shadow tree right after the
 // host and before the host's own children, as Bitwarden's tree walker visits them.
 
@@ -32,10 +33,33 @@ const hostNames = new Set([
   "span",
 ]);
 
-/** `element`'s shadow root, open or closed, or `null` when it has none. */
+/**
+ * Whether a closed shadow root on `host` would be another extension's UI laid over the
+ * page rather than the page's own (ADR 0070 amendment of 2026-11-04): `host` sits right
+ * under the `<body>` or the `<html>` element, where an extension's content script appends
+ * its overlay, and is no custom element the page defined (`:defined`), as a page's own
+ * component would be. A content script's world has no `customElements`, so an extension
+ * draws such UI on a built-in element, as Claude in Chrome 1.0.105 draws "Claude is
+ * active in this tab group" and its buttons in a closed root on an attribute-less `<div>`
+ * it keeps as the body's last child. A page's own closed root on such an element is read
+ * as not there too.
+ */
+function overlaysPage(host: Element): boolean {
+  const { body, documentElement } = host.ownerDocument;
+  const parent = host.parentNode;
+  if (host === body || (parent !== body && parent !== documentElement)) return false;
+  return !(host.localName.includes("-") && host.matches(":defined"));
+}
+
+/**
+ * `element`'s shadow root, open or closed, or `null` when it has none or its closed root
+ * is another extension's UI over the page ({@link overlaysPage}), which no read of the
+ * page includes.
+ */
 export function shadowRootOf(element: Element): ShadowRoot | null {
   if (element.shadowRoot) return element.shadowRoot;
   if (!element.localName.includes("-") && !hostNames.has(element.localName)) return null;
+  if (overlaysPage(element)) return null;
   const cached = reading?.roots.get(element);
   if (cached !== undefined) return cached;
   let root: ShadowRoot | null;

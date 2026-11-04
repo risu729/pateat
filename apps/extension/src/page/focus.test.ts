@@ -131,7 +131,7 @@ describe("focusElement and blurElement", () => {
   });
 
   it("finds the focused field inside a closed shadow root (ADR 0070)", async () => {
-    document.body.innerHTML = `<input id="a"><x-field id="host"></x-field>`;
+    document.body.innerHTML = `<form><input id="a"><x-field id="host"></x-field></form>`;
     const host = document.getElementById("host")!;
     const root = host.attachShadow({ mode: "closed" });
     closedRoots.set(host, root);
