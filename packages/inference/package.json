@@ -9,11 +9,11 @@
     "./claude-rates": "./src/providers/claude-rates.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.95",
-    "@ai-sdk/valibot": "3.0.73",
+    "@ai-sdk/anthropic": "4.0.96",
+    "@ai-sdk/valibot": "3.0.74",
     "@pateat/contracts": "workspace:*",
     "@valibot/to-json-schema": "1.8.0",
-    "ai": "7.0.161",
+    "ai": "7.0.162",
     "valibot": "1.5.0"
   }
 }
