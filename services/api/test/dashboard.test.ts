@@ -35,6 +35,7 @@ function row(overrides: Partial<DashboardRequest> = {}): DashboardRequest {
   return {
     role: "judge",
     called: true,
+    provider: "anthropic",
     origin: "https://bank.example",
     outcome: "ok",
     recipeId: "gen-bank",
@@ -163,6 +164,22 @@ describe("dashboard aggregation", () => {
     // Each is still a request by its outcome, and only the refusal is a failure.
     expect(data.stats.requests).toHaveLength(3);
     expect(data.failures.map((group) => group.code)).toEqual(["busy"]);
+  });
+
+  it("counts a page Clef left once, by Claude's row, and one Clef answered by Clef's (ADR 0083)", () => {
+    const clef = { role: "generate" as const, provider: "cloudflare", outputTokens: 0 };
+    const data = summarize({
+      requests: [
+        row({ ...clef, outcome: "abstained", createdAt: NOW - 2 * HOUR_MS }),
+        row({ role: "generate", createdAt: NOW - 2 * HOUR_MS + 1 }),
+        row({ ...clef, outcome: "ok", origin: "https://shop.example" }),
+      ],
+    });
+    expect(data.stats.requests).toEqual([{ role: "generate", outcome: "ok", count: 2 }]);
+    expect(data.failures).toEqual([]);
+    expect(data.llm.find((role) => role.role === "generate")!.calls).toBe(2);
+    // Clef's tokens still count.
+    expect(data.stats.inputTokens).toBe(300);
   });
 
   it("lists every UTC day of the range with gaps, not zeros, for days without model time", () => {

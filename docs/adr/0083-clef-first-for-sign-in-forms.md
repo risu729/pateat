@@ -74,15 +74,19 @@ Claude as before.
 ### When Clef does not answer
 
 When Clef abstains or fails, the request goes to Claude with the owner's model choices,
-as every request did before. Clef never answers after Claude.
+as every request did before. Clef never answers after Claude. Chosen by an agent: the
+request takes its attempt ([ADR 0016](0016-recipe-generation-trigger.md)) before Clef's
+calls are sent, so when Claude then cannot be asked (its token exchange fails, or Clef's
+spend reached a stop) the request ends unavailable with that attempt taken.
 
 ### Cost and keys
 
 Clef's calls are charged the way Claude's are. A page's two calls get one request-log
-row (provider `cloudflare`, model `clef`, with both calls' answers and usage), and count
-toward the owner's daily and monthly spend stops at Workers AI's published rate
-(`clefModels`), from the input tokens they report, or the worst case for the input bound
-when a call reports none.
+row (provider `cloudflare`, model `clef`, with both calls' answers and usage; its
+request is the generation request, from which the prompt version rebuilds Clef's
+questions), and count toward the owner's daily and monthly spend stops at Workers AI's
+published rate (`clefModels`), from the input tokens they report, or the worst case for
+the input bound when a call reports none.
 
 - **The service** calls Clef through its Workers AI binding, which needs no token. It
   bills the Cloudflare account the Worker runs in, not a credential of the owner's as
@@ -123,5 +127,5 @@ labelled passkey button (23), and two more the labels had missed.
   about a quarter of what it did.
 - A page Clef leaves takes one Clef round trip longer than before.
 - The request log gets a row for Clef's answer, so a page Claude answered after Clef
-  has two rows.
+  has two rows. The dashboard counts such a page once, by the row after Clef's.
 - The service's Clef calls bill the operator's Cloudflare account.

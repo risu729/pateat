@@ -55,6 +55,7 @@ import {
   problemLog,
 } from "../db/schema";
 import { readWifCredential, resolveClaudeCredential } from "./credentials";
+import { readIssuerConfig } from "./issuer";
 import { fastFailingModels, readModelConfig } from "./models";
 import { newId } from "@pateat/contracts/ids";
 
@@ -74,9 +75,9 @@ export const CLAUDE_CALL_LIMITS = {
    */
   concurrentCalls: 5,
   /**
-   * How long a request holds its slot: longer than the token exchange and the most calls
-   * one request makes in turn, up to three choices, each fast then standard, at the 10 s
-   * model timeout.
+   * How long a request holds its slot: longer than the token exchange, Clef's calls (ADR
+   * 0083) and the most calls one request makes in turn, up to three choices, each fast then
+   * standard, at the 10 s model timeout.
    */
   lockMs: 90_000,
   /** Every request log row and login result code, for evaluation (owner decision, 2026-10-18). */
@@ -635,9 +636,14 @@ async function runCall<T>(
     // models itself, so the service's binding takes no part in its requests.
     if (call.firstChoice && !device && env.AI) {
       // Only an owner who set up Claude is served (chosen by an agent): an owner without a
-      // credential gets no Clef call the operator pays for, as before.
+      // credential gets no Clef call the operator pays for, as before. A service that cannot
+      // sign the credential's token request stops here too, before the request takes its
+      // attempt, as it did before Clef. A token exchange that fails after Clef abstained
+      // still ends the request with its attempt taken and Clef's calls charged.
       if (!(await readWifCredential(env.DB, ownerId)))
         return { status: "unavailable", reason: credentialUnavailable.not_configured };
+      if (!readIssuerConfig(env))
+        return { status: "unavailable", reason: credentialUnavailable.issuer_unavailable };
       let first: Awaited<ReturnType<typeof sendClefCall<T>>>;
       try {
         first = await sendClefCall(

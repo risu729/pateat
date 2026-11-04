@@ -40,6 +40,8 @@ export type DashboardRequest = {
    * a call (ADR 0012) counts as a request and by its outcome, never in the model's times.
    */
   called: boolean;
+  /** `anthropic`, or `cloudflare` for Clef's row before Claude's (ADR 0083). */
+  provider: string | null;
   origin: string;
   outcome: string;
   recipeId: string | null;
@@ -214,7 +216,11 @@ function failureGroups(
 export function summarizeDashboard(input: DashboardInput): ManageDashboard {
   const { range, now } = input;
   const from = now - MANAGE_DASHBOARD_RANGE_MS[range];
-  const requests = input.requests.toSorted((a, b) => b.createdAt - a.createdAt);
+  const logged = input.requests.toSorted((a, b) => b.createdAt - a.createdAt);
+  // A page Clef left (ADR 0083) has Claude's row, or the reason Claude was not asked, after
+  // Clef's: that row is the request, and counts Clef's time before its model call. Clef's
+  // own row counts only when Clef answered.
+  const requests = logged.filter((row) => row.provider !== "cloudflare" || row.outcome === "ok");
 
   // Latency counts only the times a row has; rows logged before they were recorded have none.
   // Speed is the speed of model calls: a request answered without one has a server time
@@ -412,8 +418,8 @@ export function summarizeDashboard(input: DashboardInput): ManageDashboard {
       firstLogins: outcomeCounts(input.firstLogins),
       firstLoginsAuthenticated: input.firstLogins.filter((row) => row.outcome === "authenticated")
         .length,
-      inputTokens: requests.reduce((sum, row) => sum + (row.inputTokens ?? 0), 0),
-      outputTokens: requests.reduce((sum, row) => sum + (row.outputTokens ?? 0), 0),
+      inputTokens: logged.reduce((sum, row) => sum + (row.inputTokens ?? 0), 0),
+      outputTokens: logged.reduce((sum, row) => sum + (row.outputTokens ?? 0), 0),
       spend: {
         ...input.spend,
         dailyLimitMicroUsd: CLAUDE_CALL_LIMITS.dailyMicroUsd,
@@ -464,6 +470,7 @@ export async function readDashboard(
       .select({
         role: inferenceLog.role,
         called: sql<number>`${inferenceLog.modelId} IS NOT NULL`.mapWith(Boolean),
+        provider: inferenceLog.provider,
         origin: inferenceLog.origin,
         outcome: inferenceLog.outcome,
         recipeId: inferenceLog.recipeId,

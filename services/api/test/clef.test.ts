@@ -269,6 +269,23 @@ describe("Clef first for sign-in forms (ADR 0083)", () => {
     expect(runs).toHaveLength(0);
   });
 
+  it("asks no model while the service cannot sign the credential's token request", async () => {
+    const device = await owner();
+    const issuer = env as unknown as { OIDC_ISSUER?: string | undefined };
+    const saved = issuer.OIDC_ISSUER;
+    delete issuer.OIDC_ISSUER;
+    try {
+      expect(await generate(device)).toMatchObject({
+        status: "unavailable",
+        reason: "issuer-unavailable",
+      });
+    } finally {
+      issuer.OIDC_ISSUER = saved;
+    }
+    expect(runs).toHaveLength(0);
+    expect(messages).toBe(0);
+  });
+
   it("leaves a page the device saw signed in to Claude without asking Clef", async () => {
     const device = await owner();
     expect((await generate(device, { signedIn: true })).status).toBe("recipe");
