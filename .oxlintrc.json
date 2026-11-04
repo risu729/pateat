@@ -63,7 +63,6 @@
         "packages/contracts/src/login.test.ts",
         "packages/contracts/src/login.ts",
         "packages/contracts/src/recipes.test.ts",
-        "packages/contracts/src/settings.ts",
         "packages/contracts/src/vault-policy.test.ts",
         "packages/inference/src/assemble.test.ts",
         "packages/inference/src/completion.test.ts",
