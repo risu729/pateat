@@ -98,8 +98,8 @@
   PR from it only after the owner agrees, except a docs PR the owner asks for.
 - Investigate an upstream bug in its own thread and summarize it to the owner; report
   nothing upstream without the owner's word.
-- Owner-approved and not to be re-proposed: local persistent retention of the
-  unlock key for automatic unlock across browser restarts
+- Local persistent retention of the unlock key for automatic unlock across browser
+  restarts is the current design
   ([ADR 0006](docs/adr/0006-atomic-local-vault-cache.md)). Do not describe it as
   OS-keystore protection.
 - Paid APIs, real-account operations and reading secrets need separate owner
