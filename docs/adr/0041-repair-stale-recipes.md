@@ -177,11 +177,11 @@ the kind the page is now, as the next revision of the same ID.
   replaced recipe's layouts go, except that a passkey-only layout whose button the list
   answer names again becomes the new chooser layout's `passkey`, with its handlers and
   markers (ADR 0079). A login recipe's start page that became a list is reported as in
-  section 1. A chooser whose path shows a form instead of its list is its `other`
-  branch's page (ADR 0028) and is not repaired, when a layout of the chooser has a
-  button for another account. The page's `shown` report then carries what the list's
-  buttons missed as its `miss`. Without such a button, the form is sent as a form, which
-  replaces the chooser with a login recipe, unless its list shows by then
+  section 1. On every chooser path, the page's `shown` report carries what the list's
+  buttons missed as its `miss`. A chooser whose path shows a form instead of its list is
+  its `other` branch's page (ADR 0028) and is not repaired, when a layout of the chooser
+  has a button for another account. Without such a button, the form is sent as a form,
+  which replaces the chooser with a login recipe, unless its list shows by then
   (`list-shown`), the first step of the branch for the shown account shows there
   (`branch`, as after the person pressed "Continue" themselves), the page said nothing
   of its miss (`no-detail`), the load answered outside 2xx (`status`) or it is the tab's
