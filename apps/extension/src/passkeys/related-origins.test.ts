@@ -12,6 +12,13 @@ const json = (body: unknown, init: { status?: number; type?: string } = {}) =>
     headers: { "content-type": init.type ?? "application/json" },
   });
 
+/** An answer whose final URL, after redirects, is `url`. */
+const redirectedTo = (url: string) => {
+  const response = json({ origins: ["https://chatgpt.com"] });
+  Object.defineProperty(response, "url", { value: url });
+  return response;
+};
+
 describe("relatedOriginListed (WebAuthn related origins validation, ADR 0084)", () => {
   it("finds the caller's origin, as OpenAI lists ChatGPT", () => {
     // https://openai.com/.well-known/webauthn on 2026-11-04.
@@ -106,13 +113,61 @@ describe("createRelatedOrigins", () => {
 
   it.each([
     ["another status", json({ origins: ["https://chatgpt.com"] }, { status: 404 })],
-    ["a redirect's own answer", json({ origins: ["https://chatgpt.com"] }, { status: 302 })],
+    ["a server error", json({ origins: ["https://chatgpt.com"] }, { status: 503 })],
     ["HTML", json({ origins: ["https://chatgpt.com"] }, { type: "text/html" })],
     ["broken JSON", json("{", {})],
     ["a list too long", json({ origins: ["https://chatgpt.com", "x".repeat(70_000)] })],
-  ])("refuses %s", async (_label, response) => {
-    const related = createRelatedOrigins({ fetch: async () => response });
+    [
+      "a list that says it is too long",
+      new Response("{}", {
+        headers: { "content-type": "application/json", "content-length": "70000" },
+      }),
+    ],
+    ["an answer that came over HTTP", redirectedTo("http://127.0.0.1:8080/")],
+  ])("refuses %s, and tries again after a minute", async (_label, response) => {
+    let now = 0;
+    const fetch = vi.fn(async () => response);
+    const related = createRelatedOrigins({ fetch, now: () => now });
     expect(await related.allows("https://chatgpt.com", "openai.com")).toBe(false);
+    now = 61_000;
+    await related.allows("https://chatgpt.com", "openai.com");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops reading a body once it passes the bound", async () => {
+    let pulled = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(new Uint8Array(16 * 1024));
+      },
+    });
+    const related = createRelatedOrigins({
+      fetch: async () => new Response(endless, { headers: { "content-type": "application/json" } }),
+    });
+    expect(await related.allows("https://chatgpt.com", "openai.com")).toBe(false);
+    expect(pulled).toBeLessThan(10);
+  });
+
+  it("follows a redirect that stays on HTTPS, as amazon.com redirects to www", async () => {
+    const related = createRelatedOrigins({
+      fetch: async () => redirectedTo("https://www.openai.com/.well-known/webauthn"),
+    });
+    expect(await related.allows("https://chatgpt.com", "openai.com")).toBe(true);
+  });
+
+  it("keeps at most 64 RP lists", async () => {
+    const fetch = vi.fn(async () => json({ origins: ["https://chatgpt.com"] }));
+    const related = createRelatedOrigins({ fetch });
+    for (let index = 0; index <= 64; index += 1)
+      // eslint-disable-next-line no-await-in-loop
+      await related.allows("https://chatgpt.com", `rp${index}.example`);
+    expect(fetch).toHaveBeenCalledTimes(65);
+    await related.allows("https://chatgpt.com", "rp64.example");
+    expect(fetch).toHaveBeenCalledTimes(65);
+    // The oldest went first.
+    await related.allows("https://chatgpt.com", "rp0.example");
+    expect(fetch).toHaveBeenCalledTimes(66);
   });
 
   it("accepts a JSON content type with parameters", async () => {
@@ -144,7 +199,7 @@ describe("createRelatedOrigins", () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
-  it("bounds the read and lets a caller stop waiting", async () => {
+  it("shares one read among callers and bounds it", async () => {
     const signals: AbortSignal[] = [];
     let answer!: (response: Response) => void;
     const related = createRelatedOrigins({
@@ -155,14 +210,10 @@ describe("createRelatedOrigins", () => {
         });
       },
     });
-    const controller = new AbortController();
-    const waiting = related.allows("https://chatgpt.com", "openai.com", controller.signal);
-    controller.abort();
-    expect(await waiting).toBe(false);
-    // The shared read goes on for another caller.
-    const other = related.allows("https://chatgpt.com", "openai.com");
+    const first = related.allows("https://chatgpt.com", "openai.com");
+    const second = related.allows("https://evil.example", "openai.com");
     answer(json({ origins: ["https://chatgpt.com"] }));
-    expect(await other).toBe(true);
+    expect([await first, await second]).toEqual([true, false]);
     expect(signals).toHaveLength(1);
     expect(RELATED_ORIGIN_FETCH_MS).toBe(5000);
   });

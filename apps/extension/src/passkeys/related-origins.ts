@@ -8,8 +8,8 @@ import { resolveRpId } from "./rp-id";
 export const RELATED_ORIGIN_MAX_LABELS = 5;
 /** The bound on one fetch of an RP's list, as Bitwarden's (`ROR_FETCH_TIMEOUT_MS`). */
 export const RELATED_ORIGIN_FETCH_MS = 5000;
-/** A list that does not fit in this many characters is refused. */
-const MAX_LIST_CHARS = 64 * 1024;
+/** A list larger than this many bytes is refused; the read stops there. */
+const MAX_LIST_BYTES = 64 * 1024;
 /** How long a fetched list is reused, and how long a failed fetch is. */
 const LIST_TTL_MS = 10 * 60 * 1000;
 const FAILURE_TTL_MS = 60 * 1000;
@@ -61,16 +61,48 @@ export interface RelatedOrigins {
    * `https://<rpId>/.well-known/webauthn` (WebAuthn related origin requests). False for an
    * RP ID that needs no such list, and whenever the list cannot be read.
    */
-  allows(callerOrigin: string, rpId: string, signal?: AbortSignal): Promise<boolean>;
+  allows(callerOrigin: string, rpId: string): Promise<boolean>;
 }
 
 type Cached = { until: number; document: Promise<unknown> };
 
+/** The body as text, read only up to `MAX_LIST_BYTES`; anything longer throws. */
+async function boundedText(response: Response): Promise<string> {
+  if (Number(response.headers.get("content-length")) > MAX_LIST_BYTES)
+    throw new Error("list-too-large");
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    // Chunks arrive one after another; the fetch's own bound ends a slow body.
+    // eslint-disable-next-line no-await-in-loop
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_LIST_BYTES) {
+      // eslint-disable-next-line no-await-in-loop -- the loop ends here
+      await reader.cancel().catch(() => undefined);
+      throw new Error("list-too-large");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 /**
  * Reads RP lists as Chrome and Bitwarden do: without credentials or a referrer, a `200`
- * answer with a JSON content type, within `RELATED_ORIGIN_FETCH_MS`. A list is kept in
- * memory for ten minutes, a failed read for one, so the logins and passkey requests of a
- * site share one fetch. Nothing is stored.
+ * answer with a JSON content type, within `RELATED_ORIGIN_FETCH_MS`, and at most
+ * `MAX_LIST_BYTES`. Redirects are followed, as `amazon.com` redirects to `www.amazon.com`,
+ * but an answer that came over anything but HTTPS is refused. A list is kept in memory for
+ * ten minutes and any failed read for one, so the logins and passkey requests of a site
+ * share one fetch. Nothing is stored.
  */
 export function createRelatedOrigins(
   options: { fetch?: typeof fetch; now?: () => number } = {},
@@ -85,11 +117,15 @@ export function createRelatedOrigins(
       signal: AbortSignal.timeout(RELATED_ORIGIN_FETCH_MS),
     });
     const type = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
-    if (response.status !== 200 || type !== "application/json") return undefined;
-    const length = Number(response.headers.get("content-length"));
-    if (length > MAX_LIST_CHARS) return undefined;
-    const text = await response.text();
-    return text.length > MAX_LIST_CHARS ? undefined : JSON.parse(text);
+    if (
+      response.status !== 200 ||
+      type !== "application/json" ||
+      (response.url !== "" && !response.url.startsWith("https://"))
+    ) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error("list-refused");
+    }
+    return JSON.parse(await boundedText(response));
   };
   const document = (rpId: string) => {
     const at = now();
@@ -111,18 +147,9 @@ export function createRelatedOrigins(
     return entry.document;
   };
   return {
-    async allows(callerOrigin, rpId, signal) {
+    async allows(callerOrigin, rpId) {
       if (!needsRelatedOrigins(callerOrigin, rpId)) return false;
-      const listed = document(rpId).then((found) => relatedOriginListed(callerOrigin, found));
-      if (!signal) return listed;
-      if (signal.aborted) return false;
-      // A caller that stops waiting leaves the shared read to the others.
-      return Promise.race([
-        listed,
-        new Promise<false>((resolve) =>
-          signal.addEventListener("abort", () => resolve(false), { once: true }),
-        ),
-      ]);
+      return relatedOriginListed(callerOrigin, await document(rpId));
     },
   };
 }

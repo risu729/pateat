@@ -45,21 +45,28 @@ browser.
    `application/json`, a JSON object whose `origins` is an array of strings, an entry of
    the same origin as the page, and at most five registrable origin labels counted, as
    Chrome and Bitwarden count. The list is fetched without credentials or a referrer,
-   from the background service worker, and the fetch is bounded at 5 seconds, as
-   Bitwarden's. Only an RP ID that is a canonical registrable domain, or a name under
-   one, and that the page may not use anyway is checked; a public suffix is never
-   fetched. Anything else counts as not listed.
-2. **Kept in memory** (chosen by an agent). A list is reused for ten minutes and a
-   failed read for one minute, so a login and the passkey requests of its page share one
-   fetch; at most 64 RP IDs are kept, and nothing is stored. A caller that stops waiting
-   leaves the read to the others.
+   from the background service worker, bounded at 5 seconds as Bitwarden's, and read up
+   to 64 KiB (chosen by an agent). Redirects are followed, since `amazon.com` redirects
+   to `www.amazon.com`, but an answer whose final URL is not HTTPS is refused, as the
+   specification requires of redirects. Only an RP ID that is a canonical registrable
+   domain, or a name under one, and that the page may not use anyway is checked; a
+   public suffix is never fetched. Anything else counts as not listed.
+2. **Kept in memory** (chosen by an agent). A list is reused for ten minutes, and any
+   read that gives no list (another status or content type, a body too long, broken
+   JSON, a network failure) for one minute, so a login and the passkey requests of its
+   page share one fetch. At most 64 RP IDs are kept, the oldest dropped first; nothing
+   is stored.
 3. **Passkey requests.** A `get` request whose RP ID the page may not use is checked
-   against the RP's list before admission, alongside the device's passkey policy, so a
-   page's cancel meanwhile is kept. When the RP lists the page, the request is admitted
-   as one of that RP ID, and every other rule of ADR 0007 applies unchanged: the vault
-   is searched by that RP ID, the assertion's client data names the page's origin, and
-   the signature covers that RP ID's hash. Otherwise the request is handed to the
-   browser as before (`rp-id-mismatch`).
+   after the device's passkey policy is read and before admission, so a page's cancel
+   meanwhile is kept. The list is read only when every other admission rule up to the
+   RP ID passes, the page's hostname is not one whose passkeys go to the browser, and
+   the vault holds a passkey with that RP ID; so a page never makes Pateat fetch from a
+   host the vault does not name. A document has at most one list read at a time, and
+   all documents at most four (chosen by an agent). When the RP lists the page, the
+   request is admitted as one of that RP ID, and every other rule of ADR 0007 applies
+   unchanged: the vault is searched by that RP ID, the assertion's client data names the
+   page's origin, and the signature covers that RP ID's hash. Otherwise the request is
+   handed to the browser as before (`rp-id-mismatch`).
 4. **A login's item.** The item's `passkey` and `discoverablePasskey` facts (ADR 0027,
    ADR 0036 rule 1, "a usable passkey for an RP ID the origin may use") count an RP ID
    the RP lists the page for. The page's own RP IDs are searched first; only when they
@@ -80,11 +87,19 @@ browser.
 - A passkey of `openai.com` signs in on `chatgpt.com`, by a login of the item or by the
   page's own request, as in Chrome and the official extension.
 - Pateat fetches `https://<RP ID>/.well-known/webauthn` from the RP named by a page's
-  request, or by a passkey of the login's item, at most once in ten minutes per RP ID.
-  The RP learns that some Pateat installation is asked about it, with no cookie and no
-  referrer, as the browser itself does for its own passkeys.
+  request when the vault holds a passkey of that RP, or by a passkey of the login's
+  item, about once in ten minutes per RP ID. The RP learns that some Pateat installation
+  is asked about it, with no cookie and no referrer, as the browser itself does for its
+  own passkeys.
 - A login of an item without a discoverable passkey for the page's own RP IDs reads the
   item's passkey RP IDs once from the Worker.
+- The facts say the item holds a passkey whichever RP ID the page then asks for. A page
+  that lists the item's RP and still asks for its own RP ID, or a list that can no
+  longer be read when the page asks, hands the request to the browser where the login
+  used to stop at `password-empty:no-passkey`.
+- The first login of such an item on a site waits for the RP's list, up to 5 seconds per
+  RP ID.
 - Verify with `related-origins.test.ts`, `request.test.ts`, `runtime.test.ts`,
-  `vault.test.ts`, `crypto/passkey.test.ts` and `host.test.ts`; on the owner's Chrome,
-  the OpenAI item on `https://chatgpt.com/auth/login`.
+  `vault.test.ts`, `vault-related.test.ts`, `crypto/passkey.test.ts`, `host.test.ts` and
+  `vault/manager.test.ts`; on the owner's Chrome, the OpenAI item on
+  `https://chatgpt.com/auth/login`.

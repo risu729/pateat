@@ -202,6 +202,18 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   page only removes entries, and Pateat shows no toast before the window closes; the
   menu item says what it does instead (owner's request, 2026-10-23 at 12:15 UTC;
   [ADR 0007](adr/0007-existing-passkey-assertions.md#amendment-sites-whose-passkey-requests-go-to-the-browser-2026-10-23)).
+- Related origin requests: the official extension accepts an RP ID of another site
+  when `https://<RP ID>/.well-known/webauthn` lists the page's origin, for `get` and
+  `create`, fetching the list on each request, accepting any `ok` status and a content
+  type that contains `application/json`, and comparing origins as strings
+  ([domain-utils.ts](https://github.com/bitwarden/clients/blob/601701362c2c858b6860a3506a99bb77cc2d7a58/libs/common/src/platform/services/fido2/domain-utils.ts#L107-L248)).
+  Pateat follows the WebAuthn procedure instead: only status `200`, the content type
+  `application/json` itself, origins compared as URL origins, an answer only over HTTPS
+  and at most 64 KiB. It reads a list only when the vault holds a passkey of that RP ID,
+  keeps it in memory for ten minutes, and applies it to `get` and to a login's item but
+  not to `create`, which Pateat only refuses
+  ([ADR 0084](adr/0084-passkeys-of-related-origins.md); chosen by an agent under the
+  owner's rule to match the official extension, 2026-11-04).
 
 ## Master password re-prompt
 
