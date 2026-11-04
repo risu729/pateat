@@ -15,7 +15,10 @@ UTC ([account lists](#account-lists), below), it also amends
 [ADR 0028](0028-account-chooser-login-pages.md) (a login on a list of accounts). Amended
 on 2026-11-04 by [ADR 0084](0084-passkeys-of-related-origins.md): an RP ID the origin
 may use in rule 1 includes one of another site whose `/.well-known/webauthn` lists the
-origin, as `openai.com` lists `https://chatgpt.com`.
+origin, as `openai.com` lists `https://chatgpt.com`. Amended on 2026-11-04 by the
+owner's choice 「成功と記録する」 on a decision card at 11:20 UTC: a page of another
+site that asks for a passkey keeps such a login too (below,
+[ADR 0022](0022-login-attempts-per-tab-and-origin.md)).
 
 Date: 2026-10-13
 
@@ -309,6 +312,25 @@ page of another origin of the site that asks for a passkey keeps the login, and 
 passkey answered there with the login's item lets the tab's next quiet page, back on the
 login's origin too, complete it. Until then this limit was Claude's decision: the login
 ended `left-origin` on that page.
+
+**A page of another site that asks for a passkey** (owner's choice 「成功と記録する」 on
+2026-11-04 at 11:20 UTC). In the owner's Chrome at 11:04 UTC that day, a login of the
+OpenAI item on `https://chatgpt.com` sent the email, the tab moved to
+`auth.openai.com/auth_challenge/passkey`, which asked for an `openai.com` passkey
+([ADR 0084](0084-passkeys-of-related-origins.md)), and the login ended `left-origin`
+(`no-factor`); Pateat then answered the request with the item outside the login and the
+tab came back to `chatgpt.com` signed in. A login with a stop is now kept by a page of
+any HTTPS site as by another origin of its own site (ADR 0022, "A move after a passkey
+answer"): its new top page is read as a moved page is, within 30 seconds of the login's
+last step, and a passkey request there holds the login. A passkey answered there with
+the login's item lets the tab's next quiet page complete it, on a host of the passkey's
+RP ID or, whatever that RP ID, back on the login's own origin; any other answer, or
+none, ends it `left-origin` as before.
+*Claude's reading, not confirmed by the owner separately:* the login's own origin counts
+after such an answer also when the page that asked was of its own site; a page of
+another site that asks for nothing ends the login `left-origin` once it reads quiet, at
+most 5 readings a second apart, instead of at once; and a login without a stop still
+ends `left-origin` there at once.
 
 ## Consequences
 

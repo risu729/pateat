@@ -166,6 +166,99 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
   };
   const passwordRead = (h: ReturnType<typeof harness>) =>
     h.fields.mock.calls.some(([read]) => read.fieldId === "login.password");
+  describe("a move to another site that asks for a passkey (owner, 2026-11-04)", () => {
+    const quiet = { password: false, code: false, captcha: false, invalid: false, alert: false };
+    // As `chatgpt.com` sends the email to `auth.openai.com`, which asks for an `openai.com`
+    // passkey and then sends the tab back.
+    const auth = "https://auth.elsewhere.example";
+    const item = { connectionId, itemId };
+    const moved = async (live: Parameters<typeof harness>[1] = {}, password = false) => {
+      vi.useFakeTimers();
+      const { h, report } = start({ allowedOrigins: [origin], ...live }, { password });
+      // Next never answers: the tab moves to the other site meanwhile.
+      fake.state.onExecute = (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        return step.kind === "click" ? new Promise(() => undefined) : Promise.resolve();
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => executed().length === 2);
+      fake.state.signs = quiet;
+      return { h, report };
+    };
+    const visit = async (h: ReturnType<typeof harness>, url: string, documentId: string) => {
+      fake.state.tabUrls[1] = url;
+      let result: unknown;
+      void h.hello({ documentId, url }, false).then((value) => (result = value));
+      await until(() => result !== undefined);
+      return result;
+    };
+    const asked = async (live: Parameters<typeof harness>[1] = {}) => {
+      const { h, report } = await moved(live);
+      fake.state.tabUrls[1] = `${auth}/passkey`;
+      let result: unknown;
+      void h
+        .hello({ documentId: "auth-document", url: `${auth}/passkey` }, false)
+        .then((value) => (result = value));
+      // The page asks once it has rendered, while its readings run.
+      await vi.advanceTimersByTimeAsync(500);
+      h.login.passkeyRequested(1, auth);
+      await until(() => result !== undefined);
+      expect(result).toEqual({ ok: false, reason: "stale-document" });
+      expect(status()![0]).not.toMatchObject({ state: "blocked" });
+      return { h, report };
+    };
+    it("completes when the tab comes back after the login's item answered there", async () => {
+      const { h, report } = await asked();
+      h.login.passkeyAnswered(1, auth, "elsewhere.example", item);
+      await visit(h, `${origin}/home`, "home-document");
+      expect(status()![0]).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+        expect.objectContaining({
+          type: "move",
+          origin: auth,
+          reason: "passkey-request",
+          kept: true,
+        }),
+      );
+      expect(passwordRead(h)).toBe(false);
+    });
+    it("completes on a host of the passkey's RP ID", async () => {
+      const { h } = await asked();
+      h.login.passkeyAnswered(1, auth, "elsewhere.example", item);
+      await visit(h, "https://www.elsewhere.example/home", "home-document");
+      expect(status()![0]).toMatchObject({ state: "authenticated" });
+    });
+    it("ends left-origin when another item answered there", async () => {
+      const { h } = await asked();
+      h.login.passkeyAnswered(1, auth, "elsewhere.example", {
+        connectionId,
+        itemId: "80000000-0000-4000-8000-000000000009",
+      });
+      await visit(h, `${origin}/home`, "home-document");
+      expect(status()![0]).toMatchObject({ state: "blocked", outcome: "left-origin" });
+    });
+    it("ends left-origin when nothing answered there", async () => {
+      const { h } = await asked();
+      await visit(h, `${origin}/home`, "home-document");
+      expect(status()![0]).toMatchObject({ state: "blocked", outcome: "left-origin" });
+    });
+    it("ends left-origin on a quiet page of the other site that asks for nothing", async () => {
+      const { h, report } = await moved();
+      await visit(h, `${auth}/welcome`, "auth-document");
+      expect(status()![0]).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+        expect.objectContaining({ type: "move", origin: auth, reason: "no-factor" }),
+      );
+    });
+    it("ends left-origin at once for an item with a password, as before", async () => {
+      const { h } = await moved({}, true);
+      h.login.passkeyRequested(1, auth);
+      await visit(h, `${auth}/passkey`, "auth-document");
+      expect(status()![0]).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      // The page was not read.
+      expect(fake.state.messages.some((entry) => entry.type === "login.state")).toBe(false);
+    });
+  });
   describe("a passkey button beside the stop's password field", () => {
     const securityKey = target("use-passkey");
     const learned = parseLoginRecipe({
