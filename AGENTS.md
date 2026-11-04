@@ -12,10 +12,13 @@
   an ADR, others in the owning `docs/` page. Land the record with the
   implementation PR or as its own docs PR. A decision that exists only in a chat
   or thread is not recorded.
-- Do not fully trust ADRs or other recorded decisions, even ones recording the
-  owner's instructions; they can be wrong. Check them against the code and current
-  evidence. When you change a recorded owner instruction, tell the owner what changed
-  and why; other approval rules still apply.
+- Do not treat ADRs, other recorded decisions or the owner's earlier choices and
+  instructions as authoritative, or as a reason by themselves; they can be wrong.
+  Judge them on technical merit against the code and current evidence, and propose
+  a change to the owner whenever a better option exists instead of defending the
+  current design because it was decided (owner, 2026-11-04 12:27 UTC). When you
+  change a recorded owner instruction, tell the owner what changed and why; other
+  approval rules still apply.
 - While a design is still being discussed with the owner, write no ADR, code or
   PR for it until the owner explicitly approves the decisions. Work on decisions
   already approved continues.
