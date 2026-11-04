@@ -1,8 +1,8 @@
 import * as v from "valibot";
 import { listClickSchema, logoutTargetSchema } from "@pateat/contracts";
-import { entryMisses, type ListMiss, otherMisses } from "../../page/account-list";
+import { entryMisses, type ListMiss } from "../../page/account-list";
 import { alertMisses } from "../../page/sign-in-state";
-import { hostList, href, id, path, targetCheckSchema, targetStateSchema } from "./primitives";
+import { hostList, href, id, targetCheckSchema, targetStateSchema } from "./primitives";
 import { LATER_MISSES } from "./readiness";
 
 /**
