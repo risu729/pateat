@@ -179,7 +179,8 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
     // delivery; a slow render is not a failure until the owner-approved limit passes.
     const upcoming = attemptPlan(run.recipe, run.metadata)?.[run.metadata.stepIndex]?.step;
     // A fill-only login stops before anything that may advance or submit, and before a
-    // fill on a software keyboard, whose presses the page may act on (ADR 0021 D, 0067).
+    // fill on a software keyboard or of a TOTP code, which the page may act on as a PIN
+    // pad does at its last digit (ADR 0021 D, 0067).
     if (run.metadata.fillOnly && (!upcoming || fillOnlyStops(upcoming))) {
       await endFillOnly(rt, run);
       return;

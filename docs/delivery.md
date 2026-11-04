@@ -34,15 +34,17 @@ runs the rest of the graph (lint, typecheck, unit and component tests with
 non-empty value), which turns `//tests/extension:test` into a no-op there, and with
 `PATEAT_SKIP_ORDERS=1`, which leaves out the walks over every order of events of a small
 login (`packages/contracts/src/*.orders-*.test.ts`). An `Event orders` job runs those
-walks alone (`mise run //packages/contracts:test:orders`, no coverage): they take a few
-seconds of CPU each, and beside the rest of the graph in `Verify` they took about 50 s
-each and hit Vitest's 5 s test timeout
+walks alone (`mise run //packages/contracts:test:orders`, no coverage): beside the rest
+of the graph in `Verify` they took about 50 s each and hit Vitest's 5 s test timeout
 ([run 40034957203](https://github.com/risu729/pateat/actions/runs/40034957203)); in
-their own job they add nothing to the run's time. Both jobs pull the pinned Vaultwarden
-and Mailpit images from `ghcr.io` and run them with the runner's Docker: `Verify` for
-the [Vaultwarden self-check](development.md#vaultwarden-test-server) and the Browser
-shard that holds `vaultwarden.spec.ts` for its sign-ins. Without those variables, as in
-a local `mise run check`, the browser suite and the walks run with the rest. With four
+their own job they add nothing to the run's time. Since 2026-11-04 they walk every event
+type over sixteen logins, about 3.5 minutes of CPU, a little over a minute on four
+cores, against about 6 minutes for `Verify`; keep their job well under `Verify`. Both
+jobs pull the pinned Vaultwarden and Mailpit images from `ghcr.io` and run them with the
+runner's Docker: `Verify` for the
+[Vaultwarden self-check](development.md#vaultwarden-test-server) and the Browser shard
+that holds `vaultwarden.spec.ts` for its sign-ins. Without those variables, as in a
+local `mise run check`, the browser suite and the walks run with the rest. With four
 shards the first sharded runs took 4 to 7 minutes (mean 4m41s over 37 runs on 2026-10-11
 and 12), where each shard still repeated the rest of the graph; `Verify` and the shards
 run side by side now. With six shards and `Verify` split out, 16 PR runs on 2026-10-12

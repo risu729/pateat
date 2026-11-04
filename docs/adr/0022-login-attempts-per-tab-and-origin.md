@@ -386,31 +386,34 @@ fix them now; the SSO policy itself is recorded separately.
   intent, a click the page may have received, or a result settled as unknown. A
   withdrawn authorization before the page received the prepared fill or click takes back
   that operation's reserved effect, so such a record shows nothing in flight; a record a
-  restarted worker finds with an intent pending keeps holding. Such a record does not
-  hold: the login form showing in a new tab means the site's session has ended, as when
-  the first tab is closed, and a stop by Pateat says nothing about the password. This
-  includes a stop on a second-factor handler step after the password was accepted. The
-  tab then logs in as a new tab would, with the saved default or by asking when several
-  items match. While an automatic account choice is being saved, or if one was saved
-  after the tab read its settings, the new login waits for the save and is checked again
-  with the new settings, because the save bumps the policy revision it would otherwise
-  be stopped by. A record in any other state keeps holding, for example one that is
-  running, `retryable` (it is tried again from the same step at once, or, after a
-  restart, once a new page of its tab shows, until its retries are spent), still
-  reconciling, settled as unknown, watched after a `challenge` (`watching`, ADR 0027),
-  ended `interrupted` after a submission, stopped by Pateat while a fill or click may
-  have reached the page, or ended `credential-rejected`, `challenge`, `submission-limit`
-  or `left-origin`. A watched login, settled or `watching`, stops holding once its first
-  step shows in another tab's page first seen after the watch began (ADR 0027). A
-  top-level password login whose page shows its sign-in form again right after the
-  submission, or that ends `credential-rejected`, is released as after a logout once
-  that page announces, so other tabs ask instead of being held (ADR 0021 D, 2026-10-13).
-  So a password is not submitted again while a first submission may still be in flight
-  or was refused, or while the user may be answering a challenge Pateat does not handle.
-  Releasing `account-switched` lets another tab start between the switch click and the
-  first tab's fresh attempt, which then waits as `origin-busy`. A refused tab's tooltip
-  says that another tab's login holds the site and that closing that tab, or waiting 5
-  minutes and reloading, lets it log in, and is reset when the tab logs in
+  restarted worker finds with an intent pending keeps holding. Once the page said it
+  took the step (`SUBMITTED`), neither a withdrawn authorization nor a failure that
+  reports no change takes the effect back (2026-11-04, found by the walk over every
+  order of events). Such a record does not hold: the login
+  form showing in a new tab means the site's session has ended, as when the first tab is
+  closed, and a stop by Pateat says nothing about the password. This includes a stop on
+  a second-factor handler step after the password was accepted. The tab then logs in as
+  a new tab would, with the saved default or by asking when several items match. While
+  an automatic account choice is being saved, or if one was saved after the tab read its
+  settings, the new login waits for the save and is checked again with the new settings,
+  because the save bumps the policy revision it would otherwise be stopped by. A record
+  in any other state keeps holding, for example one that is running, `retryable` (it is
+  tried again from the same step at once, or, after a restart, once a new page of its
+  tab shows, until its retries are spent), still reconciling, settled as unknown,
+  watched after a `challenge` (`watching`, ADR 0027), ended `interrupted` after a
+  submission, stopped by Pateat while a fill or click may have reached the page, or
+  ended `credential-rejected`, `challenge`, `submission-limit` or `left-origin`. A
+  watched login, settled or `watching`, stops holding once its first step shows in
+  another tab's page first seen after the watch began (ADR 0027). A top-level password
+  login whose page shows its sign-in form again right after the submission, or that ends
+  `credential-rejected`, is released as after a logout once that page announces, so
+  other tabs ask instead of being held (ADR 0021 D, 2026-10-13). So a password is not
+  submitted again while a first submission may still be in flight or was refused, or
+  while the user may be answering a challenge Pateat does not handle. Releasing
+  `account-switched` lets another tab start between the switch click and the first tab's
+  fresh attempt, which then waits as `origin-busy`. A refused tab's tooltip says that
+  another tab's login holds the site and that closing that tab, or waiting 5 minutes and
+  reloading, lets it log in, and is reset when the tab logs in
   ([Background execution](../architecture.md#background-execution)). A refused page does
   not announce again when the hold ends; reloading it starts the login, as does a pick
   in the toolbar popup while the page waits for an account choice
