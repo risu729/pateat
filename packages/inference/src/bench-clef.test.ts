@@ -23,10 +23,11 @@ describe("Clef benchmark runner", () => {
     expect(result.report.falseSubmits).toBe(0);
     expect(result.servedModels).toEqual(["clef-flash"]);
     const asked = Object.keys(result.answers);
-    expect(asked).toHaveLength(clef.sent.length);
+    // Two calls per page asked (ADR 0083).
+    expect(asked).toHaveLength(clef.sent.length / 2);
     const first = result.answers[asked[0]!]!;
     // Answers stay under the role's own question IDs, with every probability.
-    expect(Object.keys(first)).toContain("action");
+    expect(Object.keys(first)).toEqual(expect.arrayContaining(["action", "signin", "confirm"]));
     expect(first["action"]).toMatchObject({ type: "choice" });
     expect(result.estimatedCostUsd).toBeCloseTo((clef.sent.length * 1_000 * 0.038) / 1_000_000);
   });

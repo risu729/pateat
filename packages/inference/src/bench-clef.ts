@@ -121,7 +121,8 @@ export async function runClefBenchmark(options: {
     doDecide: async (call) => {
       const result = await clef.doDecide(call);
       servedModels.add(result.response?.modelId ?? "unreported");
-      answers[current] = result.answers;
+      // The role asks each page in two calls; both answers stay under the page.
+      answers[current] = { ...answers[current], ...result.answers };
       return result;
     },
   };

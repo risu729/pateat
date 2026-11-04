@@ -1,4 +1,4 @@
-import { caseFor } from "./fake-models";
+import { caseFor, oracleAnswer } from "./fake-models";
 
 export type Sent = { url: string; headers: Headers; body: Record<string, any> };
 type ClefQuestion = { type: string; criteria: Record<string, unknown> };
@@ -19,18 +19,18 @@ export function fakeClef(
       return Response.json(reply.body ?? {}, { status: reply.status ?? 200 });
     const expected = caseFor(body.state.page).expected;
     const answers: Record<string, unknown> = {};
-    for (const [id, question] of Object.entries(body.questions as Record<string, ClefQuestion>)) {
+    for (const [safe, question] of Object.entries(body.questions as Record<string, ClefQuestion>)) {
+      // The role's IDs as the adapter made them safe: `el:` and `slot:` become `el.` and `slot.`.
+      const id = safe.replace(/^(el|slot)\./u, "$1:");
+      if (question.type === "noul") {
+        answers[safe] = { type: "noul", noul: oracleAnswer(expected, id, undefined) };
+        continue;
+      }
       const options = Object.keys(question.criteria);
-      const target =
-        expected.kind === "abstain"
-          ? undefined
-          : id === "action"
-            ? expected.action
-            : expected.fields[id.slice("slot.".length)];
-      const choice = target === undefined ? "none" : `c:${target}`;
+      const choice = oracleAnswer(expected, id, options) as string;
       const confidence = reply.confidence ?? 0.9;
       const rest = Math.round(((1 - confidence) / (options.length - 1)) * 10_000) / 10_000;
-      answers[id] = {
+      answers[safe] = {
         type: "choice",
         choice,
         probabilities: Object.fromEntries(

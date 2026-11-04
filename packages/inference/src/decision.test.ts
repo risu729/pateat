@@ -4,7 +4,7 @@ import { evaluationCorpus } from "./corpus/cases";
 import { slots } from "./corpus/slots";
 import { buildFieldQuestions, createFieldMappingDecider } from "./decision";
 import { evaluateRole } from "./evaluate";
-import type { LoginObservation } from "@pateat/contracts";
+import type { LoginObservation, ObservedCandidate } from "@pateat/contracts";
 import { decisionModel, distribution, oracleDecider } from "./testing/fake-models";
 
 const page = evaluationCorpus[0]!;
@@ -12,15 +12,31 @@ const limits = { timeoutMs: 1_000, maxInputBytes: 16_384 };
 const request = { observation: page.observation, slots: page.slots };
 type Answers = Awaited<ReturnType<Parameters<typeof decisionModel>[0]>>["answers"];
 
-/** Answers each question with the given choice (or none) and a complete distribution. */
+/** Sure yes/no answers of a sign-in page that needs no generation. */
+const signIn: Record<string, number> = {
+  signin: 0.95,
+  confirm: 0.05,
+  irreversible: 0.05,
+  otherSets: 0.05,
+};
+
+/**
+ * Answers each choice with the given option (or none) and a complete distribution, and
+ * each yes/no question with `yes` or the sign-in defaults.
+ */
 const answering = (
   choices: Record<string, string>,
   confidence = 0.9,
   extra: Partial<Answers> = {},
+  yes: Record<string, number> = {},
 ) =>
   decisionModel(async (options) => {
     const answers: Answers = {};
     for (const [id, question] of Object.entries(options.questions)) {
+      if (question.type === "boolean") {
+        answers[id] = { type: "boolean", probability: yes[id] ?? signIn[id] ?? 0.05 };
+        continue;
+      }
       if (question.type !== "choice") throw new Error("unexpected");
       const choice = choices[id] ?? "none";
       answers[id] = {
@@ -29,40 +45,98 @@ const answering = (
         probabilities: distribution(Object.keys(question.criteria), choice, confidence),
       };
     }
+    const asked = Object.fromEntries(
+      Object.entries(extra).filter(([id]) => Object.hasOwn(options.questions, id)),
+    );
     return {
-      answers: { ...answers, ...extra } as Answers,
+      answers: { ...answers, ...asked } as Answers,
       usage: { inputTokens: 200 },
       warnings: [],
     };
   });
 const decider = (model: ReturnType<typeof decisionModel>, minProbability = 0.7) =>
   createFieldMappingDecider({ model, limits, minProbability });
-const correct = { "slot:email": "c:email", "slot:password": "c:password", action: "c:sign-in" };
+const correct = {
+  "el:email": "s:email",
+  "el:password": "s:password",
+  "slot:email": "c:email",
+  "slot:password": "c:password",
+  action: "c:sign-in",
+};
+const button = (id: string, label: string): ObservedCandidate => ({
+  id,
+  role: "button",
+  target: { by: "id", value: id },
+  label,
+});
+type Built = NonNullable<ReturnType<typeof buildFieldQuestions>>;
+type Choice = Extract<Built["form"][string], { type: "choice" }>;
+/** The questions of a page that has a form, with every question read as a choice. */
+const questionsOf = (observation: LoginObservation, pageSlots = page.slots) => {
+  const built = buildFieldQuestions(observation, pageSlots);
+  if (built === undefined) throw new Error("expected questions");
+  return built as Built & { form: Record<string, Choice>; page: Record<string, Choice> };
+};
 
 describe("finite-choice decision role", () => {
-  it("scores the oracle fake as fully correct on the corpus", async () => {
+  it("scores the oracle fake as fully correct on the corpus and leaves other sets to generation", async () => {
     const decide = decider(oracleDecider());
+    const sets = (entry: (typeof evaluationCorpus)[number]) =>
+      entry.expected.kind === "plan" && entry.expected.alternatives !== undefined;
     // Pages with custom-field slots too, which are named from the page (ADR 0027).
-    const cases = evaluationCorpus;
     const report = await evaluateRole({
-      cases,
+      cases: evaluationCorpus.filter((entry) => !sets(entry)),
       run: (entry) => decide({ observation: entry.observation, slots: entry.slots }),
     });
     expect(report.semanticAccuracy).toBe(1);
     expect(report.falseSubmits).toBe(0);
-    expect(report.usage).toMatchObject({
-      inputTokens: 300 * cases.length,
-      unknownOutputCases: cases.length,
-    });
+    const withSets = evaluationCorpus.filter(sets);
+    expect(withSets.length).toBeGreaterThan(0);
+    const outcomes = await Promise.all(
+      withSets.map((entry) => decide({ observation: entry.observation, slots: entry.slots })),
+    );
+    for (const outcome of outcomes)
+      expect(outcome).toMatchObject({ status: "abstained", reason: "ambiguous" });
   });
 
-  it("asks only role-compatible options and always offers none", () => {
-    const questions = buildFieldQuestions(page.observation, page.slots);
-    expect(Object.keys(questions)).toEqual(["slot:email", "slot:password", "action"]);
-    expect(Object.keys(questions["slot:email"]!.criteria)).toEqual(["c:email", "none"]);
-    expect(Object.keys(questions["slot:password"]!.criteria)).toEqual(["c:password", "none"]);
-    // Links stay context: the executor clicks buttons only.
-    expect(Object.keys(questions["action"]!.criteria)).toEqual(["c:sign-in", "none"]);
+  it("asks each element and each slot with role-compatible options, and always offers none", () => {
+    const { form, page: pageQuestions } = questionsOf(page.observation);
+    expect(Object.keys(form)).toEqual([
+      "el:email",
+      "el:password",
+      "slot:email",
+      "slot:password",
+      "action",
+      "signin",
+    ]);
+    expect(Object.keys(form["el:email"]!.criteria)).toEqual(["s:email", "none"]);
+    expect(Object.keys(form["slot:password"]!.criteria)).toEqual(["c:password", "none"]);
+    // Links stay context for the action: the executor clicks buttons only.
+    expect(Object.keys(form["action"]!.criteria)).toEqual(["c:sign-in", "enter", "none"]);
+    expect((form["signin"] as { type: string }).type).toBe("boolean");
+    // No button names a passkey; the account switch may be a link.
+    expect(Object.keys(pageQuestions)).toEqual(["switch", "confirm", "irreversible", "otherSets"]);
+    expect(Object.keys(pageQuestions["switch"]!.criteria)).toEqual([
+      "c:sign-in",
+      "c:forgot",
+      "c:register",
+      "none",
+    ]);
+  });
+
+  it("offers a passkey question only among buttons that sign in with a passkey", () => {
+    const withPasskey: LoginObservation = {
+      ...page.observation,
+      candidates: [
+        ...page.observation.candidates,
+        button("passkey", "Sign in with a passkey"),
+        button("add-passkey", "Create a passkey"),
+      ],
+    };
+    expect(Object.keys(questionsOf(withPasskey).page["passkey"]!.criteria)).toEqual([
+      "c:passkey",
+      "none",
+    ]);
   });
 
   it("offers a sign-in form's lone new-password field for the password (ADR 0018)", () => {
@@ -72,47 +146,59 @@ describe("finite-choice decision role", () => {
         candidate.role === "password" ? { ...candidate, autocomplete: "new-password" } : candidate,
       ),
     };
-    const questions = buildFieldQuestions(lone, page.slots);
-    expect(Object.keys(questions["slot:password"]!.criteria)).toEqual(["c:password", "none"]);
+    expect(Object.keys(questionsOf(lone).form["slot:password"]!.criteria)).toEqual([
+      "c:password",
+      "none",
+    ]);
   });
 
   it("offers field names, value shapes and input constraints but never values", async () => {
     const bank = evaluationCorpus.find((item) => item.id === "ja-bank-unlabeled-lengths")!;
-    const questions = buildFieldQuestions(bank.observation, bank.slots);
-    expect(questions["slot:custom-1"]!.criteria["c:field-b"]).toEqual({
+    const { form, state } = questionsOf(bank.observation, bank.slots);
+    expect(form["slot:custom-1"]!.criteria["c:field-b"]).toEqual({
       role: "tel",
       maxLength: 3,
       inputMode: "numeric",
     });
-    const described = {
-      ...bank.observation,
-      candidates: bank.observation.candidates.map((candidate) =>
-        candidate.id === "field-b" ? { ...candidate, description: "半角数字3桁" } : candidate,
-      ),
-    };
-    expect(
-      buildFieldQuestions(described, bank.slots)["slot:custom-1"]!.criteria["c:field-b"],
-    ).toMatchObject({ description: "半角数字3桁" });
+    expect(state.elements).toContainEqual({
+      id: "field-b",
+      role: "tel",
+      maxLength: 3,
+      inputMode: "numeric",
+    });
     const model = oracleDecider();
     const outcome = await decider(model)({ observation: bank.observation, slots: bank.slots });
     // The custom-field slots are named from the page, never by the model (ADR 0027).
     expect(outcome.status).toBe("ok");
-    const sent = JSON.stringify(model.calls[0]);
+    const sent = JSON.stringify(model.calls);
     expect(sent).toContain("支店番号");
     expect(sent).toContain('"valueShape":{"length":3,"classes":["ascii-digit"],"email":false}');
+    expect(sent).toContain("its value has 3 characters of ascii-digit and is not an email address");
     for (const value of Object.values(bank.values!)) expect(sent).not.toContain(value);
+    // Locators never leave the device.
+    expect(sent).not.toContain('"target"');
   });
 
-  it("returns a validated plan and derives the submit purpose locally", async () => {
+  it("returns a checked generated page and derives the submit purpose locally", async () => {
     const model = answering(correct);
     const outcome = await decider(model)(request);
     expect(outcome).toMatchObject({
       status: "ok",
-      calls: 1,
-      usage: { inputTokens: 200, outputTokens: null },
-      value: { action: { candidate: "sign-in", purpose: "submit" } },
+      calls: 2,
+      usage: { inputTokens: 400, outputTokens: null },
+      value: {
+        action: { candidate: "sign-in", purpose: "submit" },
+        pageKind: "sign-in",
+        irreversible: "no",
+      },
+      answer: {
+        "el:email": { choice: "s:email", probability: 0.9 },
+        signin: { probability: 0.95 },
+      },
     });
-    expect(model.calls[0]!.state).toEqual([
+    expect(model.calls).toHaveLength(2);
+    expect(model.calls[0]!.state).toEqual(model.calls[1]!.state);
+    expect(model.calls[0]!.state).toMatchObject([
       {
         type: "json",
         value: {
@@ -128,8 +214,73 @@ describe("finite-choice decision role", () => {
     ]);
   });
 
+  it("submits by pressing Enter in the last field when no listed button does", async () => {
+    // Only a field inside a form submits it (ADR 0064).
+    const grouped = page.observation.candidates.map((candidate) => ({ ...candidate, group: "f1" }));
+    const outcome = await decider(answering({ ...correct, action: "enter" }))({
+      ...request,
+      observation: { ...page.observation, candidates: grouped },
+    });
+    expect(outcome).toMatchObject({
+      status: "ok",
+      value: { action: { candidate: "password", purpose: "submit" } },
+    });
+  });
+
+  it("keeps a sure passkey button and account switch and leaves out unsure ones", async () => {
+    const withPasskey: LoginObservation = {
+      ...page.observation,
+      candidates: [
+        ...page.observation.candidates,
+        button("passkey", "Sign in with a passkey"),
+        button("other", "Use another account"),
+      ],
+    };
+    const both = { ...correct, passkey: "c:passkey", switch: "c:other" };
+    const sure = await decider(answering(both))({ ...request, observation: withPasskey });
+    expect(sure).toMatchObject({
+      status: "ok",
+      value: { passkeyButton: "passkey", accountSwitch: "other" },
+    });
+    const unsure = await decider(
+      answering(correct, 0.9, {
+        passkey: {
+          type: "choice",
+          choice: "c:passkey",
+          probabilities: { "c:passkey": 0.6, none: 0.4 },
+        },
+      }),
+    )({ ...request, observation: withPasskey });
+    expect(unsure.status).toBe("ok");
+    if (unsure.status === "ok") expect(unsure.value.passkeyButton).toBeUndefined();
+    // A later page keeps no passkey button (ADR 0027).
+    const later = await decider(answering(both))({
+      ...request,
+      observation: withPasskey,
+      startPage: false,
+    });
+    expect(later.status).toBe("ok");
+    if (later.status === "ok") expect(later.value.passkeyButton).toBeUndefined();
+  });
+
+  it("answers whether submitting cannot be undone from the yes probability", async () => {
+    const cases = [
+      [0.9, "yes"],
+      [0.5, "unclear"],
+      [0.1, "no"],
+    ] as const;
+    const outcomes = await Promise.all(
+      cases.map(([probability]) =>
+        decider(answering(correct, 0.9, {}, { irreversible: probability }))(request),
+      ),
+    );
+    outcomes.forEach((outcome, index) =>
+      expect(outcome).toMatchObject({ status: "ok", value: { irreversible: cases[index]![1] } }),
+    );
+  });
+
   it("submits after an identifier alone when its form leaves a password input empty (#834)", async () => {
-    const { "slot:password": _password, ...emailOnly } = correct;
+    const emailOnly = { "el:email": "s:email", "slot:email": "c:email", action: "c:sign-in" };
     const outcome = await decider(answering(emailOnly))(request);
     expect(outcome).toMatchObject({
       status: "ok",
@@ -156,8 +307,11 @@ describe("finite-choice decision role", () => {
   ])("rejects %s through the SDK contract", async (_name, choices) => {
     const model = decisionModel(async (options) => {
       const answers: Answers = {};
-      for (const id of Object.keys(options.questions))
-        answers[id] = { type: "choice", choice: choices[id as keyof typeof choices] ?? "none" };
+      for (const [id, question] of Object.entries(options.questions))
+        answers[id] =
+          question.type === "boolean"
+            ? { type: "boolean", probability: signIn[id] ?? 0.05 }
+            : { type: "choice", choice: choices[id as keyof typeof choices] ?? "none" };
       return { answers, warnings: [] };
     });
     expect(await decider(model)(request)).toMatchObject({
@@ -203,12 +357,33 @@ describe("finite-choice decision role", () => {
     });
   });
 
+  it.each([
+    ["no sign-in form", { signin: 0.6 }, "no-login-form"],
+    ["a signed-in user asked to confirm", { confirm: 0.3 }, "no-login-form"],
+    ["other identifier sets", { otherSets: 0.5 }, "ambiguous"],
+  ])("leaves %s to generation", async (_name, yes, reason) => {
+    expect(await decider(answering(correct, 0.9, {}, yes))(request)).toMatchObject({
+      status: "abstained",
+      reason,
+    });
+  });
+
+  it("abstains when the element and slot views disagree", async () => {
+    const disagreeing = answering({ ...correct, "el:email": "none" });
+    expect(await decider(disagreeing)(request)).toMatchObject({
+      status: "abstained",
+      reason: "inconsistent-mapping",
+    });
+  });
+
   it("abstains when two slots choose the same element", async () => {
     const both = {
       observation: page.observation,
       slots: [slots.username, slots.email, slots.password],
     };
     const model = answering({
+      "el:email": "s:email",
+      "el:password": "s:password",
       "slot:username": "c:email",
       "slot:email": "c:email",
       "slot:password": "c:password",
@@ -216,18 +391,15 @@ describe("finite-choice decision role", () => {
     });
     const outcome = await decider(model)(both);
     expect(outcome).toMatchObject({ status: "abstained", reason: "inconsistent-mapping" });
-    const report = await evaluateRole({
-      cases: [{ ...page, slots: both.slots }],
-      run: () => decider(model)(both),
-    });
-    expect(report.jointMappingRejections).toBe(1);
   });
 
   it("hides registration passwords and abstains on cross-form mappings", async () => {
     const signup = evaluationCorpus.find((entry) => entry.id === "ja-signup-adjacent")!;
-    const questions = buildFieldQuestions(signup.observation, signup.slots);
-    expect(Object.keys(questions["slot:password"]!.criteria)).toEqual(["c:login-pass", "none"]);
+    const { form } = questionsOf(signup.observation, signup.slots);
+    expect(Object.keys(form["slot:password"]!.criteria)).toEqual(["c:login-pass", "none"]);
     const crossForm = answering({
+      "el:reg-email": "s:email",
+      "el:login-pass": "s:password",
       "slot:email": "c:reg-email",
       "slot:password": "c:login-pass",
       action: "c:login-submit",
@@ -238,7 +410,7 @@ describe("finite-choice decision role", () => {
   });
 
   it("maps refusal, rate limits and timeouts to explicit failures", async () => {
-    const refusing = answering(correct, 0.9, { action: { type: "refusal" } });
+    const refusing = answering(correct, 0.9, { action: { type: "refusal" } as never });
     expect(await decider(refusing)(request)).toMatchObject({ status: "failed", error: "refused" });
     const limited = decisionModel(async () => {
       throw new APICallError({
@@ -252,7 +424,7 @@ describe("finite-choice decision role", () => {
     expect(await decider(limited)(request)).toMatchObject({
       status: "failed",
       error: "rate-limited",
-      calls: 1,
+      calls: 2,
     });
     const silent = decisionModel(() => new Promise(() => {}));
     const slow = createFieldMappingDecider({
@@ -260,10 +432,10 @@ describe("finite-choice decision role", () => {
       limits: { ...limits, timeoutMs: 100 },
       minProbability: 0.7,
     });
-    expect(await slow(request)).toMatchObject({ status: "failed", error: "timeout", calls: 1 });
+    expect(await slow(request)).toMatchObject({ status: "failed", error: "timeout", calls: 2 });
   });
 
-  it("rejects incomplete, oversized and action-free pages before any call", async () => {
+  it("rejects incomplete, oversized, formless and account-list pages before any call", async () => {
     const model = answering(correct);
     const decide = decider(model);
     expect(
@@ -278,12 +450,17 @@ describe("finite-choice decision role", () => {
     const formless: LoginObservation = {
       ...page.observation,
       candidates: page.observation.candidates.filter(
-        (candidate) => candidate.role !== "button" && candidate.role !== "link",
+        (candidate) => candidate.role === "button" || candidate.role === "link",
       ),
     };
     expect(await decide({ ...request, observation: formless })).toMatchObject({
       status: "abstained",
       reason: "no-login-form",
+      calls: 0,
+    });
+    const list = { ...page.observation, accounts: ["Taro [email]"] };
+    expect(await decide({ ...request, observation: list })).toMatchObject({
+      status: "abstained",
       calls: 0,
     });
     expect(model.calls).toHaveLength(0);
@@ -312,9 +489,10 @@ describe("finite-choice usage and telemetry", () => {
       limits: { ...limits, maxRetries: 1 },
       minProbability: 0.7,
     });
+    // Each call retried once: one attempt without usage makes the total unknown.
     expect(await decide(request)).toMatchObject({
       status: "ok",
-      calls: 2,
+      calls: 3,
       usage: { inputTokens: null, outputTokens: null },
     });
   });

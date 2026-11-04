@@ -133,6 +133,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0080: The crypto Worker keeps login usernames while a vault is unlocked](adr/0080-login-usernames-kept-while-unlocked.md)
 - [0081: A learned button goes on to the authenticator app's code](adr/0081-authenticator-method-button.md)
 - [0082: Waits for the page wait on signals, not on set times](adr/0082-waits-on-signals.md)
+- [0083: Clef first for sign-in forms, Claude when Clef abstains](adr/0083-clef-first-for-sign-in-forms.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

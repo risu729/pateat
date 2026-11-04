@@ -8,7 +8,8 @@ change below, the second run had 1.0 with no refusal. Results are in
 [ADR 0015](0015-per-owner-claude-credentials.md): the service uses per-owner
 credentials instead of one operator key. Amended by
 [ADR 0040](0040-running-without-the-service.md): a device may hold its own key and make
-the calls itself.
+the calls itself. Amended by [ADR 0083](0083-clef-first-for-sign-in-forms.md): Clef
+answers a sign-in form first, and Claude answers when Clef abstains.
 
 Date: 2026-10-10
 

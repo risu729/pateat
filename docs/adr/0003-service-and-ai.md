@@ -8,7 +8,8 @@ include the names of fields allowed for automatic fill.
 generation; Jev and Clef are not required. ADR 0014 also asks the owner's next
 configured model when one refuses a request, and fast mode's failure the same model at
 the standard speed (owner, 2026-10-23), the exceptions to the rule below against falling
-back to another model.
+back to another model. [ADR 0083](0083-clef-first-for-sign-in-forms.md) asks Clef first
+for a sign-in form and Claude when Clef abstains, the third such exception.
 Date: 2026-10-10
 
 Proposed 2026-10-10 amendment: the inference section incorporates the October 9 Clef
