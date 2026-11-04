@@ -1142,6 +1142,15 @@ revision writes and D1 batch behavior; an ORM does not supply authorization or
 cross-request atomicity. Use Valibot at application boundaries, including the
 chosen Hono/Drizzle integrations; transitive Zod does not change that decision.
 
+The generation routes in `packages/generation/src/generate.ts` retain their public
+exports and delegate to `generate/recipe.ts`, `generate/entry.ts` and
+`generate/completion.ts` (the judge and page sampler). Shared response and inference
+outcome handling live in `generate/responses.ts`, retry and judgement windows and
+head checks in `generate/policy.ts`, and layout assembly and writes in
+`generate/layout.ts`. These internal modules import their shared owners directly;
+logout generation uses the same response and retry helpers. The split preserves
+request shapes, response codes, call ordering, storage writes and limits.
+
 AI SDK is transport/structured-output infrastructure, not an autonomous agent
 loop. Keep generation and finite-choice contracts distinct; use a direct typed
 provider adapter when that API is not represented faithfully by the SDK. Set
