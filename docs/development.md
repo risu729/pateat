@@ -30,6 +30,16 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 `mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
+The shared settings contract lives under `packages/contracts/src/settings/`.
+`schema.ts` owns validation, inferred types and the URL, detail-format and timestamp
+helpers used by validation. `defaults.ts` owns the synthetic catalog and default
+settings; `vault-policy.ts` owns account, item and custom-field eligibility;
+`site-policy.ts` owns site rules and saved-account resolution. The existing
+`settings.ts` entrypoint re-exports the same public names. Internal modules import
+`schema.ts` directly, and site policy imports vault eligibility, so schemas have no
+policy imports or initialization cycles. This source split preserves schema order,
+validation messages and policy behavior; its tests keep their existing files.
+
 The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
 `apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
