@@ -540,37 +540,37 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         expect(reports.filter((entry) => entry.type === "repair")).toHaveLength(1);
         expect(service.generate).not.toHaveBeenCalled();
       });
-      it("sends nothing where the shown account's branch starts on the same path", async () => {
-        // The person pressed "Continue" themselves, and the password form of that branch
-        // shows on the list's own URL.
+      const fillPassword = {
+        kind: "fill",
+        path: "/signin",
+        fields: [{ slot: "password", target: target("password") }],
+      } as const;
+      const spinnerGone = { kind: "wait", path: "/signin", target: target("spin"), present: false };
+      it.each([
+        // The person pressed "Continue" themselves: that branch's form shows on the same URL.
+        ["shows the shown account's branch", [fillPassword], 0],
+        // A first step that names no element shows anywhere, so it says nothing.
+        ["starts that branch by waiting", [{ ...spinnerGone, timeoutMs: 1000 }, fillPassword], 1],
+      ])("on a page that %s", async (_name, first, sends) => {
         const reports: LoginReport[] = [];
         const service = generation();
         const h = setup(service, reports);
-        h.recipes.chooser.mockResolvedValue({
-          ...continueOnly,
-          chooser: {
-            ...continueOnly.chooser,
-            afterAccount: parseLoginRecipe({
-              ...login,
-              slots: ["password"],
-              steps: [
-                {
-                  kind: "fill",
-                  path: "/signin",
-                  fields: [{ slot: "password", target: target("password") }],
-                },
-                login.steps[1]!,
-              ],
-            }),
-          },
+        const afterAccount = parseLoginRecipe({
+          ...login,
+          slots: ["password"],
+          steps: [...first, login.steps[1]!],
         });
+        const chooser = { ...continueOnly.chooser, afterAccount };
+        h.recipes.chooser.mockResolvedValue({ ...continueOnly, chooser });
         await shownForm(h, "branch");
         await vi.waitFor(() =>
           expect(reports.filter((entry) => entry.type === "repair")).toEqual([
-            expect.objectContaining({ outcome: "skipped", reason: "branch" }),
+            sends
+              ? expect.objectContaining({ outcome: "due" })
+              : expect.objectContaining({ outcome: "skipped", reason: "branch" }),
           ]),
         );
-        expect(service.generate).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(sends));
       });
       it("sends nothing when the chooser's layouts cannot be read", async () => {
         const service = generation();

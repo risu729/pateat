@@ -248,7 +248,8 @@ export async function repairChooserForm(
   // path, as after the person pressed "Continue" themselves: that branch's page shows.
   const branchSteps = all
     .map((layout) => layout.chooser.afterAccount?.steps[0])
-    .filter((step) => step?.path === live.path);
+    // A first step that names no element, as a wait for something to go, shows anywhere.
+    .filter((step) => step?.path === live.path && loginReadiness(step).targets.length > 0);
   /* eslint-disable no-await-in-loop */
   for (const step of branchSteps)
     if (await showsNow(rt, live, loginReadiness(step!))) {
