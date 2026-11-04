@@ -63,8 +63,10 @@ or more, leaves the page to Claude, which answers the page kind
 0.7 is left out of the plan. A plan Clef answers has the page kind `sign-in`, and
 `irreversible` is `yes` at 0.7 or more, `no` at 0.3 or less, and `unclear` between.
 
-Lists of accounts ([ADR 0028](0028-account-chooser-login-pages.md)), sign-in entries
-([ADR 0031](0031-sign-in-entry-pages.md)), passkey-only pages
+A page the device reports signed in (`signedIn`,
+[ADR 0035](0035-page-kinds-per-site.md)) goes to Claude, which weighs that hint for a
+confirmation. Lists of accounts ([ADR 0028](0028-account-chooser-login-pages.md)),
+sign-in entries ([ADR 0031](0031-sign-in-entry-pages.md)), passkey-only pages
 ([ADR 0053](0053-passkey-only-generation.md)), logout requests and the judge go to
 Claude as before.
 
@@ -75,10 +77,11 @@ as every request did before. Clef never answers after Claude.
 
 ### Cost and keys
 
-Clef's calls are charged the way Claude's are: each call gets its own request-log row
-(provider `cloudflare`, model `clef`) and counts toward the owner's daily and monthly
-spend stops at Workers AI's published rate (`clefModels`), from the input tokens it
-reports, or the worst case for the input bound when it reports none.
+Clef's calls are charged the way Claude's are. A page's two calls get one request-log
+row (provider `cloudflare`, model `clef`, with both calls' answers and usage), and count
+toward the owner's daily and monthly spend stops at Workers AI's published rate
+(`clefModels`), from the input tokens they report, or the worst case for the input bound
+when a call reports none.
 
 - **The service** calls Clef through its Workers AI binding, which needs no token. It
   bills the Cloudflare account the Worker runs in, not a credential of the owner's as
@@ -115,6 +118,6 @@ labelled passkey button (23), and two more the labels had missed.
 - Most sign-in pages get their recipe in well under a second, and generation costs
   about a quarter of what it did.
 - A page Clef leaves takes one Clef round trip longer than before.
-- The request log gets a row per Clef call, so a page Claude answered after Clef has
-  two rows.
+- The request log gets a row for Clef's answer, so a page Claude answered after Clef
+  has two rows.
 - The service's Clef calls bill the operator's Cloudflare account.

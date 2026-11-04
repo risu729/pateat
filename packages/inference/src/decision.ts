@@ -92,6 +92,16 @@ type ChoiceQuestion = {
 type BooleanQuestion = { type: "boolean"; instructions: string };
 type Questions = Record<string, ChoiceQuestion | BooleanQuestion>;
 
+/** The fixed option texts of the questions. */
+const optionText = {
+  elementNone: "This element is for none of the user's values.",
+  slotNone: "No listed element is for this value.",
+  enter: "No listed button does: the form is submitted by pressing Enter in its last field.",
+  actionNone: "This is no sign-in form, so nothing continues or submits it.",
+  passkeyNone: "No listed button signs in with a passkey.",
+  switchNone: "The page shows no chosen account, or no listed element changes it.",
+};
+
 const text = {
   element: `Which of the user's values should be typed into this element of the sign-in page? The state lists every element of the page and every value the user has; each value goes into at most one element. Choose none if the element is not for any of them. ${untrusted}`,
   slot: (slot: SemanticSlot) =>
@@ -133,7 +143,7 @@ export function buildFieldQuestions(observation: LoginObservation, slots: readon
       },
       criteria: {
         ...Object.fromEntries(fits.map((slot) => [slotOption(slot), slotText(slot)])),
-        [none]: "This element is for none of the user's values.",
+        [none]: optionText.elementNone,
       },
     };
   }
@@ -150,7 +160,7 @@ export function buildFieldQuestions(observation: LoginObservation, slots: readon
         ...Object.fromEntries(
           eligible.map((candidate) => [candidateOption(candidate), describe(candidate)]),
         ),
-        [none]: "No listed element is for this value.",
+        [none]: optionText.slotNone,
       },
     };
   }
@@ -162,8 +172,8 @@ export function buildFieldQuestions(observation: LoginObservation, slots: readon
       ...Object.fromEntries(
         actions.map((candidate) => [candidateOption(candidate), describe(candidate)]),
       ),
-      [enter]: "No listed button does: the form is submitted by pressing Enter in its last field.",
-      [none]: "This is no sign-in form, so nothing continues or submits it.",
+      [enter]: optionText.enter,
+      [none]: optionText.actionNone,
     },
   };
   form["signin"] = { type: "boolean", instructions: text.signin };
@@ -184,7 +194,7 @@ export function buildFieldQuestions(observation: LoginObservation, slots: readon
         ...Object.fromEntries(
           passkeys.map((candidate) => [candidateOption(candidate), describe(candidate)]),
         ),
-        [none]: "No listed button signs in with a passkey.",
+        [none]: optionText.passkeyNone,
       },
     };
   const switches = observation.candidates.filter(
@@ -199,7 +209,7 @@ export function buildFieldQuestions(observation: LoginObservation, slots: readon
         ...Object.fromEntries(
           switches.map((candidate) => [candidateOption(candidate), describe(candidate)]),
         ),
-        [none]: "The page shows no chosen account, or no listed element changes it.",
+        [none]: optionText.switchNone,
       },
     };
   page["confirm"] = { type: "boolean", instructions: text.confirm };
@@ -239,7 +249,11 @@ const irreversibleNoAt = 0.3;
 export const fieldDecisionPromptVersion = promptVersionOf(
   JSON.stringify({
     text: { ...text, slot: text.slot.toString() },
+    optionText,
+    // The code that writes slots and elements into questions and state.
     slotText: slotText.toString(),
+    describe: describe.toString(),
+    build: buildFieldQuestions.toString(),
     enter,
     rules: { confirmAt, otherSetsAt, irreversibleYesAt, irreversibleNoAt },
   }),
@@ -253,6 +267,11 @@ export type FieldDecisionRequest = {
   startPage?: boolean;
   /** As for generation: the names carried from the owner's saved bindings (ADR 0027). */
   carriedNames?: ReadonlyMap<string, string>;
+  /**
+   * The device's hint that the page shows the user signed in (ADR 0035). A page with it
+   * is left to generation, which weighs it for a confirmation's page kind.
+   */
+  signedIn?: boolean;
   abortSignal?: AbortSignal;
 };
 
@@ -291,6 +310,9 @@ export function createFieldMappingDecider(config: {
       return { status: "failed", error: "incomplete-observation", calls: 0, usage: noUsage };
     if (observation.output.accounts !== undefined)
       return { status: "abstained", reason: "no-login-form", calls: 0, usage: noUsage };
+    // Clef's plan is always `sign-in`, so a page the device saw signed in goes to generation.
+    if (request.signedIn === true)
+      return { status: "abstained", reason: "insufficient-evidence", calls: 0, usage: noUsage };
 
     const built = buildFieldQuestions(observation.output, slots.output);
     if (built === undefined)
@@ -313,7 +335,7 @@ export function createFieldMappingDecider(config: {
       doDecide: async (options) => {
         calls += 1;
         try {
-          const answer = await raceAbort(source.doDecide(options), signal);
+          const answer = await raceAbort(source.doDecide(options), options.abortSignal ?? signal);
           meter.record(normalizeUsage(answer.usage));
           return answer;
         } catch (error) {
@@ -322,29 +344,36 @@ export function createFieldMappingDecider(config: {
         }
       },
     };
+    // A failed call stops the other, which is still counted once it settles.
+    const sibling = new AbortController();
+    const callSignal = AbortSignal.any([signal, sibling.signal]);
+    let firstError: { error: unknown } | undefined;
     const ask = (questions: Questions) =>
       decide({
         model,
         state,
         questions,
         maxRetries: limits.maxRetries,
-        abortSignal: signal,
+        abortSignal: callSignal,
         // Page context and answers must never reach global telemetry integrations.
         telemetry: { isEnabled: false },
+      }).catch((error: unknown) => {
+        firstError ??= { error };
+        sibling.abort();
+        throw error;
       });
-    let answers: Record<string, Answer>;
-    try {
-      // The calls do not depend on each other, so they run at once.
-      const [formResult, pageResult] = await Promise.all([ask(form), ask(page)]);
-      answers = { ...formResult.answers, ...pageResult.answers };
-    } catch (error) {
+    // The calls do not depend on each other, so they run at once.
+    const settled = await Promise.allSettled([ask(form), ask(page)]);
+    if (firstError !== undefined)
       return {
         status: "failed",
-        error: classifyInferenceError(error, { timeout, caller: request.abortSignal }),
+        error: classifyInferenceError(firstError.error, { timeout, caller: request.abortSignal }),
         calls,
         usage: meter.total(),
       };
-    }
+    const answers: Record<string, Answer> = {};
+    for (const result of settled)
+      if (result.status === "fulfilled") Object.assign(answers, result.value.answers);
     const usage = meter.total();
     const logged = loggedAnswers(answers);
     return {

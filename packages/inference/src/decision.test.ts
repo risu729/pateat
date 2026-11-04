@@ -435,6 +435,47 @@ describe("finite-choice decision role", () => {
     expect(await slow(request)).toMatchObject({ status: "failed", error: "timeout", calls: 2 });
   });
 
+  it("leaves a page the device saw signed in to generation (ADR 0035)", async () => {
+    const model = answering(correct);
+    expect(await decider(model)({ ...request, signedIn: true })).toMatchObject({
+      status: "abstained",
+      calls: 0,
+    });
+    expect(model.calls).toHaveLength(0);
+    expect(await decider(model)({ ...request, signedIn: false })).toMatchObject({ status: "ok" });
+  });
+
+  it("stops the other call when one fails and counts it once it settles", async () => {
+    let pageAborted = false;
+    const model = decisionModel(
+      (options) =>
+        new Promise((resolve, reject) => {
+          if ("action" in options.questions)
+            reject(
+              new APICallError({
+                message: "rate limited",
+                url: "https://fake.invalid",
+                requestBodyValues: {},
+                statusCode: 429,
+                isRetryable: true,
+              }),
+            );
+          options.abortSignal?.addEventListener("abort", () => {
+            pageAborted = true;
+            reject(new Error("aborted"));
+          });
+          void resolve;
+        }),
+    );
+    expect(await decider(model)(request)).toMatchObject({
+      status: "failed",
+      error: "rate-limited",
+      calls: 2,
+      usage: { inputTokens: null },
+    });
+    expect(pageAborted).toBe(true);
+  });
+
   it("rejects incomplete, oversized, formless and account-list pages before any call", async () => {
     const model = answering(correct);
     const decide = decider(model);
