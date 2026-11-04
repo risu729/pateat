@@ -78,6 +78,33 @@ runs their build scripts, then `mise run install`, because aube 2.7.0 rewrote
 not checked here yet ([lockfile gaps](research/2026-10-12-aube-lockfile-gaps.md)).
 Renovate updates `bun.lock` with Bun too.
 
+`paranoid: true` runs the `esbuild` and `workerd` install scripts in aube's build jail,
+which on Linux needs Landlock and seccomp in the kernel. Where either is missing, every
+jailed script fails before it starts, and aube 2.9.0 reports any jail setup error as
+`failed to spawn script postinstall: Invalid argument (os error 22)`, whatever the
+kernel returned ([#1155](https://github.com/risu729/pateat/issues/1155)). On 2026-11-04
+the jail worked in a Claude Code cloud session (Linux 6.18, Landlock ABI 7), and
+making the Landlock or seccomp call fail there with `strace -f -e
+inject=landlock_create_ruleset:error=ENOSYS` (or `EOPNOTSUPP`, or `EINVAL`, or the same
+on `seccomp`) gave exactly that message. To check a machine,
+`python3 -c "import ctypes; print(ctypes.CDLL(None).syscall(444, None, 0, 1))"` prints
+the Landlock ABI version, or `-1` when the kernel has no Landlock. aube's own docs
+([settings](https://aube.sh/settings/), [security](https://aube.sh/security)) say only
+that Linux uses Landlock and seccomp, and its
+[error codes](https://aube.sh/error-codes) list `ERR_AUBE_SCRIPT_SPAWN` (exit 51) as
+"shell missing, jail setup failed, etc."; they name no kernel requirement or fallback.
+In such an environment only, exclude the two packages from the jail for one command,
+without changing `aube-workspace.yaml`:
+
+```sh
+AUBE_JAIL_BUILD_EXCLUSIONS=esbuild,workerd mise run install
+```
+
+`jailBuildExclusions` wins over the `jailBuilds: true` that `paranoid` forces, and
+everything else `paranoid` turns on, `allowBuilds` and `advisoryBloomCheck` still
+apply, so only those two scripts run, just without the jail. Never set this variable in
+CI, in `mise.toml` or on a machine whose kernel has Landlock.
+
 `min_version` in the root `mise.toml` stays at 2026.10.8 (owner decision, 2026-10-13).
 The owner's Windows mise comes from winget, which lags mise releases and refuses
 `mise self-update`, so a higher minimum stops every mise command there. Do not lower it
