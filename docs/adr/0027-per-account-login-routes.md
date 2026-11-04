@@ -1525,6 +1525,13 @@ buttonless code field's form shows no button had nothing to check.
   the judge may name it as the code's button. A handler's lookup finds such an element
   by its text; a signed-in marker's lookup never does.
 - So the service refuses a signed-in marker that is a button named by its text on a
-  page that shows a code input (`sign-in-choice`); the page keeps `challenge` and the
-  request fails closed, as for `login-page`. A link or attribute marker there is kept as
-  before.
+  page that shows a code input as `isCodeField` reads it (`sign-in-choice`); the page
+  keeps `challenge` and the request fails closed, as for `login-page`. The service
+  cannot tell a widget from a native button or a script link, so those are refused there
+  too, as on a signed-in page that shows a short numeric input such as a postal code. A
+  link or attribute marker there is kept as before. The extension counts a page as
+  showing a code input by the same rule: a number input, whose length the description
+  leaves out, counts only with `autocomplete="one-time-code"`.
+- A code form that submits by itself and holds such a widget, such as "Resend code",
+  now shows a button, so a buttonless handler is refused there (`submit-unnamed`), as
+  with a native button.

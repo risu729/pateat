@@ -3830,7 +3830,14 @@ describe("extractSignedInObservation", () => {
     expect(findTargets(document, { by: "text", value: "Continue" })).toEqual([
       document.querySelector("[role=button]"),
     ]);
-    // Without a code input, such widgets stay out.
+    // Without a code input, such widgets stay out, and a number input counts as one only
+    // with the one-time-code hint, as the service reads it without its length.
+    page(`<main><h1>Home</h1>${buttons}</main>`);
+    expect(summary(signedIn())).toEqual([
+      { role: "link", target: { by: "text", value: "Need help?" }, label: "Need help?" },
+    ]);
+    page(`<main><h1>Home</h1><input id="qty" type="number" maxlength="3">${buttons}</main>`);
+    expect(summary(signedIn()).some(({ role }) => role === "button")).toBe(false);
     page(`<main><h1>Home</h1>${buttons}</main>`);
     const home = extractSignedInObservation();
     if (!home.ok) throw new Error(home.reason);

@@ -2756,9 +2756,14 @@ function describeSignedIn(document: Document): ObservationResult {
   // of such a page for a signed-in marker.
   // A link that shows the same text keeps it, as on any judged page, rather than two
   // candidates sharing one target.
+  // A code input as the service's `isCodeField` reads the description, which leaves a
+  // number input's length out: one the service would not count would leave a widget
+  // free to become a marker no later lookup finds.
   const codePage = fieldEntries.some(
     ({ draft: { element } }) =>
-      element instanceof HTMLInputElement && acceptsSecret(element, "otp"),
+      element instanceof HTMLInputElement &&
+      acceptsSecret(element, "otp") &&
+      (element.type !== "number" || autocompleteTokens(element).includes("one-time-code")),
   );
   const linkShares = (element: Element) => {
     const text = buttonText(element);

@@ -937,7 +937,12 @@ describe("judged authenticator handler (ADR 0081)", () => {
       origin,
       path: "/home",
       candidates: [
-        { ...candidate("code", target("code"), "text"), autocomplete: "one-time-code" as const },
+        // A code input by its numeric hint and length, which a signed-in answer reaches.
+        {
+          ...candidate("code", target("code"), "text"),
+          inputMode: "numeric" as const,
+          maxLength: 6,
+        },
         candidate("continue", { by: "text", value: "Continue" }),
         candidate("help", target("help"), "link"),
       ],
