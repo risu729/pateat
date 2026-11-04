@@ -3332,14 +3332,27 @@ describe("route changes for a page's own passkey request (ADR 0034)", () => {
     expect(filled).toMatchObject({ state: "ready", route: "passkey", stepIndex: 0, stepCount: 1 });
     expect(filled.usedOperationIds).toEqual(["fill-one"]);
     // And back, while still nothing was submitted.
-    expect(transitionLoginAttempt(switched, toPassword)).toMatchObject({
+    const back = transitionLoginAttempt(switched, toPassword);
+    expect(back).toMatchObject({
       state: "ready",
       route: "password",
       variant: 0,
       stepIndex: 0,
       stepCount: 2,
       maxSubmissions: 1,
+      passkeyLeft: true,
     });
+    // Once each way: a page whose request comes back again does not start the login over.
+    expect(transitionLoginAttempt(back, toPasskey)).toEqual(back);
+  });
+
+  it("never takes the passkey route again after a passkey start went back to the password", () => {
+    const back = transitionLoginAttempt(
+      transitionLoginAttempt(create({ route: "passkey" }, { fallback: 0 }), { type: "RESOLVE" }),
+      toPassword,
+    );
+    expect(back).toMatchObject({ state: "ready", route: "password", passkeyLeft: true });
+    expect(transitionLoginAttempt(back, toPasskey)).toEqual(back);
   });
 
   it("switches a login on a chooser's list before its click on the list", () => {
