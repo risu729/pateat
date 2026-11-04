@@ -6,7 +6,6 @@ import {
   type LoginAttemptMetadata,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import { loginMoveFits } from "@pateat/contracts/site";
 import type { ConditionalDecision } from "../../passkeys/runtime";
 import { newId } from "@pateat/contracts/ids";
 import { recordFor } from "./hold";
@@ -20,9 +19,15 @@ import {
   REQUEST_START_WAIT_MS,
   REQUEST_PARK_MS,
   REQUEST_WAIT_MS,
-  SITE_MOVE_MS,
 } from "./constants";
-import { passkeyMoveFits, quietMove, passwordMoveFits, moveUsername, judgeMove } from "./moves";
+import {
+  passkeyMoveFits,
+  quietMove,
+  passwordMoveFits,
+  moveUsername,
+  judgeMove,
+  stopMoveFits,
+} from "./moves";
 import { pauseOf } from "./pause";
 import { asksEveryTime } from "./entry-press";
 import { startsFor } from "./generation-scope";
@@ -159,14 +164,8 @@ export async function signedInByPassword(
     // A login that stops before its item's missing password, moved to a page of another
     // site soon after its last step, is read as any moved page is, so a passkey request
     // there holds it (`passkeyPageFits`, owner's choice on 2026-11-04 at 11:20 UTC).
-    const step = rt.effects.get(live.document.tabId);
-    if (
-      record.stopAt !== undefined &&
-      step?.attemptId === record.id &&
-      Date.now() - step.at <= SITE_MOVE_MS &&
-      rt.passkeyPages.get(live.document.tabId)?.attemptId !== record.id &&
-      loginMoveFits(record.document.origin, live.document.origin, true)
-    ) {
+    const step = stopMoveFits(rt, record, live.document.tabId, live.document.origin);
+    if (step) {
       // A quiet page did not ask for a passkey: nothing signed the login in there.
       if (await quietMove(rt, live, step.at)) live.moveMiss = "no-factor";
       return false;

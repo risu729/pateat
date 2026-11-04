@@ -320,17 +320,23 @@ OpenAI item on `https://chatgpt.com` sent the email, the tab moved to
 ([ADR 0084](0084-passkeys-of-related-origins.md)), and the login ended `left-origin`
 (`no-factor`); Pateat then answered the request with the item outside the login and the
 tab came back to `chatgpt.com` signed in. A login with a stop is now kept by a page of
-any HTTPS site as by another origin of its own site (ADR 0022, "A move after a passkey
-answer"): its new top page is read as a moved page is, within 30 seconds of the login's
-last step, and a passkey request there holds the login. A passkey answered there with
-the login's item lets the tab's next quiet page complete it, on a host of the passkey's
-RP ID or, whatever that RP ID, back on the login's own origin; any other answer, or
-none, ends it `left-origin` as before.
-*Claude's reading, not confirmed by the owner separately:* the login's own origin counts
-after such an answer also when the page that asked was of its own site; a page of
-another site that asks for nothing ends the login `left-origin` once it reads quiet, at
-most 5 readings a second apart, instead of at once; and a login without a stop still
-ends `left-origin` there at once.
+any site (HTTPS, or HTTP for a login of an HTTP origin, as after a second factor) as by
+another origin of its own site (ADR 0022, "A move after a passkey answer"): its new top
+page is read as a moved page is, within 30 seconds of the login's last step, and a
+passkey request there holds the login. A passkey answered there with the login's item
+lets the tab's next quiet page complete it, on a host of the passkey's RP ID or,
+whatever that RP ID, back on the login's own origin; any other answer, or none, ends it
+`left-origin` as before. *Claude's reading, not confirmed by the owner separately:* the
+login's own origin counts after such an answer also when the page that asked was of its
+own site; a page of another site that asks for nothing ends the login `left-origin` once
+it reads quiet, at most 5 readings a second apart, instead of at once; a frame of that
+page leaves the move to the top page meanwhile; and a login without a stop still ends
+`left-origin` there at once. As for every move after a passkey answer, Pateat cannot
+tell an assertion the site rejected: a site that rejects it and sends the tab back to a
+quiet page of the login's origin, such as a landing page that is not signed in, now ends
+the login `authenticated` there too, where it ended `left-origin`. A second page of the
+other site's origin that asks again after the first held the login is not read for its
+request, as for a page of the login's own site.
 
 ## Consequences
 

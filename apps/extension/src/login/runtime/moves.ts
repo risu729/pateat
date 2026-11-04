@@ -418,6 +418,29 @@ export function passkeyPageFits(
 }
 
 /**
+ * The last effect step of a top-level login that stops before its item's missing password
+ * (ADR 0036) and whose tab moved to `siteOrigin`, a page of another site, if that page is
+ * to be read for a passkey request that would hold it (owner's choice on 2026-11-04 at
+ * 11:20 UTC): delivered at most `SITE_MOVE_MS` ago, with no page holding it yet.
+ */
+export function stopMoveFits(
+  rt: Runtime,
+  record: LoginAttemptMetadata,
+  tabId: number,
+  siteOrigin: string,
+): { at: number } | undefined {
+  const step = rt.effects.get(tabId);
+  return record.stopAt !== undefined &&
+    record.document.frameId === 0 &&
+    step?.attemptId === record.id &&
+    Date.now() - step.at <= SITE_MOVE_MS &&
+    rt.passkeyPages.get(tabId)?.attemptId !== record.id &&
+    loginMoveFits(record.document.origin, siteOrigin, true)
+    ? step
+    : undefined;
+}
+
+/**
  * Whether the page holding a moved attempt while it answers a passkey, announcing again,
  * still shows no password field, code input or CAPTCHA (ADR 0022), as when the person
  * dismissed the passkey prompt and the page offers its sign-in form instead. Only reads.

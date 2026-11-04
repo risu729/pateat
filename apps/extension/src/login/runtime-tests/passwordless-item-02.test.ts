@@ -228,6 +228,67 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
       await visit(h, "https://www.elsewhere.example/home", "home-document");
       expect(status()![0]).toMatchObject({ state: "authenticated" });
     });
+    it.each([
+      ["during", true],
+      ["before", false],
+    ] as const)(
+      "leaves the move to the top page when a frame announces %s its reading",
+      async (_label, during) => {
+        const { h } = await moved();
+        fake.state.tabUrls[1] = `${auth}/passkey`;
+        const frame = () =>
+          h.hello(
+            {
+              frameId: 3,
+              documentId: "auth-frame",
+              url: `${auth}/frame`,
+              tab: { id: 1, url: `${auth}/passkey` },
+            },
+            false,
+          );
+        let framed: unknown;
+        if (!during) await frame();
+        let result: unknown;
+        void h
+          .hello({ documentId: "auth-document", url: `${auth}/passkey` }, false)
+          .then((value) => (result = value));
+        if (during) void frame().then((value) => (framed = value));
+        await vi.advanceTimersByTimeAsync(500);
+        h.login.passkeyRequested(1, auth);
+        await until(() => result !== undefined && (!during || framed !== undefined));
+        expect(status()![0]).not.toMatchObject({ state: "blocked" });
+        h.login.passkeyAnswered(1, auth, "elsewhere.example", item);
+        await visit(h, `${origin}/home`, "home-document");
+        expect(status()![0]).toMatchObject({ state: "authenticated" });
+      },
+    );
+    it("reads the tab's next page when the other site's page went away", async () => {
+      const { h } = await moved();
+      fake.state.gone = new Set(["redirect-document"]);
+      expect(await visit(h, `${auth}/redirect`, "redirect-document")).toEqual({
+        ok: false,
+        reason: "stale-document",
+      });
+      expect(status()![0]).not.toMatchObject({ state: "blocked" });
+      fake.state.tabUrls[1] = `${auth}/passkey`;
+      let result: unknown;
+      void h
+        .hello({ documentId: "auth-document", url: `${auth}/passkey` }, false)
+        .then((value) => (result = value));
+      await vi.advanceTimersByTimeAsync(500);
+      h.login.passkeyRequested(1, auth);
+      await until(() => result !== undefined);
+      h.login.passkeyAnswered(1, auth, "elsewhere.example", item);
+      await visit(h, `${origin}/home`, "home-document");
+      expect(status()![0]).toMatchObject({ state: "authenticated" });
+    });
+    it("ends left-origin when the other site's page comes more than 30 seconds later", async () => {
+      const { h } = await moved();
+      await vi.advanceTimersByTimeAsync(31_000);
+      h.login.passkeyRequested(1, auth);
+      await visit(h, `${auth}/passkey`, "auth-document");
+      expect(status()![0]).toMatchObject({ state: "blocked", outcome: "left-origin" });
+    });
     it("ends left-origin when another item answered there", async () => {
       const { h } = await asked();
       h.login.passkeyAnswered(1, auth, "elsewhere.example", {
