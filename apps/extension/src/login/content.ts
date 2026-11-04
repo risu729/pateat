@@ -743,6 +743,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   function endOfferNow(): void {
     offered = true;
     watch(starts);
+    watchLate();
     const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
     const accounts = bare && !answerInput(document) ? listedAccounts(document) : undefined;
     if (accounts && logOnly(accounts)) void announce(false, false, accounts).catch(() => undefined);
@@ -839,6 +840,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     announced = false;
     retries = 0;
     offered = false;
+    // The new page's window offers its input; a late look would offer it twice.
+    lateWatch?.();
     void announce(false, false, undefined, false, true).catch(() => undefined);
   }
   /**
@@ -903,6 +906,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // Offered once per page; the background keeps its own daily limit as well.
       if (generate && !offered && showsSignIn()) {
         offered = true;
+        offeredPaths.add(pagePath());
         // The page's one offer: the window's end would only report it for the log, and
         // could overtake this announcement in the worker.
         clearOffer();
@@ -1110,7 +1114,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     entryPage = false,
     /** The document changed in place after an account switch (ADR 0078). */
     switched = false,
-    /** Announced again after a same-document URL change, to be offered once more. */
+    /**
+     * Announced again after a same-document URL change, or as a new page after a default
+     * was chosen, to be offered once more.
+     */
     again = false,
   ): Promise<unknown> {
     announced = start;
@@ -1137,6 +1144,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (parsed.success && parsed.output.generate === true) mayOffer = true;
     else if (!parsed.success || parsed.output.ok || parsed.output.reason === "generating")
       mayOffer = false;
+    if (mayOffer && offerWindow === undefined) watchLate();
     if (parsed.success) {
       // A page Pateat does not fill stays one until an answer on another path (ADR 0035).
       if (parsed.output.confirm) confirmPage = parsed.output.confirm;
@@ -1184,9 +1192,29 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     respond,
   ) => {
     if (sender.id !== browser.runtime.id || sender.tab) return false;
-    if (v.safeParse(reconnectSchema, message).success) {
-      // A restarted worker forgot earlier refusals; a ready form may start again.
-      void announce(starts.some(ready)).then(respond, () => respond({ ok: false }));
+    const reconnect = v.safeParse(reconnectSchema, message);
+    if (reconnect.success) {
+      // A default chosen for this tab (ADR 0021, amended 2026-11-04): the page counts as
+      // a new one, so its form, also one shown only after a click, is offered once more.
+      const fresh = reconnect.output.fresh === true && !cancelled;
+      if (fresh) {
+        ended = false;
+        announced = false;
+        retries = 0;
+        offered = false;
+        entryOffered = false;
+        offeredPaths.clear();
+        lateWatch?.();
+        // The answer opens the window again; until then nothing is offered.
+        generate = false;
+        clearOffer();
+        urlWatch?.();
+      }
+      // A restarted worker forgot earlier refusals; a ready form may start again. A fresh
+      // announcement, like one after a URL change, keeps a login the document carries.
+      void announce(starts.some(ready), false, undefined, false, false, fresh).then(respond, () =>
+        respond({ ok: false }),
+      );
       return true;
     }
     const parsed = v.safeParse(commandSchema, message);
@@ -1286,6 +1314,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     if (command.type === "login.cancel") {
       cancelled = true;
+      lateWatch?.();
       describedWatch?.abort();
       if (deferredAccount) deferredAccount.username = "";
       deferredAccount = undefined;
@@ -2696,6 +2725,60 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    * sent and no login took it over since, so a login under way is never announced over.
    */
   let urlWatch: (() => void) | undefined;
+  /**
+   * Paths of this document whose sign-in input was announced to be sent, and the watch
+   * that, once the page's window to be sent closed, announces a sign-in input shown in
+   * place later, as Discord's form after "Add an account" (2026-11-04), once per path
+   * (ADR 0016, amended 2026-11-04). Only while the background answered that the page may
+   * be sent and no login took it over since; the background decides as for a new page.
+   */
+  const offeredPaths = new Set<string>();
+  let lateWatch: (() => void) | undefined;
+  function watchLate(): void {
+    if (lateWatch || cancelled || !mayOffer || !offered || submitPath !== undefined) return;
+    let pending = false;
+    let stopped = false;
+    let lookedAt = Number.NEGATIVE_INFINITY;
+    const observed = new WeakSet<ShadowRoot>();
+    const look = () => {
+      pending = false;
+      if (stopped) return;
+      // A submitted password form signed the page in: its later forms, as a re-entry of
+      // the password on a settings page, are not sent.
+      if (cancelled || !mayOffer || !offered || submitPath !== undefined) return stop();
+      lookedAt = Date.now();
+      // Shadow trees attached since the last look are watched too (ADR 0070).
+      for (const root of shadowRoots(document))
+        if (!observed.has(root)) {
+          observed.add(root);
+          changes.observe(root, pageWatch);
+        }
+      // An open window, after a load or a URL change, offers the input itself.
+      if (offerWindow !== undefined || urlWatch) return;
+      const path = pagePath();
+      if (offeredPaths.has(path) || !showsSignIn() || starts.some(ready) || afterSubmitted())
+        return;
+      offeredPaths.add(path);
+      void announce(false, true, undefined, false, false, true).catch(() => undefined);
+    };
+    // One look per frame of the page, at most once per `checkGapMs` (ADR 0082).
+    const later = () => {
+      if (pending) return;
+      pending = true;
+      const gap = lookedAt + checkGapMs - Date.now();
+      if (gap <= 0) void nextFrame().then(look);
+      else setTimeout(() => void nextFrame().then(look), gap);
+    };
+    const changes = new MutationObserver(later);
+    changes.observe(document, pageWatch);
+    function stop(): void {
+      stopped = true;
+      changes.disconnect();
+      if (lateWatch === stop) lateWatch = undefined;
+    }
+    lateWatch = stop;
+    later();
+  }
   const urlChanged = () => {
     if (!cancelled && pagePath() !== routePath) {
       routePath = pagePath();
@@ -2717,6 +2800,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (cancelled || !mayOffer) return stop();
       if (!showsSignIn() || starts.some(ready) || afterSubmitted()) return;
       stop();
+      offeredPaths.add(pagePath());
       void announce(false, true, undefined, false, false, true).catch(() => undefined);
     };
     const later = () => {
@@ -2732,6 +2816,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       changes.disconnect();
       clearTimeout(end);
       if (urlWatch === stop) urlWatch = undefined;
+      watchLate();
     }
     urlWatch = stop;
     later();
@@ -2747,6 +2832,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     removeEventListener("popstate", urlChanged);
     navigation?.removeEventListener("currententrychange", urlChanged);
     urlWatch?.();
+    lateWatch?.();
     unwatch();
     frameWatch?.();
     followConfirmPath(undefined);

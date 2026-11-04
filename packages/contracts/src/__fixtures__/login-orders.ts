@@ -169,6 +169,8 @@ function fixedEvents(document: LoginDocument, focused: boolean): AttemptEvent[] 
       { type: "NAVIGATED", document: moved },
       { type: "NAVIGATED", document: moved, signedIn: true },
     ]),
+    // The tab shows no web page once the wait for the site ran out (ADR 0022).
+    { type: "LEFT" },
     { type: "INTERRUPTED" },
     { type: "RETRY" },
     { type: "WATCH_ENDED" },

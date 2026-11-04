@@ -81,6 +81,23 @@ export const repromptRequestSchema = v.strictObject({
   type: v.literal("login.reprompt.ask"),
   tabId,
 });
+/**
+ * The popup saved the site default for the tab's site (ADR 0021, amended 2026-11-04): the
+ * tab's page announces again as a new page, so a login with that account starts now.
+ */
+export const defaultChosenRequestSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.default.chosen"),
+  tabId,
+});
+export const defaultChosenResponseSchema = v.variant("ok", [
+  v.strictObject({ ok: v.literal(true) }),
+  v.strictObject({
+    ok: v.literal(false),
+    reason: v.picklist(["no-page", "no-default", "login-running"]),
+  }),
+]);
+export type DefaultChosenResponse = v.InferOutput<typeof defaultChosenResponseSchema>;
 export const repromptResponseSchema = v.variant("ok", [
   v.strictObject({ ok: v.literal(true) }),
   v.strictObject({
@@ -431,6 +448,8 @@ export interface ChoiceClient {
   pauseState(tabId: number): Promise<PauseResponse>;
   /** Opens the master password window again for the tab's waiting login. */
   reprompt(tabId: number): Promise<RepromptResponse>;
+  /** Starts the tab's login with the site default the popup just saved. */
+  defaultChosen(tabId: number): Promise<DefaultChosenResponse>;
 }
 
 export function createChoiceClient(send: (message: unknown) => Promise<unknown>): ChoiceClient {
@@ -466,6 +485,11 @@ export function createChoiceClient(send: (message: unknown) => Promise<unknown>)
       v.parse(
         repromptResponseSchema,
         await send({ version: 1, type: "login.reprompt.ask", tabId: tab }),
+      ),
+    defaultChosen: async (tab) =>
+      v.parse(
+        defaultChosenResponseSchema,
+        await send({ version: 1, type: "login.default.chosen", tabId: tab }),
       ),
   };
 }

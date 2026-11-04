@@ -1172,7 +1172,7 @@ for (const footer of [false, true])
 for (const mode of ["url", "recipe-elsewhere", "same-url"] as const)
   test(`a sign-in form the person opens in place ${
     mode === "same-url"
-      ? "without a URL change is not sent"
+      ? "without a URL change is sent, as Discord's after Add an account"
       : `after a same-document URL change is sent${mode === "recipe-elsewhere" ? " while the site has a recipe on another path" : ""}`
   } (ADR 0016)`, async () => {
     const fixture = await startLoginFixture(0, { password, accountName: username });
@@ -1231,11 +1231,7 @@ for (const mode of ["url", "recipe-elsewhere", "same-url"] as const)
           expect(claude.prompts).toHaveLength(sent);
           await page.locator("#have-account").click();
           await expect(page.locator("#password")).toBeVisible();
-          if (mode === "same-url") {
-            await page.waitForTimeout(12_000);
-            expect(claude.prompts).toHaveLength(sent);
-            return;
-          }
+          // Also without a URL change, once per path (amended 2026-11-04).
           await expect.poll(() => claude.prompts.length, { timeout: 20_000 }).toBeGreaterThan(sent);
           expect(claude.prompts[sent]).toMatchObject({
             task: "generate",

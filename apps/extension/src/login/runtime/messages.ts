@@ -25,6 +25,7 @@ import {
 import { DEMO_PROBE_ACCOUNT } from "../dummy";
 import {
   choiceRequestSchema,
+  defaultChosenRequestSchema,
   pauseRequestSchema,
   pauseStateRequestSchema,
   pickRequestSchema,
@@ -41,7 +42,7 @@ import {
 import { probeMode } from "./constants";
 import { type Sender, type Execution } from "./types";
 import { change, send, current, saveSession, report, inProgress, unsubmitted } from "./attempt";
-import { popupChoice, popupStatus, pickFor, clearChoice } from "./choice";
+import { popupChoice, popupStatus, pickFor, clearChoice, defaultChosenFor } from "./choice";
 import {
   pauseFor,
   pauseStateFor,
@@ -217,6 +218,8 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     if (remove.success) return popupDetailRemove(rt, remove.output.tabId, remove.output.detail);
     const reprompt = v.safeParse(repromptRequestSchema, message);
     if (reprompt.success) return repromptFor(rt, reprompt.output.tabId);
+    const chosen = v.safeParse(defaultChosenRequestSchema, message);
+    if (chosen.success) return defaultChosenFor(rt, chosen.output.tabId);
     return undefined;
   }
   if (v.safeParse(personSubmittedSchema, message).success) {

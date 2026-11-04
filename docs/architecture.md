@@ -723,7 +723,12 @@ and a hostname just chosen holds at once, before its write lands. A login there 
 its item as holding no passkey, so it takes a password route or none; observation,
 filling and recipe generation for passwords are unaffected.
 
-The account choice is a saved site default applied on the next login. A default names
+The account choice is a saved site default applied on the next login. One chosen with
+the popup's **Use as default** makes that tab's frames announce again as new pages, so
+its login starts at once, and a sign-in form shown in place after its window closed may
+be sent for a recipe once more
+([ADR 0021](adr/0021-account-choice-outside-settings.md#amendment-a-default-chosen-in-the-popup-logs-in-at-once-2026-11-04)).
+A default names
 the provider account and item, not this device's connection. Without one, a single
 eligible provider URI match is used and saved only after confirmed `authenticated`; a
 saved choice keeps winning when more items match later
@@ -900,6 +905,8 @@ admitted, and its account must match the tab's URL as well as the frame's
 tab's own page on whose path no recipe starts that shows a login field within 10 seconds
 of loading, or of a same-document URL change after that window closed (owner,
 [amendment of 2026-10-24](adr/0016-recipe-generation-trigger.md#amendment-2026-10-24-a-same-document-url-change-is-a-new-page)),
+or later in place without a URL change, once per path of the document (owner,
+[amendment of 2026-11-04](adr/0016-recipe-generation-trigger.md#amendment-2026-11-04-a-form-shown-in-place-later-is-sent-once-per-path)),
 and has a vault URI match is observed and sent, and not again within 10 minutes per
 origin and path once a request for it reached the model, unless the tab holds an attempt
 record other than an account switch on that origin

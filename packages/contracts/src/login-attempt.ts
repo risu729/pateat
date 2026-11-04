@@ -423,6 +423,12 @@ export const loginAttemptEventSchema = v.variant("type", [
     signedIn: v.optional(v.literal(true)),
   }),
   v.strictObject({ type: v.literal("INTERRUPTED") }),
+  /**
+   * The tab's top page is no web page Pateat can read, as `about:blank` or a browser page,
+   * once the login's wait for the site ran out (ADR 0022, amended 2026-11-04): a top-level
+   * attempt ends as a move to another origin would.
+   */
+  v.strictObject({ type: v.literal("LEFT") }),
   v.strictObject({
     type: v.literal("FAILED"),
     reason: v.picklist(["structural-mismatch", "timeout"]),
@@ -791,6 +797,15 @@ function record(
       return {
         document: sameScope(context.document, event.document) ? event.document : context.document,
         outcome: maySubmit(context) ? "unknown-submit" : "interrupted",
+      };
+    case "LEFT":
+      // As a move to another origin without a sign-in confirmed there.
+      return {
+        outcome: watched(context)
+          ? context.outcome
+          : !maySubmit(context)
+            ? "interrupted"
+            : "left-origin",
       };
     case "INTERRUPTED":
       return { outcome: maySubmit(context) ? "unknown-submit" : "interrupted" };
@@ -1164,6 +1179,7 @@ function createLoginAttemptMachine() {
         event.type === "NAVIGATED" && sameScope(context.document, event.document),
       leftOrigin: ({ context, event }) =>
         event.type === "NAVIGATED" && leftOrigin(context.document, event.document),
+      leftPage: ({ context, event }) => event.type === "LEFT" && context.document.frameId === 0,
       leftSignedIn: ({ context, event }) =>
         event.type === "NAVIGATED" &&
         event.signedIn === true &&
@@ -1481,6 +1497,7 @@ function createLoginAttemptMachine() {
         { guard: "leftOrigin", target: ".blocked", actions: "record" },
         { target: ".blocked", actions: "invalidNavigation" },
       ],
+      LEFT: { guard: "leftPage", target: ".blocked", actions: "record" },
       INTERRUPTED: { target: ".reconciling", actions: "record" },
     },
     states: {
@@ -1612,6 +1629,7 @@ function createLoginAttemptMachine() {
             { guard: "leftOrigin", target: "blocked", actions: "record" },
             { target: "blocked", actions: "invalidNavigation" },
           ],
+          LEFT: { guard: "leftPage", target: "blocked", actions: "record" },
         },
       },
       authenticated: { type: "final" },
