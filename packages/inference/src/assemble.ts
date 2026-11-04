@@ -4,6 +4,7 @@ import {
   extendsRecipe,
   fillRoles,
   handlerTargets,
+  isCodeField,
   isTotpCode,
   loginEntryRecipeSchema,
   loginRecipeSchema,
@@ -66,7 +67,9 @@ export type CompletionRejection =
    * The marker is a button whose text names the authenticator app's code
    * (`namesAuthenticatorChoice`, ADR 0081): a sign-in step's button, which the extension
    * may name by its text even when it is a `role="button"` widget that a marker's lookup
-   * never finds. The page is then a challenge, as with `login-page`.
+   * never finds; or a button named by its text on a page that shows a code input, where
+   * the extension names such widgets too (ADR 0027 amendment of 2026-11-04). The page is
+   * then a challenge, as with `login-page`.
    */
   | "sign-in-choice"
   /**
@@ -293,7 +296,14 @@ export function addCompletion(
     return { ok: false, reason: "login-page" };
   if (recipeElements(base).some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };
-  if (target.by === "text" && namesAuthenticatorChoice(target.value))
+  if (
+    target.by === "text" &&
+    (namesAuthenticatorChoice(target.value) ||
+      (page.candidates.some(isCodeField) &&
+        page.candidates.some(
+          (candidate) => candidate.role === "button" && sameTarget(candidate.target, target),
+        )))
+  )
     return { ok: false, reason: "sign-in-choice" };
   const absent = steps
     .filter((step) => !moved && step.path === page.path && step.kind === "fill")

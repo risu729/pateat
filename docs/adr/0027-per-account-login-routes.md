@@ -1508,3 +1508,30 @@ on split code inputs; built as the owner allowed on 2026-10-23 05:28 UTC):
   page description still leaves the other inputs out, as they are no sign-in fields on
   their own, but no longer counts them as other fields, so the texts near the code are
   read past their row, as for a split code with `maxlength` 1.
+
+### Its button
+
+On 2026-11-04 at 10:50 UTC, on main `07973e3`, the six digits went in one per input,
+but the login never pressed "Continue": the recipe's `totp` handler had no button, so
+the code was typed as the submission and the page waited. The page's "Continue" and "Try
+another method" are, like its method buttons (ADR 0081), `<div role="button">` widgets
+outside any form, which a judged page did not describe, so the judge saw no button that
+submits the code; and since the code input has no form, the service's check that a
+buttonless code field's form shows no button had nothing to check.
+
+- On a judged page that shows an input the TOTP fill rule accepts, every
+  `role="button"` element is located by its text under the rules of a login page (no
+  native button, script link, link or other such element with that text, no number), so
+  the judge may name it as the code's button. A handler's lookup finds such an element
+  by its text; a signed-in marker's lookup never does.
+- So the service refuses a signed-in marker that is a button named by its text on a
+  page that shows a code input as `isCodeField` reads it (`sign-in-choice`); the page
+  keeps `challenge` and the request fails closed, as for `login-page`. The service
+  cannot tell a widget from a native button or a script link, so those are refused there
+  too, as on a signed-in page that shows a short numeric input such as a postal code. A
+  link or attribute marker there is kept as before. The extension counts a page as
+  showing a code input by the same rule: a number input, whose length the description
+  leaves out, counts only with `autocomplete="one-time-code"`.
+- A code form that submits by itself and holds such a widget, such as "Resend code",
+  now shows a button, so a buttonless handler is refused there (`submit-unnamed`), as
+  with a native button.

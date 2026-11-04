@@ -932,6 +932,26 @@ describe("judged authenticator handler (ADR 0081)", () => {
     });
     const sms = { by: "text", value: "Text me a code" } as const;
     expect(addCompletion(recipe, { ...chooser(), path: "/home" }, sms).ok).toBe(true);
+    // A text button of a page that shows a code input, which may be a widget too.
+    const codePage = {
+      origin,
+      path: "/home",
+      candidates: [
+        // A code input by its numeric hint and length, which a signed-in answer reaches.
+        {
+          ...candidate("code", target("code"), "text"),
+          inputMode: "numeric" as const,
+          maxLength: 6,
+        },
+        candidate("continue", { by: "text", value: "Continue" }),
+        candidate("help", target("help"), "link"),
+      ],
+    };
+    expect(addCompletion(recipe, codePage, { by: "text", value: "Continue" })).toEqual({
+      ok: false,
+      reason: "sign-in-choice",
+    });
+    expect(addCompletion(recipe, codePage, target("help")).ok).toBe(true);
     // A page that still shows the login's own button is a login page first.
     const login = { ...chooser(candidate("next", target("password-next"))), path: "/login" };
     expect(addCompletion(recipe, login, app)).toEqual({ ok: false, reason: "login-page" });
