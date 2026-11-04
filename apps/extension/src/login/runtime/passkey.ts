@@ -20,7 +20,14 @@ import {
   REQUEST_PARK_MS,
   REQUEST_WAIT_MS,
 } from "./constants";
-import { passkeyMoveFits, quietMove, passwordMoveFits, moveUsername, judgeMove } from "./moves";
+import {
+  passkeyMoveFits,
+  quietMove,
+  passwordMoveFits,
+  moveUsername,
+  judgeMove,
+  stopMoveFits,
+} from "./moves";
 import { pauseOf } from "./pause";
 import { asksEveryTime } from "./entry-press";
 import { startsFor } from "./generation-scope";
@@ -133,7 +140,8 @@ export async function signedInByPasskey(
  * (`passwordMoveFits`), and that page is quiet and shows the account's username
  * in its header or navigation (`quietMove`, ADR 0029: E2), or, quiet without it, shows a
  * signed-in marker learned on its origin or is judged `signed-in` once (`judgeMove`). A
- * login that stops before its item's missing password skips the username (ADR 0036).
+ * login that stops before its item's missing password skips the username (ADR 0036), and
+ * on a page of another site it is only read for a passkey request, which holds it.
  * Pateat fills and clicks nothing there.
  */
 export async function signedInByPassword(
@@ -153,6 +161,15 @@ export async function signedInByPassword(
     return (await judging.verdict) && stillLive();
   const effect = passwordMoveFits(rt, record, live.document.tabId, live.document.origin);
   if (!effect) {
+    // A login that stops before its item's missing password, moved to a page of another
+    // site soon after its last step, is read as any moved page is, so a passkey request
+    // there holds it (`passkeyPageFits`, owner's choice on 2026-11-04 at 11:20 UTC).
+    const step = stopMoveFits(rt, record, live.document.tabId, live.document.origin);
+    if (step) {
+      // A quiet page did not ask for a passkey: nothing signed the login in there.
+      if (await quietMove(rt, live, step.at)) live.moveMiss = "no-factor";
+      return false;
+    }
     live.moveMiss = "no-factor";
     return false;
   }

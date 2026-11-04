@@ -40,6 +40,7 @@ import {
   passkeyPageFits,
   stillAsking,
   holdForPasskey,
+  stopMoveFits,
 } from "./moves";
 import { signedInByPasskey, signedInByPassword } from "./passkey";
 import type { Runtime } from "./state";
@@ -545,6 +546,8 @@ export async function admit(
       if (
         passkeyMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
         passwordMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
+        // A login with a stop may still be held by a page of another site (ADR 0036).
+        stopMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
         rt.passkeyPages.get(ctx.document.tabId)?.attemptId === holder.id
       )
         ending = false;

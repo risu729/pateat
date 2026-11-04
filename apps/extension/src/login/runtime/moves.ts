@@ -341,7 +341,9 @@ export async function quietMove(
  * `http://localhost` (ADR 0050). It was
  * given to the attempt's page, or to the page of another origin of the site the tab moved
  * to and that asked for it (`passkeyPages`), there signed with the attempt's own item;
- * once such a page asked, only an answer given since counts.
+ * once such a page asked, only an answer given since counts. For a login that stops
+ * before its item's missing password (ADR 0036), that page may be of any site, and such
+ * an answer also lets the attempt's own origin complete, whatever its RP ID.
  */
 export function passkeyMoveFits(
   rt: Runtime,
@@ -355,21 +357,25 @@ export function passkeyMoveFits(
   const page = kept?.attemptId === record.id ? kept : undefined;
   const moved = page && rt.passkeyAnswers.get(`${tabId} ${page.document.origin}`);
   const { hostname } = new URL(siteOrigin);
-  const fits = (answer: { at: number; rpId: string } | undefined) =>
+  type Answer = { at: number; rpId: string };
+  const fits = (answer: Answer | undefined, home = false): answer is Answer =>
     answer !== undefined &&
     answer.at >= (page?.requestedAt ?? effect.at) &&
     Date.now() - answer.at <= SITE_MOVE_MS &&
     passkeyOrigin(siteOrigin) &&
-    (hostname === answer.rpId || hostname.endsWith(`.${answer.rpId}`));
-  return [
-    rt.passkeyAnswers.get(`${tabId} ${record.document.origin}`),
+    (home || hostname === answer.rpId || hostname.endsWith(`.${answer.rpId}`));
+  const own =
     moved?.item?.connectionId === record.account.connectionId &&
     moved.item.itemId === record.account.itemId
       ? moved
-      : undefined,
-  ]
-    .filter(fits)
-    .sort((a, b) => b!.at - a!.at)[0];
+      : undefined;
+  // A login with a stop, held by a page of another site, also completes back on its own
+  // origin, as `chatgpt.com` after a passkey of `openai.com` (owner, 2026-11-04).
+  const home = record.stopAt !== undefined && siteOrigin === record.document.origin;
+  return [rt.passkeyAnswers.get(`${tabId} ${record.document.origin}`)]
+    .filter((answer) => fits(answer))
+    .concat(fits(own, home) ? [own] : [])
+    .sort((a, b) => b.at - a.at)[0];
 }
 
 /**
@@ -377,9 +383,10 @@ export function passkeyMoveFits(
  * hold the attempt while it answers a passkey (ADR 0022). The page already holding it
  * may, within `SITE_MOVE_MS` of its request, or of an answer given there since (its
  * signs are read by `stillAsking`). Another page may while none was answered since the
- * last such page asked: an HTTPS origin of the attempt's registrable domain whose page
- * asked for a passkey after the attempt's last effect step, at most `SITE_MOVE_MS` after
- * it, and after the request of the page that held it before.
+ * last such page asked: an HTTPS origin of the attempt's registrable domain, or of any
+ * site for a login with a stop (ADR 0036), whose page asked for a passkey after the
+ * attempt's last effect step, at most `SITE_MOVE_MS` after it, and after the request of
+ * the page that held it before.
  */
 export function passkeyPageFits(
   rt: Runtime,
@@ -404,8 +411,33 @@ export function passkeyPageFits(
     requested >= effect.at &&
     requested - effect.at <= SITE_MOVE_MS &&
     (page === undefined || requested > page.requestedAt) &&
-    loginMoveFits(record.document.origin, siteOrigin, false)
+    // A login that stops before its item's missing password may be held by any site
+    // (owner's choice on 2026-11-04 at 11:20 UTC), as OpenAI's sign-in on another site.
+    loginMoveFits(record.document.origin, siteOrigin, record.stopAt !== undefined)
   );
+}
+
+/**
+ * The last effect step of a top-level login that stops before its item's missing password
+ * (ADR 0036) and whose tab moved to `siteOrigin`, a page of another site, if that page is
+ * to be read for a passkey request that would hold it (owner's choice on 2026-11-04 at
+ * 11:20 UTC): delivered at most `SITE_MOVE_MS` ago, with no page holding it yet.
+ */
+export function stopMoveFits(
+  rt: Runtime,
+  record: LoginAttemptMetadata,
+  tabId: number,
+  siteOrigin: string,
+): { at: number } | undefined {
+  const step = rt.effects.get(tabId);
+  return record.stopAt !== undefined &&
+    record.document.frameId === 0 &&
+    step?.attemptId === record.id &&
+    Date.now() - step.at <= SITE_MOVE_MS &&
+    rt.passkeyPages.get(tabId)?.attemptId !== record.id &&
+    loginMoveFits(record.document.origin, siteOrigin, true)
+    ? step
+    : undefined;
 }
 
 /**

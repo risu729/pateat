@@ -24,7 +24,11 @@ remembered account's row on `platform.openai.com`, the tab moved to
 `auth.openai.com/auth_challenge/passkey`, which asked for a passkey, and the login ended
 `left-origin` there; Pateat then answered that request outside the login, and the tab
 came back to `platform.openai.com/auth/callback` signed in. Which item answered was not
-recorded.
+recorded. Amended on 2026-11-04 by the owner's choice 「成功と記録する」 on a decision
+card at 11:20 UTC ([ADR 0036](0036-passkey-after-the-identifier.md), "A page of another
+site that asks for a passkey"): for a login that stops before its item's missing
+password, that page may be of any site, and the answer also lets the login's own
+origin complete.
 
 Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (accepted
 and implemented): a released record is followed by an ordinary login instead of asking,
@@ -251,18 +255,22 @@ fix them now; the SSO policy itself is recorded separately.
     or none at all, a page after the answer that asks for a passkey again, a later page,
     and the move rules below for a password submission each end it `left-origin` on the
     tab's next page, as do a page of another site and a request more than 30 seconds
-    after the step. A page that asked and stays open ends it `left-origin` 61 seconds
-    after it last held the attempt, once no next page could complete it, or, when the
-    worker stopped meanwhile, when its wait for the site ran out (below). The item is
-    kept in memory with the answer only, as the answer is, and so is the waiting: after
-    a worker restart, the tab's next page on the attempt's own origin resumes it as the
-    page after its last step (ADR 0029), and one on another origin ends it `left-origin`
-    (Claude's reading, not confirmed by the owner separately). A page whose request
-    comes only after its readings ended is not held. This and every other move that does
-    not complete the attempt is logged with why (`login.move`). The completion saves an
-    automatic account choice and releases the origin like any other `authenticated`
-    attempt; it is the one completion that needs neither a completion check, ADR 0029
-    evidence nor the judge, also on the `passkey` route of
+    after the step. A login that stops before its item's missing password (ADR 0036) is
+    kept by a page of any site that asks so (HTTPS, or HTTP for an HTTP login), its new
+    top page read as above for that request, and after such an answer its own origin
+    completes it too, whatever the passkey's RP ID (2026-11-04, owner's
+    「成功と記録する」). A page that asked and stays open ends it `left-origin` 61
+    seconds after it last held the attempt, once no next page could complete it, or,
+    when the worker stopped meanwhile, when its wait for the site ran out (below). The
+    item is kept in memory with the answer only, as the answer is, and so is the
+    waiting: after a worker restart, the tab's next page on the attempt's own origin
+    resumes it as the page after its last step (ADR 0029), and one on another origin
+    ends it `left-origin` (Claude's reading, not confirmed by the owner separately). A
+    page whose request comes only after its readings ended is not held. This and every
+    other move that does not complete the attempt is logged with why (`login.move`). The
+    completion saves an automatic account choice and releases the origin like any other
+    `authenticated` attempt; it is the one completion that needs neither a completion
+    check, ADR 0029 evidence nor the judge, also on the `passkey` route of
     [ADR 0027](0027-per-account-login-routes.md). The answer is kept in memory only, so
     after a worker restart, or with any condition not met, the attempt ends
     `left-origin` as before. A site that rejects the assertion and sends the tab to a
