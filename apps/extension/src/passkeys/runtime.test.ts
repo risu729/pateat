@@ -67,6 +67,78 @@ describe("passkey runtime sender binding", () => {
     expect(clientData.origin).toBe(origin);
   });
 
+  it("answers another site's RP ID only when that RP lists the page's origin (ADR 0084)", async () => {
+    const chatgpt = "https://chatgpt.com";
+    const page = sender({ origin: chatgpt, url: `${chatgpt}/auth/login` });
+    const related = { ...get(), request: { ...request, rpId: "openai.com" } };
+    const backing = source({
+      candidates: vi.fn(async () => ({
+        candidates: [{ ...candidate, rpId: "openai.com" }],
+        complete: true,
+      })),
+    });
+    expect(await createPasskeyRuntime(backing, { extensionId }).handle(related, page)).toEqual({
+      kind: "delegate",
+      reason: "rp-id-mismatch",
+    });
+    const allows = vi.fn(async (_origin: string, rpId: string) => rpId === "openai.com");
+    const runtime = createPasskeyRuntime(backing, { extensionId, relatedOrigins: { allows } });
+    const result = await runtime.handle(related, page);
+    expect(result).toMatchObject({ kind: "assertion", assertion: { credentialId: "AQID" } });
+    expect(allows).toHaveBeenCalledWith(chatgpt, "openai.com");
+    expect(backing.candidates).toHaveBeenCalledWith(chatgpt, "openai.com", expect.any(AbortSignal));
+    const clientData = JSON.parse(
+      atob(
+        (result as { assertion: { clientDataJSON: string } }).assertion.clientDataJSON
+          .replace(/-/gu, "+")
+          .replace(/_/gu, "/"),
+      ),
+    );
+    expect(clientData).toMatchObject({ origin: chatgpt, crossOrigin: false });
+    // An RP that does not list the page, and one the page may use anyway, are not asked again.
+    expect(
+      await runtime.handle(
+        {
+          ...related,
+          operationId: crypto.randomUUID(),
+          request: { ...request, rpId: "example.net" },
+        },
+        page,
+      ),
+    ).toEqual({ kind: "delegate", reason: "rp-id-mismatch" });
+    allows.mockClear();
+    const own = createPasskeyRuntime(source(), { extensionId, relatedOrigins: { allows } });
+    expect(await own.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(allows).not.toHaveBeenCalled();
+  });
+
+  it("keeps a page's cancel that arrives while an RP's list is read (ADR 0084)", async () => {
+    let listed!: (allowed: boolean) => void;
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      relatedOrigins: {
+        allows: () =>
+          new Promise<boolean>((resolve) => {
+            listed = resolve;
+          }),
+      },
+    });
+    const operationId = crypto.randomUUID();
+    const page = sender({ origin: "https://chatgpt.com", url: "https://chatgpt.com/" });
+    const pending = runtime.handle(
+      { ...get(operationId), request: { ...request, rpId: "openai.com" } },
+      page,
+    );
+    await vi.waitFor(() => expect(listed).toBeTypeOf("function"));
+    expect(await runtime.handle({ version: 1, type: "passkey.cancel", operationId }, page)).toEqual(
+      { ok: true },
+    );
+    listed(true);
+    expect(await pending).toEqual({ kind: "cancelled" });
+    expect(backing.candidates).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["another extension", { id: "other" }],
     ["a subframe", { frameId: 3 }],

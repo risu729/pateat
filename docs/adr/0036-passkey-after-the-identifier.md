@@ -10,9 +10,12 @@ against the code by a subagent three times before it was put to the owner). Amen
 [ADR 0021](0021-account-choice-outside-settings.md) D (fill only). Amended on 2026-10-13
 by the owner (05:39 UTC): at the stop, a passkey button beside the password field is
 pressed when the item has a passkey (rule 6; implemented, with extensions by Claude that
-the owner has not confirmed separately). Since the owner's
-decision of 2026-10-13 06:32 UTC ([account lists](#account-lists), below), it also
-amends [ADR 0028](0028-account-chooser-login-pages.md) (a login on a list of accounts).
+the owner has not confirmed separately). Since the owner's decision of 2026-10-13 06:32
+UTC ([account lists](#account-lists), below), it also amends
+[ADR 0028](0028-account-chooser-login-pages.md) (a login on a list of accounts). Amended
+on 2026-11-04 by [ADR 0084](0084-passkeys-of-related-origins.md): an RP ID the origin
+may use in rule 1 includes one of another site whose `/.well-known/webauthn` lists the
+origin, as `openai.com` lists `https://chatgpt.com`.
 
 Date: 2026-10-13
 

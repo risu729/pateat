@@ -14,6 +14,7 @@ import type { ConnectionRuntime } from "../connections/runtime";
 import type { PasskeyMatches } from "../crypto/passkey";
 import type { VaultResult } from "../vault/record";
 import { fromBase64Url, toBase64Url } from "./encoding";
+import { needsRelatedOrigins, type RelatedOrigins } from "./related-origins";
 import { rpIdsFor } from "./rp-id";
 import type { PasskeyItem, PasskeySource } from "./runtime";
 import type { PasskeyCandidate, PasskeyCandidates } from "./select";
@@ -176,25 +177,38 @@ export async function findVaultPasskeys(input: {
 /**
  * The passkey facts of a login's item (ADR 0027): any usable passkey (a zero counter) for an
  * RP ID the origin may use, and whether one of them is discoverable. A search that could not
- * finish counts as no passkey for its RP ID.
+ * finish counts as no passkey for its RP ID. With `related`, an RP ID of the item's own
+ * passkeys that belongs to another site counts too when that RP lists the origin (WebAuthn
+ * related origins, ADR 0084), as on `https://chatgpt.com` for a passkey of `openai.com`; it
+ * is looked up only when the origin's own RP IDs gave no discoverable passkey.
  */
 export async function itemPasskeyFacts(
-  source: Pick<PasskeySource, "candidates">,
+  source: Pick<PasskeySource, "candidates" | "rpIds">,
   account: { origin: string } & PasskeyItem,
+  related?: RelatedOrigins,
 ): Promise<{ passkey: boolean; discoverable: boolean }> {
   const facts = { passkey: false, discoverable: false };
   const item = { connectionId: account.connectionId, itemId: account.itemId };
-  for (const rpId of rpIdsFor(account.origin)) {
-    // Sequential: each query shares the bounded native host. Never aborted: the vault source
-    // does not cancel host queries.
-    // eslint-disable-next-line no-await-in-loop
+  const search = async (rpId: string) => {
+    // Never aborted: the vault source does not cancel host queries.
     const found = await source.candidates(account.origin, rpId, new AbortController().signal, item);
-    if (!found?.complete) continue;
+    if (!found?.complete) return;
     for (const candidate of found.candidates) {
       if (candidate.counter !== 0) continue;
       facts.passkey = true;
       if (candidate.discoverable && candidate.userHandle !== null) facts.discoverable = true;
     }
+  };
+  const own = rpIdsFor(account.origin);
+  // Sequential: each query shares the bounded native host.
+  // eslint-disable-next-line no-await-in-loop
+  for (const rpId of own) await search(rpId);
+  if (facts.discoverable || !related || !source.rpIds) return facts;
+  const stored = await source.rpIds(item).catch(() => undefined);
+  for (const rpId of stored ?? []) {
+    if (own.includes(rpId) || !needsRelatedOrigins(account.origin, rpId)) continue;
+    // eslint-disable-next-line no-await-in-loop
+    if (await related.allows(account.origin, rpId).catch(() => false)) await search(rpId);
   }
   return facts;
 }
@@ -303,6 +317,13 @@ export function createVaultPasskeySource(
         find,
         ...(only ? { only } : {}),
       });
+    },
+    async rpIds(item) {
+      const vault = await managerFor(item.connectionId);
+      const listed = await vault?.manager.passkeyRpIds(vault.handle, item.itemId);
+      return listed?.ok && listed.data.connectionId === item.connectionId
+        ? listed.data.rpIds
+        : undefined;
     },
     async verifyMasterPassword(candidate, password) {
       const vault = await managerFor(candidate.connectionId);

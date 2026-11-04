@@ -3,6 +3,7 @@ import { senderDocumentOrigin } from "../messaging/sender";
 import { createPasskeyAssertion } from "./assertion";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import { admitGetRequest, describeInvalidRequest } from "./request";
+import { needsRelatedOrigins, type RelatedOrigins } from "./related-origins";
 import {
   matchingPasskeys,
   selectPasskey,
@@ -45,6 +46,11 @@ export interface PasskeySource<TCandidate extends PasskeyCandidate = PasskeyCand
     signal: AbortSignal,
     only?: PasskeyItem,
   ): Promise<PasskeyCandidates<TCandidate> | undefined>;
+  /**
+   * The RP IDs of the item's stored passkeys, each once, for a related origins check (ADR
+   * 0084); undefined when they cannot be read, as in a locked vault.
+   */
+  rpIds?(item: PasskeyItem): Promise<readonly string[] | undefined>;
   sign(
     candidate: TCandidate,
     authenticatorData: Uint8Array<ArrayBuffer>,
@@ -356,6 +362,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       incognito: boolean;
     }) => Promise<ConditionalDecision>;
     /**
+     * Reads whether an RP lists the page's origin, for a request whose RP ID belongs to
+     * another site (WebAuthn related origins, ADR 0084). Without it such a request is handed
+     * on, as before.
+     */
+    relatedOrigins?: RelatedOrigins;
+    /**
      * Holds vault replacement off while the vault is read and signed with for a request,
      * until the returned function is called (ADR 0025).
      */
@@ -406,8 +418,19 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     const pending = { documentId, cancelled: false };
     reading.set(message.operationId, pending);
     let policy: PasskeyPolicy;
+    let relatedRpId: string | undefined;
     try {
       policy = (await options.policy?.(origin)) ?? INITIAL_PASSKEY_POLICY;
+      // An RP ID of another site is used when the RP lists this origin (ADR 0084); read
+      // here, so a page's cancel meanwhile is kept as for the policy.
+      const requested = (message.request as { rpId?: unknown } | null)?.rpId;
+      if (
+        options.relatedOrigins &&
+        typeof requested === "string" &&
+        needsRelatedOrigins(origin, requested) &&
+        (await options.relatedOrigins.allows(origin, requested).catch(() => false))
+      )
+        relatedRpId = requested;
     } finally {
       reading.delete(message.operationId);
     }
@@ -430,6 +453,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       userActivation: message.userActivation,
       policy,
       conditional: options.conditional !== undefined,
+      ...(relatedRpId === undefined ? {} : { relatedRpId }),
     });
     if (admission.kind === "delegate") {
       if (admission.reason === "invalid-request") {

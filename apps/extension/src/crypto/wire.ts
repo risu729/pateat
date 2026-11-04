@@ -51,6 +51,7 @@ export type HostOperation =
   | { kind: "custom-digest"; session: HostSessionRef; itemIds: readonly string[] }
   | { kind: "login-usernames"; session: HostSessionRef; itemIds: readonly string[] }
   | { kind: "passkey-find"; session: HostSessionRef; rpId: string }
+  | { kind: "passkey-rp-ids"; session: HostSessionRef; itemId: string }
   | {
       kind: "passkey-sign";
       session: HostSessionRef;
@@ -132,6 +133,7 @@ export const commandSchema = v.strictObject({
       itemIds: v.pipe(v.array(uuid), v.maxLength(LOGIN_USERNAMES_PER_REQUEST)),
     }),
     v.strictObject({ kind: v.literal("passkey-find"), session: sessionSchema, rpId }),
+    v.strictObject({ kind: v.literal("passkey-rp-ids"), session: sessionSchema, itemId: uuid }),
     v.strictObject({
       kind: v.literal("passkey-sign"),
       session: sessionSchema,
@@ -188,6 +190,18 @@ export const loginUsernamesSchema = v.strictObject({
   usernames: v.record(uuid, v.nullable(v.pipe(v.string(), v.maxLength(1024)))),
 });
 export type LoginUsernames = v.InferOutput<typeof loginUsernamesSchema>;
+/**
+ * The RP IDs of one live login item's stored passkeys, each once, for a related origins
+ * check (ADR 0084): secret-free metadata, as `passkey-find` returns.
+ */
+export const passkeyRpIdsSchema = v.strictObject({
+  connectionId: id,
+  userId: uuid,
+  snapshotId: uuid,
+  itemId: uuid,
+  rpIds: v.pipe(v.array(rpId), v.maxLength(100)),
+});
+export type PasskeyRpIds = v.InferOutput<typeof passkeyRpIdsSchema>;
 /** One DER ECDSA P-256 signature (8 to 72 bytes) bound to the credential that made it. */
 export const passkeySignatureSchema = v.strictObject({
   ...passkeyBinding,

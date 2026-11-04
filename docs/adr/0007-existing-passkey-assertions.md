@@ -58,6 +58,11 @@ chooser window ([ADR 0021](0021-account-choice-outside-settings.md),
 [vault adapter](../architecture.md#vault-adapter)); when no window can open, the request
 goes to the browser. Elsewhere such passkeys sign as before. UP and UV are unchanged
 (implemented).
+Amended on 2026-11-04 by [ADR 0084](0084-passkeys-of-related-origins.md): a `get`
+request naming an RP ID of another site is admitted when that RP's
+`/.well-known/webauthn` lists the page's origin (WebAuthn related origin requests), as
+the official Bitwarden extension does; otherwise it is handed on as before
+(implemented).
 Amended on 2026-10-23 to match the code since
 [ADR 0021](0021-account-choice-outside-settings.md): [Bridge topology](#bridge-topology)
 said navigation does not cancel a request, but leaving a document cancels its pending
@@ -252,8 +257,9 @@ Pateat claims a request only when all of these hold; otherwise it delegates:
   a login of the document and hands it on otherwise
   ([ADR 0034](0034-answer-page-passkey-requests.md)).
 - The caller is a top-level document, so `crossOrigin` is false and `topOrigin`
-  is absent. Cross-origin frames, opaque
-  origins and related origin requests delegate.
+  is absent. Cross-origin frames and opaque
+  origins delegate; so did related origin requests until
+  [ADR 0084](0084-passkeys-of-related-origins.md).
 - The effective domain is a valid domain, not an IP address. An explicit RP ID is
   already in canonical lowercase ASCII form and is equal to, or a registrable
   domain suffix of, the effective domain according to tldts with private
@@ -396,18 +402,19 @@ or telemetry wrapper, likewise sees only requests Pateat does not claim, and rea
 `get` back does not return it. Page script and other extensions can detect the accessor.
 A page call that reuses the options or `publicKey` object of a request still being
 delegated with the same `mediation` goes to the browser's original `get`, skipping later
-providers. Claimed requests
-complete unattended, and relying parties receive UV that no authenticator performed; any
-script running in a top-level page of a site with a stored passkey, including injected
-script, can obtain a verified assertion for that site without any Pateat site setting.
-For five minutes after Pateat signs in to a site in a tab, a registration there that
-lists the vault's passkey is refused, so deliberately adding another authenticator to
-that account (Windows Hello, a phone or a security key) fails in that tab during that
-time; another tab, or later, still works. The site gets Chrome's own `NotAllowedError`,
-as when Chrome's prompt is dismissed. The check reads the vault only as a
-sign-in does, writes nothing and needs no new permission.
-Registration, nonzero-counter writeback, cross-origin frames, related origins and
-extensions remain later work; conditional mediation is answered through a login under
+providers. Claimed requests complete unattended, and relying parties receive UV that no
+authenticator performed; any script running in a top-level page of a site with a stored
+passkey, including injected script, can obtain a verified assertion for that site
+without any Pateat site setting. For five minutes after Pateat signs in to a site in a
+tab, a registration there that lists the vault's passkey is refused, so deliberately
+adding another authenticator to that account (Windows Hello, a phone or a security key)
+fails in that tab during that time; another tab, or later, still works. The site gets
+Chrome's own `NotAllowedError`, as when Chrome's prompt is dismissed. The check reads
+the vault only as a sign-in does, writes nothing and needs no new permission.
+Registration, nonzero-counter writeback, cross-origin frames and extensions remain later
+work (related origins are answered under
+[ADR 0084](0084-passkeys-of-related-origins.md)); conditional mediation is answered
+through a login under
 [ADR 0034](0034-answer-page-passkey-requests.md).
 
 Verify with the WebAuthn Level 3 ES256 vectors, HTML registrable-suffix cases,

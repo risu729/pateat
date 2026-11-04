@@ -214,6 +214,16 @@ function harness(
         },
       };
     }),
+    passkeyRpIds: vi.fn<VaultCryptoHost["passkeyRpIds"]>(async (session, id) => ({
+      ok: true as const,
+      data: {
+        connectionId: session.connectionId,
+        userId: session.userId,
+        snapshotId: session.snapshotId,
+        itemId: id,
+        rpIds: ["example.com"],
+      },
+    })),
     verifyMasterPassword: vi.fn<VaultCryptoHost["verifyMasterPassword"]>(
       async (_session, password) => ({
         ok: true as const,
@@ -1064,6 +1074,23 @@ describe("durable authority across independent managers", () => {
     );
     expect(h.host.findPasskeys).toHaveBeenCalledTimes(1);
     expect(h.host.signPasskey).toHaveBeenCalledTimes(2);
+  });
+  it("lists an item's passkey RP IDs only through the current live snapshot (ADR 0084)", async () => {
+    const h = harness();
+    const current = await accepted(h);
+    expect(await h.manager.passkeyRpIds(current.handle, itemId)).toMatchObject({
+      ok: true,
+      data: { snapshotId: current.handle.snapshotId, itemId, rpIds: ["example.com"] },
+    });
+    expect(h.host.passkeyRpIds.mock.calls[0]?.[1]).toBe(itemId);
+    expect(await h.manager.passkeyRpIds(current.handle, 1 as unknown as string)).toEqual(
+      vaultFailure("invalid-request"),
+    );
+    await h.manager.disableAutoUnlock();
+    expect(await h.manager.passkeyRpIds(current.handle, itemId)).toEqual(
+      vaultFailure("stale-vault-handle"),
+    );
+    expect(h.host.passkeyRpIds).toHaveBeenCalledTimes(1);
   });
   it("checks a master password only through the current live session", async () => {
     const h = harness();
