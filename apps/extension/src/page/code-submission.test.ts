@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { splitCodeInputs, visible, watchCodeSubmission } from "./code-submission";
+import { splitCodeInputs, splitCodeOf, visible, watchCodeSubmission } from "./code-submission";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -313,6 +313,86 @@ describe("splitCodeInputs (ADR 0027, owner decision 2026-10-12)", () => {
   it("leaves out inputs of another form", () => {
     document.body.innerHTML = `<form>${boxes(6)}</form><form><input inputmode="numeric" maxlength="1"></form>`;
     expect(splitCodeInputs(first(), 6, usable)).toHaveLength(6);
+  });
+});
+
+describe("splitCodeInputs without maxlength (ADR 0027 amendment of 2026-11-04)", () => {
+  // Notion's code page in the owner's Chrome on 2026-11-04: six text inputs marked numeric
+  // with no `maxlength`, only the first marked `one-time-code`.
+  const notion = (
+    first = 'autocomplete="one-time-code" aria-label="Enter verification code digit 1"',
+    rest = (place: number) => `autocomplete="off" aria-label="Digit ${place}"`,
+    count = 6,
+  ) =>
+    Array.from(
+      { length: count },
+      (_, index) =>
+        `<input id="d${index + 1}" type="text" inputmode="numeric" ${index === 0 ? first : rest(index + 1)}>`,
+    ).join("");
+  const input = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)!;
+  const usable = () => true;
+
+  it("takes every typed input of the form when the first is marked one-time-code", () => {
+    document.body.innerHTML = `<form><input type="hidden" name="t">${notion()}<input type="checkbox"><button>Continue</button></form>`;
+    const ids = ["d1", "d2", "d3", "d4", "d5", "d6"];
+    expect(splitCodeInputs(input("d1"), 6, usable)?.map(({ id }) => id)).toEqual(ids);
+    expect(splitCodeOf(input("d4"), usable)?.map(({ id }) => id)).toEqual(ids);
+    // Tel and number inputs, and a digit that declares `maxlength` 1, count too.
+    document.body.innerHTML = `<form>${notion(undefined, () => 'type="tel"')}</form>`;
+    expect(splitCodeInputs(input("d1"), 6, usable)).toHaveLength(6);
+    document.body.innerHTML = `<form>${notion(undefined, () => 'maxlength="1"', 8)}</form>`;
+    expect(splitCodeInputs(input("d1"), 8, usable)).toHaveLength(8);
+  });
+
+  it.each([
+    [
+      "a first input not marked one-time-code",
+      () => `<form>${notion('autocomplete="off"')}</form>`,
+    ],
+    [
+      "a digit not marked numeric",
+      () =>
+        `<form>${notion().replace('inputmode="numeric" autocomplete="off" aria-label="Digit 3"', 'aria-label="Digit 3"')}</form>`,
+    ],
+    [
+      "a digit that takes two characters",
+      () => `<form>${notion(undefined, () => 'maxlength="2"')}</form>`,
+    ],
+    [
+      "a first input that limits its length",
+      () => `<form>${notion('autocomplete="one-time-code" maxlength="6"')}</form>`,
+    ],
+    ["another field in the form", () => `<form><input id="email" type="email">${notion()}</form>`],
+    ["five inputs", () => `<form>${notion(undefined, undefined, 5)}</form>`],
+  ])("refuses %s", (_label, html) => {
+    document.body.innerHTML = html();
+    const count = document.querySelectorAll("input[inputmode]").length;
+    expect(splitCodeInputs(input("d1"), count, usable)).toBeUndefined();
+    expect(splitCodeOf(input("d2") ?? input("d1"), usable)).toBeUndefined();
+  });
+
+  it("takes inputs outside any form, unless another field outside any form shows", () => {
+    document.body.innerHTML = `<div>${notion()}</div>`;
+    expect(splitCodeInputs(input("d1"), 6, usable)).toHaveLength(6);
+    document.body.innerHTML = `<header><input type="search"></header><div>${notion()}</div>`;
+    expect(splitCodeInputs(input("d1"), 6, usable)).toBeUndefined();
+    // One the fill cannot use, as a hidden one, does not count.
+    expect(splitCodeInputs(input("d1"), 6, (one) => one.type !== "search")).toHaveLength(6);
+  });
+
+  it("refuses a digit whose autocomplete names a phone number's or card's part", () => {
+    for (const token of ["tel-local", "cc-number", "bday-day"]) {
+      document.body.innerHTML = `<form>${notion(undefined, (place) => (place === 3 ? `autocomplete="${token}"` : 'autocomplete="off"'))}</form>`;
+      expect(splitCodeInputs(input("d1"), 6, usable), token).toBeUndefined();
+    }
+  });
+
+  it("refuses one with an input the fill cannot use, or a code of another length", () => {
+    document.body.innerHTML = `<form>${notion(undefined, undefined, 7)}</form>`;
+    expect(splitCodeInputs(input("d1"), 6, usable)).toBeUndefined();
+    document.body.innerHTML = `<form>${notion()}</form>`;
+    expect(splitCodeInputs(input("d1"), 6, (one) => one.id !== "d4")).toBeUndefined();
+    expect(splitCodeInputs(input("d2"), 6, usable)).toBeUndefined();
   });
 });
 

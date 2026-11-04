@@ -652,8 +652,11 @@ than in this repository.
   on main `3db9e3d`, the owner's Chrome judged Notion's chooser `unclear` and ended
   `authenticated` unconfirmed, since its ways are `<div role="button">` widgets the
   extractor left out on a judged page; since the ADR's amendment of 2026-11-03 the one
-  that names the authenticator app's code is described by its text. Check Notion in the
-  owner's Chrome again, two judge calls on the first login. On 2026-10-19 at 12:50 UTC,
+  that names the authenticator app's code is described by its text. On 2026-11-04 at
+  10:02 UTC, on build `e0ad149f`, the login reached Notion's code page and typed the
+  whole code into the first of six inputs without `maxlength` (`fill-rejected`); since
+  ADR 0027's amendment of 2026-11-04 such inputs take one digit each. Check Notion in
+  the owner's Chrome again. On 2026-10-19 at 12:50 UTC,
   on build `cfce11f`, the login pressed "Select" for the password and the service
   returned the continuation (fill the password, press Verify), but the login did not
   take it over and settled `unknown`. The item's saved binding of the recipe, saved on
