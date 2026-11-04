@@ -19,7 +19,12 @@ const STORED_PATH = new RegExp(
   "u",
 );
 
-export const integer = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER));
+export const integer = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(0),
+  v.maxValue(Number.MAX_SAFE_INTEGER),
+);
 export const KIND_SCHEMAS: Record<
   Exclude<FieldKind, "origin" | "rpId" | "connection" | "item" | "url">,
   v.GenericSchema<unknown, FieldValue>
