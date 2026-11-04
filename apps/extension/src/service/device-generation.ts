@@ -19,6 +19,7 @@ import {
 } from "@pateat/contracts";
 import {
   choiceAttempts,
+  CLEF_MODEL,
   generateEntry,
   generateRecipe,
   generateLogout,
@@ -33,7 +34,9 @@ import {
   type JudgementKey,
 } from "@pateat/generation";
 import {
+  clefUrl,
   createClaudeGenerationModel,
+  createClefDecisionModel,
   unknownUsage,
   type InferenceOutcome,
 } from "@pateat/inference";
@@ -235,6 +238,61 @@ export function createDeviceGenerationBackend(options: {
           inFlight.delete(sending);
         }
       };
+      // Clef answers first where it can (ADR 0083), with this device's Cloudflare token.
+      const clef = call.firstChoice && (await key.clefSetting().catch(() => undefined));
+      if (call.firstChoice && clef) {
+        const stop = await key.stopped();
+        if (stop) return { status: "unavailable", reason: stop };
+        const url = clefUrl(clef.accountId, CLEF_MODEL);
+        // The account's Clef URL only, with the token added by `sendClef`.
+        const toClef: typeof globalThis.fetch = async (input, init) => {
+          const outbound = new Request(input, init);
+          if (outbound.url !== url || outbound.method !== "POST")
+            throw new TypeError("Unexpected model request");
+          const body = await outbound.text();
+          if (await reserve()) throw new Error("Model call not sent");
+          const sending = key.sendClef(clef, body, outbound.signal);
+          inFlight.add(sending);
+          try {
+            const { response, cost } = await sending;
+            await key.charge(cost).catch(() => undefined);
+            if (response.kind !== "response") throw new Error("No model response");
+            return new Response(response.body, {
+              status: response.status,
+              headers: { "content-type": "application/json" },
+            });
+          } finally {
+            inFlight.delete(sending);
+          }
+        };
+        const modelStart = now();
+        let outcome: InferenceOutcome<T>;
+        try {
+          outcome = await call.firstChoice.invoke(
+            // The token goes with `sendClef` only; the adapter's own header is dropped.
+            createClefDecisionModel({
+              accountId: clef.accountId,
+              apiToken: "device",
+              modelId: CLEF_MODEL,
+              fetch: toClef,
+            }),
+          );
+        } catch {
+          outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
+        }
+        const refused = reserved && (await reserved);
+        if (refused) return { status: "unavailable", reason: refused };
+        if (outcome.status === "ok")
+          return {
+            status: "called",
+            outcome,
+            timings: { preModelMs: modelStart - start, tokenMs: 0, modelMs: now() - modelStart },
+            served: { provider: "cloudflare", model: CLEF_MODEL },
+            promptVersion: call.firstChoice.promptVersion,
+          };
+        // Otherwise Claude answers, its time before the model counting Clef's.
+      }
+
       const answer = (response: DeviceModelResponse) => {
         if (response.kind === "timeout") timedOut = true;
         if (response.kind !== "response") throw new Error("No model response");

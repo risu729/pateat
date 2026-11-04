@@ -6,6 +6,8 @@ import { cleanup, render } from "vitest-browser-react";
 import { createMetadataQueryClient } from "../../apps/extension/src/options/client";
 import {
   DeviceModelPanel,
+  type DeviceClefClient,
+  type DeviceClefView,
   type DeviceModelClient,
   type DeviceModelView,
 } from "../../apps/extension/src/options/device-model";
@@ -151,5 +153,51 @@ test("the key is removed from this device", async () => {
   await expect.element(keyField()).toBeVisible();
   await expect
     .element(page.getByText("The key was removed from this device.", { exact: true }))
+    .toBeVisible();
+});
+
+test("a Cloudflare account and token are saved on this device for Clef (ADR 0083)", async () => {
+  const token = "synthetic-cloudflare-token-1234";
+  let view: DeviceClefView = { saved: false };
+  const clef = {
+    read: vi.fn(async () => view),
+    save: vi.fn<DeviceClefClient["save"]>(async (change) => {
+      view = { saved: true, accountEnding: change.accountId.slice(-4) };
+    }),
+    remove: vi.fn(async () => {
+      view = { saved: false };
+    }),
+  } satisfies DeviceClefClient;
+  await mount({ ...syntheticClient(), clef });
+  const account = page.getByLabelText("Cloudflare account ID", { exact: true });
+  const save = page.getByRole("button", { name: "Save token", exact: true });
+  await account.fill("not an account");
+  await page.getByLabelText("Cloudflare API token", { exact: true }).fill(token);
+  await save.click();
+  await expect
+    .element(
+      page.getByText(
+        "Paste the 32-character account ID and the whole API token from the Cloudflare dashboard.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  expect(clef.save).not.toHaveBeenCalled();
+  await account.fill(" 0123456789ABCDEF0123456789abcdef ");
+  await save.click();
+  expect(clef.save).toHaveBeenCalledExactlyOnceWith({
+    accountId: "0123456789abcdef0123456789abcdef",
+    apiToken: token,
+  });
+  await expect
+    .element(
+      page.getByText("Cloudflare token saved for the account ending in cdef.", { exact: true }),
+    )
+    .toBeVisible();
+  expect(document.body.innerHTML).not.toContain(token);
+  await page.getByRole("button", { name: "Remove token", exact: true }).click();
+  expect(clef.remove).toHaveBeenCalledOnce();
+  await expect
+    .element(page.getByText("The token was removed from this device.", { exact: true }))
     .toBeVisible();
 });
