@@ -51,7 +51,7 @@ import {
   generationSlotsFor,
   offersGeneration,
 } from "./generation-scope";
-import { repairStale } from "./repair-run";
+import { repairChooserForm, repairStale } from "./repair-run";
 import type { Runtime } from "./state";
 import { admitStart } from "./admit-start";
 import type { AdmitContext, AdmitStartContext } from "./admit-context";
@@ -674,6 +674,17 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       void repairStale(rt, ctx.live, ctx.recipe, ctx.shown.miss, ctx.shown.accounts).catch(
         () => undefined,
       );
+    // A generated chooser's path that shows a sign-in form instead of its list, where the
+    // form is no `other` branch's page, is sent as a form (ADR 0041 section 6, #1248).
+    else if (
+      ctx.chooser &&
+      !ctx.previous &&
+      !ctx.shownOther &&
+      !(probeMode && ctx.live.document.origin === rt.vars.origin) &&
+      ctx.shown?.path === ctx.live.path &&
+      !ctx.shown.accounts
+    )
+      void repairChooserForm(rt, ctx.live, ctx.chooser, ctx.shown.miss).catch(() => undefined);
     ctx.live.state = "watching";
     delete ctx.live.reason;
     await publish(rt, ctx.live);

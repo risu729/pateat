@@ -61,6 +61,11 @@ unless:
 - the page showed no detail (`no-detail`);
 - the page is the tab's next page after a submitted password form (`after-sign-in`), or
   a signed-in marker of the recipe shows (`signed-in`);
+- the page shows every element of one of the recipe's handlers on its path (`handler`),
+  as a second-factor page on the sign-in form's own URL that shows the account's email
+  above its "Verify" button: a later page of the recipe's own login, which must not be
+  sent as a list that replaces the recipe (Claude's rule, 2026-11-04,
+  [#1248](https://github.com/risu729/pateat/issues/1248));
 - the recipe is not generated (`gen-` IDs), the page is a frame, or a later step of the
   recipe shows there (ADR 0049).
 
@@ -170,9 +175,16 @@ the kind the page is now, as the next revision of the same ID.
   form answer replaces a chooser or entry recipe with a login recipe (one layout); the
   replaced recipe's layouts go, except that a passkey-only layout whose button the list
   answer names again becomes the new chooser layout's `passkey`, with its handlers and
-  markers (ADR 0079). A login recipe's start page that became a list is
-  reported as in section 1. A chooser whose path shows a form instead of its list is its
-  `other` branch's page (ADR 0028) and is not repaired.
+  markers (ADR 0079). A login recipe's start page that became a list is reported as in
+  section 1. A chooser whose path shows a form instead of its list is its `other`
+  branch's page (ADR 0028) and is not repaired, when a layout of the chooser has a
+  button for another account. Without one, the form is no branch's page: it is sent as a
+  form, which replaces the chooser with a login recipe, unless its list shows by then
+  (`list-shown`), the load answered outside 2xx (`status`) or it is the tab's next page
+  after a submitted password form (`after-sign-in`) (Claude's rule, 2026-11-04,
+  [#1248](https://github.com/risu729/pateat/issues/1248): a second-factor page that
+  showed only the account's email above "Verify" was stored as such a chooser, and the
+  sign-in form on the same path then never started a login).
 
 The same limits apply: one repair per recipe, device and UTC day, and the device's hold.
 
