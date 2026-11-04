@@ -540,6 +540,50 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         expect(reports.filter((entry) => entry.type === "repair")).toHaveLength(1);
         expect(service.generate).not.toHaveBeenCalled();
       });
+      it("sends nothing where the shown account's branch starts on the same path", async () => {
+        // The person pressed "Continue" themselves, and the password form of that branch
+        // shows on the list's own URL.
+        const reports: LoginReport[] = [];
+        const service = generation();
+        const h = setup(service, reports);
+        h.recipes.chooser.mockResolvedValue({
+          ...continueOnly,
+          chooser: {
+            ...continueOnly.chooser,
+            afterAccount: parseLoginRecipe({
+              ...login,
+              slots: ["password"],
+              steps: [
+                {
+                  kind: "fill",
+                  path: "/signin",
+                  fields: [{ slot: "password", target: target("password") }],
+                },
+                login.steps[1]!,
+              ],
+            }),
+          },
+        });
+        await shownForm(h, "branch");
+        await vi.waitFor(() =>
+          expect(reports.filter((entry) => entry.type === "repair")).toEqual([
+            expect.objectContaining({ outcome: "skipped", reason: "branch" }),
+          ]),
+        );
+        expect(service.generate).not.toHaveBeenCalled();
+      });
+      it("sends nothing when the chooser's layouts cannot be read", async () => {
+        const service = generation();
+        const h = setup(service, []);
+        Object.assign(h.recipes, {
+          choosers: vi.fn(async () => {
+            throw new Error("storage");
+          }),
+        });
+        await shownForm(h, "unreadable");
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(service.generate).not.toHaveBeenCalled();
+      });
     });
     it("ends account-not-listed without a click when nothing fits and there is no button", async () => {
       const miss = {

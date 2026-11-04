@@ -391,6 +391,13 @@ describe("production login document admission", () => {
         fake.state.observed = ["missing"];
         await listHello("list");
         await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        // A form beside the button is sent too: it only adds a layout.
+        for (const listener of fake.state.removed) listener(1);
+        fake.state.storage["repairs"] = undefined;
+        fake.state.observed = ["unique"];
+        fake.state.extracted = { login: loginPage };
+        await missHello(h, "form");
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(2));
       });
       it("holds a recipe the service answered back unchanged for the day", async () => {
         // The answer equaled a layout the recipe already has, so the service wrote nothing.
