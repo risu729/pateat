@@ -15,6 +15,13 @@ const emailPattern = /(?<![\p{L}\p{N}._%+\-*/])[A-Za-z0-9._%+\-*]{1,64}@[A-Za-z0
 const maskedPattern =
   /(?<![A-Za-z0-9*])(?:[A-Za-z0-9]{0,32}\*{3,}[A-Za-z0-9]{1,32}|[A-Za-z0-9]{1,32}\*{3,}[A-Za-z0-9]{0,32})(?![A-Za-z0-9*])/gu;
 
+/** An address without trailing `.` or `-`; a loop, as `/[.-]+$/` backtracks quadratically. */
+function withoutTrailingPunctuation(email: string): string {
+  let end = email.length;
+  while (end > 0 && (email[end - 1] === "." || email[end - 1] === "-")) end -= 1;
+  return email.slice(0, end);
+}
+
 /**
  * Account identifiers a page shows: email addresses (masked or not) and masked IDs that
  * show at least two characters (`****1234`, `ab***yz`; not `5***`). Format characters
@@ -27,7 +34,7 @@ export function shownAccounts(text: string): string[] {
     .normalize("NFKC")
     .replace(/[●•]/gu, "*");
   // Sentence punctuation after an address is not part of it: "as my2@example.com."
-  const emails = (folded.match(emailPattern) ?? []).map((email) => email.replace(/[.-]+$/u, ""));
+  const emails = (folded.match(emailPattern) ?? []).map(withoutTrailingPunctuation);
   const masked = (folded.replace(emailPattern, " ").match(maskedPattern) ?? []).filter(
     (entry) => entry.replace(/\*/gu, "").length >= 2,
   );

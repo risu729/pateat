@@ -282,11 +282,12 @@ export function createBrowserFake() {
           if (shown === undefined) return { ok: true };
           // As the document compares them: a name within the text, a confirmed question as
           // the whole question after its label.
-          const normalized = (text: string) =>
-            text
-              .normalize("NFKC")
-              .trim()
-              .replace(/[?:]+$/u, "");
+          const normalized = (text: string) => {
+            const folded = text.normalize("NFKC").trim();
+            let end = folded.length;
+            while (end > 0 && (folded[end - 1] === "?" || folded[end - 1] === ":")) end -= 1;
+            return folded.slice(0, end);
+          };
           const page = normalized(shown);
           const whole = [page, normalized(page.slice(page.indexOf(":") + 1))];
           const index = (message["names"] as ({ name: string } | { question: string })[]).findIndex(

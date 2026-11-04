@@ -68,6 +68,11 @@ describe("detail links for answers and member IDs", () => {
   it("compares questions after NFKC, without case and trailing marks", () => {
     expect(questionText("  Mother\u2019s  maiden NAME？ ")).toBe("mother's maiden name");
     expect(questionText("母親の旧姓は：")).toBe("母親の旧姓は");
+    expect(questionText("PIN?:？：")).toBe("pin");
+    expect(questionText("PIN ?: ?")).toBe("pin ?:");
+    expect(questionText("::?")).toBe("");
+    const marks = ":".repeat(50_000);
+    expect(questionText(`a${marks}b`)).toBe(`a${marks}b`);
   });
 });
 
