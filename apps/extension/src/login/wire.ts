@@ -43,9 +43,7 @@ export {
   keypadPressSchema,
   destinationCheckSchema,
 } from "./wire/messages";
-export {
-  commandSchema,
-} from "./wire/commands";
+export { commandSchema } from "./wire/commands";
 export {
   destinationAnswerSchema,
   type DestinationAnswer,
@@ -69,9 +67,4 @@ export {
   stateResultSchema,
   observationSchema,
 } from "./wire/results";
-export {
-  configureSchema,
-  statusSchema,
-  cancelSchema,
-  probeControlSchema,
-} from "./wire/probe";
+export { configureSchema, statusSchema, cancelSchema, probeControlSchema } from "./wire/probe";
