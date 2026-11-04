@@ -13,6 +13,8 @@ import {
   type RecipeGenerationResult,
   type SemanticSlot,
   type StoredLoginRecipe,
+  isChooserDocument,
+  isLoginRecipeDocument,
 } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
 import {
@@ -5725,7 +5727,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       { recipeId: change.recipeId, revision: change.revision },
       "other",
     );
-    if (answer.status !== "recipe" || !("chooser" in answer.change.recipe))
+    if (answer.status !== "recipe" || !isChooserDocument(answer.change.recipe))
       throw new Error(answer.status);
     // The chooser layout's branch keeps it (ADR 0060); the answer is that layout projected.
     expect(answer.change.recipe).toMatchObject({
@@ -5866,7 +5868,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       replies.push({ text: listAnswer({ other: "other", passkeyButton }) });
       // eslint-disable-next-line no-await-in-loop
       const kept = await generate(another, page);
-      if (kept.status !== "recipe" || !("chooser" in kept.change.recipe))
+      if (kept.status !== "recipe" || !isChooserDocument(kept.change.recipe))
         throw new Error(kept.status);
       expect(kept.change.recipe.chooser).not.toHaveProperty("passkey");
     }
@@ -6186,7 +6188,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       { recipeId, revision: 1 },
       "account",
     );
-    if (account.status !== "recipe" || !("chooser" in account.change.recipe))
+    if (account.status !== "recipe" || !isChooserDocument(account.change.recipe))
       throw new Error(account.status);
     // The chooser as stored: its one layout (ADR 0060) holds the account branch.
     const atTwo = (await storedHead(device.ownerId, recipeId)) as LoginChooserDocument;
@@ -8035,7 +8037,7 @@ describe("recipe repair (ADR 0041)", () => {
       signedIn: false,
     });
     const first = (await started.json()) as RecipeGenerationResult;
-    if (first.status !== "recipe" || !("layouts" in first.change.recipe))
+    if (first.status !== "recipe" || !isLoginRecipeDocument(first.change.recipe))
       throw new Error("Expected a login recipe");
     const layout = first.change.recipe.layouts[0]!.key;
     replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
@@ -8051,7 +8053,11 @@ describe("recipe repair (ADR 0041)", () => {
     return { change: second.change, layout };
   }
   const layoutsOf = (result: RecipeGenerationResult | { error: string }) => {
-    if (!("status" in result) || result.status !== "recipe" || !("layouts" in result.change.recipe))
+    if (
+      !("status" in result) ||
+      result.status !== "recipe" ||
+      !isLoginRecipeDocument(result.change.recipe)
+    )
       throw new Error("Expected a login recipe");
     return result.change.recipe.layouts;
   };
@@ -8331,19 +8337,26 @@ describe("recipe repair (ADR 0041)", () => {
       });
     });
 
-    it("writes a login recipe's start page that became a list as a chooser, and back", async () => {
+    it("adds a list beside a login recipe's layouts, and a form beside a chooser's list (#1248)", async () => {
       const device = await owner();
       const { change } = await storedRecipe(device);
+      const before = (await storedHead(device.ownerId, change.recipeId)) as LoginRecipeDocument;
+      // The start page shows a list of accounts: the list is added, the layouts stay, as the
+      // same URL shows either by the state of the browser's session.
       replies.push({ text: listAnswer("other") });
       expect(
         (await repair(device, list("other"), { recipeId: change.recipeId, revision: 2 })).body,
       ).toMatchObject({ status: "recipe", change: { revision: 3 } });
-      expect(await storedHead(device.ownerId, change.recipeId)).toMatchObject({
+      expect(await storedHead(device.ownerId, change.recipeId)).toEqual({
+        ...before,
         revision: 3,
-        chooser: { path: "/login", layouts: [{ other: { value: "other" } }] },
+        chooser: {
+          path: "/login",
+          layouts: [expect.objectContaining({ other: { by: "id", value: "other" } })],
+        },
       });
-      expect(await storedHead(device.ownerId, change.recipeId)).not.toHaveProperty("layouts");
-      // The next day the list is a form again: the chooser becomes a login recipe.
+      // The next day the page is a form no layout fits: it is added beside the others, and
+      // the list stays.
       await env.DB.prepare("UPDATE recipe_repairs SET repaired_at = ? WHERE device_id = ?")
         .bind(Date.now() - DAY_MS, device.deviceId)
         .run();
@@ -8351,8 +8364,26 @@ describe("recipe repair (ADR 0041)", () => {
       expect(
         (await repair(device, redesigned, { recipeId: change.recipeId, revision: 3 })).body,
       ).toMatchObject({ status: "recipe", change: { revision: 4 } });
+      const after = (await storedHead(device.ownerId, change.recipeId)) as LoginRecipeDocument;
+      expect(after.layouts[0]).toEqual(before.layouts[0]);
+      expect(after.layouts).toMatchObject([
+        {},
+        { steps: [{ fields: [{ target: { value: "user-email" } }] }, {}] },
+      ]);
+      expect(after.chooser?.layouts).toHaveLength(1);
+    });
+
+    it("adds a form's layout beside a chooser's list whose path shows a form (#1248)", async () => {
+      const device = await owner();
+      const change = await storedChooser(device);
+      const stored = (await storedHead(device.ownerId, change.recipeId)) as LoginChooserDocument;
+      replies.push({ text: plan([["email", "user-email"]], "continue", "advance") });
+      expect(
+        (await repair(device, redesigned, { recipeId: change.recipeId, revision: 1 })).body,
+      ).toMatchObject({ status: "recipe", change: { revision: 2 } });
       expect(await storedHead(device.ownerId, change.recipeId)).toMatchObject({
-        revision: 4,
+        revision: 2,
+        chooser: stored.chooser,
         layouts: [{ steps: [{ fields: [{ target: { value: "user-email" } }] }, {}] }],
       });
     });
@@ -8894,7 +8925,7 @@ describe("generation provenance (ADR 0060)", () => {
       signedIn: false,
     });
     const first = (await started.json()) as RecipeGenerationResult;
-    if (first.status !== "recipe" || !("layouts" in first.change.recipe))
+    if (first.status !== "recipe" || !isLoginRecipeDocument(first.change.recipe))
       throw new Error("Expected a passkey-only recipe");
     const { recipeId } = first.change;
     const stored = first.change.recipe;
@@ -8918,8 +8949,9 @@ describe("generation provenance (ADR 0060)", () => {
       "PUT",
     );
     expect(marked.status).toBe(200);
-    // Its start page now lists accounts beside the same button: the repair stores a chooser
-    // whose layout keeps the passkey-only route with its marker.
+    // Its start page now lists accounts beside the same button: the repair adds a list whose
+    // layout copies the passkey-only route with its marker, and the passkey-only layout
+    // stays beside it (#1248).
     replies.push({
       text: JSON.stringify({
         result: { decision: "account-list", other: "other", passkeyButton: "key" },
@@ -8936,6 +8968,7 @@ describe("generation provenance (ADR 0060)", () => {
     });
     expect(await repaired.json()).toMatchObject({ status: "recipe", change: { revision: 3 } });
     const head = (await storedHead(device.ownerId, recipeId)) as LoginChooserDocument;
+    expect(head.layouts?.map((entry) => entry.key)).toEqual([old]);
     const [layout, ...others] = head.chooser.layouts;
     expect(others).toEqual([]);
     expect(layout!.key).not.toBe(old);
@@ -8951,8 +8984,11 @@ describe("generation provenance (ADR 0060)", () => {
       completion: [{ target: { by: "id", value: "logout" } }],
     });
     // The marker keeps the device that learned it; the list and the button are this call's.
+    // The passkey-only layout keeps its own rows.
     expect(await summary(device.ownerId, recipeId)).toEqual(
       [
+        `${old} page:0 generated 1`,
+        `${old} marker:0 device 2`,
         `${layout!.key} list generated 3`,
         `${layout!.key} passkey/page:0 generated 3`,
         `${layout!.key} passkey/marker:0 device 2`,
@@ -9165,10 +9201,7 @@ describe("generation provenance (ADR 0060)", () => {
           "PUT",
         )
       ).status;
-    const stored = (await storedHead(device.ownerId, recipeId)) as Extract<
-      StoredLoginRecipe,
-      { layouts: unknown }
-    >;
+    const stored = (await storedHead(device.ownerId, recipeId)) as LoginRecipeDocument;
     const [layout] = stored.layouts;
     // The same document written back keeps every row as the calls wrote it.
     expect(await put(2, { ...stored, revision: 3 })).toBe(200);
@@ -9248,10 +9281,7 @@ describe("generation provenance (ADR 0060)", () => {
     const { recipeId } = first.change;
     // Another device's write lands while the continuation's call runs.
     during = async () => {
-      const head = (await storedHead(device.ownerId, recipeId)) as Extract<
-        StoredLoginRecipe,
-        { layouts: unknown }
-      >;
+      const head = (await storedHead(device.ownerId, recipeId)) as LoginRecipeDocument;
       const result = await writeRecipe(
         env.DB,
         device.ownerId,

@@ -687,32 +687,26 @@ export function withoutUnusedLayouts(
   uses: ReadonlyMap<string, number>,
   unusedBefore: number,
 ): StoredLoginRecipe | undefined {
+  if ("entry" in recipe || "logout" in recipe) return undefined;
   const idle = new Set(
-    [
-      ...("layouts" in recipe ? recipe.layouts.filter(runsLogin) : []),
-      ...("chooser" in recipe ? recipe.chooser.layouts : []),
-    ]
+    [...(recipe.layouts ?? []).filter(runsLogin), ...(recipe.chooser?.layouts ?? [])]
       .filter((layout) => Math.max(layout.createdAt, uses.get(layout.key) ?? 0) < unusedBefore)
       .map((layout) => layout.key),
   );
   if (!idle.size || idle.size === storedLayouts(recipe).length) return undefined;
-  const revision = recipe.revision + 1;
-  if ("layouts" in recipe)
-    return {
-      ...recipe,
-      revision,
-      layouts: recipe.layouts.filter((layout) => !idle.has(layout.key)),
-    };
-  if ("chooser" in recipe)
-    return {
-      ...recipe,
-      revision,
-      chooser: {
-        ...recipe.chooser,
-        layouts: recipe.chooser.layouts.filter((layout) => !idle.has(layout.key)),
-      },
-    };
-  return undefined;
+  // A recipe's sign-in form and its list each keep their used layouts; a kind none of whose
+  // layouts is used any more goes, and the other stays alone (ADR 0058 B).
+  const layouts = recipe.layouts?.filter((layout) => !idle.has(layout.key));
+  const choosers = recipe.chooser?.layouts.filter((layout) => !idle.has(layout.key));
+  const { layouts: _layouts, chooser: _chooser, ...rest } = recipe;
+  return {
+    ...rest,
+    revision: recipe.revision + 1,
+    ...(layouts?.length ? { layouts } : {}),
+    ...(recipe.chooser && choosers?.length
+      ? { chooser: { ...recipe.chooser, layouts: choosers } }
+      : {}),
+  };
 }
 
 /**

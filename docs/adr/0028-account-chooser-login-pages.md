@@ -673,3 +673,15 @@ accounts", 別のアカウントを追加), and never when its click would reach
 or image button of a form with a shown field. Any other control inside such a form
 counts, since a remembered account's own password form can hold it. The `continue`
 button keeps the rule above: it is refused inside a form with a shown field.
+
+## Amendment 2026-11-04: a list beside the sign-in form
+
+Owner, 2026-11-04 11:30 UTC, after
+[#1248](https://github.com/risu729/pateat/issues/1248): the same URL shows a sign-in
+form or a list of accounts by the state of the browser's session, so a chooser is no
+longer a recipe of its own kind. The list is stored under `chooser` in the recipe
+document of its path, beside the sign-in form's `layouts` when the recipe has them
+([ADR 0060](0060-recipe-layouts.md), Both kinds on one path). A new login there runs the
+list when the document reads one, and the form otherwise; a repair adds the kind the
+page showed instead of replacing the other ([ADR 0041](0041-repair-stale-recipes.md)
+section 6).

@@ -128,13 +128,15 @@ export async function documentUnits(
       ? [{ layout: null, unit: ENTRY_UNIT, content: recipe.entry }]
       : "logout" in recipe
         ? [{ layout: null, unit: LOGOUT_UNIT, content: recipe.logout }]
-        : "layouts" in recipe
-          ? recipe.layouts.flatMap((layout) =>
+        : [
+            ...(recipe.layouts ?? []).flatMap((layout) =>
               routeContents(layout, startsOf(layout.key), undefined, layout.language).map(
                 ([unit, content]) => ({ layout: layout.key, unit, content }),
               ),
-            )
-          : recipe.chooser.layouts.flatMap((layout) =>
+            ),
+            // A recipe may hold a list beside its sign-in form (ADR 0028); layout keys are
+            // unique over both.
+            ...(recipe.chooser?.layouts ?? []).flatMap((layout) =>
               [
                 [
                   LIST_UNIT,
@@ -165,7 +167,8 @@ export async function documentUnits(
                     )
                   : []),
               ].map(([unit, content]) => ({ layout: layout.key, unit, content })),
-            );
+            ),
+          ];
   return Promise.all(
     contents.map(async ({ layout, unit, content }) => ({
       layout,

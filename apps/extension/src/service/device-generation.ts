@@ -9,6 +9,7 @@ import {
   logoutGenerationRequestSchema,
   recipeCompletionRequestSchema,
   recipeGenerationRequestSchema,
+  storedLayouts,
   syncRecipeIdSchema,
   type DeviceModelCall,
   type DeviceModelResponse,
@@ -125,13 +126,7 @@ const sameJudgement = (key: JudgementKey) => (entry: JudgementKey) =>
 
 /** The layout keys a recipe holds, of its own layouts or its chooser's (ADR 0060). */
 function layoutKeysOf(recipe: StoredLoginRecipe): string[] {
-  const layouts =
-    "layouts" in recipe
-      ? recipe.layouts
-      : "chooser" in recipe && "layouts" in recipe.chooser
-        ? recipe.chooser.layouts
-        : [];
-  return (layouts as readonly { key: string }[]).map((layout) => layout.key);
+  return storedLayouts(recipe).map((layout) => layout.key);
 }
 
 const activeChange = (recipe: StoredLoginRecipe): SyncRecipeChange => ({

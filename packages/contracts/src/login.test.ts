@@ -3380,7 +3380,8 @@ describe("a passkey button beside a chooser's list (ADR 0079)", () => {
 
   it("runs the button as its own route, and keeps it when a branch is written", () => {
     const held = v.parse(storedLoginRecipeSchema, stored(passkeyRoute()));
-    if (!("chooser" in held) || !("layouts" in held.chooser)) throw new Error("chooser");
+    if (!("chooser" in held) || !held.chooser || !("layouts" in held.chooser))
+      throw new Error("chooser");
     const [first] = chooserLayouts(held);
     const route = chooserRoute(first!, "passkey");
     expect(route).toEqual({

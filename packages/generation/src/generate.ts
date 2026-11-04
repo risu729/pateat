@@ -13,6 +13,8 @@ import {
   sameLoginTarget,
   showsBesideForm,
   storedBranchRoute,
+  isChooserDocument,
+  isLoginRecipeDocument,
   storedLoginRecipeSchema,
   storedRecipeStartPath,
   toChooserLayout,
@@ -207,10 +209,10 @@ function stored(
   if (!named) return undefined;
   const revision = { revision: next.revision };
   let written: StoredLoginRecipe | undefined;
-  if ("layouts" in head && !named.branch) {
+  if (isLoginRecipeDocument(head) && !named.branch) {
     const meta = head.layouts.find((layout) => layout.key === named.layout);
     written = meta && { ...withLoginLayout(head, toLoginLayout(next, meta)), ...revision };
-  } else if ("chooser" in head && named.branch) {
+  } else if (isChooserDocument(head) && named.branch) {
     const chooser = findChooserLayout(head, named.layout);
     const meta = head.chooser.layouts.find((layout) => layout.key === named.layout);
     written = chooser &&
@@ -506,9 +508,12 @@ export async function generateRecipe(
   // The layout a continuation names (ADR 0060), and the chooser branch it takes, if any.
   const named = branch === undefined ? undefined : parseRecipeBranch(branch);
   const chooserSide: ChooserBranch | undefined = named?.branch;
-  /** Whether a stored recipe is the kind this request writes: a chooser, or layouts. */
+  /**
+   * Whether a stored recipe holds the kind this request writes: a list of accounts, or
+   * layouts of a sign-in form. A recipe may hold both (ADR 0028, ADR 0060).
+   */
   const fits = (recipe: StoredLoginRecipe) =>
-    list || chooserSide ? "chooser" in recipe : "layouts" in recipe;
+    list || chooserSide ? isChooserDocument(recipe) : isLoginRecipeDocument(recipe);
 
   /**
    * What the stored head means for this request: an answer without a model call, or the
@@ -543,7 +548,7 @@ export async function generateRecipe(
       const answer = answerable(head);
       if (!current || !(await generatedHere(current.recipe)))
         return { answer: unavailable("recipe-conflict") };
-      if (repair.layout !== undefined && !("layouts" in current.recipe))
+      if (repair.layout !== undefined && !isLoginRecipeDocument(current.recipe))
         return { answer: unavailable("recipe-conflict") };
       if (current.revision !== repair.revision)
         return answer
@@ -552,7 +557,7 @@ export async function generateRecipe(
       if (!(await backend.hasRecipeByteRoom(MIN_GENERATION_RECIPE_ROOM_BYTES)))
         return { answer: unavailable("recipe-limit") };
       const repaired = current.recipe;
-      if (repair.layout === undefined || !("layouts" in repaired))
+      if (repair.layout === undefined || !isLoginRecipeDocument(repaired))
         return { base: undefined, repaired };
       // A later step's page continues the layout cut before the step that did not show.
       const stale = repaired.layouts.find((layout) => layout.key === repair.layout);
@@ -830,7 +835,7 @@ export async function generateRecipe(
       listPasskeyRoute(
         path,
         value.passkey.target,
-        repaired && "layouts" in repaired ? repaired : undefined,
+        repaired && isLoginRecipeDocument(repaired) ? repaired : undefined,
       );
     const passkeyUnit = { layout: meta.key, unit: branchUnit("passkey", pageUnit(0)) };
     // The list becomes a chooser recipe with one layout and no branches; each branch is
@@ -841,9 +846,8 @@ export async function generateRecipe(
       ...(value.continue ? { continue: value.continue.target } : {}),
       ...(passkey ? { passkey: passkey.route } : {}),
     };
-    // A chooser's repaired list is a layout beside its others (ADR 0041); a login or entry
-    // recipe whose start page became a list is replaced by the chooser.
-    if (repaired && "chooser" in repaired) {
+    // A chooser's repaired list is a layout beside its others (ADR 0041).
+    if (repaired && isChooserDocument(repaired)) {
       const uses = await backend.layoutUses(recipeId);
       const written = chooserRepairWrite(repaired, layout, (key) => uses?.get(key));
       if (written.kind === "same") return unchanged();
@@ -857,17 +861,23 @@ export async function generateRecipe(
           : [{ layout: written.layout, unit: LIST_UNIT }, ...(passkey ? [button] : [])],
       );
     }
+    // A recipe whose start page showed a sign-in form keeps its layouts, and the list is
+    // added beside them: the same URL shows either by the state of the browser's session
+    // (ADR 0041 section 6, owner 2026-11-04). An entry recipe whose page became a list is
+    // replaced by the chooser.
+    const kept = repaired && isLoginRecipeDocument(repaired) ? repaired : undefined;
     const recipe = document({
       version: 1,
       id: recipeId,
       revision,
       origin,
+      ...(kept ? { layouts: kept.layouts } : {}),
       chooser: { path, layouts: [layout] },
     });
     if (!recipe) return failed("recipe-invalid");
-    // This call named the button again, so the passkey route's page is its own; a kept
+    // This call named the button again, so the passkey route's page is its own; a copied
     // layout's handlers and markers keep the calls that made them.
-    const kept = passkey?.from;
+    const copiedFrom = passkey?.from;
     const route = passkey?.route;
     const learned = route
       ? [
@@ -880,8 +890,8 @@ export async function generateRecipe(
       [{ layout: meta.key, unit: LIST_UNIT }, ...(passkey ? [passkeyUnit] : [])],
       undefined,
       undefined,
-      kept !== undefined && learned.length
-        ? { from: kept, to: meta.key, branch: "passkey", units: learned }
+      copiedFrom !== undefined && learned.length
+        ? { from: copiedFrom, to: meta.key, branch: "passkey", units: learned }
         : undefined,
     );
   }
@@ -905,10 +915,11 @@ export async function generateRecipe(
   if (!built.ok) return built.answer;
   const { customSlots } = built;
   const next = { ...built.recipe, revision };
-  // A chooser or entry recipe whose start page became a form is replaced by a login recipe
+  // A recipe of a list alone whose start page showed a form gets the form's layout beside
+  // its list, and an entry recipe whose page became a form is replaced by a login recipe
   // (ADR 0041 section 6), unless the answer is no sign-in page.
-  if (repaired && !("layouts" in repaired) && !runsLogin(next)) return unchanged();
-  if (repaired && "layouts" in repaired) {
+  if (repaired && !isLoginRecipeDocument(repaired) && !runsLogin(next)) return unchanged();
+  if (repaired && isLoginRecipeDocument(repaired)) {
     const uses = await backend.layoutUses(recipeId);
     // An answer that is no sign-in page, as a maintenance page answered 200 that kept an
     // input, would be a layout no login ever chooses (ADR 0035), holding one of the
@@ -950,12 +961,14 @@ export async function generateRecipe(
     );
   }
   if (!branch) {
+    const held = repaired && isChooserDocument(repaired) ? repaired.chooser : undefined;
     const recipe = document({
       version: 1,
       id: recipeId,
       revision,
       origin,
       layouts: [built.layout],
+      ...(held ? { chooser: held } : {}),
     });
     return recipe
       ? save(recipe, [{ layout: meta.key, unit: pageUnit(0) }], customSlots)
@@ -1166,7 +1179,7 @@ export function staleHead(
 function judgedLoginPaths(head: StoredLoginRecipe, recipe: LoginRecipe, route: LoginRoute) {
   return [
     ...new Set([
-      ...("chooser" in head ? [head.chooser.path] : []),
+      ...(isChooserDocument(head) ? [head.chooser.path] : []),
       ...routeSignInPaths(recipe, route),
       ...(recipe.handlers ?? []).map((handler) => handler.path),
     ]),
@@ -1254,10 +1267,13 @@ export async function judgeCompletion(
   const loginPaths = judgedLoginPaths(head.recipe, recipe, route);
   if (!observation.complete) return unsent(failed("incomplete-observation"), loginPaths);
   // A list of accounts shown again is the sign-in's start, not its result (ADR 0028). A
-  // stop's page is judged only on a recipe without a chooser and on its own origin: the
-  // extension never sends a chooser branch's stop (ADR 0036, account lists); nor a page
-  // beside the sign-in form (ADR 0061).
-  if (observation.accounts || ((stop || beside) && (moved || "chooser" in head.recipe)))
+  // stop's page is judged only on a layout's own route, never a chooser branch's, and on
+  // its own origin: the extension never sends a chooser branch's stop (ADR 0036, account
+  // lists); nor a page beside the sign-in form (ADR 0061).
+  if (
+    observation.accounts ||
+    ((stop || beside) && (moved || parseRecipeBranch(branch)?.branch !== undefined))
+  )
     return unsent(unavailable("not-judgeable"), loginPaths);
   // The checks use the stored recipe, never the request: a page that still shows one of
   // the password route's fill fields, of any variant and on any path, or a signed-in

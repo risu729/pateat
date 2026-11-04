@@ -190,7 +190,7 @@ export async function repairStale(
   // A list that shows every element of one of the recipe's handlers on this path is a
   // later page of the recipe's own login, as a second-factor page that shows the account's
   // email above its "Verify" button on the sign-in form's own URL: it is never sent as a
-  // list that would replace the recipe (#1248). A form beside such a button is still sent,
+  // list to store beside the recipe's form (#1248). A form beside such a button is still sent,
   // as a redesigned form that kept its "Use passkey" button: a form adds a layout.
   if (accounts && (await showsOwnHandler(rt, live, all))) {
     if (rt.documents.get(key) === live) log("skipped", "handler");
@@ -220,7 +220,7 @@ async function showsOwnHandler(
  * amended for #1248) when it shows a sign-in form instead of its list and no layout of the
  * chooser has a button for another account, so the form cannot be its `other` branch's
  * page: as after a page that only showed the signed-in account above a button was taken
- * for a list. The service replaces the chooser with a login recipe, once per document and
+ * for a list. The service adds the form's layout beside the list, once per document and
  * chooser revision, under a start page's limits.
  */
 export async function repairChooserForm(
