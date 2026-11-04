@@ -7,6 +7,7 @@ import {
   transitionLoginAttempt,
   type LoginAttemptMetadata,
 } from "../login-attempt";
+import { holdsOrigin } from "../login-attempt-hold";
 import {
   continuesRecipe,
   extendsRecipe,
@@ -514,6 +515,17 @@ function broken(
     from.operationKind === undefined
   )
     names.push("signed in by a move before anything was filled");
+  // A login that ends after the page may have taken its submission, before the site's
+  // answer, keeps holding its origin, so another tab does not log in over it (ADR 0022).
+  // An operation the runtime reports undelivered went nowhere, and a fill-only login never
+  // submits (checked above), so neither holds.
+  const delivered =
+    from.mutationIntent === true &&
+    ["awaiting-result", "reconciling"].includes(from.state) &&
+    from.fillOnly !== true &&
+    event["undelivered"] === undefined;
+  if (delivered && to.state === "blocked" && !holdsOrigin(to))
+    names.push("released an origin while a submission may still be answered");
   return names;
 }
 

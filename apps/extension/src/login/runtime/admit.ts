@@ -1,4 +1,5 @@
 import {
+  finishedLogin,
   recoverLoginAttempt,
   sameLoginDocument,
   transitionLoginAttempt,
@@ -29,7 +30,7 @@ import {
 import { leaveConfirm, previousPage, confirmSigns } from "./markers";
 import { noteUnadmitted, note, loginRelated } from "./generation";
 import { tabAttempt } from "./hold";
-import { terminal, finishedLogin, siteWaitOver, watchOver } from "./attempt-state";
+import { terminal, siteWaitOver, watchOver } from "./attempt-state";
 import { dropReprompt } from "./master-password";
 import { type MoveMiss } from "./report";
 import { countRelogin, signedInNow } from "./relogin";

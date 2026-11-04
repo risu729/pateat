@@ -6,6 +6,7 @@ export * from "./settings-store";
 export * from "./site-accounts";
 export * from "./login";
 export * from "./login-attempt";
+export * from "./login-attempt-hold";
 export * from "./logout-words";
 export * from "./manage";
 export * from "./models";
