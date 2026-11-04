@@ -236,14 +236,16 @@ export const detailSourceFieldSchema = v.union([
  * trailing `?`, `:` or their full-width forms removed (NFKC already folds those).
  */
 export function questionText(raw: string): string {
-  return raw
+  const text = raw
     .normalize("NFKC")
     .toLowerCase()
     .replaceAll(/[\u2018\u2019]/gu, "'")
     .replaceAll(/\s+/gu, " ")
-    .trim()
-    .replace(/[?:]+$/u, "")
     .trim();
+  // A loop rather than `/[?:]+$/`, which backtracks quadratically on a long run of marks.
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === "?" || text[end - 1] === ":")) end -= 1;
+  return text.slice(0, end).trim();
 }
 /** The shortest question or field name that may stand for a secret question (ADR 0061). */
 export const QUESTION_MIN_LENGTH = 4;
