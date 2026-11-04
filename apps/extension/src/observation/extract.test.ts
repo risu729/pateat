@@ -3802,6 +3802,43 @@ describe("extractSignedInObservation", () => {
     ).toEqual([{ by: "autocomplete", value: "one-time-code" }]);
   });
 
+  it("describes the role buttons of a page that shows a code input (ADR 0027 amendment of 2026-11-04)", () => {
+    // Notion's code page: its Continue below the code is a `<div role="button">`.
+    const code = `<input type="text" inputmode="numeric" autocomplete="one-time-code" aria-label="Enter verification code digit 1">${[
+      2, 3, 4, 5, 6,
+    ]
+      .map(
+        (place) =>
+          `<input type="text" inputmode="numeric" autocomplete="off" aria-label="Digit ${place}">`,
+      )
+      .join("")}`;
+    const buttons = `<div role="button" tabindex="0" aria-disabled="true">Continue</div>
+      <div role="button" tabindex="0">Try another method</div><a href="/help">Need help?</a>`;
+    page(`<main><h1>Verify your identity</h1><div>${code}</div>${buttons}</main>`);
+    const result = extractSignedInObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(summary(result.observation).filter(({ role }) => role !== "text")).toEqual([
+      { role: "button", target: { by: "text", value: "Continue" }, label: "Continue" },
+      {
+        role: "button",
+        target: { by: "text", value: "Try another method" },
+        label: "Try another method",
+      },
+      { role: "link", target: { by: "text", value: "Need help?" }, label: "Need help?" },
+    ]);
+    // The login presses Continue by it.
+    expect(findTargets(document, { by: "text", value: "Continue" })).toEqual([
+      document.querySelector("[role=button]"),
+    ]);
+    // Without a code input, such widgets stay out.
+    page(`<main><h1>Home</h1>${buttons}</main>`);
+    const home = extractSignedInObservation();
+    if (!home.ok) throw new Error(home.reason);
+    expect(summary(home.observation)).toEqual([
+      { role: "link", target: { by: "text", value: "Need help?" }, label: "Need help?" },
+    ]);
+  });
+
   it("locates a split code's inputs by names that number their places (#850)", () => {
     // Slack's two-factor page (Grok Bot, 2026-10-21: `unlocated-field`): six one-digit
     // inputs with no ID or name, outside any form, each named by its place.

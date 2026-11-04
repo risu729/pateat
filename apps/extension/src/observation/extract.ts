@@ -18,7 +18,7 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import { shortNumericInput } from "../login/inputs";
+import { acceptsSecret, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { authenticatorChoice } from "../page/authenticator-choice";
 import { splitCodeOf } from "../page/code-submission";
@@ -2750,8 +2750,16 @@ function describeSignedIn(document: Document): ObservationResult {
   // (`authenticatorChoice`, ADR 0081 amendment of 2026-11-03), as the method buttons of a
   // "Verify your identity" page often are: a login presses such a button by that text,
   // while a signed-in marker is looked up among links, never among such widgets.
+  // On a page that shows a code input, any such element is located by its text too
+  // (ADR 0027 amendment of 2026-11-04), as Notion's "Continue" below its code is: the
+  // judge may name it as the code's button, and the service never takes a text button
+  // of such a page for a signed-in marker.
   // A link that shows the same text keeps it, as on any judged page, rather than two
   // candidates sharing one target.
+  const codePage = fieldEntries.some(
+    ({ draft: { element } }) =>
+      element instanceof HTMLInputElement && acceptsSecret(element, "otp"),
+  );
   const linkShares = (element: Element) => {
     const text = buttonText(element);
     return text !== undefined && index.get("link-text")!.has(text);
@@ -2767,7 +2775,10 @@ function describeSignedIn(document: Document): ObservationResult {
         lasting: !signIn,
         labels: signIn,
         hidden: !signIn,
-        roles: isRoleButton(element) && authenticatorChoice(element) && !linkShares(element),
+        roles:
+          isRoleButton(element) &&
+          (codePage || authenticatorChoice(element)) &&
+          !linkShares(element),
         paths: headerWords,
       });
       return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
