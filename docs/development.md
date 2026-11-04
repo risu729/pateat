@@ -480,6 +480,19 @@ expanded test count. The owner approved this organization with the runtime split
 on 2026-10-30. Compare the full Verify job as well as test counts when changing the
 suite layout, since each file loads the runtime and harness separately.
 
+### Login wire contracts
+
+The login message contracts live under `apps/extension/src/login/wire/`.
+`primitives.ts` owns shared schema inputs and target states, `constants.ts` owns wait
+bounds, and `readiness.ts` owns step readiness and start-miss schemas. `messages.ts`
+owns content-to-background messages, `commands.ts` owns background-to-content commands,
+and `results.ts` owns their answers. `probe.ts` owns the synthetic probe controls.
+The existing `wire.ts` entrypoint explicitly re-exports the same public names;
+internal schema inputs stay private to these modules. Messages, commands and results
+import primitives and readiness directly, with no imports between those three
+families, so schema initialization has no cycle. Schemas, bounds and tests retain
+their behavior and existing test-file layout.
+
 ## Windows notes
 
 Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs no Windows job (the owner's
