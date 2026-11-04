@@ -8,8 +8,9 @@ Clef's cost is carried the way Claude's is, a device calls it with a Cloudflare 
 and the service calls it through its Workers AI binding. Details marked "chosen by an
 agent" were not asked. The questions and the decision role are implemented in
 `packages/inference` (`buildFieldQuestions`, `createFieldMappingDecider`,
-`createClefBindingModel`). The calls from the service and from a device are not built
-yet. Amends [ADR 0003](0003-service-and-ai.md) and
+`createClefBindingModel`), and the service asks Clef through its binding (`sendClefCall`
+in `services/api/src/claude/calls.ts`). A device with its own key does not call Clef
+yet; its requests go to Claude as before. Amends [ADR 0003](0003-service-and-ai.md) and
 [ADR 0014](0014-claude-generation-provider.md).
 
 Date: 2026-11-04
@@ -73,20 +74,27 @@ Claude as before.
 ### When Clef does not answer
 
 When Clef abstains or fails, the request goes to Claude with the owner's model choices,
-as every request did before. Clef never answers after Claude.
+as every request did before. Clef never answers after Claude. Chosen by an agent: the
+request takes its attempt ([ADR 0016](0016-recipe-generation-trigger.md)) before Clef's
+calls are sent, so when Claude then cannot be asked (its token exchange fails, or Clef's
+spend reached a stop) the request ends unavailable with that attempt taken.
 
 ### Cost and keys
 
 Clef's calls are charged the way Claude's are. A page's two calls get one request-log
-row (provider `cloudflare`, model `clef`, with both calls' answers and usage), and count
-toward the owner's daily and monthly spend stops at Workers AI's published rate
-(`clefModels`), from the input tokens they report, or the worst case for the input bound
-when a call reports none.
+row (provider `cloudflare`, model `clef`, with both calls' answers and usage; its
+request is the generation request, from which the prompt version rebuilds Clef's
+questions), and count toward the owner's daily and monthly spend stops at Workers AI's
+published rate (`clefModels`), from the input tokens they report, or the worst case for
+the input bound when a call reports none.
 
 - **The service** calls Clef through its Workers AI binding, which needs no token. It
   bills the Cloudflare account the Worker runs in, not a credential of the owner's as
-  Claude does ([ADR 0015](0015-per-owner-claude-credentials.md)); while the operator
-  and the owner are one person this makes no difference.
+  Claude does ([ADR 0015](0015-per-owner-claude-credentials.md)); while the operator and
+  the owner are one person this makes no difference. Chosen by an agent: it asks Clef
+  only for an owner who has set up a Claude credential, so an owner without one still
+  gets no model call, as before; a page Clef leaves still needs that credential's token
+  exchange.
 - **A device with its own key** ([ADR 0040](0040-running-without-the-service.md)) calls
   Clef with a Cloudflare API token and account ID it holds, as it holds its Anthropic
   key: on this device only, never synced or exported, and sent only to
@@ -119,5 +127,5 @@ labelled passkey button (23), and two more the labels had missed.
   about a quarter of what it did.
 - A page Clef leaves takes one Clef round trip longer than before.
 - The request log gets a row for Clef's answer, so a page Claude answered after Clef
-  has two rows.
+  has two rows. The dashboard counts such a page once, by the row after Clef's.
 - The service's Clef calls bill the operator's Cloudflare account.

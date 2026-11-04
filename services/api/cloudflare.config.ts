@@ -13,6 +13,9 @@ export default defineConfig({
       // Bootstrapped on 2026-10-11. The ID keeps cf deploy from provisioning another
       // database; the release applies committed migrations to exactly this one.
       DB: bindings.d1({ name: "pateat", id: "68342d29-6704-464c-bdb2-b749812c1f19" }),
+      // Workers AI, through which the service asks Clef before Claude (ADR 0083). It bills
+      // the Cloudflare account the Worker runs in.
+      AI: bindings.ai(),
       // The owner web UI built from manage/index.html, read by the Worker after Access.
       ASSETS: bindings.assets(),
       // The Access team domain (`<team>.cloudflareaccess.com`) and application
