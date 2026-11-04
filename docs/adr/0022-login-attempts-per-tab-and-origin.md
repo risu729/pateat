@@ -202,8 +202,9 @@ fix them now; the SSO policy itself is recorded separately.
     the check of the tab's new page. When none of them runs any more, as after a worker
     stop, the login ends at the time its wait ran out, without resubmitting: a top-level
     login whose tab shows a page of another origin ends as that move would have
-    (`left-origin` after a possible submission, else `interrupted`); any other settles
-    as a page that proved nothing would (`unknown-submit`, or `challenge` on the
+    (`left-origin` after a possible submission, else `interrupted`), and so does one
+    whose tab shows no web page Pateat can read (amended 2026-11-04, below); any other
+    settles as a page that proved nothing would (`unknown-submit`, or `challenge` on the
     `passkey` route or for a login with a stop), and a top-level `password` one is
     watched from then; one that submitted nothing, which would go on at its step, ends
     `cancelled` instead, as no step runs any more. A page of the tab being admitted
@@ -216,10 +217,19 @@ fix them now; the SSO policy itself is recorded separately.
     time between counts for nothing; a move that completes it still ends it when the
     page shows. A bound, not a pause: nothing waits for it to pass. While any stored
     login waits for the site, or one whose wait ran out is still decided in memory, the
-    worker calls an extension API every 20 seconds, as
-    it does during a model call, so Chrome's 30-second idle stop does not lose the waits
-    kept in memory (owner's question at 11:16 UTC on 2026-11-03); an update, a reload,
-    a browser restart or a crash still stops it, which the bound covers.
+    worker calls an extension API every 20 seconds, as it does during a model call, so
+    Chrome's 30-second idle stop does not lose the waits kept in memory (owner's
+    question at 11:16 UTC on 2026-11-03); an update, a reload, a browser restart or a
+    crash still stops it, which the bound covers. Amended on 2026-11-04 (agent's choice,
+    not confirmed by the owner): an app.notion.com tab went to `about:blank` right after
+    its password submit; at the bound the login settled as unknown and was watched for
+    10 minutes, so the site's other tabs were refused `origin-busy` for about 11 minutes
+    until the tab closed. Pateat may read the URL of every HTTP(S) page and of no other
+    page, so a tab without a URL shows `about:blank`, a new tab page or another browser
+    page, where the login can neither go on nor show its result: such a top-level login
+    ends as a move to another origin (`LEFT` in the attempt machine). It is not watched,
+    and its record holds the site for 5 minutes from its last change, as any
+    `left-origin` record does.
   - **A move after a passkey answer** (amended 2026-10-12). Such an attempt ends
     `authenticated` instead when all of these hold: after its last effect step and at
     most 30 seconds before the move, Pateat returned an assertion to a passkey request

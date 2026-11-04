@@ -21,8 +21,11 @@ const webOrigin = (url: string | undefined) => {
  * The record of a login whose wait for the site ran out at `at` (ADR 0022, amended
  * 2026-11-03), with its tab's top page at `tabUrl`. A top-level login whose tab shows a
  * page of another origin ends as that move would have, `left-origin` after a possible
- * submission; any other settles as a page that proved nothing would, watched from `at`
- * when it is a top-level `password` login. Its wait for the site ends at `at`.
+ * submission, and so does one whose tab shows no web page Pateat can read (amended
+ * 2026-11-04): Pateat may read every HTTP(S) page, so a tab without a URL shows
+ * `about:blank` or a browser page. Any other settles as a page that proved nothing
+ * would, watched from `at` when it is a top-level `password` login. Its wait for the
+ * site ends at `at`.
  */
 export function lapsed(
   rt: Runtime,
@@ -31,6 +34,8 @@ export function lapsed(
   at: number,
 ): LoginAttemptMetadata {
   const origin = webOrigin(tabUrl);
+  if (metadata.document.frameId === 0 && origin === undefined)
+    return transitionLoginAttempt(metadata, { type: "LEFT" }, at);
   if (
     metadata.document.frameId === 0 &&
     origin !== undefined &&

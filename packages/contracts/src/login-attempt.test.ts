@@ -1062,6 +1062,11 @@ describe("submission and failure reconciliation", () => {
       state: "blocked",
       outcome: "interrupted",
     });
+    // A tab that shows no web page any more ends the same way (ADR 0022, 2026-11-04).
+    expect(transitionLoginAttempt(failed, { type: "LEFT" })).toMatchObject({
+      state: "blocked",
+      outcome: "interrupted",
+    });
     // A restarted worker finds nothing in flight, and a page without the step is no
     // unknown result: the step is tried again within its retries.
     const restored = recoverLoginAttempt(failed);
@@ -1089,6 +1094,10 @@ describe("submission and failure reconciliation", () => {
     });
     expect(possible).toMatchObject({ state: "reconciling" });
     expect(transitionLoginAttempt(possible, { type: "NAVIGATED", document: away })).toMatchObject({
+      state: "blocked",
+      outcome: "left-origin",
+    });
+    expect(transitionLoginAttempt(possible, { type: "LEFT" })).toMatchObject({
       state: "blocked",
       outcome: "left-origin",
     });

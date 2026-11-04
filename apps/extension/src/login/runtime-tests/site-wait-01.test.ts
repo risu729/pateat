@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { parseLoginRecipe } from "@pateat/contracts";
 import type { LoginReport } from "../runtime/report";
-import { SITE_WAIT_MS } from "../runtime/constants";
+import { HOLD_MS, SITE_WAIT_MS } from "../runtime/constants";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
@@ -240,6 +240,37 @@ describe("a login whose wait for the site ran out", () => {
     expect(at(origin)!.watch?.since).toBe(ranOut);
     // A login settled as unknown no longer holds settings writes back.
     expect(await h.login.active()).toBe(false);
+  });
+
+  it("ends left-origin when the tab shows no web page, so the site is not held for a watch", async () => {
+    // RC 2026-11-04: app.notion.com's tab went to about:blank after the password submit,
+    // and the watch from the bound held the site against other tabs for 10 minutes.
+    fake.state.onExecute = async (message) => {
+      if ((message["operation"] as { step: { kind: string } }).step.kind === "click")
+        fake.state.gone.add("synthetic-document");
+    };
+    const h = twoSites({ siteWait: () => undefined });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(at(origin)?.timing.pageSince).toBeDefined());
+    // Pateat may read every HTTP(S) page, so `about:blank` comes without a URL.
+    const get = fake.browser.tabs.get;
+    fake.browser.tabs.get = async (id: number) => ({ id, incognito: false }) as never;
+    onTestFinished(() => {
+      fake.browser.tabs.get = get;
+    });
+    const now = Date.now.bind(Date);
+    let ahead = SITE_WAIT_MS;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + ahead);
+    onTestFinished(() => clock.mockRestore());
+    await h.login.siteWaitDue();
+    expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+    expect(at(origin)!.watch).toBeUndefined();
+    expect(at(origin)!.timing.pageMs).toBe(SITE_WAIT_MS);
+    // Another tab of the site logs in once the record's own hold ends, as after any move away.
+    fake.browser.tabs.get = get;
+    ahead = HOLD_MS + 1_000;
+    fake.state.tabUrls[2] = fake.state.pageUrl;
+    expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
   });
 
   it("leaves a login that a page that asked for a passkey holds to that page", async () => {
