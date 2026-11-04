@@ -1,39 +1,22 @@
 import { APICallError, InvalidResponseDataError } from "ai";
 import * as v from "valibot";
 import type { FiniteChoiceModel } from "../decision";
+import { clefAccountIdSchema, clefUrl, isClefModel, type ClefModelId } from "./clef-models";
+
+export {
+  clefAccountIdSchema,
+  clefModels,
+  clefUrl,
+  estimateClefCostUsd,
+  isClefModel,
+  type ClefModelId,
+} from "./clef-models";
 
 type DecideOptions = Parameters<FiniteChoiceModel["doDecide"]>[0];
 type DecideResult = Awaited<ReturnType<FiniteChoiceModel["doDecide"]>>;
 type Question = DecideOptions["questions"][string];
 type Answer = DecideResult["answers"][string];
 
-/**
- * Cloudflare's Clef decision models on Workers AI, with their published input rates (Clef
- * charges no output tokens) and context windows. Checked 2026-11-03 on
- * https://developers.cloudflare.com/workers-ai/platform/pricing/ and each model's page.
- */
-export const clefModels = {
-  "clef-flash": { inputUsdPerMillion: 0.038, contextTokens: 24_576 },
-  clef: { inputUsdPerMillion: 0.24, contextTokens: 65_536 },
-  "clef-omni": { inputUsdPerMillion: 0.15, contextTokens: 64_000 },
-} as const;
-export type ClefModelId = keyof typeof clefModels;
-export const isClefModel = (modelId: string): modelId is ClefModelId =>
-  Object.hasOwn(clefModels, modelId);
-
-/** Estimated cost from reported input tokens; undefined when usage is unknown. */
-export function estimateClefCostUsd(
-  inputTokens: number | null,
-  modelId: ClefModelId,
-): number | undefined {
-  return inputTokens === null
-    ? undefined
-    : (inputTokens * clefModels[modelId].inputUsdPerMillion) / 1_000_000;
-}
-
-// Pinned, so no setting can send the token to another host.
-const apiBase = "https://api.cloudflare.com/client/v4/accounts";
-const accountId = v.pipe(v.string(), v.regex(/^[0-9a-f]{32}$/));
 const credentialValue = v.pipe(v.string(), v.trim(), v.nonEmpty());
 
 // Clef question IDs: letters, digits, `_`, `.` and `-`, at most 100 characters.
@@ -186,7 +169,7 @@ export function createClefDecisionModel(options: {
   /** Test seam, and the relay of a call a device makes (ADR 0083). */
   fetch?: typeof globalThis.fetch;
 }): FiniteChoiceModel {
-  const account = v.parse(accountId, options.accountId);
+  const account = v.parse(clefAccountIdSchema, options.accountId);
   const token = v.parse(credentialValue, options.apiToken);
   const { modelId } = options;
   const url = clefUrl(account, modelId);
@@ -225,10 +208,6 @@ export function createClefDecisionModel(options: {
     return decisionResult(parsed.output.result, original);
   });
 }
-
-/** The Workers AI REST URL of a Clef model for an account, the only one the adapter calls. */
-export const clefUrl = (account: string, modelId: ClefModelId) =>
-  `${apiBase}/${v.parse(accountId, account)}/ai/run/@cf/cloudflare/${modelId}`;
 
 /** What the adapter needs of a Worker's Workers AI binding (`env.AI`). */
 export type WorkersAiBinding = { run(model: string, input: unknown): Promise<unknown> };

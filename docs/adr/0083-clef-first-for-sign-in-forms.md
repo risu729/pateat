@@ -9,8 +9,10 @@ and the service calls it through its Workers AI binding. Details marked "chosen 
 agent" were not asked. The questions and the decision role are implemented in
 `packages/inference` (`buildFieldQuestions`, `createFieldMappingDecider`,
 `createClefBindingModel`), and the service asks Clef through its binding (`sendClefCall`
-in `services/api/src/claude/calls.ts`). A device with its own key does not call Clef
-yet; its requests go to Claude as before. Amends [ADR 0003](0003-service-and-ai.md) and
+in `services/api/src/claude/calls.ts`). A device without a pairing asks Clef with its
+own Cloudflare token (`callModel` in `apps/extension/src/service/device-generation.ts`);
+a paired device with its own Anthropic key does not call Clef yet, and its requests go to
+Claude as before. Amends [ADR 0003](0003-service-and-ai.md) and
 [ADR 0014](0014-claude-generation-provider.md).
 
 Date: 2026-11-04
@@ -99,7 +101,14 @@ the input bound when a call reports none.
   Clef with a Cloudflare API token and account ID it holds, as it holds its Anthropic
   key: on this device only, never synced or exported, and sent only to
   `https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef`.
-  Its spend counts toward the device's limits.
+  Its spend counts toward the device's limits, at the same rate, or Clef's whole context
+  (65,536 tokens) for a call that reports no usage. Chosen by an agent: the settings
+  page's AI key section takes the account ID and a token made with Workers AI's
+  "Use REST API" (Workers AI Read and Edit), and a device asks Clef only while its
+  Anthropic key is saved too, as the service asks only for an owner with a Claude
+  credential. So far only a device without a pairing does: a paired device with its own
+  key would need the service to hand it Clef's calls as it hands it Claude's, which the
+  device-model protocol does not carry yet.
 
 Chosen by an agent: the model is `clef` (27B). `clef-flash` and `clef-omni` answered
 fewer pages right on the same questions.

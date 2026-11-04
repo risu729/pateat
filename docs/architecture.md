@@ -795,6 +795,7 @@ that these stay on the device:
 | Setting | Where it is stored | Why it stays |
 | --- | --- | --- |
 | This device's Anthropic API key ([ADR 0040](adr/0040-running-without-the-service.md)); its spend limits are synced | `storage.local` `pateat.device-model.v1` | The key is a secret |
+| This device's Cloudflare account ID and API token for Clef ([ADR 0083](adr/0083-clef-first-for-sign-in-forms.md)) | `storage.local` `pateat.device-clef.v1` | The token is a secret |
 | Debug logging until a time or until turned off ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)) | the diagnostics log's IndexedDB | The log itself never leaves the device |
 | Vault connections: server, account and sign-in ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)) | `connections` in `pateat.local-settings.v1` | Each device signs in to Bitwarden itself |
 | The demo vaults' policies | `accountPolicies`, `itemPolicies` and `customFieldReviews` entries of the `dummy` provider | The demo vaults exist on this device only |

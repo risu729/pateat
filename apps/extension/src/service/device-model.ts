@@ -20,6 +20,7 @@ import {
   estimateClaudeCost,
   type ClaudeRates,
 } from "@pateat/inference/claude-rates";
+import { clefModels, clefUrl, estimateClefCostUsd } from "@pateat/inference/clef-models";
 import * as v from "valibot";
 import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transport";
 
@@ -73,6 +74,61 @@ export const deviceModelSettingSchema = v.object({
   apiKey: deviceModelKeySchema,
 });
 export type DeviceModelSetting = v.InferOutput<typeof deviceModelSettingSchema>;
+
+/**
+ * This device's Cloudflare account and API token for Clef (ADR 0083): with them and an
+ * Anthropic key saved, a device without a pairing asks Clef first for a sign-in form. Kept
+ * like the key, on this device only.
+ */
+export const DEVICE_CLEF_KEY = "pateat.device-clef.v1";
+/** A Cloudflare account ID as pasted: 32 hexadecimal characters. */
+export const deviceClefAccountSchema = v.pipe(
+  v.string(),
+  v.trim(),
+  v.toLowerCase(),
+  v.regex(/^[0-9a-f]{32}$/u),
+);
+export const deviceClefSettingSchema = v.object({
+  version: v.literal(1),
+  accountId: deviceClefAccountSchema,
+  apiToken: deviceModelKeySchema,
+});
+export type DeviceClefSetting = v.InferOutput<typeof deviceClefSettingSchema>;
+/** The saved account and token; none when nothing is saved or the record cannot be read. */
+export function parseDeviceClefSetting(stored: unknown): DeviceClefSetting | undefined {
+  const parsed = v.safeParse(deviceClefSettingSchema, stored);
+  return parsed.success ? parsed.output : undefined;
+}
+/** The one Clef model a device asks, as the service does (ADR 0083). */
+const CLEF_MODEL = "clef";
+/** What a Clef call answered: Workers AI's status and body, or no answer. */
+export type DeviceClefResponse =
+  | { kind: "response"; status: number; body: string }
+  | { kind: "timeout" }
+  | { kind: "unreachable" };
+
+/**
+ * What a Clef call cost, from the input tokens Workers AI reported at Clef's published
+ * rate (Clef charges no output); its whole context when usage is missing, as after a
+ * timeout, and nothing for a call that never reached Cloudflare or that it refused.
+ */
+export function clefCallCostMicroUsd(response: DeviceClefResponse): number {
+  const worst = Math.ceil(
+    clefModels[CLEF_MODEL].contextTokens * clefModels[CLEF_MODEL].inputUsdPerMillion,
+  );
+  if (response.kind === "unreachable") return 0;
+  if (response.kind === "timeout") return worst;
+  let tokens: unknown;
+  try {
+    tokens = (JSON.parse(response.body) as { result?: { usage?: { input_tokens?: unknown } } })
+      .result?.usage?.input_tokens;
+  } catch {
+    // Not JSON: no answer was given, so nothing was charged.
+  }
+  if (typeof tokens === "number" && Number.isInteger(tokens) && tokens >= 0)
+    return Math.ceil((estimateClefCostUsd(tokens, CLEF_MODEL) ?? 0) * 1_000_000);
+  return response.status < 300 ? worst : 0;
+}
 
 const microUsd = v.pipe(v.number(), v.integer(), v.minValue(0));
 /** What this device's key spent in the current UTC day and month, as estimated here. */
@@ -188,6 +244,8 @@ type Unavailable = { version: 1; status: "unavailable"; reason: GenerationUnavai
  */
 export function createDeviceModel(options: {
   storage: DeviceModelStorage;
+  /** This device's Cloudflare account and token for Clef (ADR 0083), if any. */
+  clef?: { read(): Promise<unknown> };
   spend: DeviceModelSpendStorage;
   /** The profile's spend limits, read before each call; a rejection stops the call. */
   limits: () => Promise<{ dailyUsd: number; monthlyUsd: number }>;
@@ -302,6 +360,60 @@ export function createDeviceModel(options: {
     }
   }
 
+  /**
+   * Sends one Clef call with the token, to the account's Workers AI URL for Clef only, and
+   * what it cost (ADR 0083).
+   */
+  async function sendClef(
+    setting: DeviceClefSetting,
+    body: string,
+    /** Ends the call early, as the role's own time limit does. */
+    signal?: AbortSignal,
+  ): Promise<{ response: DeviceClefResponse; cost: number }> {
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(), DEVICE_MODEL_TIMEOUT_MS);
+    const stop = () => timeout.abort();
+    signal?.addEventListener("abort", stop);
+    if (signal?.aborted) stop();
+    const failed = (kind: "timeout" | "unreachable") => {
+      const response = { kind } as const;
+      return { response, cost: clefCallCostMicroUsd(response) };
+    };
+    try {
+      let response: Response;
+      try {
+        response = await fetchModel(clefUrl(setting.accountId, CLEF_MODEL), {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${setting.apiToken}`,
+            "content-type": "application/json",
+          },
+          body,
+          credentials: "omit",
+          redirect: "error",
+          signal: timeout.signal,
+        });
+      } catch {
+        return failed(timeout.signal.aborted ? "timeout" : "unreachable");
+      }
+      let text: string;
+      try {
+        text = await response.text();
+      } catch {
+        // Cloudflare answered, so the call may have been charged: count its worst case.
+        return { response: { kind: "unreachable" }, cost: failed("timeout").cost };
+      }
+      const answered = { kind: "response", status: response.status, body: text } as const;
+      const cost = clefCallCostMicroUsd(answered);
+      if (byteLength(text) > MAX_DEVICE_MODEL_RESPONSE_BYTES)
+        return { response: { kind: "unreachable" }, cost };
+      return { response: answered, cost };
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", stop);
+    }
+  }
+
   async function relay<Result extends { status: string }>(
     request: (deviceModel: DeviceModel | undefined) => Promise<InferenceResult<Result>>,
   ): Promise<InferenceResult<Result | Unavailable>> {
@@ -371,8 +483,16 @@ export function createDeviceModel(options: {
         if (!setting && stored !== undefined) throw new Error("The saved key is unreadable");
         return setting;
       },
+      /**
+       * The saved Cloudflare account and token for Clef (ADR 0083); none without one, or
+       * for a record that cannot be read, so that Claude answers alone.
+       */
+      async clefSetting(): Promise<DeviceClefSetting | undefined> {
+        return parseDeviceClefSetting(await options.clef?.read());
+      },
       stopped,
       send,
+      sendClef,
       charge,
     },
     /** The four requests, made with this device's key when one is saved. */

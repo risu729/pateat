@@ -12,7 +12,12 @@ import {
   DEVICE_GENERATION_ORIGIN,
   generationConnection,
 } from "./device-generation";
-import { createDeviceModel, type DeviceModelSetting, type DeviceModelSpend } from "./device-model";
+import {
+  createDeviceModel,
+  type DeviceClefSetting,
+  type DeviceModelSetting,
+  type DeviceModelSpend,
+} from "./device-model";
 import { createDeviceRecipes } from "./device-recipes";
 
 // A synthetic key, pages and Anthropic; nothing leaves the test.
@@ -61,12 +66,57 @@ const plan = JSON.stringify({
   },
 });
 
+const CLEF: DeviceClefSetting = {
+  version: 1,
+  accountId: "0123456789abcdef0123456789abcdef",
+  apiToken: "synthetic-cloudflare-token",
+};
+const CLEF_URL =
+  "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/run/@cf/cloudflare/clef";
+/** Clef's answers for `page` by Clef-safe question ID; unlisted choices answer none. */
+const truth: Record<string, string> = {
+  "el.email": "s:email",
+  "el.password": "s:password",
+  "slot.email": "c:email",
+  "slot.password": "c:password",
+  action: "c:sign-in",
+};
+/** Workers AI's answer to a Clef call, with `confidence` on each right choice. */
+function clefAnswer(
+  questions: Record<string, { criteria?: Record<string, unknown> }>,
+  confidence: number,
+) {
+  const answers: Record<string, unknown> = {};
+  for (const [id, question] of Object.entries(questions)) {
+    if (question.criteria === undefined) {
+      answers[id] = { type: "noul", noul: id === "signin" ? 0.95 : 0.05 };
+      continue;
+    }
+    const options = Object.keys(question.criteria);
+    const choice = truth[id] ?? "none";
+    const rest = Math.round(((1 - confidence) / (options.length - 1)) * 10_000) / 10_000;
+    answers[id] = {
+      type: "choice",
+      choice,
+      probabilities: Object.fromEntries(
+        options.map((option) => [option, option === choice ? confidence : rest]),
+      ),
+    };
+  }
+  return {
+    success: true,
+    result: { model: "clef", answers, usage: { input_tokens: 1_000, output_tokens: 0 } },
+  };
+}
+
 /** A text answer, a refusal, or an HTTP error status. */
 type Reply = string | number | { refusal: string };
 
 function setup(
   options: {
     setting?: DeviceModelSetting | undefined;
+    /** This device's Cloudflare token for Clef, and how Clef answers: its confidence or a status. */
+    clef?: { setting: DeviceClefSetting; confidence?: number; status?: number };
     spend?: DeviceModelSpend;
     replies?: Reply[];
     bindings?: SavedLoginBinding[];
@@ -78,8 +128,18 @@ function setup(
 ) {
   const replies = [...(options.replies ?? [])];
   const sent: { apiKey: string | null; authorization: string | null; model: string }[] = [];
+  const clefSent: { authorization: string | null }[] = [];
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const outbound = new Request(input, init);
+    if (outbound.url === CLEF_URL && options.clef) {
+      clefSent.push({ authorization: outbound.headers.get("authorization") });
+      if (options.clef.status !== undefined)
+        return Response.json({ success: false, errors: [] }, { status: options.clef.status });
+      const body = (await outbound.json()) as {
+        questions: Record<string, { criteria?: Record<string, unknown> }>;
+      };
+      return Response.json(clefAnswer(body.questions, options.clef.confidence ?? 0.9));
+    }
     if (outbound.url !== DEVICE_MODEL_URL) throw new Error("Unexpected request");
     const body = (await outbound.json()) as { model: string };
     sent.push({
@@ -119,6 +179,7 @@ function setup(
       write: async () => {},
       clear: async () => {},
     },
+    clef: { read: async () => options.clef?.setting },
     spend: {
       read: async () => spend,
       write: async (value) => {
@@ -163,6 +224,7 @@ function setup(
     generation,
     recipes,
     sent,
+    clefSent,
     spend: () => spend as DeviceModelSpend | undefined,
     record: () => record,
   };
@@ -468,6 +530,64 @@ describe("the device's model calls (ADR 0040)", () => {
     );
     expect(written.ok).toBe(true);
     expect(await backend.layoutUses(change.recipeId)).toBeUndefined();
+  });
+});
+
+describe("Clef first with this device's Cloudflare token (ADR 0083)", () => {
+  it("keeps Clef's answer without asking Claude, charging both calls to the device", async () => {
+    const { generation, recipes, sent, clefSent, spend } = setup({ clef: { setting: CLEF } });
+    const answer = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    expect(answer).toMatchObject({ kind: "result", result: { status: "recipe" } });
+    expect(await recipes.list()).toHaveLength(1);
+    expect(sent).toEqual([]);
+    // The token goes to the account's Clef URL only, as a bearer token, once per call.
+    expect(clefSent).toEqual([
+      { authorization: `Bearer ${CLEF.apiToken}` },
+      { authorization: `Bearer ${CLEF.apiToken}` },
+    ]);
+    // Two calls of 1,000 input tokens at $0.24 per million.
+    expect(spend()).toMatchObject({ dayMicroUsd: 480, monthMicroUsd: 480 });
+  });
+
+  it("asks Claude when Clef abstains, charging both", async () => {
+    const { generation, sent, clefSent, spend } = setup({
+      clef: { setting: CLEF, confidence: 0.6 },
+      replies: [plan],
+    });
+    const answer = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    expect(answer).toMatchObject({ kind: "result", result: { status: "recipe" } });
+    expect(clefSent).toHaveLength(2);
+    expect(sent).toHaveLength(1);
+    expect(spend()!.dayMicroUsd).toBeGreaterThan(480);
+  });
+
+  it("asks Claude when Workers AI refuses the token, charging nothing for Clef", async () => {
+    const { generation, sent, clefSent } = setup({
+      clef: { setting: CLEF, status: 403 },
+      replies: [plan],
+    });
+    const answer = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    expect(answer).toMatchObject({ kind: "result", result: { status: "recipe" } });
+    expect(clefSent.length).toBeGreaterThan(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("leaves a page the device saw signed in to Claude", async () => {
+    const { generation, sent, clefSent } = setup({ clef: { setting: CLEF }, replies: [plan] });
+    await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", { ...request, signedIn: true });
+    expect(clefSent).toEqual([]);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("asks no model without an Anthropic key, even with a Cloudflare token", async () => {
+    const { generation, sent, clefSent } = setup({ setting: undefined, clef: { setting: CLEF } });
+    const answer = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    expect(answer).toMatchObject({
+      kind: "result",
+      result: { status: "unavailable", reason: "credentials-not-configured" },
+    });
+    expect(clefSent).toEqual([]);
+    expect(sent).toEqual([]);
   });
 });
 

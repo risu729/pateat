@@ -212,6 +212,23 @@ export const settingsEn = {
   "Replace the Anthropic API key": "Replace the Anthropic API key",
   "Save key": "Save key",
   "Remove key": "Remove key",
+  "Cloudflare account ID": "Cloudflare account ID",
+  "Cloudflare API token": "Cloudflare API token",
+  "Replace the Cloudflare API token": "Replace the Cloudflare API token",
+  "Save token": "Save token",
+  "Remove token": "Remove token",
+  "The token could not be saved. Try again.": "The token could not be saved. Try again.",
+  "The token was removed from this device.": "The token was removed from this device.",
+  "The token could not be removed. Try again.": "The token could not be removed. Try again.",
+  "Paste the 32-character account ID and the whole API token from the Cloudflare dashboard.":
+    "Paste the 32-character account ID and the whole API token from the Cloudflare dashboard.",
+  "Cloudflare token saved for the account ending in {{ending}}.":
+    "Cloudflare token saved for the account ending in {{ending}}.",
+  "The saved token could not be read.": "The saved token could not be read.",
+  "With a Cloudflare token as well, a device without a paired sync service asks Cloudflare's Clef first for a sign-in form, and Claude when Clef is not sure. Clef's spend counts toward the same limits.":
+    "With a Cloudflare token as well, a device without a paired sync service asks Cloudflare's Clef first for a sign-in form, and Claude when Clef is not sure. Clef's spend counts toward the same limits.",
+  "Create the token with Workers AI's “Use REST API” in the Cloudflare dashboard (Workers AI Read and Edit). It stays on this device and is sent to Cloudflare only, never to the sync service.":
+    "Create the token with Workers AI's “Use REST API” in the Cloudflare dashboard (Workers AI Read and Edit). It stays on this device and is sent to Cloudflare only, never to the sync service.",
   "Daily limit (USD)": "Daily limit (USD)",
   "Monthly limit (USD)": "Monthly limit (USD)",
   "Removing…": "Removing…",

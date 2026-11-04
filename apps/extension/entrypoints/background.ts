@@ -63,6 +63,7 @@ import {
 import {
   createDeviceModel,
   parseSpendLimits,
+  DEVICE_CLEF_KEY,
   DEVICE_MODEL_KEY,
   DEVICE_MODEL_SPEND_KEY,
 } from "../src/service/device-model";
@@ -293,6 +294,8 @@ export default defineBackground(() => {
   // ADR 0040: with this device's own key saved, the device makes the model calls itself.
   const deviceModel = createDeviceModel({
     storage: trustedRecord(DEVICE_MODEL_KEY),
+    // ADR 0083: with a Cloudflare token saved too, a device without a pairing asks Clef first.
+    clef: trustedRecord(DEVICE_CLEF_KEY),
     spend: trustedRecord(DEVICE_MODEL_SPEND_KEY),
     // Read from the stored snapshot like the vault timeout, never behind the settings queue.
     limits: async () =>

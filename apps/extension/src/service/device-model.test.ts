@@ -11,8 +11,10 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import {
   callCostMicroUsd,
+  clefCallCostMicroUsd,
   createDeviceModel,
   currentSpend,
+  parseDeviceClefSetting,
   parseSpendLimits,
   type DeviceModelSetting,
   type DeviceModelSpend,
@@ -454,5 +456,59 @@ describe("model calls with this device's own key (ADR 0040)", () => {
     expect(
       callCostMicroUsd(BODY, { kind: "response", request: "", status: 529, body: "overloaded" }),
     ).toBe(0);
+  });
+});
+
+describe("Clef calls with this device's Cloudflare token (ADR 0083)", () => {
+  const usage = (tokens: unknown) =>
+    JSON.stringify({ success: true, result: { usage: { input_tokens: tokens } } });
+
+  it("charges the input tokens Workers AI reports at Clef's rate, and the worst case without them", () => {
+    expect(clefCallCostMicroUsd({ kind: "response", status: 200, body: usage(1_000) })).toBe(240);
+    // Clef's whole context of 65,536 tokens at $0.24 per million.
+    const worst = 15_729;
+    expect(clefCallCostMicroUsd({ kind: "timeout" })).toBe(worst);
+    expect(clefCallCostMicroUsd({ kind: "response", status: 200, body: "{}" })).toBe(worst);
+    expect(clefCallCostMicroUsd({ kind: "response", status: 200, body: usage(-1) })).toBe(worst);
+    // Refused before an answer, or never reached.
+    expect(clefCallCostMicroUsd({ kind: "response", status: 403, body: "{}" })).toBe(0);
+    expect(clefCallCostMicroUsd({ kind: "unreachable" })).toBe(0);
+  });
+
+  it("reads an account and token as pasted, and nothing else", () => {
+    const accountId = "0123456789ABCDEF0123456789abcdef";
+    expect(
+      parseDeviceClefSetting({ version: 1, accountId: ` ${accountId} `, apiToken: "t".repeat(40) }),
+    ).toEqual({ version: 1, accountId: accountId.toLowerCase(), apiToken: "t".repeat(40) });
+    expect(parseDeviceClefSetting({ version: 1, accountId: "x", apiToken: "t".repeat(40) })).toBe(
+      undefined,
+    );
+    expect(parseDeviceClefSetting(undefined)).toBe(undefined);
+  });
+
+  it("sends the token to the account's Clef URL only, and reads none without a record", async () => {
+    const fetch = vi.fn(async () => Response.json({ success: true, result: {} }));
+    const setting = {
+      version: 1 as const,
+      accountId: "0123456789abcdef0123456789abcdef",
+      apiToken: "synthetic-cloudflare-token",
+    };
+    const model = createDeviceModel({
+      storage: { read: async () => undefined, write: async () => {}, clear: async () => {} },
+      spend: { read: async () => undefined, write: async () => {} },
+      limits: async () => ({ dailyUsd: 5, monthlyUsd: 100 }),
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+    expect(await model.direct.clefSetting()).toBe(undefined);
+    const { response } = await model.direct.sendClef(setting, "{}");
+    expect(response).toMatchObject({ kind: "response", status: 200 });
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(
+      "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/run/@cf/cloudflare/clef",
+    );
+    expect(new Headers(init.headers).get("authorization")).toBe(
+      "Bearer synthetic-cloudflare-token",
+    );
+    expect(init).toMatchObject({ credentials: "omit", redirect: "error" });
   });
 });
