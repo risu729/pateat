@@ -1,16 +1,11 @@
-import { WATCH_PATH_MAX, type LoginAttemptMetadata } from "@pateat/contracts";
+import { WATCH_PATH_MAX, holdsOrigin, type LoginAttemptMetadata } from "@pateat/contracts";
 import { HOLD_MS, SITE_WAIT_MS, WATCH_MS } from "./constants";
 import { type Execution } from "./types";
 import { pathNow } from "./steps";
 
 /** Whether a record holds its origin against other tabs at `now` (ADR 0022). */
 export const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
-  entry.state !== "authenticated" &&
-  // A fill-only login never submits (ADR 0021 D).
-  !entry.fillOnly &&
-  // A login interrupted before anything was submitted never submits.
-  !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions) &&
-  !stoppedByPateat(entry) &&
+  holdsOrigin(entry) &&
   // A clock set back ends the hold rather than prolonging it.
   now - (entry.changedAt ?? 0) >= 0 &&
   now - (entry.changedAt ?? 0) < HOLD_MS;
@@ -22,44 +17,6 @@ export const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
  */
 export const holdsOthers = (entry: LoginAttemptMetadata, now: number) =>
   holdsSite(entry, now) || (entry.watch !== undefined && !watchOver(entry, now));
-
-/**
- * A login that ended with a result, or that ended when the tab left its origin (ADR 0022);
- * its first step showing again in the tab's page releases its record, and the page logs in
- * again as on any visit (ADR 0062), or asks after a rejection. A switch, a stop, or a
- * result still being reconciled does not.
- */
-export const finishedLogin = (metadata: LoginAttemptMetadata) =>
-  metadata.state === "authenticated" ||
-  (metadata.state === "blocked" &&
-    ["credential-rejected", "wrong-account", "left-origin", "interrupted"].includes(
-      metadata.outcome ?? "",
-    ));
-
-/**
- * A login Pateat itself stopped with nothing in flight: a withdrawn authorization, a
- * cancel, a value the page would not take, another account shown, or retries spent on
- * failures that changed nothing. It does not hold the origin against other tabs (ADR
- * 0022). A refusal by the site, a second-factor challenge, a submission limit, an
- * operation the page may have received or a result that may still arrive keeps holding.
- */
-export const stoppedByPateat = (metadata: LoginAttemptMetadata) =>
-  metadata.state === "blocked" &&
-  ([
-    "policy-changed",
-    "value-mismatch",
-    "wrong-account",
-    "account-switched",
-    "retry-limit",
-    // Nothing on a chooser's list fit the account (ADR 0028); nothing was clicked.
-    "account-not-listed",
-  ].includes(metadata.outcome ?? "") ||
-    // A frame login whose page went away also ends `cancelled`; after a submission that
-    // is the tab leaving, which holds like `interrupted`.
-    (metadata.outcome === "cancelled" && metadata.submissions === 0)) &&
-  metadata.mutationIntent !== true &&
-  metadata.settled !== true &&
-  !(metadata.operationKind === "click" && metadata.operationId !== undefined);
 
 export const terminal = (metadata: LoginAttemptMetadata) =>
   ["authenticated", "blocked"].includes(metadata.state);

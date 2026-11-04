@@ -1,5 +1,5 @@
-import type { LoginAttemptMetadata } from "@pateat/contracts";
-import { finishedLogin, holdsSite, stoppedByPateat, terminal, watchOver } from "./attempt-state";
+import { finishedLogin, stoppedByPateat, type LoginAttemptMetadata } from "@pateat/contracts";
+import { holdsSite, terminal, watchOver } from "./attempt-state";
 import { RESULT_CORRECTION_MS } from "./constants";
 
 /** Each phase is visited once, preserving the order of the asynchronous record effects. */

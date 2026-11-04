@@ -7,6 +7,7 @@ import {
   transitionLoginAttempt,
   type LoginAttemptMetadata,
 } from "../login-attempt";
+import { holdsOrigin } from "../login-attempt-hold";
 import {
   continuesRecipe,
   extendsRecipe,
@@ -514,6 +515,38 @@ function broken(
     from.operationKind === undefined
   )
     names.push("signed in by a move before anything was filled");
+  // A login that ends after the page may have taken its submission, before the site's
+  // answer, keeps holding its origin, so another tab does not log in over it (ADR 0022).
+  // An operation the runtime reports undelivered went nowhere, and a fill-only login never
+  // submits (checked above), so neither holds.
+  const delivered =
+    from.mutationIntent === true &&
+    ["awaiting-result", "reconciling"].includes(from.state) &&
+    from.fillOnly !== true &&
+    // As the machine takes it back: only the operation in flight, before the page took it.
+    !(event["undelivered"] === from.operationId && from.state === "reconciling");
+  if (delivered && to.state === "blocked" && !holdsOrigin(to))
+    names.push("released an origin while a submission may still be answered");
+  // And the other way: a login Pateat stopped before anything went out holds nothing, so
+  // the site's other tabs log in at once (ADR 0022).
+  const unsent =
+    to.state === "blocked" &&
+    to.submissions === 0 &&
+    to.mutationIntent !== true &&
+    to.settled !== true &&
+    !(to.operationKind === "click" && to.operationId !== undefined);
+  const pateatStop = [
+    "policy-changed",
+    "value-mismatch",
+    "wrong-account",
+    "account-switched",
+    "retry-limit",
+    "account-not-listed",
+    "cancelled",
+    "interrupted",
+  ].includes(to.outcome ?? "");
+  if (((unsent && pateatStop) || to.fillOnly === true) && holdsOrigin(to))
+    names.push("held an origin for a login that sent nothing");
   return names;
 }
 
