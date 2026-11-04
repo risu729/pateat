@@ -111,7 +111,16 @@ judge (`POST /v1/recipes/:recipeId/completion`) take an optional
    send now is asked for again with the same index, and the device drops it and every
    later one.
 
-A request carries at most 6 responses; the device stops after 12 `model-call` answers or
+A call with `provider: "cloudflare"` is one of Clef's
+([ADR 0083](0083-clef-first-for-sign-in-forms.md)), handed only to a device that says it
+holds a Cloudflare token (`deviceModel.clef: true`). The device sends it to its own
+account's Clef URL with that token, and only when the body is a `clef` request of a
+state and finite-choice questions with no other field (`deviceClefCallBody`). Clef's two
+calls come first, and the service matches each to the response for its own body, since
+they run at once.
+
+A request carries at most 8 responses (Clef's two and Claude's six); the device stops
+after 16 `model-call` answers or
 an index past its responses, and fails the request as an unexpected response. Chosen by
 an agent: in this mode the service first runs the route without writing anything to
 find out whether another call is needed, and writes the attempt record, the log rows and

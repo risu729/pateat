@@ -1,5 +1,6 @@
 import {
   DEVICE_MODEL_URL,
+  MAX_DEVICE_MODEL_CALLS,
   deviceModelRequestHash,
   type DeviceModel,
   type DeviceModelCall,
@@ -65,6 +66,7 @@ function setup(
     readSpend?: () => Promise<unknown>;
     writeSpend?: (value: DeviceModelSpend) => Promise<void>;
     readKey?: () => Promise<unknown>;
+    clef?: unknown;
     limits?: { dailyUsd: number; monthlyUsd: number } | (() => Promise<never>);
     answers?: RecipeGenerationResult[];
     fetch?: typeof globalThis.fetch;
@@ -100,6 +102,7 @@ function setup(
       write: async () => {},
       clear: async () => {},
     },
+    clef: { read: async () => options.clef },
     spend: {
       read: options.readSpend ?? (async () => spend),
       write:
@@ -276,7 +279,7 @@ describe("model calls with this device's own key (ADR 0040)", () => {
 
   it("stops a service that keeps asking for calls", async () => {
     const { transport, fetch } = setup({
-      answers: Array.from({ length: 20 }, () => CALL as RecipeGenerationResult),
+      answers: Array.from({ length: 30 }, () => CALL as RecipeGenerationResult),
       fetch: async () =>
         new Response(JSON.stringify({ usage: { input_tokens: 10, output_tokens: 10 } })),
     });
@@ -284,7 +287,8 @@ describe("model calls with this device's own key (ADR 0040)", () => {
       kind: "failed",
       error: "unexpected-response",
     });
-    expect(fetch).toHaveBeenCalledTimes(12);
+    // Twice the most calls a request makes.
+    expect(fetch).toHaveBeenCalledTimes(2 * MAX_DEVICE_MODEL_CALLS);
   });
 
   it("refuses a call that skips ahead of the responses it was given", async () => {
@@ -510,5 +514,91 @@ describe("Clef calls with this device's Cloudflare token (ADR 0083)", () => {
       "Bearer synthetic-cloudflare-token",
     );
     expect(init).toMatchObject({ credentials: "omit", redirect: "error" });
+  });
+});
+
+describe("Clef calls a paired service hands this device (ADR 0083)", () => {
+  const clef = {
+    version: 1,
+    accountId: "0123456789abcdef0123456789abcdef",
+    apiToken: "synthetic-cloudflare-token",
+  } as const;
+  const clefBody = JSON.stringify({
+    model: "clef",
+    state: { page: "A synthetic page." },
+    questions: { signin: { type: "noul", instructions: "Does this page sign in?" } },
+  });
+  const clefCall: DeviceModelCall = {
+    version: 1,
+    status: "model-call",
+    call: {
+      index: 0,
+      provider: "cloudflare",
+      headers: { "content-type": "application/json" },
+      body: clefBody,
+    },
+  };
+  const clefAnswer = JSON.stringify({
+    success: true,
+    result: { model: "clef", answers: {}, usage: { input_tokens: 1_000 } },
+  });
+
+  it("says it holds a token, sends Clef's call to its account with it, and charges it", async () => {
+    const { transport, sent, fetch, spend } = setup({
+      clef,
+      answers: [clefCall as RecipeGenerationResult, RECIPE],
+      fetch: async () => new Response(clefAnswer, { status: 200 }),
+    });
+    await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST);
+    expect(sent[0]).toEqual({ responses: [], clef: true });
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(
+      "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/run/@cf/cloudflare/clef",
+    );
+    const headers = new Headers(init.headers);
+    expect(headers.get("authorization")).toBe("Bearer synthetic-cloudflare-token");
+    expect(headers.get("x-api-key")).toBeNull();
+    expect(sent[1]).toEqual({
+      responses: [
+        {
+          kind: "response",
+          request: await deviceModelRequestHash(clefBody),
+          status: 200,
+          body: clefAnswer,
+        },
+      ],
+      clef: true,
+    });
+    // 1,000 input tokens at $0.24 per million.
+    expect((spend() as DeviceModelSpend).dayMicroUsd).toBe(240);
+  });
+
+  it("sends no Clef call without a token, nor one that asks Clef for more than its questions", async () => {
+    for (const [stored, call] of [
+      [undefined, clefCall],
+      [
+        clef,
+        {
+          ...clefCall,
+          call: {
+            ...clefCall.call,
+            body: JSON.stringify({ ...JSON.parse(clefBody), model: "clef-omni" }),
+          },
+        },
+      ],
+      [clef, { ...clefCall, call: { ...clefCall.call, provider: undefined } }],
+    ] as const) {
+      const { transport, sent, fetch } = setup({
+        clef: stored,
+        answers: [call as RecipeGenerationResult, RECIPE],
+      });
+      // oxlint-disable-next-line no-await-in-loop
+      expect(await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).toMatchObject({
+        kind: "failed",
+        error: "unexpected-response",
+      });
+      expect(fetch).not.toHaveBeenCalled();
+      expect(sent).toHaveLength(1);
+    }
   });
 });

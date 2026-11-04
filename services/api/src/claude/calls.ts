@@ -1,14 +1,10 @@
 import {
-  DEVICE_MODEL_URL,
-  deviceModelHeaderNames,
-  deviceModelRequestHash,
   INFERENCE_LOG_RETENTION_MS,
   PAGE_SAMPLE_INTERVAL_MS,
   pageKindSchema,
   parseRecipeBranch,
   type DeviceModel,
   type DeviceModelCall,
-  type GenerationUnavailableReason,
 } from "@pateat/contracts";
 import {
   choiceAttempts,
@@ -56,6 +52,7 @@ import {
 } from "../db/schema";
 import { readWifCredential, resolveClaudeCredential } from "./credentials";
 import { readIssuerConfig } from "./issuer";
+import { deviceClefRelay, deviceRelay, reserveOnce, Unsent, type Reservation } from "./call-relays";
 import { fastFailingModels, readModelConfig } from "./models";
 import { newId } from "@pateat/contracts/ids";
 
@@ -514,101 +511,11 @@ export async function callClaude<T>(
 
 type Called<T> = Extract<GenerationCallResult<T>, { status: "called" }>;
 
-/**
- * A request's `beforeSend` writes, run once before its first model request. `settled`
- * waits for a write that outlived the call, as one the role's timeout cut short; `ms` is
- * its duration, which belongs before the model call.
- */
-type Reservation = {
-  run: () => Promise<void>;
-  settled: () => Promise<void>;
-  ms: number;
-  error?: unknown;
-};
-
-/** A request `beforeSend` stopped before its first model request, with the answer's reason. */
-class Unsent extends Error {
-  readonly reason: GenerationUnavailableReason;
-  constructor(reason: GenerationUnavailableReason) {
-    super("Model call not sent");
-    this.reason = reason;
-  }
-}
-
-function reserveOnce(write: () => Promise<void>): Reservation {
-  let written: Promise<void> | undefined;
-  const reservation: Reservation = {
-    run: () => {
-      written ??= (async () => {
-        const start = Date.now();
-        try {
-          await write();
-        } catch (error) {
-          reservation.error = error;
-          throw error;
-        }
-        reservation.ms = Date.now() - start;
-      })();
-      return written;
-    },
-    settled: async () => {
-      await written?.catch(() => {});
-    },
-    ms: 0,
-  };
-  return reservation;
-}
-
 /** Whose key a request's calls use: the owner's credential, or the device's (ADR 0040). */
 type CallerKey =
   | { credential: ClaudeCredential }
   /** `index` is the call's place among the request's calls, so its response's. */
   | { device: DeviceModel; index: number };
-
-/**
- * The fetch of a call the device makes (ADR 0040). With the device's response for this
- * call, it answers with that response once the request's `beforeSend` writes ran, as a
- * sent call would; without one, or when this run built another body than the one the
- * device sent, it keeps the call in `next` for the device to make and fails the role's
- * request, which is then neither charged nor logged.
- */
-function deviceRelay(
-  caller: { device: DeviceModel; index: number },
-  /** Absent for a dry run, which writes nothing. */
-  reservation: Reservation | undefined,
-) {
-  const relay: {
-    fetch: typeof globalThis.fetch;
-    next?: DeviceModelCall["call"];
-    timedOut?: true;
-  } = {
-    fetch: async (input, init) => {
-      const outbound = new Request(input, init);
-      // The provider adapter pins the URL; anything else is never handed to the device.
-      if (outbound.url !== DEVICE_MODEL_URL || outbound.method !== "POST")
-        throw new TypeError("Unexpected model request");
-      const body = await outbound.text();
-      const response = caller.device.responses[caller.index];
-      if (!response || response.request !== (await deviceModelRequestHash(body))) {
-        const headers: Partial<Record<(typeof deviceModelHeaderNames)[number], string>> = {};
-        for (const name of deviceModelHeaderNames) {
-          const value = outbound.headers.get(name);
-          if (value !== null) headers[name] = value;
-        }
-        relay.next = { index: caller.index, headers, body };
-        throw new Error("Model call left to the device");
-      }
-      await reservation?.run();
-      if (response.kind === "timeout") relay.timedOut = true;
-      if (response.kind !== "response") throw new Error("No model response on the device");
-      return new Response(response.body, {
-        status: response.status,
-        headers: { "content-type": "application/json" },
-      });
-    },
-  };
-  return relay;
-}
 
 async function runCall<T>(
   env: CallEnv,
@@ -651,7 +558,8 @@ async function runCall<T>(
           ownerId,
           call,
           call.firstChoice,
-          env.AI,
+          createClefBindingModel({ ai: env.AI, modelId: CLEF_MODEL }),
+          "service",
           reservation,
           startedAt,
         );
@@ -672,9 +580,56 @@ async function runCall<T>(
       if (stopped) return { status: "unavailable", reason: stopped };
     }
 
+    // A device with its own key and a Cloudflare token makes Clef's calls itself, as it
+    // makes Claude's (ADR 0083): they come first among its calls, and Claude's follow.
+    let claudeIndex = 0;
+    /** Clef's calls the device made, which the row of Claude's last run logs first. */
+    let clefToLog = false;
+    if (call.firstChoice && device?.clef) {
+      const relay = deviceClefRelay(device);
+      let probe: InferenceOutcome<T>;
+      try {
+        probe = await call.firstChoice.invoke(relay.model);
+      } catch {
+        probe = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
+      }
+      const next = relay.next();
+      if (next) return { status: "device-call", call: next };
+      claudeIndex = relay.used();
+      clefToLog = true;
+      if (probe.status === "ok") {
+        let first: Awaited<ReturnType<typeof sendClefCall<T>>>;
+        try {
+          first = await sendClefCall(
+            db,
+            ownerId,
+            call,
+            call.firstChoice,
+            // Each run of the role takes the device's responses anew.
+            deviceClefRelay(device).model,
+            "device",
+            reservation,
+            startedAt,
+          );
+        } catch (error) {
+          if (error instanceof Unsent) return { status: "unavailable", reason: error.reason };
+          throw error;
+        }
+        // Logged already, whatever it answered this time.
+        clefToLog = false;
+        if (first.outcome.status === "ok")
+          return {
+            status: "called",
+            ...first,
+            served: { provider: "cloudflare", model: CLEF_MODEL },
+            promptVersion: call.firstChoice.promptVersion,
+          };
+      }
+    }
+
     let caller: CallerKey;
     let tokenMs = 0;
-    if (device) caller = { device, index: 0 };
+    if (device) caller = { device, index: claudeIndex };
     else {
       const tokenStart = Date.now();
       const credential = await resolveClaudeCredential(env, ownerId);
@@ -738,6 +693,18 @@ async function runCall<T>(
       if (probe.status === "device-call") return probe;
     }
     try {
+      // Clef's calls the device made are logged once, as Claude's are, before Claude's.
+      if (clefToLog && call.firstChoice && device)
+        await sendClefCall(
+          db,
+          ownerId,
+          call,
+          call.firstChoice,
+          deviceClefRelay(device).model,
+          "device",
+          reservation,
+          startedAt,
+        );
       return await run(false);
     } catch (error) {
       // `beforeSend` stopped the request before its first model request was sent.
@@ -903,13 +870,14 @@ async function sendClefCall<T>(
   ownerId: string,
   call: GenerationCall<T>,
   first: NonNullable<GenerationCall<T>["firstChoice"]>,
-  ai: WorkersAiBinding,
+  /** Clef through the binding, or the calls the device made (ADR 0040), which it pays. */
+  clef: FiniteChoiceModel,
+  source: "service" | "device",
   reservation: Reservation,
   startedAt: number,
 ): Promise<{ outcome: InferenceOutcome<T>; logId?: string; timings: GenerationCallTimings }> {
   const [month, day] = periods(Date.now());
   const modelStart = Date.now();
-  const clef = createClefBindingModel({ ai, modelId: CLEF_MODEL });
   const model: FiniteChoiceModel = {
     ...clef,
     doDecide: async (options) => {
@@ -949,7 +917,7 @@ async function sendClefCall<T>(
       ownerId,
       role: call.role,
       provider: "cloudflare",
-      source: "service",
+      source,
       modelId: CLEF_MODEL,
       effort: null,
       speed: null,
@@ -978,10 +946,17 @@ async function sendClefCall<T>(
       outputTokens: outcome.usage.outputTokens,
       costMicroUsd: micro,
       ...timings,
+      // The device's calls happen where the service cannot time them.
+      ...(source === "device" ? { modelMs: null } : {}),
       createdAt: finished,
     }),
-    addSpend(db, ownerId, month, outcome.calls, micro),
-    addSpend(db, ownerId, day, outcome.calls, micro),
+    // The spend stops count the owner's own calls only; a device's token pays its own.
+    ...(source === "device"
+      ? []
+      : [
+          addSpend(db, ownerId, month, outcome.calls, micro),
+          addSpend(db, ownerId, day, outcome.calls, micro),
+        ]),
   ]);
   try {
     await purgeExpiredLog(db, finished);

@@ -10,9 +10,11 @@ agent" were not asked. The questions and the decision role are implemented in
 `packages/inference` (`buildFieldQuestions`, `createFieldMappingDecider`,
 `createClefBindingModel`), and the service asks Clef through its binding (`sendClefCall`
 in `services/api/src/claude/calls.ts`). A device without a pairing asks Clef with its
-own Cloudflare token (`callModel` in `apps/extension/src/service/device-generation.ts`);
-a paired device with its own Anthropic key does not call Clef yet, and its requests go
-to Claude as before. Amends [ADR 0003](0003-service-and-ai.md) and
+own Cloudflare token (`callModel` in `apps/extension/src/service/device-generation.ts`),
+and so does a paired device with its own key, through the device-model protocol
+(`deviceClefRelay` in `calls.ts`; the owner, 09:32 UTC:
+「clefも同じようにしたらいいのでは？ペアリング有無関わらず」). Amends
+[ADR 0003](0003-service-and-ai.md) and
 [ADR 0014](0014-claude-generation-provider.md).
 
 Date: 2026-11-04
@@ -106,9 +108,12 @@ the input bound when a call reports none.
   page's AI key section takes the account ID and a token made with Workers AI's
   "Use REST API" (Workers AI Read and Edit), and a device asks Clef only while its
   Anthropic key is saved too, as the service asks only for an owner with a Claude
-  credential. So far only a device without a pairing does: a paired device with its own
-  key would need the service to hand it Clef's calls as it hands it Claude's, which the
-  device-model protocol does not carry yet.
+  credential. A paired device with its own key says it holds a token
+  (`deviceModel.clef`), and the service hands it Clef's two calls as it hands it
+  Claude's (`provider: "cloudflare"`, [ADR 0040](0040-running-without-the-service.md)),
+  before any of Claude's. The device sends only a `clef` request of a state and
+  finite-choice questions (`deviceClefCallBody`). The request log gets the Clef row
+  with source `device`, and the owner's spend stops do not count it.
 
 Chosen by an agent: the model is `clef` (27B). `clef-flash` and `clef-omni` answered
 fewer pages right on the same questions.

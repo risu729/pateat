@@ -1,4 +1,5 @@
 import {
+  deviceClefCallBody,
   deviceModelCallBody,
   deviceModelRequestHash,
   type DeviceModelResponse,
@@ -106,7 +107,7 @@ async function owner({ claude = false } = {}): Promise<Device> {
   return { ownerId, token };
 }
 
-async function generate(device: Device, responses: DeviceModelResponse[]) {
+async function generate(device: Device, responses: DeviceModelResponse[], clef = false) {
   const response = await exports.default.fetch("https://pateat.invalid/v1/recipes/generate", {
     method: "POST",
     headers: { Authorization: `Bearer ${device.token}`, "Content-Type": "application/json" },
@@ -115,7 +116,7 @@ async function generate(device: Device, responses: DeviceModelResponse[]) {
       observation: loginPage,
       slots,
       signedIn: false,
-      deviceModel: { responses },
+      deviceModel: { responses, ...(clef ? { clef: true } : {}) },
     }),
   });
   expect(response.status).toBe(200);
@@ -359,9 +360,129 @@ describe("model calls a paired device makes with its own key (ADR 0040)", () => 
         observation: loginPage,
         slots,
         signedIn: false,
-        deviceModel: { responses: Array.from({ length: 7 }, () => response) },
+        deviceModel: { responses: Array.from({ length: 9 }, () => response) },
       }),
     });
     expect(sent.status).toBe(400);
+  });
+});
+
+/** Clef's answers for `loginPage` by Clef-safe question ID; unlisted choices answer none. */
+const truth: Record<string, string> = {
+  "el.email": "s:email",
+  "el.password": "s:password",
+  "slot.email": "c:email",
+  "slot.password": "c:password",
+  action: "c:sign-in",
+};
+/** Workers AI's answer to the Clef call `body`, with `confidence` on each right choice. */
+async function clefAnswered(body: string, confidence: number): Promise<DeviceModelResponse> {
+  const { questions } = JSON.parse(body) as {
+    questions: Record<string, { criteria?: Record<string, unknown> }>;
+  };
+  const answers: Record<string, unknown> = {};
+  for (const [id, question] of Object.entries(questions)) {
+    if (question.criteria === undefined) {
+      answers[id] = { type: "noul", noul: id === "signin" ? 0.95 : 0.05 };
+      continue;
+    }
+    const options = Object.keys(question.criteria);
+    const choice = truth[id] ?? "none";
+    const rest = Math.round(((1 - confidence) / (options.length - 1)) * 10_000) / 10_000;
+    answers[id] = {
+      type: "choice",
+      choice,
+      probabilities: Object.fromEntries(
+        options.map((option) => [option, option === choice ? confidence : rest]),
+      ),
+    };
+  }
+  return {
+    kind: "response",
+    request: await deviceModelRequestHash(body),
+    status: 200,
+    body: JSON.stringify({
+      success: true,
+      result: { model: "clef", answers, usage: { input_tokens: 1_000, output_tokens: 0 } },
+    }),
+  };
+}
+
+/** A Clef call the routes hand over, which the device sends with its Cloudflare token. */
+function clefCall(answer: RecipeGenerationResult) {
+  if (answer.status !== "model-call")
+    throw new Error(`Expected a model call, got ${answer.status}`);
+  expect(answer.call.provider).toBe("cloudflare");
+  expect(deviceClefCallBody(answer.call)).toBe(answer.call.body);
+  expect(deviceModelCallBody(answer.call)).toBeUndefined();
+  return answer.call;
+}
+
+describe("Clef calls a paired device makes with its Cloudflare token (ADR 0083)", () => {
+  it("hands Clef's two calls to the device and stores Clef's answer without Claude", async () => {
+    const device = await owner();
+    const first = clefCall(await generate(device, [], true));
+    expect(first.index).toBe(0);
+    const responses = [await clefAnswered(first.body, 0.9)];
+    const second = clefCall(await generate(device, responses, true));
+    expect(second.index).toBe(1);
+    expect(second.body).not.toBe(first.body);
+    // Nothing is reserved or logged until the device has made every call.
+    expect(await logOf(device.ownerId)).toEqual([]);
+    responses.push(await clefAnswered(second.body, 0.9));
+    expect((await generate(device, responses, true)).status).toBe("recipe");
+    expect(await logOf(device.ownerId)).toEqual([
+      {
+        source: "device",
+        model_id: "clef",
+        outcome: "ok",
+        input_tokens: 2_000,
+        output_tokens: 0,
+        cost_micro_usd: 480,
+        token_ms: 0,
+        model_ms: null,
+      },
+    ]);
+    // The device's token pays; the spend stops count the owner's own calls.
+    expect(await rows("SELECT * FROM inference_spend WHERE owner_id = ?", device.ownerId)).toEqual(
+      [],
+    );
+    expect(
+      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toHaveLength(1);
+    expect(outbound).toBe(0);
+  });
+
+  it("hands Claude's call over after Clef's when Clef abstains, and logs each once", async () => {
+    const device = await owner();
+    const responses: DeviceModelResponse[] = [];
+    for (const index of [0, 1]) {
+      // oxlint-disable-next-line no-await-in-loop -- each call follows the answer before
+      const call = clefCall(await generate(device, responses, true));
+      expect(call.index).toBe(index);
+      // oxlint-disable-next-line no-await-in-loop
+      responses.push(await clefAnswered(call.body, 0.6));
+    }
+    const claude = modelCall(await generate(device, responses, true));
+    expect(claude.index).toBe(2);
+    expect(claude.provider).toBeUndefined();
+    responses.push(await answered(claude.body, { text: plan }));
+    expect((await generate(device, responses, true)).status).toBe("recipe");
+    const logged = await logOf(device.ownerId);
+    expect(logged.map((row) => [row.source, row.model_id, row.outcome])).toEqual([
+      ["device", "clef", "abstained"],
+      ["device", "claude-opus-5-5", "ok"],
+    ]);
+    expect(
+      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toHaveLength(1);
+    expect(outbound).toBe(0);
+  });
+
+  it("hands Claude's call first to a device without a Cloudflare token", async () => {
+    const device = await owner();
+    const call = modelCall(await generate(device, []));
+    expect(call.index).toBe(0);
+    expect(call.provider).toBeUndefined();
   });
 });
