@@ -723,7 +723,12 @@ and a hostname just chosen holds at once, before its write lands. A login there 
 its item as holding no passkey, so it takes a password route or none; observation,
 filling and recipe generation for passwords are unaffected.
 
-The account choice is a saved site default applied on the next login. A default names
+The account choice is a saved site default applied on the next login. One chosen with
+the popup's **Use as default** makes that tab's frames announce again as new pages, so
+its login starts at once, and a sign-in form shown in place after its window closed may
+be sent for a recipe once more
+([ADR 0021](adr/0021-account-choice-outside-settings.md#amendment-a-default-chosen-in-the-popup-logs-in-at-once-2026-11-04)).
+A default names
 the provider account and item, not this device's connection. Without one, a single
 eligible provider URI match is used and saved only after confirmed `authenticated`; a
 saved choice keeps winning when more items match later

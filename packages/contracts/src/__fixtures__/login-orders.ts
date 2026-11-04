@@ -66,6 +66,8 @@ const events: AttemptEvent[] = [
   })),
   { type: "NAVIGATED", document: nextPage },
   { type: "NAVIGATED", document: otherOrigin },
+  // The tab shows no web page once the wait for the site ran out (ADR 0022).
+  { type: "LEFT" },
   { type: "INTERRUPTED" },
   { type: "RETRY" },
   { type: "RETRY", final: true },

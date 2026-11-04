@@ -129,8 +129,8 @@ export const ja = {
     "既定のアカウントはありません。一致するアイテムが 1 件だけの場合、Pateat はそのアイテムを使います。",
   "Some vaults or items could not be checked, so this list may be incomplete.":
     "確認できなかった保管庫やアイテムがあるため、この一覧は不完全な可能性があります。",
-  "A default takes effect at the next login.":
-    "既定のアカウントは次回のログインから有効になります。",
+  "Choosing a default logs in with it on this page when it shows a sign-in.":
+    "既定のアカウントを選ぶと、このページにログインフォームがあればすぐにそのアカウントでログインします。",
   "Use as default": "既定として使う",
   "and its subdomains": "とそのサブドメイン",
   "Change in settings for {{hostname}}": "{{hostname}} の設定を変更",

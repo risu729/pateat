@@ -1206,16 +1206,21 @@ export function SiteApp({
         );
         return;
       }
-      void change(
-        (value) => {
-          value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
-          value.siteDefaults.push(entry);
-        },
-        (translate) =>
-          translate("{{name}} is now the default for this site.", {
-            name: accountName(selected, found?.accounts),
-          }),
-      );
+      void (async () => {
+        const done = await change(
+          (value) => {
+            value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
+            value.siteDefaults.push(entry);
+          },
+          (translate) =>
+            translate("{{name}} is now the default for this site.", {
+              name: accountName(selected, found?.accounts),
+            }),
+        );
+        // The tab's page logs in with it now, not at its next load (ADR 0021, amended
+        // 2026-11-04).
+        if (done && tabId !== undefined) await choices.defaultChosen(tabId).catch(() => undefined);
+      })();
     };
 
     const removeDefault = () =>
@@ -1548,7 +1553,9 @@ export function SiteApp({
                 )}
                 <li className="popup-line popup-line--idle">
                   <Clock size={16} strokeWidth={2} aria-hidden="true" />
-                  <span>{t("A default takes effect at the next login.")}</span>
+                  <span>
+                    {t("Choosing a default logs in with it on this page when it shows a sign-in.")}
+                  </span>
                 </li>
               </ul>
               {(options.length > 0 || current) && (

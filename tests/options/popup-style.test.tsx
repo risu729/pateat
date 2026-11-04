@@ -82,6 +82,7 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
       .mockResolvedValue({ ok: true, origin: ORIGIN, recipe: "page" }),
     switchTo: vi.fn<ChoiceClient["switchTo"]>().mockResolvedValue({ ok: true }),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
+    defaultChosen: vi.fn<ChoiceClient["defaultChosen"]>().mockResolvedValue({ ok: true }),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
@@ -161,6 +162,7 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
     }),
     switchTo: vi.fn<ChoiceClient["switchTo"]>(),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
+    defaultChosen: vi.fn<ChoiceClient["defaultChosen"]>().mockResolvedValue({ ok: true }),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
@@ -245,6 +247,7 @@ test("long vault labels of a page's personal details wrap inside the 360px popup
     pause: vi.fn<ChoiceClient["pause"]>(),
     pauseState: vi.fn<ChoiceClient["pauseState"]>(),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
+    defaultChosen: vi.fn<ChoiceClient["defaultChosen"]>().mockResolvedValue({ ok: true }),
   };
   const source = {
     connectionId: "demo-personal",
@@ -335,6 +338,7 @@ test("forced colors keep the selected account visible", async () => {
     pause: vi.fn<ChoiceClient["pause"]>(),
     pauseState: vi.fn<ChoiceClient["pauseState"]>(),
     reprompt: vi.fn<ChoiceClient["reprompt"]>(),
+    defaultChosen: vi.fn<ChoiceClient["defaultChosen"]>().mockResolvedValue({ ok: true }),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>

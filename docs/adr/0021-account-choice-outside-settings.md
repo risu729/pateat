@@ -15,7 +15,9 @@ Amended on 2026-10-16 by the owner: in D, a click on a control that logs out als
 the tab ask (implemented, see [logout clicks](#logout-clicks)). Amended on 2026-10-24 by
 Claude as a fix, with the owner's choices of 2026-10-23 and 2026-10-24: in D, a resumed
 login its recipe no longer runs ends as a stopped one (implemented, see the end of the
-2026-10-12 stopped-login amendment).
+2026-10-12 stopped-login amendment). Amended on 2026-11-04 by the owner's request: a
+default chosen in the popup logs that tab in at once (implemented, see
+[the amendment](#amendment-a-default-chosen-in-the-popup-logs-in-at-once-2026-11-04)).
 
 Amended on 2026-10-25 by
 [ADR 0080](0080-login-usernames-kept-while-unlocked.md) (owner): the usernames the popup
@@ -723,3 +725,33 @@ outside incognito), asks for it:
 - The background checks the password offline, one at a time, and never aborts a check
   midway; five wrong passwords end the request. The window's answer for such an entry is
   only accepted through the check (implemented).
+
+## Amendment: a default chosen in the popup logs in at once (2026-11-04)
+
+The owner asked on 2026-11-04 (13:45 UTC) that choosing an account in the popup starts
+the login. On Discord's `/login` (build dd8c50f) the page first showed Discord's own
+list of remembered accounts, which was not sent (`nothing-offered`, `no-list`). "Add an
+account" then swapped in its email and password form at the same URL. A form shown after
+the page's window to be sent closed, with no URL change, is not sent
+([ADR 0016](0016-recipe-generation-trigger.md)), so nothing was logged for it. The owner
+then chose a default with **Use as default**. That only saved the setting: the popup
+said "A default takes effect at the next login", so the open form stayed empty.
+
+Decision: when **Use as default** saves the site default, the popup tells the worker
+(`login.default.chosen` with the tab), and every frame of the tab announces again as a
+new page (`login.reconnect` with `fresh: true`). The page's login then starts with that
+account. A sign-in form the page shows, also one shown in place after its window closed,
+may be sent for a recipe once more, under the usual rules of ADR 0016 (vault match,
+pause, retry window per origin and path). A choice the page waited for without a default
+ends first. A login the tab still runs that the save did not stop, as a watched one (ADR
+0027), goes on, and nothing announces (`login-running`). Each refusal still applies (a
+paused site, a site another tab's login holds, a signed-in page), so the new
+announcement logs nothing in there. A default saved in the settings page or synced from
+another device does not announce any tab: only the popup names the tab the person is
+looking at. Removing a default announces nothing. The popup's line under the list now
+says "Choosing a default logs in with it on this page when it shows a sign-in."
+(implemented).
+
+Alternatives: keep the next-load rule, which leaves an open sign-in form unfilled after
+the person chose its account; or announce every tab of the site on any default change,
+which would also start logins in background tabs from a sync.
