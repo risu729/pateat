@@ -23,7 +23,8 @@ unpacked extension. Until then, [build it from source](#build-from-source).
   installing Google Chrome separately on the dot's computer, with the owner's approval,
   and adding an extension there; the dot's tasks still used the managed browser
   ([openai/codex#50057](https://github.com/openai/codex/issues/50057), 2026-10-01).
-  Pateat has not been tried in such a separately installed Chrome.
+  The owner found the same: a separately installed Chrome could be driven, but it
+  could not be made the dot's default browser, so it does not help.
 - A Bitwarden account on Bitwarden Cloud (US or EU), on a self-hosted Bitwarden server,
   or on the latest release of [Vaultwarden](https://github.com/dani-garcia/vaultwarden),
   reached over HTTPS (or plain HTTP on `localhost` or `127.0.0.1`). On Bitwarden's own

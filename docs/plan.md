@@ -828,7 +828,9 @@ than in this repository.
   in that browser until OpenAI offers an install path. A Google Chrome installed
   separately on the dot's computer accepted an extension for one user
   ([openai/codex#50057](https://github.com/openai/codex/issues/50057)), but the dot's
-  tasks kept using the managed browser; Pateat has not been tried there.
+  tasks kept using the managed browser. The owner saw the same: it could be driven but
+  not made the dot's default browser (owner, 2026-11-04 12:20 UTC), so it is not
+  pursued.
 - Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
   regularly, such as card statements and AI usage pages, so the Bot never needs a
   password (owner, 2026-10-12 14:00 UTC; a phase 1 goal until the owner moved it here
