@@ -262,6 +262,24 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
         expect(status()![0]).toMatchObject({ state: "authenticated" });
       },
     );
+    it("ends left-origin on the quiet top page after a frame left the move to it", async () => {
+      const { h } = await moved();
+      fake.state.tabUrls[1] = `${auth}/welcome`;
+      expect(
+        await h.hello(
+          {
+            frameId: 3,
+            documentId: "auth-frame",
+            url: `${auth}/frame`,
+            tab: { id: 1, url: `${auth}/welcome` },
+          },
+          false,
+        ),
+      ).toMatchObject({ ok: false, reason: "tab-busy" });
+      expect(status()![0]).not.toMatchObject({ state: "blocked" });
+      await visit(h, `${auth}/welcome`, "auth-document");
+      expect(status()![0]).toMatchObject({ state: "blocked", outcome: "left-origin" });
+    });
     it("reads the tab's next page when the other site's page went away", async () => {
       const { h } = await moved();
       fake.state.gone = new Set(["redirect-document"]);
