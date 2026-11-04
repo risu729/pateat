@@ -63,22 +63,27 @@ import {
   createCompletionJudge,
   recipeElements,
   createEntryGenerator,
+  createFieldMappingDecider,
   createRecipeGenerator,
   customSlotNames,
   entryGenerationInstructions,
   entryGenerationPromptVersion,
   entryRecipe,
+  fieldDecisionPromptVersion,
   generationInstructions,
   generationPromptVersion,
   outputRejection,
   passkeyOnlyGenerationInstructions,
   passkeyOnlyGenerationPromptVersion,
+  type FiniteChoiceModel,
   type InferenceErrorCode,
   type InferenceOutcome,
   type ValidatedGeneratedPage,
 } from "@pateat/inference";
 import * as v from "valibot";
 import {
+  CLEF_LIMITS,
+  CLEF_MIN_PROBABILITY,
   MAX_OUTPUT_TOKENS,
   ROLE_LIMITS,
   type AttemptKey,
@@ -687,6 +692,21 @@ export async function generateRecipe(
         ...(passkeyOnly ? { passkeyOnly } : {}),
         ...(signedIn === undefined ? {} : { signedIn }),
       }),
+    // Clef answers a sign-in form first (ADR 0083); a list of accounts, a passkey-only
+    // page and a page the device saw signed in go to generation alone.
+    ...(list || passkeyOnly || signedIn === true || slots.length === 0
+      ? {}
+      : {
+          firstChoice: {
+            promptVersion: await fieldDecisionPromptVersion(),
+            invoke: (model: FiniteChoiceModel) =>
+              createFieldMappingDecider({
+                model,
+                limits: CLEF_LIMITS,
+                minProbability: CLEF_MIN_PROBABILITY,
+              })({ observation, slots, startPage, carriedNames }),
+          },
+        }),
     logValue: (value) => {
       if ("accountList" in value)
         return {
@@ -724,7 +744,7 @@ export async function generateRecipe(
     origin: "generated",
     units,
     served,
-    promptVersion: logged.promptVersion,
+    promptVersion: call.promptVersion ?? logged.promptVersion,
     logId,
   });
   const result = unsettled(call.outcome);

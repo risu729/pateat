@@ -1,4 +1,5 @@
 import type { GenerationBackend } from "@pateat/generation";
+import type { WorkersAiBinding } from "@pateat/inference";
 import { and, count, eq, gt, gte, inArray, lt, notInArray, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { DeviceScope } from "../auth";
@@ -21,7 +22,13 @@ import {
 } from "../recipe-store";
 import { recipeBindingSlots } from "../settings-store";
 
-type GenerationEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
+type GenerationEnv = {
+  DB: D1Database;
+  OIDC_ISSUER?: string;
+  OIDC_SIGNING_KEYS?: string;
+  /** Clef's Workers AI binding (ADR 0083). */
+  AI?: WorkersAiBinding;
+};
 
 /**
  * The generation routes' backend on the service (ADR 0040): the owner's D1 rows and

@@ -8,8 +8,9 @@ Clef's cost is carried the way Claude's is, a device calls it with a Cloudflare 
 and the service calls it through its Workers AI binding. Details marked "chosen by an
 agent" were not asked. The questions and the decision role are implemented in
 `packages/inference` (`buildFieldQuestions`, `createFieldMappingDecider`,
-`createClefBindingModel`). The calls from the service and from a device are not built
-yet. Amends [ADR 0003](0003-service-and-ai.md) and
+`createClefBindingModel`), and the service asks Clef through its binding (`sendClefCall`
+in `services/api/src/claude/calls.ts`). A device with its own key does not call Clef
+yet; its requests go to Claude as before. Amends [ADR 0003](0003-service-and-ai.md) and
 [ADR 0014](0014-claude-generation-provider.md).
 
 Date: 2026-11-04
@@ -85,8 +86,11 @@ when a call reports none.
 
 - **The service** calls Clef through its Workers AI binding, which needs no token. It
   bills the Cloudflare account the Worker runs in, not a credential of the owner's as
-  Claude does ([ADR 0015](0015-per-owner-claude-credentials.md)); while the operator
-  and the owner are one person this makes no difference.
+  Claude does ([ADR 0015](0015-per-owner-claude-credentials.md)); while the operator and
+  the owner are one person this makes no difference. Chosen by an agent: it asks Clef
+  only for an owner who has set up a Claude credential, so an owner without one still
+  gets no model call, as before; a page Clef leaves still needs that credential's token
+  exchange.
 - **A device with its own key** ([ADR 0040](0040-running-without-the-service.md)) calls
   Clef with a Cloudflare API token and account ID it holds, as it holds its Anthropic
   key: on this device only, never synced or exported, and sent only to

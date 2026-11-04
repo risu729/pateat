@@ -10,7 +10,9 @@ import type {
 } from "@pateat/contracts";
 import type {
   ClaudeModelChoice,
+  ClefModelId,
   createClaudeGenerationModel,
+  FiniteChoiceModel,
   InferenceOutcome,
 } from "@pateat/inference";
 import type { RecipeUnit } from "./units";
@@ -57,12 +59,25 @@ export type RecipeUnitOrigin = (typeof recipeUnitOrigins)[number];
 export type ClaudeModel = ReturnType<typeof createClaudeGenerationModel>;
 
 /** The model a call asked, as the request log keeps it, for the route that made the call. */
-export type ServedModel = {
-  provider: "anthropic";
-  model: string;
-  effort: ClaudeModelChoice["effort"];
-  speed: "standard" | "fast";
-};
+export type ServedModel =
+  | {
+      provider: "anthropic";
+      model: string;
+      effort: ClaudeModelChoice["effort"];
+      speed: "standard" | "fast";
+    }
+  /** Clef on Workers AI (ADR 0083), which takes no effort or speed. */
+  | { provider: "cloudflare"; model: ClefModelId; effort?: undefined; speed?: undefined };
+
+/**
+ * The finite-choice role's bounds (ADR 0083): the generation role's time and retries, and
+ * input below Clef's 65,536-token context with room for what Clef adds. Bytes stand in for
+ * tokens, which they overstate for this content.
+ */
+export const CLEF_LIMITS = { timeoutMs: 10_000, maxInputBytes: 63_488, maxRetries: 0 };
+/** The Clef model and threshold the role asks with (ADR 0083). */
+export const CLEF_MODEL = "clef" satisfies ClefModelId;
+export const CLEF_MIN_PROBABILITY = 0.7;
 
 /**
  * What a recipe write records of its units (ADR 0060, generation provenance): the units a
@@ -116,6 +131,15 @@ export type GenerationCall<T> = {
    */
   beforeSend?: (now: number) => Promise<GenerationUnavailableReason | void>;
   invoke: (model: ClaudeModel) => Promise<InferenceOutcome<T>>;
+  /**
+   * Asked before `invoke` where the backend can call Clef (ADR 0083): an `ok` outcome
+   * answers the request, and any other leaves it to `invoke` with the owner's model
+   * choices. Logged with its own prompt version.
+   */
+  firstChoice?: {
+    promptVersion: string;
+    invoke: (model: FiniteChoiceModel) => Promise<InferenceOutcome<T>>;
+  };
   /** The structured result to log for an `ok` outcome. */
   logValue: (value: T) => unknown;
   /**
@@ -161,6 +185,8 @@ export type GenerationCallResult<T> =
       timings: GenerationCallTimings;
       /** The model that gave `outcome`: the last one asked. */
       served: ServedModel;
+      /** The prompt version of the role that gave `outcome`, when it was `firstChoice`. */
+      promptVersion?: string;
     }
   /**
    * The device makes the next model call (ADR 0040): the route answers with it, and has

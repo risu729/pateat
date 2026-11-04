@@ -12,6 +12,8 @@ import {
 } from "@pateat/contracts";
 import {
   choiceAttempts,
+  CLEF_LIMITS,
+  CLEF_MODEL,
   MAX_OUTPUT_TOKENS,
   nextAttempt,
   ROLE_LIMITS,
@@ -26,14 +28,19 @@ import {
 } from "@pateat/generation";
 import {
   claudeWorstCaseRates,
+  clefModels,
   createClaudeGenerationModel,
+  createClefBindingModel,
   estimateClaudeCostUsd,
+  estimateClefCostUsd,
   irreversibleSchema,
   outputRejection,
   unknownUsage,
   type ClaudeCredential,
   type ClaudeModelChoice,
+  type FiniteChoiceModel,
   type InferenceOutcome,
+  type WorkersAiBinding,
 } from "@pateat/inference";
 import * as v from "valibot";
 import { and, count, eq, gt, gte, inArray, isNull, lt, lte, ne, notExists, sql } from "drizzle-orm";
@@ -47,7 +54,7 @@ import {
   owners,
   problemLog,
 } from "../db/schema";
-import { resolveClaudeCredential } from "./credentials";
+import { readWifCredential, resolveClaudeCredential } from "./credentials";
 import { fastFailingModels, readModelConfig } from "./models";
 import { newId } from "@pateat/contracts/ids";
 
@@ -94,7 +101,13 @@ const worstCaseMicroUsd = ({ rates }: ClaudeModelChoice) => {
 
 type Db = DrizzleD1Database<Record<string, never>>;
 const DAY_MS = 24 * 60 * 60 * 1000;
-type CallEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
+type CallEnv = {
+  DB: D1Database;
+  OIDC_ISSUER?: string;
+  OIDC_SIGNING_KEYS?: string;
+  /** The Workers AI binding Clef is called through (ADR 0083); absent, Claude answers alone. */
+  AI?: WorkersAiBinding;
+};
 /** The layout a request log row is for (ADR 0060): the one given, or the one `branch` names. */
 const loggedLayout = ({ layout, branch }: { layout?: string; branch: string }) =>
   layout ?? parseRecipeBranch(branch)?.layout ?? null;
@@ -613,6 +626,46 @@ async function runCall<T>(
       (await call.gate?.(start)) ?? (device ? undefined : await limitReached(db, ownerId, start));
     if (blocked) return { status: "unavailable", reason: blocked };
 
+    const reservation = reserveOnce(async () => {
+      const refused = await call.beforeSend?.(Date.now());
+      if (refused) throw new Unsent(refused);
+    });
+
+    // Clef answers first where it can (ADR 0083). A device with its own key calls the
+    // models itself, so the service's binding takes no part in its requests.
+    if (call.firstChoice && !device && env.AI) {
+      // Only an owner who set up Claude is served (chosen by an agent): an owner without a
+      // credential gets no Clef call the operator pays for, as before.
+      if (!(await readWifCredential(env.DB, ownerId)))
+        return { status: "unavailable", reason: credentialUnavailable.not_configured };
+      let first: Awaited<ReturnType<typeof sendClefCall<T>>>;
+      try {
+        first = await sendClefCall(
+          db,
+          ownerId,
+          call,
+          call.firstChoice,
+          env.AI,
+          reservation,
+          startedAt,
+        );
+      } catch (error) {
+        // `beforeSend` stopped the request before its first model request was sent.
+        if (error instanceof Unsent) return { status: "unavailable", reason: error.reason };
+        throw error;
+      }
+      if (first.outcome.status === "ok")
+        return {
+          status: "called",
+          ...first,
+          served: { provider: "cloudflare", model: CLEF_MODEL },
+          promptVersion: call.firstChoice.promptVersion,
+        };
+      // Claude's row counts Clef's call in its time before the model. Clef's spend may have reached a stop before Claude is asked.
+      const stopped = await limitReached(db, ownerId, Date.now());
+      if (stopped) return { status: "unavailable", reason: stopped };
+    }
+
     let caller: CallerKey;
     let tokenMs = 0;
     if (device) caller = { device, index: 0 };
@@ -630,10 +683,6 @@ async function runCall<T>(
       fastFailingModels(env.DB, ownerId, Date.now(), device ? "device" : "service"),
     ]);
     const choices = roleChoices(config, call.role, fastFailing);
-    const reservation = reserveOnce(async () => {
-      const refused = await call.beforeSend?.(Date.now());
-      if (refused) throw new Unsent(refused);
-    });
 
     // The role's choices in order (owner decision, 2026-10-23 11:31 UTC): a refusal asks
     // the next choice; fast mode that failed asks the same model at the standard speed; any
@@ -820,6 +869,113 @@ async function sendCall<T>(
           addSpend(db, ownerId, month, outcome.calls, micro),
           addSpend(db, ownerId, day, outcome.calls, micro),
         ]),
+  ]);
+  try {
+    await purgeExpiredLog(db, finished);
+  } catch {
+    console.error("Inference log purge failed");
+  }
+  return { outcome, logId, timings };
+}
+
+/**
+ * Clef's charge for a call that reported no usage: the input bound at its rate, since
+ * Clef charges no output (ADR 0083).
+ */
+const clefWorstCaseMicroUsd = Math.ceil(
+  CLEF_LIMITS.maxInputBytes * clefModels[CLEF_MODEL].inputUsdPerMillion,
+);
+
+/**
+ * Asks Clef through the Workers AI binding for `runCall` (ADR 0083), in the request's
+ * slot, after the request's `beforeSend` writes, then charges its calls to the spend stops
+ * at Workers AI's rate and logs them in one row with Clef's answers. Like `sendCall`, a
+ * request the role refused before any call gets no row.
+ */
+async function sendClefCall<T>(
+  db: Db,
+  ownerId: string,
+  call: GenerationCall<T>,
+  first: NonNullable<GenerationCall<T>["firstChoice"]>,
+  ai: WorkersAiBinding,
+  reservation: Reservation,
+  startedAt: number,
+): Promise<{ outcome: InferenceOutcome<T>; logId?: string; timings: GenerationCallTimings }> {
+  const [month, day] = periods(Date.now());
+  const modelStart = Date.now();
+  const clef = createClefBindingModel({ ai, modelId: CLEF_MODEL });
+  const model: FiniteChoiceModel = {
+    ...clef,
+    doDecide: async (options) => {
+      await reservation.run();
+      return clef.doDecide(options);
+    },
+  };
+  let outcome: InferenceOutcome<T>;
+  try {
+    outcome = await first.invoke(model);
+  } catch {
+    // The role returns its errors; this only guards the spend and the log row.
+    outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };
+  }
+  await reservation.settled();
+  if (reservation.error !== undefined) throw reservation.error;
+  const reservedMs = reservation.ms;
+  reservation.ms = 0;
+  const timings = {
+    preModelMs: modelStart - startedAt + reservedMs,
+    tokenMs: 0,
+    modelMs: Date.now() - modelStart - reservedMs,
+  };
+  if (outcome.calls === 0) return { outcome, timings };
+  const estimate = estimateClefCostUsd(outcome.usage.inputTokens, CLEF_MODEL);
+  const micro =
+    estimate === undefined
+      ? clefWorstCaseMicroUsd * outcome.calls
+      : Math.ceil(estimate * 1_000_000);
+  const finished = Date.now();
+  const logId = newId();
+  const { recipeId, branch, baseRevision, page } = call.recipe;
+  const result = loggedResult(call, outcome);
+  await db.batch([
+    db.insert(inferenceLog).values({
+      id: logId,
+      ownerId,
+      role: call.role,
+      provider: "cloudflare",
+      source: "service",
+      modelId: CLEF_MODEL,
+      effort: null,
+      speed: null,
+      promptVersion: first.promptVersion,
+      origin: call.origin,
+      path: call.path,
+      request: call.request,
+      result,
+      answer: outcome.answer ?? null,
+      outcome: outcome.status === "failed" ? outcome.error : outcome.status,
+      recipeId,
+      branch,
+      layout: loggedLayout(call.recipe),
+      baseRevision,
+      recipePage: page ?? null,
+      // Clef answers a plan's kind and `irreversible` in its value, not as a plan answer.
+      ...pageKindColumns(
+        call.request,
+        outcome.status === "ok" && typeof result === "object" && result !== null
+          ? { decision: "plan", ...result }
+          : undefined,
+      ),
+      build: PATEAT_BUILD_REVISION,
+      observationHash: await observationHash(call.request.observation),
+      inputTokens: outcome.usage.inputTokens,
+      outputTokens: outcome.usage.outputTokens,
+      costMicroUsd: micro,
+      ...timings,
+      createdAt: finished,
+    }),
+    addSpend(db, ownerId, month, outcome.calls, micro),
+    addSpend(db, ownerId, day, outcome.calls, micro),
   ]);
   try {
     await purgeExpiredLog(db, finished);
