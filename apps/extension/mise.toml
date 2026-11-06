@@ -76,7 +76,8 @@ description = "Extract observations, resolve element locators, collect diagnosti
 # browser suites share one port; run them after the builds and one at a time.
 depends = [":build:probe", "//services/api:build"]
 wait_for = ["//tests/options:test"]
-run = "node ../../node_modules/vitest/vitest.mjs run --config src/vitest.dom.config.ts"
+# CI's Verify job sets PATEAT_SKIP_COMPONENTS: its `Orders and components` job runs this suite.
+run = '{% if env.PATEAT_SKIP_COMPONENTS %}node -e "console.log(\"Skipped: CI runs the Chromium component suites in their own job.\")"{% else %}node ../../node_modules/vitest/vitest.mjs run --config src/vitest.dom.config.ts{% endif %}'
 
 [tasks.test]
 description = "Run every extension test area."

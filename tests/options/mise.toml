@@ -6,4 +6,5 @@ run = "tsc --noEmit -p tsconfig.json"
 [tasks.test]
 description = "Exercise settings components with a synthetic client in Chromium."
 depends = ["//apps/extension:build:probe", "//services/api:build"]
-run = "node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts"
+# CI's Verify job sets PATEAT_SKIP_COMPONENTS: its `Orders and components` job runs this suite.
+run = '{% if env.PATEAT_SKIP_COMPONENTS %}node -e "console.log(\"Skipped: CI runs the Chromium component suites in their own job.\")"{% else %}node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts{% endif %}'

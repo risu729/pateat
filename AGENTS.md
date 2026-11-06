@@ -73,8 +73,9 @@
   and say in the ask that it was reviewed.
 - Never skip, disable or quarantine a test to make CI pass. Running the end-to-end
   suite in its own jobs with `PATEAT_SKIP_E2E`, or the walks over every order of events
-  in their own job with `PATEAT_SKIP_ORDERS`
-  ([CI](docs/delivery.md#current-foundation-workflows)), is not a skip.
+  and the Chromium component suites in their own job with `PATEAT_SKIP_ORDERS` and
+  `PATEAT_SKIP_COMPONENTS` ([CI](docs/delivery.md#current-foundation-workflows)), is not
+  a skip.
 - An agent that acts on GitHub as the owner's account never pushes to, closes or
   reopens a PR it did not open, except that it closes a PR its own merged PR
   superseded, after commenting there with a link to that PR (owner, 2026-10-23 12:18

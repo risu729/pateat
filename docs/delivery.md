@@ -16,8 +16,8 @@ split over these jobs (times from main
 
 | Job | Runs | When | Time |
 | --- | --- | --- | --- |
-| `Verify` | `mise run check` with `PATEAT_SKIP_E2E=1`, `PATEAT_SKIP_ORDERS=1` and `PATEAT_COVERAGE=1`: hk's static checks, every typecheck, unit and component test (with [coverage](development.md#test-coverage)), the Chromium component suites and the server build checks; on a main push it also packs the server artifact | always | 4 to 6 minutes (5m48s in that run), the longest job |
-| `Event orders` | `mise run //packages/contracts:test:orders`, the walks over every order of events of the small logins (no coverage) | always | under 1 minute |
+| `Verify` | `mise run check` with `PATEAT_SKIP_E2E=1`, `PATEAT_SKIP_ORDERS=1`, `PATEAT_SKIP_COMPONENTS=1` and `PATEAT_COVERAGE=1`: hk's static checks, every typecheck and unit test (with [coverage](development.md#test-coverage)) and the server build checks, without a browser; on a main push it also packs the server artifact | always | 4 to 6 minutes before 2026-11-06 (5m48s in that run) |
+| `Orders and components` | `mise run //packages/contracts:test:orders` (the walks over every order of events of the small logins) beside the three Chromium component suites `//tests/options:test`, `//apps/extension:test:dom` and `//tests/manage:test` (one at a time, with coverage) | always | about 3 minutes expected |
 | `Browser (1/6)` to `(6/6)` | `mise run //tests/extension:test` with `PATEAT_E2E_SHARD=<n>/6`, the packaged-extension Playwright suite | always | 2.5 to 4 minutes |
 | `CI Check` | fails unless every job above succeeded (a failed, cancelled or skipped job fails it); the only required status check | always, even after a failure | seconds |
 | `Deploy tested server` | releases the tested server (below) | main push after `CI Check` passed | about 1 minute |
@@ -31,12 +31,18 @@ Rules and their reasons:
   owner removed it after it hung for 10 minutes on a main push, failed `CI Check` and
   stopped that deployment
   ([run 42060813609](https://github.com/risu729/pateat/actions/runs/42060813609)).
-- The two `PATEAT_SKIP_*` variables only move work into parallel jobs; a local
-  `mise run check` without them runs everything. The order walks are separate because
-  beside the unit tests they compete for the four CPUs: each took about 50 s and hit
-  Vitest's 5 s test timeout
-  ([run 40034957203](https://github.com/risu729/pateat/actions/runs/40034957203)). Keep
-  `Event orders` well under `Verify`.
+- The three `PATEAT_SKIP_*` variables only move work into parallel jobs; a local
+  `mise run check` without them runs everything. The order walks and the Chromium
+  component suites leave `Verify` because beside its unit tests they compete for the
+  four CPUs: each walk took about 50 s and hit Vitest's 5 s test timeout
+  ([run 40034957203](https://github.com/risu729/pateat/actions/runs/40034957203)), and
+  the component suites, which run one at a time after both extension builds, made up the
+  last 2 minutes of `Verify`
+  ([run 42211009805](https://github.com/risu729/pateat/actions/runs/42211009805));
+  started beside the unit tests instead, they still took 2m40s there because the type
+  check gating the builds and the suites themselves slowed down
+  ([run 42225972636](https://github.com/risu729/pateat/actions/runs/42225972636)). Keep
+  `Orders and components` under the longest `Browser` shard.
 - The Playwright suite runs as six shards, one worker each, split by test
   (`fullyParallel`). `tests/extension/shard-reporter.ts` deals the tests out in turn,
   keeping a `serial` or `default` mode suite together, because Playwright's contiguous
