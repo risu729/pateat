@@ -15,7 +15,8 @@ assigns the milestone gates still open to its phases.
 
 This plan is the single work tracker until the remaining tasks move to issues in
 [phase 4](#phase-4-issues-and-work-as-needed). Issues and PRs link to these gates rather
-than maintaining a second roadmap.
+than maintaining a second roadmap. Issues filed earlier at the owner's request are
+listed under phase 4.
 
 ## Roadmap
 
@@ -73,9 +74,14 @@ through
 the lock, log out and vault timeout part of
 [#614](https://github.com/risu729/pateat/pull/614) landed as
 [ADR 0075](adr/0075-vault-lock-and-timeout.md) through
-[#993](https://github.com/risu729/pateat/pull/993), and its allowed-sites half is still
-to come; [#613](https://github.com/risu729/pateat/pull/613) is being rebuilt as
-[#997](https://github.com/risu729/pateat/pull/997).
+[#993](https://github.com/risu729/pateat/pull/993), and its allowed-sites half as
+[ADR 0077](adr/0077-allowed-sites.md) through
+[#1004](https://github.com/risu729/pateat/pull/1004) and
+[#1048](https://github.com/risu729/pateat/pull/1048);
+[#613](https://github.com/risu729/pateat/pull/613) was rebuilt as
+[ADR 0040](adr/0040-running-without-the-service.md) through
+[#997](https://github.com/risu729/pateat/pull/997) to
+[#1021](https://github.com/risu729/pateat/pull/1021).
 
 Accessibility work has lower priority from 2026-10-23 (owner, 12:57 UTC,
 「一旦アクセシビリティの優先度は下げる」): accessibility work not yet started waits
@@ -531,10 +537,11 @@ than in this repository.
   say why Pateat did nothing on a page, go to the service's `problem_log` automatically
   (owner, 2026-10-23 12:28 and 13:00 UTC), kept a year, shown on `/manage/problems` and
   read by Claude through read-only D1 without a report
-  ([ADR 0066](adr/0066-problem-lines-sent-to-the-service.md)); implemented with local
-  tests only, not deployed. The rest of the log stays local
-  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)). The service also has each recipe
-  revision's first login result in `login_outcomes` (owner, 2026-10-18 06:08 UTC,
+  ([ADR 0066](adr/0066-problem-lines-sent-to-the-service.md)); deployed: production
+  `problem_log` holds lines from the owner's devices (read 2026-11-06). The rest of the
+  log stays local ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)). The service also
+  has each recipe revision's first login result in `login_outcomes` (owner, 2026-10-18
+  06:08 UTC,
   [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation))
   and every ended login's result and times in `login_timings`
   ([ADR 0055](adr/0055-login-records-sent-to-the-service.md)).
@@ -1127,16 +1134,17 @@ Once the fixes have settled:
   PR.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
-  user-facing pages for installation, setup and permissions, plus the M6 operational
-  docs. Started: [`apps/docs`](development.md#docs-website) builds in CI with English
-  and Japanese pages ([ADR 0047](adr/0047-japanese-user-docs-locales.md)) for
+  user-facing pages for installation, setup and permissions. Started:
+  [`apps/docs`](development.md#docs-website) builds in CI with English and Japanese
+  pages ([ADR 0047](adr/0047-japanese-user-docs-locales.md)) for
   installation, setup, permissions and a draft privacy policy with the Chrome Web Store
   Limited Use statement. Still to do: deploying it (a public assets-only Worker with
-  per-PR previews, owner 2026-10-23), the M6 operational docs, and updating the
-  installation page once releases exist. The [operations runbook](operations.md) now
-  documents current retry/revert procedures and the unverified D1 restore and
-  rollback-automation boundaries; this does not complete installed-Chrome or
-  disaster-recovery acceptance.
+  per-PR previews, as the owner chose on 2026-10-23; adding that deployment still waits
+  for the owner's go-ahead), and updating the installation page once releases exist.
+  The [operations runbook](operations.md) holds M6's operational docs: the current
+  retry/revert procedures and the unverified D1 restore and rollback-automation
+  boundaries. No gap in it is known as of 2026-11-06. This does not complete
+  installed-Chrome or disaster-recovery acceptance.
 - A mode without the service, designed with the owner on 2026-10-23
   ([ADR 0040](adr/0040-running-without-the-service.md)): a device may hold its own
   Anthropic API key and call the model itself, also while paired, where the service only
@@ -1149,10 +1157,10 @@ Once the fixes have settled:
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
   UTC). Include Chrome's built-in Prompt API (`LanguageModel`, an on-device model) in
-  that comparison (owner, 2026-10-13 21:36 UTC). Do not compare models on the corpus
-  yet: the request log first keeps what a corpus needs, with earlier rows filled in
-  (both done in [ADR 0012](adr/0012-inference-request-log.md)), and the corpus is
-  rebuilt as regular use adds rows. The comparison is with Clef, and Jev may be tried
+  that comparison (owner, 2026-10-13 21:36 UTC). The request log first had to keep what
+  a corpus needs, with earlier rows filled in (both done in
+  [ADR 0012](adr/0012-inference-request-log.md)), and the corpus is rebuilt as regular
+  use adds rows. The comparison is with Clef, and Jev may be tried
   too; Claude Sonnet and Haiku are for checking whether a part that Clef or the like
   cannot do can use a cheaper or faster model (owner, 2026-10-18 04:34 UTC). Log rows
   are kept one year, so the earliest ones (2026-10-11) are deleted from 2027-10-11; a
@@ -1163,7 +1171,13 @@ Once the fixes have settled:
   pages are published and labelled is in
   [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-11-03-the-request-log-corpus).
   `mise run //packages/inference:corpus:log` turns exported rows into the corpus, and
-  `--corpus log` scores it; the corpus holds no pages yet.
+  `--corpus log` scores it. The corpus holds 154 public cases
+  (`packages/inference/src/corpus/log.json`) built from the log on 2026-11-03; pages
+  that would reveal a tenant stay outside the repository. Clef was then compared with
+  Claude on it, and the owner chose Clef first for sign-in forms with Claude when Clef
+  abstains ([ADR 0083](adr/0083-clef-first-for-sign-in-forms.md), 2026-11-04,
+  implemented). The comparison with Jev and Chrome's Prompt API is not done; it needs
+  paid calls and so the owner's approval.
 - The login runtime is split (owner, 2026-10-23 22:23 UTC; merged 2026-10-29):
   `apps/extension/src/login/runtime.ts` is now `apps/extension/src/login/runtime/`,
   every file within the 1,000-line limit, and `runtime.production.test.ts` is now
@@ -1237,8 +1251,9 @@ Once the fixes have settled:
   disprove each finding, and write the surviving ones as a Markdown, JSONL and SARIF
   report, with optional patch files that are never applied, committed or pushed on their
   own. Each scan writes them to a `CLAUDE-SECURITY-<timestamp>/` directory in the
-  repository. Which scans run and when is decided when it is adopted. Not started
-  without the owner's confirmation (owner, 2026-10-13 15:10 UTC).
+  repository. Which scans run and when is decided when it is adopted. Each step needs
+  the owner's confirmation (owner, 2026-10-13 15:10 UTC); the plugin was added and one
+  scan ran (below).
   - Started (owner, 2026-10-15 11:09 UTC): the owner added the plugin to their claude.ai
     account from the plugin directory, which loads it into this project's cloud threads.
     A repository `.claude/settings.json` does not, because cloud sessions do not install
@@ -1300,7 +1315,11 @@ separately (owner, 2026-10-14 07:24 UTC), and the adopted
 [#553](https://github.com/risu729/pateat/issues/553) and
 [#555](https://github.com/risu729/pateat/issues/555) to
 [#563](https://github.com/risu729/pateat/issues/563), one per feature, each of which can
-be started from the issue alone (owner, 2026-10-14 08:40 UTC). The list below names
+be started from the issue alone (owner, 2026-10-14 08:40 UTC). Since 2026-11-06 (owner,
+10:26 UTC: 「issueにいろいろタスクを作ってください。codexにPRを作らせます」) tasks an
+agent can do without the owner are filed as issues too, each written with enough context
+for another agent, such as Codex, to open a pull request from the issue alone; the owner
+had this plan's docs brought up to date before they were filed. The list below names
 items the owner mentioned and gates still open on 2026-10-11.
 
 - From the [external review](research/2026-10-13-external-review.md): a scheduled purge
@@ -1454,7 +1473,8 @@ items the owner mentioned and gates still open on 2026-10-11.
   grows (owner, 2026-10-11 17:48 UTC): the
   [research note](research/2026-10-11-clef-finite-choice.md) covers its API, where it
   would fit in recipe generation, cost, and the open questions (Japanese, calibration,
-  who pays, abstention handover).
+  who pays, abstention handover). Built since then: Clef answers sign-in forms first
+  ([ADR 0083](adr/0083-clef-first-for-sign-in-forms.md), 2026-11-04).
 - An agent skill for pruning the low-value tests agents write (owner, 2026-10-12 07:32
   UTC): the [survey](research/2026-10-12-test-pruning-skills.md) compares six skills;
   the owner chose OpenClaw's `test-audit` (07:43 UTC), planned in
