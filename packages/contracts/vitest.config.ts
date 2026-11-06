@@ -2,8 +2,8 @@ import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    // CI's Verify job sets PATEAT_SKIP_ORDERS: its `Event orders` job runs the walks over
-    // every order of events (`test:orders`) beside it.
+    // CI's Verify job sets PATEAT_SKIP_ORDERS: its `Orders and components` job runs the
+    // walks over every order of events (`test:orders`) beside it.
     exclude: [
       ...configDefaults.exclude,
       ...(process.env["PATEAT_SKIP_ORDERS"] ? ["src/**/*.orders-*.test.ts"] : []),

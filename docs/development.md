@@ -369,20 +369,25 @@ installation material covers the site.
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
-2026-10-12). The Verify job runs `mise run check` with `PATEAT_COVERAGE=1`, so every
-Vitest run writes `coverage/<run>/coverage-final.json` with `@vitest/coverage-v8`; each
+2026-10-12). The Verify job runs `mise run check` with `PATEAT_COVERAGE=1`, and the
+`Orders and components` job runs the Chromium component suites with it, so every Vitest
+run writes `coverage/<run>/coverage-final.json` with `@vitest/coverage-v8`; each
 `test:<area>` task of the extension names its own `<run>` directory. The next step,
 `mise run coverage:summary`, merges those files with `@vitest/istanbul-lib-coverage`
 (Vitest's maintained fork of `istanbul-lib-coverage`) and writes line, branch, function
 and statement coverage per project (`apps/extension/src`, `packages/*/src`,
 `services/api/src`, `services/api/web`) to the job summary; the step runs even after a
-failed check and never fails the job. A file reached by several runs, such as extension
-code tested by a unit area and a Browser Mode suite, counts once. No threshold fails CI.
-The packaged-extension Playwright suite (`tests/extension`) is not measured, so code
-that runs only there, such as `apps/extension/src/login/content.ts`, `crypto/worker.ts`
-and the connections, crypto and vault `probe.ts` files, shows as uncovered. For the same
-table locally, delete `coverage/`, run `mise run check:runtime` with `PATEAT_COVERAGE`
-set to any non-empty value, then `mise run coverage:summary`.
+failed check and never fails the job. A file reached by several runs counts once. The
+two jobs write separate tables: since 2026-11-06 extension code tested both by a unit
+area and by a Browser Mode suite counts in each job's table only for what that job ran,
+and the `Verify` table shows `services/api/web` as `-`, since only the management-page
+suite reaches it.
+No threshold fails CI. The packaged-extension Playwright suite (`tests/extension`) is
+not measured, so code that runs only there, such as
+`apps/extension/src/login/content.ts`, `crypto/worker.ts` and the connections, crypto
+and vault `probe.ts` files, shows as uncovered. For the same table locally, delete
+`coverage/`, run `mise run check:runtime` with `PATEAT_COVERAGE` set to any non-empty
+value, then `mise run coverage:summary`.
 
 Not adopted: Codecov, which adds an external service and an upload token, and GitHub
 Code Quality's pull-request coverage, which requires Code Quality; GitHub offers Code
@@ -1202,15 +1207,15 @@ two devices' syncs and edits in random orders while uploads, their answers and s
 writes fail. Where every state is small enough to list, walk them all instead of
 sampling: the `packages/contracts/src/*.orders-*.test.ts` files apply every event of a
 fixed set to every state a small login attempt reaches, and CI runs them in the
-`Event orders` job ([CI](delivery.md#current-foundation-workflows)). The set holds every
-event type of the attempt machine; those that carry what the runtime works out from a
-recipe (a handler's steps, a continued page, another layout or route) are built from the
-walk's recipes as the runtime builds them, and those it sends only for a kind of step (a
-code the page submitted, a disabled final advance) only at such a step. One file per
-kind of login start (a stop before a missing password, the passkey route, handlers, a
-continued recipe, layouts, a chooser's list, a frame, fill-only) keeps each walk under
-20,000 states (a walk fails past 60,000), and those beside the two plain recipes leave
-out the events that only multiply their states (`focused` in
+`Orders and components` job ([CI](delivery.md#current-foundation-workflows)). The set
+holds every event type of the attempt machine; those that carry what the runtime works
+out from a recipe (a handler's steps, a continued page, another layout or route) are
+built from the walk's recipes as the runtime builds them, and those it sends only for a
+kind of step (a code the page submitted, a disabled final advance) only at such a step.
+One file per kind of login start (a stop before a missing password, the passkey route,
+handlers, a continued recipe, layouts, a chooser's list, a frame, fill-only) keeps each
+walk under 20,000 states (a walk fails past 60,000), and those beside the two plain
+recipes leave out the events that only multiply their states (`focused` in
 `__fixtures__/login-orders.ts`). Each state is also checked against the hold rules of
 ADR 0022 the runtime uses (`login-attempt-hold.ts`): a login that ends after the page
 may have taken its submission still holds its origin. Component tests cover drafts,

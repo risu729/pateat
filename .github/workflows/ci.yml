@@ -30,17 +30,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # No browser: every suite that drives Chromium runs in another job.
       - uses: $/.github/actions/setup
-        with:
-          browser: "true"
       - name: Run the complete local verification graph
         env:
           # Use the read-only job token for upstream action-pin verification.
           GITHUB_TOKEN: ${{ github.token }}
           # The browser shards below run the packaged-extension browser tests.
           PATEAT_SKIP_E2E: "1"
-          # The `Event orders` job below walks every order of events of a small login.
+          # The `Orders and components` job below walks every order of events of a small
+          # login and runs the Chromium component suites.
           PATEAT_SKIP_ORDERS: "1"
+          PATEAT_SKIP_COMPONENTS: "1"
           # Each Vitest run writes coverage/<run>/coverage-final.json.
           PATEAT_COVERAGE: "1"
         run: mise run check
@@ -65,9 +66,9 @@ jobs:
           overwrite: true
           retention-days: 14
   orders:
-    name: Event orders
+    name: Orders and components
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -75,10 +76,21 @@ jobs:
         with:
           persist-credentials: false
       - uses: $/.github/actions/setup
-      # Each walk takes seconds of CPU: beside the rest of the graph in Verify they took about
-      # 50 s each (run 40034957203), here they add nothing to the run's time.
-      - name: Walk every order of events of a small login
-        run: mise run //packages/contracts:test:orders
+        with:
+          browser: "true"
+      # Both take minutes of CPU that Verify's unit tests compete for: beside them each walk
+      # took about 50 s (run 40034957203), and the three Chromium suites, which run one at a
+      # time after both builds, added about 2 minutes to Verify (run 42211009805).
+      - name: Walk every order of events and run the Chromium component suites
+        env:
+          PATEAT_COVERAGE: "1"
+        run: |
+          mise run //packages/contracts:test:orders ::: //tests/options:test \
+            ::: //apps/extension:test:dom ::: //tests/manage:test
+      - name: Summarize component coverage
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: mise run coverage:summary
   browser:
     name: Browser (${{ matrix.shard }}/${{ matrix.total }})
     runs-on: ubuntu-26.04

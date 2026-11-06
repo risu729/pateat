@@ -7,37 +7,18 @@ run = "node ../../node_modules/wxt/bin/wxt.mjs prepare"
 [tasks.build]
 description = "Package the Chrome extension shell."
 depends = [":prepare"]
-# The build rewrites .wxt, which the type check and the unit tests read.
-wait_for = [
-  ":typecheck",
-  ":test:connections",
-  ":test:crypto",
-  ":test:login",
-  ":test:messaging",
-  ":test:passkeys",
-  ":test:popup",
-  ":test:service",
-  ":test:storage",
-  ":test:vault",
-]
+# The build rewrites .wxt, which the type check reads through tsconfig.json. The unit
+# tests read only .wxt/tsconfig.json, which WXT rewrites only when its content changes
+# and which no build mode changes, and never the build output; so the build and the
+# Chromium suites after it run beside them.
+wait_for = [":typecheck"]
 run = "node ../../node_modules/wxt/bin/wxt.mjs build --browser chrome"
 
 [tasks.zip]
 description = "Build the production extension and pack it as the release ZIP."
 depends = [":prepare"]
 # Like :build, it rewrites .wxt and the production output.
-wait_for = [
-  ":build",
-  ":build:probe",
-  ":typecheck",
-  ":test:connections",
-  ":test:crypto",
-  ":test:login",
-  ":test:messaging",
-  ":test:passkeys",
-  ":test:service",
-  ":test:vault",
-]
+wait_for = [":build", ":build:probe", ":typecheck"]
 run = "node ../../node_modules/wxt/bin/wxt.mjs zip --browser chrome"
 
 [tasks."build:probe"]
@@ -95,7 +76,8 @@ description = "Extract observations, resolve element locators, collect diagnosti
 # browser suites share one port; run them after the builds and one at a time.
 depends = [":build:probe", "//services/api:build"]
 wait_for = ["//tests/options:test"]
-run = "node ../../node_modules/vitest/vitest.mjs run --config src/vitest.dom.config.ts"
+# CI's Verify job sets PATEAT_SKIP_COMPONENTS: its `Orders and components` job runs this suite.
+run = '{% if env.PATEAT_SKIP_COMPONENTS %}node -e "console.log(\"Skipped: CI runs the Chromium component suites in their own job.\")"{% else %}node ../../node_modules/vitest/vitest.mjs run --config src/vitest.dom.config.ts{% endif %}'
 
 [tasks.test]
 description = "Run every extension test area."
