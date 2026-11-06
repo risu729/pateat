@@ -14,6 +14,7 @@ import {
   type TransferResponse,
 } from "@pateat/contracts";
 import * as v from "valibot";
+import { isoTime } from "../time";
 import { DeviceRecipesTooLarge } from "./device-recipes";
 import { exportedSettings, importedSettings, syncedSettings } from "./settings-sync";
 
@@ -145,7 +146,7 @@ export function createTransfer(options: {
     const file = v.safeParse(transferFileSchema, {
       format: TRANSFER_FORMAT,
       version: 1,
-      exportedAt: new Date(now()).toISOString(),
+      exportedAt: isoTime(now()),
       settings: exportedSettings(snapshot.settings),
       recipes: [...recipes],
     });

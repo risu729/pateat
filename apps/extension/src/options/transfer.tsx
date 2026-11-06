@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import * as v from "valibot";
 import { transferResponseSchema, type TransferResponse } from "@pateat/contracts";
 import { i18n } from "../i18n";
+import { isoDay } from "../time";
 import { Button } from "./button";
 import { Panel, StatusLines, type LocalizedMessage } from "./ui";
 
@@ -100,8 +101,7 @@ export function TransferPanel({
         setMessage(failed(response));
         return;
       }
-      const day = new Date(now()).toISOString().slice(0, 10);
-      save(`pateat-export-${day}.json`, `${JSON.stringify(response.file, null, 2)}\n`);
+      save(`pateat-export-${isoDay(now())}.json`, `${JSON.stringify(response.file, null, 2)}\n`);
       setMessage((translate) =>
         translate("Exported the settings and {{count}} recipe.", {
           count: response.file.recipes.length,

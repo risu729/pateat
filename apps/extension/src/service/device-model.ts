@@ -23,6 +23,7 @@ import {
 } from "@pateat/inference/claude-rates";
 import { clefModels, clefUrl, estimateClefCostUsd } from "@pateat/inference/clef-models";
 import * as v from "valibot";
+import { isoDay } from "../time";
 import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transport";
 
 // A paired device's own Anthropic API key (ADR 0040): with one saved, this device makes the
@@ -161,7 +162,7 @@ export function parseDeviceModelSetting(stored: unknown): DeviceModelSetting | u
 }
 
 const periods = (now: number) => {
-  const day = new Date(now).toISOString().slice(0, 10);
+  const day = isoDay(now);
   return { day, month: day.slice(0, 7) };
 };
 

@@ -210,6 +210,15 @@ export async function fastFailingModels(
   );
 }
 
+/** A model's release time as epoch milliseconds for ordering; 0 when it is not an RFC 3339 time. */
+function instantOrder(createdAt: string): number {
+  try {
+    return Temporal.Instant.from(createdAt).epochMilliseconds;
+  } catch {
+    return 0;
+  }
+}
+
 function option(
   model: { id: string; displayName: string; efforts: readonly ModelEffort[] },
   fastFailing: ReadonlySet<string>,
@@ -254,7 +263,7 @@ export function modelOptions(
         }))
       : apiModels
           .filter((model) => model.structuredOutputs)
-          .map((model) => ({ ...model, order: Date.parse(model.createdAt) || 0 }));
+          .map((model) => ({ ...model, order: instantOrder(model.createdAt) }));
   for (const model of candidates)
     if (claudeModelRates(model.id) === undefined)
       console.warn("Claude model has no price", { model: model.id });

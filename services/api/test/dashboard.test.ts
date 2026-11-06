@@ -238,6 +238,21 @@ describe("dashboard aggregation", () => {
     });
   });
 
+  it("lists the UTC days across a month and year end, from a range starting just before midnight", () => {
+    const now = Date.UTC(2027, 0, 2, 0, 0, 0, 1);
+    const data = summarize({ now, range: "7d" });
+    expect(data.daily.map((day) => day.day)).toEqual([
+      "2026-12-26",
+      "2026-12-27",
+      "2026-12-28",
+      "2026-12-29",
+      "2026-12-30",
+      "2026-12-31",
+      "2027-01-01",
+      "2027-01-02",
+    ]);
+  });
+
   it("keeps the 10 slowest requests and orders sites and builds", () => {
     const requests = Array.from({ length: 12 }, (_, index) =>
       row({

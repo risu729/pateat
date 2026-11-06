@@ -129,8 +129,8 @@ export type RequestTrace = {
 };
 
 const periods = (now: number) => {
-  const day = new Date(now).toISOString().slice(0, 10);
-  return [day.slice(0, 7), day] as const;
+  const day = Temporal.Instant.fromEpochMilliseconds(now).toZonedDateTimeISO("UTC").toPlainDate();
+  return [day.toPlainYearMonth().toString(), day.toString()] as const;
 };
 
 function addSpend(db: Db, ownerId: string, period: string, calls: number, micro: number) {

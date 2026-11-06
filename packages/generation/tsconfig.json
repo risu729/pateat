@@ -8,6 +8,7 @@
       "ES2024.Promise",
       "ES2024.Collection",
       "ESNext.TypedArrays",
+      "ESNext.Temporal",
       "DOM",
       "DOM.Iterable"
     ],
