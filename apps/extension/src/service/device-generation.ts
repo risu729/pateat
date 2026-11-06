@@ -94,6 +94,8 @@ const recordSchema = v.strictObject({
     v.strictObject({
       ...judgementKey,
       verdict: v.nullable(v.picklist(pageJudgementVerdicts)),
+      // The digest of the judged description's inputs (ADR 0029 amendment of 2026-11-06).
+      inputs: v.nullable(textSchema),
       at: timeSchema,
     }),
   ),
@@ -447,24 +449,29 @@ export function createDeviceGenerationBackend(options: {
     },
     async judgement(judged) {
       const entry = (await current()).judgements.find(sameJudgement(judged));
-      return entry && { verdict: entry.verdict };
+      return entry && { verdict: entry.verdict, inputs: entry.inputs };
     },
     async judgementsSince(recipeId, since) {
       return (await current()).judgements.filter(
         (entry) => entry.recipeId === recipeId && entry.at >= since,
       ).length;
     },
-    async recordJudgement(judged, at, stale) {
+    async recordJudgement(judged, at, stale, inputs) {
       // Whether this request took the row: not while another request's row is there.
       let taken = false;
       await change((record) => {
         const held = record.judgements.find(sameJudgement(judged));
-        // A `partial` or `optional` verdict takes today's slot again; any other stays.
-        taken = !held || held.verdict === "partial" || held.verdict === "optional";
+        // A `partial` or `optional` verdict, or `challenge` for other inputs, takes today's
+        // slot again; any other stays.
+        taken =
+          !held ||
+          held.verdict === "partial" ||
+          held.verdict === "optional" ||
+          (held.verdict === "challenge" && held.inputs !== inputs);
         const judgements = taken
           ? [
               ...record.judgements.filter((entry) => !sameJudgement(judged)(entry)),
-              { ...judged, verdict: null, at },
+              { ...judged, verdict: null, inputs, at },
             ]
           : record.judgements;
         return {

@@ -7,8 +7,11 @@ import {
   sameLoginTarget,
   showsBesideForm,
   isChooserDocument,
+  fillRoles,
   type GenerationUnavailableReason,
+  type LoginObservation,
   type LoginRecipe,
+  type ObservedCandidate,
   type LoginMarkerTarget,
   type LoginRoute,
   type RecipeCompletionRequest,
@@ -32,6 +35,7 @@ import {
 import {
   type GenerationBackend,
   type JudgementKey,
+  type KeptJudgement,
   type PageJudgementVerdict,
   type UnitSources,
   type UnsentRequest,
@@ -62,6 +66,28 @@ function judgedLoginPaths(head: StoredLoginRecipe, recipe: LoginRecipe, route: L
       ...(recipe.handlers ?? []).map((handler) => handler.path),
     ]),
   ];
+}
+
+/** The roles of the inputs a judged page's kept `challenge` is tied to (ADR 0029). */
+const judgedInputRoles: ReadonlySet<ObservedCandidate["role"]> = new Set([...fillRoles, "select"]);
+
+/**
+ * The digest of the inputs a judged description shows: each fill-role field's and select's
+ * role and locator, in order of neither the page nor the description. A kept `challenge`
+ * answers only a page described with the same inputs: one judged on a description that
+ * missed its code field, as a page read while it was still being drawn may, kept no
+ * handler for it (ADR 0029 amendment of 2026-11-06).
+ */
+export async function judgedInputs(observation: LoginObservation): Promise<string> {
+  const inputs = observation.candidates
+    .filter((candidate) => judgedInputRoles.has(candidate.role))
+    .map((candidate) => JSON.stringify([candidate.role, candidate.target]))
+    .toSorted();
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(inputs)),
+  );
+  return new Uint8Array(digest).toHex().slice(0, 16);
 }
 
 /**
@@ -219,12 +245,21 @@ export async function judgeCompletion(
    * be, is judged again once the path is described in full; a description that leaves one
    * out again is `already-judged`, which the extension never completes on. A page judged
    * `optional` is judged again each time: another page of the same path, as a single-page
-   * sign-in shows, may ask for a step (ADR 0065).
+   * sign-in shows, may ask for a step (ADR 0065). A page judged `challenge` is judged again
+   * once it is described with other inputs: the judgement may have kept no handler because
+   * its description missed the field, as a code field not yet drawn (ADR 0029 amendment of
+   * 2026-11-06).
    */
+  const inputs = await judgedInputs(observation);
   const judgedAnswer = (
-    judged: { verdict: PageJudgementVerdict | null } | undefined,
+    judged: KeptJudgement | undefined,
   ): GenerationUnavailableReason | undefined => {
-    if (!judged || (judged.verdict === "partial" && !partial) || judged.verdict === "optional")
+    if (
+      !judged ||
+      (judged.verdict === "partial" && !partial) ||
+      judged.verdict === "optional" ||
+      (judged.verdict === "challenge" && judged.inputs !== inputs)
+    )
       return undefined;
     return judged.verdict === "challenge"
       ? "judged-challenge"
@@ -253,15 +288,17 @@ export async function judgeCompletion(
         : undefined;
     },
     // A request the role refuses before sending gives the slot back, as a generation
-    // attempt does (ADR 0027); a `partial` or `optional` row judged again takes today's
-    // slot and waits for its new verdict. Rows of older revisions or judges go once their
+    // attempt does (ADR 0027); a `partial` or `optional` row judged again, or a
+    // `challenge` one of other inputs, takes today's slot and waits for its new verdict. Rows of older revisions or judges go once their
     // day is over. A row another request wrote since the gate stops this one unsent, so a
     // page is never judged twice at once (ADR 0018): it answers as that row does.
     beforeSend: async (now) =>
-      (await backend.recordJudgement(judgedPage, now, {
-        expired: utcDayStart(now),
-        versions: [usualVersion, stopVersion, besideVersion],
-      }))
+      (await backend.recordJudgement(
+        judgedPage,
+        now,
+        { expired: utcDayStart(now), versions: [usualVersion, stopVersion, besideVersion] },
+        inputs,
+      ))
         ? undefined
         : (judgedAnswer(await backend.judgement(judgedPage)) ?? "judgement-unanswered"),
     invoke: (model) =>

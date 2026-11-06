@@ -355,24 +355,37 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
       promptVersion: "v2",
     };
     const stale = { expired: 1_000, versions: ["v2"] };
-    expect(await backend.recordJudgement({ ...key, revision: 1 }, 500, stale)).toBe(true);
-    expect(await backend.recordJudgement({ ...key, promptVersion: "v1" }, 2_000, stale)).toBe(true);
-    expect(await backend.recordJudgement(key, 2_000, stale)).toBe(true);
-    // Another request's row being judged is not taken (ADR 0018).
-    expect(await backend.recordJudgement(key, 2_500, stale)).toBe(false);
-    expect(await backend.judgement(key)).toEqual({ verdict: null });
+    const inputs = "a1";
+    expect(await backend.recordJudgement({ ...key, revision: 1 }, 500, stale, inputs)).toBe(true);
+    expect(
+      await backend.recordJudgement({ ...key, promptVersion: "v1" }, 2_000, stale, inputs),
+    ).toBe(true);
+    expect(await backend.recordJudgement(key, 2_000, stale, inputs)).toBe(true);
+    // Another request's row being judged is not taken (ADR 0018), whatever its inputs.
+    expect(await backend.recordJudgement(key, 2_500, stale, "b2")).toBe(false);
+    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs });
     // An older revision judged before the day started is forgotten; today's row stays.
     expect(await backend.judgement({ ...key, revision: 1 })).toBeUndefined();
-    expect(await backend.judgement({ ...key, promptVersion: "v1" })).toEqual({ verdict: null });
+    expect(await backend.judgement({ ...key, promptVersion: "v1" })).toEqual({
+      verdict: null,
+      inputs,
+    });
     expect(await backend.judgementsSince(key.recipeId, 1_000)).toBe(2);
 
     // A kept verdict stays; a `partial` one takes the slot again.
     await backend.keepVerdict(key, "signed-in");
-    expect(await backend.recordJudgement(key, 3_000, stale)).toBe(false);
-    expect(await backend.judgement(key)).toEqual({ verdict: "signed-in" });
+    expect(await backend.recordJudgement(key, 3_000, stale, "b2")).toBe(false);
+    expect(await backend.judgement(key)).toEqual({ verdict: "signed-in", inputs });
     await backend.keepVerdict(key, "partial");
-    expect(await backend.recordJudgement(key, 3_000, stale)).toBe(true);
-    expect(await backend.judgement(key)).toEqual({ verdict: null });
+    expect(await backend.recordJudgement(key, 3_000, stale, inputs)).toBe(true);
+    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs });
+    // A `challenge` stays for the same inputs and takes the slot again for others (ADR
+    // 0029 amendment of 2026-11-06).
+    await backend.keepVerdict(key, "challenge");
+    expect(await backend.recordJudgement(key, 3_500, stale, inputs)).toBe(false);
+    expect(await backend.judgement(key)).toEqual({ verdict: "challenge", inputs });
+    expect(await backend.recordJudgement(key, 3_500, stale, "b2")).toBe(true);
+    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs: "b2" });
   });
 
   it("keeps attempts and repairs within their windows", async () => {
@@ -501,7 +514,7 @@ describe("the device's model calls (ADR 0040)", () => {
       path: "/account",
       promptVersion: "v2",
     };
-    await backend.recordJudgement(key, 2_000, { expired: 1_000, versions: ["v2"] });
+    await backend.recordJudgement(key, 2_000, { expired: 1_000, versions: ["v2"] }, "a1");
     await backend.keepVerdict(key, "rejected");
     await backend.forget();
     expect(await backend.judgement(key)).toBeUndefined();

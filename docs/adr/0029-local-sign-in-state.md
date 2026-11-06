@@ -796,3 +796,34 @@ landmark and counts towards the 48 candidates. Notion's marker is then
   An ID that names the person is left to the judge, as a text marker is.
 - A generic ID a signed-out page shows too (`tab-overview`) would match there, the same
   weakness as a text marker such as "マイページ".
+
+## Amendment: a challenge is judged again for other inputs (2026-11-06)
+
+On Resend, the page after the password (`resend.com/auth/mfa`) was judged on
+2026-11-04 at 10:18 UTC (request `01a1a610-c892-7193-90bd-9ebefad90794`, recipe revision
+2) from a description without its code field: the candidates were Home, Continue, "Use a
+recovery code" and "Return to log in". The judge answered `challenge` and named no code
+field, so no `totp` handler was kept, and the path's row kept `challenge`. On 2026-11-06
+at 21:06 UTC, in the owner's Chrome, the same page was described with the field
+(`{ "role": "text", "target": { "by": "autocomplete", "value": "one-time-code" } }`),
+but the service answered `judged-challenge` from the kept row with no model call
+(request `01a1b2af-3322-70a5-98da-4286813ec300`), so the login ended `challenge` with
+the six code boxes empty. Nothing would have judged the page again before the judge
+prompt or the recipe changed.
+
+A page's judgement row now also keeps a digest of the inputs its description showed:
+each fill-role field's and `select`'s role and locator, sorted (`judgedInputs` in
+`packages/generation/src/generate/completion.ts`, column `page_judgements.inputs`). A
+row kept `challenge` answers `judged-challenge` only to a description with the same
+inputs; a description with other inputs, or any description when the row has no digest
+(rows kept before this change), is judged again, takes the day's slot as a `partial` row
+does, and keeps its own verdict and digest. Other verdicts are unchanged.
+
+- Only inputs count, not buttons, links or text: a page whose button text counts down,
+  or a code page sent by email whose judgement keeps no handler by design, keeps its
+  answer from one login to the next, so it costs no model call each time.
+- Not chosen: judging every `challenge` row again (a model call on each login that stops
+  at a step the person takes), comparing the whole description (any changing text would
+  do the same), and handing the attempt to a recipe of the code page itself, as a page
+  that loads as its own document gets (the recipe of revision 2 would keep its stale
+  row, and the handover is a larger change of the attempt).
