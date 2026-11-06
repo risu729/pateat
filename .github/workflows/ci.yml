@@ -84,9 +84,9 @@ jobs:
       - name: Walk every order of events and run the Chromium component suites
         env:
           PATEAT_COVERAGE: "1"
-        run: >-
-          mise run //packages/contracts:test:orders :::
-          //tests/options:test ::: //apps/extension:test:dom ::: //tests/manage:test
+        run: |
+          mise run //packages/contracts:test:orders ::: //tests/options:test \
+            ::: //apps/extension:test:dom ::: //tests/manage:test
       - name: Summarize component coverage
         if: ${{ !cancelled() }}
         continue-on-error: true
