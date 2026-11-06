@@ -5,9 +5,11 @@ on:
     branches: [main]
   schedule:
     - cron: "17 3 * * 2"
+# A newer PR push cancels the older analysis; every main push and scheduled run finishes, so
+# each main commit keeps its own result.
 concurrency:
-  group: codeql-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: codeql-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions: {}
 # Advanced setup turns dependency caching off and the init step turns TRAP caching off,
 # so CodeQL needs no Actions cache.
