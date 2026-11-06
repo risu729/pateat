@@ -8,8 +8,9 @@ run = "node ../../node_modules/wxt/bin/wxt.mjs prepare"
 description = "Package the Chrome extension shell."
 depends = [":prepare"]
 # The build rewrites .wxt, which the type check reads through tsconfig.json. The unit
-# tests read neither .wxt nor the build output, so the build and the Chromium suites
-# after it run beside them.
+# tests read only .wxt/tsconfig.json, which WXT rewrites only when its content changes
+# and which no build mode changes, and never the build output; so the build and the
+# Chromium suites after it run beside them.
 wait_for = [":typecheck"]
 run = "node ../../node_modules/wxt/bin/wxt.mjs build --browser chrome"
 
@@ -17,18 +18,7 @@ run = "node ../../node_modules/wxt/bin/wxt.mjs build --browser chrome"
 description = "Build the production extension and pack it as the release ZIP."
 depends = [":prepare"]
 # Like :build, it rewrites .wxt and the production output.
-wait_for = [
-  ":build",
-  ":build:probe",
-  ":typecheck",
-  ":test:connections",
-  ":test:crypto",
-  ":test:login",
-  ":test:messaging",
-  ":test:passkeys",
-  ":test:service",
-  ":test:vault",
-]
+wait_for = [":build", ":build:probe", ":typecheck"]
 run = "node ../../node_modules/wxt/bin/wxt.mjs zip --browser chrome"
 
 [tasks."build:probe"]
