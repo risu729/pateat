@@ -12,11 +12,11 @@ its other logs (option A). Earlier that day the owner had asked for work to go a
 the most likely answer and be judged later
 (「フェーズは一旦無視して、ある程度決め打ちで進め、後から判断」). Which `info` events
 count as doing nothing, the limits and the redaction are Claude's choices, not confirmed
-by the owner. Implemented (local tests only; not deployed). Amends
-[ADR 0019](0019-local-diagnostics-and-logs.md) (logs are not synced) and
-[ADR 0055](0055-login-records-sent-to-the-service.md) (what a device sends). Amended
-on 2026-11-02: the profile setting described in ADR 0055's amendment of that day turns
-the sending off; it is on by default.
+by the owner. Implemented and deployed: production `problem_log` holds lines from the
+owner's devices (read 2026-11-06). Amends [ADR 0019](0019-local-diagnostics-and-logs.md)
+(logs are not synced) and [ADR 0055](0055-login-records-sent-to-the-service.md) (what a
+device sends). Amended on 2026-11-02: the profile setting described in ADR 0055's
+amendment of that day turns the sending off; it is on by default.
 
 Date: 2026-10-23
 

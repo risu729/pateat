@@ -2485,10 +2485,11 @@ such as one with a build it does not accept, is not sent and logs
 ### Problem lines on the service
 
 Status: the owner's decisions of 2026-10-23 (12:28 and 13:00 UTC,
-[ADR 0066](adr/0066-problem-lines-sent-to-the-service.md)); implemented and tested
-locally, not deployed. The worker (`apps/extension/src/service/problems.ts`) sends the
-local log's `warn` and `error` entries, and the `info` entries that say why Pateat did
-nothing (`PROBLEM_INFO_LINES`: every `login.refused`, a `refused` `login.entry`, and a
+[ADR 0066](adr/0066-problem-lines-sent-to-the-service.md)); implemented and deployed
+(production `problem_log` holds lines from the owner's devices, read 2026-11-06). The
+worker (`apps/extension/src/service/problems.ts`) sends the local log's `warn` and
+`error` entries, and the `info` entries that say why Pateat did nothing
+(`PROBLEM_INFO_LINES`: every `login.refused`, a `refused` `login.entry`, and a
 `recipe.generate` that was `skipped`, `abstained` or `unavailable`), except passkey
 reports (`LOCAL_ONLY_EVENTS`) and the lines of a fill-only login of a tab that asks,
 which carry `fillOnly` (`LOCAL_ONLY_FLAG`: `login.start`, `login.attempt`,
