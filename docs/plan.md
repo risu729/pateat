@@ -13,9 +13,14 @@ Claude recipe generation under spending caps; the deployed service first called
 Anthropic on 2026-10-11 at 12:27 UTC. Work follows the [roadmap](#roadmap) below, which
 assigns the milestone gates still open to its phases.
 
-This plan is the single work tracker until the remaining tasks move to issues in
-[phase 4](#phase-4-issues-and-work-as-needed). Issues and PRs link to these gates rather
-than maintaining a second roadmap.
+This plan was the single work tracker until the remaining tasks moved to issues in
+[phase 4](#phase-4-issues-and-work-as-needed). Since 2026-11-06 (owner, 10:26 UTC:
+「issueにいろいろタスクを作ってください。codexにPRを作らせます」) new tasks are
+also filed as [GitHub issues](https://github.com/risu729/pateat/issues), written with
+enough context for another agent, such as Codex, to open a pull request from the issue
+alone. This plan keeps the phases and the decisions; an issue links back to the part
+of this plan or the ADR it comes from, and this plan's docs are updated before the
+issues are filed.
 
 ## Roadmap
 
@@ -73,9 +78,14 @@ through
 the lock, log out and vault timeout part of
 [#614](https://github.com/risu729/pateat/pull/614) landed as
 [ADR 0075](adr/0075-vault-lock-and-timeout.md) through
-[#993](https://github.com/risu729/pateat/pull/993), and its allowed-sites half is still
-to come; [#613](https://github.com/risu729/pateat/pull/613) is being rebuilt as
-[#997](https://github.com/risu729/pateat/pull/997).
+[#993](https://github.com/risu729/pateat/pull/993), and its allowed-sites half as
+[ADR 0077](adr/0077-allowed-sites.md) through
+[#1004](https://github.com/risu729/pateat/pull/1004) and
+[#1048](https://github.com/risu729/pateat/pull/1048);
+[#613](https://github.com/risu729/pateat/pull/613) was rebuilt as
+[ADR 0040](adr/0040-running-without-the-service.md) through
+[#997](https://github.com/risu729/pateat/pull/997) to
+[#1021](https://github.com/risu729/pateat/pull/1021).
 
 Accessibility work has lower priority from 2026-10-23 (owner, 12:57 UTC,
 「一旦アクセシビリティの優先度は下げる」): accessibility work not yet started waits
@@ -531,8 +541,8 @@ than in this repository.
   say why Pateat did nothing on a page, go to the service's `problem_log` automatically
   (owner, 2026-10-23 12:28 and 13:00 UTC), kept a year, shown on `/manage/problems` and
   read by Claude through read-only D1 without a report
-  ([ADR 0066](adr/0066-problem-lines-sent-to-the-service.md)); implemented with local
-  tests only, not deployed. The rest of the log stays local
+  ([ADR 0066](adr/0066-problem-lines-sent-to-the-service.md)); deployed, and the owner's
+  devices have sent lines since. The rest of the log stays local
   ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)). The service also has each recipe
   revision's first login result in `login_outcomes` (owner, 2026-10-18 06:08 UTC,
   [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation))
@@ -1127,16 +1137,18 @@ Once the fixes have settled:
   PR.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
-  user-facing pages for installation, setup and permissions, plus the M6 operational
-  docs. Started: [`apps/docs`](development.md#docs-website) builds in CI with English
-  and Japanese pages ([ADR 0047](adr/0047-japanese-user-docs-locales.md)) for
+  user-facing pages for installation, setup and permissions. Started:
+  [`apps/docs`](development.md#docs-website) builds in CI with English and Japanese
+  pages ([ADR 0047](adr/0047-japanese-user-docs-locales.md)) for
   installation, setup, permissions and a draft privacy policy with the Chrome Web Store
   Limited Use statement. Still to do: deploying it (a public assets-only Worker with
-  per-PR previews, owner 2026-10-23), the M6 operational docs, and updating the
-  installation page once releases exist. The [operations runbook](operations.md) now
-  documents current retry/revert procedures and the unverified D1 restore and
-  rollback-automation boundaries; this does not complete installed-Chrome or
-  disaster-recovery acceptance.
+  per-PR previews, owner 2026-10-23; a deployment change, so it needs the owner's
+  go-ahead), and updating the installation page once releases exist. M6's operational
+  docs are the [operations runbook](operations.md), which documents the current
+  retry/revert procedures and the unverified D1 restore and rollback-automation
+  boundaries; nothing more is planned for them until an incident or a public release
+  shows a gap. This does not complete installed-Chrome or disaster-recovery
+  acceptance.
 - A mode without the service, designed with the owner on 2026-10-23
   ([ADR 0040](adr/0040-running-without-the-service.md)): a device may hold its own
   Anthropic API key and call the model itself, also while paired, where the service only
@@ -1163,7 +1175,13 @@ Once the fixes have settled:
   pages are published and labelled is in
   [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-11-03-the-request-log-corpus).
   `mise run //packages/inference:corpus:log` turns exported rows into the corpus, and
-  `--corpus log` scores it; the corpus holds no pages yet.
+  `--corpus log` scores it. The corpus holds 154 public pages
+  (`packages/inference/src/corpus/log.json`) built from the log on 2026-11-03; pages
+  that would reveal a tenant stay outside the repository. Clef was then compared with
+  Claude on it, and the owner chose Clef first for sign-in forms with Claude when Clef
+  abstains ([ADR 0083](adr/0083-clef-first-for-sign-in-forms.md), 2026-11-04,
+  implemented). The comparison with Jev and Chrome's Prompt API is not done; it needs
+  paid calls and so the owner's approval.
 - The login runtime is split (owner, 2026-10-23 22:23 UTC; merged 2026-10-29):
   `apps/extension/src/login/runtime.ts` is now `apps/extension/src/login/runtime/`,
   every file within the 1,000-line limit, and `runtime.production.test.ts` is now
@@ -1237,8 +1255,9 @@ Once the fixes have settled:
   disprove each finding, and write the surviving ones as a Markdown, JSONL and SARIF
   report, with optional patch files that are never applied, committed or pushed on their
   own. Each scan writes them to a `CLAUDE-SECURITY-<timestamp>/` directory in the
-  repository. Which scans run and when is decided when it is adopted. Not started
-  without the owner's confirmation (owner, 2026-10-13 15:10 UTC).
+  repository. Which scans run and when is decided when it is adopted. Each step needs
+  the owner's confirmation (owner, 2026-10-13 15:10 UTC); the plugin was added and one
+  scan ran (below).
   - Started (owner, 2026-10-15 11:09 UTC): the owner added the plugin to their claude.ai
     account from the plugin directory, which loads it into this project's cloud threads.
     A repository `.claude/settings.json` does not, because cloud sessions do not install
