@@ -20,7 +20,6 @@ import {
   recipeHeads,
 } from "./db/schema";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 /** Request log roles, with an account switch's logout (ADR 0063) apart from generation. */
 const ROLES = ["generate", "judge", "logout"] as const;
 type Role = (typeof ROLES)[number];
@@ -118,7 +117,11 @@ function present<T>(rows: T[], pick: (row: T) => number | null): number[] {
   });
 }
 
-const utcDay = (at: number) => new Date(at).toISOString().slice(0, 10);
+/** The UTC calendar day of an epoch-milliseconds time. */
+const utcDate = (at: number) =>
+  Temporal.Instant.fromEpochMilliseconds(at).toZonedDateTimeISO("UTC").toPlainDate();
+/** The UTC day as `2026-11-06`. */
+const utcDay = (at: number) => utcDate(at).toString();
 
 /** A login's own time: its total less the person's, never below 0. */
 const loginTime = (row: DashboardLogin) => Math.max(0, row.totalMs - row.personMs);
@@ -266,8 +269,13 @@ export function summarizeDashboard(input: DashboardInput): ManageDashboard {
   const byDay = Map.groupBy(requests, (row) => utcDay(row.createdAt));
   const loginsByDay = Map.groupBy(logins, (row) => utcDay(row.createdAt));
   const daily: ManageDashboard["daily"] = [];
-  for (let day = Date.parse(utcDay(from)); day <= now; day += DAY_MS) {
-    const key = utcDay(day);
+  const lastDay = utcDate(now);
+  for (
+    let day = utcDate(from);
+    Temporal.PlainDate.compare(day, lastDay) <= 0;
+    day = day.add({ days: 1 })
+  ) {
+    const key = day.toString();
     const rows = byDay.get(key) ?? [];
     const modelP50 = (role: Role) =>
       median(

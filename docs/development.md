@@ -1029,21 +1029,27 @@ extension uses Chrome's global `Temporal`, which first ships in Chrome 144; the
 extension now requires Chrome 145 for `Map.prototype.getOrInsertComputed`. The service
 keeps `Date`: workerd 1.20261006.1 does not expose Temporal, and no compatibility flag
 enables it (its V8 `harmony_temporal` flag cannot be set for a deployed Worker). Lint
-forbids the global `Temporal` in `services/` and in the packages the service imports. On
-2026-10-18 at 08:39 UTC the owner wrote, about the dashboard's charts,
-「あ、ライブラリは Recharts?いい感じの探して使ってほしい。新しくてメンテされるやつ」
-("Oh, is the library Recharts? Find a good one and use it, a new one that is
-maintained"), leaving the choice to the agent. In its reply (about 08:45 UTC) the agent
-chose Recharts 3 (3.10.1, MIT), used through the shadcn/ui Base UI Chart component
-copied in as owned code (`services/api/web/chart.tsx`), over TanStack Charts 1.x, which
-reached 1.0 only on 2026-10-03, for maturity; uPlot and Observable Plot were the
-smaller, non-React options of the dashboard proposal. The English rendering of the
-owner's words and the choice itself are the agent's, not confirmed by the owner.
-Recharts needs `react-is` as a peer. It is loaded with `React.lazy`, so only the
-dashboard downloads it (about 110 kB gzip). The current manifests and lockfile describe
-what is installed. WXT + TypeScript + Valibot remain confirmed choices; existing Vitest,
-Playwright and build tools remain in use. WXT drives Vite 8 (Rolldown) for the extension
-build
+forbids the global `Temporal` in `services/` and in the packages the service imports.
+workerd 1.20261104.1 added the `temporal` compatibility flag (on by default from
+compatibility date 2026-12-01). On 2026-11-06 at 12:53 UTC the owner asked whether to
+migrate now that Workers has Temporal, and approved the agent's proposal at 13:01 UTC
+(「yes go ahead」), replacing the service's `Date` and the lint rule above: the Worker
+turns the flag on and the service and `packages/inference` may use Temporal; the owner
+pages and `packages/contracts`, which run in whichever browser opens them, keep `Date`,
+and lint forbids `Temporal` only there. On 2026-10-18 at 08:39 UTC the owner wrote,
+about the dashboard's charts, 「あ、ライブラリは
+Recharts?いい感じの探して使ってほしい。新しくてメンテされるやつ」 ("Oh, is the library
+Recharts? Find a good one and use it, a new one that is maintained"), leaving the choice
+to the agent. In its reply (about 08:45 UTC) the agent chose Recharts 3 (3.10.1, MIT),
+used through the shadcn/ui Base UI Chart component copied in as owned code
+(`services/api/web/chart.tsx`), over TanStack Charts 1.x, which reached 1.0 only on
+2026-10-03, for maturity; uPlot and Observable Plot were the smaller, non-React options
+of the dashboard proposal. The English rendering of the owner's words and the choice
+itself are the agent's, not confirmed by the owner. Recharts needs `react-is` as a peer.
+It is loaded with `React.lazy`, so only the dashboard downloads it (about 110 kB gzip).
+The current manifests and lockfile describe what is installed. WXT + TypeScript +
+Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
+use. WXT drives Vite 8 (Rolldown) for the extension build
 ([what each layer does](research/2026-10-12-wxt-build-pipeline.md)).
 
 | Area | Choice and integration status | Owning slice |
@@ -1071,7 +1077,7 @@ build
 | IndexedDB access | **Approved (2026-10-13) and implemented:** `idb` (Jake Archibald, ISC), a promise wrapper over the native API with the same transaction semantics, replacing the hand-written request and transaction wrappers in the vault, provider-session and diagnostics stores; a transaction still awaits only its own requests, because any other await lets it auto-commit; `idb` opens only the global `indexedDB`, so tests stub that global | Phase 1 |
 | DER signatures | **Approved (2026-10-13) and implemented:** `@noble/curves`, importing only the `DER` helper from `@noble/curves/abstract/der.js` (not `p256`), for the P1363/DER conversion of passkey assertion signatures; signing stays WebCrypto ([ADR 0007](adr/0007-existing-passkey-assertions.md)). Low value (about 50 lines removed): revert if bundle size matters | Phase 1 passkeys |
 | CBOR decoding | **Approved (2026-10-13) and implemented:** `cbor2` reads the version from a Bitwarden signed security state after the SDK has verified it; Pateat no longer pre-checks COSE structure and relies on Worker termination when the SDK's initialization cannot parse its input ([vault adapter](architecture.md#vault-adapter)); `@pateat/bitwarden` declares `"sideEffects": false`, so only the crypto Worker bundles it | M3 Bitwarden adapter |
-| Dates and times | **Approved (2026-10-13) and implemented:** the native `Temporal` in the extension (first shipped in Chrome 144; current minimum 145) for formatting, parsing and calendar arithmetic; the service keeps `Date`, because workerd (1.20261006.1) does not expose Temporal and has no compatibility flag for it; `temporal-polyfill-lite` was tried and dropped (bundle +18 kB gzip per context); stored times stay epoch milliseconds and the clock stays `Date.now()` ([times](architecture.md#times)) | Phase 1 |
+| Dates and times | **Approved (2026-10-13) and implemented:** the native `Temporal` in the extension (first shipped in Chrome 144; current minimum 145) for formatting, parsing and calendar arithmetic; the service too since 2026-11-06, through workerd's `temporal` compatibility flag; the owner pages and `packages/contracts` keep `Date` because they run in any browser; `temporal-polyfill-lite` was tried and dropped (bundle +18 kB gzip per context); stored times stay epoch milliseconds and the clock stays `Date.now()` ([times](architecture.md#times)) | Phase 1 |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
 The extension and `/manage` require Chrome 145 for `Map.prototype.getOrInsertComputed`.

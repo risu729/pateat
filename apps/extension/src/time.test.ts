@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { isoMinute, isoTime, isoTimeSchema, isoTimeMs, localSyncTime } from "./time";
+import { isoDay, isoMinute, isoTime, isoTimeSchema, isoTimeMs, localSyncTime } from "./time";
 
 // Year 0 to 9999, including leap days, the epoch and times just before it.
 const TIMES = [
@@ -16,6 +16,11 @@ describe("ISO times", () => {
     }
     expect(isoTime(1_791_900_034_000)).toBe("2026-10-13T14:00:34.000Z");
     expect(isoMinute(1_791_900_034_352)).toBe("2026-10-13T14:00Z");
+  });
+
+  it("writes the UTC day as Date.prototype.toISOString starts", () => {
+    for (const ms of TIMES) expect(isoDay(ms)).toBe(new Date(ms).toISOString().slice(0, 10));
+    expect(isoDay(Date.UTC(2026, 11, 31, 23, 59, 59, 999))).toBe("2026-12-31");
   });
 
   it("throws for a time outside the range a Date holds", () => {

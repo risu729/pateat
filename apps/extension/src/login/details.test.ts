@@ -187,6 +187,9 @@ describe("reading a stored birth date (ADR 0061)", () => {
   it("reads a leap day only in a leap year", () => {
     expect(readBirthDate("2000-02-29")).toEqual({ year: 2000, month: 2, day: 29 });
     expect(readBirthDate("1900-02-29")).toBeUndefined();
+    expect(readBirthDate("2024-02-29")).toEqual({ year: 2024, month: 2, day: 29 });
+    expect(readBirthDate("2023-02-29")).toBeUndefined();
+    expect(readBirthDate("2024-04-31")).toBeUndefined();
   });
 });
 

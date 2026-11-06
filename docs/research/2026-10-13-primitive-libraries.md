@@ -137,10 +137,11 @@ On 2026-10-13:
   [#495](https://github.com/risu729/pateat/pull/495)).
 - IndexedDB: `idb` (14:21 UTC; [#501](https://github.com/risu729/pateat/pull/501)).
 - Dates: [temporal-polyfill-lite](https://github.com/fabon-f/temporal-polyfill-lite)
-  (14:21 UTC), although this survey found no need for a date library. Replaced at
-  16:12 UTC by the native `Temporal` in the extension (minimum Chrome 144) and `Date` in
-  the service, which has no Temporal
-  ([#518](https://github.com/risu729/pateat/pull/518)).
+  (14:21 UTC), although this survey found no need for a date library. Replaced at 16:12
+  UTC by the native `Temporal` in the extension (minimum Chrome 144) and `Date` in the
+  service, which had no Temporal ([#518](https://github.com/risu729/pateat/pull/518)).
+  On 2026-11-06 the Worker turned on workerd's `temporal` flag and moved to Temporal too
+  ([times](../architecture.md#times)).
 - Hono request validation: `@hono/standard-validator` (14:21 UTC;
   [#496](https://github.com/risu729/pateat/pull/496)), although this survey found it
   would not shorten the code.

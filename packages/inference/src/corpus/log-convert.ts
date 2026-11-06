@@ -433,7 +433,10 @@ export function draftLogCases(
       source: {
         dataset: "log",
         logIds: group.map((entry) => entry.row.id).sort(),
-        observed: new Date(row.created_at).toISOString().slice(0, 10),
+        observed: Temporal.Instant.fromEpochMilliseconds(row.created_at)
+          .toZonedDateTimeISO("UTC")
+          .toPlainDate()
+          .toString(),
         build: row.build,
       },
       ...(kept.flags === undefined ? {} : { request: kept.flags }),

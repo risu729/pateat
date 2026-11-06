@@ -1,11 +1,19 @@
 // Times are kept as epoch milliseconds (`Date.now()`) in extension storage and IndexedDB,
-// and as ISO 8601 strings in a few stored records. The native Temporal (Chrome 144, the
-// extension's minimum) formats and reads them. The service has no Temporal and uses Date.
+// and as ISO 8601 strings in a few stored records. The native Temporal (Chrome 144; the
+// extension's minimum is 145) formats and reads them.
 import * as v from "valibot";
 
 /** `2026-10-13T14:29:34.352Z`, the form `Date.prototype.toISOString` writes. */
 export function isoTime(ms: number): string {
   return Temporal.Instant.fromEpochMilliseconds(ms).toString({ fractionalSecondDigits: 3 });
+}
+
+/** `2026-10-13`: the calendar day in UTC. */
+export function isoDay(ms: number): string {
+  return Temporal.Instant.fromEpochMilliseconds(ms)
+    .toZonedDateTimeISO("UTC")
+    .toPlainDate()
+    .toString();
 }
 
 /** `2026-10-13T14:29Z`: the time to the minute, in UTC. */

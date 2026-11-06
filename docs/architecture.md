@@ -4083,9 +4083,13 @@ and blocks;
 the local times on the settings and diagnostics pages, the ages and day counts shown and
 the Bitwarden package's checks of server dates use Temporal too. The `Date` header of
 the service's health response is an HTTP date, which Temporal does not read, so
-`Date.parse` reads it. The service, its owner pages and the packages it imports
-(`packages/contracts`, `packages/inference`) use `Date`: workerd has no Temporal and no
-compatibility flag that enables it, and lint forbids the global `Temporal` there.
+`Date.parse` reads it. The Worker turns on workerd's `temporal` compatibility flag
+(`services/api/worker-runtime.ts`; on by default from compatibility date 2026-12-01), so
+the service and `packages/inference` (Workers, Node 26 and Bun 1.4 all have it) use
+Temporal for UTC days, months and parsing the same way. The
+owner pages (`services/api/web`) and `packages/contracts`, which they import, run in
+whichever browser opens them, so they keep `Date`, and lint forbids the global
+`Temporal` there.
 
 ## Deferred interfaces and challenges
 
