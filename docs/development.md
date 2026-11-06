@@ -379,7 +379,9 @@ and statement coverage per project (`apps/extension/src`, `packages/*/src`,
 `services/api/src`, `services/api/web`) to the job summary; the step runs even after a
 failed check and never fails the job. A file reached by several runs counts once. The
 two jobs write separate tables: since 2026-11-06 extension code tested both by a unit
-area and by a Browser Mode suite counts in each job's table only for what that job ran.
+area and by a Browser Mode suite counts in each job's table only for what that job ran,
+and the `Verify` table shows `services/api/web` as `-`, since only the management-page
+suite reaches it.
 No threshold fails CI. The packaged-extension Playwright suite (`tests/extension`) is
 not measured, so code that runs only there, such as
 `apps/extension/src/login/content.ts`, `crypto/worker.ts` and the connections, crypto
