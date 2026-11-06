@@ -1,0 +1,27 @@
+name: Set up mise and dependencies
+description: Install the locked mise tools and the frozen workspace dependencies, optionally with the test browser.
+inputs:
+  cache:
+    description: Restore and save mise's tool cache. Release builds pass "false".
+    default: "true"
+  browser:
+    description: Also install Playwright's Chromium for the browser tests.
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+      with:
+        version: 2026.11.1
+        install_args: --locked
+        cache: ${{ inputs.cache }}
+    - name: Install frozen dependencies
+      shell: bash
+      run: mise deps --force aube_workspace
+    - name: Install isolated browser runtime
+      if: ${{ inputs.browser == 'true' }}
+      shell: bash
+      # No --with-deps: the runner image already has every library Chromium links (a missing
+      # one stops the launch with the file named). apt only added fonts, xvfb and updates, all
+      # unused by headless tests: 25 MB a slow Azure mirror took 8-9.5 minutes for (2026-10-22).
+      run: mise run browser:install

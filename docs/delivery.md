@@ -9,85 +9,78 @@ mode without the service are planned for [phase 3](plan.md#phase-3-public-releas
 
 ## Current foundation workflows
 
-`ci.yml` runs the complete mise/hk graph, including isolated browser tests, on every PR
-(except a documentation-only one, see `Changes` below) and main push, split over the
-jobs below. The packaged-extension suite (`tests/extension`, 123 tests at the time, one
-after another in one worker) took about six minutes on Linux, the longest step of every
-run (about 8.5 minutes in total on 2026-10-11). It therefore runs as six shards of one
-`Browser` job (`Browser (1/6)` to `(6/6)`): each shard sets
-`PATEAT_E2E_SHARD=<current>/<total>`, which `tests/extension/playwright.config.ts` turns
-into Playwright's `shard`, and the six shards together run every test once. The suite
-splits by test (`fullyParallel`) because splitting by file left `login.spec.ts` alone in
-a shard of about three minutes; each job still runs one worker.
-`tests/extension/shard-reporter.ts` deals the tests out in turn (1st test to shard 1,
-7th to shard 1 again), keeping a `serial` or `default` mode suite together as one turn,
-instead of Playwright's contiguous ranges, which in
-[run 39795207166](https://github.com/risu729/pateat/actions/runs/39795207166) put all 21
-`login-generation.spec.ts` tests in shard 2: 4.3 minutes of tests there against 1.1 in
-shard 1. The same test durations dealt in turn give 1.6 to 2.9 minutes per shard. Both
-jobs install the browser without `--with-deps`: the `ubuntu-26.04` image already has
-every library Chromium links, the tests are headless, and in that run apt spent 9.5 and
-8 minutes in shards 2 and 5 fetching 25 MB of fonts, `xvfb` and package updates from a
-slow Azure mirror (45 kB/s), against 2 seconds in the other shards. The `Verify` job
-runs the rest of the graph (lint, typecheck, unit and component tests with
-[coverage](development.md#test-coverage), build checks) with `PATEAT_SKIP_E2E=1` (any
-non-empty value), which turns `//tests/extension:test` into a no-op there, and with
-`PATEAT_SKIP_ORDERS=1`, which leaves out the walks over every order of events of a small
-login (`packages/contracts/src/*.orders-*.test.ts`). An `Event orders` job runs those
-walks alone (`mise run //packages/contracts:test:orders`, no coverage): beside the rest
-of the graph in `Verify` they took about 50 s each and hit Vitest's 5 s test timeout
-([run 40034957203](https://github.com/risu729/pateat/actions/runs/40034957203)); in
-their own job they add nothing to the run's time. Since 2026-11-04 they walk every event
-type over sixteen logins, about 3.5 minutes of CPU, a little over a minute on four
-cores, against about 6 minutes for `Verify`; keep their job well under `Verify`. Both
-jobs pull the pinned Vaultwarden and Mailpit images from `ghcr.io` and run them with the
-runner's Docker: `Verify` for the
-[Vaultwarden self-check](development.md#vaultwarden-test-server) and the Browser shard
-that holds `vaultwarden.spec.ts` for its sign-ins. Without those variables, as in a
-local `mise run check`, the browser suite and the walks run with the rest. With four
-shards the first sharded runs took 4 to 7 minutes (mean 4m41s over 37 runs on 2026-10-11
-and 12), where each shard still repeated the rest of the graph; `Verify` and the shards
-run side by side now. With six shards and `Verify` split out, 16 PR runs on 2026-10-12
-between 06:11 and 07:24 UTC (JST 15:11 to 16:24) took 4m06s on average (3m19s to 5m28s)
-and 11 successful main runs 4m44s (3m28s to 8m00s); the slowest ones overlapped other
-runs. Every run is 10 jobs (`Changes`, `Verify`, `Event orders`, six `Browser` shards,
-`CI Check`), or 4 for a documentation-only PR (`Changes`, `Verify`, `Event orders`,
-`CI Check`); a main push adds an eleventh, `Deploy tested server`, which a pull request
-skips. The owner decided on 2026-10-12 that CI runs no Windows job at all: the tests
-drive Playwright's Chromium, not the owner's Chrome, no extension code branches on the
-platform, and no Pateat defect was ever found only on Windows (the Windows failures seen
-were a local missing SideBySide assembly, system-drive I/O stalls and a 30 s timeout of
-unknown cause). Installed-Chrome behaviour on Windows is covered by the real-Chrome
-checks, not by CI. `CI Check` requires `Changes`, `Verify` and `Event orders` to succeed
-and `Browser` to be `success`, or `skipped` exactly when `Changes` reported a
-documentation-only PR; it runs even when an upstream job failed. A `Changes` job (no
-checkout, on `ubuntu-slim`) decides whether a PR needs the browser tests: a PR whose
-changed files are all under `docs/` or `apps/docs/` (the
-[docs website](development.md#docs-website)) or are `AGENTS.md`, `README.md` or
-`README.ja.md` skips the `Browser` job, runs only `Verify` (which still checks the
-documentation and builds the docs website) and passes `CI Check` with the shards
-skipped; any other change, every main push and every manual run runs them. The owner
-chose [dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
-2026-10-12 because on a `pull_request` event it reads the changed files through the API,
-so the job needs no checkout and only `pull-requests: read`; workflow-level `paths`
-filters are not used because a skipped workflow reports no `CI Check`. If the `Changes`
-job fails, `CI Check` fails. `Changes` adds a few seconds before the browser shards
-start. A newer push to a PR cancels its older run, but each main push finishes its own
-run; otherwise frequent merges would cancel every main run before it could package a
-release and deploy it. `codeql.yml` analyzes TypeScript/JavaScript and Actions
-separately. `pricing.yml` refreshes the committed Claude rates daily (ADR 0014): on a
-change it commits through the contents API, so GitHub signs the commit, opens a PR from
-`pricing/claude-rates`, and starts `ci.yml` there by `workflow_dispatch`, since a push
-or PR made with the job token starts no workflow. Opening that PR needs the repository
-setting that allows GitHub Actions to create pull requests. Linux jobs pin
-`ubuntu-26.04`; the `CI Check` aggregate only compares results, so it runs on the
-single-CPU `ubuntu-slim` runner. CodeQL needs no Actions cache: dependency caching is
-off by default in advanced setup and its TRAP cache is disabled, so the workflow sets
-`cache-mode: none`. In `ci.yml` the `Verify`, `Event orders`, `Browser` and
-`Deploy tested server` jobs share their checkout, mise and aube install steps through
-YAML anchors (`&checkout`, `&mise`, `&install`), so those pins appear once in `ci.yml`;
-zizmor warns that it audits anchored workflows on a best-effort basis. GitHub Code
-Quality is not used: since its
+`ci.yml` runs the complete mise/hk graph on every PR and main push and on manual runs,
+split over these jobs (times from main
+[run 42211009805](https://github.com/risu729/pateat/actions/runs/42211009805),
+2026-11-06):
+
+| Job | Runs | When | Time |
+| --- | --- | --- | --- |
+| `Verify` | `mise run check` with `PATEAT_SKIP_E2E=1`, `PATEAT_SKIP_ORDERS=1` and `PATEAT_COVERAGE=1`: hk's static checks, every typecheck, unit and component test (with [coverage](development.md#test-coverage)), the Chromium component suites and the server build checks; on a main push it also packs the server artifact | always | 4 to 6 minutes (5m48s in that run), the longest job |
+| `Event orders` | `mise run //packages/contracts:test:orders`, the walks over every order of events of the small logins (no coverage) | always | under 1 minute |
+| `Browser (1/6)` to `(6/6)` | `mise run //tests/extension:test` with `PATEAT_E2E_SHARD=<n>/6`, the packaged-extension Playwright suite | always | 2.5 to 4 minutes |
+| `CI Check` | fails unless every job above succeeded (a failed, cancelled or skipped job fails it); the only required status check | always, even after a failure | seconds |
+| `Deploy tested server` | releases the tested server (below) | main push after `CI Check` passed | about 1 minute |
+
+Rules and their reasons:
+
+- No workflow-level path filters: a skipped workflow reports no `CI Check`. Every PR,
+  documentation-only ones included, runs every job; the `Browser` shards are shorter
+  than `Verify` and run beside it, so they add no time. A `Changes` job with
+  dorny/paths-filter skipped them for documentation-only PRs until 2026-11-06; the
+  owner removed it after it hung for 10 minutes on a main push, failed `CI Check` and
+  stopped that deployment
+  ([run 42060813609](https://github.com/risu729/pateat/actions/runs/42060813609)).
+- The two `PATEAT_SKIP_*` variables only move work into parallel jobs; a local
+  `mise run check` without them runs everything. The order walks are separate because
+  beside the unit tests they compete for the four CPUs: each took about 50 s and hit
+  Vitest's 5 s test timeout
+  ([run 40034957203](https://github.com/risu729/pateat/actions/runs/40034957203)). Keep
+  `Event orders` well under `Verify`.
+- The Playwright suite runs as six shards, one worker each, split by test
+  (`fullyParallel`). `tests/extension/shard-reporter.ts` deals the tests out in turn,
+  keeping a `serial` or `default` mode suite together, because Playwright's contiguous
+  ranges put all 21 `login-generation.spec.ts` tests in one shard
+  ([run 39795207166](https://github.com/risu729/pateat/actions/runs/39795207166)).
+- Browsers are installed without `--with-deps`: the `ubuntu-26.04` image already has
+  every library Chromium links and the tests are headless, while apt once spent 8 to 9.5
+  minutes fetching fonts and `xvfb` from a slow Azure mirror. `Verify` and the shard
+  that holds `vaultwarden.spec.ts` run the pinned Vaultwarden and Mailpit images from
+  `ghcr.io` with the runner's Docker
+  ([Vaultwarden test server](development.md#vaultwarden-test-server)).
+- No Windows job (owner, 2026-10-12): the tests drive Playwright's Chromium, no
+  extension code branches on the platform, and no Pateat defect was ever found only on
+  Windows. Installed Chrome on Windows is covered by the real-Chrome checks.
+- A newer push to a PR cancels its older run; each main push finishes its own run,
+  otherwise frequent merges would cancel every main run before it could deploy. A main
+  run can still end `cancelled` when its waiting `Deploy tested server` job is replaced
+  by a later one (see below); that is expected.
+- Linux jobs pin `ubuntu-26.04`; `CI Check` only compares results and runs on
+  `ubuntu-slim`.
+- `.github/actions/setup` holds the mise install (`jdx/mise-action` with the pinned mise
+  version and `--locked`), the frozen aube install and, with `browser: "true"`, the
+  browser install, for every job in `ci.yml`, `pricing.yml` and `release.yml` that runs
+  mise. Jobs call it as `uses: $/.github/actions/setup`, GitHub's
+  [self-repository syntax](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/),
+  which loads it from the running commit; zizmor's `self-repository` audit flags the
+  `./` form.
+
+The other workflows:
+
+- `codeql.yml` analyzes TypeScript/JavaScript and Actions on every PR, every main push
+  and weekly. Like CI, only a newer PR push cancels a running analysis, so every main
+  commit keeps its own result. It needs no Actions cache: dependency caching is off by
+  default in advanced setup and its TRAP cache is disabled, so the workflow sets
+  `cache-mode: none`.
+- `pricing.yml` refreshes the committed Claude rates daily (ADR 0014): on a change it
+  commits through the contents API, so GitHub signs the commit, opens a PR from
+  `pricing/claude-rates`, and starts `ci.yml` there by `workflow_dispatch`, since a push
+  or PR made with the job token starts no workflow. Opening that PR needs the repository
+  setting that allows GitHub Actions to create pull requests.
+- `release.yml` maintains the extension release PR and publishes merged ones
+  ([extension releases](#extension-releases)).
+
+GitHub Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
