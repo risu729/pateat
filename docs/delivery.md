@@ -16,7 +16,7 @@ split over these jobs (times from main
 
 | Job | Runs | When | Time |
 | --- | --- | --- | --- |
-| `Verify` | `mise run check` with `PATEAT_SKIP_E2E=1`, `PATEAT_SKIP_ORDERS=1` and `PATEAT_COVERAGE=1`: hk's static checks, every typecheck, unit and component test (with [coverage](development.md#test-coverage)), the Chromium component suites and the server build checks; on a main push it also packs the server artifact | always | about 4.5 minutes, the longest job |
+| `Verify` | `mise run check` with `PATEAT_SKIP_E2E=1`, `PATEAT_SKIP_ORDERS=1` and `PATEAT_COVERAGE=1`: hk's static checks, every typecheck, unit and component test (with [coverage](development.md#test-coverage)), the Chromium component suites and the server build checks; on a main push it also packs the server artifact | always | 4 to 6 minutes (5m48s in that run), the longest job |
 | `Event orders` | `mise run //packages/contracts:test:orders`, the walks over every order of events of the small logins (no coverage) | always | under 1 minute |
 | `Browser (1/6)` to `(6/6)` | `mise run //tests/extension:test` with `PATEAT_E2E_SHARD=<n>/6`, the packaged-extension Playwright suite | always | 2.5 to 4 minutes |
 | `CI Check` | fails unless every job above succeeded (a failed, cancelled or skipped job fails it); the only required status check | always, even after a failure | seconds |
@@ -59,10 +59,11 @@ Rules and their reasons:
   `ubuntu-slim`.
 - `.github/actions/setup` holds the mise install (`jdx/mise-action` with the pinned mise
   version and `--locked`), the frozen aube install and, with `browser: "true"`, the
-  browser install, for every job in `ci.yml`, `pricing.yml` and `release.yml`. Jobs call
-  it as `uses: $/.github/actions/setup`, GitHub's
+  browser install, for every job in `ci.yml`, `pricing.yml` and `release.yml` that runs
+  mise. Jobs call it as `uses: $/.github/actions/setup`, GitHub's
   [self-repository syntax](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/),
-  which loads it from the running commit; zizmor and jactionlint reject the `./` form.
+  which loads it from the running commit; zizmor's `self-repository` audit flags the
+  `./` form.
 
 The other workflows:
 
