@@ -309,8 +309,15 @@ export interface GenerationBackend {
     stale: { expired: number; versions: readonly string[] },
     inputs: string,
   ): Promise<boolean>;
-  /** Keeps the page's verdict on its row; a failure only costs that. */
-  keepVerdict(key: JudgementKey, verdict: PageJudgementVerdict): Promise<void>;
+  /**
+   * Keeps the page's verdict on its row, and with `inputs` its inputs' digest; a failure
+   * only costs that.
+   */
+  keepVerdict(
+    key: JudgementKey,
+    verdict: PageJudgementVerdict,
+    inputs?: string | null,
+  ): Promise<void>;
 
   /**
    * Makes a route's model calls: in one of the owner's call slots, after `gate`, with the

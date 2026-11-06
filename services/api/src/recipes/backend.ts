@@ -197,8 +197,11 @@ export function d1Backend(
       // inputs; none while another request's row is there.
       return taken.meta.changes === 1;
     },
-    keepVerdict: async (key, verdict) => {
-      await db.update(pageJudgements).set({ verdict }).where(judgementOf(key));
+    keepVerdict: async (key, verdict, inputs) => {
+      await db
+        .update(pageJudgements)
+        .set(inputs === undefined ? { verdict } : { verdict, inputs })
+        .where(judgementOf(key));
     },
 
     call: (call) => callClaude(env, ownerId, trace, call),

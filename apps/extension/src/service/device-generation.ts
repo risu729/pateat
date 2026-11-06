@@ -486,11 +486,13 @@ export function createDeviceGenerationBackend(options: {
       });
       return taken;
     },
-    keepVerdict(judged, verdict) {
+    keepVerdict(judged, verdict, inputs) {
       return change((record) => ({
         ...record,
         judgements: record.judgements.map((entry) =>
-          sameJudgement(judged)(entry) ? { ...entry, verdict } : entry,
+          sameJudgement(judged)(entry)
+            ? { ...entry, verdict, ...(inputs === undefined ? {} : { inputs }) }
+            : entry,
         ),
       }));
     },

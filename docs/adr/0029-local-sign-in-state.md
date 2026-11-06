@@ -817,11 +817,19 @@ each fill-role field's and `select`'s role and locator, sorted (`judgedInputs` i
 row kept `challenge` answers `judged-challenge` only to a description with the same
 inputs; a description with other inputs, or any description when the row has no digest
 (rows kept before this change), is judged again, takes the day's slot as a `partial` row
-does, and keeps its own verdict and digest. Other verdicts are unchanged.
+does, and keeps its own verdict and digest. Other verdicts are unchanged. A page judged
+again this way stays a challenge when no new verdict comes: an undecided model answers
+`challenge` and keeps it for the new inputs, and a failed or refused request puts
+`challenge` back with the earlier digest, so the next login of the new inputs judges the
+page again. Without that the row would be left `unclear` or without a verdict, which is
+never judged again for the revision.
 
 - Only inputs count, not buttons, links or text: a page whose button text counts down,
   or a code page sent by email whose judgement keeps no handler by design, keeps its
   answer from one login to the next, so it costs no model call each time.
+- An input whose locator changes on each load (an ID the extractor does not read as
+  generated) gives a new digest each time, so such a page is judged on each login,
+  within the recipe's 20 judgements a day.
 - Not chosen: judging every `challenge` row again (a model call on each login that stops
   at a step the person takes), comparing the whole description (any changing text would
   do the same), and handing the attempt to a recipe of the code page itself, as a page

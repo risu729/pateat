@@ -3365,6 +3365,46 @@ describe("page judgement (ADR 0027)", () => {
     ]);
   });
 
+  it("keeps a challenge when its page judged again gets no new verdict", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const bare = observation("/auth/mfa", [element("verify", "button", "Continue")]);
+    const drawn = observation("/auth/mfa", [
+      { ...element("app-code", "text", "One-time code"), autocomplete: "one-time-code" as const },
+      element("verify", "button", "Continue"),
+    ]);
+    const kept = () =>
+      rows(
+        "SELECT verdict, inputs FROM page_judgements WHERE owner_id = ? AND path = '/auth/mfa'",
+        device.ownerId,
+      );
+    replies.push(judgeReply({ decision: "challenge" }));
+    await complete(device, change.recipeId, 2, bare);
+    // The request judging it again fails: the row keeps `challenge` and its earlier inputs,
+    // so the next login of the new ones judges it again.
+    expect((await complete(device, change.recipeId, 2, drawn)).body).toEqual({
+      version: 1,
+      status: "failed",
+      error: "provider-error",
+    });
+    expect(await kept()).toEqual([{ verdict: "challenge", inputs: await judgedInputs(bare) }]);
+    // The model is undecided: the page is a challenge still, now for these inputs.
+    const calls = sent.length;
+    replies.push({ text: JSON.stringify({ result: { decision: "unclear" } }) });
+    expect((await complete(device, change.recipeId, 2, drawn)).body).toEqual({
+      version: 1,
+      status: "challenge",
+    });
+    expect(sent).toHaveLength(calls + 1);
+    expect(await kept()).toEqual([{ verdict: "challenge", inputs: await judgedInputs(drawn) }]);
+    expect((await complete(device, change.recipeId, 2, drawn)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judged-challenge",
+    });
+    expect(sent).toHaveLength(calls + 1);
+  });
+
   it("judges a challenge page kept without its inputs again", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
