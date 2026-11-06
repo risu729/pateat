@@ -229,8 +229,12 @@ ffa712f and e199920 with `deployment_readback_pending` (about 31.5 s after the u
 the passing releases read the deployment back about 3 s after it), and 0a73b56 with
 `504 Gateway Timeout` on the version upload (no version or deployment was created). The
 action prints no HTTP statuses, so the reason for the missing readback (error 10336
-"not visible yet" or no timely answer) is not confirmed. The job therefore waits 30
-seconds and runs the activation a second time when the first one fails; the retry must
+"not visible yet" or no timely answer) is not confirmed. The job therefore runs the
+activation a second time, right away, when the first one fails. Until 2026-11-06 it
+first waited 30 seconds; the owner removed that fixed wait (in 100 main runs from
+2026-10-20 the retry ran once, in
+[run 41823239311](https://github.com/risu729/pateat/actions/runs/41823239311), and
+passed). The retry must
 pass the same strict readback, and when both fail the job fails (check `/health` before
 re-running; a re-run is safe in either case). The retry runs after any failed first
 activation, including a readback that found a different current deployment, which the
