@@ -691,6 +691,12 @@ export const pageJudgements = sqliteTable(
      * judged, or when the request failed.
      */
     verdict: text("verdict", { enum: pageJudgementVerdicts }),
+    /**
+     * The digest of the inputs the judged description showed: a page kept `challenge` is
+     * judged again once it shows other inputs, or when a row has none (ADR 0029 amendment
+     * of 2026-11-06).
+     */
+    inputs: text("inputs"),
   },
   (table) => [
     primaryKey({

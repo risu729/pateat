@@ -232,6 +232,13 @@
       "when": 1793704746832,
       "tag": "0036_login_record_parts",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1793999563986,
+      "tag": "0037_page_judgement_inputs",
+      "breakpoints": true
     }
   ]
 }

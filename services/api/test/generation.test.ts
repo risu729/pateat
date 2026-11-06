@@ -38,7 +38,7 @@ import { saveWifCredential } from "../src/claude/credentials";
 import { saveModelConfig } from "../src/claude/models";
 import { MAX_ACTIVE_RECIPES } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
-import { documentUnits } from "@pateat/generation";
+import { documentUnits, judgedInputs } from "@pateat/generation";
 import { seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
 import {
   ATTEMPT_WINDOW_MS,
@@ -2954,12 +2954,13 @@ describe("page judgement (ADR 0027)", () => {
     {
       promptVersion = "",
       verdict = null,
-    }: { promptVersion?: string; verdict?: string | null } = {},
+      inputs = null,
+    }: { promptVersion?: string; verdict?: string | null; inputs?: string | null } = {},
   ) =>
     // A row of the layout the recipe's logins run (ADR 0060).
     layoutKey(device.ownerId, recipeId).then((branch) =>
       env.DB.prepare(
-        "INSERT INTO page_judgements (owner_id, recipe_id, branch, revision, origin, path, prompt_version, judged_at, verdict) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO page_judgements (owner_id, recipe_id, branch, revision, origin, path, prompt_version, judged_at, verdict, inputs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
         .bind(
           device.ownerId,
@@ -2971,6 +2972,7 @@ describe("page judgement (ADR 0027)", () => {
           promptVersion,
           at,
           verdict,
+          inputs,
         )
         .run(),
     );
@@ -3313,6 +3315,120 @@ describe("page judgement (ADR 0027)", () => {
     ]);
   });
 
+  // Resend, 2026-11-04 10:18 UTC: the code page was described before its code field was
+  // drawn, judged `challenge` with no handler, and every later login of the revision was
+  // answered `judged-challenge` though its page showed the field (ADR 0029 amendment of
+  // 2026-11-06).
+  it("judges a challenge page again once it shows other inputs", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const bare = observation("/auth/mfa", [
+      element("verify", "button", "Continue"),
+      element("recovery", "button", "Use a recovery code"),
+    ]);
+    replies.push(judgeReply({ decision: "challenge" }));
+    expect((await complete(device, change.recipeId, 2, bare)).body).toEqual({
+      version: 1,
+      status: "challenge",
+    });
+    // The same inputs, whatever else the page shows, keep the kept answer.
+    const calls = sent.length;
+    const relabelled = observation("/auth/mfa", [element("verify", "button", "Verify")]);
+    expect((await complete(device, change.recipeId, 2, relabelled)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judged-challenge",
+    });
+    expect(sent).toHaveLength(calls);
+    // With its code field the page is judged again, within the day's limit, and its
+    // handler is learned.
+    const code = {
+      ...element("app-code", "text", "One-time code"),
+      autocomplete: "one-time-code" as const,
+      inputMode: "numeric" as const,
+      maxLength: 6,
+    };
+    const drawn = observation("/auth/mfa", [code, ...bare.candidates]);
+    replies.push(
+      judgeReply({
+        decision: "challenge",
+        code: { field: "app-code", submit: "verify", source: "authenticator-app" },
+      }),
+    );
+    expect((await complete(device, change.recipeId, 2, drawn)).body).toMatchObject({
+      status: "challenge",
+      change: { revision: 3 },
+    });
+    expect(sent).toHaveLength(calls + 1);
+    expect(await judgements(device)).toEqual([
+      { recipe_id: change.recipeId, revision: 2, path: "/auth/mfa" },
+    ]);
+  });
+
+  it("keeps a challenge when its page judged again gets no new verdict", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const bare = observation("/auth/mfa", [element("verify", "button", "Continue")]);
+    const drawn = observation("/auth/mfa", [
+      { ...element("app-code", "text", "One-time code"), autocomplete: "one-time-code" as const },
+      element("verify", "button", "Continue"),
+    ]);
+    const kept = () =>
+      rows(
+        "SELECT verdict, inputs FROM page_judgements WHERE owner_id = ? AND path = '/auth/mfa'",
+        device.ownerId,
+      );
+    replies.push(judgeReply({ decision: "challenge" }));
+    await complete(device, change.recipeId, 2, bare);
+    // The request judging it again fails: the row keeps `challenge` and its earlier inputs,
+    // so the next login of the new ones judges it again.
+    expect((await complete(device, change.recipeId, 2, drawn)).body).toEqual({
+      version: 1,
+      status: "failed",
+      error: "provider-error",
+    });
+    expect(await kept()).toEqual([{ verdict: "challenge", inputs: await judgedInputs(bare) }]);
+    // The model is undecided: the page is a challenge still, now for these inputs.
+    const calls = sent.length;
+    replies.push({ text: JSON.stringify({ result: { decision: "unclear" } }) });
+    expect((await complete(device, change.recipeId, 2, drawn)).body).toEqual({
+      version: 1,
+      status: "challenge",
+    });
+    expect(sent).toHaveLength(calls + 1);
+    expect(await kept()).toEqual([{ verdict: "challenge", inputs: await judgedInputs(drawn) }]);
+    expect((await complete(device, change.recipeId, 2, drawn)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judged-challenge",
+    });
+    expect(sent).toHaveLength(calls + 1);
+  });
+
+  it("judges a challenge page kept without its inputs again", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(judgeReply({ decision: "challenge" }));
+    await complete(device, change.recipeId, 2);
+    // A row kept before the inputs were recorded holds none.
+    await env.DB.prepare("UPDATE page_judgements SET inputs = NULL WHERE owner_id = ?")
+      .bind(device.ownerId)
+      .run();
+    const calls = sent.length;
+    replies.push(judgeReply({ decision: "challenge" }));
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "challenge",
+    });
+    expect(sent).toHaveLength(calls + 1);
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judged-challenge",
+    });
+    expect(sent).toHaveLength(calls + 1);
+  });
+
   describe("a page of another origin of the site (ADR 0022)", () => {
     const moved = (path: string, candidates: ObservedCandidate[]) =>
       observation(path, candidates, "https://www.example.test");
@@ -3543,10 +3659,11 @@ describe("page judgement (ADR 0027)", () => {
       { prompt_version: "", verdict: "challenge" },
       { prompt_version: await completionPromptVersion(), verdict: "challenge" },
     ]);
-    // The current judge's own verdict still stops a repeat.
+    // The current judge's own verdict on the same inputs still stops a repeat.
     await seed(device, change.recipeId, 3, "/home", dayStart(), {
       promptVersion: await completionPromptVersion(),
       verdict: "challenge",
+      inputs: await judgedInputs(homePage),
     });
     expect((await complete(device, change.recipeId, 3)).body).toEqual({
       version: 1,
@@ -4750,6 +4867,7 @@ describe("page judgement (ADR 0027)", () => {
       await seed(device, change.recipeId, 2, "/password", dayStart() - 1, {
         promptVersion: stopVersion,
         verdict: "challenge",
+        inputs: await judgedInputs(stopPage),
       });
       await seed(device, change.recipeId, 2, "/earlier-judge", dayStart() - 1);
       replies.push(judgeReply({ decision: "rejected" }));
@@ -5096,6 +5214,7 @@ describe("page judgement (ADR 0027)", () => {
       await seed(device, change.recipeId, 2, "/password", dayStart() - 1, {
         promptVersion: await completionBesidePromptVersion(),
         verdict: "challenge",
+        inputs: await judgedInputs(besidePage),
       });
       await seed(device, change.recipeId, 2, "/earlier-judge", dayStart() - 1);
       replies.push(judgeReply({ decision: "rejected" }));

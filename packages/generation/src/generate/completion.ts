@@ -7,8 +7,11 @@ import {
   sameLoginTarget,
   showsBesideForm,
   isChooserDocument,
+  fillRoles,
   type GenerationUnavailableReason,
+  type LoginObservation,
   type LoginRecipe,
+  type ObservedCandidate,
   type LoginMarkerTarget,
   type LoginRoute,
   type RecipeCompletionRequest,
@@ -32,6 +35,7 @@ import {
 import {
   type GenerationBackend,
   type JudgementKey,
+  type KeptJudgement,
   type PageJudgementVerdict,
   type UnitSources,
   type UnsentRequest,
@@ -62,6 +66,28 @@ function judgedLoginPaths(head: StoredLoginRecipe, recipe: LoginRecipe, route: L
       ...(recipe.handlers ?? []).map((handler) => handler.path),
     ]),
   ];
+}
+
+/** The roles of the inputs a judged page's kept `challenge` is tied to (ADR 0029). */
+const judgedInputRoles: ReadonlySet<ObservedCandidate["role"]> = new Set([...fillRoles, "select"]);
+
+/**
+ * The digest of the inputs a judged description shows: each fill-role field's and select's
+ * role and locator, in order of neither the page nor the description. A kept `challenge`
+ * answers only a page described with the same inputs: one judged on a description that
+ * missed its code field, as a page read while it was still being drawn may, kept no
+ * handler for it (ADR 0029 amendment of 2026-11-06).
+ */
+export async function judgedInputs(observation: LoginObservation): Promise<string> {
+  const inputs = observation.candidates
+    .filter((candidate) => judgedInputRoles.has(candidate.role))
+    .map((candidate) => JSON.stringify([candidate.role, candidate.target]))
+    .toSorted();
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(inputs)),
+  );
+  return new Uint8Array(digest).toHex().slice(0, 16);
 }
 
 /**
@@ -219,12 +245,21 @@ export async function judgeCompletion(
    * be, is judged again once the path is described in full; a description that leaves one
    * out again is `already-judged`, which the extension never completes on. A page judged
    * `optional` is judged again each time: another page of the same path, as a single-page
-   * sign-in shows, may ask for a step (ADR 0065).
+   * sign-in shows, may ask for a step (ADR 0065). A page judged `challenge` is judged again
+   * once it is described with other inputs: the judgement may have kept no handler because
+   * its description missed the field, as a code field not yet drawn (ADR 0029 amendment of
+   * 2026-11-06).
    */
+  const inputs = await judgedInputs(observation);
   const judgedAnswer = (
-    judged: { verdict: PageJudgementVerdict | null } | undefined,
+    judged: KeptJudgement | undefined,
   ): GenerationUnavailableReason | undefined => {
-    if (!judged || (judged.verdict === "partial" && !partial) || judged.verdict === "optional")
+    if (
+      !judged ||
+      (judged.verdict === "partial" && !partial) ||
+      judged.verdict === "optional" ||
+      (judged.verdict === "challenge" && judged.inputs !== inputs)
+    )
       return undefined;
     return judged.verdict === "challenge"
       ? "judged-challenge"
@@ -236,6 +271,14 @@ export async function judgeCompletion(
             ? "judged-signed-in"
             : "already-judged";
   };
+  /**
+   * Whether this request took a row kept `challenge` for other inputs: until the new
+   * verdict is written the row has none, so a request that ends without one, failed or
+   * undecided, puts `challenge` back. The page was a step the person takes, and a row left
+   * without a verdict, or `unclear`, would never be judged again for the revision.
+   */
+  let retakenChallenge = false;
+  let kept: KeptJudgement | undefined;
   const call = await backend.call({
     ...logged(loginPaths),
     device: request.deviceModel,
@@ -245,7 +288,8 @@ export async function judgeCompletion(
     gate: async (now) => {
       const stale = staleHead(await backend.readHead(recipeId), head.revision);
       if (stale) return stale;
-      const judged = judgedAnswer(await backend.judgement(judgedPage));
+      kept = await backend.judgement(judgedPage);
+      const judged = judgedAnswer(kept);
       if (judged) return judged;
       return (await backend.judgementsSince(recipeId, utcDayStart(now))) >=
         JUDGEMENTS_PER_RECIPE_DAY
@@ -253,17 +297,25 @@ export async function judgeCompletion(
         : undefined;
     },
     // A request the role refuses before sending gives the slot back, as a generation
-    // attempt does (ADR 0027); a `partial` or `optional` row judged again takes today's
-    // slot and waits for its new verdict. Rows of older revisions or judges go once their
-    // day is over. A row another request wrote since the gate stops this one unsent, so a
-    // page is never judged twice at once (ADR 0018): it answers as that row does.
-    beforeSend: async (now) =>
-      (await backend.recordJudgement(judgedPage, now, {
-        expired: utcDayStart(now),
-        versions: [usualVersion, stopVersion, besideVersion],
-      }))
-        ? undefined
-        : (judgedAnswer(await backend.judgement(judgedPage)) ?? "judgement-unanswered"),
+    // attempt does (ADR 0027); a `partial` or `optional` row judged again, or a
+    // `challenge` one of other inputs, takes today's slot and waits for its new verdict.
+    // Rows of older revisions or judges go once their day is over. A row another request
+    // wrote since the gate stops this one unsent, so a page is never judged twice at once
+    // (ADR 0018): it answers as that row does.
+    beforeSend: async (now) => {
+      if (
+        await backend.recordJudgement(
+          judgedPage,
+          now,
+          { expired: utcDayStart(now), versions: [usualVersion, stopVersion, besideVersion] },
+          inputs,
+        )
+      ) {
+        retakenChallenge = kept?.verdict === "challenge";
+        return undefined;
+      }
+      return judgedAnswer(await backend.judgement(judgedPage)) ?? "judgement-unanswered";
+    },
     invoke: (model) =>
       createCompletionJudge({ model, ...roleConfig })({
         observation,
@@ -275,7 +327,25 @@ export async function judgeCompletion(
       }),
     logValue: (judgement) => judgement,
   });
-  if (call.status === "unavailable") return unsent(unavailable(call.reason), loginPaths);
+  // The verdict goes on the path's row, which tells a later login of the revision what
+  // the page was (ADR 0029). A row left without one never completes a login, so a failed
+  // write only costs that.
+  const keepVerdict = async (verdict: PageJudgementVerdict, keptInputs?: string | null) => {
+    try {
+      await backend.keepVerdict(judgedPage, verdict, keptInputs);
+    } catch {
+      console.warn("Page judgement verdict not kept", { recipeId, verdict });
+    }
+  };
+  // A retaken `challenge` row whose request failed is a challenge still, with its earlier
+  // inputs, so a later login of the new ones judges the page again.
+  const keepChallenge = async () => {
+    if (retakenChallenge) await keepVerdict("challenge", kept?.inputs ?? null);
+  };
+  if (call.status === "unavailable") {
+    await keepChallenge();
+    return unsent(unavailable(call.reason), loginPaths);
+  }
   if (call.status === "device-call") return modelCall(call);
   const { outcome } = call;
   /**
@@ -293,25 +363,17 @@ export async function judgeCompletion(
     logId: call.logId,
   });
   if (outcome.status === "failed") {
+    await keepChallenge();
     const answer = failed(failureOf(outcome.error));
     // A request the role refused locally, as one too large, was never sent.
     return outcome.calls === 0 ? unsent(answer, loginPaths) : answer;
   }
-  // The verdict goes on the path's row, which tells a later login of the revision what
-  // the page was (ADR 0029). A row left without one never completes a login, so a failed
-  // write only costs that.
-  const keepVerdict = async (verdict: PageJudgementVerdict) => {
-    try {
-      await backend.keepVerdict(judgedPage, verdict);
-    } catch {
-      console.warn("Page judgement verdict not kept", { recipeId, verdict });
-    }
-  };
   if (outcome.status === "abstained") {
     // Undecided on a description that left a disabled field out: not kept as `unclear`,
-    // so a later login does not complete on the path once the field is enabled.
-    await keepVerdict(partial ? "partial" : "unclear");
-    return { version: 1, status: "unclear" };
+    // so a later login does not complete on the path once the field is enabled. Undecided
+    // on a page kept `challenge` before, it stays one.
+    await keepVerdict(retakenChallenge ? "challenge" : partial ? "partial" : "unclear");
+    return { version: 1, status: retakenChallenge ? "challenge" : "unclear" };
   }
   const judgement = outcome.value;
   // A stop's page keeps a `passkey` handler and nothing else: no rejection, no marker and

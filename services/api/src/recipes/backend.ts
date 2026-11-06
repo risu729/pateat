@@ -1,6 +1,6 @@
 import type { GenerationBackend } from "@pateat/generation";
 import type { WorkersAiBinding } from "@pateat/inference";
-import { and, count, eq, gt, gte, inArray, lt, notInArray, or } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, lt, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { DeviceScope } from "../auth";
 import {
@@ -138,7 +138,7 @@ export function d1Backend(
     },
     judgement: async (key) => {
       const [judged] = await db
-        .select({ verdict: pageJudgements.verdict })
+        .select({ verdict: pageJudgements.verdict, inputs: pageJudgements.inputs })
         .from(pageJudgements)
         .where(judgementOf(key))
         .limit(1);
@@ -157,11 +157,11 @@ export function d1Backend(
         );
       return judged?.value ?? 0;
     },
-    recordJudgement: async (key, now, stale) => {
+    recordJudgement: async (key, now, stale, inputs) => {
       const [taken] = await db.batch([
         db
           .insert(pageJudgements)
-          .values({ ownerId, ...key, judgedAt: now })
+          .values({ ownerId, ...key, judgedAt: now, inputs })
           .onConflictDoUpdate({
             target: [
               pageJudgements.ownerId,
@@ -172,8 +172,12 @@ export function d1Backend(
               pageJudgements.path,
               pageJudgements.promptVersion,
             ],
-            set: { judgedAt: now, verdict: null },
-            setWhere: inArray(pageJudgements.verdict, ["partial", "optional"]),
+            set: { judgedAt: now, verdict: null, inputs },
+            // `is not` holds for a row kept without inputs too.
+            setWhere: sql`${inArray(pageJudgements.verdict, ["partial", "optional"])} or (${eq(
+              pageJudgements.verdict,
+              "challenge",
+            )} and ${pageJudgements.inputs} is not ${inputs})`,
           }),
         db
           .delete(pageJudgements)
@@ -189,12 +193,15 @@ export function d1Backend(
             ),
           ),
       ]);
-      // An insert or a retaken `partial` or `optional` row; none while another request's
-      // row is there.
+      // An insert, or a retaken `partial` or `optional` row or `challenge` one of other
+      // inputs; none while another request's row is there.
       return taken.meta.changes === 1;
     },
-    keepVerdict: async (key, verdict) => {
-      await db.update(pageJudgements).set({ verdict }).where(judgementOf(key));
+    keepVerdict: async (key, verdict, inputs) => {
+      await db
+        .update(pageJudgements)
+        .set(inputs === undefined ? { verdict } : { verdict, inputs })
+        .where(judgementOf(key));
     },
 
     call: (call) => callClaude(env, ownerId, trace, call),

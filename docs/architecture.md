@@ -1641,107 +1641,106 @@ exchanging Pateat's passkey answer and a login on its way to a stop are left to 
 settled reading. When the result settles, the sign-in state is read again first, once
 its document has loaded (its `load` event is waited for, at most 10 seconds): evidence
 of a sign-in completes the login as `authenticated`, and a failure shown next to the
-sign-in fields (S1 with F1 or F2) ends it
-`credential-rejected` on the `password` route and `challenge` on the `passkey` route
-(owner, 2026-10-24 22:45 UTC).
-In the submitted document F1 and F2 are a new mark or new alert text. When the sign-in
-form comes back in the first new top document of the tab after a password submission,
-announced within 30 seconds of it, any mark on its sign-in inputs or any text of an
-alert next to the form counts (inside it, named by one of its inputs, or sharing a
-container with it that is not the body and holds no page chrome, no `main` area and no
-other shown form with a shown, enabled field to type in or pick from, as a passkey or
-social sign-in form of buttons and hidden inputs is not), never while a recognised
-CAPTCHA (S4: reCAPTCHA, hCaptcha, Turnstile) shows; this also ends a login already
-watched after the submitted document's reading. Later documents and pages after an
-`advance` or passkey step are not read this way. Otherwise a page no check explains is
-sent to be judged unless it still shows a fill field of any of the route's variants on a
-route path or a signed-in marker (on the `passkey` route, its button or a fill field of
-any `password` variant on its path or a `password` route path); this applies to later
-documents of the tab too, while the attempt has not ended. The page of a login's stop
-before its item's missing password is the exception: sent as a stop's page, it must show
-the route's password field, and the service keeps only a `passkey` handler from it
+sign-in fields (S1 with F1 or F2) ends it `credential-rejected` on the `password` route
+and `challenge` on the `passkey` route (owner, 2026-10-24 22:45 UTC). In the submitted
+document F1 and F2 are a new mark or new alert text. When the sign-in form comes back in
+the first new top document of the tab after a password submission, announced within 30
+seconds of it, any mark on its sign-in inputs or any text of an alert next to the form
+counts (inside it, named by one of its inputs, or sharing a container with it that is
+not the body and holds no page chrome, no `main` area and no other shown form with a
+shown, enabled field to type in or pick from, as a passkey or social sign-in form of
+buttons and hidden inputs is not), never while a recognised CAPTCHA (S4: reCAPTCHA,
+hCaptcha, Turnstile) shows; this also ends a login already watched after the submitted
+document's reading. Later documents and pages after an `advance` or passkey step are not
+read this way. Otherwise a page no check explains is sent to be judged unless it still
+shows a fill field of any of the route's variants on a route path or a signed-in marker
+(on the `passkey` route, its button or a fill field of any `password` variant on its
+path or a `password` route path); this applies to later documents of the tab too, while
+the attempt has not ended. The page of a login's stop before its item's missing password
+is the exception: sent as a stop's page, it must show the route's password field, and
+the service keeps only a `passkey` handler from it
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md), owner 2026-10-13 05:39 UTC). So
-is a `password` login's page without a chooser or a stop, in the tab's top document
-on the recipe's own origin, that still shows a route fill field on a route path, with
-its sign-in state read and no failure beside it (S1 with F1 or F2), when its
-description also shows, in a form other than every shown route fill field's, a text,
-tel or number input that is no route fill field and a button of that form
-(`showsBesideForm`), and its path has no `detail` handler: sent with `beside: true`,
-it is judged under its own prompt version and instructions, and the service keeps only
-a `detail` handler from it (other handlers logged with `beside`) and any other answer,
-or a `challenge` that adds no `detail` handler, as `unclear`
+is a `password` login's page without a chooser or a stop, in the tab's top document on
+the recipe's own origin, that still shows a route fill field on a route path, with its
+sign-in state read and no failure beside it (S1 with F1 or F2), when its description
+also shows, in a form other than every shown route fill field's, a text, tel or number
+input that is no route fill field and a button of that form (`showsBesideForm`), and its
+path has no `detail` handler: sent with `beside: true`, it is judged under its own
+prompt version and instructions, and the service keeps only a `detail` handler from it
+(other handlers logged with `beside`) and any other answer, or a `challenge` that adds
+no `detail` handler, as `unclear`
 ([ADR 0061](adr/0061-personal-details-during-a-login.md)). Any other such page is
-described, then not sent (`sign-in-shown`). At
-most 2 pages count per effect step: the attempt counts a page once its complete
-description is in hand, before the request, so a restart during the request cannot
-resend without bound. A page is given back only after a temporary refusal before any
-model call (a busy service, the service's own 429, an unreachable service, no paired
-service, a rejected device, or a request that failed before the model). Permanent
-refusals such as `already-judged`, `not-judgeable` or `recipe-conflict` count, and so do
-the provider's rate limit, a timeout and an unexpected answer, which may follow a model
-call; so a settled login sends at most 2 counted pages per effect step plus retries
-after temporary refusals. A page whose description is incomplete, failed or of another
-path is not sent and does not count. A judged page's path carries `[id]` in place of
-each segment that may hold a token, as every observed page's does
-([ADR 0039](adr/0039-redacted-token-path-segments.md)), so pages that differ only there
-share one judgement, its locators never use an attribute value that may be a token, and
-a field no locator names is left out unless it may be a sign-in field (ADR 0029). Since
-ADR 0039 a handler is learned on a path with `[id]` too, and matches that page of every
-tenant. A disabled field that may not be a sign-in field is left out too:
-the request says so (`partial`), the page then completes only on `signed-in`, and the
-service keeps the model's abstention on it as `partial`, so the path is judged again
-when a page of it is described in full (ADR 0029). A page where a route's sign-in field
-shows (S1), on any path, is not sent; only an input of a kind Pateat fills counts as
-that field, never another element its locator names on another page, while the passkey
-route's button counts as shown. A handler's click is a new effect step. A `challenge`
-verdict that added a handler hands back the newer revision: the attempt takes it over
-(`REVISED`) when it only adds handlers or signed-in markers, and runs the handler on the
-page it is on. A resumed attempt accepts a newer cached revision on the same terms only
-while the worker still holds its recorded revision; after a worker restart only the
-recorded revision resumes. A resumed attempt that its cached recipe no longer runs (a
-revision that replaced its own, any other one after a restart, or a recipe or layout
-the cache no longer holds) ends on the page that resumes it, `blocked` `policy-changed`
-with cause `recipe-changed`; that page is refused `recipe-not-found` and nothing is
-filled there. A lookup that could not read the pairing or the recipe cache leaves the
-attempt to resume (owner, 2026-10-23). Later pages of the tab treat it as any login
-stopped `policy-changed`: one that submitted is resumed while it holds the site for 5
-minutes (ADR 0022, owner 2026-10-24), and then the tab's next page that shows a recipe's
-first step asks and only fills (ADR 0021 D); one that submitted nothing lets the tab's
-next page log in. What the judge answers settles the login on the `password`
-route as the ADR's outcome table says: `signed-in` completes it, `rejected` ends it
+described, then not sent (`sign-in-shown`). At most 2 pages count per effect step: the
+attempt counts a page once its complete description is in hand, before the request, so a
+restart during the request cannot resend without bound. A page is given back only after
+a temporary refusal before any model call (a busy service, the service's own 429, an
+unreachable service, no paired service, a rejected device, or a request that failed
+before the model). Permanent refusals such as `already-judged`, `not-judgeable` or
+`recipe-conflict` count, and so do the provider's rate limit, a timeout and an
+unexpected answer, which may follow a model call; so a settled login sends at most 2
+counted pages per effect step plus retries after temporary refusals. A page whose
+description is incomplete, failed or of another path is not sent and does not count. A
+judged page's path carries `[id]` in place of each segment that may hold a token, as
+every observed page's does ([ADR 0039](adr/0039-redacted-token-path-segments.md)), so
+pages that differ only there share one judgement, its locators never use an attribute
+value that may be a token, and a field no locator names is left out unless it may be a
+sign-in field (ADR 0029). Since ADR 0039 a handler is learned on a path with `[id]` too,
+and matches that page of every tenant. A disabled field that may not be a sign-in field
+is left out too: the request says so (`partial`), the page then completes only on
+`signed-in`, and the service keeps the model's abstention on it as `partial`, so the
+path is judged again when a page of it is described in full (ADR 0029). A path kept
+`challenge` is judged again once its page is described with other inputs, as a code
+field that was not yet drawn when it was first judged (ADR 0029 amendment of
+2026-11-06). A page where a route's sign-in field shows (S1), on any path, is not sent;
+only an input of a kind Pateat fills counts as that field, never another element its
+locator names on another page, while the passkey route's button counts as shown. A
+handler's click is a new effect step. A `challenge` verdict that added a handler hands
+back the newer revision: the attempt takes it over (`REVISED`) when it only adds
+handlers or signed-in markers, and runs the handler on the page it is on. A resumed
+attempt accepts a newer cached revision on the same terms only while the worker still
+holds its recorded revision; after a worker restart only the recorded revision resumes.
+A resumed attempt that its cached recipe no longer runs (a revision that replaced its
+own, any other one after a restart, or a recipe or layout the cache no longer holds)
+ends on the page that resumes it, `blocked` `policy-changed` with cause
+`recipe-changed`; that page is refused `recipe-not-found` and nothing is filled there. A
+lookup that could not read the pairing or the recipe cache leaves the attempt to resume
+(owner, 2026-10-23). Later pages of the tab treat it as any login stopped
+`policy-changed`: one that submitted is resumed while it holds the site for 5 minutes
+(ADR 0022, owner 2026-10-24), and then the tab's next page that shows a recipe's first
+step asks and only fills (ADR 0021 D); one that submitted nothing lets the tab's next
+page log in. What the judge answers settles the login on the `password` route as the
+ADR's outcome table says: `signed-in` completes it, `rejected` ends it
 `credential-rejected`, and `challenge` ends it `challenge`. `optional`, a page after the
-sign-in that only offers something the person may put off, such as a check of
-two-factor settings or an offer to add a passkey, while the person could already reach
-the account ([ADR 0065](adr/0065-optional-pages-after-a-sign-in.md)), completes it as
-signed in, confirmed, watched or not, and presses nothing: the page stays as it is. It
-does so only once the attempt submitted the item's password or a second factor's
-handler, when the page confirmed no sign and no evidence before the request and the
-loaded document still shows none after the answer on the same path, the description
-left out no disabled field, the page shows no radio button, select or text area, or an
-ARIA widget for one, outside a site search (`inputLeftOut`; disabled and styled ones
-count, a page footer's select does not), and the login has no stop before a missing
-password;
-otherwise it ends `challenge`, or before the credential settles as an undecided page
-without completing. The `passkey` route ends it `challenge` as any page its checks do
-not prove, even after a learned handler. A moved login (ADR 0022) completes on it after
-the move's own re-check, on the path it was judged on, once the attempt submitted the
-password or a TOTP code, without a stop and with nothing left out. The judge's own
-answer fails closed too: `optional` on a page with any input other than a search box
-counts as `challenge`. The service learns nothing from it, no marker and no handler,
-since the page's elements may never show on the usual signed-in page, and does not
-reuse it: a later login that reaches the path is judged again. An `unclear` answer
-completes it, as a warning marked `completed`, only when the page confirmed no sign and
-no evidence (S1 to S5, E1 to E3) before the request and still shows none in the loaded
-document after the answer, the login is not watched, the description left out no
-disabled field, on the `passkey` route Pateat's answer to the passkey request of its
-step went back, and the model abstained or the service answered `already-judged`,
-`judged-signed-in`, `judgement-limit`, `daily-limit` or `monthly-limit`. Only the
-`signed-in` verdict or `unclear` with `judged-signed-in` is confirmed (and `optional`,
-above); other undecided
-completions carry `unconfirmed: true`, save no pending account choice and note no
-sign-in for passkey registration refusal. They show the yellow unsettled badge and
-the popup says the login could not be confirmed. Automation still stops, the site
-is released to other tabs and later logout detection is unchanged
+sign-in that only offers something the person may put off, such as a check of two-factor
+settings or an offer to add a passkey, while the person could already reach the account
+([ADR 0065](adr/0065-optional-pages-after-a-sign-in.md)), completes it as signed in,
+confirmed, watched or not, and presses nothing: the page stays as it is. It does so only
+once the attempt submitted the item's password or a second factor's handler, when the
+page confirmed no sign and no evidence before the request and the loaded document still
+shows none after the answer on the same path, the description left out no disabled
+field, the page shows no radio button, select or text area, or an ARIA widget for one,
+outside a site search (`inputLeftOut`; disabled and styled ones count, a page footer's
+select does not), and the login has no stop before a missing password; otherwise it ends
+`challenge`, or before the credential settles as an undecided page without completing.
+The `passkey` route ends it `challenge` as any page its checks do not prove, even after
+a learned handler. A moved login (ADR 0022) completes on it after the move's own
+re-check, on the path it was judged on, once the attempt submitted the password or a
+TOTP code, without a stop and with nothing left out. The judge's own answer fails closed
+too: `optional` on a page with any input other than a search box counts as `challenge`.
+The service learns nothing from it, no marker and no handler, since the page's elements
+may never show on the usual signed-in page, and does not reuse it: a later login that
+reaches the path is judged again. An `unclear` answer completes it, as a warning marked
+`completed`, only when the page confirmed no sign and no evidence (S1 to S5, E1 to E3)
+before the request and still shows none in the loaded document after the answer, the
+login is not watched, the description left out no disabled field, on the `passkey` route
+Pateat's answer to the passkey request of its step went back, and the model abstained or
+the service answered `already-judged`, `judged-signed-in`, `judgement-limit`,
+`daily-limit` or `monthly-limit`. Only the `signed-in` verdict or `unclear` with
+`judged-signed-in` is confirmed (and `optional`, above); other undecided completions
+carry `unconfirmed: true`, save no pending account choice and note no sign-in for
+passkey registration refusal. They show the yellow unsettled badge and the popup says
+the login could not be confirmed. Automation still stops, the site is released to other
+tabs and later logout detection is unchanged
 ([ADR 0029 amendment](adr/0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14)).
 An `unclear` answer on a page with
 a confirmed sign of another sign-in step (S2 to S5), or the service's `judged-challenge`

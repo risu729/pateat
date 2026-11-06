@@ -23,4 +23,4 @@ export {
 export { buildLoginLayout, type LayoutPage } from "./generate/layout";
 export { generateRecipe } from "./generate/recipe";
 export { generateEntry } from "./generate/entry";
-export { judgeCompletion, samplePage } from "./generate/completion";
+export { judgeCompletion, judgedInputs, samplePage } from "./generate/completion";
