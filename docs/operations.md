@@ -67,7 +67,7 @@ Read the failed step before choosing recovery:
   check must be fixed before deploying. A migration failure prevents activation, but
   earlier migrations in the set may already have applied. Inspect applied migrations
   before retrying; never edit an already applied migration or apply down-migrations.
-- Activation/readback: the workflow retries activation once after 30 seconds. A
+- Activation/readback: the workflow retries activation once, right away. A
   failed readback can coexist with a live new version. Read `/health` and the run
   output before retrying; an upload alone is not release success.
 - Health or hosted smoke: a failure does not roll back the activated Worker. Hosted
