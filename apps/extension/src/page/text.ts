@@ -511,23 +511,39 @@ function pointer(control: Element): boolean {
 export const scriptControls = "[role], [tabindex]";
 
 /**
+ * Roles that only show content, which an icon inside a button carries
+ * (`<svg role="img" aria-hidden="true">`): they never make a tab stop a container of
+ * other controls.
+ */
+const contentRoles = new Set(["img", "presentation", "none", "generic", "graphics-symbol"]);
+
+/**
  * Whether an element without a role that the page puts in the tab order (`tabindex` of 0
- * or more) is a button its script handles: it sets the {@link pointer} cursor itself and
- * holds no control, link, role or other tab stop, so a clickable card around buttons is
- * never one. Logi ID's passkey sign-in on its remembered-device page is
+ * or more) is a button its script handles: it is no `<label>` (which toggles its
+ * control) or `<summary>` (which opens its details), sets the {@link pointer} cursor
+ * itself, and holds no control, link, other tab stop or element of a role other than an
+ * image's or a presentation's, so a clickable card around buttons is never one. Logi
+ * ID's passkey sign-in on its remembered-device page is
  * `<div class="button" tabindex="0"><p>🔑 パスキーを使用してログイン</p></div>`, whose click
  * a script listener handles (2026-11-07,
  * [#1375](https://github.com/risu729/pateat/issues/1375)). The rule reads only the
- * page's structure and style, never a site (ADR 0033).
+ * page's structure and style, never a site (ADR 0033). The cursor is read before the
+ * element's contents, as most tab stops set none.
  */
 function tabStopControl(element: HTMLElement): boolean {
   return (
     !element.hasAttribute("role") &&
     element.hasAttribute("tabindex") &&
     element.tabIndex >= 0 &&
+    !(element instanceof HTMLLabelElement) &&
+    element.localName !== "summary" &&
     !element.isContentEditable &&
-    queryAll(element, "a, button, input, select, textarea, [role], [tabindex]").length === 0 &&
-    pointer(element)
+    pointer(element) &&
+    queryAll(element, "a, button, input, select, textarea, [tabindex], [role]").every(
+      (inner) =>
+        !inner.matches("a, button, input, select, textarea, [tabindex]") &&
+        contentRoles.has(inner.getAttribute("role")!.trim().toLowerCase().split(/\s+/u)[0]!),
+    )
   );
 }
 

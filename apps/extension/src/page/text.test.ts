@@ -244,6 +244,25 @@ describe("isScriptButton", () => {
     expect(isRoleButton(document.getElementById("a")!)).toBe(true);
   });
 
+  it("lets an icon's role inside a tab stop pass, but not a label, a summary or a widget", () => {
+    document.body.innerHTML = `<style>.btn { cursor: pointer }</style>
+      <div id="a" class="btn" tabindex="0"><svg role="img" aria-hidden="true"></svg>Sign in with a passkey</div>
+      <div id="b" class="btn" tabindex="0"><span role="presentation">→</span>Next</div>
+      <input id="rm" type="checkbox" hidden><label id="c" class="btn" tabindex="0" for="rm">Remember me</label>
+      <details><summary id="d" class="btn" tabindex="0">More</summary></details>
+      <div id="e" class="btn" tabindex="0"><span role="button">Inner</span></div>
+      <div id="f" class="btn" tabindex="0"><span role="menu">Inner</span></div>`;
+    const script = (id: string) => isScriptButton(document.getElementById(id)!);
+    expect(["a", "b", "c", "d", "e", "f"].map(script)).toEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+    ]);
+  });
+
   it("accepts links that run a script instead of following the link", () => {
     document.body.innerHTML = `<a id="a" href="#" onclick="return false">Log in</a>
       <a id="b" href="javascript:;">Log in</a><a id="c" href=" JavaScript:void(0)">Go</a>

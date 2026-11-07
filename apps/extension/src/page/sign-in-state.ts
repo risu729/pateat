@@ -2,7 +2,7 @@ import { latinWord } from "./account-list";
 import { visible } from "./code-submission";
 import { findKeypad, keypadField } from "./keypad";
 import { autocompleteTokens } from "./targets";
-import { collapseText, readBehindModal, renderedText } from "./text";
+import { collapseText, isScriptButton, readBehindModal, renderedText } from "./text";
 import { composedParent, containsAcross, controlsOf, formOf, queryAll, treeOf } from "./shadow";
 
 // The page signs of ADR 0029, read after an effect step that no check explained. Nothing
@@ -209,9 +209,17 @@ const formsOf = (fields: readonly HTMLInputElement[]) =>
     }),
   );
 
-/** The text of an alert or status region, without the text of its buttons. */
+/**
+ * The text of an alert or status region, without the text of its buttons, a pointer tab
+ * stop among them ({@link isScriptButton}).
+ */
 const regionText = (element: Element) =>
-  collapseText(renderedText(element, alertReadLimit, { skip: 'button, [role="button"]' }) ?? "");
+  collapseText(
+    renderedText(element, alertReadLimit, {
+      skip: 'button, [role="button"]',
+      leave: new Set(queryAll(element, "[tabindex]").filter(isScriptButton)),
+    }) ?? "",
+  );
 
 /**
  * The texts of the alerts next to the sign-in inputs `fields`. In the submitted document

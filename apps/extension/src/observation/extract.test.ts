@@ -1507,6 +1507,21 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("describes a pointer tab stop in a login form as its button (2026-11-07)", () => {
+    page(
+      `<form><input name="email" type="email"><input name="password" type="password">
+        <div tabindex="0" style="cursor:pointer"><p>ログイン</p></div>
+        <label tabindex="0" style="cursor:pointer" for="rm">ログインしたままにする</label></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ role, target }) => [role, target])).toEqual([
+      ["email", { by: "name", value: "email" }],
+      ["password", { by: "name", value: "password" }],
+      ["button", { by: "text", value: "ログイン" }],
+    ]);
+  });
+
   it("treats every control outside a form as part of a formless login", () => {
     page(`<input id="u"><input id="p" type="password"><button>Sign in</button>`);
     expect(observe().complete).toBe(true);
@@ -4983,6 +4998,19 @@ describe("passkey-only start observation", () => {
       { id: "c1", role: "button", label: "🔑 パスキーを使用してログイン", target },
     ]);
     expect(findTargets(document, target)).toEqual([document.querySelector(".button")]);
+  });
+
+  it("locates a role button that names a passkey by its text, only when no other has it", () => {
+    page(`<div role="button">Sign in with a passkey</div>`);
+    const result = extractPasskeyObservation(document);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.candidates.map(({ target }) => target)).toEqual([
+      { by: "text", value: "Sign in with a passkey" },
+    ]);
+    page(
+      `<div role="button">Sign in with a passkey</div><div role="button">Sign in with a passkey</div>`,
+    );
+    expect(extractPasskeyObservation(document)).toEqual({ ok: false, reason: "no-candidates" });
   });
 
   it.each([
