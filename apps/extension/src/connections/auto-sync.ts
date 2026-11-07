@@ -30,7 +30,11 @@ export type VaultSyncOutcome =
   | "account-deleted"
   | "skipped";
 
-/** Failure details are diagnostic only; the schedule reads the outcome alone. */
+/**
+ * Failure details are diagnostic only; the schedule reads the outcome alone. `cause` is a
+ * fixed error code (Bitwarden's, the setup's or `exception`), never a message, and
+ * `status` an HTTP status.
+ */
 export type VaultSyncFailure = { outcome: "failed"; cause: string; status?: number };
 export type VaultSyncResult = Exclude<VaultSyncOutcome, "failed"> | VaultSyncFailure;
 export type VaultSyncReport = {

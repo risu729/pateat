@@ -260,7 +260,7 @@ describe("vault replacement hold", () => {
     await h.settle();
     const confirmed = h.now();
     h.advance(VAULT_CHECK_INTERVAL_MS);
-    let finish!: (outcome: VaultSyncResult) => void;
+    let finish!: (result: VaultSyncResult) => void;
     h.run.mockImplementationOnce(
       () =>
         new Promise<VaultSyncResult>((resolve) => {
