@@ -85,8 +85,9 @@ devices receive as revoked
 ([minimal service](../../docs/architecture.md#minimal-service)).
 
 One Cloudflare Access application covers the whole host, and a more specific Bypass
-application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
-`/.well-known/jwks.json`, which clients call without an Access login. For `/pair` and
+application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration`,
+`/.well-known/jwks.json`, which clients call without an Access login, and the public
+docs at `/docs` and `/docs/*`. For `/pair` and
 `/manage`, the Worker verifies the `Cf-Access-Jwt-Assertion` itself against the team's
 keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both
 secrets those routes answer 503. When the team's signing keys cannot be fetched (an
