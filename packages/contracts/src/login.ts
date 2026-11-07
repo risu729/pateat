@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { canonicalJson } from "./canonical-json";
 import {
   datePartSchema,
   detailFormatFits,
@@ -2590,18 +2591,6 @@ export function replacesClick(last: LoginStep, steps: readonly LoginStep[]): boo
     steps.some(
       (step) => step.kind === "fill" && step.fields.some((field) => field.slot === "password"),
     )
-  );
-}
-/** JSON with object keys sorted, so equal values compare equal whatever their key order. */
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(value, (_key, entry: unknown) =>
-    entry && typeof entry === "object" && !Array.isArray(entry)
-      ? Object.fromEntries(
-          Object.entries(entry).sort(([left], [right]) =>
-            left < right ? -1 : left > right ? 1 : 0,
-          ),
-        )
-      : entry,
   );
 }
 export type LoginAccount = v.InferOutput<typeof loginAccountSchema>;
