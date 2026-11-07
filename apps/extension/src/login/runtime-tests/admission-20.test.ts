@@ -818,8 +818,8 @@ describe("production login document admission", () => {
   describe("a first new password document after a refused sign-in (issue 1319)", () => {
     it.each([
       ["an accessible alert", true],
-      ["a plain-text error without a failure mark", false],
-      ["no error text or failure mark", false],
+      // A plain-text error and no error text reach the runtime as the same signs.
+      ["a plain-text error or no error text, without a failure mark", false],
     ] as const)(
       "%s leaves later documents and other tabs fill-only in production",
       async (_label, alert) => {

@@ -2616,12 +2616,15 @@ test("a page that shows a CAPTCHA gets the password but leaves the login button 
 /**
  * Characterize the local failure signs before changing ADR 0029. These recipes have no
  * learned rejection marker, so a fixture's plain error cannot bypass the local reading.
+ * The competing and reopened tab checks run once per path: a rejected and a silent
+ * released result, and a watched password and identifier result.
  */
 for (const variant of [
   {
     name: "an alert in the submitted document",
     path: "/credential-failure?error=alert",
     rejected: true,
+    competing: true,
   },
   {
     name: "an alert in the first new document",
@@ -2632,6 +2635,7 @@ for (const variant of [
     name: "plain text in the submitted document",
     path: "/credential-failure?error=plain",
     rejected: false,
+    competing: true,
   },
   {
     name: "plain text in the first new document",
@@ -2642,11 +2646,13 @@ for (const variant of [
     name: "a silent form in the first new document",
     path: "/credential-failure?new-document",
     rejected: false,
+    competing: true,
   },
   {
     name: "an unknown identifier with plain text after advance",
     path: "/identifier-failure?error=plain",
     rejected: false,
+    competing: true,
   },
   {
     name: "an unknown identifier without text after advance",
@@ -2729,6 +2735,7 @@ for (const variant of [
           ? { identity: 1, password: 0 }
           : { identity: 0, password: 1 };
         expect(await count()).toEqual(expected);
+        if (!variant.competing) return;
         const tabs = () =>
           worker.evaluate(async () => {
             const chrome = (
@@ -2754,7 +2761,9 @@ for (const variant of [
         )?.documentId;
         expect(originalDocument).toBeDefined();
         // Admit a competing tab while the original result is held. Wait for that tab's
-        // own refusal, not an earlier account ask belonging to the submitted page.
+        // own refusal, not an earlier account ask belonging to the submitted page. A DOM
+        // change first wakes the submitted page's content script, as a page that keeps
+        // rendering would.
         await page.evaluate(() => document.body.append(document.createElement("p")));
         const other = await context.newPage();
         await other.goto(`${fixture.origin}${variant.path}`);
@@ -2770,10 +2779,9 @@ for (const variant of [
           }),
         );
         // The probe intentionally runs a full login where production only fills while
-        // asking. Record its one extra press after release; a watched result still holds.
-        await expect(other.locator("#response-state")).toHaveText(
-          released ? "Answer received" : "Waiting for submission",
-        );
+        // asking. Record its one extra press after release; a watched result still holds,
+        // which the click counts below show.
+        if (released) await expect(other.locator("#response-state")).toHaveText("Answer received");
         expect(
           await other.evaluate(() => Number(sessionStorage.getItem("submitClicks") || 0)),
         ).toBe(released ? 1 : 0);
