@@ -51,21 +51,16 @@ async function accessKeys(issuer: string): Promise<HonoJsonWebKey[] | null> {
  * Verifies the Cloudflare Access application token on browser-facing owner routes.
  * Only the signed `Cf-Access-Jwt-Assertion` is trusted, never the plain identity
  * headers; issuer, audience, signature and expiry must all match the configuration.
- * Pairing routes also accept the "pateat pair" application's audience, which lets a
- * browser without WARP pair but not open the owner pages (ADR 0030).
+ * Pairing and owner routes share the host-wide application audience (ADR 0030).
  */
 function accessGuard(
   refuse: (c: Context<ApiEnv>, failure: AccessFailure) => Response | Promise<Response>,
-  { pairing = false }: { pairing?: boolean } = {},
 ) {
   return createMiddleware<ApiEnv>(async (c, next) => {
     const teamDomain = c.env.ACCESS_TEAM_DOMAIN;
     const ownerAudience = c.env.ACCESS_AUD;
     if (!teamDomain || !TEAM_DOMAIN.test(teamDomain) || !ownerAudience)
       return refuse(c, "unconfigured");
-    // An empty pairing audience leaves pairing to the host-wide application alone.
-    const pairAudience = pairing ? c.env.ACCESS_PAIR_AUD : "";
-    const audience = pairAudience ? [ownerAudience, pairAudience] : ownerAudience;
 
     const token = c.req.header("Cf-Access-Jwt-Assertion");
     if (!token) return refuse(c, "missing");
@@ -78,7 +73,7 @@ function accessGuard(
       const payload = await Jwt.verifyWithJwks(token, {
         keys,
         allowedAlgorithms: ["RS256"],
-        verification: { iss: issuer, aud: audience },
+        verification: { iss: issuer, aud: ownerAudience },
       });
       // Hono checks `exp` only when present; Access tokens always carry it.
       subject = typeof payload.exp === "number" ? payload["sub"] : undefined;
@@ -125,12 +120,6 @@ export const requireAccess = accessGuard(refusePage);
 
 /** For the web UI's JSON API: failures are stable error codes. */
 export const requireAccessApi = accessGuard(refuseApi);
-
-/** For the sign-in page the extension opens before pairing. */
-export const requirePairingAccess = accessGuard(refusePage, { pairing: true });
-
-/** For `POST /pair`. */
-export const requirePairingAccessApi = accessGuard(refuseApi, { pairing: true });
 
 /**
  * The web UI's API answers only its own pages. A state-changing request must carry

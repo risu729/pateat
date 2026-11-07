@@ -8,12 +8,14 @@ import {
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
+  claims,
   deviceApi,
   installAccessKeys,
-  owner,
+  OBSOLETE_PAIR_AUDIENCE,
   ORIGIN,
-  pairOwner,
+  owner,
   request,
+  signAccess,
   type Owner,
 } from "./access-helpers";
 
@@ -507,10 +509,24 @@ describe("extension profile editor authorization", () => {
     expect(
       (await editor(by, path, { headers: { Origin: "https://attacker.example" } })).status,
     ).toBe(403);
-    // A sign-in through the pairing application, which needs no WARP, is not enough
-    // (ADR 0030, ADR 0076).
-    const viaPair = await pairOwner(by.subject);
+    // Assertions from the removed pairing application never authorize the editor.
+    const viaPair = {
+      subject: by.subject,
+      token: await signAccess(claims(by.subject, { aud: [OBSOLETE_PAIR_AUDIENCE] })),
+    };
     expect((await editor(viaPair, path)).status).toBe(403);
+    const write = await editor(viaPair, path, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        expectedRevision: settings.revision,
+        settings: { ...createDefaultSettings(), connections: [] },
+      }),
+    });
+    expect(write.status).toBe(403);
+    expect(await write.json()).toEqual({ error: "forbidden" });
+    expect(await (await deviceApi(device.credential)).json()).toEqual(settings);
   });
   it("reads as Chrome sends an extension's GET, without Origin, but writes only with it", async () => {
     const { by, settings } = await setup();

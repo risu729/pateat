@@ -696,12 +696,12 @@ revision ([ADR 0024](adr/0024-settings-profiles.md),
 chosen when it pairs or on the management page's Devices page; `/manage/profiles`
 renames, copies and deletes profiles, and the Sites pages edit one profile at a time.
 The extension's settings page can edit another profile with its own vault catalog
-through `/extension/profiles`, behind the host-wide Access application, which requires
-WARP; that does not move its device. When a device's profile changes, the extension
-replaces its exclusions, saved accounts and vault policy with the new profile's and
-drops its merge base for them, while bindings and personal-detail links keep merging.
-Chrome use access to these pages is not assumed. Keep settings and execution operations
-independent of their UI.
+through `/extension/profiles`, behind the same host-wide Access application as pairing
+and management; that does not move its device. When a device's profile changes, the
+extension replaces its exclusions, saved accounts and vault policy with the new
+profile's and drops its merge base for them, while bindings and personal-detail links
+keep merging. Chrome use access to these pages is not assumed. Keep settings and
+execution operations independent of their UI.
 
 Each provider account (provider, server and user ID, synced in `accountPolicies`) is
 either used or not, and supports all items except exclusions or selected
@@ -3833,7 +3833,7 @@ planned change. Each is current behavior that the service does not handle.
   The change feed refuses any query parameter but `after` and `limit` with 400, and a
   cursor above the owner's newest change answers an empty, complete page.
   `Authorization` must be `Bearer` in any letter case, one space and the credential.
-  A misconfigured `ACCESS_AUD` or `ACCESS_PAIR_AUD` (for example with stray
+  A misconfigured `ACCESS_AUD` (for example with stray
   whitespace) refuses every token with 403.
 
 ### Device enrollment
@@ -3865,30 +3865,29 @@ steady-state API calls carry no cookie.
 - Pairing. **Pair this device** on the settings page asks for site access to the
   service, then the extension's background service worker sends one `POST /pair` with
   the device label ([device labels](#unsupported-service-edge-cases)),
-  `credentials: "include"`, `redirect: "manual"` and
-  `X-Requested-With: XMLHttpRequest`, so the browser's Access session travels with it.
-  The route sits behind Access; the Worker verifies the token (the host-wide
-  application's audience, or "pateat pair"'s, which also admits browsers without WARP,
-  [ADR 0030](adr/0030-pairing-without-warp.md)) and requires
-  `Origin: chrome-extension://<id>` for an ID in `PAIRING_EXTENSION_IDS`, which lists
-  Pateat's manifest-pinned production ID. It then limits pairing per identity, creates
-  the owner on first pairing and the device, and answers the credential once; only its
-  hash is stored. The background writes the credential straight into trusted extension
-  storage; it never reaches the settings page. The Worker sends no CORS headers, so no
-  web page can read the answer, and pages cannot set an extension `Origin`. An Access
-  redirect, a `401`, or a response that is not JSON, such as the Access login page,
-  means "sign in first"; a non-JSON `429` or `5xx`, such as a Cloudflare edge error
-  page, counts as rate limiting or an unexpected failure instead. On "sign in first" the
-  settings page opens `<service>/pair/signed-in` in a new tab once per click, where
-  Access signs the browser in and the page asks the user to return; it retries once when
-  it is shown or focused again, and offers **Try again** and **Open sign-in page**.
-  Editing the address or device name, also while a request runs or the tab opens, drops
-  that retry and both buttons, and a request answered after an edit opens no tab (owner,
-  2026-10-23 12:59 UTC). A refused sign-in, an unlisted extension
-  ID, a service without pairing settings and a service that could not fetch Access's
-  signing keys each have their own message. Before sending, the form checks every field
-  at once: each invalid one is marked (`aria-invalid`) with its own error under the
-  fields, and the first invalid one takes focus.
+  `credentials: "include"`, `redirect: "manual"` and `X-Requested-With: XMLHttpRequest`,
+  so the browser's Access session travels with it. The route sits behind the same
+  host-wide Access application as management; the Worker verifies its `ACCESS_AUD` token
+  ([ADR 0030 amendment](adr/0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application))
+  and requires `Origin: chrome-extension://<id>` for an ID in `PAIRING_EXTENSION_IDS`,
+  which lists Pateat's manifest-pinned production ID. It then limits pairing per
+  identity, creates the owner on first pairing and the device, and answers the
+  credential once; only its hash is stored. The background writes the credential
+  straight into trusted extension storage; it never reaches the settings page. The
+  Worker sends no CORS headers, so no web page can read the answer, and pages cannot set
+  an extension `Origin`. An Access redirect, a `401`, or a response that is not JSON,
+  such as the Access login page, means "sign in first"; a non-JSON `429` or `5xx`, such
+  as a Cloudflare edge error page, counts as rate limiting or an unexpected failure
+  instead. On "sign in first" the settings page opens `<service>/pair/signed-in` in a
+  new tab once per click, where Access signs the browser in and the page asks the user
+  to return; it retries once when it is shown or focused again, and offers **Try again**
+  and **Open sign-in page**. Editing the address or device name, also while a request
+  runs or the tab opens, drops that retry and both buttons, and a request answered after
+  an edit opens no tab (owner, 2026-10-23 12:59 UTC). A refused sign-in, an unlisted
+  extension ID, a service without pairing settings and a service that could not fetch
+  Access's signing keys each have their own message. Before sending, the form checks
+  every field at once: each invalid one is marked (`aria-invalid`) with its own error
+  under the fields, and the first invalid one takes focus.
 - Profile choice. An owner's later pairing must name a settings profile: without one the
   Worker answers 409 `profile_required` with the owner's profiles, and the settings page
   asks which one the device uses or offers a new one named after the device

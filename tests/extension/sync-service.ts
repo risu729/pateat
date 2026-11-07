@@ -37,14 +37,10 @@ export type SyncService = {
 // Synthetic Access settings; they name no real Cloudflare organization.
 const ACCESS_TEAM_DOMAIN = "pateat-test.cloudflareaccess.com";
 const ACCESS_AUD = "pateat-test-audience";
-/** The audience of the "pateat pair" application, which covers `/pair` (ADR 0030). */
-const ACCESS_PAIR_AUD = "pateat-test-pair-audience";
 /** The session cookie the stand-in accepts, as `context.addCookies` sets it. */
 export const ACCESS_COOKIE = { name: "CF_Authorization", value: "synthetic" };
 /** Paths the real "pateat bypass" Access application exempts (docs/delivery.md). */
 const BYPASS = /^\/(?:v1\/|health$|\.well-known\/(?:openid-configuration|jwks\.json)$)/;
-/** Paths the real "pateat pair" Access application covers: `/pair` and below it. */
-const PAIR = /^\/pair(?:\/|$)/;
 
 /**
  * Plays Cloudflare Access in front of the Worker: bypassed paths pass through, a request
@@ -96,13 +92,13 @@ async function createAccessSigner() {
   const publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
   return {
     jwks: { keys: [{ ...publicJwk, kid, alg: "RS256", use: "sig" }] },
-    async sign(subject: string, audience: string) {
+    async sign(subject: string) {
       const now = Math.floor(Date.now() / 1000);
       const header = base64Url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" }));
       const payload = base64Url(
         JSON.stringify({
           iss: `https://${ACCESS_TEAM_DOMAIN}`,
-          aud: [audience],
+          aud: [ACCESS_AUD],
           sub: subject,
           iat: now,
           nbf: now,
@@ -132,9 +128,8 @@ async function createAccessSigner() {
  * `access` puts a loopback stand-in for Cloudflare Access in front of the Worker and
  * gives the Worker synthetic Access settings and a per-run signing key. A request with
  * the `ACCESS_COOKIE` session reaches the owner routes, including `POST /pair`, as one
- * synthetic identity; the Worker keeps its built `PAIRING_EXTENSION_IDS`. Assertions
- * for paths under `/pair` carry the pairing application's audience, as the real
- * "pateat pair" application's do, and every other assertion carries `ACCESS_AUD`.
+ * synthetic identity; the Worker keeps its built `PAIRING_EXTENSION_IDS`. All
+ * protected paths use the parent application's `ACCESS_AUD`.
  */
 export async function startSyncService({
   claude,
@@ -149,12 +144,10 @@ export async function startSyncService({
   if (access) {
     config.env.ACCESS_TEAM_DOMAIN = { type: "json", value: ACCESS_TEAM_DOMAIN };
     config.env.ACCESS_AUD = { type: "json", value: ACCESS_AUD };
-    config.env.ACCESS_PAIR_AUD = { type: "json", value: ACCESS_PAIR_AUD };
   } else {
     // Owner pages need Cloudflare Access; device sync routes do not use it.
     delete config.env?.ACCESS_TEAM_DOMAIN;
     delete config.env?.ACCESS_AUD;
-    delete config.env?.ACCESS_PAIR_AUD;
   }
   if (claude) {
     // A synthetic ES256 issuer key generated per run; it never signs for a real organization.
@@ -197,10 +190,7 @@ export async function startSyncService({
             session
               ? {
                   pass: true,
-                  assertion: await signer.sign(
-                    "synthetic-owner",
-                    PAIR.test(seen.path) ? ACCESS_PAIR_AUD : ACCESS_AUD,
-                  ),
+                  assertion: await signer.sign("synthetic-owner"),
                 }
               : { pass: false },
           );

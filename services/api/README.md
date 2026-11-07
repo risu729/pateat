@@ -43,7 +43,7 @@ and `generation.ts`.
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /v1/device/problems` | Keep the calling device's `warn` and `error` local log lines, and `info` lines that say why Pateat did nothing, as it lets them leave (ADR 0066), each line checked on its own; 204, or 429 past the owner's 2,000 lines in 24 hours |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once. An owner's later device names `profileId` or a `newProfile` name; otherwise 409 `profile_required` with the profiles |
-| `GET /extension/profiles` | The owner's profiles, for the extension's profile editor; host-wide Access (WARP), and an allowlisted extension `Origin` or, as Chrome sends an extension's `GET`, no `Origin` with `Sec-Fetch-Site: none` and `Sec-Fetch-Mode: cors`; otherwise 403 `extension_not_allowed` |
+| `GET /extension/profiles` | The owner's profiles, for the extension's profile editor; host-wide Access, and an allowlisted extension `Origin` or, as Chrome sends an extension's `GET`, no `Origin` with `Sec-Fetch-Site: none` and `Sec-Fetch-Mode: cors`; otherwise 403 `extension_not_allowed` |
 | `GET`, `PUT /extension/profiles/:profileId/settings` | Read or replace another profile like `/manage/api/profiles/:profileId/settings`, with the same guards; `PUT` always needs an allowlisted extension `Origin` |
 | `GET /extension/signed-in` | The page the profile editor opens when it needs a sign-in on the host-wide application |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
@@ -93,11 +93,11 @@ secrets those routes answer 503. When the team's signing keys cannot be fetched 
 error, an answer that is not a key set, or no answer within five seconds), owner pages
 answer 503 asking to try again later and the JSON routes 503 `access_keys_unavailable`,
 not a refused sign-in.
-`POST /pair` and `GET /pair/signed-in` also accept the `ACCESS_PAIR_AUD` audience of the
-"pateat pair" Access application, which admits browsers without WARP to pairing only
-([ADR 0030](../../docs/adr/0030-pairing-without-warp.md)). An empty value turns it off
-only while that application does not exist. The owner is found by token issuer and
-subject, never by email. The
+Pairing, management and the extension profile editor share that one audience; the
+former pairing-only audience and `ACCESS_PAIR_AUD` binding are removed
+([ADR 0030 amendment](../../docs/adr/0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)).
+The host-wide Owner policy permits One-time PIN sign-in without WARP. The owner is
+found by token issuer and subject, never by email. The
 [pairing design](../../docs/architecture.md#device-enrollment) describes the flow.
 
 `POST /pair` is direct pairing

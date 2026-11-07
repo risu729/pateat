@@ -4,7 +4,10 @@ Status: accepted by the owner on 2026-10-23. The owner chose each point marked "
 below on 2026-10-19 and 2026-10-23; the rest follow the accepted
 [ADR 0024](0024-settings-profiles.md) or were chosen by the implementation and are
 marked so. Supersedes the temporary proposal that was ADR 0054 on the
-[#664](https://github.com/risu729/pateat/pull/664) branch.
+[#664](https://github.com/risu729/pateat/pull/664) branch. The
+[2026-11-07 amendment to ADR 0030](0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)
+replaces the WARP and separate-pairing-application boundary below; the accepted text
+is preserved as history.
 
 Date: 2026-10-23
 

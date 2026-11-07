@@ -7,8 +7,6 @@ import {
   requireAccess,
   requireAccessApi,
   requireEditorExtension,
-  requirePairingAccess,
-  requirePairingAccessApi,
   requirePairingOrigin,
   requireSameOrigin,
 } from "./access";
@@ -102,9 +100,9 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/sites/:scheme{https?}/:host", methodNotAllowed("GET"))
   .get("/manage/vaults", requireAccess, appPage)
   .all("/manage/vaults", methodNotAllowed("GET"))
-  // Editing any profile from the extension's settings page (ADR 0076). Only the host-wide
-  // Access application's audience is accepted, which requires WARP, never the pairing
-  // one (ADR 0030); writes only from an extension the pairing allowlist names, reads
+  // Editing any profile from the extension's settings page (ADR 0076), with the same
+  // host-wide Access session as pairing and management (ADR 0030). Writes only from
+  // an extension the pairing allowlist names, reads
   // also from any extension with host access. A device credential grants no access here.
   .use(
     "/extension/profiles/*",
@@ -129,7 +127,7 @@ export const app = new Hono<ApiEnv>()
   // No CORS headers: extension contexts with host access skip CORS; pages cannot read it.
   .post(
     "/pair",
-    requirePairingAccessApi,
+    requireAccessApi,
     requirePairingOrigin,
     pairLimit,
     bodyLimit({
@@ -143,7 +141,7 @@ export const app = new Hono<ApiEnv>()
   .all("/pair", methodNotAllowed("POST"))
   // The tab the extension opens when pairing needs a sign-in. Access signs the browser
   // in on the way; the settings page retries pairing once it is shown again.
-  .get("/pair/signed-in", requirePairingAccess, (c) =>
+  .get("/pair/signed-in", requireAccess, (c) =>
     message(c, 200, "Signed in", "Close this tab and go back to Pateat's settings page."),
   )
   .all("/pair/signed-in", methodNotAllowed("GET"))
