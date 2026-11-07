@@ -2712,3 +2712,63 @@ test("a page-wide alert after a split code reports no invented field index", asy
     await fixture.close();
   }
 });
+
+test("a cleared required password takes precedence over concurrent failure feedback", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, worker, id) => {
+      await context.route(
+        (url) =>
+          url.origin === fixture.origin &&
+          url.pathname === "/single" &&
+          url.searchParams.get("reject-fill") === "switch-form",
+        async (route) => {
+          const response = await route.fetch();
+          const body = (await response.text()).replace(
+            "</body>",
+            `<script>
+              document.getElementById('password').addEventListener('change', (event) => {
+                event.target.setAttribute('aria-invalid', 'true');
+                document.body.insertAdjacentHTML(
+                  'beforeend',
+                  '<p role="alert">Synthetic replacement form needs another value</p>',
+                );
+              });
+            </script></body>`,
+          );
+          await route.fulfill({ response, body });
+        },
+      );
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const diagnostics = await context.newPage();
+      await diagnostics.goto(`chrome-extension://${id}/diagnostics.html`);
+      expect(
+        await send(diagnostics, { version: 1, type: "diagnostics.logs.debug", enabled: true }),
+      ).toMatchObject({ ok: true });
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/single?reject-fill=switch-form`);
+      await expect
+        .poll(() => logs(worker, "login.attempt"))
+        .toContainEqual(
+          expect.objectContaining({
+            state: "reconciling",
+            outcome: "structural-mismatch",
+            cause: "form-changed",
+          }),
+        );
+      await expect(page.locator("#password")).toHaveValue("");
+      await expect(page.locator("#password")).toHaveAttribute("aria-invalid", "true");
+      expect(
+        await page
+          .locator("#password")
+          .evaluate((input: HTMLInputElement) => input.validity.valueMissing),
+      ).toBe(true);
+      await expect(page.locator("#security")).toBeVisible();
+      expect(await clicks(page)).toBe(0);
+      await expect(page.locator("#authenticated")).toHaveCount(0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});

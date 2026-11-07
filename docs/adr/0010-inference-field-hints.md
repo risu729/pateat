@@ -17,7 +17,7 @@ slots with these hints too
 ([ADR 0061](0061-personal-details-during-a-login.md#the-judge-gets-the-accounts-slots)).
 
 Amended on 2026-11-07 with fixed fill-rejection diagnostics (implementation detail;
-see below).
+see below). Amended the same day for cleared filled inputs (see below).
 
 Date: 2026-10-10
 
@@ -146,3 +146,18 @@ the person is still told to reload before another attempt.
 The page's text, messages, labels and values stay in the content script. The checks
 still stop the same fills, add no waits, and neither accept separators nor claim to
 verify any real site's behavior.
+
+## Amendment 2026-11-07: a cleared filled input changes the form
+
+The structural fix proposed in
+[issue 1326](https://github.com/risu729/pateat/issues/1326) assumes that a filled input
+the page emptied while it is still writable means the form needs repair, as the existing
+pre-click check already treats it. This is a general form rule; it does not claim that
+the issue's example site clears fields.
+
+After a preparing fill's existing form-replacement check and before its rejection
+checks, such an input ends the step as `structural-mismatch` with `form-changed`. This
+permits the existing repair path rather than permanently rejecting the value because the
+emptied input is required, newly ARIA-invalid, or has new required-field feedback.
+Hidden, disabled and read-only inputs do not trigger this rule. Code submission watches
+keep their own rejection checks and submission priority. No wait is added.
