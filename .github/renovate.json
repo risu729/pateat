@@ -9,16 +9,11 @@
       "ignoreUnstable": false
     },
     {
-      "description": "Vite plugin betas are versioned by commit hash, which does not sort by release date. Follow the beta dist-tag; rollbackPrs also offers it when its hash sorts below the current one.",
+      "description": "Select ordered Vite plugin betas so the shared release-age filter can choose a mature release even when the beta tag is newer. Review other release series manually.",
       "matchPackageNames": ["@cloudflare/vite-plugin"],
-      "followTag": "beta",
-      "rollbackPrs": true
-    },
-    {
-      "description": "An offered beta whose hash sorts lower is a rollback update in Renovate; title it as an update.",
-      "matchPackageNames": ["@cloudflare/vite-plugin"],
-      "matchUpdateTypes": ["rollback"],
-      "commitMessageAction": "Update"
+      "ignoreUnstable": false,
+      "respectLatest": false,
+      "allowedVersions": "/^2\\.0\\.0-beta\\.v\\.[0-9]+$/"
     },
     {
       "description": "ai and the @ai-sdk packages each pin one exact @ai-sdk/provider-utils; updated apart, ai and @ai-sdk/valibot can resolve different copies whose Schema types differ, and inference fails typecheck.",
