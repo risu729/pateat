@@ -8,9 +8,10 @@ detection over them) and part B (the start page's `passkey` route), and delivery
 by the amendment of 2026-10-23 (owner, 2026-10-23: a Text or Hidden field shaped like a
 TOTP key is flagged and becomes the `totp` field, never a raw slot)
 ([A TOTP code from a custom field](#amendment-2026-10-23-a-totp-code-from-a-custom-field));
-delivery 5 (the `sso` route) is not implemented; its item format, method order and
-credential rules are amended by [ADR 0085](0085-one-item-for-native-and-sso-login.md)
-(2026-11-07). Amends
+delivery 5 (the `sso` route) is not implemented; its item fact, route order,
+custom-field offers and model input are amended on 2026-11-07 by
+[ADR 0085](0085-one-item-for-native-and-sso-login.md)
+([amendment](#amendment-2026-11-07-one-item-for-password-and-sso)). Amends
 [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
 request during a login), [ADR 0010](0010-inference-field-hints.md) and
@@ -200,7 +201,7 @@ are never sent to the service or a model.
 | `password` | a new value-free catalog flag: the item's password is non-empty and not excluded ([ADR 0023](0023-synced-vault-policy.md)) |
 | `totp` | a new catalog flag: the item has a TOTP secret and the field is not excluded |
 | `passkey`, `discoverable passkey` | one `findVaultPasskeys` search per RP ID the origin may use; an incomplete search counts as not known |
-| `sso` | the item's `SSO` fields under ADR 0026's rules as amended by ADR 0085 (`SSO`, `SSO 2`, …); an excluded field turns its method off, a malformed or duplicate one stops the login |
+| `sso` | the item's `SSO` field under ADR 0026's rules; an excluded field means no SSO, a duplicate or unreadable one stops the login |
 
 Today the catalog lists `login.password` and `login.totp-code` for every login item,
 whether or not they hold a value; the two flags fix that (owner, 13:42 UTC).
@@ -210,9 +211,7 @@ whether or not they hold a value; the two flags fix that (owner, 13:42 UTC).
 1. **One route is chosen at start**, in this order (owner, 13:40 UTC: passkey before
    SSO), and recorded:
    1. `passkey`, if the recipe has that route and the item has a discoverable passkey;
-   2. `sso`, the item's unsuffixed `SSO` method, if it has one. An item with the
-      URL-valued `SSO` field has no `password` route; an item with bracket `SSO` fields
-      keeps its own password as an explicit choice (ADR 0085);
+   2. `sso`, if the item has it. An SSO item never uses `password` (ADR 0026);
    3. `password`, if the item has a password and its binding fills one variant.
 
    If none fits, the login stops with `no-route`. A login on the `passkey` route that
@@ -1590,3 +1589,24 @@ buttonless code field's form shows no button had nothing to check.
 - A code form that submits by itself and holds such a widget, such as "Resend code",
   now shows a button, so a buttonless handler is refused there (`submit-unnamed`), as
   with a native button.
+
+## Amendment 2026-11-07: one item for password and SSO
+
+Accepted by the owner on 2026-11-07 (12:51 UTC) with
+[ADR 0085](0085-one-item-for-native-and-sso-login.md); not implemented. It changes this
+ADR's text as follows; the accepted text above is kept.
+
+- [The item's facts](#the-items-facts): the `sso` fact comes from the item's `SSO`,
+  `SSO 2`, … fields in either form of ADR 0085. An excluded field turns its method off;
+  a malformed or duplicate one stops the login.
+- [Executor](#executor), step 1: the automatic `sso` route is the item's unsuffixed
+  `SSO` method; `SSO 2` and later are explicit choices. "An SSO item never uses
+  `password`" becomes ADR 0085's rules per route: an item with bracket-valued fields
+  keeps its own `password` route as an explicit choice.
+- [Custom fields in generation](#custom-fields-in-generation): a custom field named
+  `SSO` or `SSO <number>`, and a Linked field that reads one, is never offered, read for
+  a shape or bound to a slot.
+- [What the model receives](#what-the-model-receives): the SSO label, such as `GitHub`,
+  is the one exception to "never the facts": it may be sent to find the site's button
+  for that IdP when a recipe is generated. The IdP username and the mapping to an IdP
+  item are never sent.

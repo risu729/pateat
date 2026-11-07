@@ -8,11 +8,9 @@ routes, chosen after a passkey route and before a password route. Amended on 202
 by [ADR 0033](0033-no-site-specific-features.md) (owner, 13:46 UTC): no fixed list of
 identity providers or of their pages; the IdP's origin comes from the item and its pages
 are handled as any site's. Amended on 2026-11-07 by
-[ADR 0085](0085-one-item-for-native-and-sso-login.md) (owner, 12:51 UTC): one item per
-site account holds its password and every SSO method, as `SSO` = `[GitHub] github-user`,
-`SSO 2`, …; the URL-valued `SSO` field stays for SSO-only items, and the item-wide
-exclusions below become rules per route. Researched from public documentation only; no
-real site or account has been used.
+[ADR 0085](0085-one-item-for-native-and-sso-login.md) (owner, 12:51 UTC;
+[amendment](#amendment-2026-11-07-one-item-for-password-and-sso)). Researched from
+public documentation only; no real site or account has been used.
 
 Date: 2026-10-11
 
@@ -123,3 +121,23 @@ The owner chose, on 2026-10-11:
   from `login.microsoftonline.com` to `login.live.com`, is followed only on the item's
   origin since the ADR 0033 amendment; following such a move is left to implementation.
 - Real-site checks need real accounts and therefore separate owner approval.
+
+## Amendment 2026-11-07: one item for password and SSO
+
+Accepted by the owner on 2026-11-07 (12:51 UTC) with
+[ADR 0085](0085-one-item-for-native-and-sso-login.md); not implemented. The accepted
+text above is kept; these parts change:
+
+- **Item format.** The site item above, with `SSO` = `https://accounts.google.com`,
+  stays the format of an SSO-only item with one IdP. A site account that also has its
+  own password, or several IdPs, is one item with `SSO` = `[GitHub] github-user`,
+  `SSO 2` = `[Google] person@example.com`, … and keeps its own Username and Password.
+- **Which IdP item is used.** For the bracket form, the IdP item comes from the field's
+  label and username, resolved locally to one saved IdP item and a permitted origin from
+  its URIs, not from the site item's Username.
+- **Field rules.** "Exactly one `SSO` field" becomes one field per method. The value is
+  still never filled into a page; only its label may be sent to the model, to find the
+  site's button for that IdP. "Never a candidate on the IdP's pages and never used by a
+  password recipe" becomes ADR 0085's rules per route: an item with bracket-valued
+  fields is used for its own password sign-in and, as an IdP, for direct sign-in, while
+  a chain where the IdP signs in through another IdP still stops.
