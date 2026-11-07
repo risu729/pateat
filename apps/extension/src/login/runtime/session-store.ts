@@ -76,10 +76,11 @@ export async function forget(rt: Runtime, key: string): Promise<void> {
 
 /** Throws `storage-failed`, a Pateat error code the log keeps (ADR 0019). */
 export async function write(rt: Runtime): Promise<void> {
-  const snapshot = [...rt.persisted.values()];
   rt.vars.storageQueue = rt.vars.storageQueue.then(async () => {
     if (!rt.vars.storageHealthy) throw new Error("storage-failed");
-    await rt.attemptRecords.write(snapshot);
+    // The records as they are when the write runs, so a write queued behind a closed
+    // tab's release does not store its record again.
+    await rt.attemptRecords.write([...rt.persisted.values()]);
     return undefined;
   });
   armSiteWait(rt);
@@ -92,19 +93,22 @@ export async function write(rt: Runtime): Promise<void> {
 }
 
 /**
- * Sets the site-wait alarm for the first stored login whose wait for the site runs out
- * (ADR 0022, amended 2026-11-03), or clears it when none waits. One that already ran out
- * and still waits, as while the tab's running login or a page that asked for a passkey
- * decides it, is looked at again `SITE_MOVE_MS` later, Chrome's shortest alarm delay.
+ * Sets the site-wait alarm for the first stored login whose wait for the site or watch
+ * runs out (ADR 0022, amended 2026-11-03), or clears it when none waits. One that already
+ * ran out and still waits, as while the tab's running login or a page that asked for a
+ * passkey decides it, is looked at again `SITE_MOVE_MS` later, Chrome's shortest alarm
+ * delay. Tells `keepAwake` whether a login waits for the site; a watch alone does not.
  */
 export function armSiteWait(rt: Runtime, now = Date.now()): void {
   const schedule = rt.options.siteWait;
   if (!schedule) return;
   let when: number | undefined;
+  let awake = false;
   for (const stored of rt.persisted.values()) {
     const run = rt.attempts.get(stored.document.tabId)?.metadata;
     const record = run?.id === stored.id ? run : stored;
     if (terminal(record)) continue;
+    if (record.timing.pageSince !== undefined) awake = true;
     // The same persistent alarm also ends a watch whose page never announces again.
     for (const [since, duration] of [
       [record.timing.pageSince, SITE_WAIT_MS],
@@ -115,6 +119,10 @@ export function armSiteWait(rt: Runtime, now = Date.now()): void {
       const due = since <= now && since + duration > now ? since + duration : now + SITE_MOVE_MS;
       when = Math.min(when ?? due, due);
     }
+  }
+  if (awake !== rt.vars.siteWaitAwake) {
+    rt.vars.siteWaitAwake = awake;
+    rt.options.keepAwake?.(awake);
   }
   if (when === rt.vars.siteWaitAt) return;
   rt.vars.siteWaitAt = when;

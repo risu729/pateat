@@ -352,6 +352,29 @@ describe("a login whose wait for the site ran out", () => {
     expect(executes()).toHaveLength(2);
   });
 
+  it("keeps the worker up while a login waits for the site, but not for its watch", async () => {
+    // The submit replaces the document, so the login waits for the tab's next page.
+    fake.state.onExecute = async (message) => {
+      if ((message["operation"] as { step: { kind: string } }).step.kind === "click")
+        fake.state.gone.add("synthetic-document");
+    };
+    const keepAwake = vi.fn<(awake: boolean) => void>();
+    const siteWait = vi.fn<(when: number | undefined) => void>();
+    const h = twoSites({ siteWait, keepAwake });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(at(origin)?.timing.pageSince).toBeDefined());
+    expect(keepAwake).toHaveBeenLastCalledWith(true);
+    const now = Date.now.bind(Date);
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + SITE_WAIT_MS);
+    onTestFinished(() => clock.mockRestore());
+    await h.login.siteWaitDue();
+    expect(at(origin)).toMatchObject({ state: "reconciling", settled: true });
+    // The watch's deadline still sets the alarm, which needs no worker kept up.
+    expect(siteWait).toHaveBeenLastCalledWith(at(origin)!.watch!.since + WATCH_MS);
+    expect(keepAwake).toHaveBeenLastCalledWith(false);
+    expect(keepAwake.mock.calls.map(([awake]) => awake)).toEqual([true, false]);
+  });
+
   it("ends an expired unknown watch at worker startup without a new page", async () => {
     const { since } = await settledLogin();
     const clock = vi.spyOn(Date, "now").mockReturnValue(since + WATCH_MS + 60_000);
@@ -364,7 +387,7 @@ describe("a login whose wait for the site ran out", () => {
     expect(executes()).toHaveLength(2);
   });
 
-  it("reports a tab closed while its result is watched, including a missing tab at startup", async () => {
+  it("reports a tab that closed while its result was watched and the worker was stopped", async () => {
     await settledLogin();
     // Startup reconciles a tab that disappeared while the worker was stopped.
     fake.state.openTabs = [];
@@ -381,6 +404,7 @@ describe("a login whose wait for the site ran out", () => {
     );
     expect(at(origin)).toBeUndefined();
   });
+
   it("completes a settled watch before its alarm and never reports expiry afterwards", async () => {
     const siteWait = vi.fn<(when: number | undefined) => void>();
     const report = vi.fn<(report: LoginReport) => void>();
@@ -425,6 +449,45 @@ describe("a login whose wait for the site ran out", () => {
     expect(attempts(report).filter((entry) => entry.state === "blocked")).toHaveLength(0);
     expect(executes()).toHaveLength(2);
   });
+
+  // A tab closed just as the alarm ends its watch is reported once, by whichever comes first.
+  for (const order of ["closed-first", "alarm-first"] as const)
+    it(`reports a watched login once when its tab closes as its alarm fires (${order})`, async () => {
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: { kind: string } }).step.kind === "click")
+          fake.state.gone.add("synthetic-document");
+      };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = twoSites({ siteWait: () => undefined, report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(origin)?.timing.pageSince).toBeDefined());
+      const now = Date.now.bind(Date);
+      let ahead = SITE_WAIT_MS;
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + ahead);
+      onTestFinished(() => clock.mockRestore());
+      await h.login.siteWaitDue();
+      expect(at(origin)).toMatchObject({ state: "reconciling", settled: true });
+      ahead = SITE_WAIT_MS + WATCH_MS + 1_000;
+      const close = () => fake.state.removed.at(-1)!(1);
+      let alarm: Promise<void>;
+      if (order === "closed-first") {
+        close();
+        alarm = h.login.siteWaitDue();
+      } else {
+        alarm = h.login.siteWaitDue();
+        close();
+      }
+      await alarm;
+      await vi.waitFor(() => expect(at(origin)).toBeUndefined());
+      const finals = report.mock.calls
+        .map(([entry]) => entry)
+        .filter(
+          (entry) =>
+            entry.type === "attempt-closed" ||
+            (entry.type === "attempt" && entry.state === "blocked"),
+        );
+      expect(finals).toHaveLength(1);
+    });
 
   it("ends a site wait and its already-expired watch in the same startup reconciliation", async () => {
     await askedThere();

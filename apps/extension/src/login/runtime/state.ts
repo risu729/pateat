@@ -500,6 +500,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       appliedPolicy,
       // Chrome may retain an alarm from the previous worker; first synchronize it.
       siteWaitAt: Number.NaN,
+      siteWaitAwake: false,
       sessionRead: undefined!,
       sessionLoaded: undefined!,
       loaded: undefined!,
@@ -523,6 +524,8 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       appliedPolicy: PausingSettings | undefined;
       /** When the site-wait alarm was last set for, as `armSiteWait` set it. */
       siteWaitAt: number | undefined;
+      /** Whether `keepAwake` was last told that a login waits for the site. */
+      siteWaitAwake: boolean;
       sessionRead: Promise<void>;
       sessionLoaded: Promise<void>;
       loaded: Promise<void>;

@@ -94,10 +94,10 @@ function reportLapse(
 }
 
 /**
- * Ends each stored login whose wait for the site ran out (ADR 0022, amended 2026-11-03), at
- * the time it ran out, unless what is kept in memory still decides it: the tab's running
- * login, a page that asked for a passkey holding it, or a check of the tab's new page. Then
- * sets the alarm for the next one. Run when the site-wait alarm fires.
+ * Ends each stored login whose wait for the site or watch ran out (ADR 0022, amended
+ * 2026-11-03), at the time it ran out, unless what is kept in memory still decides it: the
+ * tab's running login, a page that asked for a passkey holding it, or a check of the tab's
+ * new page. Then sets the alarm for the next one. Run when the site-wait alarm fires.
  */
 export async function endSiteWaits(rt: Runtime): Promise<void> {
   await rt.vars.loaded;
@@ -105,6 +105,8 @@ export async function endSiteWaits(rt: Runtime): Promise<void> {
     // Nothing is ended without storage; the alarm and the worker's wake are given up.
     void Promise.try(() => rt.options.siteWait?.(undefined)).catch(() => undefined);
     rt.vars.siteWaitAt = undefined;
+    rt.vars.siteWaitAwake = false;
+    rt.options.keepAwake?.(false);
     return;
   }
   const latest = (stored: LoginAttemptMetadata) => {
@@ -166,8 +168,8 @@ export async function endSiteWaits(rt: Runtime): Promise<void> {
 
 /**
  * At a worker start, before any page announces: the stored logins whose wait for the site
- * ran out while the worker was stopped, with their tabs' URLs, end as `endSiteWaits` ends
- * them. Changes `rt.persisted` only; the caller writes it.
+ * or watch ran out while the worker was stopped, with their tabs' URLs, end as
+ * `endSiteWaits` ends them. Changes `rt.persisted` only; the caller writes it.
  */
 export function endLostSiteWaits(
   rt: Runtime,

@@ -614,8 +614,10 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
           ended.set(metadata.id, metadata);
           rt.persisted.delete(key);
         }
-      // The running login's own metadata may be newer than its stored record.
-      if (gone && gone.metadata.document.tabId === tabId)
+      // The running login's own metadata may be newer than its stored record, unless the
+      // site-wait alarm ended the stored record after the run was dropped above.
+      const stored = gone && ended.get(gone.metadata.id);
+      if (gone && gone.metadata.document.tabId === tabId && !(stored && terminal(stored)))
         ended.set(gone.metadata.id, gone.metadata);
       if (closed) for (const metadata of ended.values()) reportClosed(rt, metadata);
       // A closed tab's login no longer waits for the site (ADR 0022).
