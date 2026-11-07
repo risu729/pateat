@@ -4,13 +4,17 @@ import type { ObservedCandidate } from "./observation";
 /**
  * Words of a button that registers, adds, sets up, turns on or manages a passkey ("Add a
  * passkey", "Set up security key", "Manage passkeys", "パスキーを登録", "パスキーを設定",
- * "パスキーを有効にする"). The model is told not to name one; this local check also refuses
- * it, and can refuse a sign-in button whose text happens to match. Latin words match whole
- * words, Japanese ones anywhere except 設定済み ("already set up") and 有効な ("valid"),
- * which describe the passkey a sign-in button uses.
+ * "パスキーを有効にする"), or that helps when one is lost or does not work ("Forgot your
+ * passkey?", "Lost security key", "Can't use your passkey?", "パスキーを忘れた場合",
+ * "パスキーを使用できない場合"; Logi ID, 2026-11-07,
+ * [#1375](https://github.com/risu729/pateat/issues/1375)). The model is told not to name
+ * one; this local check also refuses it, and can refuse a sign-in button whose text
+ * happens to match. Latin words match whole words, Japanese ones anywhere except 設定済み
+ * ("already set up") and 有効な ("valid"), which describe the passkey a sign-in button
+ * uses.
  */
 const registration =
-  /\b(?:add|register|create|set\s*up|new|enrol?l|manage|enable|turn\s*on)\b|登録|追加|作成|設定(?!済)|有効(?!な)|管理/iu;
+  /\b(?:add|register|create|set\s*up|new|enrol?l|manage|enable|turn\s*on|forgot(?:ten)?|forget|lost|reset|recover(?:y)?|trouble|can\s?t|cannot|unable)\b|登録|追加|作成|設定(?!済)|有効(?!な)|管理|忘れ|紛失|リセット|復旧|できない|使えない|お困り/iu;
 /**
  * A locator value as words: `addPasskey`, `register_key` and `#set-up-key` read as
  * "add Passkey", "register key" and "set up key".
@@ -20,8 +24,8 @@ const words = (value: string) =>
 /** A label as words: split at anything but letters and digits, never inside a word. */
 const labelWords = (value: string) => value.replaceAll(/[^\p{L}\p{N}]+/gu, " ");
 /**
- * Whether a button registers, adds, creates or sets up a passkey or security key rather
- * than signing in with one (ADR 0027): its label, its text or its `id`, `name` or test ID
+ * Whether a button registers, adds, creates or sets up a passkey or security key, or
+ * helps recover a lost one, rather than signing in with one (ADR 0027): its label, its text or its `id`, `name` or test ID
  * locator reads so, or a host its locator looks inside (ADR 0070). Shared by the generated passkey route and the judge's `passkey`
  * handler.
  */

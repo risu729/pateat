@@ -1610,3 +1610,25 @@ ADR's text as follows; the accepted text above is kept.
   is the one exception to "never the facts": it may be sent through the service to find
   the site's button for that IdP when a recipe is generated. The IdP username and the
   mapping to an IdP item are never sent.
+
+## Amendment 2026-11-07: recovery links are no passkey button
+
+Chosen by an agent, not asked, for
+[#1375](https://github.com/risu729/pateat/issues/1375). On Logi ID's page for a device
+that signed in with a passkey before, "パスキーを忘れた場合" ("forgot your passkey")
+sits under the sign-in button "🔑 パスキーを使用してログイン". It names a passkey, so it
+passed the passkey button check, and a passkey-only recipe or a `passkey` route could
+press it instead of the sign-in button.
+
+- The registration words (`registration` in `packages/contracts/src/passkey-button.ts`)
+  also take the words of a control that helps when a passkey is lost or does not work:
+  forgot, forgotten, forget, lost, reset, recover, recovery, trouble, can't (also cant),
+  cannot and unable as whole Latin words, and 忘れ, 紛失, リセット, 復旧, できない,
+  使えない and お困り anywhere. So "Forgot your passkey?", "Can't use your passkey?",
+  "パスキーを忘れた場合" and "パスキーを使用できない場合" are refused as passkey buttons
+  everywhere the registration words apply: the generated `passkey` route, the
+  passkey-only start page of [ADR 0053](0053-passkey-only-generation.md), the button
+  beside an account list of [ADR 0079](0079-passkey-button-beside-an-account-list.md)
+  and the judge's `passkey` handler check.
+- A sign-in button whose text happens to hold one of these words, such as "Sign in with
+  a passkey you can't lose", is refused too; no real page with one is known.
