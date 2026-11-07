@@ -962,9 +962,10 @@ name and position, under an opaque ID such as `custom-1`
 ([ADR 0027](adr/0027-per-account-login-routes.md)). A field named `SSO` or
 `SSO <number>` (`isSsoFieldName`: after NFKC normalization, ignoring surrounding white
 space and letter case) is never offered, read for a shape, bound to a slot or used as a
-personal detail, and a Linked field that reads one is never offered; a binding or
-generated slot map that names such a field refuses `sso-field` before any fill, and a
-`password` variant with such a binding is passed over for the next
+personal detail, and a Linked field that reads one is never offered; a saved binding
+that names such a field refuses `sso-field` before any fill, a template or generated
+slot map that names one is passed over and refuses `sso-field` when no other fits, and
+a `password` variant with such a binding is passed over for the next
 ([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md)). Just before sending, it
 reads the matching items' usernames and the values of Text fields and of Linked fields
 that read the username or a Text field for their shape, each sent only when all items

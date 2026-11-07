@@ -191,9 +191,10 @@ when, after NFKC normalization and trimming surrounding white space, it is `SSO`
 
 - `customFieldOffers` never offers such a field, nor a Linked field that reads one, so
   it is never read for a shape or generated as a slot.
-- A binding, a sibling binding used as a template or a generated slot map that names
-  such a field refuses `sso-field` before any field is read; a `password` variant with
-  such a binding is passed over for the next one, as for `field-missing`.
+- A saved binding that names such a field refuses `sso-field` before any field is read;
+  a sibling binding used as a template or a generated slot map that names one is passed
+  over, and refuses `sso-field` when no other fits; a `password` variant with such a
+  binding is passed over for the next one, as for `field-missing`.
 - `givesDetail` never takes such a field as a personal detail
   ([ADR 0061](0061-personal-details-during-a-login.md)).
 - A binding saved before this that names such a field now refuses `sso-field` on every
