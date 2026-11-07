@@ -26,6 +26,11 @@ interaction, current-settings revalidation and signing. `runtime-shared.ts` owns
 contracts and existing utilities. The caller retains the mutable deadline and report
 cause, updated through synchronous callbacks at the original points.
 
+The Bitwarden provider's `account.ts` keeps cached-context readmission and the public
+exports. `account-map.ts` owns live response correlation; `account-response.ts` owns
+pure provider DTO normalization and consistency decisions; `account-types.ts` holds
+their shared contracts. Existing account tests retain their files and assertions.
+
 Continuation page admission and generation submission live in
 `login/runtime/continuation-question.ts`; `continuation.ts` retains recipe/layout
 takeover and execution and preserves its original exports. The extraction leaves

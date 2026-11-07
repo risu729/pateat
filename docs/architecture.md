@@ -108,6 +108,9 @@ compromised destination page.
 
 ## Vault adapter
 
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
+
 Distinguish a provider type from a connection and model multiple simultaneous
 vault connections from the start. Scope item and field IDs by connection.
 Adapters are developer-written and bundled with extension releases; no remotely
