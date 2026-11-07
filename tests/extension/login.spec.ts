@@ -2658,8 +2658,7 @@ for (const variant of [
         );
         const status = () => send(options, { version: 1, type: "login.probe.status" });
         const released = variant.rejected || variant.path.includes("new-document");
-        if (released)
-          await expect.poll(status).toMatchObject({ attempts: [], asks: ["rejected"] });
+        if (released) await expect.poll(status).toMatchObject({ attempts: [], asks: ["rejected"] });
         else
           await expect.poll(status).toMatchObject({
             attempts: [
@@ -2675,12 +2674,14 @@ for (const variant of [
         // unknown badge expires. The choice badge may take priority after a rejection.
         const presentation = () =>
           worker.evaluate(async (url) => {
-            const chrome = (globalThis as unknown as {
-              chrome: {
-                tabs: { query: (query: object) => Promise<{ id?: number; url?: string }[]> };
-                storage: { session: { get: (key: string) => Promise<Record<string, unknown>> } };
-              };
-            }).chrome;
+            const chrome = (
+              globalThis as unknown as {
+                chrome: {
+                  tabs: { query: (query: object) => Promise<{ id?: number; url?: string }[]> };
+                  storage: { session: { get: (key: string) => Promise<Record<string, unknown>> } };
+                };
+              }
+            ).chrome;
             const tab = (await chrome.tabs.query({})).find((entry) => entry.url === url);
             const stored = (await chrome.storage.session.get("pateat.login-badge.v1"))[
               "pateat.login-badge.v1"
@@ -2708,11 +2709,13 @@ for (const variant of [
         expect(await count()).toEqual(expected);
         const tabs = () =>
           worker.evaluate(async () => {
-            const chrome = (globalThis as unknown as {
-              chrome: {
-                tabs: { query: (query: object) => Promise<{ id?: number; url?: string }[]> };
-              };
-            }).chrome;
+            const chrome = (
+              globalThis as unknown as {
+                chrome: {
+                  tabs: { query: (query: object) => Promise<{ id?: number; url?: string }[]> };
+                };
+              }
+            ).chrome;
             return chrome.tabs.query({});
           });
         const originalTabs = await tabs();

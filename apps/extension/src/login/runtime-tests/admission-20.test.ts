@@ -858,7 +858,8 @@ describe("production login document admission", () => {
           );
         // The form that answered the original submission must never be filled again.
         expect(await h.hello(response)).toEqual({ ok: false, reason: "account-asked" });
-        const sent = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+        const sent = (): Record<string, unknown>[] =>
+          fake.state.messages.filter((entry) => entry.type === "login.execute");
         const kinds = (offset = 0) =>
           sent()
             .slice(offset)
@@ -890,5 +891,4 @@ describe("production login document admission", () => {
       12_000,
     );
   });
-
 });
