@@ -9,6 +9,7 @@ import {
   isScriptButton,
   isScriptLink,
   linkText,
+  scriptControls,
 } from "./text";
 import { closestAcross, formOf, inputsOf, queryAll, shadowRootOf } from "./shadow";
 
@@ -19,7 +20,7 @@ const attributes = {
   "data-test": "data-test",
 } as const;
 /** Every element an `accessible-name` locator may name ({@link isNamedControl}). */
-export const namedControls = "button, input, a, [role]";
+export const namedControls = `button, input, a, ${scriptControls}`;
 
 /**
  * A link's path on its document's own origin (ADR 0029): none for a script link, a link
@@ -122,7 +123,7 @@ export function findTargets(
     if (hasNativeButton(document, target.value)) return links ? linkMatches() : [];
     if (named.length > 0) return named;
     if (links) return linkMatches();
-    return queryAll(document, "[role]").filter(
+    return queryAll(document, scriptControls).filter(
       (element) => isRoleButton(element) && buttonText(element) === target.value,
     );
   }

@@ -115,6 +115,31 @@ describe("answerInput", () => {
     expect(answers('<input name="memorable_word">')).toBe(true);
   });
 
+  it("takes kana spellings of the Japanese phrases", () => {
+    expect(answers('<label>秘密のこたえ<input type="text"></label>')).toBe(true);
+    expect(answers('<input placeholder="ヒミツノコタエ">')).toBe(true);
+    expect(answers('<input aria-label="あいことば">')).toBe(true);
+    expect(answers('<input aria-label="質問のこたえ">')).toBe(true);
+    expect(answers('<input aria-label="しつもんのかいとう">')).toBe(true);
+    expect(answers('<input aria-label="ひみつの答え">')).toBe(true);
+    expect(answers('<input aria-label="合い言葉">')).toBe(true);
+    expect(answers('<input aria-label="ヒミツノコトバ">')).toBe(true);
+    expect(answers('<input aria-label="質問への答え">')).toBe(true);
+    expect(answers('<input aria-label="秘密の解答">')).toBe(true);
+    // Half-width katakana reads as full-width.
+    expect(answers('<input placeholder="ﾋﾐﾂﾉｺﾀｴ">')).toBe(true);
+  });
+
+  it("leaves out other Japanese questions and answers", () => {
+    expect(answers('<label>ご質問<input type="text"></label>')).toBe(false);
+    expect(answers('<label>アンケートのこたえ<input type="text"></label>')).toBe(false);
+    expect(answers('<label>ひみつ<input type="text"></label>')).toBe(false);
+  });
+
+  it("leaves out a search box whose words name a secret question", () => {
+    expect(answers('<input placeholder="キーワード検索 (秘密の質問)">')).toBe(false);
+  });
+
   it("leaves out a survey's or contact form's answer, a secret alone and a security code", () => {
     expect(answers('<input aria-label="Your answer">')).toBe(false);
     expect(answers('<label>回答<input type="text"></label>')).toBe(false);

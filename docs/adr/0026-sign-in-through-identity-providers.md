@@ -1,30 +1,17 @@
 # ADR 0026: Signing in to a site through an identity provider
 
 Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented apart
-from the account choice below (2026-11-07). The owner set it as low priority: this
-record fixes the direction, and implementation waits. Builds on
+from the account choice in the last section (2026-11-07). The owner set it as low
+priority: this record fixes the direction, and implementation waits. Builds on
 [ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11 by
 [ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
 routes, chosen after a passkey route and before a password route. Amended on 2026-10-12
 by [ADR 0033](0033-no-site-specific-features.md) (owner, 13:46 UTC): no fixed list of
 identity providers or of their pages; the IdP's origin comes from the item and its pages
-are handled as any site's. Amended on 2026-11-07 by the owner
-([#1380](https://github.com/risu729/pateat/issues/1380)): one item per site account, so
-an item with a password keeps its own password login beside its `SSO` fields, and more
-providers use `SSO 2`, `SSO 3` and so on, valued like `[GitHub] github-user`; that
-format is not implemented yet. Researched from public documentation only; no real site
-or account has been used.
-
-Implemented on 2026-11-07 ([#1374](https://github.com/risu729/pateat/issues/1374)): an
-item that signs in only through an IdP has a usable Text or Hidden field named `SSO` or
-`SSO 2`, `SSO 3`… and no usable login password (`signsInOnlyThroughProvider` in
-`apps/extension/src/vault/site-candidates.ts`). When several items match a page with no
-saved default, such items are not counted (`ownLogins` in
-`apps/extension/src/login/runtime/choice-save.ts`), so the site's own item logs in
-instead of the tab asking which account to use. When every match is such an item,
-nothing changes. When two or more of the site's own items match, the tab asks among
-those only. Picks, saved defaults, the lists the tab asks later or a paused site offers,
-hidden usernames and the chooser's comparisons still see every match.
+are handled as any site's. Amended on 2026-11-07 by
+[ADR 0085](0085-one-item-for-native-and-sso-login.md) (owner, 12:51 UTC;
+[amendment](#amendment-2026-11-07-one-item-for-password-and-sso)). Researched from
+public documentation only; no real site or account has been used.
 
 Date: 2026-10-11
 
@@ -138,3 +125,41 @@ The owner chose, on 2026-10-11:
   from `login.microsoftonline.com` to `login.live.com`, is followed only on the item's
   origin since the ADR 0033 amendment; following such a move is left to implementation.
 - Real-site checks need real accounts and therefore separate owner approval.
+
+## Amendment 2026-11-07: one item for password and SSO
+
+Accepted by the owner on 2026-11-07 (12:51 UTC) with
+[ADR 0085](0085-one-item-for-native-and-sso-login.md); not implemented. The accepted
+text above is kept; these parts change:
+
+- **Item format.** The site item above, with `SSO` = `https://accounts.google.com`,
+  stays the format of an SSO-only item with one IdP. A site account that also has its
+  own password, or several IdPs, is one item with `SSO` = `[GitHub] github-user`,
+  `SSO 2` = `[Google] person@example.com`, … and keeps its own Username and Password.
+- **Which IdP item is used.** For the bracket form, the IdP item comes from the field's
+  label and username, resolved locally to one saved IdP item and a permitted origin from
+  its URIs, not from the site item's Username.
+- **Field rules.** "Exactly one `SSO` field" becomes one field per method. The value is
+  still never filled into a page; only its label may be sent to the model, to find the
+  site's button for that IdP. "Never a candidate on the IdP's pages and never used by a
+  password recipe or by recipe generation" becomes ADR 0085's rules per route: an item
+  with bracket-valued fields is used for its own password sign-in and recipe generation,
+  with its `SSO` fields left out, and, as an IdP, for direct sign-in, while a chain
+  where the IdP signs in through another IdP still stops.
+
+## Implementation 2026-11-07: SSO-only items in the account choice
+
+Implemented on 2026-11-07 for [#1374](https://github.com/risu729/pateat/issues/1374),
+where Devpost's own item and an SSO-only item both matched and the tab asked which
+account to use instead of logging in. An item signs in only through an IdP when it has a
+usable Text or Hidden field named `SSO` or `SSO <number>` (2 or more), in either form of
+ADR 0085, and no usable login password (`signsInOnlyThroughProvider` in
+`apps/extension/src/vault/site-candidates.ts`). When several items match a page with no
+saved default, such items are not counted (`ownLogins` in
+`apps/extension/src/login/runtime/choice-save.ts`), so the site's own item logs in. When
+two or more of the site's own items match, the tab asks among those only; when every
+match is such an item, nothing changes. Picks, saved defaults, the lists the tab asks
+later or a paused site offers, hidden usernames and the chooser's comparisons still see
+every match. Until the `sso` route exists, a pick or the only match of such an item runs
+the password route, which stops with `no-route` when the item holds no password and no
+passkey.

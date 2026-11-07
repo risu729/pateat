@@ -710,7 +710,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     // 0031), ask for an account identifier alone (ADR 0016) or show a passkey button (ADR
     // 0053). The page right after a submitted password form offers none of them.
     const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
-    const noInput = bare ? noInputOffer(document, entryWanted && !entryOffered) : undefined;
+    // A page asking a secret answer is a verification, never a site's sign-in entry, even
+    // when its URL names the page it guards (ADR 0035, #1376): it waits for the window,
+    // which counts it.
+    const answer = bare && answerInput(document);
+    const noInput = bare
+      ? noInputOffer(document, entryWanted && !entryOffered && !answer)
+      : undefined;
     // Nothing to send yet, or a list announced only for the log, which waits for the window.
     // Short texts beside the button of a page asking a secret answer name no account: the
     // page waits for the window too, which counts it (ADR 0035).
@@ -719,7 +725,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       (noInput.kind === "list" &&
         !noInput.entry &&
         noInput.accounts &&
-        (logOnly(noInput.accounts) || (noInput.accounts.names && answerInput(document))))
+        (logOnly(noInput.accounts) || (noInput.accounts.names && answer)))
     )
       return;
     if (noInput.kind !== "identifier" && noInput.entry) entryOffered = true;
