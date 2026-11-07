@@ -73,18 +73,19 @@ describe("passkey-only generation boundaries", () => {
     expect(v.is(loginRecipeSchema, { ...assembled.recipe, passkey: undefined })).toBe(false);
   });
 
-  it.each(["Create a passkey", "Register security key", "Add a passkey", "Set up passkey"])(
-    "rejects registration control %s",
-    (text) => {
-      expect(
-        validateGeneratedPage(
-          { ...observation, candidates: [{ ...button, label: text }] },
-          [],
-          draft,
-        ).ok,
-      ).toBe(false);
-    },
-  );
+  it.each([
+    "Create a passkey",
+    "Register security key",
+    "Add a passkey",
+    "Set up passkey",
+    "パスキーを忘れた場合",
+    "Forgot your passkey?",
+  ])("rejects registration or recovery control %s", (text) => {
+    expect(
+      validateGeneratedPage({ ...observation, candidates: [{ ...button, label: text }] }, [], draft)
+        .ok,
+    ).toBe(false);
+  });
 
   it("rejects links, unlabeled controls, fill forms and mismatched model button choices", () => {
     for (const changed of [

@@ -153,7 +153,8 @@ describe("a button beside a form without one of its own", () => {
         extra.id,
       ).toEqual({ ok: false, reason: "mixed-groups" });
     // Nor for a form beside another password form, or after another button outside every
-    // form that comes between the form and it, or as a passkey or sign-up button.
+    // form that comes between the form and it, or as a passkey, sign-up, reset or help
+    // button (`registersPasskey` words).
     expect(
       validatePagePlan(page(input("other", { role: "password", group: "f2" })), loginSlots, {
         fields: both,
@@ -170,7 +171,7 @@ describe("a button beside a form without one of its own", () => {
       ok: false,
       reason: "mixed-groups",
     });
-    for (const label of ["Sign in with a passkey", "Create a passkey"]) {
+    for (const label of ["Sign in with a passkey", "Create a passkey", "Reset", "Need help?"]) {
       const named = page();
       named.candidates[3] = input("go", { role: "button", label });
       expect(validatePagePlan(named, loginSlots, { fields: both, action: submit }), label).toEqual({

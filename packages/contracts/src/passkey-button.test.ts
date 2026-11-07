@@ -77,3 +77,66 @@ describe("buttons inside shadow hosts (ADR 0070)", () => {
     expect(namesPasskey(inside("passkey-login"))).toBe(false);
   });
 });
+
+describe("recovery links beside a passkey button (Logi ID, 2026-11-07, #1375)", () => {
+  it.each([
+    "パスキーを忘れた場合",
+    "パスキーを紛失した場合",
+    "パスキーを使用できない場合",
+    "パスキーが使えない場合",
+    "パスキーでお困りの方",
+    "セキュリティキーをリセット",
+    "Forgot your passkey?",
+    "Forgotten passkey",
+    "Lost your security key?",
+    "Can't use your passkey?",
+    "Cannot use a passkey",
+    "Unable to use your passkey?",
+    "Trouble with your passkey?",
+    "Reset passkey",
+    "Passkey recovery",
+    "Recover your passkey",
+    "Forget this passkey",
+    "Can\u2019t use your passkey?",
+    "Cant use passkey",
+    "Can not use a passkey",
+    "Don't have your passkey?",
+    "Passkey not working?",
+    "Need help with your passkey?",
+    "Troubleshoot passkey",
+    "Learn more about passkeys",
+    "What is a passkey?",
+    "パスキーを復旧",
+    "パスキーが使えません",
+    "パスキーをご利用できません",
+    "パスキーをお持ちでない方",
+    "パスキーをなくした場合",
+    "パスキーとは",
+    "パスキーについて詳しく",
+  ])("refuses a link that recovers a passkey: %s", (label) => {
+    expect(namesPasskey(labelled(label))).toBe(true);
+    expect(registersPasskey(labelled(label))).toBe(true);
+  });
+
+  it.each([
+    "🔑 パスキーを使用してログイン",
+    "パスキーでログイン",
+    "Sign in with a passkey",
+    "Use your security key",
+  ])("keeps the sign-in button: %s", (label) => {
+    expect(registersPasskey(labelled(label))).toBe(false);
+  });
+
+  it.each([
+    ["forgotPasskey", true],
+    ["lost-passkey", true],
+    ["resetPasskey", true],
+    ["cantUsePasskey", true],
+    ["CANT_USE_PASSKEY", true],
+    ["btn-passkey-help", true],
+    ["passkeyLoginCanTouch", false],
+    ["passkeyLogin", false],
+  ] as const)("reads them in a locator: %s", (value, refused) => {
+    expect(registersPasskey({ label: undefined, target: { by: "id", value } })).toBe(refused);
+  });
+});
