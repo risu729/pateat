@@ -90,13 +90,11 @@ export async function enterHandler(
         entry.step.fields.some((field) => field.slot === "password"),
     );
   // A `password` handler's button goes on to the password this login types (ADR 0048): only
-  // a login that types it, does not only fill, runs in the tab's top document on the
-  // recipe's own origin and has not filled its password yet presses it.
+  // a login that types it, does not only fill, runs on the recipe's own origin, in the
+  // tab's page or a frame of it (ADR 0086), and has not filled its password yet presses it.
   const choosesPassword =
     typesPassword &&
     run.metadata.fillOnly !== true &&
-    run.live.document.frameId === 0 &&
-    run.live.topUrl === undefined &&
     run.live.document.origin === run.recipe.origin &&
     !plan.some(
       (entry, index) =>
@@ -106,8 +104,8 @@ export async function enterHandler(
     );
   // An `authenticator` handler's button goes on to the code page (ADR 0081): only a login on
   // the `password` route that has filled its password already, does not only fill and runs
-  // in the tab's top document on the recipe's own origin presses it, so a button that
-  // offers a code instead of the password never skips the password.
+  // on the recipe's own origin presses it, so a button that offers a code instead of the
+  // password never skips the password.
   const choosesAuthenticator =
     run.metadata.route === "password" &&
     plan.some(
@@ -117,8 +115,6 @@ export async function enterHandler(
         entry.step.fields.some((field) => field.slot === "password"),
     ) &&
     run.metadata.fillOnly !== true &&
-    run.live.document.frameId === 0 &&
-    run.live.topUrl === undefined &&
     run.live.document.origin === run.recipe.origin;
   // The handler whose click this document performed and holds: its button the page only
   // hid is gone, as for the hold, not shown again (ADR 0027).

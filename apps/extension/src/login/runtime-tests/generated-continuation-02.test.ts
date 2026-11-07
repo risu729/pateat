@@ -718,19 +718,31 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(executed()).toEqual(["fill:email,password", "click:login"]);
       expect(status()![0]).toMatchObject({ outcome: "challenge", handlers: [] });
     });
-    it("never presses it in a frame, even one on the recipe's own site", async () => {
+    it("presses it, continues and signs in in a frame as in the tab's page (ADR 0086)", async () => {
       choosing();
-      const service = generation(undefined, async () => ({ verdict: "challenge" }));
-      const h = start(service, { recipe: continued });
+      let h!: ReturnType<typeof harness>;
+      const service = generation(
+        answering(() => h, continued),
+        async (_id, revision) => {
+          if (revision !== 1) return { verdict: "signed-in" };
+          h.recipes.recipe.mockResolvedValue(withHandler);
+          return { verdict: "challenge", recipe: withHandler };
+        },
+      );
+      h = start(service);
       const top = "https://login.example/portal";
       fake.state.tabUrls[1] = top;
       expect(
         await h.hello({ frameId: 3, documentId: "frame-document", tab: { id: 1, url: top } }),
       ).toEqual({ ok: true });
-      await until(() => executed().length >= 2 && status()?.[0]?.["state"] !== "executing");
-      await vi.advanceTimersByTimeAsync(20_000);
-      expect(executed()).toEqual(["fill:email", "click:next"]);
-      expect(status()![0]).toMatchObject({ handlers: [] });
+      await until(settled("authenticated"));
+      expect(executed()).toEqual(withPress);
+      // The frame's own document was described for the continuation.
+      expect(service.generate.mock.calls[0]![0]).toMatchObject({
+        base: { recipeId: emailFirst.id, revision: 2 },
+        observation: passwordPage("/signin").observation,
+      });
+      expect(status()![0]).toMatchObject({ recipeRevision: 3, handlers: [{ index: 0, start: 2 }] });
     });
     it("never presses it while the route's password field already shows writable", async () => {
       // The password field shows before Next and stays writable beside the choice after it.

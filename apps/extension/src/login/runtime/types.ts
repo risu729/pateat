@@ -491,8 +491,6 @@ export type Readiness = {
   entry?: true;
   /** A recipe generated as `confirm` or `unclear` starts here: its first step (ADR 0035). */
   confirm?: LoginReadiness;
-  /** A frame asked to report a sign-in input or a secret answer (ADR 0035). */
-  frame?: true;
 };
 
 export type Announced = { path: string } | undefined;

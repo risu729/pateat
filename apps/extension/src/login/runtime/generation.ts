@@ -122,8 +122,9 @@ export async function generateFor(
                 type: "login.extract",
                 page: "accounts",
                 ...(list.names.length ? { names: list.names } : {}),
+                shown: true,
               }
-            : { type: "login.extract", page: passkeyOnly ? "passkey" : "login" },
+            : { type: "login.extract", page: passkeyOnly ? "passkey" : "login", shown: true },
         ),
       );
       if (rt.documents.get(key) !== live) return;
@@ -170,7 +171,7 @@ export async function generateFor(
         const signIn = v.safeParse(
           extractResultSchema,
           // eslint-disable-next-line no-await-in-loop
-          await send(rt, live, { type: "login.extract", page: "login" }),
+          await send(rt, live, { type: "login.extract", page: "login", shown: true }),
         );
         if (rt.documents.get(key) !== live) return;
         const accepted =
@@ -188,7 +189,8 @@ export async function generateFor(
           break;
         }
       }
-      if (unsent === "cancelled" || read >= EXTRACT_READS) {
+      // A frame that no longer shows in the tab's page is not read again (ADR 0086).
+      if (unsent === "cancelled" || unsent === "frame-hidden" || read >= EXTRACT_READS) {
         skipGeneration(rt, live, unsent, skipPage, detail);
         return;
       }
@@ -295,11 +297,10 @@ export async function generateFor(
     // Every tab's page still tracked on this origin and path that holds no login announces
     // again and starts the recipe: this document, and one refused for want of a recipe
     // while the request was in flight, such as a page that replaced this one or the same
-    // page in another tab.
+    // page in another tab, also in a frame (ADR 0086).
     const pages = [...rt.documents.values()].filter((other) => {
       const running = tabAttempt(rt, other.document.tabId);
       return (
-        other.document.frameId === 0 &&
         other.document.origin === live.document.origin &&
         other.path === live.path &&
         rt.attempts.get(other.document.tabId)?.live !== other &&

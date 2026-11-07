@@ -1246,6 +1246,83 @@ for (const mode of ["url", "recipe-elsewhere", "same-url"] as const)
     }
   });
 
+for (const hidden of [false, true])
+  test(`a sign-in form in a frame of the site's page is generated and logs in there${hidden ? " once the hidden frame shows" : ""} (ADR 0086)`, async () => {
+    test.setTimeout(90_000);
+    const fixture = await startLoginFixture(0, { password });
+    const claude = syntheticClaude();
+    const service = await startSyncService({ claude: claude.answer });
+    // The site's page embeds its sign-in form from the login host, as Apple Account's
+    // page does from idmsa.apple.com (#1378).
+    const top = "https://www.synthetic.example.test";
+    try {
+      await withVaultProfile(
+        async (open, externalRequests) => {
+          const browser = await open();
+          await serveSite(browser.context, fixture);
+          const runId = fixture.createRun();
+          await browser.context.route(`${top}/**`, (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              body: `<!doctype html><html lang="en"><head><title>Synthetic account</title></head><body>
+            <main><h1>Sign in to your account</h1>
+            <iframe id="login-frame" title="Synthetic sign-in" width="600" height="400"
+              ${hidden ? 'style="display:none"' : ""}
+              src="${site}/sign-in?runId=${runId}&state=synthetic-state"></iframe></main>
+          </body></html>`,
+            }),
+          );
+          const options = await connect(browser, service);
+
+          const page = await browser.context.newPage();
+          await page.goto(`${top}/account`);
+          const frame = page.frameLocator("#login-frame");
+          if (hidden) {
+            // Well past the frame's step wait, nothing was sent; then the page shows it.
+            await page.waitForTimeout(12_000);
+            expect(claude.prompts).toEqual([]);
+            await page.locator("#login-frame").evaluate((element) => {
+              (element as HTMLElement).style.removeProperty("display");
+            });
+          }
+          await expect(frame.locator("#signed-in")).toBeVisible({ timeout: 60_000 });
+          expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
+          await expect
+            .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+              timeout: SETTLE_MS,
+            })
+            .toMatchObject({
+              attempts: [
+                { state: "authenticated", outcome: "authenticated", account: { origin: site } },
+              ],
+            });
+          // Only the frame's own document went out, under its origin and path without the
+          // query, and the recipe is the frame origin's.
+          expect(
+            claude.prompts.map((prompt) => [
+              prompt.task,
+              prompt.observation.origin,
+              prompt.observation.path,
+            ]),
+          ).toEqual([
+            ["generate", site, "/sign-in"],
+            ["judge-sign-in", site, "/account"],
+          ]);
+          expect(JSON.stringify(claude.prompts)).not.toContain("synthetic-state");
+          expect(JSON.stringify(claude.prompts)).not.toContain("Sign in to your account");
+          expect(JSON.stringify(claude.prompts)).not.toContain(password);
+          const recipes = (await (await service.request("/v1/recipes")).json()) as RecipeChanges;
+          expect(recipes.changes.map((change) => change.recipe?.origin)).toEqual([site]);
+          expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site, top]);
+        },
+        { args: ["--ignore-certificate-errors"] },
+      );
+    } finally {
+      await service.close();
+      await fixture.close();
+    }
+  });
+
 test("a generated recipe whose start page changed gets a layout for it on the first load, never for a maintenance page (ADR 0041)", async () => {
   // Each page that misses its first step reports after the ten-second step wait.
   test.setTimeout(180_000);

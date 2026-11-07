@@ -78,6 +78,7 @@ export async function askContinuation(
         type: "login.extract",
         page: "login",
         ...(known.length ? { known } : {}),
+        shown: true,
       }),
     );
     // The content script's refusal, such as `no-locator` or `extract-error`, as for a

@@ -21,6 +21,11 @@ recipe starts), [ADR 0018](0018-recipe-generation-route.md) (failed recipes are 
 repaired) and [ADR 0058](0058-automatic-recipe-removal.md) part A (a recipe the chosen
 item cannot run is revoked).
 
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; delivery 3): a generated recipe's start page, chooser form, chooser list and
+later step are repaired in a frame of the tab's page too; an entry recipe's page still
+only in the tab's page.
+
 Date: 2026-10-23
 
 ## Context
