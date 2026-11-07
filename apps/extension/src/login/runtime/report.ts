@@ -712,8 +712,9 @@ export type LoginReport = (
       /**
        * With `not-shown`: `moved` when the page left the handler's path before it was
        * read, else the check that decided each of the handler's own targets in order
-       * (a `totp` handler's code field, then its button), joined with dots, as `ok.missing`, then `sign-in-shown`
-       * when a route field still showed beside it. Codes only, never page text.
+       * (a `totp` handler's code field, then its button), joined with dots, as
+       * `ok.missing`, then `sign-in-shown` when a route field still showed beside it.
+       * Codes only, never page text.
        */
       why?: string;
     }

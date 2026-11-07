@@ -218,10 +218,15 @@ local log. Now:
   each of its own targets in order (a `totp` handler's code field, then its button; a
   `detail` handler's inputs, then its button), joined with dots, as
   `ok.missing`, then `sign-in-shown` when a route field still showed beside it. Codes
-  only. The last such reason is kept and logged only once the login leaves the page to
-  the person (it is watched or blocked, or its result settled as unknown) without that
-  handler entered, so a code page read while it still renders logs nothing when its
-  handler is entered after all; each is logged once.
+  only. Only the latest reading's reason is kept, for the first such handler in entry
+  order, and it is logged once the login leaves the page to the person without that
+  handler entered: it settles as unknown, starts a watch, or blocks on a challenge or an
+  unknown result. A rejected password, a cancel or a policy change drops it. So a code
+  page read while it still renders logs nothing when its handler is entered after all. A
+  page read during a watch is already the person's, so its reason is logged at once, and
+  an `entered` line follows if a later reading enters the handler. The line is logged
+  only while the tab still shows that document and path, so its URL names that page
+  (for `moved`, the page it moved to), and each is logged once.
 - `login.handler` lines with outcome `not-shown`, `shown-again`, `missing-fact`,
   `code-used` or `no-room` are did-nothing lines (`PROBLEM_INFO_LINES`) and go to the
   service. `entered` and the `detail-*` outcomes stay local, as before.

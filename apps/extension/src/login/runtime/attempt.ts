@@ -353,20 +353,36 @@ function handlerMissed(
     delete run.handlerMiss;
     return;
   }
+  // Left to the person: settled without a result, watched, or blocked on a challenge or
+  // an unknown result. A rejected password, a cancel or a policy change ends it otherwise.
   const leftToPerson =
     settled === true ||
     (metadata.state !== previous.state &&
-      (metadata.state === "watching" || metadata.state === "blocked"));
-  if (!leftToPerson) {
-    if (
-      metadata.state !== previous.state &&
-      !["reconciling", "awaiting-result"].includes(metadata.state)
-    )
-      delete run.handlerMiss;
+      (metadata.state === "watching" ||
+        (metadata.state === "blocked" &&
+          (metadata.outcome === "challenge" || metadata.outcome === "unknown-submit"))));
+  if (leftToPerson) {
+    reportHandlerMiss(rt, run);
     return;
   }
+  if (
+    metadata.state !== previous.state &&
+    !["reconciling", "awaiting-result"].includes(metadata.state)
+  )
+    delete run.handlerMiss;
+}
+
+/**
+ * Logs the kept miss once (`not-shown`), while the tab still shows the document and path
+ * it was read on, so the line names that page.
+ */
+export function reportHandlerMiss(rt: Runtime, run: Execution): void {
+  const miss = run.handlerMiss;
+  if (!miss) return;
   delete run.handlerMiss;
   if (miss.documentId !== run.live.document.documentId) return;
+  const now = run.readPath?.documentId === miss.documentId ? run.readPath.path : pathNow(run.live);
+  if (now !== miss.path) return;
   const key = [miss.documentId, miss.path, miss.handler, miss.why].join(" ");
   run.handlerMisses ??= new Set();
   if (run.handlerMisses.has(key)) return;

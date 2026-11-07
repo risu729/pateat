@@ -17,7 +17,7 @@ import { type Execution, type DetailWait } from "./types";
 import { observe } from "./reconcile";
 import { handlerOrder, codeFieldOf, markerProof, autoSubmitted } from "./steps";
 import { readSignInState, reconcileBounded } from "./sign-in";
-import { current, report, change } from "./attempt";
+import { current, report, change, reportHandlerMiss } from "./attempt";
 import { type LoginReport } from "./report";
 import { detailInput, asksAnotherQuestion, forgetDetail, offerDetails } from "./detail-fill";
 import { popupDetailFill } from "./detail-popup";
@@ -200,26 +200,30 @@ export async function enterHandler(
     });
   const byOrder = (left: (typeof entries)[number], right: (typeof entries)[number]) =>
     handlerOrder[left.handler.kind] - handlerOrder[right.handler.kind];
-  // The page did not show a handler this login has not run yet as it needs: the first
-  // such handler's reason is kept, and logged once the login leaves the page to the
-  // person (`handlerMiss`), as a code page left to the person (#1381) must be told apart
-  // in the log from one Pateat filled (ADR 0019). `moved` when the page left the path
+  // The page did not show a handler this login has not run yet as it needs: the reason
+  // for the first such handler in entry order is kept, and logged once the login leaves
+  // the page to the person (`handlerMiss`), as a code page left to the person (#1381) must
+  // be told apart in the log from one Pateat filled (ADR 0019); in a watch, where the page
+  // is already the person's, it is logged at once. `moved` when the page left the path
   // before it was read; otherwise each own target's check, as `ok.missing` for a code
-  // field there and a button gone, or several (`matches-2`), hidden or not writable.
-  const notShown = (why: (entry: (typeof observable)[number]) => string) => {
+  // field there and a button gone, or several (`matches-2`), hidden or not usable.
+  const notShown = (why: (entry: (typeof observable)[number]) => string, at = path) => {
     const fresh = observable
       .filter((entry) => !run.metadata.handlers.some((entered) => entered.index === entry.index))
       .sort(byOrder)[0];
     if (!fresh) return;
     run.handlerMiss = {
       documentId: run.live.document.documentId,
-      path,
+      path: at,
       handler: fresh.index,
       kind: fresh.handler.kind,
       steps: handlerSteps(fresh.handler).length,
       why: codes(why(fresh)),
     };
+    if (run.metadata.state === "watching") reportHandlerMiss(rt, run);
   };
+  // Only this reading's miss is kept: an earlier one is of a page read again now.
+  delete run.handlerMiss;
   const observed = await observe(
     rt,
     run,
@@ -229,7 +233,8 @@ export async function enterHandler(
   );
   if (!observed) return false;
   if (observed.path !== path) {
-    if (current(rt, run)) notShown(() => "moved");
+    // Named by the path the page moved to, which the line's URL shows.
+    notShown(() => "moved", observed.path);
     return false;
   }
   let offset = 0;

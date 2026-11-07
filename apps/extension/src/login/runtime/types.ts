@@ -327,10 +327,11 @@ export type Execution = {
   /** How many times that document was asked so (`DESCRIBED_WATCHES`). In memory only. */
   emptyWatches?: { documentId: string; count: number };
   /**
-   * The last handler on the page's path that this login has not run yet and that the page
-   * did not show as it needs, with why (`not-shown`, #1381). It is logged only once the
-   * login leaves the page to the person, so a page read while it still renders logs
-   * nothing when its handler is entered after all. In memory only.
+   * The first handler, in entry order, on the path the latest handler reading was of
+   * that this login has not run yet and that the page did not show as it needs, with why
+   * (`not-shown`, #1381). It is logged only once the login leaves the page to the person,
+   * or at once in a watch, so a page read while it still renders logs nothing when its
+   * handler is entered after all. In memory only.
    */
   handlerMiss?: {
     documentId: string;

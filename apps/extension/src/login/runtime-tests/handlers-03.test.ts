@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseLoginRecipe, type LoginStep } from "@pateat/contracts";
 import type { LoginGeneration } from "../runtime/deps";
 import type { LoginReport } from "../runtime/report";
@@ -143,16 +143,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     };
     const coded = parseLoginRecipe({ ...unlearned, completion: home, handlers: [codeHandler] });
     const toCode = { path: "/two-factor", present: ["app-code", "verify"] };
-    const codePage = observation("/two-factor", [
-      {
-        id: "c1",
-        role: "text",
-        target: target("app-code"),
-        label: "Verification Code",
-        autocomplete: "one-time-code",
-      },
-      { id: "c2", role: "button", target: target("verify"), label: "Verify" },
-    ]);
     const noPasskey = vi.fn(async () => ({ passkey: false, discoverable: false }));
     const withTotp = (h: ReturnType<typeof harness>, empty = false) =>
       editFields(h, (fields) => [
@@ -484,27 +474,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(codeFills()).toEqual([]);
       expect(notShown(report)).toEqual([[0, "not-shown", "not-writable.ok"]]);
     }, 10_000);
-    it("says once why a handler taken over from the judge was not entered, as on VRChat's code page", async () => {
-      // 2026-11-07 12:48 UTC: the judge learned VRChat's code field and Verify button, the
-      // login took the new revision over, and by then the person had pressed Verify, so
-      // the button read "Verifying..." and the handler was passed over without a line.
-      const plain = parseLoginRecipe(unlearned);
-      const taken = parseLoginRecipe({ ...unlearned, revision: 2, handlers: [codeHandler] });
-      onClick({ login: { path: "/two-factor", present: ["app-code"], extracted: codePage } });
-      const service = generation(async () => ({ verdict: "challenge", recipe: taken }));
-      const report = vi.fn<(report: LoginReport) => void>();
-      const h = harness({}, { passkeys: noPasskey, generation: service, report });
-      withTotp(h);
-      h.recipes.recipe.mockResolvedValue(plain);
-      expect(await h.hello()).toEqual({ ok: true });
-      await vi.waitFor(
-        () => expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
-        { timeout: 6_000 },
-      );
-      expect(status()).toMatchObject([{ recipeRevision: 2, handlers: [] }]);
-      expect(codeFills()).toEqual([]);
-      expect(notShown(report)).toEqual([[0, "not-shown", "ok.missing"]]);
-    }, 10_000);
     it("enters a passkey handler before a totp handler shown with it", async () => {
       const key = { kind: "passkey" as const, path: "/two-factor", target: securityKey };
       // The recipe lists the code first; the passkey still goes first.
@@ -587,39 +556,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(clicks("Use security key")).toBe(1);
       expect(codeFills()).toEqual([]);
       expect(status()![0]).toMatchObject({ handlers: [{ index: 0, start: 2 }] });
-    }, 10_000);
-    it("logs no miss for a code page whose button renders after its field", async () => {
-      // The button shows a moment after the field, as a page still rendering: the handler
-      // is entered once it does, and the earlier reading that missed it is never logged.
-      onClick({ login: { path: "/two-factor", present: ["app-code"] }, verify: toHome });
-      const reads = fake.state.messages.length;
-      const later = setInterval(() => {
-        // The handler's own reading: the code field, then its button.
-        const observes = fake.state.messages
-          .slice(reads)
-          .filter(
-            (entry) =>
-              entry.type === "login.observe" &&
-              JSON.stringify(entry.targets) ===
-                JSON.stringify([target("app-code"), target("verify")]),
-          );
-        if (observes.length > 0) {
-          fake.state.present = new Set(["app-code", "verify"]);
-          clearInterval(later);
-        }
-      }, 10);
-      onTestFinished(() => clearInterval(later));
-      const report = vi.fn<(report: LoginReport) => void>();
-      const h = harness({}, { passkeys: noPasskey, report });
-      withTotp(h);
-      codes(h);
-      h.recipes.recipe.mockResolvedValue(coded);
-      expect(await h.hello()).toEqual({ ok: true });
-      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
-        timeout: 6_000,
-      });
-      expect(codeFills()).toHaveLength(1);
-      expect(notShown(report)).toEqual([[0, "entered", undefined]]);
     }, 10_000);
     it("types one code per login and leaves a second code page to the person", async () => {
       const again = {

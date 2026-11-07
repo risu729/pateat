@@ -3560,6 +3560,8 @@ describe("problem lines (ADR 0066)", () => {
       ["login.switch", { ...page, stage: "click", clicks: 1 }],
       ["login.popup", { ...page, choice: "offered" }],
       ["login.handler", { ...page, kind: "totp", outcome: "entered" }],
+      // A code page left to the person (#1381): why, but not where.
+      ["login.handler", { ...page, kind: "totp", outcome: "not-shown", why: "ok.missing" }],
     ];
     for (const [event, fields] of [...before, ...after])
       // eslint-disable-next-line no-await-in-loop
