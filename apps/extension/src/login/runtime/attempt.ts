@@ -334,6 +334,73 @@ export async function keepPick(rt: Runtime, signedIn: LoginAttemptMetadata): Pro
     .catch(() => undefined);
 }
 
+/**
+ * Logs the handler the page did not show (`handlerMiss`, #1381) once the login leaves its
+ * page to the person: it is now watched or blocked, or its result settled as unknown,
+ * with that handler still not entered. A handler entered, a page that moved the login on
+ * or a sign-in drops it. Each miss is logged once.
+ */
+function handlerMissed(
+  rt: Runtime,
+  run: Execution,
+  previous: LoginAttemptMetadata,
+  settled: true | undefined,
+): void {
+  const miss = run.handlerMiss;
+  if (!miss) return;
+  const { metadata } = run;
+  if (metadata.handlers.some((entered) => entered.index === miss.handler)) {
+    delete run.handlerMiss;
+    return;
+  }
+  // Left to the person: settled without a result, watched, or blocked on a challenge or
+  // an unknown result. A rejected password, a cancel or a policy change ends it otherwise.
+  const leftToPerson =
+    settled === true ||
+    (metadata.state !== previous.state &&
+      (metadata.state === "watching" ||
+        (metadata.state === "blocked" &&
+          (metadata.outcome === "challenge" || metadata.outcome === "unknown-submit"))));
+  if (leftToPerson) {
+    reportHandlerMiss(rt, run);
+    return;
+  }
+  if (
+    metadata.state !== previous.state &&
+    !["reconciling", "awaiting-result"].includes(metadata.state)
+  )
+    delete run.handlerMiss;
+}
+
+/**
+ * Logs the kept miss once (`not-shown`), while the tab still shows the document and path
+ * it was read on, so the line names that page.
+ */
+export function reportHandlerMiss(rt: Runtime, run: Execution): void {
+  const miss = run.handlerMiss;
+  if (!miss) return;
+  delete run.handlerMiss;
+  if (miss.documentId !== run.live.document.documentId) return;
+  const now = run.readPath?.documentId === miss.documentId ? run.readPath.path : pathNow(run.live);
+  if (now !== miss.path) return;
+  const key = [miss.documentId, miss.path, miss.handler, miss.why].join(" ");
+  run.handlerMisses ??= new Set();
+  if (run.handlerMisses.has(key)) return;
+  run.handlerMisses.add(key);
+  report(rt, run.live.document, {
+    type: "handler",
+    tabId: run.live.document.tabId,
+    origin: run.live.document.origin,
+    recipeId: run.recipe.id,
+    recipeRevision: run.recipe.revision,
+    handler: miss.handler,
+    kind: miss.kind,
+    outcome: "not-shown",
+    steps: miss.steps,
+    why: miss.why,
+  });
+}
+
 export async function change(
   rt: Runtime,
   run: Execution,
@@ -385,6 +452,7 @@ export async function change(
   const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
   // An ended login no longer waits for a continuation it asked for (ADR 0018).
   if (terminal(run.metadata) || idle(run.metadata)) rt.continuations.delete(run.metadata.id);
+  handlerMissed(rt, run, previous, settled);
   // The layout it ran before, when the login just switched layouts (ADR 0060).
   const layoutFrom = run.metadata.layout !== previous.layout ? previous.layout : undefined;
   if (

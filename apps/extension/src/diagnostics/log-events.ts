@@ -237,6 +237,7 @@ export const LOG_EVENTS = {
       kind: "code",
       outcome: "code",
       steps: "count",
+      why: "code",
       url: "url",
     },
   },

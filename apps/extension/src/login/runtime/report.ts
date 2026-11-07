@@ -690,10 +690,13 @@ export type LoginReport = (
        * select matches its part or a card's digits do not fit its boxes, and, about the
        * site's links, `detail-saved` when the popup's fill was saved after the login was
        * confirmed, `detail-forgotten` when a refused value's link was removed, and
-       * `detail-kept` when it could not be removed now.
+       * `detail-kept` when it could not be removed now. `not-shown` when a handler this
+       * login has not run yet is on the page's path but its elements did not show as it
+       * needs when the login left the page to the person, with `why` (#1381).
        */
       outcome:
         | "entered"
+        | "not-shown"
         | "shown-again"
         | "missing-fact"
         | "code-used"
@@ -709,6 +712,14 @@ export type LoginReport = (
         | "detail-kept"
         | "detail-not-saved";
       steps: number;
+      /**
+       * With `not-shown`: `moved` when the page left the handler's path before it was
+       * read, else the check that decided each of the handler's own targets in order
+       * (a `totp` handler's code field, then its button), joined with dots, as
+       * `ok.missing`, then `sign-in-shown` when a route field still showed beside it.
+       * Codes only, never page text.
+       */
+      why?: string;
     }
 ) & {
   /**

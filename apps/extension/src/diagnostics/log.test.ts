@@ -1842,6 +1842,16 @@ describe("unhandled errors", () => {
       outcome: "entered",
       steps: 1,
     });
+    // A handler the page did not show, with why, as on VRChat's code page (#1381).
+    log.login({
+      type: "handler",
+      ...page,
+      handler: 1,
+      kind: "totp",
+      outcome: "not-shown",
+      steps: 2,
+      why: "ok.missing",
+    });
     // ADR 0029's sign-in state: only the signs that show are written.
     const signs = { s1: true, s2: true, s3: false, s4: false, s5: false, f1: false, f2: true };
     log.login({
@@ -1945,14 +1955,14 @@ describe("unhandled errors", () => {
       reason: "incomplete-observation",
       detail: "unlocated-button",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(23));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(24));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     // Every entry the page caused names its tab; those the worker caused name none.
     expect(entries.map((entry) => entry.fields["tab"])).toEqual([
       undefined,
       undefined,
       undefined,
-      ...Array.from({ length: 19 }, () => 3),
+      ...Array.from({ length: 20 }, () => 3),
     ]);
     expect(
       entries.map(({ event, level, fields: { tab: _tab, ...fields } }) => [event, level, fields]),
@@ -2069,6 +2079,20 @@ describe("unhandled errors", () => {
           kind: "passkey",
           outcome: "entered",
           steps: 1,
+        },
+      ],
+      [
+        "login.handler",
+        "info",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          handler: 1,
+          kind: "totp",
+          outcome: "not-shown",
+          steps: 2,
+          why: "ok.missing",
         },
       ],
       [
@@ -3536,6 +3560,8 @@ describe("problem lines (ADR 0066)", () => {
       ["login.switch", { ...page, stage: "click", clicks: 1 }],
       ["login.popup", { ...page, choice: "offered" }],
       ["login.handler", { ...page, kind: "totp", outcome: "entered" }],
+      // A code page left to the person (#1381): why, but not where.
+      ["login.handler", { ...page, kind: "totp", outcome: "not-shown", why: "ok.missing" }],
     ];
     for (const [event, fields] of [...before, ...after])
       // eslint-disable-next-line no-await-in-loop

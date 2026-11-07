@@ -423,12 +423,18 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ]);
       }, 10_000);
     });
+    // Why a shown-nowhere handler was passed over, once however often the page is read
+    // (#1381: VRChat's code page left to the person with no line saying why).
+    const notShown = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
+      report.mock.calls.flatMap(([value]) =>
+        value.type === "handler" ? [[value.handler, value.outcome, value.why]] : [],
+      );
     it.each([
-      ["field", ["app-code"]],
-      ["button", ["verify"]],
+      ["field", ["app-code"], "ok.missing"],
+      ["button", ["verify"], "missing.ok"],
     ])(
       "is not entered while only its %s shows",
-      async (_label, present) => {
+      async (_label, present, why) => {
         onClick({ login: { path: "/two-factor", present } });
         const report = vi.fn<(report: LoginReport) => void>();
         const h = harness({}, { passkeys: noPasskey, report });
@@ -441,7 +447,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           { timeout: 6_000 },
         );
         expect(codeFills()).toEqual([]);
-        expect(handlerReports(report)).toEqual([]);
+        expect(notShown(report)).toEqual([[0, "not-shown", why]]);
       },
       10_000,
     );
@@ -462,10 +468,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           type: "login.observe",
           targets: [target("app-code"), target("verify")],
           require: ["writable", "shown"],
+          explain: true,
         }),
       );
       expect(codeFills()).toEqual([]);
-      expect(handlerReports(report)).toEqual([]);
+      expect(notShown(report)).toEqual([[0, "not-shown", "not-writable.ok"]]);
     }, 10_000);
     it("enters a passkey handler before a totp handler shown with it", async () => {
       const key = { kind: "passkey" as const, path: "/two-factor", target: securityKey };

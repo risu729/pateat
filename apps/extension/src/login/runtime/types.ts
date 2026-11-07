@@ -327,6 +327,23 @@ export type Execution = {
   /** How many times that document was asked so (`DESCRIBED_WATCHES`). In memory only. */
   emptyWatches?: { documentId: string; count: number };
   /**
+   * The first handler, in entry order, on the path the latest handler reading was of
+   * that this login has not run yet and that the page did not show as it needs, with why
+   * (`not-shown`, #1381). It is logged only once the login leaves the page to the person,
+   * or at once in a watch, so a page read while it still renders logs nothing when its
+   * handler is entered after all. In memory only.
+   */
+  handlerMiss?: {
+    documentId: string;
+    path: string;
+    handler: number;
+    kind: string;
+    steps: number;
+    why: string;
+  };
+  /** The `handlerMiss` keys already logged, so each is logged once. In memory only. */
+  handlerMisses?: Set<string>;
+  /**
    * That document since said it shows something: it is read once more as the tab's next
    * page, though the watch began there. Kept in memory only.
    */
