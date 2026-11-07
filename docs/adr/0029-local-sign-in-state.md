@@ -871,18 +871,19 @@ shows meanwhile goes on at once. Once such a CAPTCHA showed while this result wa
 a page that still reads `unknown` after it closed waits too: the person may have closed
 the challenge, or the site may want its button pressed again, and the person's press is
 read as after Pateat's own step, as for a held click. A failure next to the sign-in form
-(`rejected`) and a sign-in (`signed-in`) decide in the round that reads them, with or
-without a CAPTCHA. A page that moved on otherwise, as to a code page, gets the step's
-usual budget again for its answer, and a reading that fails changes nothing about a
-running wait. Each wait lasts at most two minutes (`HELD_CLICK_WAIT_MS`, as for a held
-click) from when it began or changed between the two kinds; then the login ends
-`challenge` and is watched. The wait is the person's time (`personMs`, ADR 0019), and
-its start is logged as `login.attempt` with the cause `captcha-shown`. Pateat does not
-solve CAPTCHAs, press the button again, or read the token. The wait is kept in memory
-only: a restarted worker that reads the same document again starts a new wait there if
-the CAPTCHA is still unsolved, logs `captcha-shown` again, and counts the gap of the
-restart as the person's time, but it no longer knows a CAPTCHA closed there, so it
-settles a form shown after one as before.
+(`rejected`) and a sign-in (`signed-in`) decide in the round that reads them in the
+loaded document, with or without a CAPTCHA; on the `passkey` route, which rejects no
+credential, such a failure waits as `unknown` does. A page that moved on otherwise, as
+to a code page, gets the step's usual budget again for its answer, and a reading that
+fails changes nothing about a running wait. Each wait lasts at most two minutes
+(`HELD_CLICK_WAIT_MS`, as for a held click) from when it began or changed between the
+two kinds; then the login ends `challenge` and is watched. The wait is the person's time
+(`personMs`, ADR 0019), and its start is logged as `login.attempt` with the cause
+`captcha-shown`. Pateat does not solve CAPTCHAs, press the button again, or read the
+token. The wait is kept in memory only: a restarted worker that reads the same document
+again starts a new wait there if the CAPTCHA is still unsolved, logs `captcha-shown`
+again, and counts the gap of the restart as the person's time, but it no longer knows a
+CAPTCHA closed there, so it settles a form shown after one as before.
 
 - Only the top document's frames count, as for S4; a login in a frame is not read.
 - A page that shows the form with a CAPTCHA the person already solved (a token is there)

@@ -369,8 +369,10 @@ export async function readSignInState(
  * it (`unknown`) waits: while it shows a CAPTCHA the person has not solved (`unsolved`),
  * or, once one showed while this result was read (`shown`), after it closed (`after`): the
  * site may go on once the person presses its button again. A failure next to the form or
- * a sign-in (`decides`) and any other reading (`undefined`) are read as without a CAPTCHA;
- * a page that could not be read is `unread`. Only reads.
+ * a sign-in in the loaded document (`decides`) and any other reading (`undefined`) are read
+ * as without a CAPTCHA; a page that could not be read, or one still loading that would
+ * decide, is `unread`. On the passkey route, which rejects no credential, a failure next to
+ * the form waits as `unknown` does. Only reads.
  */
 async function captchaWait(
   rt: Runtime,
@@ -379,8 +381,13 @@ async function captchaWait(
 ): Promise<"unsolved" | "after" | "decides" | "unread" | undefined> {
   const reading = await readSignInState(rt, run);
   if (!reading) return "unread";
-  if (reading.decision === "rejected" || reading.decision === "signed-in") return "decides";
-  if (reading.decision !== "unknown") return undefined;
+  // The passkey route rejects no credential, so a failure there leaves the form waiting.
+  const decides =
+    reading.decision === "signed-in" ||
+    (reading.decision === "rejected" && run.metadata.route !== "passkey");
+  // Only a loaded document decides, as the settled reading counts only then.
+  if (decides) return reading.loaded ? "decides" : "unread";
+  if (reading.decision !== "unknown" && reading.decision !== "rejected") return undefined;
   if (reading.captchaUnsolved) return "unsolved";
   return shown ? "after" : undefined;
 }
