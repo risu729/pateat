@@ -171,20 +171,21 @@ keep their own rejection checks and submission priority. No wait is added.
 
 The owner accepted the rule in
 [issue 1326, part 4](https://github.com/risu729/pateat/issues/1326#issuecomment-6701829301)
-on 2026-11-07 at 03:45 UTC: "spaces and hyphens only". A held value changed only
-by inserting ASCII spaces (U+0020) and hyphen-minus (U+002D) is kept when removing
-only those insertions leaves exactly the typed value. Every original character,
-including an original space or hyphen, must remain in order. The held value,
-including the insertions, must fit `maxlength` (ignored for number inputs, as
-before). Other inserted characters, including `/`, `.` and `(`, get no exception.
+on 2026-11-07 at 03:45 UTC: "spaces and hyphens only". A held value changed only by
+inserting ASCII spaces (U+0020) and hyphen-minus (U+002D) is kept when removing only
+those insertions leaves exactly the typed value. Every original character, including an
+original space or hyphen, must remain in order. The held value, including the
+insertions, must fit `maxlength`. Other inserted characters, including `/`, `.` and `(`,
+get no exception.
 
 Claude's implementation choices (2026-11-07, after review): an insertion must sit
 between two typed characters, because a separator before the first or after the last
 groups nothing and a leading hyphen can change the value; and a number input takes no
 insertion, since a hyphen there only changes the number (`1e5` to `1e-5`). The rule
 covers every typed field, password and code fields included, as the owner's rule names
-no field kind; a one-digit split-code field cannot take an insertion within its
-`maxlength` of 1.
+no field kind; a one-character value, such as a digit of a split code, has nothing
+between to take an insertion. Characters are compared as whole code points, so no
+insertion can split a surrogate pair.
 
 This applies to the settled check after the last character, including a cancelled
 key the page wrote itself, and again after `change` and blur. Match raw characters

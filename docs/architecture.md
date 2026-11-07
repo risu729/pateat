@@ -1089,17 +1089,17 @@ submitted, when the input does not hold the value after a cancelled event, or ho
 value of another length. Since 2026-10-13, when a bank's password field held one
 character fewer than the typed value with no event cancelled and the login was sent and
 rejected, the length is checked after every typing; a value of the same length, such as
-a mask or a case the page changed, is kept. Since the owner's decision on 2026-11-07
-at 03:45 UTC, a value changed only by inserting ASCII spaces (U+0020) and hyphen-minus
+a mask or a case the page changed, is kept. Since the owner's decision on 2026-11-07 at
+03:45 UTC, a value changed only by inserting ASCII spaces (U+0020) and hyphen-minus
 (U+002D) is kept too: removing only the inserted characters must give exactly the typed
 value, with its original characters and separators preserved in order. Each insertion
 sits between two of the typed characters, never before the first or after the last, and
 a number input gets no insertion, since there a hyphen only changes the number. The rule
-covers every typed field, password and code fields included; a one-digit field of a
-split code cannot take an insertion within its `maxlength` of 1. The held value,
+covers every typed field, password and code fields included; a one-character value, such
+as a digit of a split code, has nothing between to take an insertion. The held value,
 including insertions, must still fit `maxlength`. Other inserted punctuation gets no
-exception. This exact comparison uses raw characters, so an inserted fullwidth space
-or hyphen cannot become an allowed separator through width folding
+exception. This exact comparison uses raw characters, so an inserted fullwidth space or
+hyphen cannot become an allowed separator through width folding
 ([ADR 0010 amendment](adr/0010-inference-field-hints.md#amendment-2026-11-07-values-formatted-with-inserted-separators)).
 A value the page rewrote between full-width and half-width characters, as an address
 form turns `１－２－３` into `1-2-3` or a kana field turns `ガ` into `ｶﾞ`, is kept

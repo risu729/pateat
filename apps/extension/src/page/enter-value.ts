@@ -90,20 +90,26 @@ export function gap(): Promise<void> {
 
 /**
  * Whether removing only ASCII spaces and hyphens inserted between two of `value`'s
- * characters from `held` leaves exactly `value`. Match original characters first so its
- * own separators must remain in order. A separator before the first or after the last
- * character groups nothing and could change the value, as a leading hyphen makes a
- * number negative. Compare the raw characters: width folding must not admit another
- * inserted separator.
+ * characters from `held` leaves exactly `value`. Every original character, its own
+ * separators included, must remain in order. A separator before the first or after the
+ * last character groups nothing and could change the value, as a leading hyphen makes a
+ * number negative. Compare the raw characters, whole code points, so width folding
+ * cannot admit another inserted separator and none can split a surrogate pair.
  */
 function withInsertedSeparators(held: string, value: string): boolean {
-  let at = 0;
+  const typed = [...value];
+  // `matched[i]`: the held characters read so far can be the first `i` typed characters
+  // with insertions. A held separator may be either typed or inserted, so all are tracked.
+  let matched = typed.map((_, i) => i === 0).concat(typed.length === 0);
   for (const character of held) {
-    if (value.startsWith(character, at)) at += character.length;
-    else if ((character !== " " && character !== "-") || at === 0 || at === value.length)
-      return false;
+    const inserted = character === " " || character === "-";
+    matched = matched.map(
+      (_, i) =>
+        (i > 0 && matched[i - 1] === true && typed[i - 1] === character) ||
+        (inserted && i > 0 && i < typed.length && matched[i] === true),
+    );
   }
-  return at === value.length;
+  return matched[typed.length] === true;
 }
 
 /**

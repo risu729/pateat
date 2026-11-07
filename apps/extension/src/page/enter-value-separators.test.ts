@@ -140,6 +140,29 @@ describe("typing into page-formatted values", () => {
   );
 
   it.each([
+    ["a-", "a--"],
+    ["a ", "a  "],
+    ["a-", "a- -"],
+    ["-a", "--a"],
+  ] as const)(
+    "keeps a separator inserted beside the value's own first or last separator: %j to %j",
+    async (typed, held) => {
+      const input = field();
+      rewriteLastInput(input, typed, held);
+      expect(await typeValue(input, typed, setter)).toBeUndefined();
+      expect(input.value).toBe(held);
+    },
+  );
+
+  it("refuses a separator that splits a character outside the BMP", async () => {
+    const input = field();
+    const held = "abc\uD83D \uDE00def";
+    rewriteLastInput(input, "abc😀def", held);
+    expect(await typeValue(input, "abc😀def", setter)).toBe("refused");
+    expect(input.value).toBe(held);
+  });
+
+  it.each([
     ["input", 8, "refused"],
     ["change", 8, "refused"],
     ["blur", 8, "refused"],
