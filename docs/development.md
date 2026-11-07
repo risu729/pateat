@@ -10,6 +10,12 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
+The passkey runtime keeps request admission, cancellation and conditional-login waiting
+in `passkeys/runtime.ts`. `runtime-answer.ts` owns account selection, chooser interaction,
+current-settings revalidation and signing. `runtime-shared.ts` owns their contracts and
+existing utilities. The caller retains the mutable deadline and report cause, updated
+through synchronous callbacks at the original points.
+
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
 
