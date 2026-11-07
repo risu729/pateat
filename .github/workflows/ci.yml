@@ -3,6 +3,9 @@ on:
   push:
     branches: [codex/1326-format-validation]
     paths: [.github/workflows/ci.yml]
+concurrency:
+  group: pinned-source-format-validation
+  cancel-in-progress: true
 permissions: {}
 defaults:
   run:
@@ -25,14 +28,14 @@ jobs:
       - uses: $/.github/actions/setup
       - name: Format selected public source
         run: |
-          mise exec -- oxfmt --write apps/extension/src/login/content.ts apps/extension/src/page/fill-checks.ts apps/extension/src/page/fill-checks.test.ts tests/extension/login.spec.ts apps/extension/src/login/content-split.browser.test.ts apps/extension/src/connections/setup.test.ts apps/extension/src/login/runtime-tests/site-wait-01.test.ts format-validation/structural-content.ts format-validation/structural-login.spec.ts format-validation/host-schema-primitives.ts
+          mise exec -- oxfmt --write apps/extension/src/login/content.ts apps/extension/src/page/fill-checks.ts apps/extension/src/page/fill-checks.test.ts tests/extension/login.spec.ts apps/extension/src/login/content-split.browser.test.ts apps/extension/src/connections/setup.test.ts apps/extension/src/login/runtime-tests/site-wait-01.test.ts format-validation/structural-content.ts format-validation/structural-login.spec.ts format-validation/host-schema-primitives.ts format-validation/account-response.ts
           mise exec -- rumdl fmt docs/architecture.md format-validation/structural-architecture.md
       - name: Export formatter patch
         if: ${{ !cancelled() }}
         run: |
           mise exec -- node --input-type=module <<'NODE'
           import { execFileSync } from "node:child_process";
-          const paths = ["apps/extension/src/login/content.ts","apps/extension/src/page/fill-checks.ts","apps/extension/src/page/fill-checks.test.ts","tests/extension/login.spec.ts","apps/extension/src/login/content-split.browser.test.ts","apps/extension/src/connections/setup.test.ts","apps/extension/src/login/runtime-tests/site-wait-01.test.ts","format-validation/structural-content.ts","format-validation/structural-login.spec.ts","docs/architecture.md","format-validation/structural-architecture.md","format-validation/host-schema-primitives.ts"];
+          const paths = ["apps/extension/src/login/content.ts","apps/extension/src/page/fill-checks.ts","apps/extension/src/page/fill-checks.test.ts","tests/extension/login.spec.ts","apps/extension/src/login/content-split.browser.test.ts","apps/extension/src/connections/setup.test.ts","apps/extension/src/login/runtime-tests/site-wait-01.test.ts","format-validation/structural-content.ts","format-validation/structural-login.spec.ts","docs/architecture.md","format-validation/structural-architecture.md","format-validation/host-schema-primitives.ts","format-validation/account-response.ts"];
           const patch = execFileSync("git", ["diff", "--", ...paths], { encoding: "utf8" });
           const encoded = Buffer.from(patch, "utf8").toString("base64");
           for (let i = 0; i < encoded.length; i += 12000) console.log("FORMAT_PATCH " + i / 12000 + " " + encoded.slice(i, i + 12000));
