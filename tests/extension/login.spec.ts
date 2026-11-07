@@ -2069,7 +2069,7 @@ test("a password fills only a password input and one step stays inside one form"
 test("values the page would not accept are never submitted", async () => {
   const fixture = await startLoginFixture();
   try {
-    await withLoginExtension(async (context, _worker, id) => {
+    await withLoginExtension(async (context, worker, id) => {
       const options = await context.newPage();
       await configure(options, id, fixture.origin);
       const status = async () =>

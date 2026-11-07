@@ -1,0 +1,2865 @@
+import * as v from "valibot";
+import { sameLoginTarget, type LoginMarkerTarget, type LoginTarget } from "@pateat/contracts";
+import { browser } from "wxt/browser";
+import { comparableAccounts, formAccounts, showsOtherAccount } from "../page/accounts";
+import { isButton } from "../page/text";
+import { findLogoutTargets, safeLogoutControl, shownLayers } from "../page/logout-controls";
+import { pressElement } from "../page/script-url-click";
+import { autocompleteTokens, findTargets } from "../page/targets";
+import {
+  closestAcross,
+  containsAcross,
+  formOf,
+  inputsOf,
+  queryAll,
+  readingPage,
+  shadowRoots,
+} from "../page/shadow";
+import {
+  choosable,
+  clickable,
+  keyable,
+  passwordChoice,
+  targetCheck,
+  targetState,
+  writable,
+} from "../page/target-state";
+import { authenticatorChoice } from "../page/authenticator-choice";
+import { chooseOption, optionFor, type WantedOption } from "../page/select-option";
+import { answerInput, identifierInput } from "../page/identifier-field";
+import { showsAmount } from "../page/amount";
+import {
+  besideKeypad,
+  findKeypad,
+  keypadCovers,
+  keypadField,
+  keypadInput,
+  keypadOpen,
+  locateKeypad,
+} from "../page/keypad";
+import { typeOnKeypad } from "../page/keypad-typing";
+import {
+  CODE_SETTLE_MS,
+  splitCodeInputs,
+  unmarkedDigit,
+  visible,
+  watchCodeSubmission,
+} from "../page/code-submission";
+import {
+  fillBaseline,
+  fillRejection,
+  inputValueMismatch,
+  unreadyForm,
+} from "../page/fill-checks";
+import {
+  clickDestinations,
+  formDestinations,
+  type FormDestination,
+} from "../page/form-destination";
+import { typeValue } from "../page/enter-value";
+import { askDefinitions, ELEMENT_DEFINED } from "../page/element-definitions";
+import { nextFrame } from "../page/frames";
+import { pageChange } from "../page/page-change";
+import { documentLoaded } from "../page/document-load";
+import {
+  extractAccountListObservation,
+  extractEntryObservation,
+  extractLocalLogout,
+  extractLogoutObservation,
+  extractLoginObservation,
+  extractPasskeyObservation,
+  extractSignedInObservation,
+  fieldsMissDetail,
+  presence,
+} from "../observation/extract";
+import {
+  accountSwitchControls,
+  clickableSwitch,
+  entryLike,
+  listChoice,
+  listControls,
+} from "../page/account-list";
+import {
+  listedAccounts,
+  listsAccounts,
+  logOnly,
+  noInputOffer,
+  type ListedAccounts,
+} from "./no-input-offer";
+import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
+import {
+  pageSigns,
+  passedCaptcha,
+  showsCaptcha,
+  submittedPage,
+  type SubmittedPage,
+} from "../page/sign-in-state";
+import { observedPath } from "../observation/path";
+import { sendMessage } from "../messaging/protocol";
+import { acceptsSecret, maskedSecret } from "./inputs";
+import { chooseFor } from "../page/choice-radio";
+import { askedQuestion, type AskedQuestion } from "../page/question";
+import { cardHints } from "../page/card-hints";
+import { siteValueChoice, stopSiteValues } from "../page/site-values";
+import {
+  commandSchema,
+  destinationAnswerSchema,
+  LOGIN_STEP_WAIT_MS,
+  readySchema,
+  START_TRIES,
+  reconnectSchema,
+  type ExecutionDetail,
+  type LoginReadiness,
+  type AwaitMiss,
+  LATER_MISSES,
+  type LaterMiss,
+  type ShownLater,
+  type LoginSecretKind,
+  type StartMiss,
+  type TargetState,
+} from "./wire";
+import { newId } from "@pateat/contracts/ids";
+
+/**
+ * This page's path as observations and recipes carry it, each token-like segment replaced
+ * (`observedPath`, ADR 0039): every path this script reports, or compares with a step's,
+ * reads this, so a step on `/[id]/login` runs on the same page of any tenant.
+ */
+const pagePath = () => observedPath(location.pathname);
+/** The page's URL without its fragment, which changes no page. */
+const pageUrl = () => location.href.split("#")[0]!;
+/** When a frame the worker asks about is read for a sign-in input or a secret answer. */
+const FRAME_READINGS_MS = [0, 1_000, 3_000, 6_000, LOGIN_STEP_WAIT_MS];
+/** Fixed locators deliberately reject duplicates rather than taking the first match. */
+function matches(target: LoginMarkerTarget, links = false): Element[] {
+  return findTargets(document, target, { links });
+}
+/** A button that submits its form: `<button type=submit>` or `<input type=submit|image>`. */
+function submitButton(element: Element): element is HTMLButtonElement | HTMLInputElement {
+  return (
+    (element instanceof HTMLButtonElement && element.type === "submit") ||
+    (element instanceof HTMLInputElement && (element.type === "submit" || element.type === "image"))
+  );
+}
+/**
+ * Whether `input` still asks the secret question the fill names, when it names one (ADR
+ * 0061): its field's name, or the question the owner confirmed for that field as one whole
+ * question beside it. A split date's select asks none.
+ */
+const stillAsks = (input: Control, question: AskedQuestion | undefined) =>
+  question === undefined ||
+  (input instanceof HTMLInputElement && askedQuestion(input, [question]) === 0);
+/** An input a fill types into, or a select a split date's part sets (ADR 0061). */
+type Control = HTMLInputElement | HTMLSelectElement;
+/**
+ * Empties inputs a fill typed into, with the page's `input` and `change` events, as when
+ * the account check it left to the click found another account (ADR 0049).
+ */
+function clearTyped(inputs: Control[]): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  if (!setter) return;
+  for (const input of inputs)
+    if (input instanceof HTMLInputElement && input.isConnected && input.value !== "") {
+      setter.call(input, "");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+}
+/**
+ * Whether `element` may take a value of `secret` now: a writable input, or, for a split
+ * birth date's or card expiry date's part only (ADR 0061), a choosable select.
+ */
+const takes = (element: Element | undefined, secret: LoginSecretKind | undefined) =>
+  writable(element) || (secret === "date-part" && choosable(element));
+/** A fill value as the content script checks it against its input (ADR 0010, ADR 0061). */
+type FitValue = WantedOption & { group?: number | undefined };
+/**
+ * Whether `value` fits `control` before anything is filled (ADR 0010): an input's type and
+ * declared lengths, and for a card number's or PIN's digit group a `maxlength` of exactly
+ * the group's; a select needs one option that says the number (`optionFor`, ADR 0061).
+ */
+function fitsControl(control: Control, value: FitValue) {
+  if (control instanceof HTMLSelectElement) return optionFor(control, value) !== undefined;
+  return (
+    inputValueMismatch(control, value.value) === undefined &&
+    (value.group === undefined || control.maxLength === value.group)
+  );
+}
+/**
+ * Puts `value` into `control` as a person would: types it into an input (`typeValue`), or
+ * chooses a select's one option that says it (ADR 0061), never one by its position, and
+ * passes it to `chosen`. A select whose choice the page's handlers undid is `refused`.
+ */
+async function enter<Cause extends string>(
+  control: Control,
+  value: FitValue,
+  setter: (this: HTMLInputElement, value: string) => void,
+  options: Parameters<typeof typeValue<Cause>>[3],
+  chosen?: (option: HTMLOptionElement) => void,
+): Promise<Cause | "refused" | undefined> {
+  if (control instanceof HTMLInputElement) return typeValue(control, value.value, setter, options);
+  options?.beforeInput?.();
+  const option = optionFor(control, value);
+  if (!option || !chooseOption(control, option)) return "refused";
+  chosen?.(option);
+  return undefined;
+}
+const isOnly = (found: readonly Element[], element: Element) =>
+  found.length === 1 && found[0] === element;
+/** How long after a `wrong-account` result its account switch may still be clicked. */
+const switchTimeoutMs = 10_000;
+/**
+ * Whether a recipe's account switch may be clicked: by the same rule as the page's own
+ * control for another account and a list's (ADR 0078), whatever its element type.
+ */
+function switchable(element: Element | undefined): element is HTMLElement {
+  return element !== undefined && entryLike(element) && clickableSwitch(element);
+}
+/** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
+const ready = (readiness: LoginReadiness) => readingPage(() => readyNow(readiness));
+function readyNow(readiness: LoginReadiness): boolean {
+  if (pagePath() !== readiness.path) return false;
+  // A chooser's list (ADR 0028): one of its buttons, or an account it lists by email.
+  if (readiness.accounts)
+    return (
+      !showsSignIn() &&
+      (readiness.targets.some(
+        (target) =>
+          listControls(document, target, "other").length === 1 ||
+          listControls(document, target, "continue").length === 1,
+      ) ||
+        listsAccounts(document))
+    );
+  return stepMiss(readiness) === undefined;
+}
+/**
+ * Why a step is not ready now, for the log when its wait runs out (`AwaitMiss`): another
+ * path, the first target's check that failed, or what else a later step's page shows. A
+ * field entered on the page's keypad, which may be read-only (ADR 0067), counts as ready
+ * once it shows; a chooser's list is not explained.
+ */
+function readinessMiss(readiness: LoginReadiness): AwaitMiss | undefined {
+  if (pagePath() !== readiness.path) return "path";
+  if (readiness.accounts) return undefined;
+  for (const target of readiness.targets) {
+    if (
+      readiness.keypad?.some((other) => sameLoginTarget(other, target)) &&
+      matches(target).length === 1 &&
+      keyable(matches(target)[0])
+    )
+      continue;
+    const check = targetCheck(document, target, readiness.require);
+    if (check !== "ok") return check;
+  }
+  const miss = stepMiss(readiness);
+  return miss === "target" ? undefined : miss;
+}
+/**
+ * Why a step on this path is not ready (`LaterMiss`): a target that matches no unique
+ * usable element, or for a later step (ADR 0049) the page's other identifier input, or what
+ * else the page asks for beside a password started alone.
+ */
+function stepMiss(readiness: LoginReadiness): LaterMiss | undefined {
+  const usable = readiness.targets.every((target) => {
+    const found = matches(target);
+    if (found.length !== 1) return false;
+    // A field entered on the page's keypad may be read-only (ADR 0067).
+    if (readiness.require === "writable")
+      return readiness.keypad?.some((other) => sameLoginTarget(other, target))
+        ? keyable(found[0])
+        : writable(found[0]);
+    if (readiness.require === "settable") return writable(found[0]) || choosable(found[0]);
+    // A control named by its accessible name may be a link to a fragment of its page.
+    if (readiness.require === "clickable")
+      return clickable(found[0], { fragment: target.by === "accessible-name" });
+    return true;
+  });
+  if (!usable) return "target";
+  // A later step is no start while the page also asks for an identifier the step does not
+  // fill, as a form for another account with its own email input (ADR 0049).
+  if (readiness.later && credentialInputs(readiness.targets).identifier) return "identifier";
+  return readiness.absent ? passwordAloneMiss(readiness.targets, readiness.absent) : undefined;
+}
+/**
+ * Whether a recipe's final `advance` click waits on a button the page keeps from clicks
+ * beside a password input that opened in its form (ADR 0018 amendment of 2026-11-03): its
+ * one target shows but takes no click, and a visible writable password input that is no
+ * new password or one-time code shares the button's form (outside any form, the page
+ * outside forms). Its page may then be sent to replace the click.
+ */
+function revealsPassword(readiness: LoginReadiness): boolean {
+  const [target] = readiness.targets;
+  if (pagePath() !== readiness.path || readiness.targets.length !== 1 || !target) return false;
+  if (targetCheck(document, target, "clickable") !== "not-clickable") return false;
+  const button = matches(target)[0]!;
+  const form =
+    button instanceof HTMLButtonElement || button instanceof HTMLInputElement
+      ? formOf(button)
+      : (closestAcross(button, "form") as HTMLFormElement | null);
+  return queryAll<HTMLInputElement>(document, "input").some((input) => {
+    const tokens = autocompleteTokens(input);
+    return (
+      input.type === "password" &&
+      formOf(input) === form &&
+      writable(input) &&
+      presence(input) === "visible" &&
+      !tokens.includes("new-password") &&
+      !tokens.includes("one-time-code")
+    );
+  });
+}
+/** Input types a person types an account identifier or a code into. */
+const textTypes = new Set(["text", "email", "tel", "number", "url"]);
+/**
+ * What a page that shows a later step's password input also asks for beside the password,
+ * so the step may not start with its password alone (ADR 0049): `absent`, one of the
+ * targets the step drops shows writable; `form-input`, another visible writable text input
+ * shares the password input's form; `new-password`, the password input or another input of
+ * its form (of the page outside forms, without one) is marked `new-password`, as on a
+ * sign-up or password change form.
+ */
+function passwordAloneMiss(
+  targets: readonly LoginTarget[],
+  absent: readonly LoginTarget[],
+): "absent" | "form-input" | "new-password" | undefined {
+  const shown = (element: Element) => writable(element) && presence(element) === "visible";
+  if (absent.some((target) => matches(target).some(shown))) return "absent";
+  const own = new Set(
+    targets
+      .flatMap((target) => matches(target))
+      .filter((element) => element instanceof HTMLInputElement),
+  );
+  // A password input outside any form counts every input outside a form as its form.
+  const forms = new Set([...own].map(formOf));
+  const newPassword = (input: HTMLInputElement) =>
+    autocompleteTokens(input).includes("new-password");
+  let miss: "form-input" | "new-password" | undefined;
+  for (const input of queryAll<HTMLInputElement>(document, "input")) {
+    const form = formOf(input);
+    if (own.has(input) ? newPassword(input) : forms.has(form) && newPassword(input))
+      return "new-password";
+    // Outside a form, another text input, as a page's search box, tells nothing.
+    if (
+      !own.has(input) &&
+      form !== null &&
+      forms.has(form) &&
+      textTypes.has(input.type) &&
+      shown(input)
+    )
+      miss = "form-input";
+  }
+  return miss;
+}
+/**
+ * Whether the page shows a visible password input, or one marked for a username or a
+ * one-time code: the only pages without a recipe that may be sent for generation
+ * (ADR 0016). A read-only one counts beside a software keyboard (`keypadField`,
+ * ADR 0067).
+ */
+function showsSignIn(): boolean {
+  return queryAll<HTMLInputElement>(document, "input").some((input) => {
+    const tokens = autocompleteTokens(input);
+    // The keypad is looked for only for a read-only input that may take its characters.
+    if (!writable(input) && keyable(input) && keypadInput(input))
+      return keypadField(input, findKeypad(document, input));
+    return (
+      (input.type === "password" ||
+        tokens.includes("username") ||
+        tokens.includes("one-time-code")) &&
+      writable(input)
+    );
+  });
+}
+/**
+ * The HTTP status of this document's own load, when the browser reports one (ADR 0041); a
+ * status the page cannot see, as for a cached or cross-origin redirected load, reads as 0
+ * and is left out.
+ */
+function navigationStatus(): number | undefined {
+  try {
+    const [entry] = performance.getEntriesByType("navigation") as (PerformanceEntry & {
+      responseStatus?: number;
+    })[];
+    const status = entry?.responseStatus;
+    return typeof status === "number" && status >= 100 && status <= 599 ? status : undefined;
+  } catch {
+    return undefined;
+  }
+}
+/**
+ * The sign-in inputs the page shows that a generated recipe can continue on after its final
+ * `advance` step (ADR 0018), other than the recipe's own `targets`: `password`, a visible
+ * writable password input; `identifier`, a visible writable email input or one marked for a
+ * username or an email address. Visible as the page's description reads it, so an input
+ * hidden from assistive technology, transparent, tiny or moved before the page's start, as
+ * a password input kept on an email form for the browser to fill, never counts. An input marked
+ * `new-password` or `one-time-code`, and every input of a form that holds one, never
+ * counts: a sign-up, password change or code form is not a sign-in page to continue on,
+ * and a code page is judged instead (ADR 0027).
+ */
+function credentialInputs(targets: readonly LoginMarkerTarget[]): {
+  password: boolean;
+  identifier: boolean;
+} {
+  const own = new Set(targets.flatMap((target) => matches(target)));
+  const other = (input: HTMLInputElement) =>
+    autocompleteTokens(input).some(
+      (token) => token === "new-password" || token === "one-time-code",
+    );
+  const all = queryAll<HTMLInputElement>(document, "input");
+  // A form's inputs include those tied to it by a `form` attribute and those in the shadow
+  // trees of its components (ADR 0070).
+  const otherForms = new Set(all.filter(other).map(formOf));
+  const inputs = all.filter((input) => {
+    if (own.has(input) || !writable(input) || presence(input) !== "visible" || other(input))
+      return false;
+    const form = formOf(input);
+    return !(form && otherForms.has(form));
+  });
+  return {
+    password: inputs.some((input) => input.type === "password"),
+    identifier: inputs.some(
+      (input) =>
+        input.type === "email" ||
+        autocompleteTokens(input).some((token) => token === "username" || token === "email"),
+    ),
+  };
+}
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/**
+ * How often at most the page watch checks a page that keeps changing (ADR 0082). A set
+ * time that bounds the watch's work, not a wait for the page: the first change after a
+ * quiet spell is checked at the next frame.
+ */
+const checkGapMs = 100;
+/**
+ * How long a preparing fill waits for the page's own input handlers before checking that
+ * the page accepted the values (ADR 0010). A set time still to be replaced (ADR 0082): a
+ * page validator debounced by 100 ms or more would show its error only after a click.
+ */
+const fillSettleMs = 500;
+/**
+ * What a first-visit page without a sign-in input is gets decided once its DOM has had no
+ * change for `offerQuietMs`, or `offerWaitMs` after the wait began while it keeps changing
+ * (ADR 0057). A sign-in input is still offered until `LOGIN_STEP_WAIT_MS` (ADR 0016).
+ */
+const offerQuietMs = 1000;
+const offerWaitMs = 5000;
+/**
+ * What the page watch observes, in the document and in each shadow tree: only attributes
+ * that can change whether a target matches, shows or accepts input.
+ */
+const pageWatch: MutationObserverInit = {
+  subtree: true,
+  childList: true,
+  // Button text locators also depend on text, `value`, `alt` and hidden subtrees.
+  characterData: true,
+  attributes: true,
+  attributeFilter: [
+    "id",
+    "name",
+    "data-testid",
+    "data-test",
+    "type",
+    "autocomplete",
+    "hidden",
+    "style",
+    "class",
+    "open",
+    "disabled",
+    "readonly",
+    "value",
+    "alt",
+    "aria-hidden",
+    "aria-disabled",
+    "inert",
+    "role",
+    "onclick",
+    "href",
+  ],
+};
+/**
+ * A fill compared with the account the page shows, while the page shows no identifier
+ * to compare with, waits until the document has loaded and its DOM has had no change for
+ * `accountQuietMs`, or `accountWaitMs` while it keeps changing: Duolingo's sign-in shows its remembered account's address after the password
+ * field (2026-10-23), and a check before it would pass. It ends `accountReserveMs` before
+ * the operation expires, so a page that keeps changing is still compared and filled.
+ */
+const accountQuietMs = 1000;
+const accountWaitMs = 5000;
+const accountReserveMs = 2000;
+
+/**
+ * Resolves once `document` has loaded and its DOM, shadow trees included, has had no
+ * change for `quietMs`, or at `until` (a time in ms since the epoch), whichever comes
+ * first.
+ */
+function settled(document: Document, quietMs: number, until: number): Promise<void> {
+  return new Promise((resolve) => {
+    const view = document.defaultView;
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    const restart = () => {
+      clearTimeout(quiet);
+      if (document.readyState === "complete") quiet = setTimeout(done, quietMs);
+    };
+    const observer = new MutationObserver(restart);
+    const cap = setTimeout(done, Math.max(0, until - Date.now()));
+    function done(): void {
+      observer.disconnect();
+      clearTimeout(quiet);
+      clearTimeout(cap);
+      view?.removeEventListener("load", restart);
+      resolve();
+    }
+    // The shadow trees the page holds now change the page too (ADR 0070).
+    for (const tree of [document, ...shadowRoots(document)])
+      observer.observe(tree, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+        attributes: true,
+      });
+    view?.addEventListener("load", restart);
+    restart();
+  });
+}
+export interface LoginContentOptions {
+  /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
+  readonly probeStatus?: boolean;
+}
+
+export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
+  const token = newId();
+  let cancelled = false;
+  // Ends every wait for a change of the page once `cancelled` is set.
+  const waits = new AbortController();
+  // Ends the running `login.extract.watch`, once another replaces it or the login cancels.
+  let describedWatch: AbortController | undefined;
+  // Whether the background asked for the value the page set in an account input.
+  let siteAccountAsked = false;
+  // Set once this document's login has ended; it then watches for its first step to show
+  // again, as after a logout, when the page logs in again (ADR 0062).
+  let ended = false;
+  // The site rejected that login here: the form showing with the failure asks at once.
+  let rejected = false;
+  // This document carries a login that has not ended, and the path its page last showed:
+  // a same-document URL change to another path is reported, so a login watched after its
+  // submission reads a single-page site's next route as the tab's next page (ADR 0027).
+  let carrying = false;
+  let routePath = pagePath();
+  const used = new Set<string>();
+  // What this document showed when its last effect step ran (ADR 0029: F1, F2).
+  let submitted: SubmittedPage | undefined;
+  /**
+   * Inputs this document's fills wrote to since the last click of the same attempt, and
+   * the password inputs that were writable when the first of those fills began, for the
+   * check before a click.
+   */
+  let filled = new WeakSet<HTMLInputElement>();
+  /**
+   * The selects a split date's parts were chosen in since the last click, each with its
+   * option (ADR 0061): the click goes on only while each still shows it.
+   */
+  let chosen: [HTMLSelectElement, HTMLOptionElement][] = [];
+  let shownBefore: WeakSet<HTMLInputElement> | undefined;
+  // The submit buttons this document showed when a fill began, which Enter never presses
+  // (ADR 0064). A fill whose fields already hold values adds none once one fill has, so a
+  // button such a page shows only for a value is not taken as one the model saw.
+  const submitsBefore = new WeakSet<Element>();
+  let submitsTaken = false;
+  let filledAttempt: string | undefined;
+  /**
+   * A fill's check of the account the page shows, left to the next click or Enter of the
+   * same attempt because the page showed no identifier when it filled (ADR 0049 amendment
+   * of 2026-11-03): the item's username, the form, the inputs it filled and the switch the
+   * fill was sent. It never leaves this content script.
+   */
+  let deferredAccount:
+    | {
+        username: string;
+        masked: boolean;
+        form: HTMLFormElement | null;
+        inputs: Control[];
+        accountSwitch?: LoginTarget;
+        otherSwitch?: true;
+      }
+    | undefined;
+  // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
+  let pendingSwitch:
+    | {
+        operationId: string;
+        element: HTMLElement;
+        /** Finds the switch again: the recipe's target, or the page's own controls. */
+        find: () => Element[];
+        path: string;
+        expiresAt: number;
+      }
+    | undefined;
+  // First steps of the origin's recipes. A new attempt starts only once one is ready on
+  // the current path, including after a same-document URL change or a dialog opening.
+  let starts: LoginReadiness[] = [];
+  let announced = false;
+  // The path the last announcement was made on.
+  let announcedPath: string | undefined;
+  // The background may generate a recipe for this page if it shows a sign-in input within
+  // the step wait after it may be sent (ADR 0016); a form shown only later, for example
+  // after a click, is not sent, unless the document's URL changed first.
+  let generate = false;
+  let offered = false;
+  // The background answered that this document may be sent (ADR 0016) and no login took
+  // it over since, and the URL, without its fragment, its window last opened at: a
+  // same-document URL change, as a single-page app's route to its sign-in form, opens a
+  // window for a sign-in input once more (`urlChanged`).
+  let mayOffer = false;
+  let offerUrl = pageUrl();
+  // The path where this document last submitted a form with a password input, and the
+  // next path it showed after it: that page is never offered as a list of accounts or as a
+  // sign-in entry.
+  let submitPath: string | undefined;
+  let afterSubmit: string | undefined;
+  // The page's URL names another path of its site: once the offer wait passes without a
+  // sign-in input, it is offered as a site's sign-in entry, once (ADR 0031).
+  let entryWanted = false;
+  let entryOffered = false;
+  // Paths where a sign-in input stayed shown without a ready first step, reported once
+  // each so the background can log a login that did not start.
+  const shown = new Set<string>();
+  let shownTimer: ReturnType<typeof setTimeout> | undefined;
+  // A recipe generated as `confirm` or `unclear` starts on this path, so the page only
+  // watches (ADR 0035): its first step is reported with `shown` as soon as it shows, and
+  // the person's own submission of its form once per path.
+  let confirmPage: LoginReadiness | undefined;
+  const personSubmits = new Set<string>();
+  // A frame the worker asked to report a sign-in input or a secret answer (ADR 0035): the
+  // watch's stop while it runs, and whether it reported one.
+  let frameWatch: (() => void) | undefined;
+  let frameReported = false;
+  // The pending offer's timers: its decision once the DOM is quiet (`offerQuiet`) or at the
+  // latest (`offerCap`, ADR 0057), and the end of its window for a sign-in input
+  // (`offerWindow`, ADR 0016). The decision is pending while `offerCap` is set.
+  let offerQuiet: ReturnType<typeof setTimeout> | undefined;
+  let offerCap: ReturnType<typeof setTimeout> | undefined;
+  let offerWindow: ReturnType<typeof setTimeout> | undefined;
+  let observer: MutationObserver | undefined;
+  // The shadow trees `observer` watches, and those whose form submissions `onSubmit` hears:
+  // neither a document's observer nor its listener for an event that does not cross a
+  // shadow boundary, as `submit`, sees inside one (ADR 0070).
+  let observedRoots = new WeakSet<ShadowRoot>();
+  const submitRoots = new WeakSet<ShadowRoot>();
+  const submitListeners = new AbortController();
+  // A start's retry (`retry`), whether a check is pending, and when the last one ran.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let checking = false;
+  let checkedAt = Number.NEGATIVE_INFINITY;
+  const navigation = (globalThis as unknown as { navigation?: EventTarget }).navigation;
+  // Checks at the page's next frame after a change, however many changes come before it
+  // (ADR 0082), and at most once per `checkGapMs`, so a page that changes every frame, as
+  // a spinner does, is not checked every frame while it is watched. A pending retry
+  // checks then instead.
+  const schedule = () => {
+    if (checking || timer !== undefined) return;
+    checking = true;
+    const run = () => {
+      checking = false;
+      if (timer === undefined) check();
+    };
+    const gap = checkedAt + checkGapMs - Date.now();
+    if (gap <= 0) void nextFrame().then(run);
+    else setTimeout(() => void nextFrame().then(run), gap);
+  };
+  function clearDecision(): void {
+    clearTimeout(offerQuiet);
+    offerQuiet = undefined;
+    clearTimeout(offerCap);
+    offerCap = undefined;
+  }
+  function clearOffer(): void {
+    clearDecision();
+    clearTimeout(offerWindow);
+    offerWindow = undefined;
+  }
+  // A DOM change or a same-document URL change: check the starts, and wait again for quiet
+  // while the decision is pending.
+  const pageChanged = () => {
+    schedule();
+    if (offerCap === undefined) return;
+    clearTimeout(offerQuiet);
+    offerQuiet = setTimeout(decideOffer, offerQuietMs);
+  };
+  function unwatch(): void {
+    clearOffer();
+    clearTimeout(shownTimer);
+    shownTimer = undefined;
+    observer?.disconnect();
+    observer = undefined;
+    clearTimeout(timer);
+    timer = undefined;
+    removeEventListener(ELEMENT_DEFINED, schedule);
+    removeEventListener("popstate", pageChanged);
+    navigation?.removeEventListener("currententrychange", pageChanged);
+  }
+  /**
+   * Decides what a page offered for generation that showed no sign-in input is. When it is
+   * nothing to send, a sign-in input may still be offered until the window ends.
+   */
+  function decideOffer(): void {
+    readingPage(decideOfferNow);
+  }
+  function decideOfferNow(): void {
+    clearDecision();
+    // A shadow root attached since the last check is no change the page watch sees, so a
+    // sign-in input it holds is checked for now (ADR 0070).
+    if (!cancelled && showsSignIn()) check();
+    // A page that shows no sign-in input by now may list accounts (ADR 0028) or, when
+    // its URL names another path of its site, hold the site's sign-in entry (ADR
+    // 0031), ask for an account identifier alone (ADR 0016) or show a passkey button (ADR
+    // 0053). The page right after a submitted password form offers none of them.
+    const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
+    const noInput = bare ? noInputOffer(document, entryWanted && !entryOffered) : undefined;
+    // Nothing to send yet, or a list announced only for the log, which waits for the window.
+    // Short texts beside the button of a page asking a secret answer name no account: the
+    // page waits for the window too, which counts it (ADR 0035).
+    if (
+      !noInput ||
+      (noInput.kind === "list" &&
+        !noInput.entry &&
+        noInput.accounts &&
+        (logOnly(noInput.accounts) || (noInput.accounts.names && answerInput(document))))
+    )
+      return;
+    if (noInput.kind !== "identifier" && noInput.entry) entryOffered = true;
+    offered = true;
+    watch(starts);
+    // A passkey page also carries its list and entry, which the runtime uses when no
+    // matching item holds a passkey (ADR 0053).
+    if (noInput.kind === "identifier") void announce(false, "identifier").catch(() => undefined);
+    else
+      void announce(
+        false,
+        noInput.kind === "passkey" ? "passkey" : false,
+        noInput.accounts,
+        noInput.entry,
+      ).catch(() => undefined);
+  }
+  /** Ends the window in which a page that showed nothing else is offered a sign-in input. */
+  function endOffer(): void {
+    readingPage(endOfferNow);
+  }
+  function endOfferNow(): void {
+    offered = true;
+    watch(starts);
+    watchLate();
+    const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
+    const accounts = bare && !answerInput(document) ? listedAccounts(document) : undefined;
+    if (accounts && logOnly(accounts)) void announce(false, false, accounts).catch(() => undefined);
+    // Nothing was sent: the log says why (ADR 0019). A secret answer of `type="text"` looks
+    // like a verification that is never sent, so it is counted (ADR 0035) when no sign-in
+    // reason holds, also on a page with a list of accounts.
+    else if (!cancelled && !starts.some(ready))
+      void sendMessage("login", {
+        version: 1,
+        type: "login.document.ready",
+        token,
+        unoffered: {
+          path: pagePath(),
+          why: afterSubmitted()
+            ? "after-sign-in"
+            : showsSignIn()
+              ? "sign-in-shown"
+              : answerInput(document)
+                ? "text-answer"
+                : "no-list",
+        },
+      }).catch(() => undefined);
+  }
+  /**
+   * Reports once, for the count of pages that look like a verification but are not sent, a
+   * sign-in input or a secret answer this frame shows within the step wait (ADR 0035). The
+   * frame is read a few times, never watched, as many frames are ads that keep changing.
+   */
+  function watchFrame(): void {
+    if (frameWatch || frameReported || cancelled) return;
+    let left = FRAME_READINGS_MS.length;
+    const timers = FRAME_READINGS_MS.map((delay) => setTimeout(look, delay));
+    function stop(): void {
+      for (const reading of timers) clearTimeout(reading);
+      frameWatch = undefined;
+    }
+    function look(): void {
+      left -= 1;
+      if (cancelled || frameReported) return stop();
+      if (!showsSignIn() && !answerInput(document)) {
+        if (!left) stop();
+        return;
+      }
+      frameReported = true;
+      stop();
+      void sendMessage("login", {
+        version: 1,
+        type: "login.document.ready",
+        token,
+        unoffered: { path: pagePath(), why: "frame" },
+      }).catch(() => undefined);
+    }
+    frameWatch = stop;
+  }
+  function watch(list: LoginReadiness[], offer = false, entryPage = false): void {
+    starts = list;
+    generate = offer && !offered;
+    entryWanted = generate && entryPage;
+    if (!generate) clearOffer();
+    else if (offerWindow === undefined) {
+      offerUrl = pageUrl();
+      offerQuiet = setTimeout(decideOffer, offerQuietMs);
+      offerCap = setTimeout(decideOffer, offerWaitMs);
+      offerWindow = setTimeout(endOffer, LOGIN_STEP_WAIT_MS);
+    }
+    // A page Pateat does not fill keeps watching until its first step is reported (ADR 0035).
+    const confirmWaiting = confirmPage !== undefined && !shown.has(confirmPage.path);
+    if ((!starts.length && !generate && !confirmWaiting) || cancelled) {
+      unwatch();
+      return;
+    }
+    if (!observer) {
+      observer = new MutationObserver(pageChanged);
+      observer.observe(document, pageWatch);
+      observedRoots = new WeakSet();
+      watchShadowRoots();
+      addEventListener(ELEMENT_DEFINED, schedule);
+      addEventListener("popstate", pageChanged);
+      navigation?.addEventListener("currententrychange", pageChanged);
+    }
+  }
+  /**
+   * After an account switch this document may change in place, as a single-page app shows
+   * its form for another account (Duolingo, 2026-10-23): once it has settled, it is
+   * announced as a new page, so a recipe that starts there starts a new attempt and a page
+   * without one may be offered for generation once more (ADR 0078). Only a page that
+   * no longer shows the switch changed in place: one that still does is waiting for the
+   * next document, which announces itself.
+   */
+  async function switchedInPlace(element: HTMLElement): Promise<void> {
+    await settled(document, accountQuietMs, Date.now() + accountWaitMs);
+    if (cancelled || (element.isConnected && visible(element))) return;
+    ended = false;
+    announced = false;
+    retries = 0;
+    offered = false;
+    // The new page's window offers its input; a late look would offer it twice.
+    lateWatch?.();
+    void announce(false, false, undefined, false, true).catch(() => undefined);
+  }
+  /**
+   * Checks again shortly when a start could not be confirmed for a passing reason. Each
+   * appearance of the form gets a few retries; after that it waits until the form goes.
+   */
+  let retries = 0;
+  function retry(): void {
+    if (!observer) return;
+    retries += 1;
+    if (retries >= START_TRIES) return;
+    announced = false;
+    clearTimeout(timer);
+    timer = setTimeout(check, 500);
+  }
+  /**
+   * Watches the shadow trees found since the last check as the document is watched, and
+   * asks to hear when the page defines an element it has not defined yet: the element may
+   * attach a shadow root and render into it then, which no observer reports (ADR 0070,
+   * ADR 0082).
+   */
+  function watchShadowRoots(): void {
+    const roots = shadowRoots(document);
+    // After the read: the ask runs the page's listeners, which a read must not.
+    queueMicrotask(() => askDefinitions(document, roots));
+    for (const root of roots) {
+      if (observer && !observedRoots.has(root)) {
+        observer.observe(root, pageWatch);
+        observedRoots.add(root);
+      }
+      if (!submitRoots.has(root)) {
+        submitRoots.add(root);
+        root.addEventListener("submit", onSubmit, {
+          capture: true,
+          signal: submitListeners.signal,
+        });
+      }
+    }
+  }
+  // Announce once per appearance; a form that disappears and reappears announces again.
+  function check(): void {
+    readingPage(checkNow);
+  }
+  function checkNow(): void {
+    clearTimeout(timer);
+    timer = undefined;
+    checkedAt = Date.now();
+    if (!observer) return;
+    watchShadowRoots();
+    noteConfirm();
+    const startable = starts.some(ready);
+    // A step that shows on another path of the same document is a new appearance too, as
+    // the password step a single-page app renders in place of its email step (ADR 0049).
+    if (startable && announced && announcedPath !== pagePath()) {
+      announced = false;
+      retries = 0;
+    }
+    if (startable && !announced) void announce(true).catch(retry);
+    else if (!startable) {
+      announced = false;
+      retries = 0;
+      // Offered once per page; the background keeps its own daily limit as well.
+      if (generate && !offered && showsSignIn()) {
+        offered = true;
+        offeredPaths.add(pagePath());
+        // The page's one offer: the window's end would only report it for the log, and
+        // could overtake this announcement in the worker.
+        clearOffer();
+        void announce(false, true).catch(() => undefined);
+      }
+      noteShown();
+    }
+  }
+  /** The first steps watched on this path, other than a chooser's list or a later step. */
+  function watchedHere(): LoginReadiness[] {
+    const path = pagePath();
+    return starts.filter((start) => start.path === path && !start.accounts && !start.later);
+  }
+  /**
+   * Whether the page asks for a sign-in: a password, username or one-time-code input, or,
+   * where a first step is watched on this path, an identifier alone (ADR 0016), as a
+   * recipe's identifier-first start page does (ADR 0041).
+   */
+  function asksSignIn(): boolean {
+    return showsSignIn() || (watchedHere().length > 0 && identifierInput(document) === "sole");
+  }
+  /**
+   * Whether a path where a first step is watched lists accounts by email instead of asking
+   * for a sign-in, as a start page that became a list of accounts (ADR 0028, ADR 0041).
+   */
+  function listsHere(): boolean {
+    return watchedHere().length > 0 && !showsSignIn() && listsAccounts(document);
+  }
+  /**
+   * What the first steps watched on this path miss (ADR 0041): the targets that match no
+   * element, several, or one not rendered, and the HTTP status of this document's load, which a maintenance
+   * page served on the login page's URL usually answers with (503). Undefined where no
+   * first step is watched. A chooser's list counts too, so a chooser path that shows a
+   * form instead carries what it missed, for its repair as a form (ADR 0041 section 6).
+   */
+  function startMiss(): StartMiss | undefined {
+    const path = pagePath();
+    const watched = starts.filter((start) => start.path === path && !start.later);
+    if (!watched.length) return undefined;
+    const missing = new Map<string, LoginTarget>();
+    let found = false;
+    for (const start of watched) {
+      let all = true;
+      for (const target of start.targets) {
+        const state = targetState(document, target, start.require);
+        // An element still not rendered after the step wait counts as missing, as a form a
+        // page swapped for another and kept hidden: only a shown one may be a slow page's.
+        if (
+          state === "missing" ||
+          state === "ambiguous" ||
+          targetState(document, target, "shown") === "unusable"
+        ) {
+          missing.set(JSON.stringify(target), target);
+          all = false;
+        }
+      }
+      found ||= all;
+    }
+    const status = navigationStatus();
+    const listed = [...missing.values()];
+    return {
+      missing: listed.slice(0, 20),
+      // The worker cannot tell found targets from unlisted ones past the limit.
+      ...(listed.length > 20
+        ? { more: true as const, ...(found ? { found: true as const } : {}) }
+        : {}),
+      ...(status ? { status } : {}),
+    };
+  }
+  /**
+   * For the log, the later steps a login may start at on this path (ADR 0049): how many,
+   * how many with their password alone, and the furthest check any of them reached before
+   * it was refused (`LaterMiss`). Undefined where none is.
+   */
+  function laterReport(): ShownLater | undefined {
+    const path = pagePath();
+    const here = starts.filter((start) => start.later && start.path === path);
+    if (!here.length) return undefined;
+    const misses = here.map((start) => stepMiss(start) ?? "target");
+    return {
+      steps: here.length,
+      partial: here.filter((start) => start.absent).length,
+      miss: LATER_MISSES[Math.max(...misses.map((miss) => LATER_MISSES.indexOf(miss)))]!,
+    };
+  }
+  /**
+   * Reports a sign-in input, or a list of accounts where a first step is watched, that
+   * still shows without a ready first step after the step wait, once per path: for the log,
+   * and with what the first steps missed, for a stale recipe's repair (ADR 0041). A page
+   * that renders its form in parts starts its login before then and is not reported. The reply changes nothing here: the page keeps
+   * watching until the background reconnects it, as after a repaired recipe.
+   */
+  function noteShown(): void {
+    const path = pagePath();
+    if (shownTimer || shown.has(path) || !(asksSignIn() || listsHere())) return;
+    shownTimer = setTimeout(() => {
+      shownTimer = undefined;
+      if (
+        !observer ||
+        cancelled ||
+        pagePath() !== path ||
+        shown.has(path) ||
+        readingPage(() => starts.some(ready))
+      )
+        return;
+      const asks = asksSignIn();
+      if (!asks && !listsHere()) return;
+      shown.add(path);
+      const miss = startMiss();
+      const later = laterReport();
+      void sendMessage("login", {
+        version: 1,
+        type: "login.document.ready",
+        token,
+        shown: {
+          ...shownReport(path),
+          ...(miss ? { miss } : {}),
+          ...(later ? { later } : {}),
+          ...(asks ? {} : { accounts: true as const }),
+        },
+      }).catch(() => undefined);
+    }, LOGIN_STEP_WAIT_MS);
+  }
+  /**
+   * Reports, for the log only, the first step of a page Pateat does not fill as soon as it
+   * shows, once per path (ADR 0035).
+   */
+  function noteConfirm(): void {
+    const path = pagePath();
+    if (!confirmPage || cancelled || shown.has(path) || !ready(confirmPage)) return;
+    shown.add(path);
+    void sendMessage("login", {
+      version: 1,
+      type: "login.document.ready",
+      token,
+      shown: shownReport(path),
+    }).catch(() => undefined);
+    // Nothing else to watch: only the path is followed, for a return to the page.
+    if (!starts.length && !generate) unwatch();
+  }
+  /**
+   * Follows the path of a page Pateat does not fill (ADR 0035), `followed`, from `at`, the
+   * path last seen. Left in place, the page announces its new path, so the worker logs the
+   * visit as left with that page next; back on it, the page announces again, and the
+   * worker's answer names its first step, which with the person's submit is reported again
+   * as a new visit.
+   */
+  let followed: string | undefined;
+  let at: string | undefined;
+  const confirmPathChanged = () => {
+    const path = pagePath();
+    if (!followed || cancelled || path === at) return;
+    const leaving = at === followed;
+    at = path;
+    if (leaving) {
+      shown.delete(followed);
+      personSubmits.delete(followed);
+    }
+    if (leaving || path === followed) void announce(false).catch(() => undefined);
+  };
+  function followConfirmPath(path: string | undefined): void {
+    removeEventListener("popstate", confirmPathChanged);
+    navigation?.removeEventListener("currententrychange", confirmPathChanged);
+    followed = path;
+    at = pagePath();
+    if (!path) return;
+    addEventListener("popstate", confirmPathChanged);
+    navigation?.addEventListener("currententrychange", confirmPathChanged);
+  }
+  /**
+   * A `shown` report of `path`: on a page Pateat does not fill, with whether an amount shows
+   * in the form of its first step, never the amount; nothing when that step is in no form
+   * (ADR 0035).
+   */
+  function shownReport(path: string): { path: string; amount?: boolean } {
+    const forms = confirmForms();
+    return forms.length ? { path, amount: forms.some((form) => showsAmount(form)) } : { path };
+  }
+  /** The forms that hold the first step's elements of a page Pateat does not fill (ADR 0035). */
+  function confirmForms(): HTMLFormElement[] {
+    if (!confirmPage || pagePath() !== confirmPage.path) return [];
+    const forms = confirmPage.targets
+      .flatMap((target) => matches(target))
+      .flatMap((element) => {
+        // `formOf` also follows a control's `form` attribute and a component's host.
+        const form =
+          element instanceof HTMLInputElement || element instanceof HTMLButtonElement
+            ? formOf(element)
+            : (closestAcross(element, "form") as HTMLFormElement | null);
+        return form ? [form] : [];
+      });
+    return [...new Set(forms)];
+  }
+  /** Whether this path is the one this document showed next after a submitted password form. */
+  function afterSubmitted(): boolean {
+    const path = pagePath();
+    if (submitPath !== undefined && path !== submitPath) afterSubmit ??= path;
+    return path === afterSubmit;
+  }
+  async function announce(
+    start: boolean,
+    /** `identifier` for a page that asks for an account identifier alone (ADR 0016). */
+    signIn: boolean | "identifier" | "passkey" = false,
+    list?: ListedAccounts,
+    entryPage = false,
+    /** The document changed in place after an account switch (ADR 0078). */
+    switched = false,
+    /**
+     * Announced again after a same-document URL change, or as a new page after a default
+     * was chosen, to be offered once more.
+     */
+    again = false,
+  ): Promise<unknown> {
+    announced = start;
+    announcedPath = pagePath();
+    const result: unknown = await sendMessage("login", {
+      version: 1,
+      type: "login.document.ready",
+      token,
+      ...(start ? { start: { path: pagePath() } } : {}),
+      ...(signIn
+        ? {
+            signIn: {
+              path: pagePath(),
+              ...(signIn === "identifier" ? { identifier: true as const } : {}),
+              ...(signIn === "passkey" ? { passkey: true as const } : {}),
+            },
+          }
+        : {}),
+      ...(list ? { list } : {}),
+      ...(entryPage ? { entry: { path: pagePath() } } : {}),
+      ...(switched ? { switched: true as const } : {}),
+    });
+    const parsed = v.safeParse(readySchema, result);
+    if (parsed.success && parsed.output.generate === true) mayOffer = true;
+    else if (!parsed.success || parsed.output.ok || parsed.output.reason === "generating")
+      mayOffer = false;
+    if (mayOffer && offerWindow === undefined) watchLate();
+    if (parsed.success) {
+      // A page Pateat does not fill stays one until an answer on another path (ADR 0035).
+      if (parsed.output.confirm) confirmPage = parsed.output.confirm;
+      else if (confirmPage?.path !== announcedPath) confirmPage = undefined;
+      // Its path stays followed after the page moves on, for a return in place.
+      if (cancelled) followConfirmPath(undefined);
+      else if (confirmPage && followed !== confirmPage.path) followConfirmPath(confirmPage.path);
+      if (parsed.output.frame) watchFrame();
+    }
+    if (parsed.success && parsed.output.ok && parsed.output.starts) {
+      // A page of a watched login: its recipe's first step showing releases the login
+      // (ADR 0027).
+      watch(parsed.output.starts);
+      check();
+    } else if (!parsed.success || parsed.output.ok) {
+      unwatch();
+    } else if (parsed.output.starts) {
+      watch(parsed.output.starts, parsed.output.generate === true, parsed.output.entry === true);
+      // In the document that logged in, a form still showing does not log in again; only its
+      // next appearance does (ADR 0021 D, ADR 0062). After a rejection it is the form shown
+      // again.
+      if (ended && !rejected && !start) announced = starts.some(ready);
+      // A refused start means the background did not see the form on this path yet, for
+      // example while the tab still shows the previous URL.
+      if (start) retry();
+      else check();
+    } else if (parsed.output.reason === "generating") {
+      // The background announces a generated recipe with `login.reconnect`.
+      unwatch();
+    } else if (
+      ["stale-document", "closed-tab", "runtime-unavailable"].includes(parsed.output.reason ?? "")
+    ) {
+      retry();
+    } else if (!(again && parsed.output.reason === "duplicate-document")) {
+      // A policy refusal (no account, another tab owns the site, ...) holds until the page
+      // is loaded again; re-announcing on every re-render would only repeat it. A document
+      // announced again that already carries a login keeps watching for it.
+      unwatch();
+    }
+    return result;
+  }
+  const listener: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
+    message,
+    sender,
+    respond,
+  ) => {
+    if (sender.id !== browser.runtime.id || sender.tab) return false;
+    const reconnect = v.safeParse(reconnectSchema, message);
+    if (reconnect.success) {
+      // A default chosen for this tab (ADR 0021, amended 2026-11-04): the page counts as
+      // a new one, so its form, also one shown only after a click, is offered once more.
+      const fresh = reconnect.output.fresh === true && !cancelled;
+      if (fresh) {
+        ended = false;
+        announced = false;
+        retries = 0;
+        offered = false;
+        entryOffered = false;
+        offeredPaths.clear();
+        lateWatch?.();
+        // The answer opens the window again; until then nothing is offered.
+        generate = false;
+        clearOffer();
+        urlWatch?.();
+      }
+      // A restarted worker forgot earlier refusals; a ready form may start again. A fresh
+      // announcement, like one after a URL change, keeps a login the document carries.
+      void announce(starts.some(ready), false, undefined, false, false, fresh).then(respond, () =>
+        respond({ ok: false }),
+      );
+      return true;
+    }
+    const parsed = v.safeParse(commandSchema, message);
+    if (!parsed.success || parsed.output.token !== token) return false;
+    const command = parsed.output;
+    if (command.type === "login.detail.question") {
+      const found = cancelled || pagePath() !== command.path ? [] : matches(command.target);
+      const input = found.length === 1 ? found[0] : undefined;
+      const index = writable(input) ? askedQuestion(input, command.names) : undefined;
+      respond(index === undefined ? { ok: true } : { ok: true, index });
+      return false;
+    }
+    if (command.type === "login.detail.card") {
+      // Only the hint tokens leave this handler, never the page's text (ADR 0061).
+      const found = cancelled || pagePath() !== command.path ? [] : matches(command.target);
+      const input = found.length === 1 ? found[0] : undefined;
+      respond(
+        writable(input)
+          ? { ok: true, ...cardHints(input, document.title) }
+          : { ok: true, last4: [], brands: [] },
+      );
+      return false;
+    }
+    if (command.type === "login.detail.fill") {
+      // The popup's fill of a personal detail (ADR 0061): its input, or every input of a
+      // split value, each checked before any is filled, a radio first, and nothing
+      // pressed. The values and the username never leave this handler.
+      // What the page sets in its inputs from now on may be Pateat's own filling.
+      stopSiteValues(window);
+      const fields = command.fields.map((field) => ({ ...field }));
+      for (const field of command.fields) field.value = "";
+      const username = command.account?.username;
+      if (command.account) command.account.username = "";
+      const clear = () => {
+        for (const field of fields) field.value = "";
+      };
+      void (async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        const controls = fields.map((field) => {
+          const found = matches(field.target);
+          return found.length === 1 ? found[0] : undefined;
+        });
+        const usable = (control: Element | undefined, field: (typeof fields)[number]) =>
+          takes(control, field.secret) &&
+          acceptsSecret(control as Control, field.secret) &&
+          stillAsks(control as Control, field.question) &&
+          fitsControl(control as Control, field);
+        if (
+          cancelled ||
+          pagePath() !== command.path ||
+          !setter ||
+          fields.some((field, position) => !usable(controls[position], field))
+        )
+          return { ok: false };
+        // Every part is in one form, or every part outside any form, as a login's fill
+        // requires (`fields-split`).
+        const form = formOf(controls[0] as Control);
+        if (controls.some((control) => formOf(control as Control) !== form)) return { ok: false };
+        // A value goes only to the login item's account when the page shows one, as a
+        // login's fill does (owner decision, 2026-10-11).
+        if (
+          username !== undefined &&
+          showsOtherAccount(formAccounts(document, form), username, {
+            masked: fields.some((field) => maskedSecret(field.secret)),
+          })
+        )
+          return { ok: false, reason: "other-account" };
+        for (const [position, field] of fields.entries()) {
+          const control = controls[position] as Control;
+          // The page's handlers for the previous input run first.
+          // eslint-disable-next-line no-await-in-loop
+          if (position > 0) await nextFrame();
+          // The radio's click may change the input, so its checks run again.
+          if (
+            cancelled ||
+            pagePath() !== command.path ||
+            !chooseFor(control) ||
+            !isOnly(matches(field.target), control) ||
+            !usable(control, field)
+          )
+            return { ok: false };
+          // eslint-disable-next-line no-await-in-loop
+          const stopped = await enter(control, field, setter, {
+            between: () =>
+              cancelled || pagePath() !== command.path || !takes(control, field.secret)
+                ? "field-changed"
+                : undefined,
+          });
+          field.value = "";
+          if (stopped !== undefined) return { ok: false };
+        }
+        return { ok: true };
+      })()
+        .finally(clear)
+        .then(respond, () => respond({ ok: false }));
+      return true;
+    }
+    if (command.type === "login.cancel") {
+      cancelled = true;
+      lateWatch?.();
+      describedWatch?.abort();
+      if (deferredAccount) deferredAccount.username = "";
+      deferredAccount = undefined;
+      waits.abort();
+      unwatch();
+      frameWatch?.();
+      followConfirmPath(undefined);
+      respond({ ok: true });
+      return false;
+    }
+    if (command.type === "login.choose") {
+      const choice =
+        cancelled || pagePath() !== command.path || showsSignIn()
+          ? undefined
+          : listChoice(document, command.list);
+      command.list.username = "";
+      command.list.others.fill("");
+      respond(
+        !choice
+          ? { ok: false }
+          : choice.click === "none"
+            ? { ok: true, click: "none", miss: choice.miss }
+            : { ok: true, click: choice.click },
+      );
+      return false;
+    }
+    if (command.type === "login.site.account") {
+      // Answered once per document, once its inputs are there to compare, so a page
+      // cannot try one value after another to learn which accounts the vault holds (ADR
+      // 0028 amendment of 2026-10-23).
+      const inputs =
+        siteAccountAsked || cancelled || pagePath() !== command.path
+          ? []
+          : command.targets.map((target) => {
+              const found = matches(target);
+              return found.length === 1 ? found[0]! : undefined;
+            });
+      const compared = inputs.length > 0 && inputs.every(Boolean);
+      const index = compared
+        ? siteValueChoice(window, inputs as Element[], command.usernames)
+        : undefined;
+      if (compared) siteAccountAsked = true;
+      command.usernames.fill("");
+      respond(
+        index !== undefined
+          ? { ok: true, index }
+          : siteAccountAsked
+            ? { ok: false, spent: true }
+            : { ok: false },
+      );
+      return false;
+    }
+    if (command.type === "login.switch") {
+      const pending = pendingSwitch;
+      pendingSwitch = undefined;
+      // The page may have changed since the fill; click only the same, still unique element.
+      const click =
+        !cancelled &&
+        pending?.operationId === command.operationId &&
+        Date.now() < pending.expiresAt &&
+        pagePath() === pending.path &&
+        isOnly(pending.find(), pending.element);
+      if (!click) {
+        respond({ ok: false });
+        return false;
+      }
+      // The switch is withdrawn only when the page got no press: one the page stopped after
+      // `pointerdown` may already have switched.
+      const pressing = () => !cancelled && pagePath() === pending.path;
+      void pressElement(pending.element, pressing).then(
+        (pressed) => {
+          respond({ ok: pressed !== "missed" });
+          if (pressed !== "missed") void switchedInPlace(pending.element);
+          return undefined;
+        },
+        () => respond({ ok: true }),
+      );
+      return true;
+    }
+    if (command.type === "login.await") {
+      // Checks the current DOM serially, again at each change of the page, until the step's
+      // elements are ready; never mutates.
+      void (async () => {
+        const until = Date.now() + command.timeoutMs;
+        // Cancellation is set by the independent background message listener.
+        // eslint-disable-next-line no-unmodified-loop-condition
+        while (!cancelled && !ready(command.readiness)) {
+          if (command.readiness.revealed && readingPage(() => revealsPassword(command.readiness)))
+            return { ok: false, reason: "revealed" };
+          if (Date.now() >= until) {
+            const miss = readingPage(() => readinessMiss(command.readiness));
+            return { ok: false, reason: "timeout", ...(miss ? { miss } : {}) };
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await pageChange(document, until, waits.signal);
+        }
+        return cancelled ? { ok: false, reason: "cancelled" } : { ok: true };
+      })().then(respond, () => respond({ ok: false, reason: "cancelled" }));
+      return true;
+    }
+    if (command.type === "login.status") {
+      // Pages are untrusted; only the synthetic probe fixture observes attempt status.
+      if (probeStatus)
+        window.postMessage(
+          {
+            type: "pateat.login.probe.status",
+            status: {
+              state: command.state,
+              stepIndex: command.stepIndex,
+              ...(command.outcome ? { outcome: command.outcome } : {}),
+            },
+          },
+          location.origin,
+        );
+      respond({ ok: true });
+      carrying = !["denied", "generating", "authenticated", "blocked"].includes(command.state);
+      // A finished login keeps watching: its first step showing again logs in again.
+      // A new login in this document, as after a pick, watches for its own end.
+      if (command.state === "executing") ended = false;
+      if (!ended && (command.state === "authenticated" || command.state === "blocked")) {
+        ended = true;
+        // An ended login reads no page again here (ADR 0027 amendment of 2026-11-04).
+        describedWatch?.abort();
+        rejected = command.outcome === "credential-rejected";
+        void announce(false).catch(() => undefined);
+      }
+      return false;
+    }
+    if (command.type === "login.entry.hosts") {
+      respond(cancelled ? { ok: false } : { ok: true, hosts: entryHosts(document) });
+      return false;
+    }
+    if (command.type === "login.entry.inspect") {
+      // Checks the current DOM, again at each change of the page, until the target names one
+      // shown element; never mutates.
+      void (async () => {
+        const until = Date.now() + command.timeoutMs;
+        const find = () => matches(command.target, true);
+        let found = find();
+        // A link still rendering, or not shown yet, gets the step wait. Cancellation is set
+        // by the independent background message listener.
+        for (;;) {
+          const waiting =
+            found.length === 0 ||
+            (found.length === 1 && entryElementRefusal(found[0]!) === "hidden");
+          if (cancelled || Date.now() >= until || !waiting) break;
+          // eslint-disable-next-line no-await-in-loop
+          await pageChange(document, until, waits.signal);
+          found = find();
+        }
+        if (cancelled) return { ok: false };
+        const url = location.href;
+        if (found.length > 1) return { ok: true, state: "ambiguous", url };
+        if (!found.length) {
+          // What shows instead, for the entry's repair (ADR 0041).
+          const status = navigationStatus();
+          const shows = showsSignIn()
+            ? "sign-in"
+            : listsAccounts(document)
+              ? "accounts"
+              : identifierInput(document) === "sole"
+                ? "sign-in"
+                : undefined;
+          return {
+            ok: true,
+            state: "missing",
+            url,
+            ...(shows ? { shows } : {}),
+            ...(status ? { status } : {}),
+          };
+        }
+        const element = found[0]!;
+        const refusal = entryElementRefusal(element);
+        return {
+          ok: true,
+          state: "unique",
+          url,
+          ...(refusal ? { refusal } : {}),
+          ...(element instanceof HTMLAnchorElement ? { href: element.href } : {}),
+        };
+      })().then(respond, () => respond({ ok: false }));
+      return true;
+    }
+    if (command.type === "login.entry.press") {
+      // Pressed only as the worker checked it: the same URL, one link, the same `href`.
+      const found = matches(command.target, true);
+      const element = found.length === 1 ? found[0] : undefined;
+      const reason = cancelled
+        ? "cancelled"
+        : location.href !== command.url
+          ? "page-changed"
+          : !(element instanceof HTMLAnchorElement) ||
+              entryElementRefusal(element) !== undefined ||
+              element.href !== command.href
+            ? "target-changed"
+            : undefined;
+      if (reason || !(element instanceof HTMLAnchorElement)) {
+        respond({ ok: false, reason: reason ?? "target-changed" });
+        return false;
+      }
+      watchPressedUrl();
+      // A press the page stopped after `pointerdown` is answered as made, so the link is not
+      // pressed again; one that never reached `pointerdown` did not press it.
+      void pressElement(element, () => !cancelled && location.href === command.url).then(
+        (pressed) =>
+          respond(
+            pressed !== "missed"
+              ? { ok: true }
+              : {
+                  ok: false,
+                  reason: cancelled
+                    ? "cancelled"
+                    : location.href === command.url
+                      ? "target-changed"
+                      : "page-changed",
+                },
+          ),
+        () => respond({ ok: true }),
+      );
+      return true;
+    }
+    if (command.type === "login.logout.click") {
+      // An account switch's click (ADR 0063): waits for the control to show, as a menu's
+      // item does once the menu opens, then presses it as the executor presses a button.
+      const url = location.href;
+      void (async () => {
+        const until = Date.now() + command.timeoutMs;
+        const find = () =>
+          findLogoutTargets(document, command.target).filter(
+            (element): element is HTMLElement => element instanceof HTMLElement && visible(element),
+          );
+        let found = find();
+        for (;;) {
+          if (cancelled || found.length > 0 || Date.now() >= until) break;
+          // eslint-disable-next-line no-await-in-loop
+          await pageChange(document, until, waits.signal);
+          found = find();
+        }
+        if (cancelled) return { ok: false, reason: "cancelled" };
+        if (location.href !== url) return { ok: false, reason: "page-changed" };
+        if (found.length !== 1)
+          return { ok: false, reason: found.length ? "ambiguous" : "missing" };
+        const control = found[0]!;
+        // A control that logs out everywhere or ends the account is never pressed, whoever
+        // named it: a stored recipe, the model or the control's words (ADR 0063).
+        if (!safeLogoutControl(control, command.purpose)) return { ok: false, reason: "unsafe" };
+        const before = shownLayers(document);
+        const pressed = await pressElement(control, () => !cancelled && location.href === url);
+        if (pressed === "missed")
+          return { ok: false, reason: cancelled ? "cancelled" : "page-changed" };
+        if (command.watchMs === undefined) return { ok: true };
+        // How the page reacts to a control found by its words (ADR 0063): a page that
+        // navigates away ends this script, which the worker reads as navigated.
+        const watchUntil = Date.now() + command.watchMs;
+        for (;;) {
+          if (cancelled) return { ok: false, reason: "cancelled" };
+          if (location.href !== url) return { ok: true, reacted: "navigated" };
+          if (shownLayers(document) > before) return { ok: true, reacted: "dialog" };
+          if (!control.isConnected || !visible(control)) return { ok: true, reacted: "changed" };
+          if (Date.now() >= watchUntil) return { ok: true, reacted: "none" };
+          // eslint-disable-next-line no-await-in-loop
+          await pageChange(document, watchUntil, waits.signal);
+        }
+      })().then(respond, () => respond({ ok: false, reason: "missing" }));
+      return true;
+    }
+    if (command.type === "login.logout.local") {
+      try {
+        const onSite = new Set(command.onSite);
+        respond(extractLocalLogout(document, (url) => onSite.has(url.hostname)));
+      } catch {
+        respond({ ok: false, reason: "none" });
+      }
+      return true;
+    }
+    if (command.type === "login.entry.check") {
+      // The page after an entry press: checks, again at each change of the page, until a
+      // sign-in input, an input that asks for an account identifier alone (ADR 0016), or a
+      // first step shows.
+      void (async () => {
+        const until = Date.now() + command.timeoutMs;
+        for (;;) {
+          if (cancelled) return { ok: false };
+          const signIn = showsSignIn() || identifierInput(document) !== undefined;
+          const start = command.starts.some(ready);
+          if (signIn || start || Date.now() >= until) {
+            const list = signIn ? undefined : listedAccounts(document);
+            return {
+              ok: true,
+              signIn,
+              start,
+              signUp: showsSignUp(document),
+              ...(list && !logOnly(list)
+                ? {
+                    list: {
+                      ...(list.names ? { names: list.names } : {}),
+                      ...(list.other ? { other: list.other } : {}),
+                    },
+                  }
+                : {}),
+            };
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await pageChange(document, until, waits.signal);
+        }
+      })().then(respond, () => respond({ ok: false }));
+      return true;
+    }
+    if (command.type === "login.extract") {
+      if (cancelled) {
+        respond({ ok: false, reason: "cancelled" });
+        return false;
+      }
+      let result: unknown;
+      try {
+        const onSite = new Set(command.onSite ?? []);
+        result =
+          command.page === "passkey"
+            ? extractPasskeyObservation(document)
+            : command.page === "login"
+              ? extractLoginObservation(document, command.known)
+              : command.page === "accounts"
+                ? extractAccountListObservation(document, command.names)
+                : command.page === "entry"
+                  ? extractEntryObservation(document, (url) => onSite.has(url.hostname))
+                  : command.page === "logout"
+                    ? extractLogoutObservation(document)
+                    : extractSignedInObservation();
+        // A page described without a field says why, for the log (ADR 0019).
+        if (
+          command.page !== "entry" &&
+          command.page !== "signed-in" &&
+          command.page !== "logout" &&
+          (result as { reason?: unknown }).reason === "no-candidates"
+        )
+          result = {
+            ok: false,
+            reason: "no-candidates",
+            detail: fieldsMissDetail(document).slice(0, 64),
+          };
+      } catch {
+        // A page the extractor cannot read still gets an answer the log can name.
+        result = { ok: false, reason: "extract-error" };
+      }
+      respond(result);
+      return false;
+    }
+    if (command.type === "login.extract.watch") {
+      // Reads the page at once and again at each change of it (ADR 0082), at most once per
+      // `checkGapMs` as the page watch does, until a page after the sign-in would describe
+      // something there; then says so once (ADR 0027 amendment of 2026-11-04).
+      describedWatch?.abort();
+      const watching = new AbortController();
+      describedWatch = watching;
+      const until = Date.now() + command.timeoutMs;
+      const stopped = () => cancelled || watching.signal.aborted;
+      void (async () => {
+        // Each reading waits for the change before it, as the other waits here do.
+        /* eslint-disable no-await-in-loop */
+        for (;;) {
+          if (stopped()) return;
+          const checked = Date.now();
+          let empty = true;
+          try {
+            const result = extractSignedInObservation(document) as { reason?: unknown };
+            empty = result.reason === "no-candidates";
+          } catch {
+            // A page the extractor cannot read is not reported.
+          }
+          if (stopped()) return;
+          if (!empty) {
+            await sendMessage("login", {
+              version: 1,
+              type: "login.document.described",
+              token,
+            });
+            return;
+          }
+          if (Date.now() >= until) return;
+          await pageChange(document, until, watching.signal);
+          const gap = checked + checkGapMs - Date.now();
+          if (gap > 0 && !stopped()) await pause(gap);
+        }
+        /* eslint-enable no-await-in-loop */
+      })()
+        .catch(() => undefined)
+        .finally(() => {
+          if (describedWatch === watching) describedWatch = undefined;
+        });
+      respond({ ok: true });
+      return false;
+    }
+    if (command.type === "login.state") {
+      const username = command.account?.username;
+      if (command.account) command.account.username = "";
+      // The sign-in form shown again in a new document: its inputs each target names alone,
+      // read-only ones when entered on the page's keypad (ADR 0067).
+      // They are found when the page is read, after any wait for its load below.
+      const read = () => {
+        if (cancelled) return { ok: false };
+        const keyed = new Set<HTMLInputElement>();
+        const reshown = command.fields?.flatMap((target) => {
+          const found = matches(target);
+          if (found.length !== 1) return [];
+          if (writable(found[0])) return [found[0]];
+          if (!keyable(found[0]) || !keypadField(found[0], findKeypad(document, found[0])))
+            return [];
+          keyed.add(found[0]);
+          return [found[0]];
+        });
+        return {
+          ok: true,
+          signs: pageSigns(document, {
+            ...(reshown ? { reshown, keyed } : submitted ? { submitted } : {}),
+            ...(username === undefined ? {} : { username }),
+          }),
+          loaded: document.readyState === "complete",
+        };
+      };
+      if (command.loadWithinMs === undefined || document.readyState === "complete") {
+        respond(read());
+        return false;
+      }
+      // A document still loading is read once it loaded (ADR 0029, amended 2026-11-03).
+      void documentLoaded(document, Date.now() + command.loadWithinMs, waits.signal)
+        .then(read)
+        .then(respond, () => respond({ ok: false }));
+      return true;
+    }
+    if (command.type === "login.observe") {
+      if (cancelled) {
+        respond({ ok: false, reason: "cancelled" });
+        return false;
+      }
+      const observeOptions = (index: number) => ({
+        links: command.links?.[index] === true,
+        hidden: command.hidden?.[index] === true,
+      });
+      // One read of the page: each element's closed root and each shadow tree's hosts are
+      // looked up once (ADR 0070).
+      respond(
+        readingPage(() => ({
+          path: pagePath(),
+          targets: command.targets.map((target, index) =>
+            targetState(document, target, command.require?.[index], observeOptions(index)),
+          ),
+          ...(command.signIn
+            ? {
+                signIn: {
+                  loaded: document.readyState === "complete",
+                  ...credentialInputs(command.targets),
+                },
+              }
+            : {}),
+          ...(command.explain
+            ? {
+                checks: command.targets.map((target, index) =>
+                  targetCheck(document, target, command.require?.[index], observeOptions(index)),
+                ),
+              }
+            : {}),
+        })),
+      );
+      return false;
+    }
+    // An advance's next step as measured just before its effect, answered with the result.
+    let before: TargetState[] | undefined;
+    // And those of another layout's next step on the same path (ADR 0060).
+    let siblingsBefore: TargetState[][] | undefined;
+    void (async () => {
+      const operation = command.operation;
+      let mutated = false;
+      // A key of the page's keypad was pressed (ADR 0067).
+      let keyPressed = false;
+      const fail = (
+        reason:
+          | "structural-mismatch"
+          | "timeout"
+          | "cancelled"
+          | "wrong-account"
+          | "value-mismatch"
+          | "fill-rejected"
+          | "submitted"
+          | "captcha",
+        detail?: ExecutionDetail,
+        fieldIndex?: number,
+      ) => ({
+        ok: false,
+        reason,
+        ...(fieldIndex === undefined ? {} : { fieldIndex }),
+        // A stop after a key press leaves its characters in the field, which only the
+        // page's own keys or a reload clear, so the person is told to reload it; a page
+        // that may have submitted them is waited for instead (ADR 0067).
+        ...(keyPressed && reason !== "submitted"
+          ? { detail: "keypad-pressed" as const }
+          : detail
+            ? { detail }
+            : {}),
+        mutation: mutated ? "possible" : "none",
+      });
+      const authorized: unknown = await sendMessage("login", {
+        version: 1,
+        type: "login.operation.authorize",
+        token,
+        attemptId: operation.attemptId,
+        operationId: operation.operationId,
+      });
+      if (authorized !== true) return fail("cancelled", "not-authorized");
+      // What the page sets in its inputs from now on may be Pateat's own filling.
+      stopSiteValues(window);
+      /**
+       * Why the step may not send its form where `read` says it goes: a destination the
+       * page refuses, or one off the document's origin that the background does not allow
+       * by the login's vault item (ADR 0051). The destinations are read again after the
+       * answers, and one that changed meanwhile refuses the step as a changed form.
+       */
+      const destinationRefusal = async (
+        read: () => FormDestination[],
+      ): Promise<ExecutionDetail | undefined> => {
+        const destinations = read();
+        if (destinations.some((entry) => entry.kind === "refused")) return "form-off-origin";
+        const answers = await Promise.all(
+          destinations.flatMap((entry) =>
+            entry.kind === "other-origin"
+              ? [
+                  sendMessage("login", {
+                    version: 1,
+                    type: "login.destination.check",
+                    token,
+                    attemptId: operation.attemptId,
+                    operationId: operation.operationId,
+                    destination: entry.url,
+                  })
+                    // A worker that cannot answer, as while it restarts, leaves it unchecked.
+                    .catch(() => undefined)
+                    .then((answer) => v.safeParse(destinationAnswerSchema, answer)),
+                ]
+              : [],
+          ),
+        );
+        if (cancelled) return "document-cancelled";
+        if (Date.now() >= operation.expiresAt) return "operation-expired";
+        if (answers.some((answer) => !answer.success)) return "form-destination-unchecked";
+        const refusals = answers.flatMap((answer) =>
+          answer.success && !answer.output.ok ? [answer.output.reason] : [],
+        );
+        if (refusals.some((reason) => reason !== "unchecked")) return "form-off-origin";
+        if (refusals.length) return "form-destination-unchecked";
+        if (JSON.stringify(read()) !== JSON.stringify(destinations)) return "form-changed";
+        return undefined;
+      };
+      if (cancelled) return fail("cancelled", "document-cancelled");
+      if (used.has(operation.operationId)) return fail("cancelled", "operation-used");
+      if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
+      // The document's own origin, opaque ("null") in a sandboxed document whatever its URL.
+      if (operation.document.origin !== self.origin || operation.step.path !== pagePath())
+        return fail("cancelled", "page-changed");
+      used.add(operation.operationId);
+      const step = operation.step;
+      // Another attempt in this document starts from nothing filled.
+      if (operation.attemptId !== filledAttempt) {
+        filled = new WeakSet();
+        chosen = [];
+        shownBefore = undefined;
+        if (deferredAccount) deferredAccount.username = "";
+        deferredAccount = undefined;
+        filledAttempt = operation.attemptId;
+      }
+      // The page shows another account: its switch, the recipe's or the page's own (ADR
+      // 0078), is clicked only by `login.switch`, once the background has recorded it.
+      const otherAccount = (switches: {
+        accountSwitch?: LoginTarget | undefined;
+        otherSwitch?: true | undefined;
+      }) => {
+        const target = switches.accountSwitch;
+        const find = target
+          ? () => {
+              const named = findTargets(document, target, { links: true });
+              return named.length === 1 && switchable(named[0]) ? named : [];
+            }
+          : switches.otherSwitch
+            ? () => accountSwitchControls(document)
+            : undefined;
+        const found = find?.() ?? [];
+        const element = found.length === 1 ? found[0] : undefined;
+        if (find && element instanceof HTMLElement) {
+          pendingSwitch = {
+            operationId: operation.operationId,
+            element,
+            find,
+            path: pagePath(),
+            expiresAt: Date.now() + switchTimeoutMs,
+          };
+          return { ...fail("wrong-account"), switchable: true as const };
+        }
+        return fail("wrong-account");
+      };
+      const nothingShown = (deferred: NonNullable<typeof deferredAccount>) =>
+        comparableAccounts(formAccounts(document, deferred.form), deferred.username, {
+          masked: deferred.masked,
+        })?.length === 0;
+      /**
+       * Before a click or Enter's own checks: while a fill left its account check to it
+       * (`deferredAccount`) and the page still shows no identifier and has not loaded, waits
+       * for `load`, at most `accountWaitMs` and until `accountReserveMs` before the operation
+       * expires (ADR 0082), or the document's cancel. A wait that ran out goes on.
+       */
+      const deferredLoad = async () => {
+        const deferred = deferredAccount;
+        if (!deferred || document.readyState === "complete" || !nothingShown(deferred))
+          return undefined;
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            clearTimeout(loadTimer);
+            removeEventListener("load", done);
+            waits.signal.removeEventListener("abort", done);
+            resolve();
+          };
+          const loadTimer = setTimeout(
+            done,
+            Math.max(
+              0,
+              Math.min(accountWaitMs, operation.expiresAt - accountReserveMs - Date.now()),
+            ),
+          );
+          addEventListener("load", done);
+          waits.signal.addEventListener("abort", done);
+        });
+        if (cancelled) return fail("cancelled", "document-cancelled");
+        if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
+        if (step.path !== pagePath()) return fail("cancelled", "page-changed");
+        return undefined;
+      };
+      /**
+       * The check a fill left to this click or Enter, run with no wait just before the press:
+       * on another account the values the fill typed are cleared and nothing is pressed. It
+       * is used up by a submitting press or once the page shows an identifier; an advance
+       * on a page that still shows none leaves it for the next press.
+       */
+      const deferredOther = (submit: boolean) => {
+        const deferred = deferredAccount;
+        if (!deferred) return undefined;
+        if (!submit && nothingShown(deferred)) return undefined;
+        deferredAccount = undefined;
+        const other = showsOtherAccount(formAccounts(document, deferred.form), deferred.username, {
+          masked: deferred.masked,
+        });
+        deferred.username = "";
+        if (!other) return undefined;
+        clearTyped(deferred.inputs);
+        return otherAccount(deferred);
+      };
+      // With an advance whose next step is on its path, that step's elements just before
+      // the click or the first input; the answer reports them (ADR 0013).
+      const measureNext = () => {
+        const next = command.next;
+        if (next)
+          before = next.targets.map((target) => targetState(document, target, next.require));
+        siblingsBefore = command.siblings?.map((sibling) =>
+          sibling.targets.map((target) => targetState(document, target, sibling.require)),
+        );
+      };
+      /**
+       * Submits the form of `target`, the field the fill just before typed last, as pressing
+       * Enter there does (ADR 0064): a click on the form's default button, its first submit
+       * button in tree order, or `requestSubmit()` when it has none, as the official
+       * auto-submit falls back to. Enter on a disabled default button submits nothing, and
+       * a default button that showed when a fill began (`submitsBefore`), which the
+       * generation could have named, or one only associated with the form from outside it,
+       * is never pressed. The
+       * page's own validation must pass, and the checks of a click run first: the
+       * destination (ADR 0051), the form still holding its fills, and a CAPTCHA left to the
+       * person, who then presses Enter or the button.
+       */
+      const pressEnter = async (target: LoginTarget, submit: boolean) => {
+        const waited = await deferredLoad();
+        if (waited) return waited;
+        const found = matches(target);
+        const field = found.length === 1 ? found[0] : undefined;
+        const form = writable(field) ? formOf(field) : null;
+        if (!writable(field) || !filled.has(field) || !form)
+          return fail("structural-mismatch", "target-missing");
+        // The first submit button of the form (`formOf`, a component's across its host) in
+        // composed order; `form.elements` leaves out image inputs and components' buttons.
+        const defaultButton = () =>
+          queryAll(document, "button, input").find(
+            (element): element is HTMLButtonElement | HTMLInputElement =>
+              submitButton(element) && formOf(element) === form,
+          );
+        const button = defaultButton();
+        if (
+          button &&
+          (button.matches(":disabled") ||
+            submitsBefore.has(button) ||
+            !containsAcross(form, button))
+        )
+          return fail("structural-mismatch", "target-missing");
+        if (!form.noValidate && !button?.formNoValidate && !form.checkValidity())
+          return fail("fill-rejected", "form-invalid");
+        const refused = await destinationRefusal(() =>
+          button ? clickDestinations(button) : formDestinations(field, "fill"),
+        );
+        if (refused === "document-cancelled" || refused === "operation-expired")
+          return fail("cancelled", refused);
+        if (refused) return fail("structural-mismatch", refused);
+        if (pagePath() !== step.path) return fail("cancelled", "page-changed");
+        // The page may have changed the form while the background answered.
+        if (
+          !form.isConnected ||
+          formOf(field) !== form ||
+          defaultButton() !== button ||
+          button?.matches(":disabled")
+        )
+          return fail("structural-mismatch", "form-changed");
+        const formInputs = inputsOf(form, document);
+        const fills = filled;
+        const passwordsBefore = shownBefore;
+        filled = new WeakSet();
+        shownBefore = undefined;
+        if (
+          unreadyForm(formInputs, {
+            filled: (input) => fills.has(input),
+            shownBefore: (input) => passwordsBefore?.has(input) === true,
+            writable,
+            submit,
+          })
+        )
+          return fail("structural-mismatch", "form-changed");
+        const other = deferredOther(submit);
+        if (other) return other;
+        measureNext();
+        submitted = submittedPage(document, formInputs.filter(writable));
+        if (showsCaptcha(document) && !passedCaptcha(document)) return fail("captcha");
+        mutated = true;
+        if (button) button.click();
+        else form.requestSubmit();
+        return { ok: true, mutation: "possible" } as const;
+      };
+      if (step.kind === "fill") {
+        // A fill compared with the shown account, while the page shows nothing to compare
+        // with, is compared just before its click instead when the background says one
+        // follows (`accountAtPress`), so an account the page shows after its fields is
+        // compared too (Duolingo, 2026-10-23); any other such fill, whose page may submit
+        // without that click, waits for the page to settle (`accountQuietMs`).
+        const masked = command.values.some((entry) => maskedSecret(entry.secret));
+        let deferLater = false;
+        if (command.account) {
+          const first = step.fields[0] ? matches(step.fields[0].target) : [];
+          const form =
+            first.length === 1 && first[0] instanceof HTMLInputElement ? formOf(first[0]) : null;
+          const comparable = comparableAccounts(
+            formAccounts(document, form),
+            command.account.username,
+            { masked },
+          );
+          if (comparable?.length === 0 && command.accountAtPress) deferLater = true;
+          else if (comparable?.length === 0) {
+            await settled(
+              document,
+              accountQuietMs,
+              Math.min(Date.now() + accountWaitMs, operation.expiresAt - accountReserveMs),
+            );
+            if (cancelled) return fail("cancelled", "document-cancelled");
+            if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
+            if (step.path !== pagePath()) return fail("cancelled", "page-changed");
+          }
+        }
+        // Resolve every target first so a partial/ambiguous mapping never causes partial fill.
+        const inputs = step.fields.map((field) => {
+          const found = matches(field.target);
+          return found.length === 1 ? found[0] : undefined;
+        });
+        // A field entered on the page's keypad may be read-only (ADR 0067); a split
+        // date's part may be a select (ADR 0061); every other value goes into an input.
+        const secretOf = (index: number) =>
+          command.values.find((entry) => entry.slot === step.fields[index]!.slot)?.secret;
+        const usable = (input: Element | undefined, index: number) =>
+          step.fields[index]!.keypad ? keyable(input) : takes(input, secretOf(index));
+        if (inputs.some((input, index) => !usable(input, index)))
+          return fail("structural-mismatch", "target-missing");
+        // Each field's keypad, which holds the keys, shown or not yet.
+        const keypadOf = (index: number) => {
+          const field = step.fields[index]!;
+          const input = inputs[index] as HTMLInputElement;
+          const keypad = field.keypad && locateKeypad(document, field.keypad, input);
+          return keypad && besideKeypad(keypad, input) ? keypad : undefined;
+        };
+        const keypads = step.fields.map((field, index) =>
+          field.keypad ? (keypadOf(index) ?? null) : undefined,
+        );
+        if (keypads.includes(null)) return fail("structural-mismatch", "keypad-missing");
+        // A split code's digits and an effectful fill's event never go through a keypad.
+        if (keypads.some(Boolean) && (command.code || step.effect !== "prepare"))
+          return fail("structural-mismatch", "unsupported-input");
+        if (
+          command.values.length !== step.fields.length ||
+          step.fields.some(
+            (field) => command.values.filter((entry) => entry.slot === field.slot).length !== 1,
+          )
+        )
+          return fail("structural-mismatch", "unexpected-values");
+        // Each field has its own input: two locators that name one input would leave only
+        // the second value in it, and the form would be sent with the wrong value.
+        if (new Set(inputs).size !== inputs.length)
+          return fail("structural-mismatch", "fields-shared");
+        // One step fills one form (or only inputs outside any form), and secrets only fit their inputs.
+        const writableInputs = inputs as Control[];
+        const form = formOf(writableInputs[0]!);
+        if (writableInputs.some((input) => formOf(input) !== form))
+          return fail("structural-mismatch", "fields-split");
+        // The form sends its values only to this document's origin, or to a destination
+        // the background allows (ADR 0051).
+        const formRefused = await destinationRefusal(() =>
+          formDestinations(writableInputs[0]!, "fill"),
+        );
+        if (formRefused === "document-cancelled" || formRefused === "operation-expired")
+          return fail("cancelled", formRefused);
+        if (formRefused) return fail("structural-mismatch", formRefused);
+        if (
+          step.fields.some(
+            (field, index) =>
+              !acceptsSecret(
+                writableInputs[index]!,
+                command.values.find((entry) => entry.slot === field.slot)!.secret,
+              ),
+          )
+        )
+          return fail("structural-mismatch", "secret-refused");
+        // A secret goes only to the account the page shows, when it shows one (owner
+        // decision, 2026-10-11). The comparison stays in this content script. A page that
+        // showed no identifier yet is compared just before the next click instead
+        // (`deferredAccount`, ADR 0049 amendment of 2026-11-03).
+        if (command.account) {
+          if (deferLater) {
+            const earlier = deferredAccount;
+            if (earlier) earlier.username = "";
+            deferredAccount = {
+              username: command.account.username,
+              masked,
+              form,
+              inputs: [...(earlier?.inputs ?? []), ...writableInputs],
+              ...(command.accountSwitch ? { accountSwitch: command.accountSwitch } : {}),
+              ...(command.otherSwitch ? { otherSwitch: true as const } : {}),
+            };
+            command.account.username = "";
+          } else {
+            const other = showsOtherAccount(
+              formAccounts(document, form),
+              command.account.username,
+              { masked },
+            );
+            command.account.username = "";
+            if (other) return otherAccount(command);
+          }
+        }
+        // A `totp` handler without a button types its code as the submission: the page
+        // submits it once it is in (ADR 0027 amendment of 2026-10-23).
+        const buttonless =
+          command.code !== undefined &&
+          command.code.submit === undefined &&
+          step.effect === "submit" &&
+          step.fields.length === 1;
+        // A `totp` handler's code split into one input per digit goes in one digit per
+        // input (ADR 0027, owner decision 2026-10-12 19:21 UTC).
+        const split =
+          command.code && (step.effect === "prepare" || buttonless) && step.fields.length === 1
+            ? splitCodeInputs(
+                writableInputs[0] as HTMLInputElement,
+                command.values[0]!.value.length,
+                writable,
+              )
+            : undefined;
+        // Which shape its digits keep is decided once, from its first input as found.
+        const unmarked = split !== undefined && split[0]!.maxLength !== 1;
+        const fits = (input: Control, value: (typeof command.values)[number]) =>
+          split
+            ? split.every(
+                (digit, index) => inputValueMismatch(digit, value.value[index]!) === undefined,
+              )
+            : fitsControl(input, value);
+        // Every value must fit its input before anything is filled (ADR 0010).
+        if (
+          step.fields.some(
+            (field, index) =>
+              !fits(
+                writableInputs[index]!,
+                command.values.find((entry) => entry.slot === field.slot)!,
+              ),
+          )
+        )
+          return fail("value-mismatch");
+        // A keypad that already shows its keys must show exactly one for each character of
+        // its value before anything is typed, in any field (ADR 0067). One that
+        // opens when its field is pressed is checked once it opens.
+        if (
+          step.fields.some((field, index) => {
+            const keypad = keypads[index];
+            const value = command.values.find((entry) => entry.slot === field.slot)!.value;
+            return keypad && keypadOpen(keypad) && !keypadCovers(keypad, value);
+          })
+        )
+          return fail("value-mismatch", "keypad-key-missing");
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        if (!setter) return fail("structural-mismatch", "unsupported-input");
+        // Messages already shown are not the page's answer to this fill.
+        const baseline =
+          step.effect === "prepare" ? fillBaseline(split ?? writableInputs) : undefined;
+        // A code field fills alone; its watch starts before the code goes in (ADR 0027).
+        const code =
+          command.code?.submit && step.effect === "prepare" && step.fields.length === 1
+            ? watchCodeSubmission(
+                writableInputs[0] as HTMLInputElement,
+                step.fields[0]!.target,
+                command.code.submit,
+                step.path,
+              )
+            : undefined;
+        if (command.code && !code && !buttonless)
+          return fail("structural-mismatch", "code-watch-failed");
+        // Once the code's last character went in, the page has it: a page that then disables,
+        // clears or removes the input, or leaves the path, has taken the code. A character the
+        // page kept out of an input it still shows as it was refuses the code as before.
+        let codeIn = false;
+        const lastIn = () => {
+          codeIn = true;
+        };
+        const taken = (input: Control, stopped: string) =>
+          codeIn &&
+          (stopped !== "refused" || !input.isConnected || !writable(input) || input.value === "");
+        try {
+          for (const [index, field] of step.fields.entries()) {
+            const input = inputs[index] as Control;
+            // A preparing fill lets the page's handlers for the previous field run first.
+            // eslint-disable-next-line no-await-in-loop
+            if (index > 0 && step.effect === "prepare") await nextFrame();
+            // Each mutation repeats scope/connected checks; events and the wait between
+            // fields may change the page.
+            const current = matches(field.target);
+            const value = command.values.find((entry) => entry.slot === field.slot)!;
+            if (
+              cancelled ||
+              pagePath() !== step.path ||
+              current.length !== 1 ||
+              current[0] !== input ||
+              !usable(input, index) ||
+              formOf(input) !== form ||
+              !acceptsSecret(input, value.secret) ||
+              !fits(input, value)
+            )
+              return fail(
+                "cancelled",
+                cancelled
+                  ? "document-cancelled"
+                  : pagePath() !== step.path
+                    ? "page-changed"
+                    : "field-changed",
+              );
+            // An advance's next step is measured in this task, just before its first input,
+            // and so is what the page shows before an effect (ADR 0029).
+            if (index === 0) {
+              measureNext();
+              if (step.effect !== "prepare")
+                submitted = submittedPage(
+                  document,
+                  writableInputs.filter((entry) => entry instanceof HTMLInputElement),
+                );
+            }
+            // Mark uncertainty before calling into DOM/page code, including a throwing setter.
+            mutated = true;
+            if (!shownBefore && (!submitsTaken || writableInputs.every((other) => !other.value))) {
+              for (const other of queryAll(document, "button, input"))
+                if (submitButton(other) && visible(other)) submitsBefore.add(other);
+              submitsTaken = true;
+            }
+            shownBefore ??= new WeakSet(
+              queryAll<HTMLInputElement>(document, "input").filter(
+                (other) => other.type === "password" && writable(other),
+              ),
+            );
+            if (split) {
+              // As typed: the code is in with its last digit.
+              for (const [place, digit] of split.entries()) {
+                // eslint-disable-next-line no-await-in-loop
+                if (place > 0) await nextFrame();
+                // The page's handlers for an earlier digit may have changed this input; the
+                // same checks run after each wait of the digit's own typing.
+                const scope = () =>
+                  cancelled
+                    ? "document-cancelled"
+                    : pagePath() !== step.path
+                      ? "page-changed"
+                      : !writable(digit) ||
+                          formOf(digit) !== form ||
+                          !(unmarked
+                            ? value.secret === "otp" && unmarkedDigit(digit)
+                            : digit.maxLength === 1 && acceptsSecret(digit, value.secret)) ||
+                          inputValueMismatch(digit, value.value[place]!) !== undefined
+                        ? "field-changed"
+                        : undefined;
+                const changed = scope();
+                if (changed) return fail("cancelled", changed);
+                filled.add(digit);
+                // eslint-disable-next-line no-await-in-loop
+                const stopped = await typeValue(digit, value.value[place]!, setter, {
+                  beforeInput:
+                    place === split.length - 1 ? (buttonless ? lastIn : code?.typed) : undefined,
+                  between: scope,
+                });
+                // A page that took the code with its last digit may change or clear its
+                // form at once; the code watch says so first.
+                if (stopped && code?.submitted()) return fail("submitted");
+                if (stopped && taken(digit, stopped)) break;
+                // A digit the page kept out is never followed by the rest.
+                if (stopped === "refused") return fail("fill-rejected", "typed-refused", index);
+                if (stopped) return fail("cancelled", stopped);
+              }
+            } else if (keypads[index]) {
+              // One press per character on the page's keypad (ADR 0067); a stop is
+              // never followed by another press. A keypad field passed `keyable`, so it is
+              // an input, never a split date's select.
+              const keyed = input as HTMLInputElement;
+              filled.add(keyed);
+              let pressed = false;
+              // eslint-disable-next-line no-await-in-loop
+              const stopped = await typeOnKeypad(keyed, value.value, () => keypadOf(index), {
+                stop: waits.signal,
+                // The background learns of the presses before the first one, so only a
+                // page replaced after it may count as the page's own submission.
+                beforePress: async () =>
+                  (await sendMessage("login", {
+                    version: 1,
+                    type: "login.keypad.press",
+                    token,
+                    attemptId: operation.attemptId,
+                    operationId: operation.operationId,
+                  })) === true
+                    ? undefined
+                    : ("not-authorized" as const),
+                onPress: () => {
+                  pressed = true;
+                  keyPressed = true;
+                },
+                // A keypad the page redrew is looked up again for each press; the field
+                // must stay the same input.
+                between: () => {
+                  if (cancelled) return "document-cancelled";
+                  if (pagePath() !== step.path) return "page-changed";
+                  if (!input.isConnected) return "field-gone";
+                  const now = matches(field.target);
+                  return now.length !== 1 ||
+                    now[0] !== input ||
+                    !keyable(input) ||
+                    formOf(input) !== form
+                    ? "field-changed"
+                    : undefined;
+                },
+              });
+              if (stopped === "refused") return fail("fill-rejected", "typed-refused", index);
+              // The field was pressed to open its keypad before a key was missing, so even
+              // without a key press the page may have changed (`mutated`).
+              if (stopped === "key-missing" || stopped === "keypad-closed")
+                return fail("structural-mismatch", "keypad-key-missing");
+              // A page that moved, or took the field out of the document, after a press may
+              // have taken the characters so far as the whole value and submitted them, as
+              // a PIN pad that submits at its last digit: never a cancellation that could
+              // type again. A field the page only redrew or hid is no submission; the stop
+              // keeps `keypad-pressed`, and the person is told to reload.
+              if (pressed && (stopped === "page-changed" || stopped === "field-gone"))
+                return fail("submitted");
+              if (stopped === "field-gone") return fail("cancelled", "field-changed");
+              if (stopped) return fail("cancelled", stopped);
+            } else if (step.effect === "prepare" || buttonless) {
+              // A `detail` handler's input is chosen by its radio button first (ADR 0061);
+              // the page's handlers for that click may change the form, so the checks run
+              // again.
+              if (
+                command.choose &&
+                (!chooseFor(input) ||
+                  cancelled ||
+                  pagePath() !== step.path ||
+                  !isOnly(matches(field.target), input) ||
+                  !takes(input, value.secret) ||
+                  !acceptsSecret(input, value.secret) ||
+                  !stillAsks(input, value.question))
+              )
+                return fail("cancelled", "field-changed");
+              if (input instanceof HTMLInputElement) filled.add(input);
+              // The code goes in now; the page's own reaction is measured from here. The
+              // page may change between characters, so each one repeats the checks. A
+              // split date's select gets its option instead (ADR 0061).
+              // eslint-disable-next-line no-await-in-loop
+              const stopped = await enter(
+                input,
+                value,
+                setter,
+                {
+                  beforeInput: buttonless ? lastIn : code?.typed,
+                  between: () => {
+                    if (cancelled) return "document-cancelled";
+                    if (pagePath() !== step.path) return "page-changed";
+                    const now = matches(field.target);
+                    return now.length !== 1 ||
+                      now[0] !== input ||
+                      !takes(input, value.secret) ||
+                      formOf(input) !== form ||
+                      !acceptsSecret(input, value.secret) ||
+                      !fits(input, value)
+                      ? "field-changed"
+                      : undefined;
+                  },
+                },
+                (option) => chosen.push([input as HTMLSelectElement, option]),
+              );
+              if (stopped && code?.submitted()) return fail("submitted");
+              // A value the page kept a character of out is never submitted.
+              if (stopped && !taken(input, stopped)) {
+                if (stopped === "refused") return fail("fill-rejected", "typed-refused", index);
+                return fail("cancelled", stopped);
+              }
+            } else {
+              // An advance or a submission through the page's own event gets that one event
+              // alone, with no focus, keys or blur that could run its effect again.
+              if (!(input instanceof HTMLInputElement))
+                return fail("structural-mismatch", "unsupported-input");
+              filled.add(input);
+              setter.call(input, value.value);
+              input.dispatchEvent(new Event(step.event!, { bubbles: true }));
+            }
+            value.value = "";
+          }
+          // A fill that submits through its own event ends what the next click checks.
+          if (step.effect !== "prepare") {
+            filled = new WeakSet();
+            chosen = [];
+            shownBefore = undefined;
+          }
+          // A code page that submits the code by itself must not get a click as well: the
+          // button is clicked only when nothing showed a submission during the watch. Its
+          // status regions may announce that submission, so only alerts and the field's own
+          // marks reject the code (ADR 0027).
+          if (code && baseline) {
+            const until = Date.now() + CODE_SETTLE_MS;
+            // eslint-disable-next-line no-unmodified-loop-condition
+            while (!cancelled && Date.now() < until) {
+              if (code.submitted()) return fail("submitted");
+              // eslint-disable-next-line no-await-in-loop
+              await pause(50);
+            }
+            if (cancelled) return fail("cancelled", "document-cancelled");
+            if (code.submitted()) return fail("submitted");
+            const rejection = fillRejection(split ?? writableInputs, baseline, { statuses: false });
+            if (rejection)
+              return fail(
+                "fill-rejected",
+                rejection.detail,
+                rejection.fieldIndex === undefined ? undefined : split ? 0 : rejection.fieldIndex,
+              );
+            return { ok: true, mutation: "possible" };
+          }
+          // A preparing fill is followed by a click; the page's own validation must accept
+          // the values first. An effectful fill has already submitted through its event.
+          if (baseline) {
+            await pause(fillSettleMs);
+            if (cancelled) return fail("cancelled", "document-cancelled");
+            // The page replaced the form, perhaps signing in by itself; the background
+            // observes the page instead of clicking.
+            if (writableInputs.some((input) => !input.isConnected))
+              return fail("structural-mismatch", "form-replaced");
+            // A page that cleared a filled, still writable input changed its form. Repair
+            // that structure before reading required/ARIA/feedback as a rejected value.
+            if (
+              writableInputs.some(
+                (input) =>
+                  input instanceof HTMLInputElement && input.value === "" && writable(input),
+              )
+            )
+              return fail("structural-mismatch", "form-changed");
+            const rejection = fillRejection(writableInputs, baseline);
+            if (rejection) return fail("fill-rejected", rejection.detail, rejection.fieldIndex);
+          }
+          return { ok: true, mutation: "possible" };
+        } finally {
+          code?.stop();
+        }
+      }
+      if (command.values.length) return fail("structural-mismatch", "unexpected-values");
+      if (step.kind === "click" && step.press === "enter")
+        return await pressEnter(step.target, step.purpose === "submit");
+      if (step.kind === "click") {
+        const waited = await deferredLoad();
+        if (waited) return waited;
+        let element: HTMLElement | undefined;
+        if (command.list) {
+          // A chooser's click on its list goes where the list's choice is now (ADR 0028).
+          const choice = listChoice(document, command.list);
+          command.list.username = "";
+          command.list.others.fill("");
+          element = choice.click === command.list.click ? choice.element : undefined;
+          if (!element) return fail("structural-mismatch", "target-missing");
+        } else {
+          // A control named by its accessible name may be a link to a fragment of the page
+          // only as a `password` handler's button (ADR 0048 amendment of 2026-10-19); a route
+          // step's click by that name presses a native button alone (ADR 0048 amendment of
+          // 2026-10-23).
+          const named = step.target.by === "accessible-name";
+          const fragment = named && command.passwordChoice === true;
+          const found = matches(step.target);
+          const only = found.length === 1 ? found[0] : undefined;
+          if (
+            !clickable(only, { fragment }) ||
+            (named && !command.passwordChoice && !isButton(only))
+          )
+            return fail("structural-mismatch", "target-missing");
+          // A `password` handler's button whose text no longer names the password, as one
+          // the page rendered again with other text, is never pressed (ADR 0048).
+          if (command.passwordChoice && !passwordChoice(only, { fragment }))
+            return fail("structural-mismatch", "target-missing");
+          // Likewise an `authenticator` handler's button whose text no longer names an
+          // authenticator app's code (ADR 0081).
+          if (command.authenticatorChoice && !authenticatorChoice(only))
+            return fail("structural-mismatch", "target-missing");
+          element = only;
+        }
+        // A click that submits a form sends it, through the button's own `formaction` too,
+        // only to this document's origin or a destination the background allows (ADR 0051),
+        // also when the element sits inside the submit button or labels it. Any other click
+        // submits no form.
+        const clicked = element;
+        const submitRefused = await destinationRefusal(() => clickDestinations(clicked));
+        if (submitRefused === "document-cancelled" || submitRefused === "operation-expired")
+          return fail("cancelled", submitRefused);
+        if (submitRefused) return fail("structural-mismatch", submitRefused);
+        // The click's form's inputs, or the page's for an element outside a form.
+        const form = isButton(element)
+          ? formOf(element)
+          : (closestAcross(element, "form") as HTMLFormElement | null);
+        const formInputs = form
+          ? inputsOf(form, document)
+          : queryAll<HTMLInputElement>(document, "input");
+        const fills = filled;
+        const choices = chosen;
+        const passwordsBefore = shownBefore;
+        // The next fills are checked against the next click.
+        filled = new WeakSet();
+        chosen = [];
+        shownBefore = undefined;
+        // A select a split date's part was chosen in must still show that option, which
+        // the form-change check below cannot read (ADR 0061).
+        if (
+          choices.some(
+            ([select, option]) => !select.isConnected || select.selectedOptions[0] !== option,
+          )
+        )
+          return fail("cancelled", "field-changed");
+        // A keypad field Pateat filled is read-only, and still a sign-in input of the form
+        // (ADR 0067).
+        const keyed = new Set(
+          formInputs.filter((input) => !writable(input) && fills.has(input) && keyable(input)),
+        );
+        const signIn = (input: HTMLInputElement) => writable(input) || keyed.has(input);
+        // The page changed the form under the fill: never send it without its values.
+        if (
+          unreadyForm(formInputs, {
+            filled: (input) => fills.has(input),
+            shownBefore: (input) => passwordsBefore?.has(input) === true,
+            writable: signIn,
+            submit: step.purpose === "submit",
+          })
+        )
+          return fail("structural-mismatch", "form-changed");
+        const other = deferredOther(step.purpose === "submit");
+        if (other) return other;
+        // An advance's next step is measured in this task, just before the click, and so
+        // is what the page shows before it (ADR 0029).
+        measureNext();
+        submitted = submittedPage(document, formInputs.filter(signIn), keyed);
+        // A CAPTCHA the page shows and that has not passed is left to the person, who
+        // presses the button after solving it; the background reads the page as after a
+        // click (ADR 0029, S4).
+        if (!command.list && showsCaptcha(document) && !passedCaptcha(document))
+          return fail("captcha");
+        mutated = true;
+        // The page may change between the press's events, as the fill's checks allow for:
+        // a press the page stopped after `pointerdown` may have acted as the click, so it is
+        // answered as made; one the moving events already stopped clicked nothing.
+        const pressing = () =>
+          !cancelled && pagePath() === step.path && Date.now() < operation.expiresAt;
+        if ((await pressElement(element, pressing)) === "missed")
+          return cancelled
+            ? fail("cancelled", "document-cancelled")
+            : pagePath() !== step.path
+              ? fail("cancelled", "page-changed")
+              : Date.now() >= operation.expiresAt
+                ? fail("cancelled", "operation-expired")
+                : fail("structural-mismatch", "target-missing");
+        return { ok: true, mutation: "possible" };
+      }
+      // An element that must be missing counts every copy, hidden or not, as a marker's
+      // `absent` element does (ADR 0037 amendment of 2026-10-22).
+      const satisfied = () => {
+        const count = findTargets(document, step.target, { hidden: !step.present }).length;
+        return step.present ? count === 1 : count === 0;
+      };
+      if (step.kind === "assert")
+        return satisfied()
+          ? { ok: true, mutation: "none" }
+          : fail("structural-mismatch", "assert-failed");
+      const until = Math.min(operation.expiresAt, Date.now() + step.timeoutMs);
+      // Cancellation is set by the independent background message listener.
+      // eslint-disable-next-line no-unmodified-loop-condition
+      while (!cancelled && Date.now() < until && pagePath() === step.path) {
+        if (satisfied()) return { ok: true, mutation: "none" };
+        // Check the current DOM serially, again at each change of the page; parallel checks
+        // cannot observe later render states.
+        // eslint-disable-next-line no-await-in-loop
+        await pageChange(document, until, waits.signal);
+      }
+      // The page moving to another path ends the wait early; that is not a timeout.
+      return cancelled
+        ? fail("cancelled", "document-cancelled")
+        : pagePath() !== step.path
+          ? fail("timeout", "page-changed")
+          : fail("timeout");
+    })()
+      // A thrown execution may already have mutated the page. Never advertise a safe retry.
+      .then(
+        (result) =>
+          respond({
+            ...result,
+            ...(before && (result.ok || ("reason" in result && result.reason === "captcha"))
+              ? { before }
+              : {}),
+            ...(siblingsBefore && (result.ok || ("reason" in result && result.reason === "captcha"))
+              ? { siblingsBefore }
+              : {}),
+            operationId: command.operation.operationId,
+            documentId: command.operation.document.documentId,
+          }),
+        () =>
+          respond({
+            ok: false,
+            reason: "cancelled",
+            detail: "threw",
+            mutation: "possible",
+            operationId: command.operation.operationId,
+            documentId: command.operation.document.documentId,
+          }),
+      )
+      .finally(() => {
+        for (const entry of command.values) entry.value = "";
+        if (command.account) command.account.username = "";
+        if (command.list) {
+          command.list.username = "";
+          command.list.others.fill("");
+        }
+      });
+    return true;
+  };
+  /**
+   * After an entry press, a same-document URL change within the step wait is the next page
+   * (ADR 0031): the document announces again so the worker checks it. A press that leads to
+   * a new document needs nothing here; that document announces itself.
+   */
+  function watchPressedUrl(): void {
+    const from = location.href;
+    const listening = new AbortController();
+    const options = { signal: listening.signal };
+    // Every same-document URL change sends one of these (ADR 0082).
+    const look = () => {
+      if (cancelled) return stop();
+      if (location.href === from) return;
+      stop();
+      void announce(false).catch(() => undefined);
+    };
+    const end = setTimeout(stop, LOGIN_STEP_WAIT_MS);
+    function stop(): void {
+      listening.abort();
+      clearTimeout(end);
+    }
+    addEventListener("popstate", look, options);
+    addEventListener("hashchange", look, options);
+    navigation?.addEventListener("currententrychange", look, options);
+    waits.signal.addEventListener("abort", stop, options);
+  }
+  /**
+   * A form with a password input submitted in this document: its next path here, and the
+   * tab's next document if it is of the same origin, are not offered as a list of accounts
+   * (ADR 0028), as a sign-in entry (ADR 0031) or as a page asking for an identifier alone
+   * (ADR 0016). Nothing about the form or its values is
+   * sent. Pateat's own submissions count too; their pages belong to a login anyway.
+   */
+  const onSubmit = (event: Event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    // The person submitted the form of a page Pateat does not fill: only the fact, once per
+    // path, before the page leaves (ADR 0035).
+    const path = pagePath();
+    if (
+      event.isTrusted &&
+      !cancelled &&
+      !personSubmits.has(path) &&
+      confirmForms().includes(form)
+    ) {
+      personSubmits.add(path);
+      void sendMessage("login", {
+        version: 1,
+        type: "login.document.person-submitted",
+        token,
+      }).catch(() => undefined);
+    }
+    if (!inputsOf(form, document).some((input) => input.type === "password")) return;
+    submitPath = pagePath();
+    afterSubmit = undefined;
+    void sendMessage("login", { version: 1, type: "login.document.submitted", token }).catch(
+      () => undefined,
+    );
+  };
+  /**
+   * A same-document URL change after the page's window to be sent closed, as Duolingo's
+   * "I already have an account" routing to its sign-in form in place (2026-10-24), opens a
+   * new window of the step wait for a sign-in input alone: one that shows within it is
+   * announced, once, and the background decides as for a new page. Nothing is sent for a
+   * route without one, and a list of accounts, an identifier alone or an entry is still
+   * offered only after a load. Only once the background answered that the page may be
+   * sent and no login took it over since, so a login under way is never announced over.
+   */
+  let urlWatch: (() => void) | undefined;
+  /**
+   * Paths of this document whose sign-in input was announced to be sent, and the watch
+   * that, once the page's window to be sent closed, announces a sign-in input shown in
+   * place later, as Discord's form after "Add an account" (2026-11-04), once per path
+   * (ADR 0016, amended 2026-11-04). Only while the background answered that the page may
+   * be sent and no login took it over since; the background decides as for a new page.
+   */
+  const offeredPaths = new Set<string>();
+  let lateWatch: (() => void) | undefined;
+  function watchLate(): void {
+    if (lateWatch || cancelled || !mayOffer || !offered || submitPath !== undefined) return;
+    let pending = false;
+    let stopped = false;
+    let lookedAt = Number.NEGATIVE_INFINITY;
+    const observed = new WeakSet<ShadowRoot>();
+    const look = () => {
+      pending = false;
+      if (stopped) return;
+      // A submitted password form signed the page in: its later forms, as a re-entry of
+      // the password on a settings page, are not sent.
+      if (cancelled || !mayOffer || !offered || submitPath !== undefined) return stop();
+      lookedAt = Date.now();
+      // Shadow trees attached since the last look are watched too (ADR 0070).
+      for (const root of shadowRoots(document))
+        if (!observed.has(root)) {
+          observed.add(root);
+          changes.observe(root, pageWatch);
+        }
+      // An open window, after a load or a URL change, offers the input itself.
+      if (offerWindow !== undefined || urlWatch) return;
+      const path = pagePath();
+      if (offeredPaths.has(path) || !showsSignIn() || starts.some(ready) || afterSubmitted())
+        return;
+      offeredPaths.add(path);
+      void announce(false, true, undefined, false, false, true).catch(() => undefined);
+    };
+    // One look per frame of the page, at most once per `checkGapMs` (ADR 0082).
+    const later = () => {
+      if (pending) return;
+      pending = true;
+      const gap = lookedAt + checkGapMs - Date.now();
+      if (gap <= 0) void nextFrame().then(look);
+      else setTimeout(() => void nextFrame().then(look), gap);
+    };
+    const changes = new MutationObserver(later);
+    changes.observe(document, pageWatch);
+    function stop(): void {
+      stopped = true;
+      changes.disconnect();
+      if (lateWatch === stop) lateWatch = undefined;
+    }
+    lateWatch = stop;
+    later();
+  }
+  const urlChanged = () => {
+    if (!cancelled && pagePath() !== routePath) {
+      routePath = pagePath();
+      if (carrying)
+        void sendMessage("login", { version: 1, type: "login.document.moved", token }).catch(
+          () => undefined,
+        );
+    }
+    if (cancelled || pageUrl() === offerUrl) return;
+    offerUrl = pageUrl();
+    if (!mayOffer || !offered || offerWindow !== undefined) return;
+    urlWatch?.();
+    // One look per frame of the page, however many changes come before it (ADR 0082).
+    let pending = false;
+    let stopped = false;
+    const look = () => {
+      pending = false;
+      if (stopped) return;
+      if (cancelled || !mayOffer) return stop();
+      if (!showsSignIn() || starts.some(ready) || afterSubmitted()) return;
+      stop();
+      offeredPaths.add(pagePath());
+      void announce(false, true, undefined, false, false, true).catch(() => undefined);
+    };
+    const later = () => {
+      if (pending) return;
+      pending = true;
+      void nextFrame().then(look);
+    };
+    const changes = new MutationObserver(later);
+    changes.observe(document, pageWatch);
+    const end = setTimeout(stop, LOGIN_STEP_WAIT_MS);
+    function stop(): void {
+      stopped = true;
+      changes.disconnect();
+      clearTimeout(end);
+      if (urlWatch === stop) urlWatch = undefined;
+      watchLate();
+    }
+    urlWatch = stop;
+    later();
+  };
+  document.addEventListener("submit", onSubmit, true);
+  addEventListener("popstate", urlChanged);
+  navigation?.addEventListener("currententrychange", urlChanged);
+  browser.runtime.onMessage.addListener(listener);
+  void announce(false).catch(() => undefined);
+  return () => {
+    cancelled = true;
+    waits.abort();
+    removeEventListener("popstate", urlChanged);
+    navigation?.removeEventListener("currententrychange", urlChanged);
+    urlWatch?.();
+    lateWatch?.();
+    unwatch();
+    frameWatch?.();
+    followConfirmPath(undefined);
+    document.removeEventListener("submit", onSubmit, true);
+    submitListeners.abort();
+    browser.runtime.onMessage.removeListener(listener);
+  };
+}
