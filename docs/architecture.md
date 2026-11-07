@@ -579,6 +579,9 @@ guess:
 
 ### Unsupported vault session cases
 
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
+
 These cases of the crypto host and the vault manager are known and not handled; each
 fails as stated rather than retrying:
 
@@ -3624,6 +3627,9 @@ implementation. Timeouts, request limits, bounded retries and sanitized
 diagnostics remain necessary.
 
 ### Service limits
+
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
 
 Status: implemented, except the recipe byte cap below, which the owner chose on
 2026-10-14 (07:56 UTC) and [#550](https://github.com/risu729/pateat/issues/550) builds.
