@@ -148,6 +148,11 @@ describe("a totp handler's code (ADR 0027 amendment of 2026-11-07)", () => {
       "one moved off the screen",
       '<input id="site" type="text" style="position:absolute;left:-9999px">',
     ],
+    ["a transparent one", '<input id="site" type="text" style="opacity:0">'],
+    [
+      "a tiny one",
+      '<input id="site" type="tel" maxlength="1" style="box-sizing:border-box;width:1px;height:1px;padding:0;border:0">',
+    ],
   ])("leaves out %s hidden as the description leaves it out", async (_label, decoy) => {
     // A honeypot, or a field for SMS autofill, that the service never saw.
     await install(`<form>${decoy}${digits('autocomplete="one-time-code"')}${button}</form>`);
@@ -159,6 +164,14 @@ describe("a totp handler's code (ADR 0027 amendment of 2026-11-07)", () => {
   it("never types a code of another length whole into the first digit input", async () => {
     await install(`<form>${digits('autocomplete="one-time-code"')}${button}</form>`);
     expect(await fillCode("d0", "1234567")).toMatchObject({ ok: false, reason: "value-mismatch" });
+    expect(values()).toEqual(["", "", "", "", "", ""]);
+  });
+
+  it("never types the code whole into the first of digits beside another field", async () => {
+    await install(
+      `<form><input id="mail" type="email">${digits('autocomplete="one-time-code"')}${button}</form>`,
+    );
+    expect(await fillCode("d0")).toMatchObject({ ok: false, reason: "value-mismatch" });
     expect(values()).toEqual(["", "", "", "", "", ""]);
   });
 

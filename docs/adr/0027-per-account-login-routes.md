@@ -1688,12 +1688,13 @@ Decision:
   refuses the split and takes no digit. An email or other text input still refuses it.
   The shape the digits keep is the one-digit shape only when every input declares
   `maxlength` 1 and passes the TOTP fill rule.
-- Nor does the login count an input the description leaves out as hidden, such as a
-  honeypot or an SMS autofill field hidden from assistive technology or moved off the
-  screen: such an input takes no digit. A code whose length differs from the number of
-  inputs, as an item's code for a site that asks for another number of digits, is not
-  typed whole into the first of them: the fill ends `value-mismatch` and the login goes
-  to the person.
+- Nor does the login count an input the description leaves out as not shown, such as a
+  honeypot or an SMS autofill field hidden from assistive technology, moved off the
+  screen, transparent or tiny: such an input takes no digit. A code is never typed whole
+  into the first of inputs that would split it once the form's other inputs are left
+  out, or that split a code of another length, as an item's code for a site that asks
+  for another number of digits: the fill ends `value-mismatch` and the login goes to the
+  person.
 - A text input with `inputmode="numeric"`, no `maxlength` (or 0 or one past 1024, which
   the description leaves out) and no `autocomplete` but `off` (`judgedCodeInput`) may be
   a `totp` handler's code field when the judge names it, under the other checks of
