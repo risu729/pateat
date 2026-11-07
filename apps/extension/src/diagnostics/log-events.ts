@@ -378,6 +378,7 @@ export const LOG_EVENTS = {
       paused: "flag",
       held: "flag",
       rejectedElsewhere: "flag",
+      frame: "flag",
       recordState: "code",
       recordOutcome: "code",
       pageReason: "code",

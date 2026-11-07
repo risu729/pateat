@@ -415,6 +415,8 @@ export type LoginReport = (
       held?: true;
       /** The site rejected another tab's login, so the popup chooses no account. */
       rejectedElsewhere?: true;
+      /** The choice waits in a frame of the tab's page, for the frame's origin (ADR 0086). */
+      frame?: true;
       recordState?: string;
       recordOutcome?: string;
       pageReason?: string;

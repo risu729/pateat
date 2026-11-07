@@ -172,7 +172,12 @@ export async function admit(
       ),
     );
     for (const [index, [other]] of frames.entries())
-      if (!answers[index]) rt.documents.delete(other);
+      if (!answers[index]) {
+        rt.documents.delete(other);
+        // A choice that waited in a frame of the old page ends with it, badge and all.
+        const framed = rt.pending.get(document.tabId);
+        if (framed && frameKey(framed.document) === other) clearChoice(rt, document.tabId);
+      }
     if (rt.hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
     owner = tabAttempt(rt, document.tabId);
     const holder = owner && rt.documents.get(frameKey(owner.document));

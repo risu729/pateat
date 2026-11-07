@@ -486,4 +486,20 @@ describe("pageStatusLines", () => {
       "Pateat did not log in: Pateat already holds as many login records as it can.",
     );
   });
+
+  it("says a sign-in form the page embeds from another site is not logged in to (ADR 0086)", () => {
+    expect(
+      lines({
+        origin: "https://evil.example",
+        mismatchedFrame: { origin: "https://idmsa.apple.com" },
+      }),
+    ).toEqual([
+      ["recipe", "idle", "This site has no recipe yet."],
+      [
+        "frame-mismatch",
+        "idle",
+        "Pateat does not log in to the sign-in form this page embeds from idmsa.apple.com, because this page (evil.example) does not match the vault item.",
+      ],
+    ]);
+  });
 });

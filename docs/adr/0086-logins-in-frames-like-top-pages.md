@@ -11,8 +11,8 @@ frame's login), [ADR 0022](0022-login-attempts-per-tab-and-origin.md) (moves),
 [ADR 0027](0027-per-account-login-routes.md) (which logins are watched) and
 [ADR 0029](0029-local-sign-in-state.md) (frames are read).
 
-Delivery 1, the reading after a step and the tab's new page, is implemented. Deliveries
-2 and 3 are not.
+Delivery 1, the reading after a step and the tab's new page, and delivery 2, the popup,
+are implemented. Delivery 3 is not.
 
 Date: 2026-11-07
 
@@ -94,17 +94,29 @@ otherwise nothing changes for that frame:
   the login ends without resubmitting, `cancelled` as before (ADR 0017), and a watched
   one ends where it stopped. Each miss is logged as `login.move`, with `no-vault-match`
   for a page the item does not match.
-- After the sign-in form showed again with nothing else in a frame, the tab does not ask
-  for an account again (ADR 0021 D) until the popup can offer a choice that waits in a
-  frame (delivery 2); the login stays watched instead (chosen by an agent).
+- After the sign-in form showed again with nothing else in a frame, the tab asks for an
+  account again (ADR 0021 D) in that frame, whose document is asked to announce again,
+  as the tab's page is for a top-level login. Until delivery 2 the login stayed watched
+  instead (chosen by an agent).
 
 ### Delivery 2: the popup
 
-- While a login in a frame of the tab waits for an account, the popup offers the
-  choice for the frame's origin, so a person with two Apple items can pick one.
+- While a login in a frame of the tab waits for an account, the popup offers the choice
+  for the frame's origin, so a person with two Apple items can pick one. The choice says
+  the sign-in form is embedded in this page from the frame's host, lists the frame
+  origin's default first, and "Make it the default for" names the frame's host, since
+  the pick's default is saved for the frame's origin (ADR 0017). The page's own default
+  list stays beside it, named "Default account for" the page's host (chosen by an
+  agent). A frame of the page's own origin waits as the page does. The choice ends,
+  badge and all, once the tab shows another page than the one the frame was announced
+  in, or a new page replaced the frame's. The choice answer carries `frame`, and so does
+  `login.popup`.
 - A frame refused because only its own URL matches the item (`frame-top-mismatch`) is
   explained in the popup: the sign-in form embedded in this page (`idmsa.apple.com`) is
-  not logged in to because this page (`evil.example`) does not match the item.
+  not logged in to because this page (`evil.example`) does not match the item. The
+  page's status carries the frame's origin as `mismatchedFrame`, only for a frame
+  announced in the page the tab still shows, and the page section shows the line under
+  the login's.
 
 ### Delivery 3: generation
 
