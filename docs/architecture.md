@@ -266,6 +266,11 @@ the pinned SDK, independently of vault-unlock parameters. Provider settings, cac
 reconciliation and persistent unlock still need their own integration and acceptance
 tests.
 
+The background broker in `apps/extension/src/crypto/host.ts` checks successful replies
+through `host-result.ts`, whose pure admission rules bind each result to its requested
+operation and account. The broker retains cancellation, session retirement and the
+checks before and after its asynchronous checkpoint.
+
 The background host uses a packaged offscreen document with the `WORKERS`
 reason to construct Dedicated Workers. A private runtime Port starts in that
 document; the background validates its browser-supplied extension identity and
@@ -571,6 +576,9 @@ guess:
 
 ### Unsupported vault session cases
 
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
+
 These cases of the crypto host and the vault manager are known and not handled; each
 fails as stated rather than retrying:
 
@@ -609,6 +617,9 @@ fails as stated rather than retrying:
   for the open.
 
 ## Settings, eligibility and operation grants
+
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
 
 Settings, exclusions, account defaults and inference settings are edited on the
 service's owner-authenticated web UI
@@ -823,6 +834,9 @@ A hostname ending in a dot (`example.com.`) is accepted, and exclusion rules mat
 saved for `https://example.com` does not apply on `https://example.com.`.
 
 ### Unsupported cases in the popup and settings page
+
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
 
 Checked against the code on 2026-10-17:
 
@@ -2749,6 +2763,20 @@ and request log row. A device's own document marks only the units it changed or 
 Delete all clears their device and log row. `/manage` shows the model and time of each
 layout's first page.
 
+The shared `canonicalJson` helper in `packages/contracts` serializes each unit's
+content before hashing: object keys in code-unit order (including integer-like
+keys), omitted `undefined` object members and preserved array order. Undefined
+array elements and holes serialize as `null`; parsed recipes never contain either.
+Inputs are plain JSON-shaped data without cycles or custom `toJSON` methods.
+Login recipe equality uses the same helper.
+
+Custom-field evidence uses it too. Its admitted material has only the named keys
+`fields`, `key`, `organizationId` or `data`; each field retains only `name`,
+`value`, `type` and `linkedId` through the Bitwarden cipher admission schema.
+Sealed `data` stays an opaque string. No integer-like object key reaches that
+hash, so code-unit order produces the previous serialization despite JavaScript's
+integer-key enumeration rule. One shared order suffices for both hashes.
+
 A generated recipe has no signed-in marker until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
 reports `authenticated` with it only when the sign-in state of
@@ -3353,6 +3381,9 @@ as stated, never as a guessed recipe:
 
 ## Existing passkeys
 
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
+
 Register the MAIN-world bridge at document start without waiting for remote
 configuration. Relay permitted WebAuthn requests to local signing code, then
 return standards-compatible assertions. Validate challenge, RP ID, origin,
@@ -3509,6 +3540,9 @@ browser's own handling would differ.
 
 ## Minimal service
 
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
+
 Use one optional Cloudflare Worker and D1 for private settings/recipe revisions
 and inference. Do not add queues, Durable Objects, browser rendering,
 vector search, or an agent framework without a demonstrated need. Use bound SQL
@@ -3614,6 +3648,9 @@ implementation. Timeouts, request limits, bounded retries and sanitized
 diagnostics remain necessary.
 
 ### Service limits
+
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
 
 Status: implemented, except the recipe byte cap below, which the owner chose on
 2026-10-14 (07:56 UTC) and [#550](https://github.com/risu729/pateat/issues/550) builds.
