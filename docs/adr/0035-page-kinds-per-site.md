@@ -311,18 +311,18 @@ followed the same day, all local, with these readings:
   writable `type="text"` input whose name or label pairs a secret word (`secret`,
   `security`, `memorable`, `challenge`) with an answer word (`answer`, `question`,
   `word`, `phrase`), or holds a phrase such as `合言葉`, `秘密の質問` or `質問の答え`,
-  spelled in kanji, hiragana or katakana (`秘密のこたえ`, as moppy labels its answer,
+  or one of their kanji or kana spellings (`秘密のこたえ`, as moppy labels its answer,
   [#1376](https://github.com/risu729/pateat/issues/1376)), and no sign-in reason holds;
-  short texts beside its button are then not read as a list of accounts, and the page
-  is not offered as a site's sign-in entry
-  ([ADR 0031](0031-sign-in-entry-pages.md)) even when its URL names the page it guards. The case the count exists for, a person who signed in earlier, is
-  counted. On the tab's next document after a password submit the page is part of that
-  sign-in and logs `nothing-offered` `after-sign-in`; after Pateat's own login of the
-  origin in the tab it is not offered for generation, so not counted. `frame` counts
-  when a frame whose page would be sent now shows
-  a sign-in input or such an answer at one of five readings within the step wait. Each
-  logs `recipe.generate` `skipped` with that reason at info, and the bug report counts
-  them over 24 hours, like passkey delegations.
+  short texts beside its button are then not read as a list of accounts, and the page is
+  not offered as a site's sign-in entry ([ADR 0031](0031-sign-in-entry-pages.md)) even
+  when its URL names the page it guards. The case the count exists for, a person who
+  signed in earlier, is counted. On the tab's next document after a password submit the
+  page is part of that sign-in and logs `nothing-offered` `after-sign-in`; after
+  Pateat's own login of the origin in the tab it is not offered for generation, so not
+  counted. `frame` counts when a frame whose page would be sent now shows a sign-in
+  input or such an answer at one of five readings within the step wait. Each logs
+  `recipe.generate` `skipped` with that reason at info, and the bug report counts them
+  over 24 hours, like passkey delegations.
 
 ## Consequences
 

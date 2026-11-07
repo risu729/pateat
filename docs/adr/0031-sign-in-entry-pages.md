@@ -132,7 +132,8 @@ recipe, or is generated, as any login page is today; on pixiv that is the
   recipe starts, and that 10 seconds after loading shows no sign-in input. Its URL must
   carry a query value naming another path of the same site, such as
   `return_to=/bookmark_new_illust.php`. ADR 0016's 10-minute retry window applies. A
-  page asking a secret answer is a verification, never an entry, and is only counted
+  page asking a secret answer is a verification, never an entry, and is counted when
+  nothing else is offered
   ([ADR 0035](0035-page-kinds-per-site.md#implementation-of-delivery-1), 2026-11-07,
   [#1376](https://github.com/risu729/pateat/issues/1376)).
 - **What the AI sees and answers.** The visible, enabled buttons and links that carry

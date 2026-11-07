@@ -41,22 +41,17 @@ const otherParts = ["検索", "クーポン", "注文", "追跡", "メルマガ"
  */
 const secretWords: ReadonlySet<string> = new Set(["secret", "security", "memorable", "challenge"]);
 const answerWords: ReadonlySet<string> = new Set(["answer", "question", "word", "phrase"]);
-const answerParts = [
-  "合言葉",
-  "あいことば",
-  "秘密の質問",
-  "秘密の答",
-  "秘密のこたえ",
-  "秘密の回答",
-  "ひみつのしつもん",
-  "ひみつのこたえ",
-  "質問の答",
-  "質問のこたえ",
-  "質問の回答",
-];
 /**
- * `text` folded for the Japanese phrases: NFKC, then katakana as hiragana, so `秘密のコタエ`
- * and `秘密のこたえ` read alike.
+ * The Japanese phrases, read on kana-folded text (`kanaFolded`): the secret question or its
+ * answer (`秘密の質問`, `秘密のこたえ`, `ひみつの答え`), a question's answer (`質問の回答`,
+ * `しつもんのこたえ`) and the passphrase (`合言葉`, `合い言葉`, `あいことば`), each in kanji or
+ * kana.
+ */
+const answerPhrase =
+  /(?:秘密|ひみつ)の(?:質問|しつもん|答|こたえ|回答|かいとう)|(?:質問|しつもん)の(?:答|こたえ|回答|かいとう)|合い?言葉|あいことば/u;
+/**
+ * `text` folded for the Japanese phrases: NFKC, so half-width katakana is full-width, then
+ * katakana as hiragana, so `秘密のコタエ` and `秘密のこたえ` read alike.
  */
 function kanaFolded(text: string): string {
   return text
@@ -68,8 +63,7 @@ function namesAnswer(text: string): boolean {
   const found = words(text);
   if (found.some((word) => secretWords.has(word)) && found.some((word) => answerWords.has(word)))
     return true;
-  const kana = kanaFolded(text);
-  return answerParts.some((part) => kana.includes(part));
+  return answerPhrase.test(kanaFolded(text));
 }
 
 /** Text-like input types, of which a page asking for an identifier alone shows one. */
@@ -190,10 +184,10 @@ export function identifierInput(document: Document): "sole" | "email" | undefine
  * Whether the page shows a visible, writable `type="text"` input for the answer to a secret
  * question (ADR 0035): its name, id, placeholder, `aria-label` or label names a secret or
  * security answer or question, as `secretAnswer`, `Security question answer`, `秘密の質問の答え`,
- * `秘密のこたえ` (#1376) or `合言葉`. Such a page looks like a verification, so it is never
- * sent: neither as a sign-in page (no generation trigger of ADR 0016 holds) nor as a site's
- * sign-in entry (ADR 0031), and is only counted. A search box and an input in a sign-up
- * form do not count. Only the page's own markup is read, never a value.
+ * `秘密のこたえ` (#1376) or `合言葉`. Such a page looks like a verification: such an input
+ * meets no generation trigger of ADR 0016, the page is never offered as a site's sign-in
+ * entry (ADR 0031), and it is counted when nothing else is offered. A search box and an
+ * input in a sign-up form do not count. Only the page's own markup is read, never a value.
  */
 export function answerInput(document: Document): boolean {
   return queryAll<HTMLInputElement>(document, "input").some(
