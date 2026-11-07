@@ -3365,6 +3365,44 @@ describe("page judgement (ADR 0027)", () => {
     ]);
   });
 
+  // Epic Games' and HCP Cloud's code pages, 2026-11-07 16:26 and 16:29 UTC: the judge named
+  // the code field, the code rules refused it, and the page was kept `challenge` with no
+  // handler. A page whose inputs the rules read otherwise is judged again (ADR 0027
+  // amendment of 2026-11-07).
+  it("judges a challenge page again once the code rules read its inputs otherwise", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const verify = element("verify", "button", "Continue");
+    const plain = {
+      ...element("code", "text", "Enter your one-time code"),
+      autocomplete: "off" as const,
+    };
+    const reply = () =>
+      judgeReply({
+        decision: "challenge",
+        code: { field: "code", submit: "verify", source: "authenticator-app" },
+      });
+    const refused = observation("/u/mfa-otp-challenge", [plain, verify]);
+    replies.push(reply());
+    expect((await complete(device, change.recipeId, 2, refused)).body).toEqual({
+      version: 1,
+      status: "challenge",
+    });
+    const calls = sent.length;
+    // The same field, with nothing but its numeric keyboard added, is a code input now.
+    const read = observation("/u/mfa-otp-challenge", [
+      { ...plain, inputMode: "numeric" as const },
+      verify,
+    ]);
+    expect(await judgedInputs(read)).not.toBe(await judgedInputs(refused));
+    replies.push(reply());
+    expect((await complete(device, change.recipeId, 2, read)).body).toMatchObject({
+      status: "challenge",
+      change: { revision: 3 },
+    });
+    expect(sent).toHaveLength(calls + 1);
+  });
+
   it("keeps a challenge when its page judged again gets no new verdict", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);

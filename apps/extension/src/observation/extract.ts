@@ -18,7 +18,7 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import { acceptsSecret, shortNumericInput } from "../login/inputs";
+import { codeInput, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { authenticatorChoice } from "../page/authenticator-choice";
 import { splitCodeOf } from "../page/code-submission";
@@ -2829,7 +2829,7 @@ function describeSignedIn(document: Document): ObservationResult {
   const codePage = fieldEntries.some(
     ({ draft: { element } }) =>
       element instanceof HTMLInputElement &&
-      acceptsSecret(element, "otp") &&
+      codeInput(element) &&
       (element.type !== "number" || autocompleteTokens(element).includes("one-time-code")),
   );
   const linkShares = (element: Element) => {

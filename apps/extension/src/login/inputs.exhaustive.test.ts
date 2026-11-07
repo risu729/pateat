@@ -8,6 +8,7 @@ import {
   detailLength,
   detailPartFormatSchema,
   isCodeField,
+  judgedCodeInput,
   type LoginDetail,
   loginDetailSchema,
   type ObservedCandidate,
@@ -192,6 +193,14 @@ describe("the service's input checks and the executor's, over every input", () =
   it("fills a TOTP code into every input the service counts as a code field (ADR 0013)", () => {
     const broken = inputs.filter(
       (input) => isCodeField(described(input)) && !acceptsSecret(input, "otp"),
+    );
+    expect(broken.slice(0, 5).map(shown)).toEqual([]);
+  });
+
+  it("fills a TOTP code into every input the service takes as the judge's code field", () => {
+    // ADR 0027 amendment of 2026-11-07.
+    const broken = inputs.filter(
+      (input) => judgedCodeInput(described(input)) && !acceptsSecret(input, "otp"),
     );
     expect(broken.slice(0, 5).map(shown)).toEqual([]);
   });

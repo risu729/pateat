@@ -902,3 +902,19 @@ CAPTCHA closed there, so it settles a form shown after one as before.
   by itself); a longer fixed budget after every click (a fixed wait, ADR 0082); reading
   the watched login's own document again (it would undo the rule that a settled document
   is not read twice for every page, not only one with a CAPTCHA).
+
+## Amendment: the inputs' digest reads them as the code rules do (2026-11-07)
+
+Epic Games' and HCP Cloud's code pages were judged `challenge` on 2026-11-07 at 16:26
+and 16:29 UTC, and the code rules of the time dropped the code the judge named (ADR 0027
+amendment of 2026-11-07). Their rows kept `challenge` with the digest of their inputs,
+so once the rules took those inputs, a later login would still have been answered
+`judged-challenge` with no model call and no handler.
+
+The digest of a judged page's inputs (`judgedInputs`) now also holds, for each input,
+whether the service reads it as a code input: of a split code (`splitCodeInputs`), on
+its own (`isCodeField` or `judgedCodeInput`), or not. A page whose inputs a change of
+those rules reads otherwise is judged again once, as for other inputs; pages the change
+does not touch keep their answer. Every row kept before this change holds a digest of
+the older form, so each page kept `challenge` is judged again once, within the recipe's
+20 judgements a day.

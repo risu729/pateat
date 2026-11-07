@@ -1646,3 +1646,51 @@ press it instead of the sign-in button.
 - The generation instructions are unchanged: on a passkey-only page or beside a list
   such a link no longer reaches the model, and elsewhere a `passkeyButton` naming one is
   dropped silently, as a registration button is.
+
+## Amendment 2026-11-07: code inputs the judge names without maxlength
+
+Chosen by an agent, not asked, for the owner's report of 2026-11-07 16:30 UTC that the
+authenticator code was not filled on HCP Cloud and Epic Games. In both logins, in the
+owner's Chrome on build `8364867e`, the judge named the code field and its button with
+source `authenticator-app`, and the service dropped the code, so no `totp` handler was
+kept and the login stopped at the code page for the person:
+
+- Epic Games, `www.epicgames.com/id/login/mfa` (16:26:39 UTC, request
+  `01a1b6d5-6134-75fe-be85-2845594c3fba`): six `<input type="text" inputmode="numeric"
+  autocomplete="one-time-code">` named `code-input-0` to `code-input-5`, none with a
+  `maxlength`, and the button `#continue`. Each passed `isCodeField` by its
+  `autocomplete`, but the split code rule needed `maxlength` 1, so they read as several
+  code fields (`totpDropped: "several-code-fields"`). The extension's split rule of the
+  amendment of 2026-11-04 already took them: Notion's inputs passed only because just
+  the first was marked.
+- HCP Cloud, `auth.hashicorp.com/u/mfa-otp-challenge` (16:29:50 UTC, request
+  `01a1b6d8-4b3b-735f-9fd9-3a0abce73fb6`): one `<input type="text" id="code"
+  inputmode="numeric" autocomplete="off">` labelled "Enter your one-time code", with no
+  `maxlength`, so neither `isCodeField` nor the extension's TOTP fill rule took it
+  (`totpDropped: "not-code-field"`).
+
+Decision:
+
+- The service's split code (`splitCodeInputs` in
+  `packages/contracts/src/observation.ts`) also takes the extension's shape of
+  2026-11-04: every fill-role input of the form, 6 to 8, none located by its text, the
+  first marked `one-time-code` without a `maxlength`, each a text input with
+  `inputmode="numeric"`, or a `tel` or `number` input, without a `maxlength` or with 1,
+  and with no `autocomplete` but `off` or `one-time-code`. The handler names the first;
+  the login types one digit per input as before.
+- A text input with `inputmode="numeric"`, no `maxlength` (or one past 1024, which the
+  description leaves out) and no `autocomplete` but `off` (`judgedCodeInput`) may be a
+  `totp` handler's code field when the judge names it, under the other checks of
+  `totpCodeRefusal`; another such input or code input in its form refuses it
+  (`several-code-fields`). The extension's TOTP fill rule (`acceptsSecret` for `otp`)
+  takes the same input, reading `autocomplete` as the description does: a token it does
+  not describe, such as `cc-csc`, counts as none. A `tel` input without a `maxlength`
+  still does not, as a phone number's field is one, nor a number input.
+- Only the judge's code takes such an input. `isCodeField` is unchanged, so such an
+  input does not make a page a code page anywhere else: not for a recipe's own `totp`
+  slot, not for the sign-in state's S3, not for locating role buttons by text (ADR 0027
+  amendment of 2026-11-04) and not for the signed-in marker checks. A numeric input with
+  no limit is also a quantity, postal code or member number on many pages; there the
+  judge's answer is what names it a code.
+- The two pages' rows kept `challenge` with their inputs' digest; ADR 0029's amendment
+  of 2026-11-07 judges them again.
