@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import {
-  getItemEligibility,
   isSiteExcluded,
   normalizeHostname,
   parseSiteUrl,
@@ -23,7 +22,7 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import { pauseSite } from "../login/pause";
 import { unavailableReason } from "./unavailable-reason";
@@ -35,11 +34,22 @@ import {
   fieldClass,
   Panel,
   RowList,
-  RowTitle,
   StatusLines,
   type Tone,
 } from "./ui";
 
+import { SiteRow, DefaultAccountEditor } from "./site-policy-rows";
+import {
+  siteAccountOptions,
+  matchedBy,
+  NO_DEFAULT,
+  SAVED_ELSEWHERE,
+  defaultFor,
+  replaceDefault,
+  hostOf,
+  ruleFor,
+} from "./site-policy-rules";
+export { siteAccountOptions } from "./site-policy-rules";
 type ExcludedSite = LocalSettings["excludedSites"][number];
 /**
  * An HTTP(S) origin with nothing after the host and port, as its canonical `URL.origin`:
@@ -56,258 +66,13 @@ const originSchema = v.pipe(
   v.transform((value) => new URL(value).origin),
 );
 
-type SiteAccountOption = {
-  connectionId: string;
-  connectionLabel: string;
-  provider: string;
-  server: string;
-  userId: string | undefined;
-  itemId: string;
-  itemName: string;
-  uri: boolean;
-  passkey: boolean;
-  value: string;
-  /** The item name, then the login username when it matched, then an ID prefix if still ambiguous. */
-  label: string;
-};
-
-/** Whether the draft lets an item be used at all; a passkey-only item has no fields. */
-function draftAllows(
-  draft: LocalSettings,
-  catalog: VaultCatalog,
-  connectionId: string,
-  itemId: string,
-) {
-  const connection = catalog.connections.find((entry) => entry.id === connectionId);
-  if (connection?.quarantinedItemIds?.includes(itemId)) return false;
-  const eligibility = getItemEligibility(draft, catalog, connectionId, itemId);
-  return (
-    eligibility.eligible ||
-    (eligibility.reason === "fields-excluded" &&
-      connection?.items.find((entry) => entry.id === itemId)?.fields.length === 0)
-  );
-}
-
-/**
- * Matched items that are still in the catalog, matched ones first, each group in catalog
- * order. With `all`, every other item the draft allows is listed too, for a URI rule on a
- * deeper path that `origin/` does not match.
- */
-export function siteAccountOptions(
-  catalog: VaultCatalog,
-  found: Extract<SiteAccountsResponse, { ok: true }> | undefined,
-  all: boolean,
-  draft: LocalSettings,
-): SiteAccountOption[] {
-  if (!found) return [];
-  const options = catalog.connections.flatMap((connection) =>
-    connection.items.flatMap((item) => {
-      const match = found.accounts.find(
-        (entry) => entry.connectionId === connection.id && entry.itemId === item.id,
-      );
-      return match || (all && draftAllows(draft, catalog, connection.id, item.id))
-        ? [
-            {
-              connectionId: connection.id,
-              connectionLabel: connection.label,
-              provider: connection.provider,
-              server: connection.server,
-              userId: connection.userId,
-              itemId: item.id,
-              itemName: item.label,
-              uri: match?.uri ?? false,
-              passkey: match?.passkey ?? false,
-              value: JSON.stringify([connection.id, item.id]),
-              label: match?.username ? `${item.label} · ${match.username}` : item.label,
-            },
-          ]
-        : [];
-    }),
-  );
-  options.sort(
-    (left, right) => Number(right.uri || right.passkey) - Number(left.uri || left.passkey),
-  );
-  const seen = new Map<string, number>();
-  for (const option of options) {
-    const key = JSON.stringify([option.connectionId, option.label]);
-    seen.set(key, (seen.get(key) ?? 0) + 1);
-  }
-  return options.map((option) =>
-    (seen.get(JSON.stringify([option.connectionId, option.label])) ?? 0) > 1
-      ? { ...option, label: `${option.label} · ID ${option.itemId.slice(0, 8)}` }
-      : option,
-  );
-}
-
-function matchedBy(option: Pick<SiteAccountOption, "uri" | "passkey">): string {
-  if (option.uri && option.passkey) return "URI and passkey";
-  if (option.uri) return "URI";
-  return option.passkey ? "passkey" : "no match for this origin";
-}
-
 export const SITE_ACCOUNTS_DELAY_MS = 300;
 const WAIT_FOR_ACCOUNTS = "Wait until the matching accounts are listed.";
-/** The select value that removes an origin's default. */
-const NO_DEFAULT = "";
-/** The select value of a saved default that no connection here names. */
-const SAVED_ELSEWHERE = "saved";
-
-/**
- * The default an option makes for an origin, or why it cannot be saved. A default names the
- * account, so it must lead back to the chosen connection.
- */
-function defaultFor(
-  origin: string,
-  option: SiteAccountOption | undefined,
-  catalog: VaultCatalog,
-): { ok: true; value: SiteDefault } | { ok: false; message: string } {
-  const userId = option?.userId;
-  if (!option || !userId) return { ok: false, message: "Choose an available default account." };
-  const value = {
-    origin,
-    provider: option.provider,
-    server: option.server,
-    userId,
-    itemId: option.itemId,
-    itemName: option.itemName,
-    accountName: option.connectionLabel,
-  };
-  const mapped = siteDefaultConnection(value, catalog);
-  if (!mapped.ok || mapped.connectionId !== option.connectionId)
-    return {
-      ok: false,
-      message: unavailableReason(mapped.ok ? "account-ambiguous" : mapped.reason),
-    };
-  return { ok: true, value };
-}
-
-function replaceDefault(settings: LocalSettings, origin: string, value?: SiteDefault) {
-  settings.siteDefaults = settings.siteDefaults.filter((entry) => entry.origin !== origin);
-  if (value) settings.siteDefaults.push(value);
-}
 
 function ruleName(rule: ExcludedSite): string {
   return rule.includeSubdomains
     ? i18n.t("{{hostname}} and subdomains", { hostname: rule.hostname })
     : rule.hostname;
-}
-
-/** The hostname an exclusion rule names for an origin, without a trailing dot. */
-function hostOf(origin: string): string {
-  const hostname = new URL(origin).hostname;
-  return normalizeHostname(hostname) ?? hostname;
-}
-
-function ruleMatches(rule: ExcludedSite, origin: string): boolean {
-  const hostname = hostOf(origin);
-  return (
-    hostname === rule.hostname || (rule.includeSubdomains && hostname.endsWith(`.${rule.hostname}`))
-  );
-}
-
-/** The rule a default is listed under: the most specific of the rules that exclude it. */
-function ruleFor(rules: ExcludedSite[], origin: string): ExcludedSite | undefined {
-  return rules
-    .filter((rule) => ruleMatches(rule, origin))
-    .sort(
-      (left, right) =>
-        right.hostname.length - left.hostname.length ||
-        Number(left.includeSubdomains) - Number(right.includeSubdomains),
-    )[0];
-}
-
-/**
- * One site in the list: what it is, its state lines, and the controls that act on it. Each
- * kind of row passes its own controls, so another per-site setting adds controls here.
- */
-function SiteRow({
-  title,
-  badges,
-  lines,
-  controls,
-}: {
-  title: string;
-  badges?: ReactNode;
-  lines?: ReactNode;
-  controls: ReactNode;
-}) {
-  return (
-    <li className="flex flex-wrap items-center gap-3 px-4 py-3">
-      <div className="flex min-w-0 flex-[1_1_200px] flex-col gap-1">
-        <RowTitle>
-          <span>{title}</span>
-          {badges}
-        </RowTitle>
-        {lines}
-      </div>
-      <div className="flex flex-[2_1_380px] flex-wrap items-center justify-end gap-2">
-        {controls}
-      </div>
-    </li>
-  );
-}
-
-/** The default account control of an origin row: its select and an explicit Save. */
-function DefaultAccountEditor({
-  idPrefix,
-  origin,
-  options,
-  current,
-  save,
-}: {
-  idPrefix: string;
-  origin: string;
-  options: { value: string; text: string }[];
-  current: string;
-  save: (value: string) => string | undefined;
-}) {
-  const { t } = useTranslation(undefined, { i18n });
-  const [choice, setChoice] = useState<string>();
-  const [error, setError] = useState("");
-  // A choice the list no longer offers falls back to the saved value.
-  const shown =
-    choice !== undefined && options.some((entry) => entry.value === choice) ? choice : current;
-  const errorId = `${idPrefix}site-default-error-${origin}`;
-  return (
-    <>
-      <label className="contents">
-        <span className="visually-hidden">{t("Default account for {{origin}}", { origin })}</span>
-        <select
-          className={`${controlClass} max-w-[18.75rem] flex-[1_1_220px]`}
-          value={shown}
-          aria-describedby={error ? errorId : undefined}
-          onChange={(event) => {
-            setChoice(event.target.value);
-            setError("");
-          }}
-        >
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.text}
-            </option>
-          ))}
-        </select>
-      </label>
-      <Button
-        type="button"
-        variant="outline"
-        aria-label={t("Save default for {{origin}}", { origin })}
-        disabled={shown === current}
-        onClick={() => {
-          const failure = save(shown);
-          setError(failure ?? "");
-          if (!failure) setChoice(undefined);
-        }}
-      >
-        {t("Save")}
-      </Button>
-      {error && (
-        <p id={errorId} className="validation-error m-0 basis-full text-right" role="alert">
-          {t(error)}
-        </p>
-      )}
-    </>
-  );
 }
 
 /**

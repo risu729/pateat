@@ -1,4 +1,9 @@
-import type { ChooserBranch, LoginRouteBody, StoredLoginRecipe } from "@pateat/contracts";
+import {
+  canonicalJson,
+  type ChooserBranch,
+  type LoginRouteBody,
+  type StoredLoginRecipe,
+} from "@pateat/contracts";
 
 // The units of a recipe that `recipe_unit_sources` records the call of (ADR 0060,
 // generation provenance): the parts that separate calls make. The IDs are positions that
@@ -86,18 +91,6 @@ function routeContents(
       marker,
     ]),
   ].map(([unit, content]) => [branchUnit(branch, unit), content]);
-}
-
-/** JSON with object keys sorted and undefined members left out, so equal content is equal. */
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value && typeof value === "object")
-    return `{${Object.entries(value)
-      .filter(([, member]) => member !== undefined)
-      .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([key, member]) => `${JSON.stringify(key)}:${canonicalJson(member)}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
 }
 
 /** 32 hex digits of the SHA-256 of the content's canonical JSON. */
