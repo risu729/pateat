@@ -1332,7 +1332,9 @@ items the owner mentioned and gates still open on 2026-10-11.
   [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not
   enough.
 - Signing in through an identity provider
-  ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
+  ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5),
+  with one item per site account holding its password and every SSO method
+  ([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md), owner 2026-11-07).
 - Signing in with a code or link sent by email, which
   [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
   page ends `challenge`). It has the same priority as signing in through an identity

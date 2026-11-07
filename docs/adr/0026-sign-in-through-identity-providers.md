@@ -7,8 +7,12 @@ by [ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-
 routes, chosen after a passkey route and before a password route. Amended on 2026-10-12
 by [ADR 0033](0033-no-site-specific-features.md) (owner, 13:46 UTC): no fixed list of
 identity providers or of their pages; the IdP's origin comes from the item and its pages
-are handled as any site's. Researched from public documentation only; no real site or
-account has been used.
+are handled as any site's. Amended on 2026-11-07 by
+[ADR 0085](0085-one-item-for-native-and-sso-login.md) (owner, 12:51 UTC): one item per
+site account holds its password and every SSO method, as `SSO` = `[GitHub] github-user`,
+`SSO 2`, …; the URL-valued `SSO` field stays for SSO-only items, and the item-wide
+exclusions below become rules per route. Researched from public documentation only; no
+real site or account has been used.
 
 Date: 2026-10-11
 
