@@ -349,11 +349,16 @@ SDK's upstream archive (owner, 2026-11-03 12:45 UTC:
 Follow Kogane/Kuebiko: public repository, main default branch, squash-only merges,
 automatic branch deletion, auto-merge and update-branch available, web commit
 signoff required, issues enabled, discussions/wiki/projects/downloads disabled.
-Apply their default-
-branch rules: prohibit deletion/force-push/creation, require linear history,
-signatures and PRs, zero required approvals, required `CI Check` from GitHub
-Actions, and CodeQL errors/high security alerts (no Code Quality rule). Preserve
-administrator bypass; do not weaken rules just because the first PR has no CI.
+Apply their default-branch rules: prohibit deletion/force-push/creation, require
+linear history, signatures and PRs, zero required approvals, dismiss earlier approvals
+when a commit is pushed, required `CI Check` from GitHub Actions, and a CodeQL rule from
+[codeql.yml](../.github/workflows/codeql.yml) that blocks every new alert a PR
+introduces, of any severity or level (no Code Quality rule). The repository
+administrator bypass works only through a PR, never as a direct push; do not weaken
+rules just because the first PR has no CI. Pateat, Kogane, Kuebiko and Fumi share
+these rules, and the owner's other active repositories run the same `codeql.yml`
+(owner, 2026-11-07 13:25 UTC: 「codeqlは他と合わせて。pushしたときにapproveも併せて。
+管理者のbypassはprだけに合わせて」).
 
 The initial main commit has an empty tree. The owner authorized the documentation
 PR's bypass merge. Missing required checks are not passing checks.
@@ -362,16 +367,16 @@ M1 must configure the aggregate job and scanning/quality services or explicitly
 resolve unavailable integrations before normal merges. Required checks must not
 remain permanent bypass requirements.
 
-Use read-only workflow permissions by default and prohibit Actions from creating
-or approving PRs. Require workflow approval for all external fork contributors;
-retain Actions artifacts/logs for 90 days, using Kuebiko as the reference for these
-settings.
-Kogane currently requires approval only for first-time contributors. Enable secret
-scanning/push protection and security updates consistently
-with existing repositories where GitHub supports them. Immutable releases are enabled,
-as in Kuebiko, before the first release (owner, 2026-11-07 13:21 UTC: 「Immutable
-releasesは有効化して」). No deployment credentials
-are created for this PR.
+Use read-only workflow permissions by default and prohibit Actions from creating or
+approving PRs. Require every action to be pinned to a full commit SHA
+(`sha_pinning_required`), as in all the owner's active repositories (owner, 2026-11-07
+13:25 UTC: 「sha_pinning_requiredは全部オンにしていい」). Require workflow approval for
+all external fork contributors; retain Actions artifacts/logs for 90 days, using Kuebiko
+as the reference for these settings. Kogane currently requires approval only for
+first-time contributors. Enable secret scanning/push protection and security updates
+consistently with existing repositories where GitHub supports them. Immutable releases
+are enabled, as in Kuebiko, before the first release (owner, 2026-11-07 13:21 UTC:
+「Immutable releasesは有効化して」). No deployment credentials are created for this PR.
 
 ### Merging
 
