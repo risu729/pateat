@@ -181,6 +181,40 @@ describe("a page that looks like a verification but is not sent (ADR 0035)", () 
     );
   });
 
+  it("never offers a secret answer page as a site's sign-in entry, though its URL names a path (#1376)", async () => {
+    vi.useFakeTimers();
+    const signedOut = `<main><h1>Welcome</h1><a href="/login">Log in</a></main>`;
+    // A signed-in page asks its secret answer before account settings, its URL naming the
+    // settings page it guards; the label spells the answer in kana, as moppy's does.
+    const question = `<header><form><input type="text" name="word" autocomplete="off">
+      <button>Go</button></form><a href="/mypage">Your page</a></header><main>
+      <h1>秘密のこたえの確認</h1><form><dl><dt>秘密の質問</dt><dd>Pet's name?</dd>
+      <dt><label for="codeword">秘密のこたえ</label></dt><dd><input type="text" id="codeword"
+      name="codeword" placeholder="秘密のこたえをひらがなで入力してください" required></dd></dl>
+      <input type="submit" value="本人確認"></form><a href="/help">Help</a></main>`;
+    reply.value = {
+      ok: false,
+      reason: "recipe-not-found",
+      starts: [],
+      generate: true,
+      entry: true,
+    };
+    // The same offer on a signed-out page names its entry, so the test reads the offer.
+    document.body.innerHTML = signedOut;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(10_100);
+    expect(ready()).toContainEqual(expect.objectContaining({ entry: { path: path() } }));
+    uninstall();
+    sent.length = 0;
+    document.body.innerHTML = question;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(10_100);
+    expect(ready().filter((message) => message["entry"])).toEqual([]);
+    expect(ready()).toContainEqual(
+      expect.objectContaining({ unoffered: { path: path(), why: "text-answer" } }),
+    );
+  });
+
   it("reports a secret question right after this page's password submit as part of the sign-in", async () => {
     vi.useFakeTimers();
     const home = location.pathname;

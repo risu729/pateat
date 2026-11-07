@@ -41,14 +41,30 @@ const otherParts = ["検索", "クーポン", "注文", "追跡", "メルマガ"
  */
 const secretWords: ReadonlySet<string> = new Set(["secret", "security", "memorable", "challenge"]);
 const answerWords: ReadonlySet<string> = new Set(["answer", "question", "word", "phrase"]);
-const answerParts = [
-  "合言葉",
-  "秘密の質問",
-  "秘密の答え",
-  "秘密の回答",
-  "質問の答え",
-  "質問の回答",
-];
+/**
+ * The Japanese phrases, read on kana-folded text (`kanaFolded`): the secret question or its
+ * answer (`秘密の質問`, `秘密のこたえ`, `ひみつの答え`, `秘密の言葉`), a question's answer
+ * (`質問の回答`, `質問への答え`, `しつもんのこたえ`) and the passphrase (`合言葉`, `合い言葉`,
+ * `あいことば`), each in kanji or kana.
+ */
+const answerPhrase =
+  /(?:秘密|ひみつ)の(?:質問|しつもん|答|こたえ|回答|解答|かいとう|言葉|ことば)|(?:質問|しつもん)(?:へ)?の(?:答|こたえ|回答|かいとう)|合い?言葉|あいことば/u;
+/**
+ * `text` folded for the Japanese phrases: NFKC, so half-width katakana is full-width, then
+ * katakana as hiragana, so `秘密のコタエ` and `秘密のこたえ` read alike.
+ */
+function kanaFolded(text: string): string {
+  return text
+    .normalize("NFKC")
+    .replace(/[\u30A1-\u30F6]/gu, (kana) => String.fromCodePoint(kana.codePointAt(0)! - 0x60));
+}
+/** Whether `text` names the answer to a secret question, by its words or a Japanese phrase. */
+function namesAnswer(text: string): boolean {
+  const found = words(text);
+  if (found.some((word) => secretWords.has(word)) && found.some((word) => answerWords.has(word)))
+    return true;
+  return answerPhrase.test(kanaFolded(text));
+}
 
 /** Text-like input types, of which a page asking for an identifier alone shows one. */
 const textTypes = new Set(["text", "email", "tel", "number", "url"]);
@@ -167,10 +183,11 @@ export function identifierInput(document: Document): "sole" | "email" | undefine
 /**
  * Whether the page shows a visible, writable `type="text"` input for the answer to a secret
  * question (ADR 0035): its name, id, placeholder, `aria-label` or label names a secret or
- * security answer or question, as `secretAnswer`, `Security question answer`, `秘密の質問の答え`
- * or `合言葉`. Such a page looks like a verification but meets no generation trigger (ADR
- * 0016), so it is only counted. A search box and an input in a sign-up form do not count.
- * Only the page's own markup is read, never a value.
+ * security answer or question, as `secretAnswer`, `Security question answer`, `秘密の質問の答え`,
+ * `秘密のこたえ` (#1376) or `合言葉`. Such a page looks like a verification: such an input
+ * meets no generation trigger of ADR 0016, the page is never offered as a site's sign-in
+ * entry (ADR 0031), and it is counted when nothing else is offered. A search box and an
+ * input in a sign-up form do not count. Only the page's own markup is read, never a value.
  */
 export function answerInput(document: Document): boolean {
   return queryAll<HTMLInputElement>(document, "input").some(
@@ -179,13 +196,6 @@ export function answerInput(document: Document): boolean {
       writable(input) &&
       !searchField(input) &&
       !signUpForm(input) &&
-      descriptions(input).some((text) => {
-        const found = words(text);
-        return (
-          (found.some((word) => secretWords.has(word)) &&
-            found.some((word) => answerWords.has(word))) ||
-          answerParts.some((part) => text.normalize("NFKC").includes(part))
-        );
-      }),
+      descriptions(input).some(namesAnswer),
   );
 }

@@ -937,7 +937,8 @@ its path is not sent again ([ADR 0035](adr/0035-page-kinds-per-site.md)). A page
 shows no login field once its DOM has been quiet for a second, or 5 seconds after the
 content script starts waiting
 ([ADR 0057](adr/0057-decide-no-input-pages-when-the-dom-is-quiet.md)), is sent instead,
-without slots, only when its URL names another path of its site in a query value, and a
+without slots, only when its URL names another path of its site in a query value and it
+asks no secret answer ([ADR 0035](adr/0035-page-kinds-per-site.md)), and a
 cached entry recipe on a page's path is pressed: one click on a same-site link in the
 top document, then the tab's next page is checked
 ([ADR 0031](adr/0031-sign-in-entry-pages.md); see
