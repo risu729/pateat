@@ -28,6 +28,12 @@ the device are implemented. Amended on 2026-11-04 (see
 [Amendment 2026-11-04: a closed tab's login, and dropped debug lines](#amendment-2026-11-04-a-closed-tabs-login-and-dropped-debug-lines),
 implemented, local tests only).
 
+Amended on 2026-11-07 for
+[issue 1317](https://github.com/risu729/pateat/issues/1317): watched results stay
+provisional until their final result; see
+[the dated amendment](#amendment-a-watched-result-has-one-final-problem-line-2026-11-07).
+Implemented with runtime and diagnostics regression coverage; CI validates the change.
+
 Date: 2026-10-11
 
 ## Context
