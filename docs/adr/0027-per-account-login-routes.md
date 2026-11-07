@@ -208,9 +208,9 @@ whether or not they hold a value; the two flags fix that (owner, 13:42 UTC).
 1. **One route is chosen at start**, in this order (owner, 13:40 UTC: passkey before
    SSO), and recorded:
    1. `passkey`, if the recipe has that route and the item has a discoverable passkey;
-   2. `sso`, if the item has it. An SSO item with no password never uses `password`
-      (ADR 0026); one that also holds a password keeps that route (owner, 2026-11-07,
-      [#1380](https://github.com/risu729/pateat/issues/1380));
+   2. `sso`, if the item has it. Once SSO routes exist, an SSO item with no password
+      never uses `password` (ADR 0026); one that also holds a password keeps that route
+      (owner, 2026-11-07, [#1380](https://github.com/risu729/pateat/issues/1380));
    3. `password`, if the item has a password and its binding fills one variant.
 
    If none fits, the login stops with `no-route`. A login on the `passkey` route that

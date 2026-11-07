@@ -22,7 +22,8 @@ item that signs in only through an IdP has a usable Text or Hidden field named `
 saved default, such items are not counted (`ownLogins` in
 `apps/extension/src/login/runtime/choice-save.ts`), so the site's own item logs in
 instead of the tab asking which account to use. When every match is such an item,
-nothing changes. Picks, saved defaults, the lists the tab asks or a paused site offers,
+nothing changes. When two or more of the site's own items match, the tab asks among
+those only. Picks, saved defaults, the lists the tab asks later or a paused site offers,
 hidden usernames and the chooser's comparisons still see every match.
 
 Date: 2026-10-11
