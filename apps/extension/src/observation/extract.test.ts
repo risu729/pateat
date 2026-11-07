@@ -4444,6 +4444,7 @@ describe("extractSignedInObservation", () => {
       sidebar(
         `<div role="tab" id="with-button"><button id="inner-button">Close</button></div>
         <div role="tab" id="with-role-button"><span role="button">Pin</span></div>
+        <div role="tab" id="with-tab-stop"><span tabindex="0" style="cursor: pointer">Star</span></div>
         <div role="menuitem" id="with-shadow"></div>
         <div role="option tab" id="option-first">Option</div>
         <div role="tab option" name="tab-first">First</div>`,
