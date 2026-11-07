@@ -2734,6 +2734,20 @@ and request log row. A device's own document marks only the units it changed or 
 Delete all clears their device and log row. `/manage` shows the model and time of each
 layout's first page.
 
+The shared `canonicalJson` helper in `packages/contracts` serializes each unit's
+content before hashing: object keys in code-unit order (including integer-like
+keys), omitted `undefined` object members and preserved array order. Undefined
+array elements and holes serialize as `null`; parsed recipes never contain either.
+Inputs are plain JSON-shaped data without cycles or custom `toJSON` methods.
+Login recipe equality uses the same helper.
+
+Custom-field evidence uses it too. Its admitted material has only the named keys
+`fields`, `key`, `organizationId` or `data`; each field retains only `name`,
+`value`, `type` and `linkedId` through the Bitwarden cipher admission schema.
+Sealed `data` stays an opaque string. No integer-like object key reaches that
+hash, so code-unit order produces the previous serialization despite JavaScript's
+integer-key enumeration rule. One shared order suffices for both hashes.
+
 A generated recipe has no signed-in marker until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
 reports `authenticated` with it only when the sign-in state of
