@@ -15,6 +15,11 @@ encrypted DTO admission and ciphertext framing checks. `local-crypto.ts` keeps n
 SDK initialization, session operations and cleanup, and re-exports the original
 admission API. Structural acceptance still grants no cryptographic trust.
 
+The extension's `service/generation-storage.ts` owns local generation record schemas,
+retention rules and serialized mutations for attempts, slot maps, samples and repairs.
+`generation.ts` coordinates requests and outcomes and re-exports the public storage
+contracts and constants. Queue ownership and mutation order are preserved.
+
 Continuation page admission and generation submission live in
 `login/runtime/continuation-question.ts`; `continuation.ts` retains recipe/layout
 takeover and execution and preserves its original exports. The extraction leaves
