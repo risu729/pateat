@@ -37,6 +37,12 @@ account-option and rule decisions; `site-policy-rows.tsx` owns the reusable site
 component and default-account editor. Existing controls, keys, focus behavior and
 public exports are preserved.
 
+The extension's `service/transport.ts` retains endpoint contracts and response mapping.
+`service-call.ts` owns bounded JSON fetching, credential and redirect rules,
+cancellation and request timing. `service-timing.ts` owns pure timing parsing and
+aggregation. The transport facade preserves its public exports and existing tests stay
+in place.
+
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
 
