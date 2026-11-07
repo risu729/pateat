@@ -117,6 +117,12 @@ the original effects and stale-document checks. Every runtime module stays withi
 1,000-line limit. Cross-tab holds, admission record phases and the relogin guard use
 pure decisions with separate tests; see [policy inputs](#login-runtime-policy-inputs).
 
+The synthetic judged-page corpus keeps its public `judgeCorpus` and type exports in
+`packages/inference/src/corpus/judge.ts`. Its companion `judge-builders.ts` owns
+the typed candidate/page constructors and ground-truth ID normalization. The case
+table remains in its original order and uses those same constructors; no corpus IDs,
+objects, expected decisions or test discovery change.
+
 The diagnostics log keeps its public entry point in
 `apps/extension/src/diagnostics/log.ts`, with the serialized IndexedDB writer, rate
 windows and retention work together. `log-events.ts` owns event field allowlists,
