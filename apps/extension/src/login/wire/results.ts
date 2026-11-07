@@ -329,6 +329,8 @@ export const stateResultSchema = v.variant("ok", [
       password: v.boolean(),
       code: v.boolean(),
       captcha: v.boolean(),
+      /** The shown CAPTCHA has not been solved yet (ADR 0029 amendment of 2026-11-07). */
+      captchaUnsolved: v.optional(v.literal(true)),
       invalid: v.boolean(),
       alert: v.boolean(),
       /** Why `alert` does not hold on a sign-in form shown again, for the log only. */

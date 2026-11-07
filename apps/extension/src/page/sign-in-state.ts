@@ -32,6 +32,11 @@ export interface PageSigns {
   /** S4: a shown CAPTCHA widget. */
   readonly captcha: boolean;
   /**
+   * S4 shows and no token field of its service holds a token yet: the person has not
+   * solved it (ADR 0029 amendment of 2026-11-07); only then.
+   */
+  readonly captchaUnsolved?: true;
+  /**
    * F1: a sign-in input of the effect step became `aria-invalid="true"`, in its document;
    * in a new document that shows the sign-in form again, one of its sign-in inputs is.
    */
@@ -441,10 +446,12 @@ export function pageSigns(
       ? reshown.length > 0 && alertTexts(document, reshown, true).size > 0
       : submitted !== undefined &&
         [...alertTexts(document, submitted.fields)].some((text) => !submitted.alerts.has(text));
+  const captcha = showsCaptcha(document);
   return {
     password: showsPassword(document),
     code: showsCode(document),
-    captcha: showsCaptcha(document),
+    captcha,
+    ...(captcha && !passedCaptcha(document) ? { captchaUnsolved: true as const } : {}),
     invalid,
     alert,
     ...(reshown !== undefined && !alert ? { alertMiss: alertMiss(document, reshown) } : {}),
