@@ -824,6 +824,8 @@ saved for `https://example.com` does not apply on `https://example.com.`.
 
 ### Unsupported cases in the popup and settings page
 
+Implementation module ownership is described in the [development workflow](development.md#workspace-and-tasks).
+
 Checked against the code on 2026-10-17:
 
 - A login form in a frame of another origin than the tab's page (ADR 0017). The popup
