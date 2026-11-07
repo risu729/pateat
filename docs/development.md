@@ -26,6 +26,11 @@ interaction, current-settings revalidation and signing. `runtime-shared.ts` owns
 contracts and existing utilities. The caller retains the mutable deadline and report
 cause, updated through synchronous callbacks at the original points.
 
+The Bitwarden provider's `account.ts` keeps cached-context readmission and the public
+exports. `account-map.ts` owns live response correlation; `account-response.ts` owns
+pure provider DTO normalization and consistency decisions; `account-types.ts` holds
+their shared contracts. Existing account tests retain their files and assertions.
+
 Continuation page admission and generation submission live in
 `login/runtime/continuation-question.ts`; `continuation.ts` retains recipe/layout
 takeover and execution and preserves its original exports. The extraction leaves
@@ -48,6 +53,12 @@ The extension's `service/transport.ts` retains endpoint contracts and response m
 cancellation and request timing. `service-timing.ts` owns pure timing parsing and
 aggregation. The transport facade preserves its public exports and existing tests stay
 in place.
+
+`apps/extension/src/diagnostics/background.ts` owns the worker logger, connection-state
+watches and non-login report entry points. `diagnostics/login-report.ts` owns the login
+report field projections and log-level decisions, including generation and judge timing;
+its reporter receives the same logger without owning runtime or persistence state. The
+public `createDiagnosticsLog` facade and its report methods remain unchanged.
 
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
@@ -111,6 +122,12 @@ sequential phases. Each phase returns directly into the next; it adds no await b
 the original effects and stale-document checks. Every runtime module stays within the
 1,000-line limit. Cross-tab holds, admission record phases and the relogin guard use
 pure decisions with separate tests; see [policy inputs](#login-runtime-policy-inputs).
+
+The synthetic judged-page corpus keeps its public `judgeCorpus` and type exports in
+`packages/inference/src/corpus/judge.ts`. Its companion `judge-builders.ts` owns
+the typed candidate/page constructors and ground-truth ID normalization. The case
+table remains in its original order and uses those same constructors; no corpus IDs,
+objects, expected decisions or test discovery change.
 
 The diagnostics log keeps its public entry point in
 `apps/extension/src/diagnostics/log.ts`, with the serialized IndexedDB writer, rate
@@ -326,7 +343,7 @@ Focused tasks are available for diagnosis:
 | `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
 | `mise run //apps/docs:dev` | Serve the docs website with live reload ([docs website](#docs-website)) |
-| `mise run //apps/docs:build` | Render the docs website into `apps/docs/.vitepress/dist/` |
+| `mise run //apps/docs:build` | Render the docs website into `apps/docs/.vitepress/dist/docs/` |
 | `mise run //apps/docs:test` | Build the docs website and check every local link and fragment in the built pages |
 | `mise run //apps/docs:preview` | Build and serve the built docs website |
 | `mise run check:sdk-source` | Validate installed SDK metadata against its pin and render [exact source notices](sdk-source.md#pinned-upstream-source) without writing files |
@@ -391,10 +408,12 @@ contrast. The pages link to this `docs/` directory, which the site does not incl
 absolute GitHub URLs.
 
 The VitePress base is `/docs/`. The `render` task sets
-`PATEAT_DOCS_URL=https://pateat.takuk.me/docs` and renders into `.vitepress/dist`;
-`build` then packages those files with the existing Cloudflare Vite plugin as the
-assets-only `pateat-docs` Worker. Its asset base path is `/docs`, with ordinary HTML
-handling and a real 404 page. Only the exact `/docs` and `/docs/*` routes are declared;
+`PATEAT_DOCS_URL=https://pateat.takuk.me/docs` and renders into `.vitepress/dist/docs`;
+`build` then packages `.vitepress/dist` with the existing Cloudflare Vite plugin as the
+assets-only `pateat-docs` Worker, so every asset path starts with `/docs/`. The Worker
+sets no asset base path, because the account refuses a non-root one (API error 100343
+at the first bootstrap, 2026-11-07); it uses ordinary HTML handling and the real
+`/docs/404.html` page. Only the exact `/docs` and `/docs/*` routes are declared;
 no Worker code, service bindings or data bindings are included. Deployment and its
 credential bootstrap are separate from the build.
 
@@ -651,6 +670,28 @@ The probe has no real-provider adapter. Its fixed localhost recipes and
 setup messages are excluded from the production build. Chrome use may not be
 able to operate another extension's settings page; manual setup is a supported
 test prerequisite, not a reason to expose settings mutations to a web page.
+
+The failure-sign fixtures deliberately have no learned rejection marker. Open
+`/credential-failure?error=alert`, `?error=plain` or no `error` parameter; add
+`&new-document` (or `?new-document`) to answer in a new document. Each press is
+counted in session storage without retaining the submitted value. The identifier
+counterparts are `/identifier-failure?error=plain` and `/identifier-failure`;
+their Next leaves the identifier form shown and never reveals the password.
+`login.spec.ts` characterizes the existing ADR 0029 outcomes, watch or immediate
+account ask, popup status data, result badge data, and competing-tab admission.
+A plain or silent first new password document remains `unknown-submit`, but the
+existing `formAgain` rule releases its watch and asks for an account at once.
+These fixtures do not change the outcome rules or establish real-site compatibility.
+
+The probe's `planFor` deliberately runs a full login on a new document that production
+would only fill while asking for an account. After an immediate account ask these probe
+tests therefore record one extra press in the competing tab and the reopened original
+tab, followed by each document's own refusal. A watched result still prevents another
+tab from pressing anything. These probe counts do not establish production submission
+behavior. The normal provider branch in `runtime-tests/admission-20.test.ts` separately
+asserts that a form answered with an accessible alert, plain text or no text causes no
+new submission: its response document is left alone, and a later document of the same
+tab or another tab is filled once without pressing anything.
 
 ### Installed Chrome synthetic passkey probe
 

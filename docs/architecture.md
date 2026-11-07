@@ -108,6 +108,9 @@ compromised destination page.
 
 ## Vault adapter
 
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
+
 Distinguish a provider type from a connection and model multiple simultaneous
 vault connections from the start. Scope item and field IDs by connection.
 Adapters are developer-written and bundled with extension releases; no remotely
@@ -1309,20 +1312,24 @@ outcome/timing records; the field index reaches the service through the existing
 problem line. No page text, label, identifier or value leaves with these diagnostics. A
 fill that submits through its own event is checked only before filling. When a filled
 input was replaced during the wait, nothing is clicked and the attempt observes the page
-instead. A click is not made, and the attempt ends `structural-mismatch` and moves to
-reconciling, when the page emptied a shown input that this document's fills wrote to
-since the last click, or, for a submitting click, when a shown password input that was
-not writable when those fills began is empty. Only the clicked element's form counts
-(the page, for an element outside a form), and only once Pateat filled something in it
-since the last click. St.George's logon page (`ibanking.stgeorge.com.au`) with a
-remembered access number hides its Security Number field; typing the access number
-clears every field and shows it (2026-10-12), so the form would otherwise be sent with
-the access number and Security Number empty. A passkey button beside an empty password
-field, a registration panel's password field shown from the start, and an earlier step's
-field the page hid and cleared do not hold a click. When the page shows a CAPTCHA frame
-(ADR 0029's S4) as a click is about to run and none of its services' token fields holds
-a token yet, the form stays filled and nothing is clicked: the click is left to the
-person and held as a handler's click is, up to two minutes while its button shows
+instead. After that replacement check, a filled input that is now empty and still
+writable ends the fill as `structural-mismatch` (`form-changed`) before validity, ARIA
+and feedback checks. This permits the existing recipe repair path to handle a page that
+cleared its form, including a required input; it never submits the emptied form. A click
+is not made, and the attempt ends `structural-mismatch` and moves to reconciling, when
+the page emptied a shown input that this document's fills wrote to since the last click,
+or, for a submitting click, when a shown password input that was not writable when those
+fills began is empty. Only the clicked element's form counts (the page, for an element
+outside a form), and only once Pateat filled something in it since the last click.
+St.George's logon page (`ibanking.stgeorge.com.au`) with a remembered access number
+hides its Security Number field; typing the access number clears every field and shows
+it (2026-10-12), so the form would otherwise be sent with the access number and Security
+Number empty. A passkey button beside an empty password field, a registration panel's
+password field shown from the start, and an earlier step's field the page hid and
+cleared do not hold a click. When the page shows a CAPTCHA frame (ADR 0029's S4) as a
+click is about to run and none of its services' token fields holds a token yet, the form
+stays filled and nothing is clicked: the click is left to the person and held as a
+handler's click is, up to two minutes while its button shows
 ([ADR 0029](adr/0029-local-sign-in-state.md)); a chooser's click on its list is made as
 before. Explicit credential rejection stops retries with that credential. A structural
 mismatch sends the page for repair, once a UTC day per recipe and device
@@ -2147,6 +2154,9 @@ operation the person started instead of falling back to the top of the page (own
   Focus the person moved out of the setup panel meanwhile stays where it is.
 
 ## Diagnostics
+
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
 
 `diagnostics.html`, linked from the settings page, shows per-device versions and state
 for bug reports ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)). The page asks the

@@ -534,9 +534,12 @@ The separate `pateat-docs` Worker serves only static assets at
 `https://pateat.takuk.me/docs/` and `/docs/ja/`. Its exact `/docs` and `/docs/*` routes
 take precedence over the API Worker's Custom Domain without capturing other paths. The
 build is described in [development](development.md#docs-website).
-[Cloudflare documents this route precedence](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/#interaction-with-routes)
-and
-[asset base paths](https://developers.cloudflare.com/workers/static-assets/routing/advanced/serving-a-subdirectory/).
+[Cloudflare documents this route precedence](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/#interaction-with-routes).
+The pages sit in a `docs/` directory of the Worker's assets instead of using an
+[asset base path](https://developers.cloudflare.com/workers/static-assets/routing/advanced/serving-a-subdirectory/):
+the first bootstrap on 2026-11-07 at 06:39 UTC failed with Cloudflare API error 100343,
+"A non-root assets.base_path is not enabled for this account", after uploading the
+assets and before creating the Worker or its routes.
 
 Every CI run packages and checks the docs without credentials. A trusted main-push
 Verify job archives the tested output as `docs-<sha>`, recording repository,

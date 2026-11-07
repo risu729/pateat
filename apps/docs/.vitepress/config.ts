@@ -46,6 +46,8 @@ export default defineConfig({
     "Logs in to websites and answers passkey sign-ins from your own Bitwarden vault, kept on this device.",
   lang: "en",
   srcDir: "src",
+  // Nested under docs/ so the Worker's assets serve the pages at /docs/ (cloudflare.config.ts).
+  outDir: ".vitepress/dist/docs",
   cleanUrls: true,
   head: [["link", { rel: "icon", type: "image/svg+xml", href: `${base}icon.svg` }]],
   vite: { plugins: [extensionIcon()] },

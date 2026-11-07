@@ -6,8 +6,12 @@ run = "node node_modules/vitepress/bin/vitepress.js dev"
 
 [tasks.render]
 env.PATEAT_DOCS_URL = "https://pateat.takuk.me/docs"
-description = "Render the docs website into .vitepress/dist."
-run = "node node_modules/vitepress/bin/vitepress.js build"
+description = "Render the docs website into .vitepress/dist/docs."
+# Clear the whole of .vitepress/dist, so files from an older layout are never packaged.
+run = [
+  "node -e \"require('node:fs').rmSync('.vitepress/dist', { recursive: true, force: true })\"",
+  "node node_modules/vitepress/bin/vitepress.js build",
+]
 
 [tasks.build]
 description = "Package the rendered docs as an assets-only Worker."
