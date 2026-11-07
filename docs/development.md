@@ -30,12 +30,12 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 `mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
-The shared settings contract lives under `packages/contracts/src/settings/`.
-`schema.ts` is the public validation facade. Component schemas and pure validation
-helpers live in `schema-primitives.ts`, the complete settings value in
-`schema-value.ts`, and snapshot, message and catalog schemas in `schema-messages.ts`. `defaults.ts` owns the synthetic catalog and default
-settings; `vault-policy.ts` owns account, item and custom-field eligibility;
-`site-policy.ts` owns site rules and saved-account resolution. The existing
+The shared settings contract lives under `packages/contracts/src/settings/`. `schema.ts`
+is the public validation facade. Component schemas and pure validation helpers live in
+`schema-primitives.ts`, the complete settings value in `schema-value.ts`, and snapshot,
+message and catalog schemas in `schema-messages.ts`. `defaults.ts` owns the synthetic
+catalog and default settings; `vault-policy.ts` owns account, item and custom-field
+eligibility; `site-policy.ts` owns site rules and saved-account resolution. The existing
 `settings.ts` entrypoint re-exports the same public names. Internal modules import
 `schema.ts` directly, and site policy imports vault eligibility, so schemas have no
 policy imports or initialization cycles. This source split preserves schema order,

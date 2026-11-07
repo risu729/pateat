@@ -86,5 +86,6 @@ export function parseLocalSettings(value: unknown): LocalSettings {
   return v.parse(localSettingsSchema, value);
 }
 
+/** Whether the popup shows its "This page" section: unless the settings hide it. */
 export const popupPageSectionShown = (settings: Pick<LocalSettings, "popupPageSection">) =>
   settings.popupPageSection !== false;

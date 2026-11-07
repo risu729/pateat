@@ -446,7 +446,7 @@ export const customFieldReviewSchema = v.strictObject({
 
 export const accountKey = (entry: { provider: string; server: string; userId: string }) =>
   JSON.stringify([entry.provider, entry.server, entry.userId]);
-export const itemKey = (entry: { provider: string; server: string; userId: string; itemId: string }) =>
+const itemKey = (entry: { provider: string; server: string; userId: string; itemId: string }) =>
   JSON.stringify([entry.provider, entry.server, entry.userId, entry.itemId]);
 
 export type ConnectionSettings = v.InferOutput<typeof connectionSettingsSchema>;
@@ -489,4 +489,4 @@ export function instantBefore(left: string, right: string): boolean {
   return a !== undefined && b !== undefined && a < b;
 }
 
-/** Whether the popup shows its "This page" section: unless the settings hide it. */
+export { itemKey };
