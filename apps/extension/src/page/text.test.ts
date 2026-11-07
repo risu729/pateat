@@ -4,6 +4,7 @@ import {
   controlContent,
   controlName,
   isFragmentButton,
+  isRoleButton,
   isScriptButton,
   readBehindModal,
   renderedText,
@@ -214,6 +215,33 @@ describe("isScriptButton", () => {
       false,
       true,
     ]);
+  });
+
+  it("accepts a tab stop without a role that sets a pointer cursor, as Logi ID's passkey button", () => {
+    document.body.innerHTML = `<style>.btn { cursor: pointer }</style>
+      <div id="a" class="btn" tabindex="0"><p>🔑 パスキーを使用してログイン</p></div>
+      <div id="b" tabindex="0">Plain</div><div id="c" class="btn">No tab stop</div>
+      <div id="d" class="btn" tabindex="-1">Out of order</div>
+      <div id="e" class="btn" tabindex="0" role="tab">Tab</div>
+      <div id="f" class="btn" tabindex="0"><button>Inner</button></div>
+      <div id="g" class="btn" tabindex="0"><span tabindex="0">Inner</span></div>
+      <div class="btn"><span id="h" tabindex="0">Inherited</span></div>
+      <a href="/card"><span id="i" class="btn" tabindex="0">Card</span></a>
+      <span id="j" class="btn" tabindex="0" contenteditable="true">Editor</span>`;
+    const script = (id: string) => isScriptButton(document.getElementById(id)!);
+    expect(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"].map(script)).toEqual([
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
+    expect(isRoleButton(document.getElementById("a")!)).toBe(true);
   });
 
   it("accepts links that run a script instead of following the link", () => {

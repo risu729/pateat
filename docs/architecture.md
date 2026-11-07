@@ -2913,8 +2913,15 @@ matches twice and waits, or, if the login form has not rendered yet, fills the o
 input (never with a secret, which goes only into an input the fill check accepts for it,
 such as a password or `current-password` input for the password); and a signed-in page
 that shows such an input cannot become the completion. A script button is a control only
-scripts make clickable: a script link, or another element with `role="button"`, but
-never a form control or anything inside an `<a href>`. A script link is an `<a>` without
+scripts make clickable: a script link, another element with `role="button"`, or an
+element without a role that the page puts in the tab order (`tabindex` of 0 or more),
+sets a pointer cursor itself and holds no control, link, role or other tab stop, such as
+Logi ID's passkey sign-in `<div class="button" tabindex="0">` (2026-11-07,
+[#1375](https://github.com/risu729/pateat/issues/1375)), but never a form control or
+anything inside an `<a href>`. Such an element is located as a `role="button"` one is;
+on a passkey-only start page ([ADR 0053](adr/0053-passkey-only-generation.md)) any such
+button that names a passkey is located by its text, since that name already tells it
+from a menu or a toggle. A script link is an `<a>` without
 `href` that has an `onclick` attribute or `role="button"`, such as
 `<a id="login" onclick="document.loginForm.submit()">`, or sets a pointer cursor
 itself (CSS `cursor: pointer` that its parent does not have), such as IIJmio's

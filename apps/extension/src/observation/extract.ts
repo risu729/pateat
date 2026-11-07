@@ -78,6 +78,7 @@ import {
   readBehindModal,
   readOwnInert,
   renderedText,
+  scriptControls,
   shown,
 } from "../page/text";
 import {
@@ -195,7 +196,7 @@ const ignoredTypes = new Set(["hidden", "reset"]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
 /** Every element `describe` may accept, script buttons included. */
-const observed = "input, select, textarea, button, a, [role]";
+const observed = `input, select, textarea, button, a, ${scriptControls}`;
 /**
  * The attributes an element is named by, in order: a test attribute first, as test tools
  * do, since a site keeps it as a stable hook while an `id` may be a render counter
@@ -413,7 +414,7 @@ function locatorIndex(document: Document): LocatorIndex {
     const text = buttonText(element);
     if (text !== undefined) count(isScriptLink(element) ? "script-text" : "text", text);
   }
-  for (const element of queryAll(document, "[role]")) {
+  for (const element of queryAll(document, scriptControls)) {
     const text = isRoleButton(element) ? buttonText(element) : undefined;
     if (text !== undefined) count("role-text", text);
   }
@@ -2658,7 +2659,9 @@ function readPasskey(document: Document): ObservationResult {
 
 /**
  * The enabled buttons among `found` whose label or lasting locator names a passkey or
- * security key and not its registration (ADR 0053).
+ * security key and not its registration (ADR 0053). A script button other than a link,
+ * such as `<div role="button">` or a pointer tab stop, is located by its text too, as in
+ * a login form: naming a passkey already tells it from a menu or a toggle.
  */
 function passkeyButtons(
   document: Document,
@@ -2673,7 +2676,7 @@ function passkeyButtons(
       !enabled(entry.draft.element)
     )
       return [];
-    const target = locate(entry.draft.element, index, { tokens, lasting: true });
+    const target = locate(entry.draft.element, index, { tokens, lasting: true, roles: true });
     if (!target) return [];
     const button = { target, label: entry.draft.label };
     if (!namesPasskey(button) || registersPasskey(button)) return [];

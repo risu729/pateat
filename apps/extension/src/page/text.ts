@@ -490,28 +490,55 @@ const roleButton = (element: Element) =>
   element.getAttribute("role")?.trim().toLowerCase() === "button";
 
 /**
- * Whether an `<a>` without `href`, which never navigates, sets the pointer the page
- * gives clickable things itself, not inheriting it from a clickable card around it:
- * IIJmio's login control is `<a class="pink_btn">ログイン</a>`, whose click a script
- * listener handles with no `onclick` attribute or role (2026-10-23). The cursor is read
- * as computed when asked, so one the page sets only on hover or after the fields are
- * filled does not count.
+ * Whether an element sets the pointer the page gives clickable things itself, not
+ * inheriting it from a clickable card around it: IIJmio's login control is
+ * `<a class="pink_btn">ログイン</a>`, whose click a script listener handles with no
+ * `onclick` attribute or role (2026-10-23). The cursor is read as computed when asked, so
+ * one the page sets only on hover or after the fields are filled does not count.
  */
-function pointer(link: HTMLAnchorElement): boolean {
-  const view = link.ownerDocument.defaultView;
+function pointer(control: Element): boolean {
+  const view = control.ownerDocument.defaultView;
   const points = (element: Element) =>
     /(?:^|, )pointer$/u.test(view!.getComputedStyle(element).cursor);
-  const parent = composedParent(link);
-  return view !== null && points(link) && !(parent && points(parent));
+  const parent = composedParent(control);
+  return view !== null && points(control) && !(parent && points(parent));
+}
+
+/**
+ * The elements that may be script buttons other than `<a>`: those with a role, and those
+ * with a `tabindex` ({@link tabStopControl}). A search for script buttons looks at these.
+ */
+export const scriptControls = "[role], [tabindex]";
+
+/**
+ * Whether an element without a role that the page puts in the tab order (`tabindex` of 0
+ * or more) is a button its script handles: it sets the {@link pointer} cursor itself and
+ * holds no control, link, role or other tab stop, so a clickable card around buttons is
+ * never one. Logi ID's passkey sign-in on its remembered-device page is
+ * `<div class="button" tabindex="0"><p>🔑 パスキーを使用してログイン</p></div>`, whose click
+ * a script listener handles (2026-11-07,
+ * [#1375](https://github.com/risu729/pateat/issues/1375)). The rule reads only the
+ * page's structure and style, never a site (ADR 0033).
+ */
+function tabStopControl(element: HTMLElement): boolean {
+  return (
+    !element.hasAttribute("role") &&
+    element.hasAttribute("tabindex") &&
+    element.tabIndex >= 0 &&
+    !element.isContentEditable &&
+    queryAll(element, "a, button, input, select, textarea, [role], [tabindex]").length === 0 &&
+    pointer(element)
+  );
 }
 
 /**
  * A control that only scripts make clickable: a script link (an `<a>` without `href`
  * that has an `onclick` attribute or `role="button"` or sets a pointer cursor, see
- * {@link pointer}, or an `<a href>` that runs a script, see {@link scriptHref}), or
- * another element with `role="button"`. Form controls, links that navigate and anything
- * inside an `<a href>` (a click there would follow the link, or reach the outer link's
- * script) are not script buttons.
+ * {@link pointer}, or an `<a href>` that runs a script, see {@link scriptHref}), another
+ * element with `role="button"`, or a tab stop without a role that sets a pointer cursor
+ * ({@link tabStopControl}). Form controls, links that navigate and anything inside an
+ * `<a href>` (a click there would follow the link, or reach the outer link's script) are
+ * not script buttons.
  */
 export function isScriptButton(element: Element): boolean {
   if (
@@ -526,7 +553,9 @@ export function isScriptButton(element: Element): boolean {
     return element.hasAttribute("href")
       ? scriptHref(element)
       : element.hasAttribute("onclick") || roleButton(element) || pointer(element);
-  return closestAcross(element, "a[href]") === null && roleButton(element);
+  return (
+    closestAcross(element, "a[href]") === null && (roleButton(element) || tabStopControl(element))
+  );
 }
 
 /**
@@ -539,7 +568,10 @@ export function isScriptLink(element: Element): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && isScriptButton(element);
 }
 
-/** A script button that is no `<a>`: an element such as a `<div>` with `role="button"`. */
+/**
+ * A script button that is no `<a>`: an element such as a `<div>` with `role="button"`, or
+ * a `<div tabindex="0">` that sets a pointer cursor ({@link tabStopControl}).
+ */
 export function isRoleButton(element: Element): element is HTMLElement {
   return !(element instanceof HTMLAnchorElement) && isScriptButton(element);
 }

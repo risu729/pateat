@@ -4968,6 +4968,23 @@ describe("passkey-only start observation", () => {
     expect(serialized).not.toContain("Create a passkey");
   });
 
+  it("reads a pointer tab stop without a role as the passkey button (Logi ID, 2026-11-07)", () => {
+    // Logi ID's page for a device that signed in with a passkey before, shortened; its
+    // hCaptcha keeps two hidden text areas (#1375).
+    page(`<style>.button, .forgot_link { cursor: pointer }</style>
+      <div class="description">このデバイスでは以前にパスキーでログインしています。</div>
+      <div class="captcha"><textarea name="h-captcha-response" style="display: none"></textarea></div>
+      <div class="submit"><div class="button" tabindex="0"><p class="button_text">🔑 パスキーを使用してログイン</p></div></div>
+      <a class="forgot_link" tabindex="0">サインイン</a>`);
+    const result = extractPasskeyObservation(document);
+    if (!result.ok) throw new Error(result.reason);
+    const target = { by: "text", value: "🔑 パスキーを使用してログイン" } as const;
+    expect(result.observation.candidates).toEqual([
+      { id: "c1", role: "button", label: "🔑 パスキーを使用してログイン", target },
+    ]);
+    expect(findTargets(document, target)).toEqual([document.querySelector(".button")]);
+  });
+
   it.each([
     `<button>Create a passkey</button>`,
     `<button hidden>Sign in with a passkey</button>`,
