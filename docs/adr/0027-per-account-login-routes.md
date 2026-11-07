@@ -122,6 +122,11 @@ completes it as `signed-in` does once the password or a second factor was sent
 a `signed-in` reading of its loaded document as soon as it shows them; only the other
 readings, and the judge, still wait for `WATCH_SETTLE_MS` (3 s).
 
+Amended on 2026-11-07 by
+[ADR 0019](0019-local-diagnostics-and-logs.md#amendment-a-watched-result-has-one-final-problem-line-2026-11-07):
+the persistent alarm ends expired watches and their provisional result is info until
+a final failure. Earlier references below to a watched line being warn are historical.
+
 Date: 2026-10-11
 
 ## Context

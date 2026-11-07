@@ -2784,7 +2784,68 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs a running login whose tab closed as info, also when it was watched (ADR 0019)", async () => {
+  it.each(
+    (["reconciling", "watching"] as const).flatMap((state) =>
+      (["authenticated", "blocked", "closed"] as const).map((end) => ({ state, end })),
+    ),
+  )("sends only the final problem for $state ending $end", async ({ state, end }) => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    const attempt = {
+      tabId: 4,
+      origin: "https://login.example",
+      recipeId: "synthetic-recipe",
+      recipeRevision: 1,
+      route: "password",
+      stepIndex: 1,
+      stepCount: 2,
+    } as const;
+    const outcome = state === "watching" ? "challenge" : "unknown-submit";
+    const settled = state === "reconciling" ? { settled: true as const } : {};
+    log.login({
+      ...attempt,
+      type: "attempt",
+      state,
+      outcome,
+      ...settled,
+      watched: true,
+    });
+    if (end === "closed")
+      log.login({
+        ...attempt,
+        type: "attempt-closed",
+        state,
+        outcome,
+        ...settled,
+        watched: true,
+        cause: "tab-closed",
+      });
+    else
+      log.login({
+        ...attempt,
+        type: "attempt",
+        state: end,
+        outcome: end === "authenticated" ? "authenticated" : outcome,
+      });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
+    const entries = await log.logger.entries();
+    expect(entries[0]!.level).toBe("info");
+    expect(entries.filter(sentToService)).toHaveLength(end === "authenticated" ? 0 : 1);
+    expect(entries[1]!.level).toBe(end === "authenticated" ? "info" : "warn");
+    vi.restoreAllMocks();
+  });
+
+  it("logs an ordinary running login whose tab closed as info (ADR 0019)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -2809,8 +2870,7 @@ describe("unhandled errors", () => {
       cause: "tab-closed",
     } as const;
     log.login({ ...closed, state: "awaiting-result" });
-    log.login({ ...closed, state: "watching", outcome: "challenge", settled: true });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(1));
     expect(
       (await log.logger.entries()).map((entry) => [entry.event, entry.level, entry.fields]),
     ).toEqual([
@@ -2828,11 +2888,6 @@ describe("unhandled errors", () => {
           cause: "tab-closed",
           tab: 4,
         },
-      ],
-      [
-        "login.attempt",
-        "info",
-        expect.objectContaining({ state: "watching", outcome: "challenge", settled: true }),
       ],
     ]);
     vi.restoreAllMocks();
