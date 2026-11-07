@@ -1465,6 +1465,9 @@ const searchBox = (element: Element) =>
   ["aria-label", "placeholder", "title"].some((name) =>
     searchWords.test(element.getAttribute(name) ?? ""),
   );
+/** A search box, or a field in a search landmark. */
+const siteSearch = (element: Element) =>
+  searchBox(element) || closestAcross(element, "search, [role~='search' i]") !== null;
 /**
  * Whether `form` is a small search form: at most four controls in all, as a box, a
  * category select and a button, whose typed inputs are all search boxes, so a whole page
@@ -1509,8 +1512,7 @@ function leftOutInputs(document: Document): boolean {
   // Each form is checked once per scan, however many selects it holds.
   const searchForms = new Map<HTMLFormElement, boolean>();
   for (const element of queryAll<HTMLElement>(document, answerControls)) {
-    if (closestAcross(element, "search, [role~='search' i]")) continue;
-    if (searchBox(element)) continue;
+    if (siteSearch(element)) continue;
     const picker = element instanceof HTMLSelectElement || element.matches("[role~='combobox' i]");
     // A page footer's select, as a language or region picker, asks nothing of the sign-in.
     if (picker && pageFooter(element)) continue;
@@ -1800,8 +1802,9 @@ function loginFormsOf(
  * ARIA, or the rendered text next to a field, with private-looking parts redacted.
  *
  * Only forms that hold a field matter: their buttons, checkboxes and, as context, their
- * links (or, for fields outside any form, every control outside a form; a control the
- * executor cannot act on counts there only near those fields, `formlessFieldsArea`). Up to four
+ * links (or, for fields outside any form, every control outside a form; a site search box
+ * outside every form is no such field, and a control the executor cannot act on counts
+ * there only near those fields, `formlessFieldsArea`). Up to four
  * buttons outside every form but near a login form with a password field
  * (`besideDepth`), such as a passkey button, are kept when they can be located and never
  * make the observation incomplete. A field or button that cannot be located (other than
@@ -1876,13 +1879,18 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
           keys.has(entry.draft.element))
       ),
   );
+  // A site search box outside every form, as in a navigation bar beside a sign-in form, is
+  // no field of the sign-in, so it never draws that bar's other controls into the
+  // description (LeetCode, 2026-11-07).
   const fieldForms = new Set(
-    found.flatMap((entry) =>
-      (entry.kind === "candidate" && fillTypes[entry.draft.role]) ||
-      (entry.kind === "unsupported" && entry.field)
+    found.flatMap((entry) => {
+      const field = entry.kind === "candidate" ? entry.draft.element : entry.field;
+      return ((entry.kind === "candidate" && fillTypes[entry.draft.role]) ||
+        (entry.kind === "unsupported" && entry.field)) &&
+        !(entry.form === null && field && siteSearch(field))
         ? [entry.form]
-        : [],
-    ),
+        : [];
+    }),
   );
   if (fieldForms.size === 0) return { ok: false, reason: "no-candidates" };
   const loginForms = loginFormsOf(found, fieldForms);

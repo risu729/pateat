@@ -1192,16 +1192,17 @@ request. Each fill step writes only inputs inside one form (or only inputs outsi
 form), and one input per field: when two of its locators name the same input, the step
 fills nothing and fails `structural-mismatch` (`fields-shared`). A plan's click is in
 the same form, except a button outside every form for the fields of the page's only
-password form when that form lists no button of its own and the button is the only one
-outside every form (`besideForm` in `packages/inference/src/plan.ts`, owner's choice
-2026-10-23). Where the values go is checked in the page, as the browser would submit the
-form: before a fill step writes into a form, the form's `action` attribute, and before a
-click on a submit button or image input, that control's `formaction` attribute or else
-its form's `action`, resolved against the document's base URL (so a `<base href>`
-counts; an empty or missing value is the document's URL), must have the document's own
-origin, or be allowed by the background
-([ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)). The content script sends
-only an HTTP(S) destination on another origin to the background
+password form when that form lists no button of its own, no field outside every form is
+described and the button comes right after that form's last described element
+(`besideForm` in `packages/inference/src/plan.ts`, owner's choice 2026-10-23; since
+2026-11-07 other buttons outside every form may follow it). Where the values go is
+checked in the page, as the browser would submit the form: before a fill step writes
+into a form, the form's `action` attribute, and before a click on a submit button or
+image input, that control's `formaction` attribute or else its form's `action`, resolved
+against the document's base URL (so a `<base href>` counts; an empty or missing value is
+the document's URL), must have the document's own origin, or be allowed by the
+background ([ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)). The content
+script sends only an HTTP(S) destination on another origin to the background
 (`login.destination.check`, with the attempt's token and current operation), which
 allows it only on the document's site, through HTTPS unless the document is HTTP, at an
 admitted site, and when the login's item matches the destination's full URL by its
