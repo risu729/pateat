@@ -185,7 +185,12 @@ export interface RecipeReplacementStorage {
 }
 
 /** Local generation records and the original serialized mutation queues. */
-export function createGenerationStorage({ storage, slotStorage, sampleStorage, now }: {
+export function createGenerationStorage({
+  storage,
+  slotStorage,
+  sampleStorage,
+  now,
+}: {
   storage: GenerationAttemptStorage;
   slotStorage: GeneratedSlotStorage;
   sampleStorage?: PageSampleStorage;
@@ -425,5 +430,14 @@ export function createGenerationStorage({ storage, slotStorage, sampleStorage, n
     return next.catch(() => undefined);
   }
 
-  return { readSlotMaps, rememberSlots, recent, remember, same, claimSample, claimReplace, releaseReplace };
+  return {
+    readSlotMaps,
+    rememberSlots,
+    recent,
+    remember,
+    same,
+    claimSample,
+    claimReplace,
+    releaseReplace,
+  };
 }
