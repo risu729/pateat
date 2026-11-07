@@ -17,7 +17,8 @@ slots with these hints too
 ([ADR 0061](0061-personal-details-during-a-login.md#the-judge-gets-the-accounts-slots)).
 
 Amended on 2026-11-07 with fixed fill-rejection diagnostics (implementation detail;
-see below). Amended the same day for cleared filled inputs (see below).
+see below). Amended the same day for cleared filled inputs and for the owner's
+03:45 UTC separator-insertion decision, implemented below.
 
 Date: 2026-10-10
 
@@ -161,3 +162,42 @@ permits the existing repair path rather than permanently rejecting the value bec
 emptied input is required, newly ARIA-invalid, or has new required-field feedback.
 Hidden, disabled and read-only inputs do not trigger this rule. Code submission watches
 keep their own rejection checks and submission priority. No wait is added.
+
+## Amendment 2026-11-07: values formatted with inserted separators
+
+The owner accepted the rule in
+[issue 1326, part 4](https://github.com/risu729/pateat/issues/1326#issuecomment-6701829301)
+on 2026-11-07 at 03:45 UTC: "spaces and hyphens only". A held value changed only
+by inserting ASCII spaces (U+0020) and hyphen-minus (U+002D) is kept when removing
+only those insertions leaves exactly the typed value. Every original character,
+including an original space or hyphen, must remain in order. The held value,
+including the insertions, must fit `maxlength` (ignored for number inputs, as
+before). Other inserted characters, including `/`, `.` and `(`, get no exception.
+
+This applies to the settled check after the last character, including a cancelled
+key the page wrote itself, and again after `change` and blur. Match raw characters
+before any width folding so an inserted fullwidth space or hyphen cannot become an
+allowed ASCII insertion. No site-specific rule or wait is added.
+
+The existing 2026-10-18 02:07 UTC owner decision keeps width-only rewrites: fold only
+U+3000 and U+FF01 through U+FFEF as Unicode NFKC does, then compose, so `１－２－３`
+matches `1-2-3` and `ｶﾞ` matches `ガ`. This is an independent equality check;
+combining width changes with inserted separators is outside the new exact-insertion
+exception. It also requires the held value to fit `maxlength`.
+
+The pre-existing same-length mask/case rule is preserved: with no cancelled key,
+a same-code-point-length rewrite can still be kept even if neither equality check
+matches. This known limit is recorded in
+[background execution](../architecture.md#background-execution); the new exception
+does not make deletions, reordering or other punctuation acceptable when they change
+the value's length. A field emptied on `change`/blur still reaches the separate
+form-change checks above.
+
+Consumer audit: `inputValueMismatch` and the per-character `between` checks compare
+the planned value with the input's declared type and lengths, not with the held
+value. The checks before a click read whether filled controls are empty or writable
+and the page's native validity and feedback. `formAccounts`/`showsOtherAccount`
+read rendered identifiers and hidden, read-only or disabled account inputs, never
+the writable input's typed value. Sign-in state reads sign-in controls and compares
+the username with rendered header/navigation text, not the filled field. Their
+account-identity rules remain unchanged; separator insertion is local to typing.

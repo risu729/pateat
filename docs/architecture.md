@@ -1072,8 +1072,15 @@ submitted, when the input does not hold the value after a cancelled event, or ho
 value of another length. Since 2026-10-13, when a bank's password field held one
 character fewer than the typed value with no event cancelled and the login was sent and
 rejected, the length is checked after every typing; a value of the same length, such as
-a mask or a case the page changed, is kept, while a page that reformats a value, as by
-adding hyphens, refuses it. A value the page rewrote between full-width and half-width
+a mask or a case the page changed, is kept. Since the owner's decision on 2026-11-07
+at 03:45 UTC, a value changed only by inserting ASCII spaces (U+0020) and hyphen-minus
+(U+002D) is kept too: removing only the inserted characters must give exactly the typed
+value, with its original characters and separators preserved in order. The held value,
+including insertions, must still fit `maxlength`. Other inserted punctuation gets no
+exception. This exact comparison uses raw characters, so an inserted fullwidth space
+or hyphen cannot become an allowed separator through width folding
+([ADR 0010 amendment](adr/0010-inference-field-hints.md#amendment-2026-11-07-values-formatted-with-inserted-separators)).
+A value the page rewrote between full-width and half-width
 characters, as an address form turns `１－２－３` into `1-2-3` or a kana field turns
 `ガ` into `ｶﾞ`, is kept whatever its length, and also after a cancelled key, as when the
 page writes the rewritten character itself (owner, 2026-10-18 02:07 UTC), unless it no
@@ -1084,8 +1091,8 @@ such as `①` or `…`, are not folded, so a page that rewrites one into charact
 another length is still refused. Until then such a value was refused as `fill-rejected`
 whenever its length changed or a key was cancelled. A rewrite the fold does not cover,
 such as hiragana into katakana or `-` into `ー`, is kept only at the same length with no
-key cancelled. The length is checked again one wait after `change` and blur, whose
-handlers may rewrite the value, and a fill refused then has sent both; a field emptied
+key cancelled. The same acceptance checks run again one wait after `change` and blur,
+whose handlers may rewrite the value, and a fill refused then has sent both; a field emptied
 then, as by a form that switches to other fields, is left to the checks before the
 click. A same-length change is a known limit: a page that turns one symbol into another
 still has its value submitted, as it would be from a person's typing. A page that
