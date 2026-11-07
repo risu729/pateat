@@ -336,7 +336,7 @@ chose on 2026-10-11 before its stable release
 English pages are in `apps/docs/src`: an introduction, installation, setup, permissions
 and a draft privacy policy with the Chrome Web Store Limited Use statement. Their
 Japanese translations are at the same paths under `apps/docs/src/ja/`, served under
-`/ja/` with `hreflang` links when `PATEAT_DOCS_URL` is set
+`/docs/ja/` with `hreflang` links when `PATEAT_DOCS_URL` is set
 ([ADR 0047](adr/0047-japanese-user-docs-locales.md)). The site
 serves the extension's own `apps/extension/icons/icon.svg` through a small Vite plugin
 in `.vitepress/config.ts` instead of keeping a copy, and `.vitepress/theme/brand.css`
@@ -344,11 +344,18 @@ sets VitePress's default theme to the icon's green, darkened where text needs 4.
 contrast. The pages link to this `docs/` directory, which the site does not include, by
 absolute GitHub URLs.
 
+The VitePress base is `/docs/`. The `render` task sets
+`PATEAT_DOCS_URL=https://pateat.takuk.me/docs` and renders into `.vitepress/dist`;
+`build` then packages those files with the existing Cloudflare Vite plugin as the
+assets-only `pateat-docs` Worker. Its asset base path is `/docs`, with ordinary HTML
+handling and a real 404 page. Only the exact `/docs` and `/docs/*` routes are declared;
+no Worker code, service bindings or data bindings are included. Deployment and its
+credential bootstrap are separate from the build.
+
 VitePress fails the build on a dead link between pages. `//apps/docs:test` builds the
 site and then checks, with `apps/docs/check-links.mjs`, that every local link, asset
 and fragment in the built HTML resolves; it is one of the `//...:test` tasks, so
-`check:runtime` and CI's `Verify` job build the site on every run. A pull request that
-changes only `docs/` or `apps/docs/` skips the browser shards
+`check:runtime` and CI's `Verify` job build the site on every run. Every pull request runs the full CI graph, including the browser shards
 ([CI](delivery.md#current-foundation-workflows)).
 
 The owner decided on 2026-10-23 that the site is deployed as a public Cloudflare Worker
