@@ -389,12 +389,16 @@ test("dragging the page scrollbar releases a clicked section link", async () => 
       }));
       expect(view.scrollbar).toBeGreaterThan(0);
       // Chrome sends pointerdown for a press on the page's own scrollbar, which ends the
-      // clicked link's hold; a drag to the top then marks the first section.
+      // clicked link's hold.
       const x = view.width - view.scrollbar / 2;
       await page.mouse.move(x, view.thumb);
       await page.mouse.down();
       await page.mouse.move(x, 0, { steps: 10 });
       await page.mouse.up();
+      // The press can land on the track beside the thumb, which pages the window instead of
+      // dragging it, so a script takes the page the rest of the way. A script's scroll is no
+      // page input: only the released hold lets it mark the first section.
+      await page.evaluate(() => scrollTo(0, 0));
       await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
       await expect(nav.getByRole("link", { name: "Bitwarden", exact: true })).toHaveAttribute(
         "aria-current",
