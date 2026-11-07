@@ -68,6 +68,9 @@
   made after review, including material conflict resolutions. This standing merge
   permission does not approve new library/provider choices or changes to how the
   service is deployed.
+- Fix small review findings that do not block a merge (wording, naming, ordering, stale
+  docs) right away, in the PR or a follow-up PR; never leave a found one unfixed (owner,
+  2026-11-07 05:59 UTC).
 - Have an independent subagent review a design proposal or plan (facts against the
   code, UX gaps, security and permission impact) before asking the owner to decide,
   and say in the ask that it was reviewed.
