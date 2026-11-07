@@ -1089,39 +1089,46 @@ submitted, when the input does not hold the value after a cancelled event, or ho
 value of another length. Since 2026-10-13, when a bank's password field held one
 character fewer than the typed value with no event cancelled and the login was sent and
 rejected, the length is checked after every typing; a value of the same length, such as
-a mask or a case the page changed, is kept, while a page that reformats a value, as by
-adding hyphens, refuses it. A value the page rewrote between full-width and half-width
-characters, as an address form turns `１－２－３` into `1-2-3` or a kana field turns
-`ガ` into `ｶﾞ`, is kept whatever its length, and also after a cancelled key, as when the
-page writes the rewritten character itself (owner, 2026-10-18 02:07 UTC), unless it no
-longer fits the field's `maxlength`. The held value and the typed one are compared with
-their full-width and half-width forms (U+3000 and U+FF01 to U+FFEF) folded as Unicode
-NFKC folds them and then composed, so `ｶﾞ` matches `ガ`; other compatibility characters,
-such as `①` or `…`, are not folded, so a page that rewrites one into characters of
-another length is still refused. Until then such a value was refused as `fill-rejected`
-whenever its length changed or a key was cancelled. A rewrite the fold does not cover,
-such as hiragana into katakana or `-` into `ー`, is kept only at the same length with no
-key cancelled. The length is checked again one wait after `change` and blur, whose
-handlers may rewrite the value, and a fill refused then has sent both; a field emptied
-then, as by a form that switches to other fields, is left to the checks before the
-click. A same-length change is a known limit: a page that turns one symbol into another
-still has its value submitted, as it would be from a person's typing. A page that
-cancels the clearing `beforeinput` and does not clear the field itself by that wait
-refuses the value the same way before any character is typed. A code split into
-one-digit inputs gets the same per digit, a frame apart. Typed keys are only a value's
-characters, so a page's Enter handler does not run. Each field's scope checks, and a
-split code's per-digit checks, run after the wait before it and again after each wait of
-its typing, including the waits after its last character; a typing they stop leaves the
-characters typed so far in the field and fails the step, so nothing is clicked, unless
-the code watch of [ADR 0027](adr/0027-per-account-login-routes.md) saw the page take the
-code, as a page that replaces its form once the last digit is in does: that ends as
-`submitted`. The 500 ms check of [ADR 0010](adr/0010-inference-field-hints.md) follows
-the last field. A fill that advances or submits through
-the page's own event sets the value and sends that one `input` or `change` event alone,
-with no focus, keys or blur that could run its effect again. Known limits: the events
-are not trusted (`isTrusted` is false), so a page that checks that, or opens a software
-keyboard on focus, can still refuse a fill (a read-only field on a page's software
-keyboard is typed by pressing its keys instead,
+a mask or a case the page changed, is kept. Since the owner's decision on 2026-11-07
+at 03:45 UTC, a value changed only by inserting ASCII spaces (U+0020) and hyphen-minus
+(U+002D) is kept too: removing only the inserted characters must give exactly the typed
+value, with its original characters and separators preserved in order. The held value,
+including insertions, must still fit `maxlength`. Other inserted punctuation gets no
+exception. This exact comparison uses raw characters, so an inserted fullwidth space
+or hyphen cannot become an allowed separator through width folding
+([ADR 0010 amendment](adr/0010-inference-field-hints.md#amendment-2026-11-07-values-formatted-with-inserted-separators)).
+A value the page rewrote between full-width and half-width characters, as an address
+form turns `１－２－３` into `1-2-3` or a kana field turns `ガ` into `ｶﾞ`, is kept
+whatever its length, and also after a cancelled key, as when the page writes the
+rewritten character itself (owner, 2026-10-18 02:07 UTC), unless it no longer fits the
+field's `maxlength`. The held value and the typed one are compared with their full-width
+and half-width forms (U+3000 and U+FF01 to U+FFEF) folded as Unicode NFKC folds them and
+then composed, so `ｶﾞ` matches `ガ`; other compatibility characters, such as `①` or `…`,
+are not folded, so a page that rewrites one into characters of another length is still
+refused. Until then such a value was refused as `fill-rejected` whenever its length
+changed or a key was cancelled. A rewrite the fold does not cover, such as hiragana into
+katakana or `-` into `ー`, is kept only at the same length with no key cancelled. The
+same acceptance checks run again one wait after `change` and blur, whose handlers may
+rewrite the value, and a fill refused then has sent both; a field emptied then, as by a
+form that switches to other fields, is left to the checks before the click. A
+same-length change is a known limit: a page that turns one symbol into another still has
+its value submitted, as it would be from a person's typing. A page that cancels the
+clearing `beforeinput` and does not clear the field itself by that wait refuses the
+value the same way before any character is typed. A code split into one-digit inputs
+gets the same per digit, a frame apart. Typed keys are only a value's characters, so a
+page's Enter handler does not run. Each field's scope checks, and a split code's
+per-digit checks, run after the wait before it and again after each wait of its typing,
+including the waits after its last character; a typing they stop leaves the characters
+typed so far in the field and fails the step, so nothing is clicked, unless the code
+watch of [ADR 0027](adr/0027-per-account-login-routes.md) saw the page take the code, as
+a page that replaces its form once the last digit is in does: that ends as `submitted`.
+The 500 ms check of [ADR 0010](adr/0010-inference-field-hints.md) follows the last
+field. A fill that advances or submits through the page's own event sets the value and
+sends that one `input` or `change` event alone, with no focus, keys or blur that could
+run its effect again. Known limits: the events are not trusted (`isTrusted` is false),
+so a page that checks that, or opens a software keyboard on focus, can still refuse a
+fill (a read-only field on a page's software keyboard is typed by pressing its keys
+instead,
 [ADR 0067](adr/0067-software-keyboard-entry.md))
 (`chrome.debugger` is the only extension API that sends trusted events, and the rule
 above keeps Pateat's own debugger detached); no `compositionstart`, `compositionupdate`
