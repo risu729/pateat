@@ -2155,6 +2155,9 @@ operation the person started instead of falling back to the top of the page (own
 
 ## Diagnostics
 
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
+
 `diagnostics.html`, linked from the settings page, shows per-device versions and state
 for bug reports ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)). The page asks the
 service worker for `{ version: 1, type: "diagnostics.status" }`; the worker answers only
