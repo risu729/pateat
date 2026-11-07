@@ -182,3 +182,13 @@ condition that no value leaves.
   reasons, close to a browsing history of every page a login touches.
 - **Keep the lines 30 days.** Enough to fix a failure, but the owner chose a year, the
   same as the other logs.
+
+## Amendment: send the final watched result (2026-11-07)
+
+As recorded in [ADR 0019](0019-local-diagnostics-and-logs.md#amendment-a-watched-result-has-one-final-problem-line-2026-11-07),
+a login's provisional watched result is `info` and stays local. Its successful final
+result stays local too; a final blocked result, an expired watch, or a tab closed
+while the result is watched is `warn` and is eligible for the existing problem-line
+upload. The persistent alarm and startup reconciliation end expired watches without
+waiting for another page. An ended record is not warned again on tab closure.
+The existing redaction and upload allowlists are unchanged.

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { parseLoginRecipe } from "@pateat/contracts";
 import type { LoginReport } from "../runtime/report";
-import { HOLD_MS, SITE_WAIT_MS } from "../runtime/constants";
+import { HOLD_MS, SITE_WAIT_MS, WATCH_MS } from "../runtime/constants";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
@@ -317,4 +317,59 @@ describe("a login whose wait for the site ran out", () => {
     // It is looked at again 30 seconds later, Chrome's shortest alarm delay.
     expect(siteWait.mock.lastCall?.[0]).toBeGreaterThanOrEqual(now() + SITE_WAIT_MS + 30_000);
   });
+  const settledLogin = async (live: Parameters<typeof harness>[1] = {}) => {
+    await askedThere();
+    const since = stoppedWorker(SITE_WAIT_MS + 60_000);
+    fake.state.tabUrls[1] = `${origin}/callback`;
+    const h = twoSites(live);
+    expect(await h.login.active()).toBe(false);
+    expect(at(origin)).toMatchObject({ state: "reconciling", settled: true });
+    return { h, since };
+  };
+
+  it("ends an unknown watch by alarm without another page and reports it only once", async () => {
+    const siteWait = vi.fn<(when: number | undefined) => void>();
+    const report = vi.fn<(report: LoginReport) => void>();
+    const { h, since } = await settledLogin({ siteWait, report });
+    const changedAt = at(origin)!.changedAt;
+    expect(siteWait).toHaveBeenLastCalledWith(since + WATCH_MS);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(since + WATCH_MS + 1);
+    onTestFinished(() => clock.mockRestore());
+    await h.login.siteWaitDue();
+    expect(at(origin)).toMatchObject({ state: "blocked", outcome: "unknown-submit", changedAt });
+    expect(at(origin)!.watch).toBeUndefined();
+    expect(siteWait).toHaveBeenLastCalledWith(undefined);
+    const ended = attempts(report).filter((entry) => entry.state === "blocked");
+    expect(ended).toHaveLength(1);
+    expect(ended[0]!.times?.totalMs).toBe(SITE_WAIT_MS + WATCH_MS + 5_000);
+    await h.login.siteWaitDue();
+    expect(attempts(report).filter((entry) => entry.state === "blocked")).toHaveLength(1);
+    expect(executes()).toHaveLength(2);
+  });
+
+  it("ends an expired unknown watch at worker startup without a new page", async () => {
+    const { since } = await settledLogin();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(since + WATCH_MS + 60_000);
+    onTestFinished(() => clock.mockRestore());
+    const report = vi.fn<(report: LoginReport) => void>();
+    const restarted = twoSites({ report });
+    expect(await restarted.login.active()).toBe(false);
+    expect(at(origin)).toMatchObject({ state: "blocked", outcome: "unknown-submit" });
+    expect(attempts(report).filter((entry) => entry.state === "blocked")).toHaveLength(1);
+    expect(executes()).toHaveLength(2);
+  });
+
+  it("reports a tab closed while its result is watched, including a missing tab at startup", async () => {
+    await settledLogin();
+    // Startup reconciles a tab that disappeared while the worker was stopped.
+    fake.state.openTabs = [];
+    const report = vi.fn<(report: LoginReport) => void>();
+    const restarted = twoSites({ report });
+    expect(await restarted.login.active()).toBe(false);
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({
+      type: "attempt-closed", cause: "tab-closed", settled: true, watched: true,
+    }));
+    expect(at(origin)).toBeUndefined();
+  });
+
 });

@@ -91,6 +91,12 @@ export const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
   metadata.watch !== undefined &&
   (now - metadata.watch.since >= WATCH_MS || now < metadata.watch.since);
 
+/** The watch's end, including a clock reset, unless the login already ended. */
+export const watchEndedAt = (metadata: LoginAttemptMetadata, now: number) =>
+  !terminal(metadata) && watchOver(metadata, now)
+    ? Math.min(now, metadata.watch!.since + WATCH_MS)
+    : undefined;
+
 /**
  * Whether a login is watched (ADR 0027) in the top document its watch began in, the watch
  * still lasts, and that document took another route in place than the one the login was

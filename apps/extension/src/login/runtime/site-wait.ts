@@ -4,7 +4,7 @@ import {
   type LoginRecipe,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import { idle, siteWaitOver, terminal } from "./attempt-state";
+import { idle, siteWaitOver, terminal, watchEndedAt } from "./attempt-state";
 import { reportAttempt } from "./attempt";
 import { armSiteWait, keep } from "./session-store";
 import { frameKey } from "./steps";
@@ -111,14 +111,27 @@ export async function endSiteWaits(rt: Runtime): Promise<void> {
     const run = rt.attempts.get(stored.document.tabId);
     return run?.metadata.id === stored.id ? run : undefined;
   };
-  const decided = (stored: LoginAttemptMetadata) =>
+  const reading = (stored: LoginAttemptMetadata) =>
     latest(stored)?.running === true ||
     // A page of the tab being admitted may resume the login.
     [...rt.admitting.keys()].some((key) => key.startsWith(`${stored.document.tabId}:`)) ||
-    rt.passkeyPages.get(stored.document.tabId)?.attemptId === stored.id ||
     rt.siteMoves.has(stored.document.tabId);
+  const decided = (stored: LoginAttemptMetadata) =>
+    reading(stored) || rt.passkeyPages.get(stored.document.tabId)?.attemptId === stored.id;
   for (const [key, stored] of [...rt.persisted]) {
     const record = latest(stored)?.metadata ?? stored;
+    const watchEnd = watchEndedAt(record, Date.now());
+    if (watchEnd !== undefined && !reading(stored)) {
+      const run = latest(stored);
+      const after = transitionLoginAttempt(record, { type: "WATCH_ENDED" }, watchEnd);
+      if (run) run.metadata = after;
+      rt.continuations.delete(after.id);
+      reportLapse(rt, record, after, run?.recipe, watchEnd);
+      // Keep the hold's original time: an expired watch must not begin another hold.
+      // eslint-disable-next-line no-await-in-loop
+      await keep(rt, after, false).catch(() => undefined);
+      continue;
+    }
     if (siteWaitOver(record, Date.now()) === undefined || decided(stored)) continue;
     // eslint-disable-next-line no-await-in-loop
     const tab = await browser.tabs.get(stored.document.tabId).then(
@@ -153,6 +166,13 @@ export function endLostSiteWaits(
   tabs: Map<number, { url?: string | undefined }>,
 ): void {
   for (const [key, stored] of rt.persisted) {
+    const watchEnd = watchEndedAt(stored, Date.now());
+    if (watchEnd !== undefined) {
+      const after = transitionLoginAttempt(stored, { type: "WATCH_ENDED" }, watchEnd);
+      reportLapse(rt, stored, after, undefined, watchEnd);
+      rt.persisted.set(key, after);
+      continue;
+    }
     const at = siteWaitOver(stored, Date.now());
     if (at === undefined) continue;
     const after = lapsed(rt, stored, tabs.get(stored.document.tabId), at);

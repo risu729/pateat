@@ -655,3 +655,26 @@ these additions (22:37 UTC); the owner had been told they would be added:
   `logout` and `rejected` without `elsewhere`, the site's other tabs that asked only
   because of this tab stop asking and log in again; a stopped login asked in its own tab
   only, so closing it changes nothing for other tabs.
+
+## Amendment: a watched result has one final problem line (2026-11-07)
+
+A login still watched after an unknown result or a challenge has not ended. Its
+provisional `login.attempt` line is `info`; a final `authenticated` result is also
+`info`, and a final blocked result is `warn`. An unknown result without a watch
+keeps its existing warning, since it already sends its final outcome.
+
+The existing persistent site-wait alarm also schedules the first watch deadline.
+When the watch expires, it applies `WATCH_ENDED`, reports the final result with the
+deadline as `endedAt`, and stores it without resetting `changedAt`. This preserves
+ADR 0022's hold instead of beginning another five-minute hold. Startup reconciles
+expired stored watches before admitting pages. A current page reading finishes
+before the alarm retries; an outstanding passkey request alone does not extend a watch.
+
+Closing a tab whose result is still watched is the final warning, including a tab
+found missing at worker startup. Closing an ordinary running login remains `info`.
+A terminal stored record is never reported again by the alarm or tab-close path.
+No credentials, page text or additional identifiers are logged.
+
+The badge still follows ADR 0038: it displays the unknown result while it is watched,
+then the later authenticated result if the site completes. The log level does not
+change that display.

@@ -649,6 +649,7 @@ export function reportClosed(rt: Runtime, metadata: LoginAttemptMetadata): void 
       stepCount: metadata.stepCount,
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(metadata.settled ? { settled: true as const } : {}),
+      ...(metadata.watch ? { watched: true as const } : {}),
       ...(unsubmitted(rt, metadata) ? { unsubmitted: true as const } : {}),
       // A fill-only login's lines stay on the device (ADR 0066).
       ...(metadata.fillOnly ? { fillOnly: true as const } : {}),

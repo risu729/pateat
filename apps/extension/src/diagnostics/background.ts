@@ -496,8 +496,8 @@ export function createDiagnosticsLog(options: {
           { source },
         );
       else if (report.type === "attempt-closed")
-        // A login whose tab closed ended there; the person closed it, so it is not a
-        // problem line (ADR 0019, amended 2026-11-04).
+        // Closing an unfinished watched result is its final problem line. A person
+        // closing an ordinary running login is still info (ADR 0019).
         void logger.log(
           "login.attempt",
           {
@@ -514,7 +514,7 @@ export function createDiagnosticsLog(options: {
             unsubmitted: report.unsubmitted,
             fillOnly: report.fillOnly,
           },
-          { source, level: "info" },
+          { source, level: report.watched ? "warn" : "info" },
         );
       else if (report.type === "ask-ended")
         void logger.log(
@@ -879,8 +879,8 @@ export function createDiagnosticsLog(options: {
           },
           {
             source,
-            // A login that stopped, or whose result settled as unknown, did not finish. A resumed
-            // attempt that changed nothing repeats what was already logged.
+            // A watched result is provisional: only its terminal result is a problem.
+            // A resumed attempt that changed nothing repeats what was already logged.
             // A fill-only login while its tab asks for an account ends by design without
             // pressing anything. A route change is kept for the log too (ADR 0034).
             level: report.repeat
@@ -894,9 +894,10 @@ export function createDiagnosticsLog(options: {
                   // A click left to the person under a CAPTCHA explains a later challenge.
                   report.cause === "captcha-shown"
                 ? "info"
-                : report.state === "blocked" || report.state === "watching" || report.settled
+                : report.state === "blocked" || (report.settled && !report.watched)
                   ? "warn"
-                  : report.state === "authenticated" ||
+                  : report.watched ||
+                      report.state === "authenticated" ||
                       report.state === "retryable" ||
                       report.routeChange !== undefined ||
                       report.layoutFrom !== undefined
