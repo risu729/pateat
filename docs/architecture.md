@@ -3625,6 +3625,9 @@ diagnostics remain necessary.
 
 ### Service limits
 
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
+
 Status: implemented, except the recipe byte cap below, which the owner chose on
 2026-10-14 (07:56 UTC) and [#550](https://github.com/risu729/pateat/issues/550) builds.
 The owner asked on 2026-10-11 for common-sense per-owner limits sized for their own use;

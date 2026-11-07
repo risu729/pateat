@@ -20,6 +20,12 @@ Continuation page admission and generation submission live in
 takeover and execution and preserves its original exports. The extraction leaves
 request recording, stale-run checks and reporting in the same order.
 
+The service's Claude call boundary keeps its public facade in `claude/calls.ts`.
+`call-execution.ts` owns provider sequencing and sending; `call-budget.ts` owns spend
+and concurrent-slot admission; `call-log.ts` owns retained inference records and their
+projections; `call-types.ts` owns shared contracts. The split preserves reservation,
+charging, logging and request-lifetime ordering.
+
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
 
