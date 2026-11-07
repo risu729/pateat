@@ -1286,7 +1286,13 @@ the fill. Alerts are `role="alert"` and `aria-live="assertive"` regions anywhere
 document or shadow tree, for both the fill check and the sign-in state reading; a
 matching ID in another tree does not name that region (ADR 0070). A message the page
 already showed and renders again is not new, nor is a mark the input had before the
-fill. The text stays in the content script; only the outcome leaves it. A fill that
+fill. The text stays in the content script. A rejected fill reports a fixed cause:
+`typed-refused`, the failing input validity flag (`input-pattern-mismatch`, for example),
+`aria-invalid`, `alert-shown`, `status-shown`, or `form-invalid` for Enter's form check.
+A field-specific cause also logs its zero-based index in the fill step's fields; split
+code inputs map to their one recipe field. Cause codes reach the outcome/timing records;
+the field index reaches the service through the existing warning problem line. No page
+text, label, identifier or value leaves with these diagnostics. A fill that
 submits through its own event is checked only before filling. When a filled input was
 replaced during the wait, nothing is clicked and the attempt observes the page instead.
 A click is not made, and the attempt ends `structural-mismatch` and moves to

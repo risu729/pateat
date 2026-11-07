@@ -16,6 +16,9 @@ information unless there is a sound reason: the judge request carries the login 
 slots with these hints too
 ([ADR 0061](0061-personal-details-during-a-login.md#the-judge-gets-the-accounts-slots)).
 
+Amended on 2026-11-07 with fixed fill-rejection diagnostics (implementation detail;
+see below).
+
 Date: 2026-10-10
 
 ## Context
@@ -118,3 +121,28 @@ wrong mapping between two inputs with identical constraints and no page reaction
 - Sending page `pattern` and evaluating it locally: rejected for the hang risk above.
 - Analyzing page scripts for validation rules: rejected as heavy and brittle; the
   post-fill observation covers script validation generically.
+
+## Amendment 2026-11-07: fixed causes for a rejected fill
+
+The diagnostics work in [issue 1326](https://github.com/risu729/pateat/issues/1326)
+exposes which existing check rejected the fill. This is an implementation choice within
+the requested logging scope, not a new rule for accepting page rewrites. A typed refusal
+reports `typed-refused`; constraint validation reports `input-` followed by its fixed
+flag name (`value-missing`, `pattern-mismatch`, `type-mismatch`, `too-long`,
+`too-short`, `range-underflow`, `range-overflow`, `step-mismatch`, `bad-input`,
+or `custom-error`). New ARIA marks, alert text and relevant status text report
+`aria-invalid`, `alert-shown` and `status-shown`. Enter's form check reports
+`form-invalid`. The first rejecting input/check wins; existing feedback baselines and
+unchanged custom validity messages are treated as before.
+
+For a field-specific rejection, `fieldIndex` is its zero-based position in the recipe
+fill step, including position zero for any digit of a split code. It is a bounded count,
+not a DOM identifier, slot name or label. The execution result, attempt report, local
+log and existing service problem-line allowlist carry it. Outcome and timing records
+carry the fixed cause only; their schema and database need no additional column.
+A keypad that already received a key retains its existing `keypad-pressed` cause so
+the person is still told to reload before another attempt.
+
+The page's text, messages, labels and values stay in the content script. The checks
+still stop the same fills, add no waits, and neither accept separators nor claim to
+verify any real site's behavior.

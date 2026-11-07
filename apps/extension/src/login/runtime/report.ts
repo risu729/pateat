@@ -175,6 +175,8 @@ export type LoginReport = (
        * that failed or was cancelled: why, as the worker or the page saw it (ADR 0019).
        */
       cause?: PolicyChangeCause | StopCause;
+      /** Zero-based fill-step field index; codes and counts only (ADR 0010). */
+      fieldIndex?: number;
       reason?: string;
       /** The result of the current effect step just settled as unknown (`unknown-submit`). */
       settled?: true;
@@ -761,7 +763,7 @@ export type PolicyChange = { cause: PolicyChangeCause; reason?: string };
  * showed a CAPTCHA, so its click was left to the person (`captcha-shown`, ADR 0029), the
  * page after an effect step settled as unknown while it still showed the sign-in form
  * (S1) with no failure that acted (`sign-in-shown`, ADR 0029), or the page's own reason
- * (`ExecutionDetail`).
+ * (`ExecutionDetail`), including the fixed check that rejected a fill (ADR 0010).
  */
 export type StopCause =
   | "elements-timeout"

@@ -163,6 +163,7 @@ export const LOG_EVENTS = {
       handler: "count",
       outcome: "code",
       cause: "code",
+      fieldIndex: "count",
       reason: "code",
       settled: "flag",
       unconfirmed: "flag",

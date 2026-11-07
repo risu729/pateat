@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "./fill-checks";
+import { userEvent } from "vitest/browser";
+import {
+  fillBaseline,
+  fillRejection,
+  inputValueMismatch,
+  rejectsFill,
+  unreadyForm,
+} from "./fill-checks";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -135,6 +142,82 @@ describe("a code fill's status messages (ADR 0027)", () => {
   });
 });
 
+describe("fill rejection diagnostics", () => {
+  it.each([
+    ["required", "<input required>", "", "valueMissing", "input-value-missing"],
+    ["email", '<input type="email">', "invalid", "typeMismatch", "input-type-mismatch"],
+    ["pattern", '<input pattern="[0-9]+">', "letters", "patternMismatch", "input-pattern-mismatch"],
+    ["minimum", '<input type="number" min="5">', "4", "rangeUnderflow", "input-range-underflow"],
+    ["maximum", '<input type="number" max="5">', "6", "rangeOverflow", "input-range-overflow"],
+    ["step", '<input type="number" step="2">', "3", "stepMismatch", "input-step-mismatch"],
+  ] as const)(
+    "names the native %s failure and its field position",
+    (_name, html, value, flag, detail) => {
+      const first = input("<input>");
+      const field = input(html);
+      const before = fillBaseline([first, field]);
+      field.value = value;
+      expect(field.validity[flag]).toBe(true);
+      expect(fillRejection([first, field], before)).toEqual({ detail, fieldIndex: 1 });
+    },
+  );
+
+  it.each([
+    ["tooLong", "abcd", "maxLength", 3, "input-too-long"],
+    ["tooShort", "a", "minLength", 3, "input-too-short"],
+  ] as const)("names native %s after a user edit", async (flag, value, length, limit, detail) => {
+    const field = input("<input>");
+    const before = fillBaseline([field]);
+    await userEvent.type(field, value);
+    field[length] = limit;
+    expect(field.validity[flag]).toBe(true);
+    expect(fillRejection([field], before)).toEqual({ detail, fieldIndex: 0 });
+  });
+
+  it("names an incomplete number typed by the person", async () => {
+    const field = input('<input type="number">');
+    const before = fillBaseline([field]);
+    await userEvent.type(field, "e");
+    expect(field.validity.badInput).toBe(true);
+    expect(fillRejection([field], before)).toEqual({ detail: "input-bad-input", fieldIndex: 0 });
+  });
+
+  it("reports changed input marks without returning their text", () => {
+    const first = input("<input>");
+    const field = input("<input>");
+    field.setCustomValidity("Earlier synthetic message");
+    const before = fillBaseline([first, field]);
+    expect(fillRejection([first, field], before)).toBeUndefined();
+    field.setCustomValidity("Different synthetic message");
+    expect(fillRejection([first, field], before)).toEqual({
+      detail: "input-custom-error",
+      fieldIndex: 1,
+    });
+    field.setCustomValidity("");
+    field.setAttribute("aria-invalid", "true");
+    expect(fillRejection([first, field], before)).toEqual({
+      detail: "aria-invalid",
+      fieldIndex: 1,
+    });
+  });
+
+  it.each([
+    ["alert", "alert-shown"],
+    ["status", "status-shown"],
+  ] as const)("reports a new %s without attributing it to a field", (role, detail) => {
+    document.body.innerHTML = '<form><input><p id="feedback"></p></form>';
+    const field = document.querySelector("input")!;
+    const before = fillBaseline([field]);
+    const feedback = document.querySelector("#feedback")!;
+    feedback.setAttribute("role", role);
+    feedback.textContent = "Synthetic feedback that must stay inside the page";
+    expect(fillRejection([field], before)).toEqual({ detail });
+    expect(fillRejection([field], before, { statuses: false })).toEqual(
+      role === "alert" ? { detail } : undefined,
+    );
+  });
+});
+
 describe("unreadyForm", () => {
   // St.George's logon with a remembered access number: typing the number shows the
   // Security Number field and clears every field (logonSimple.js `showFullLogon`).
@@ -193,3 +276,4 @@ describe("unreadyForm", () => {
     expect(check(new Set(), [])).toBe(false);
   });
 });
+
