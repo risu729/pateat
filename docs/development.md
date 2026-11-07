@@ -10,6 +10,11 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
+Continuation page admission and generation submission live in
+`login/runtime/continuation-question.ts`; `continuation.ts` retains recipe/layout
+takeover and execution and preserves its original exports. The extraction leaves
+request recording, stale-run checks and reporting in the same order.
+
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
 
