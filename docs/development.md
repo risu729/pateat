@@ -40,6 +40,12 @@ settings; `vault-policy.ts` owns account, item and custom-field eligibility;
 policy imports or initialization cycles. This source split preserves schema order,
 validation messages and policy behavior; its tests keep their existing files.
 
+`apps/extension/src/crypto/host.ts` keeps the crypto broker, its session lifecycle,
+request lanes and cancellation effects. `host-result.ts` owns pure operation-result
+admission, including account binding, requested item coverage and passkey signature
+bounds. The public host exports remain available from `host.ts`; existing test files
+and assertions stay in place.
+
 The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
 `apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
