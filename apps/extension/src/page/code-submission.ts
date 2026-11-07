@@ -1,4 +1,4 @@
-import type { LoginTarget } from "@pateat/contracts";
+import { observedAutocompleteTokens, type LoginTarget } from "@pateat/contracts";
 import { acceptsSecret } from "../login/inputs";
 import { observedPath } from "../observation/path";
 import { autocompleteTokens, findTargets, visible } from "./targets";
@@ -6,28 +6,29 @@ import { closestAcross, containsAcross, formOf, inputsOf, queryAll, treeOf } fro
 
 export { visible };
 
-/** Input types that take no typed text, which a code's form may hold beside its digits. */
-const untypedTypes = new Set([
-  "hidden",
-  "checkbox",
-  "radio",
-  "submit",
-  "button",
-  "reset",
-  "image",
-  "file",
-  "range",
-  "color",
-]);
+/** The input types a page's description shows as fill fields (observation/extract.ts). */
+const describedTypes = new Set(["text", "email", "tel", "number", "password"]);
+/** The `autocomplete` tokens a page's description names. */
+const describedTokens: ReadonlySet<string> = new Set(observedAutocompleteTokens);
+/**
+ * Whether the page's description shows no `maxlength` for the input: none, 0 or past 1024,
+ * or any on a number input, whose length it leaves out (and the browser ignores).
+ */
+const noDescribedLimit = (input: HTMLInputElement) =>
+  input.type === "number" || input.maxLength < 1 || input.maxLength > 1024;
 /**
  * A digit input of a code split into inputs that declare no `maxlength` (ADR 0027
- * amendment of 2026-11-04): a text input with `inputmode="numeric"`, or a tel or number
- * input, that declares no `maxlength` or 1, and whose `autocomplete` names nothing but
- * `off` or `one-time-code`, so a phone number's or card's part is never one.
+ * amendment of 2026-11-04), read as the page's description shows it, so the service's
+ * `splitCodeInputs` never keeps a split the fill would not take (ADR 0027 amendment of
+ * 2026-11-07): a text input with `inputmode="numeric"`, or a tel or number input, that
+ * shows no `maxlength` or 1, and whose `autocomplete` names no token the description
+ * shows but `off` or `one-time-code`, so a phone number's or card's part is never one.
  */
 export const unmarkedDigit = (input: HTMLInputElement) =>
-  (input.maxLength === -1 || input.maxLength === 1) &&
-  autocompleteTokens(input).every((token) => token === "off" || token === "one-time-code") &&
+  (noDescribedLimit(input) || input.maxLength === 1) &&
+  autocompleteTokens(input).every(
+    (token) => !describedTokens.has(token) || token === "off" || token === "one-time-code",
+  ) &&
   (input.type === "tel" ||
     input.type === "number" ||
     (input.type === "text" && input.getAttribute("inputmode")?.trim().toLowerCase() === "numeric"));
@@ -39,11 +40,13 @@ export const unmarkedDigit = (input: HTMLInputElement) =>
  *
  * - the inputs of its form, or of no form when it has none, that `usable` accepts, the
  *   TOTP fill rule accepts and that take one character (`maxlength` 1); or
- * - when `first` declares no `maxlength` (ADR 0027 amendment of 2026-11-04, Notion's six
+ * - when `first` shows no `maxlength` (ADR 0027 amendment of 2026-11-04, Notion's six
  *   inputs, where only the first is marked `autocomplete="one-time-code"`): every input
- *   of its form that takes typed text and that `usable` accepts, when `first` is marked
- *   `one-time-code` and each of them is an `unmarkedDigit`. Such a digit takes a code's
- *   digit only as one of these inputs, never on its own.
+ *   of its form that the page's description shows as a fill field and that `usable`
+ *   accepts, when `first` is marked `one-time-code` and each of them is an
+ *   `unmarkedDigit` (ADR 0027 amendment of 2026-11-07: a search, date or other input the
+ *   description leaves out takes no digit and is not counted). Such a digit takes a
+ *   code's digit only as one of these inputs, never on its own.
  *
  * A `totp` handler's code goes into them one digit per input.
  */
@@ -60,9 +63,9 @@ export function splitCodeInputs(
     );
     if (digits[0] === first && digits.length === length) return digits;
   }
-  if (first.maxLength !== -1 || !autocompleteTokens(first).includes("one-time-code"))
+  if (!noDescribedLimit(first) || !autocompleteTokens(first).includes("one-time-code"))
     return undefined;
-  const typed = inputs.filter((input) => !untypedTypes.has(input.type) && usable(input));
+  const typed = inputs.filter((input) => describedTypes.has(input.type) && usable(input));
   return typed[0] === first && typed.length === length && typed.every(unmarkedDigit)
     ? typed
     : undefined;
@@ -82,7 +85,7 @@ export function splitCodeOf(
   );
   const marked = digits[0] && splitCodeInputs(digits[0], digits.length, usable);
   if (marked?.includes(input)) return marked;
-  const typed = inputs.filter((other) => !untypedTypes.has(other.type) && usable(other));
+  const typed = inputs.filter((other) => describedTypes.has(other.type) && usable(other));
   const unmarked = typed[0] && splitCodeInputs(typed[0], typed.length, usable);
   return unmarked?.includes(input) ? unmarked : undefined;
 }

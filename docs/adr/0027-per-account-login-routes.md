@@ -1678,19 +1678,30 @@ Decision:
   `inputmode="numeric"`, or a `tel` or `number` input, without a `maxlength` or with 1,
   and with no `autocomplete` but `off` or `one-time-code`. The handler names the first;
   the login types one digit per input as before.
-- A text input with `inputmode="numeric"`, no `maxlength` (or one past 1024, which the
-  description leaves out) and no `autocomplete` but `off` (`judgedCodeInput`) may be a
-  `totp` handler's code field when the judge names it, under the other checks of
+- The service sees the inputs only as the page's description shows them, so the
+  extension's split rule now reads them the same way, and the service never keeps a
+  split the login would type whole into its first input: a `maxlength` of 0 or past
+  1024, or any on a number input, counts as none; only the `autocomplete` tokens the
+  description shows count, so `section-otp one-time-code` is marked and a token it never
+  shows, such as `cc-number`, is no refusal; and only the inputs the description shows
+  as fill fields (text, email, tel, number and password) are counted, so a search or
+  date input in the form, or outside any form beside inputs outside any form, no longer
+  refuses the split and takes no digit. An email or other text input still refuses it.
+- A text input with `inputmode="numeric"`, no `maxlength` (or 0 or one past 1024, which
+  the description leaves out) and no `autocomplete` but `off` (`judgedCodeInput`) may be
+  a `totp` handler's code field when the judge names it, under the other checks of
   `totpCodeRefusal`; another such input or code input in its form refuses it
   (`several-code-fields`). The extension's TOTP fill rule (`acceptsSecret` for `otp`)
   takes the same input, reading `autocomplete` as the description does: a token it does
   not describe, such as `cc-csc`, counts as none. A `tel` input without a `maxlength`
   still does not, as a phone number's field is one, nor a number input.
-- Only the judge's code takes such an input. `isCodeField` is unchanged, so such an
-  input does not make a page a code page anywhere else: not for a recipe's own `totp`
-  slot, not for the sign-in state's S3, not for locating role buttons by text (ADR 0027
-  amendment of 2026-11-04) and not for the signed-in marker checks. A numeric input with
-  no limit is also a quantity, postal code or member number on many pages; there the
-  judge's answer is what names it a code.
+- Only the judge's code takes such an input on the service. `isCodeField` is unchanged,
+  so such an input does not make a page a code page anywhere else: the service never
+  plans a recipe's own `totp` slot into it, and it counts for neither the sign-in
+  state's S3, nor locating role buttons by text (ADR 0027 amendment of 2026-11-04), nor
+  the signed-in marker checks. A numeric input with no limit is also a quantity, postal
+  code or member number on many pages; there the judge's answer is what names it a code.
+  The extension's fill rule cannot tell which step a code comes from, so it would also
+  type a recipe step's code there; no recipe the service plans has one.
 - The two pages' rows kept `challenge` with their inputs' digest; ADR 0029's amendment
   of 2026-11-07 judges them again.

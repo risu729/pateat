@@ -41,8 +41,8 @@ export function codeInput(input: SecretInput): boolean {
 const describedTokens: ReadonlySet<string> = new Set(observedAutocompleteTokens);
 
 /**
- * A text input with `inputmode="numeric"` that declares no `maxlength` (or one past 1024,
- * which the page's description leaves out too) and whose
+ * A text input with `inputmode="numeric"` that declares no `maxlength` (or 0 or one past
+ * 1024, which the page's description leaves out too) and whose
  * `autocomplete` names no token the page's description shows, so the description shows
  * it with none or `off`, as the service's `judgedCodeInput` reads one (ADR 0027 amendment
  * of 2026-11-07): a `totp` handler's code may go in, as HCP Cloud's "Enter your one-time
@@ -52,8 +52,8 @@ function unlimitedNumericInput(input: SecretInput): boolean {
   return (
     input.type === "text" &&
     input.getAttribute("inputmode")?.trim().toLowerCase() === "numeric" &&
-    // The description leaves out a `maxlength` past 1024, as no limit.
-    ((input.maxLength ?? -1) < 0 || (input.maxLength ?? -1) > 1024) &&
+    // The description leaves out a `maxlength` of 0 or past 1024, as no limit.
+    ((input.maxLength ?? -1) < 1 || (input.maxLength ?? -1) > 1024) &&
     !autocompleteTokens(input).some((token) => describedTokens.has(token))
   );
 }

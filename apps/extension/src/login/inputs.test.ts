@@ -58,6 +58,9 @@ describe("secret input rule", () => {
     ["otp", input({ inputMode: "numeric", autocomplete: "off" }), true],
     ["otp", input({ inputMode: "numeric", autocomplete: "username" }), false],
     ["otp", input({ inputMode: "numeric", maxLength: 12 }), false],
+    // A length of 0 or past 1024 the page's description leaves out, as none.
+    ["otp", input({ inputMode: "numeric", maxLength: 0 }), true],
+    ["otp", input({ inputMode: "numeric", maxLength: 2000 }), true],
     ["otp", unboundedTel, false],
     ["hidden", input({ inputMode: "numeric" }), false],
     ["hidden", password, true],
