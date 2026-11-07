@@ -390,7 +390,7 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
     // A site's sign-in entry on this path is pressed once its checks pass (ADR 0031).
     const entryRecipe =
-      ctx.recipe || ctx.document.frameId !== 0 || ctx.live.topUrl
+      ctx.recipe || ctx.document.frameId !== 0
         ? undefined
         : (await rt.recipes.entries(ctx.document.origin).catch(() => [])).find(
             (candidate) => candidate.entry.path === ctx.live.path,
@@ -483,8 +483,10 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
     const listing = shownList && (shownList.names || !shownList.missed) ? shownList : undefined;
     // A page whose URL names another path of its site may be sent as a sign-in entry
     // once no sign-in input showed (ADR 0031); a list of accounts goes first.
+    // A frame's page is never one: an entry's press leads the tab's page (ADR 0086).
     const entryPage =
       offer &&
+      ctx.document.frameId === 0 &&
       (namesReturnPath(new URL(ctx.live.url), sameSiteAs(ctx.live.url)) ||
         (await switchingTab(rt, ctx.live)))
         ? true
@@ -498,8 +500,14 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
     // button is sent as a list, which carries the button for the chooser's passkey route
     // (ADR 0079, owner 2026-10-25), and says nothing of the items' passkeys; the button
     // alone is sent only when the list is not, as a heading read as names no item has.
+    // A frame's page never is: Pateat answers passkey requests in the tab's page only.
     const passkeyPage =
-      offer && ctx.signIn?.passkey && ctx.signIn.path === ctx.live.path ? true : undefined;
+      offer &&
+      ctx.document.frameId === 0 &&
+      ctx.signIn?.passkey &&
+      ctx.signIn.path === ctx.live.path
+        ? true
+        : undefined;
     const passkeyOnly = async (
       fallback: boolean,
       every = fallback,
@@ -671,17 +679,17 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
     // A page offered for generation that showed nothing to send by the end of the step
     // wait is logged with why; mostly ordinary browsing, so at debug level (ADR 0019).
     // The tab's next document after a submitted password form is known only here. A page
-    // that looks like a verification but is never sent, a secret answer of `type="text"` or
-    // a frame, is counted by reason at info level when a vault item matches it, as it
-    // would for a page that is sent (ADR 0035).
+    // that looks like a verification but is never sent, a secret answer of `type="text"`,
+    // is counted at info level when a vault item matches it, as it would for a page that
+    // is sent (ADR 0035).
     // A secret answer on the tab's next document after a password submit is part of that
     // sign-in, so it is not counted.
-    const framed = availability === "frame";
     const afterSubmit = rt.afterSignIn.get(ctx.document.tabId) === ctx.document.documentId;
     const unsendable =
       ctx.unoffered?.path === ctx.live.path &&
-      ((offer && ctx.unoffered.why === "text-answer" && !afterSubmit) ||
-        (framed && ctx.unoffered.why === "frame"))
+      offer &&
+      ctx.unoffered.why === "text-answer" &&
+      !afterSubmit
         ? ctx.unoffered.why
         : undefined;
     let counted = false;
@@ -708,10 +716,8 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
           : ctx.unoffered.why,
       );
     // No recipe of the origin and no login in the tab: ordinary browsing (ADR 0019).
-    if (!ctx.recipe && !starts.length && !offer) {
-      const refused = await ctx.refuse("recipe-not-found", undefined, true);
-      return framed ? { ...refused, frame: true as const } : refused;
-    }
+    if (!ctx.recipe && !starts.length && !offer)
+      return ctx.refuse("recipe-not-found", undefined, true);
     // Only an origin with a recipe: elsewhere every sign-in page would be logged.
     if (starts.length) ctx.notStarted(ctx.recipe ? "first-step-missing" : "no-recipe-on-path");
     // A generated recipe's own start page that misses its first steps may be stale
@@ -746,7 +752,6 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       starts,
       ...(offer || (otherOffer === true && !ctx.paused) ? { generate: true as const } : {}),
       ...(offer && entryPage ? { entry: true as const } : {}),
-      ...(framed ? { frame: true as const } : {}),
     };
   }
 

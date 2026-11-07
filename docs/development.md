@@ -1074,27 +1074,43 @@ removal APIs.
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other owner
 repositories. Its GitHub App covers this repository and reads the configuration from
 `.github/renovate.json` on the default branch. Cloudflare build and test dependencies
-are grouped and allow prereleases. `@cloudflare/vite-plugin` versions are
-`2.0.0-beta.sha-<commit>`, which semver compares by the hash text, not by release date,
-and Renovate has no release-date ordering. It follows the `beta` dist-tag with
-`rollbackPrs`: `followTag` alone never offers a tagged beta whose hash sorts below the
-current one, while `rollbackPrs` offers it as a rollback update. Rollback updates are
-titled as updates but are not automerged. TypeScript, its shared preset and type
-packages are grouped so peer requirements can be reviewed together. `ai` and the
+are grouped and allow prereleases. For `@cloudflare/vite-plugin`, the owner chose on
+2026-11-07 to retain the one-day release age and select the numerically ordered
+`2.0.0-beta.v.N` series rather than follow the `beta` dist-tag. The dedicated rule sets
+`ignoreUnstable: false`, `respectLatest: false` and
+`allowedVersions: /^2\.0\.0-beta\.v\.[0-9]+$/`. This lets the shared preset's
+release-age filter select the highest eligible mature beta even when a newer beta is
+too young. It needs neither the old commit-hash rollback workaround nor its rollback
+title override. The dependency pin and lockfile are unchanged by this policy change.
+
+The pattern deliberately excludes hash betas, release candidates, stable releases and
+other version series. Renovate will not report a transition to any of those through
+this rule. When reviewing Cloudflare dependency updates, compare the upstream
+[npm versions and dist-tags](https://www.npmjs.com/package/@cloudflare/vite-plugin?activeTab=versions)
+with the allowed series. If it changes, review compatibility and update this rule and
+the pin together; do not remove the release age to get an update. The local rule tests
+check the series boundary and require the committed pin to match it; they are not an
+upstream-release monitor.
+
+TypeScript, its shared preset and type packages are grouped so peer requirements can
+be reviewed together. `ai` and the
 `@ai-sdk/*` packages are grouped into one PR because each pins an exact
 `@ai-sdk/provider-utils`: updated apart, `ai` and `@ai-sdk/valibot` can resolve
 different copies, and the `Schema` from one is not assignable to the other in
 `packages/inference/src/structured.ts`. Updates still have to pass the repository's
 required checks.
 
-The shared preset makes Renovate wait one day (plus its 30-minute buffer) after a
-release before raising its update, for every datasource including npm (owner decision,
+The shared preset applies a one-day release age (plus Renovate's 30-minute buffer)
+for every datasource including npm (owner decision,
 2026-10-28 09:47 UTC;
 [risu729/renovate-config#2827](https://github.com/risu729/renovate-config/pull/2827)).
 mise refuses tool versions younger than its 24-hour `minimum_release_age` default, so a
 tool update raised earlier could not update `mise.lock` and failed CI until a rebase a
 day later ([#1103](https://github.com/risu729/pateat/pull/1103)). Renovate still raises
-security-fix updates at once.
+security-fix updates at once. The pinned preset uses `internalChecksFilter: flexible`:
+it prefers a mature candidate, but can raise an update with a pending stability check
+when every candidate is too young; automerge waits for that check. A change to the
+shared filter is separate from this repository's Vite plugin rule.
 
 Renovate tracks the release-tagged hk-config imports through the shared preset. The
 typed Cloudflare compatibility date remains reviewed manually: the shared preset's date

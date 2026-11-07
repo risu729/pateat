@@ -728,7 +728,7 @@ describe("production login document admission", () => {
         expect.objectContaining({ type: "generation", outcome: "skipped" }),
       );
     }, 10_000);
-    it("offers nothing for a page sent recently, a path a recipe starts on, a frame or an incomplete description", async () => {
+    it("offers nothing for a page sent recently, a path a recipe starts on or an incomplete description", async () => {
       const service = generation({ available: async () => "sent" as const });
       const report = vi.fn<(report: LoginReport) => void>();
       const h = harness(unsaved, {
@@ -784,25 +784,6 @@ describe("production login document admission", () => {
           detail: "unlocated-button",
         }),
       );
-      expect(service.generate).not.toHaveBeenCalled();
-
-      fake.state.tabUrls = { 1: "https://top.example/" };
-      expect(
-        await h.login.handle(
-          {
-            version: 1,
-            type: "login.document.ready",
-            token: "frame-token",
-            signIn: { path: "/" },
-          },
-          sender({
-            frameId: 3,
-            documentId: "frame-document",
-            tab: { id: 1, url: "https://login.example/" },
-          }),
-        ),
-        // A frame is never sent, only asked to report a verification it shows (ADR 0035).
-      ).toEqual({ ok: false, reason: "recipe-not-found", frame: true });
       expect(service.generate).not.toHaveBeenCalled();
     }, 10_000);
   });

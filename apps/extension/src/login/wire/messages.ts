@@ -9,16 +9,13 @@ import { loginReadinessSchema, shownLaterSchema, startMissSchema } from "./readi
  * and no sign-in input since (`no-list`), it is the page right after a submitted password
  * form (`after-sign-in`), a sign-in input showed only at the end of the wait
  * (`sign-in-shown`), or it shows a `type="text"` input named as a secret answer, which
- * looks like a verification but is never sent (`text-answer`, ADR 0035). `frame`: a frame,
- * which is never sent, showed a sign-in input or such an answer within the step wait after
- * the worker asked it to report one (ADR 0035).
+ * looks like a verification but is never sent (`text-answer`, ADR 0035).
  */
 export const unofferedReasons = [
   "no-list",
   "after-sign-in",
   "sign-in-shown",
   "text-answer",
-  "frame",
 ] as const;
 
 export const helloSchema = v.strictObject({
@@ -170,12 +167,6 @@ export const readySchema = v.strictObject({
    * form's trusted submission it reports with `login.document.person-submitted`.
    */
   confirm: v.optional(loginReadinessSchema),
-  /**
-   * The document is a frame, which is never sent for generation: it announces once with
-   * `unoffered` `frame` if a sign-in input or a secret answer shows within the step wait,
-   * so such pages are counted (ADR 0035).
-   */
-  frame: v.optional(v.literal(true)),
 });
 export const reconnectSchema = v.strictObject({
   version: v.literal(1),
@@ -187,6 +178,16 @@ export const reconnectSchema = v.strictObject({
    * after its window to be sent closed.
    */
   fresh: v.optional(v.literal(true)),
+});
+/**
+ * Asks a frame, by its frame ID alone, whether a document still shows there, answered from
+ * the start of every document (`login-start`), also one whose login content script has not
+ * run yet: the frame of a login that no answer comes from went away with its page (ADR
+ * 0086).
+ */
+export const framePresentSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.frame.present"),
 });
 export const authorizeSchema = v.strictObject({
   version: v.literal(1),

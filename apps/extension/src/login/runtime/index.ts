@@ -33,6 +33,7 @@ import { armEntryTimer, asksEveryTime } from "./entry-press";
 import { refusalKey } from "./detail-fill";
 import { probeMode } from "./constants";
 import { pausingSettings, showTabPause, pauseOf } from "./pause";
+import { frameLeftInPlace } from "./moves";
 import {
   forgetTab,
   reportClosed,
@@ -161,8 +162,15 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
       if (pausedBy !== undefined) return "paused";
       return limited || asking;
     },
-    /** A tab's page changed: a page of a paused site shows `II` on its badge (ADR 0062). */
-    tabLoaded: (tab: Browser.tabs.Tab) => showTabPause(rt, tab).catch(() => undefined),
+    /**
+     * A tab's page changed: a framed login whose frame went away ends on the tab's page
+     * (`frameLeftInPlace`, ADR 0086), and a page of a paused site shows `II` on its badge
+     * (ADR 0062).
+     */
+    tabLoaded: (tab: Browser.tabs.Tab) => {
+      void frameLeftInPlace(rt, tab).catch(() => undefined);
+      return showTabPause(rt, tab).catch(() => undefined);
+    },
   };
 }
 

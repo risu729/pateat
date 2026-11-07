@@ -998,6 +998,52 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["pw", "go"]);
   });
 
+  it("leaves out a search box outside every form and the bar it sits in", () => {
+    // LeetCode's sign-in page (2026-11-07), reduced: a navigation bar with menu buttons and
+    // a search box outside every form, then a card whose form holds the fields while its
+    // "Sign In" and "Sign Up" buttons sit outside it.
+    const card = `<main><div class="card"><div class="stack">
+        <form><input id="id_login" autocomplete="username" placeholder="Username or E-mail">
+          <input id="id_password" type="password" autocomplete="current-password"></form>
+        <div><button id="signin_btn" type="button">Sign In</button></div>
+        <div><a href="#">Forgot Password?</a><button type="button">Sign Up</button></div>
+      </div></div></main>`;
+    for (const search of [
+      `<input placeholder="Search">`,
+      `<input type="search">`,
+      `<div role="search"><input id="q"></div>`,
+    ]) {
+      page(
+        `<nav><button id="interview" type="button">Interview</button>
+          <button id="store" type="button">Store</button>${search}</nav>${card}`,
+      );
+      const observation = observe();
+      expect(observation.complete, search).toBe(true);
+      expect(
+        observation.candidates.map((candidate) => [candidate.target.value, candidate.group]),
+        search,
+      ).toEqual([
+        ["id_login", "f1"],
+        ["id_password", "f1"],
+        ["signin_btn", undefined],
+        ["Sign Up", undefined],
+      ]);
+    }
+    // Any other field outside every form still brings the controls outside every form.
+    page(`<nav><button id="store" type="button">Store</button><input id="q"></nav>${card}`);
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual([
+      "store",
+      "q",
+      "id_login",
+      "id_password",
+      "signin_btn",
+      "Sign Up",
+    ]);
+    // A page whose only field is a search box outside every form is no sign-in page.
+    page(`<nav><input placeholder="Search"><button>Go</button></nav>`);
+    expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
   it("never gives a role=button control and a link of another form the same text locator", () => {
     // The login form's Help widget is named by its text there; the link of a form that is
     // no login form, such as a newsletter form beside it, is not checked against it.
@@ -1503,6 +1549,21 @@ describe("extractLoginObservation", () => {
     expect(summary(observation).map(({ role, target }) => [role, target])).toEqual([
       ["text", { by: "name", value: "j_username" }],
       ["password", { by: "name", value: "j_password" }],
+      ["button", { by: "text", value: "ログイン" }],
+    ]);
+  });
+
+  it("describes a pointer tab stop in a login form as its button (2026-11-07)", () => {
+    page(
+      `<form><input name="email" type="email"><input name="password" type="password">
+        <div tabindex="0" style="cursor:pointer"><p>ログイン</p></div>
+        <label tabindex="0" style="cursor:pointer" for="rm">ログインしたままにする</label></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map(({ role, target }) => [role, target])).toEqual([
+      ["email", { by: "name", value: "email" }],
+      ["password", { by: "name", value: "password" }],
       ["button", { by: "text", value: "ログイン" }],
     ]);
   });
@@ -4429,6 +4490,7 @@ describe("extractSignedInObservation", () => {
       sidebar(
         `<div role="tab" id="with-button"><button id="inner-button">Close</button></div>
         <div role="tab" id="with-role-button"><span role="button">Pin</span></div>
+        <div role="tab" id="with-tab-stop"><span tabindex="0" style="cursor: pointer">Star</span></div>
         <div role="menuitem" id="with-shadow"></div>
         <div role="option tab" id="option-first">Option</div>
         <div role="tab option" name="tab-first">First</div>`,
@@ -4966,6 +5028,38 @@ describe("passkey-only start observation", () => {
     const serialized = JSON.stringify(result.observation);
     expect(serialized).not.toContain("synthetic-private");
     expect(serialized).not.toContain("Create a passkey");
+  });
+
+  it("reads a pointer tab stop without a role as the passkey button (Logi ID, 2026-11-07)", () => {
+    // Logi ID's page for a device that signed in with a passkey before, shortened; its
+    // hCaptcha keeps two hidden text areas, and its "forgot your passkey" link names a
+    // passkey too but is no sign-in button (#1375).
+    page(`<style>.button, .forgot_link { cursor: pointer }</style>
+      <div class="description">このデバイスでは以前にパスキーでログインしています。</div>
+      <div class="captcha"><textarea name="h-captcha-response" style="display: none"></textarea></div>
+      <div class="submit"><div class="button" tabindex="0"><p class="button_text">🔑 パスキーを使用してログイン</p></div></div>
+      <a class="forgot_link" tabindex="0">パスキーを忘れた場合</a>
+      <a class="forgot_link" tabindex="0">サインイン</a>`);
+    const result = extractPasskeyObservation(document);
+    if (!result.ok) throw new Error(result.reason);
+    const target = { by: "text", value: "🔑 パスキーを使用してログイン" } as const;
+    expect(result.observation.candidates).toEqual([
+      { id: "c1", role: "button", label: "🔑 パスキーを使用してログイン", target },
+    ]);
+    expect(findTargets(document, target)).toEqual([document.querySelector(".button")]);
+  });
+
+  it("locates a role button that names a passkey by its text, only when no other has it", () => {
+    page(`<div role="button">Sign in with a passkey</div>`);
+    const result = extractPasskeyObservation(document);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.candidates.map(({ target }) => target)).toEqual([
+      { by: "text", value: "Sign in with a passkey" },
+    ]);
+    page(
+      `<div role="button">Sign in with a passkey</div><div role="button">Sign in with a passkey</div>`,
+    );
+    expect(extractPasskeyObservation(document)).toEqual({ ok: false, reason: "no-candidates" });
   });
 
   it.each([

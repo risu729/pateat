@@ -96,6 +96,53 @@ describe("a button beside a form without one of its own", () => {
     );
   });
 
+  it("presses it when other buttons outside every form follow it", () => {
+    // LeetCode's sign-in page (2026-11-07): the username and password in a form, then the
+    // "Sign In" button outside it, then a "Sign Up" button outside it too.
+    const signUp = input("up", { role: "button", label: "Sign Up" });
+    expect(validatePagePlan(page(signUp), loginSlots, { fields: both, action: submit }).ok).toBe(
+      true,
+    );
+    expect(
+      actionPurpose(page(signUp), loginSlots, { fields: [both[0]!], action: submit }, "advance"),
+    ).toBe("submit");
+    // So it may when the form's last element is a link or checkbox of the form.
+    const remember = page(signUp);
+    remember.candidates.splice(3, 0, input("keep", { role: "checkbox", group: "f1" }));
+    expect(validatePagePlan(remember, loginSlots, { fields: both, action: submit }).ok).toBe(true);
+    // Not between two elements of the form, as a field of it the page places later.
+    const split = page();
+    split.candidates.push(input("later", { group: "f1" }));
+    expect(validatePagePlan(split, loginSlots, { fields: both, action: submit })).toEqual({
+      ok: false,
+      reason: "mixed-groups",
+    });
+    // A known limit: the check reads order, not words, so the first button of a row after
+    // the form is taken whatever it says, as "Cancel" before "Sign in"; only words that
+    // name a passkey or registering, as "Create account", refuse it.
+    const row = page(input("in", { role: "button", label: "Sign in" }));
+    row.candidates[3] = input("go", { role: "button", label: "Cancel" });
+    expect(validatePagePlan(row, loginSlots, { fields: both, action: submit }).ok).toBe(true);
+    expect(
+      validatePagePlan(row, loginSlots, {
+        fields: both,
+        action: { candidate: "in", purpose: "submit" },
+      }),
+    ).toEqual({ ok: false, reason: "mixed-groups" });
+    row.candidates[3] = input("go", { role: "button", label: "Create account" });
+    expect(validatePagePlan(row, loginSlots, { fields: both, action: submit })).toEqual({
+      ok: false,
+      reason: "mixed-groups",
+    });
+    // The following button is no form's button: pressing it after the fields is refused.
+    expect(
+      validatePagePlan(page(signUp), loginSlots, {
+        fields: both,
+        action: { candidate: "up", purpose: "submit" },
+      }),
+    ).toEqual({ ok: false, reason: "mixed-groups" });
+  });
+
   it("refuses it for any other form, field or button", () => {
     for (const extra of [
       input("own", { role: "button", group: "f1" }),
@@ -105,17 +152,26 @@ describe("a button beside a form without one of its own", () => {
         validatePagePlan(page(extra), loginSlots, { fields: both, action: submit }),
         extra.id,
       ).toEqual({ ok: false, reason: "mixed-groups" });
-    // Nor for a form beside another password form, beside another button outside every
-    // form, or as a passkey or sign-up button.
-    for (const extra of [
-      input("other", { role: "password", group: "f2" }),
+    // Nor for a form beside another password form, or after another button outside every
+    // form that comes between the form and it, or as a passkey, sign-up, reset or help
+    // button (`registersPasskey` words).
+    expect(
+      validatePagePlan(page(input("other", { role: "password", group: "f2" })), loginSlots, {
+        fields: both,
+        action: submit,
+      }),
+    ).toEqual({ ok: false, reason: "mixed-groups" });
+    const between = page();
+    between.candidates.splice(
+      3,
+      0,
       input("passkey", { role: "button", label: "パスキーでログイン" }),
-    ])
-      expect(
-        validatePagePlan(page(extra), loginSlots, { fields: both, action: submit }),
-        extra.id,
-      ).toEqual({ ok: false, reason: "mixed-groups" });
-    for (const label of ["Sign in with a passkey", "Create a passkey"]) {
+    );
+    expect(validatePagePlan(between, loginSlots, { fields: both, action: submit })).toEqual({
+      ok: false,
+      reason: "mixed-groups",
+    });
+    for (const label of ["Sign in with a passkey", "Create a passkey", "Reset", "Need help?"]) {
       const named = page();
       named.candidates[3] = input("go", { role: "button", label });
       expect(validatePagePlan(named, loginSlots, { fields: both, action: submit }), label).toEqual({

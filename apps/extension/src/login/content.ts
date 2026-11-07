@@ -54,6 +54,7 @@ import {
 import { typeValue } from "../page/enter-value";
 import { askDefinitions, ELEMENT_DEFINED } from "../page/element-definitions";
 import { nextFrame } from "../page/frames";
+import { watchFrameShown } from "../page/frame-shown";
 import { pageChange } from "../page/page-change";
 import { documentLoaded } from "../page/document-load";
 import {
@@ -123,8 +124,6 @@ import { newId } from "@pateat/contracts/ids";
 const pagePath = () => observedPath(location.pathname);
 /** The page's URL without its fragment, which changes no page. */
 const pageUrl = () => location.href.split("#")[0]!;
-/** When a frame the worker asks about is read for a sign-in input or a secret answer. */
-const FRAME_READINGS_MS = [0, 1_000, 3_000, 6_000, LOGIN_STEP_WAIT_MS];
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginMarkerTarget, links = false): Element[] {
   return findTargets(document, target, { links });
@@ -625,10 +624,20 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // the person's own submission of its form once per path.
   let confirmPage: LoginReadiness | undefined;
   const personSubmits = new Set<string>();
-  // A frame the worker asked to report a sign-in input or a secret answer (ADR 0035): the
-  // watch's stop while it runs, and whether it reported one.
-  let frameWatch: (() => void) | undefined;
-  let frameReported = false;
+  // Whether this document shows in the tab's page: a frame's page is offered for
+  // generation only once it does (ADR 0086), and the looks waiting for it look again then.
+  const frameLooks = new Set<() => void>();
+  const inTab = watchFrameShown(window, () => {
+    if (cancelled || !inTab.shown()) return;
+    // A decision already taken in the offer's window is taken again, after the page's quiet.
+    if (offerWindow !== undefined && !offered) {
+      clearDecision();
+      offerQuiet = setTimeout(decideOffer, offerQuietMs);
+      offerCap = setTimeout(decideOffer, offerWaitMs);
+    }
+    if (observer) schedule();
+    for (const look of frameLooks) look();
+  });
   // The pending offer's timers: its decision once the DOM is quiet (`offerQuiet`) or at the
   // latest (`offerCap`, ADR 0057), and the end of its window for a sign-in input
   // (`offerWindow`, ADR 0016). The decision is pending while `offerCap` is set.
@@ -709,8 +718,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     // its URL names another path of its site, hold the site's sign-in entry (ADR
     // 0031), ask for an account identifier alone (ADR 0016) or show a passkey button (ADR
     // 0053). The page right after a submitted password form offers none of them.
-    const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
-    const noInput = bare ? noInputOffer(document, entryWanted && !entryOffered) : undefined;
+    // A frame that does not show yet offers nothing (ADR 0086).
+    const bare =
+      !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted() && inTab.shown();
+    // A page asking a secret answer is a verification, never a site's sign-in entry, even
+    // when its URL names the page it guards (ADR 0035, #1376): it waits for the window,
+    // which counts it.
+    const answer = bare && answerInput(document);
+    const noInput = bare
+      ? noInputOffer(document, entryWanted && !entryOffered && !answer)
+      : undefined;
     // Nothing to send yet, or a list announced only for the log, which waits for the window.
     // Short texts beside the button of a page asking a secret answer name no account: the
     // page waits for the window too, which counts it (ADR 0035).
@@ -719,7 +736,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       (noInput.kind === "list" &&
         !noInput.entry &&
         noInput.accounts &&
-        (logOnly(noInput.accounts) || (noInput.accounts.names && answerInput(document))))
+        (logOnly(noInput.accounts) || (noInput.accounts.names && answer)))
     )
       return;
     if (noInput.kind !== "identifier" && noInput.entry) entryOffered = true;
@@ -766,37 +783,6 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 : "no-list",
         },
       }).catch(() => undefined);
-  }
-  /**
-   * Reports once, for the count of pages that look like a verification but are not sent, a
-   * sign-in input or a secret answer this frame shows within the step wait (ADR 0035). The
-   * frame is read a few times, never watched, as many frames are ads that keep changing.
-   */
-  function watchFrame(): void {
-    if (frameWatch || frameReported || cancelled) return;
-    let left = FRAME_READINGS_MS.length;
-    const timers = FRAME_READINGS_MS.map((delay) => setTimeout(look, delay));
-    function stop(): void {
-      for (const reading of timers) clearTimeout(reading);
-      frameWatch = undefined;
-    }
-    function look(): void {
-      left -= 1;
-      if (cancelled || frameReported) return stop();
-      if (!showsSignIn() && !answerInput(document)) {
-        if (!left) stop();
-        return;
-      }
-      frameReported = true;
-      stop();
-      void sendMessage("login", {
-        version: 1,
-        type: "login.document.ready",
-        token,
-        unoffered: { path: pagePath(), why: "frame" },
-      }).catch(() => undefined);
-    }
-    frameWatch = stop;
   }
   function watch(list: LoginReadiness[], offer = false, entryPage = false): void {
     starts = list;
@@ -904,7 +890,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       announced = false;
       retries = 0;
       // Offered once per page; the background keeps its own daily limit as well.
-      if (generate && !offered && showsSignIn()) {
+      if (generate && !offered && showsSignIn() && inTab.shown()) {
         offered = true;
         offeredPaths.add(pagePath());
         // The page's one offer: the window's end would only report it for the log, and
@@ -1001,7 +987,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    */
   function noteShown(): void {
     const path = pagePath();
-    if (shownTimer || shown.has(path) || !(asksSignIn() || listsHere())) return;
+    // A frame that does not show in the tab's page reports nothing yet (ADR 0086), so a
+    // hidden frame is never repaired as a stale page.
+    if (shownTimer || shown.has(path) || !(asksSignIn() || listsHere()) || !inTab.shown()) return;
     shownTimer = setTimeout(() => {
       shownTimer = undefined;
       if (
@@ -1013,7 +1001,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       )
         return;
       const asks = asksSignIn();
-      if (!asks && !listsHere()) return;
+      if ((!asks && !listsHere()) || !inTab.shown()) return;
       shown.add(path);
       const miss = startMiss();
       const later = laterReport();
@@ -1152,7 +1140,6 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // Its path stays followed after the page moves on, for a return in place.
       if (cancelled) followConfirmPath(undefined);
       else if (confirmPage && followed !== confirmPage.path) followConfirmPath(confirmPage.path);
-      if (parsed.output.frame) watchFrame();
     }
     if (parsed.success && parsed.output.ok && parsed.output.starts) {
       // A page of a watched login: its recipe's first step showing releases the login
@@ -1320,7 +1307,6 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       deferredAccount = undefined;
       waits.abort();
       unwatch();
-      frameWatch?.();
       followConfirmPath(undefined);
       respond({ ok: true });
       return false;
@@ -1626,6 +1612,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (command.type === "login.extract") {
       if (cancelled) {
         respond({ ok: false, reason: "cancelled" });
+        return false;
+      }
+      // A page to send goes only from a frame that shows in the tab's page (ADR 0086).
+      if (command.shown && !inTab.shown()) {
+        respond({ ok: false, reason: "frame-hidden" });
         return false;
       }
       let result: unknown;
@@ -2178,17 +2169,44 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           step.effect === "submit" &&
           step.fields.length === 1;
         // A `totp` handler's code split into one input per digit goes in one digit per
-        // input (ADR 0027, owner decision 2026-10-12 19:21 UTC).
-        const split =
-          command.code && (step.effect === "prepare" || buttonless) && step.fields.length === 1
-            ? splitCodeInputs(
-                writableInputs[0] as HTMLInputElement,
-                command.values[0]!.value.length,
-                writable,
-              )
-            : undefined;
-        // Which shape its digits keep is decided once, from its first input as found.
-        const unmarked = split !== undefined && split[0]!.maxLength !== 1;
+        // input (ADR 0027, owner decision 2026-10-12 19:21 UTC). An input the page's
+        // description leaves out, as a honeypot hidden from assistive technology, moved
+        // off the screen, transparent or tiny, is not counted, as the service never saw it
+        // (ADR 0027 amendment of 2026-11-07).
+        const codeStep =
+          command.code !== undefined &&
+          (step.effect === "prepare" || buttonless) &&
+          step.fields.length === 1;
+        const described = (input: HTMLInputElement) =>
+          writable(input) && presence(input) === "visible";
+        const split = codeStep
+          ? splitCodeInputs(
+              writableInputs[0] as HTMLInputElement,
+              command.values[0]!.value.length,
+              described,
+            )
+          : undefined;
+        // Nor is a code typed whole into the first of inputs that would split a code once
+        // the form's other inputs are left out, or that split a code of another length, as
+        // the item's code for a site that asks for more or fewer digits: that input keeps
+        // one digit.
+        if (
+          codeStep &&
+          !split &&
+          [6, 7, 8].some((length) =>
+            splitCodeInputs(
+              writableInputs[0] as HTMLInputElement,
+              length,
+              (input) => described(input) && unmarkedDigit(input),
+            ),
+          )
+        )
+          return fail("value-mismatch");
+        // Which shape its digits keep is decided once, from its inputs as found: one-digit
+        // inputs the TOTP fill rule takes, or the shape without `maxlength`.
+        const unmarked =
+          split !== undefined &&
+          !split.every((digit) => digit.maxLength === 1 && acceptsSecret(digit, "otp"));
         const fits = (input: Control, value: (typeof command.values)[number]) =>
           split
             ? split.every(
@@ -2773,7 +2791,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // An open window, after a load or a URL change, offers the input itself.
       if (offerWindow !== undefined || urlWatch) return;
       const path = pagePath();
-      if (offeredPaths.has(path) || !showsSignIn() || starts.some(ready) || afterSubmitted())
+      if (
+        offeredPaths.has(path) ||
+        !showsSignIn() ||
+        !inTab.shown() ||
+        starts.some(ready) ||
+        afterSubmitted()
+      )
         return;
       offeredPaths.add(path);
       void announce(false, true, undefined, false, false, true).catch(() => undefined);
@@ -2788,9 +2812,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     };
     const changes = new MutationObserver(later);
     changes.observe(document, pageWatch);
+    frameLooks.add(later);
     function stop(): void {
       stopped = true;
       changes.disconnect();
+      frameLooks.delete(later);
       if (lateWatch === stop) lateWatch = undefined;
     }
     lateWatch = stop;
@@ -2815,7 +2841,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       pending = false;
       if (stopped) return;
       if (cancelled || !mayOffer) return stop();
-      if (!showsSignIn() || starts.some(ready) || afterSubmitted()) return;
+      if (!showsSignIn() || !inTab.shown() || starts.some(ready) || afterSubmitted()) return;
       stop();
       offeredPaths.add(pagePath());
       void announce(false, true, undefined, false, false, true).catch(() => undefined);
@@ -2827,10 +2853,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     };
     const changes = new MutationObserver(later);
     changes.observe(document, pageWatch);
+    frameLooks.add(later);
     const end = setTimeout(stop, LOGIN_STEP_WAIT_MS);
     function stop(): void {
       stopped = true;
       changes.disconnect();
+      frameLooks.delete(later);
       clearTimeout(end);
       if (urlWatch === stop) urlWatch = undefined;
       watchLate();
@@ -2851,7 +2879,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     urlWatch?.();
     lateWatch?.();
     unwatch();
-    frameWatch?.();
+    inTab.stop();
     followConfirmPath(undefined);
     document.removeEventListener("submit", onSubmit, true);
     submitListeners.abort();

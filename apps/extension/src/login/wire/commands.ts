@@ -295,6 +295,11 @@ export const commandSchema = v.variant("type", [
      * the page's site among those `login.entry.hosts` listed. A link elsewhere is left out.
      */
     onSite: v.optional(hostList),
+    /**
+     * The description goes to the service (ADR 0016): a frame that does not show in the
+     * tab's page answers `frame-hidden` instead (ADR 0086).
+     */
+    shown: v.optional(v.literal(true)),
   }),
   /**
    * After a judged page whose description had nothing to send (`no-candidates`), as a page

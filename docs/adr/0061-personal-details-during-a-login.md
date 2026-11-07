@@ -26,6 +26,10 @@ Amended on 2026-10-25 by the owner (08:41 UTC, on
 waits for another login between pages only while its stored record changed in the last
 two minutes, as an account choice does (see [Refused values](#refused-values)).
 
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; delivery 3): a page beside the sign-in form is sent to the judge from a login
+in a frame of the tab's page too, on the recipe's own origin.
+
 Date: 2026-10-23
 
 ## Context

@@ -252,7 +252,21 @@ export type LocalItemField = {
   empty?: true | undefined;
   totpSeed?: true | undefined;
 };
-type FieldRefusal = "field-missing" | "field-ambiguous" | "field-count-changed";
+type FieldRefusal = "field-missing" | "field-ambiguous" | "field-count-changed" | "sso-field";
+
+const ssoFieldName = /^sso(?:\s+[0-9]+)?$/iu;
+
+/**
+ * Whether a custom-field name is one of the names reserved for SSO methods (ADR 0085):
+ * `SSO`, `SSO 2` and so on, after NFKC normalization (so full-width letters, digits and
+ * spaces count), ignoring surrounding white space and letter case, with any white space
+ * before the number. Such a field
+ * holds where and as whom to sign in, never a value for a page: it is never offered to
+ * generation, read for a shape or bound to a slot.
+ */
+export function isSsoFieldName(name: string | null | undefined): boolean {
+  return typeof name === "string" && ssoFieldName.test(name.normalize("NFKC").trim());
+}
 export type BindingFieldResolution =
   | { ok: true; slots: { slot: string; fieldId: string }[] }
   | { ok: false; reason: "binding-slots-mismatch" }
@@ -287,6 +301,8 @@ function resolveField(
     const fieldId = builtinFieldIds[reference];
     return fields.some((field) => field.id === fieldId) ? { fieldId } : { reason: "field-missing" };
   }
+  // A field reserved for SSO methods (ADR 0085) is never filled.
+  if (isSsoFieldName(reference.custom)) return { reason: "sso-field" };
   // Same-name fields are counted over the whole item, ordered by their vault index.
   const named = sameNameFields(fields, reference.custom);
   if (reference.position === undefined) {

@@ -19,8 +19,8 @@ import type { Runtime } from "./state";
 
 /**
  * Whether the login's next step `step` is a final `advance` click whose page may be sent
- * to replace it: a `password` login on its recipe's own steps (variant 0) in the tab's own
- * page, with recipe generation configured, no handler entered, no stop, no chooser and not
+ * to replace it: a `password` login on its recipe's own steps (variant 0) in the tab's page
+ * or a frame of it (ADR 0086), with recipe generation configured, no handler entered, no stop, no chooser and not
  * only filling, at the plan's last step, a click of the recipe itself, whose recipe fills
  * no password and has no completion or alternatives. A request already recorded for the
  * step counts, so a restart may take its answer from the cache; one this document refused
@@ -32,8 +32,6 @@ export function replaceableClick(rt: Runtime, run: Execution, step: LoginStep): 
     !rt.generation ||
     !rt.uris ||
     (probeMode && metadata.account.origin === rt.vars.origin) ||
-    run.live.document.frameId !== 0 ||
-    run.live.topUrl !== undefined ||
     recipe.completion !== undefined ||
     recipe.alternatives !== undefined ||
     step.kind !== "click" ||

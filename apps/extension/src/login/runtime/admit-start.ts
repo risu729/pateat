@@ -242,8 +242,8 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
 
   // A generated recipe the chosen item cannot run, where it holds what a route the recipe
   // lacks needs, has its start page sent for repair in this visit (ADR 0058 A, amended by
-  // ADR 0041): only for a new login of the tab's own page that starts at the recipe's first
-  // step, neither while the tab asks nor after an account switch, nor on a chooser's
+  // ADR 0041): only for a new login of the tab's page, or of a frame of it for the
+  // password route (ADR 0086), that starts at the recipe's first step, neither while the tab asks nor after an account switch, nor on a chooser's
   // list, and while no login of the recipe runs or is watched in any tab. Until the answer
   // the page waits as for a generation; a page the repair did not answer with a recipe is
   // refused as it would have been.
@@ -276,8 +276,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
     !deferred &&
     !ctx.later &&
     !pausedStart &&
-    ctx.document.frameId === 0 &&
-    !ctx.live.topUrl &&
+    (unfit !== "passkey" || ctx.document.frameId === 0) &&
     !(probeMode && ctx.document.origin === rt.vars.origin) &&
     isGeneratedRecipeId(ctx.recipe.id) &&
     rt.generation?.claimRepair &&

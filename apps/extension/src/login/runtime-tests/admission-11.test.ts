@@ -778,7 +778,7 @@ describe("production login document admission", () => {
         );
         await settle();
       }
-      it("leaves pages of another path or origin, and a frame on the same path", async () => {
+      it("leaves pages of another path or origin, and asks a frame on the same path again", async () => {
         const { h, service, release } = pending();
         await generate(h, service, release, async () => {
           fake.state.tabUrls[2] = `${origin}/home`;
@@ -805,7 +805,13 @@ describe("production login document admission", () => {
             }),
           ).toMatchObject({ ok: false, reason: "recipe-not-found" });
         });
-        expect(fake.state.reconnects).toHaveLength(1);
+        // A frame of the origin's path starts the recipe as the tab's page does (ADR 0086).
+        expect(fake.state.reconnects).toHaveLength(2);
+        expect(fake.state.reconnects).toContainEqual({
+          tabId: 4,
+          frameId: 5,
+          documentId: "framed",
+        });
       });
       it("leaves the page that carries its tab's login, also once it finished", async () => {
         const { h, service, release } = pending();

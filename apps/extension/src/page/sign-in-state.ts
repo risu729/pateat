@@ -32,6 +32,11 @@ export interface PageSigns {
   /** S4: a shown CAPTCHA widget. */
   readonly captcha: boolean;
   /**
+   * S4 shows and no token field of its service holds a token yet: the person has not
+   * solved it (ADR 0029 amendment of 2026-11-07); only then.
+   */
+  readonly captchaUnsolved?: true;
+  /**
    * F1: a sign-in input of the effect step became `aria-invalid="true"`, in its document;
    * in a new document that shows the sign-in form again, one of its sign-in inputs is.
    */
@@ -316,7 +321,9 @@ function showsPassword(document: Document): boolean {
 
 /** S3: a shown input that the executor would type a one-time code into. */
 function showsCode(document: Document): boolean {
-  // As the executor's `acceptsSecret` for a code; the attributes first, as they cost less.
+  // As the login's `codeInput`, the service's `isCodeField`: a numeric input without a
+  // `maxlength`, which only a judge's code fills (ADR 0027 amendment of 2026-11-07), is no
+  // sign of a code step here. The attributes first, as they cost less.
   return queryAll<HTMLInputElement>(document, "input").some(
     (input) =>
       (autocompleteTokens(input).includes("one-time-code") ||
@@ -441,10 +448,12 @@ export function pageSigns(
       ? reshown.length > 0 && alertTexts(document, reshown, true).size > 0
       : submitted !== undefined &&
         [...alertTexts(document, submitted.fields)].some((text) => !submitted.alerts.has(text));
+  const captcha = showsCaptcha(document);
   return {
     password: showsPassword(document),
     code: showsCode(document),
-    captcha: showsCaptcha(document),
+    captcha,
+    ...(captcha && !passedCaptcha(document) ? { captchaUnsolved: true as const } : {}),
     invalid,
     alert,
     ...(reshown !== undefined && !alert ? { alertMiss: alertMiss(document, reshown) } : {}),

@@ -3,9 +3,11 @@ import {
   connectionUse,
   getItemEligibility,
   isSupportedSite,
+  loginFieldFacts,
   parseSiteUrl,
   type LocalSettings,
   type VaultCatalog,
+  type VaultItemMetadata,
 } from "@pateat/contracts";
 import type { UriCandidates } from "../crypto/wire";
 import type { VaultResult } from "./record";
@@ -38,6 +40,31 @@ export type LiveSiteCandidates =
       unavailableConnections: { connectionId: string; reason: string }[];
     }
   | { ok: false; reason: "invalid-url" | "url-too-long" };
+
+/** A custom field that names an identity provider (ADR 0026): `SSO`, then `SSO 2`, `SSO 3`. */
+const SSO_FIELD_NAME = /^SSO(?: (?:[2-9]|[1-9]\d+))?$/;
+
+/**
+ * Whether the item signs in only through an identity provider (ADR 0026): a Text or Hidden
+ * `SSO` field this device may use, and no login password it may use (`loginFieldFacts`).
+ * Its username is the provider's account. An item with a password as well keeps its own
+ * password login (ADR 0026, amended 2026-11-07), and an excluded `SSO` field means no SSO.
+ * Only field names and the catalog's `empty` flags are read, never a value.
+ */
+export function signsInOnlyThroughProvider(
+  item: Pick<VaultItemMetadata, "fields">,
+  usableFieldIds: readonly string[],
+): boolean {
+  if (loginFieldFacts(item, usableFieldIds).password) return false;
+  const usable = new Set(usableFieldIds);
+  return item.fields.some(
+    (field) =>
+      usable.has(field.id) &&
+      (field.kind === "text" || field.kind === "hidden") &&
+      field.name !== null &&
+      SSO_FIELD_NAME.test(field.name),
+  );
+}
 
 /** Provider URI matches for one page, narrowed by local settings before anything else.
  * Matches are candidate scope only: they never become `allowedOrigins`, site defaults,

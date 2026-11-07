@@ -27,8 +27,9 @@ const webOrigin = (url: string | undefined) => {
  * submission, and so does one whose tab shows no web page Pateat can read (amended
  * 2026-11-04): Pateat may read every HTTP(S) page, so a tab without a URL shows
  * `about:blank` or a browser page. Any other settles as a page that proved nothing
- * would, watched from `at` when it is a top-level `password` login. Its wait for the
- * site ends at `at`.
+ * would, watched from `at` when it is a `password` login, in the tab's page or in a frame
+ * (ADR 0086), so a frame's login is held for the watch too. Its wait for the site ends
+ * at `at`.
  */
 export function lapsed(
   rt: Runtime,

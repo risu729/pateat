@@ -70,6 +70,10 @@ export function createBrowserFake() {
       | ((readiness: { accounts?: boolean }) => { ok: boolean; reason?: string } | undefined),
     /** Documents that went away with their page; messages to them fail. */
     gone: new Set<string>(),
+    /** Frames that show no document anymore; `login.frame.present` to them fails. */
+    goneFrames: new Set<number>(),
+    /** Replaces the answer to `login.frame.present`, as a frame that is slow to answer. */
+    onPresent: undefined as undefined | ((frameId: number | undefined) => Promise<unknown>),
     /** Every runtime's tab-closed listener, so a test can close its tabs afterwards. */
     removed: [] as ((tabId: number) => void)[],
     /** Every runtime's tab-replaced listener, as Chrome calls it for a discarded tab. */
@@ -209,6 +213,12 @@ export function createBrowserFake() {
         if (options?.documentId && state.gone.has(options.documentId))
           throw new Error("Could not establish connection. Receiving end does not exist.");
         state.messages.push(structuredClone(message) as (typeof state.messages)[number]);
+        if (message["type"] === "login.frame.present") {
+          if (state.onPresent) return state.onPresent(options?.frameId);
+          if (options?.frameId !== undefined && state.goneFrames.has(options.frameId))
+            throw new Error("Could not establish connection. Receiving end does not exist.");
+          return true;
+        }
         if (message["type"] === "login.reconnect") {
           state.reconnects.push({ tabId: _tabId, ...options });
           return (await state.onReconnect?.()) ?? { ok: false };

@@ -8,7 +8,10 @@ detection over them) and part B (the start page's `passkey` route), and delivery
 by the amendment of 2026-10-23 (owner, 2026-10-23: a Text or Hidden field shaped like a
 TOTP key is flagged and becomes the `totp` field, never a raw slot)
 ([A TOTP code from a custom field](#amendment-2026-10-23-a-totp-code-from-a-custom-field));
-delivery 5 (the `sso` route) is not implemented. Amends
+delivery 5 (the `sso` route) is not implemented; its item fact, route order,
+custom-field offers and model input are amended on 2026-11-07 by
+[ADR 0085](0085-one-item-for-native-and-sso-login.md)
+([amendment](#amendment-2026-11-07-one-item-for-password-and-sso)). Amends
 [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
 request during a login), [ADR 0010](0010-inference-field-hints.md) and
@@ -126,6 +129,9 @@ Amended on 2026-11-07 by
 [ADR 0019](0019-local-diagnostics-and-logs.md#amendment-a-watched-result-has-one-final-problem-line-2026-11-07):
 the persistent alarm ends expired watches and their provisional result is info until
 a final failure. Earlier references below to a watched line being warn are historical.
+
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; implemented): a `password` login in a frame is watched too.
 
 Date: 2026-10-11
 
@@ -1586,3 +1592,124 @@ buttonless code field's form shows no button had nothing to check.
 - A code form that submits by itself and holds such a widget, such as "Resend code",
   now shows a button, so a buttonless handler is refused there (`submit-unnamed`), as
   with a native button.
+
+## Amendment 2026-11-07: one item for password and SSO
+
+Accepted by the owner on 2026-11-07 (12:51 UTC) with
+[ADR 0085](0085-one-item-for-native-and-sso-login.md); not implemented, except the
+custom-field bullet, implemented by ADR 0085's amendment of the same day. It changes
+this ADR's text as follows; the accepted text above is kept.
+
+- [The item's facts](#the-items-facts): the `sso` fact comes from the item's `SSO`,
+  `SSO 2`, … fields in either form of ADR 0085. An excluded field turns its method off;
+  a malformed or duplicate one stops the login.
+- [Executor](#executor), step 1: the automatic `sso` route is the item's unsuffixed
+  `SSO` method; `SSO 2` and later are explicit choices. "An SSO item never uses
+  `password`" becomes ADR 0085's rules per route: an item with bracket-valued fields
+  keeps its own `password` route as an explicit choice.
+- [Custom fields in generation](#custom-fields-in-generation): a custom field named
+  `SSO` or `SSO <number>`, and a Linked field that reads one, is never offered, read for
+  a shape or bound to a slot.
+- [What the model receives](#what-the-model-receives): the SSO label, such as `GitHub`,
+  is the one exception to "never the facts": it may be sent through the service to find
+  the site's button for that IdP when a recipe is generated. The IdP username and the
+  mapping to an IdP item are never sent.
+
+## Amendment 2026-11-07: recovery links are no passkey button
+
+Chosen by an agent, not asked, for
+[#1375](https://github.com/risu729/pateat/issues/1375). On Logi ID's page for a device
+that signed in with a passkey before, "パスキーを忘れた場合" ("forgot your passkey")
+sits under the sign-in button "🔑 パスキーを使用してログイン". It names a passkey, so it
+passed the passkey button check, and a passkey-only recipe or a `passkey` route could
+press it instead of the sign-in button.
+
+- The registration words (`registration` in `packages/contracts/src/passkey-button.ts`)
+  also take the words of a link that helps when a passkey is lost or does not work, or
+  that explains passkeys: forgot, forgotten, forget, lost, reset, recover, recovery,
+  trouble, troubleshoot, help, can't (also cant), can not, cannot, unable, don't have,
+  not working, learn more and what is or are as whole Latin words, and 忘れ, 紛失,
+  なくし, 無くし, リセット, 復旧, できない, できません, 使えない, 使えません,
+  お持ちでない, お困り, とは, について and 詳しく anywhere. So "Forgot your passkey?",
+  "Don't have your passkey?", "Learn more about passkeys", "パスキーを忘れた場合" and
+  "パスキーをお持ちでない方" are refused as passkey buttons everywhere the registration
+  words apply: the extension's passkey buttons of a passkey-only start page
+  ([ADR 0053](0053-passkey-only-generation.md)) and beside an account list
+  ([ADR 0079](0079-passkey-button-beside-an-account-list.md)), which then never reach
+  the service; the generated `passkey` route and the service's checks of those pages;
+  the judge's `passkey` handler check and the passkey choices it is offered.
+- A button outside a password form whose words read so is never that form's action
+  either (`besideForm`), as before for a passkey or registration button: a "Reset" or
+  "Help" button after the form is no sign-in button.
+- A sign-in button whose text happens to hold one of these words, such as "Forgot
+  password? Sign in with a passkey", is refused too; no real page with one is known.
+- The generation instructions are unchanged: on a passkey-only page or beside a list
+  such a link no longer reaches the model, and elsewhere a `passkeyButton` naming one is
+  dropped silently, as a registration button is.
+
+## Amendment 2026-11-07: code inputs the judge names without maxlength
+
+Chosen by an agent, not asked, for the owner's report of 2026-11-07 16:30 UTC that the
+authenticator code was not filled on HCP Cloud and Epic Games. In both logins, in the
+owner's Chrome on build `8364867e`, the judge named the code field and its button with
+source `authenticator-app`, and the service dropped the code, so no `totp` handler was
+kept and the login stopped at the code page for the person:
+
+- Epic Games, `www.epicgames.com/id/login/mfa` (16:26:39 UTC, request
+  `01a1b6d5-6134-75fe-be85-2845594c3fba`): six `<input type="text" inputmode="numeric"
+  autocomplete="one-time-code">` named `code-input-0` to `code-input-5`, none with a
+  `maxlength`, and the button `#continue`. Each passed `isCodeField` by its
+  `autocomplete`, but the split code rule needed `maxlength` 1, so they read as several
+  code fields (`totpDropped: "several-code-fields"`). The extension's split rule of the
+  amendment of 2026-11-04 already took them: Notion's inputs passed only because just
+  the first was marked.
+- HCP Cloud, `auth.hashicorp.com/u/mfa-otp-challenge` (16:29:50 UTC, request
+  `01a1b6d8-4b3b-735f-9fd9-3a0abce73fb6`): one `<input type="text" id="code"
+  inputmode="numeric" autocomplete="off">` labelled "Enter your one-time code", with no
+  `maxlength`, so neither `isCodeField` nor the extension's TOTP fill rule took it
+  (`totpDropped: "not-code-field"`).
+
+Decision:
+
+- The service's split code (`splitCodeInputs` in
+  `packages/contracts/src/observation.ts`) also takes the extension's shape of
+  2026-11-04: every fill-role input of the form, 6 to 8, none located by its text, the
+  first marked `one-time-code` without a `maxlength`, each a text input with
+  `inputmode="numeric"`, or a `tel` or `number` input, without a `maxlength` or with 1,
+  and with no `autocomplete` but `off` or `one-time-code`. The handler names the first;
+  the login types one digit per input as before.
+- The service sees the inputs only as the page's description shows them, so the
+  extension's split rule now reads them the same way: a `maxlength` of 0 or past 1024,
+  or any on a number input, counts as none; an input's `autocomplete` is read as the
+  description reads it, so `section-otp one-time-code` is marked and a token it never
+  shows, such as `cc-number`, is no refusal; and only the inputs the description shows
+  as fill fields (text, email, tel, number and password) are counted, so a search or
+  date input in the form, or outside any form beside inputs outside any form, no longer
+  refuses the split and takes no digit. An email or other text input still refuses it.
+  The shape the digits keep is the one-digit shape only when every input declares
+  `maxlength` 1 and passes the TOTP fill rule.
+- Nor does the login count an input the description leaves out as not shown, such as a
+  honeypot or an SMS autofill field hidden from assistive technology, moved off the
+  screen, transparent or tiny: such an input takes no digit. A code is never typed whole
+  into the first of inputs that would split it once the form's other inputs are left
+  out, or that split a code of another length, as an item's code for a site that asks
+  for another number of digits: the fill ends `value-mismatch` and the login goes to the
+  person.
+- A text input with `inputmode="numeric"`, no `maxlength` (or 0 or one past 1024, which
+  the description leaves out) and no `autocomplete` but `off` (`judgedCodeInput`) may be
+  a `totp` handler's code field when the judge names it, under the other checks of
+  `totpCodeRefusal`; another such input or code input in its form refuses it
+  (`several-code-fields`). The extension's TOTP fill rule (`acceptsSecret` for `otp`)
+  takes the same input, reading `autocomplete` as the description does: a token it does
+  not describe, such as `cc-csc`, counts as none. A `tel` input without a `maxlength`
+  still does not, as a phone number's field is one, nor a number input.
+- Only the judge's code takes such an input on the service. `isCodeField` is unchanged,
+  so such an input does not make a page a code page anywhere else: the service never
+  plans a recipe's own `totp` slot into it, and it counts for neither the sign-in
+  state's S3, nor locating role buttons by text (ADR 0027 amendment of 2026-11-04), nor
+  the signed-in marker checks. A numeric input with no limit is also a quantity, postal
+  code or member number on many pages; there the judge's answer is what names it a code.
+  The extension's fill rule cannot tell which step a code comes from, so it would also
+  type a recipe step's code there; no recipe the service plans has one.
+- The two pages' rows kept `challenge` with their inputs' digest; ADR 0029's amendment
+  of 2026-11-07 judges them again.

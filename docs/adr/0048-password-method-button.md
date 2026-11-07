@@ -17,6 +17,10 @@ Amended again on 2026-10-23 by the owner (11:52 UTC, option A): a route step's c
 may name a login form's button by its accessible name
 ([amendment](#amendment-a-login-forms-button-named-only-by-its-accessible-name)).
 
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; delivery 3): the button is pressed in a frame of the tab's page too, on the
+recipe's own origin.
+
 Date: 2026-10-18
 
 ## Context

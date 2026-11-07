@@ -119,6 +119,9 @@ export const ja = {
     "別のタブでこのサイトへのログインが進行中か、成功していません。そのタブを閉じるか、最大 10 分お待ちください。",
   "Account to log in with": "ログインに使うアカウント",
   "Make it the default for {{hostname}}": "{{hostname}} の既定のアカウントにする",
+  "Default account for {{hostname}}": "{{hostname}} の既定のアカウント",
+  "The sign-in form is embedded in this page from {{hostname}}.":
+    "このログインフォームは {{hostname}} からこのページに埋め込まれています。",
   "Log in": "ログイン",
   "The saved default, {{title}} ({{sub}}), is not one of these accounts.":
     "保存された既定のアカウント {{title}}（{{sub}}）は、この一覧に含まれていません。",
@@ -303,6 +306,8 @@ export const ja = {
   "Pateat did not log in: {{why}}.": "Pateat はログインしませんでした：{{why}}。",
   "No login started: {{why}}.": "ログインを開始しませんでした：{{why}}。",
   "The login could not be confirmed.": "ログインを確認できませんでした。",
+  "Pateat does not log in to the sign-in form this page embeds from {{frame}}, because this page ({{page}}) does not match the vault item.":
+    "このページ（{{page}}）は保管庫のアイテムに一致しないため、このページに埋め込まれた {{frame}} のログインフォームには自動ログインしません。",
   "Logged in.": "ログインしました。",
   "Waiting for you to finish the site's other step, such as a code.":
     "確認コードなど、サイトの追加操作の完了を待っています。",

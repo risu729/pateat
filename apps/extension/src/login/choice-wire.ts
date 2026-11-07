@@ -131,6 +131,12 @@ export const choiceResponseSchema = v.variant("ok", [
      * no account for this tab either (ADR 0021).
      */
     rejectedElsewhere: v.optional(v.literal(true)),
+    /**
+     * The login waits in a frame of the tab's page, whose own origin `origin` is, as a
+     * sign-in form another host of the site embeds (ADR 0086): a pick and its default are
+     * for that origin, as every login there is (ADR 0017).
+     */
+    frame: v.optional(v.literal(true)),
   }),
   v.strictObject({ ok: v.literal(false), reason: v.literal("no-choice") }),
 ]);
@@ -378,6 +384,12 @@ export const statusResponseSchema = v.variant("ok", [
     ),
     /** Automatic login of the tab's site is paused until then, in epoch ms (ADR 0062). */
     pause: v.optional(v.strictObject({ until: v.pipe(v.number(), v.integer(), v.minValue(0)) })),
+    /**
+     * A sign-in form in a frame of the page that is not logged in to because only the
+     * frame's URL matches its vault item, not the tab's (`frame-top-mismatch`, ADR 0017,
+     * ADR 0086): the frame's origin.
+     */
+    mismatchedFrame: v.optional(v.strictObject({ origin: v.string() })),
     /** The tab's last page sent for generation on this origin's page, and what came back. */
     generation: v.optional(
       v.strictObject({

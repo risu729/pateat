@@ -11,7 +11,14 @@ import {
 import { setsPointer } from "./account-list";
 import { closestAcross, containsAcross, queryAll } from "./shadow";
 import { findTargets } from "./targets";
-import { collapseText, isButton, isScriptButton, renderedText, shown } from "./text";
+import {
+  collapseText,
+  isButton,
+  isScriptButton,
+  renderedText,
+  scriptControls,
+  shown,
+} from "./text";
 
 /** Roles whose element is a control a click activates. */
 const controlRoles = new Set(["button", "link", "menuitem", "menuitemradio", "option", "tab"]);
@@ -231,7 +238,7 @@ export function logoutControlName(element: Element): string | undefined {
  */
 export function findLogoutTargets(document: Document, target: LoginMarkerTarget): Element[] {
   if (target.by === "accessible-name")
-    return queryAll(document, "button, input, a, [role], [aria-label], [title]").filter(
+    return queryAll(document, `button, input, a, ${scriptControls}, [aria-label], [title]`).filter(
       (element) => logoutControlName(element) === target.value,
     );
   const found = findTargets(document, target, { links: true });

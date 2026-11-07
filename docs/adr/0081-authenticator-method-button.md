@@ -14,6 +14,10 @@ and runtime); not checked on a real site. Amends
 may name) and follows [ADR 0048](0048-password-method-button.md), whose `password`
 handler it mirrors.
 
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; delivery 3): the button is pressed in a frame of the tab's page too, on the
+recipe's own origin.
+
 Date: 2026-11-02
 
 ## Context

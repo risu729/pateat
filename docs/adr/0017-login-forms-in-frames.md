@@ -8,6 +8,12 @@ Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (owner,
 implemented): an exclusion rule on either side pauses the frame's login instead of
 refusing the frame: nothing starts by itself, while a popup pick still logs in.
 
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; delivery 1 implemented): a frame's login is read and watched as one in the
+tab's page, and the page that replaces the frame's page, within 30 seconds of the step
+or during the watch, completes it when the item matches that page's URL and it reads as
+signed in; otherwise it still ends `cancelled`.
+
 Date: 2026-10-11
 
 ## Context

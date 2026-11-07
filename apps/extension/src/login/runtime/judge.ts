@@ -379,10 +379,10 @@ export async function learn(
     remaining.targets
       .slice(0, fills.length)
       .some((state) => state !== "missing" && state !== "unusable");
-  // One on a route path of a password login without a chooser or a stop, read in the tab's
-  // top document on the recipe's own origin, may stand beside another form that asks for
-  // a detail, which is judged on its own (ADR 0061); a failure shown beside the sign-in
-  // form never is, nor a page whose sign-in state was not read.
+  // One on a route path of a password login without a chooser or a stop, read on the
+  // recipe's own origin, in the tab's page or a frame of it (ADR 0086), may stand beside
+  // another form that asks for a detail, which is judged on its own (ADR 0061); a failure
+  // shown beside the sign-in form never is, nor a page whose sign-in state was not read.
   const besideCandidate =
     fieldShown &&
     reading !== undefined &&
@@ -390,9 +390,6 @@ export async function learn(
     metadata.route === "password" &&
     !metadata.chooser &&
     metadata.stopAt === undefined &&
-    metadata.pageOrigin === undefined &&
-    run.live.document.frameId === 0 &&
-    run.live.topUrl === undefined &&
     run.live.document.origin === recipe.origin;
   if (
     !besideCandidate &&

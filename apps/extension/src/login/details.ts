@@ -1,5 +1,6 @@
 import {
   getItemEligibility,
+  isSsoFieldName,
   itemAsksForMasterPassword,
   resolveDetailSourceField,
   type DatePart,
@@ -126,7 +127,7 @@ export function waitsForMasterPassword(
  * custom field whose name says it holds the detail, a birth date's, a phone number's or a
  * PIN's. A field named as a PIN gives no other detail but an answer named after its
  * question, so a link never reads a PIN into a birth date's, phone number's or member ID's
- * input.
+ * input. A field named `SSO`, `SSO 2`, … (`isSsoFieldName`, ADR 0085) gives none.
  */
 export function givesDetail(
   detail: LoginDetail,
@@ -136,6 +137,8 @@ export function givesDetail(
   if (cardDetails.includes(detail)) return false;
   if (!field.id.startsWith("custom.") || (field.kind !== "text" && field.kind !== "hidden"))
     return false;
+  // A field reserved for SSO methods (ADR 0085) gives no detail.
+  if (isSsoFieldName(field.name)) return false;
   const name = field.name?.normalize("NFKC").toLowerCase() ?? "";
   // A secret question's answer is in a field named after its question, checked against
   // the page's own question before any fill.

@@ -111,6 +111,19 @@ export async function choiceFor(rt: Runtime, tabId: number): Promise<ChoiceRespo
     if (waiting && live) clearChoice(rt, tabId);
     return { ok: false, reason: "no-choice" };
   }
+  // A choice that waits in a frame holds only while the tab still shows the page the
+  // frame was announced in (ADR 0086): a tab that moved on, before its new page announced
+  // or on a page Pateat does not run on, ends it.
+  if (waiting.document.frameId !== 0) {
+    const tab = await browser.tabs.get(tabId).catch(() => undefined);
+    const shown = tab?.url ? URL.parse(tab.url)?.origin : undefined;
+    const framed = live.topUrl ? URL.parse(live.topUrl)?.origin : undefined;
+    if (rt.pending.get(tabId) !== waiting) return { ok: false, reason: "no-choice" };
+    if (shown === undefined || shown !== framed) {
+      clearChoice(rt, tabId);
+      return { ok: false, reason: "no-choice" };
+    }
+  }
   // A default saved since the refusal decides the page's next login instead.
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (rt.pending.get(tabId) !== waiting) return { ok: false, reason: "no-choice" };
@@ -121,7 +134,11 @@ export async function choiceFor(rt: Runtime, tabId: number): Promise<ChoiceRespo
     return { ok: false, reason: "no-choice" };
   }
   if (rt.pending.get(tabId) !== waiting) return { ok: false, reason: "no-choice" };
-  const held = heldElsewhere(rt, tabId, waiting.document.origin) ? { held: true as const } : {};
+  const flags = {
+    ...(heldElsewhere(rt, tabId, waiting.document.origin) ? { held: true as const } : {}),
+    // A choice that waits in a frame is for the frame's origin (ADR 0086).
+    ...(waiting.document.frameId === 0 ? {} : { frame: true as const }),
+  };
   // A tab that asks, and a paused site (ADR 0062), offers any matching account.
   if (waiting.ask || waiting.paused)
     return {
@@ -131,7 +148,7 @@ export async function choiceFor(rt: Runtime, tabId: number): Promise<ChoiceRespo
       candidates: waiting.candidates,
       ...(waiting.ask ? { ask: waiting.ask } : {}),
       ...(waiting.paused ? { paused: true as const } : {}),
-      ...held,
+      ...flags,
       ...(waiting.ask !== "rejected" && rejectedElsewhere(rt, tabId, waiting.document.origin)
         ? { rejectedElsewhere: true as const }
         : {}),
@@ -150,7 +167,7 @@ export async function choiceFor(rt: Runtime, tabId: number): Promise<ChoiceRespo
     origin: waiting.document.origin,
     documentId: waiting.document.documentId,
     candidates: waiting.candidates,
-    ...held,
+    ...flags,
     ...(rejectedElsewhere(rt, tabId, waiting.document.origin)
       ? { rejectedElsewhere: true as const }
       : {}),
@@ -176,6 +193,7 @@ export async function popupChoice(rt: Runtime, tabId: number): Promise<ChoiceRes
           ...(answer.paused ? { paused: true as const } : {}),
           ...(answer.held ? { held: true as const } : {}),
           ...(answer.rejectedElsewhere ? { rejectedElsewhere: true as const } : {}),
+          ...(answer.frame ? { frame: true as const } : {}),
         }
       : {}),
     ...(record
@@ -241,6 +259,16 @@ export async function popupStatus(rt: Runtime, tabId: number): Promise<StatusRes
     (attempt.pageOrigin ?? attempt.account.origin) === pageOrigin;
   // The worker's view of the page holds only while the tab still shows its path.
   const shown = live?.document.origin === pageOrigin && live.path === path ? live : undefined;
+  // A frame of the page whose sign-in form only its own URL matches (ADR 0086), announced
+  // in the page the tab still shows.
+  const mismatched = [...rt.documents.values()].find(
+    (entry) =>
+      entry.document.tabId === tabId &&
+      entry.document.frameId !== 0 &&
+      entry.reason === "frame-top-mismatch" &&
+      entry.topUrl !== undefined &&
+      URL.parse(entry.topUrl)?.origin === pageOrigin,
+  );
   const pageState = shown && {
     ...(shown.state ? { state: shown.state } : {}),
     ...(shown.reason ? { reason: shown.reason } : {}),
@@ -269,6 +297,7 @@ export async function popupStatus(rt: Runtime, tabId: number): Promise<StatusRes
       : {}),
     ...(known?.refused ? { refused: clipCodes(known.refused) } : {}),
     ...(pausedTill === undefined ? {} : { pause: { until: pausedTill } }),
+    ...(mismatched ? { mismatchedFrame: { origin: mismatched.document.origin } } : {}),
     ...(known?.generation ? { generation: clipCodes(known.generation) } : {}),
     ...usedAndSwitch(rt, tabId, pageOrigin),
   };

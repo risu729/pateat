@@ -999,6 +999,81 @@ test("a login refused for several matches is restarted with the account picked h
   expect(current().snapshot.revision).toBe(0);
 });
 
+test("a choice that waits in a frame of the page is for the frame's site (ADR 0086)", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://login.bank.example",
+    documentId: "frame-document",
+    frame: true,
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  const host = await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await expect
+    .element(page.getByText("The sign-in form is embedded in this page from login.bank.example."))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("checkbox", { name: "Make it the default for login.bank.example" }))
+    .toBeChecked();
+  // The page's own default list stays beside the frame's choice, named by its host.
+  await expect
+    .element(page.getByRole("group", { name: "Default account for bank.example" }))
+    .toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  expect(choices.pick).toHaveBeenCalledWith(
+    expect.objectContaining({ tabId: 7, documentId: "frame-document", makeDefault: true }),
+  );
+  expect(host.close).toHaveBeenCalledOnce();
+});
+
+test("a choice in a frame of the page's own origin is shown as the page's", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "frame-document",
+    frame: true,
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await expect
+    .element(page.getByText("The sign-in form is embedded in this page from bank.example."))
+    .not.toBeInTheDocument();
+  // As for the page's own choice, it is the only list.
+  await expect
+    .element(page.getByRole("group", { name: "Default account" }))
+    .not.toBeInTheDocument();
+});
+
+test("a choice of another site that does not wait in a frame is not shown", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://login.bank.example",
+    documentId: "other-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  await expect
+    .element(page.getByRole("heading", { name: "Choose an account" }))
+    .not.toBeInTheDocument();
+});
+
 test("a site an exclusion rule covers is paused until turned back on and still offers its choice", async () => {
   const settings = createDefaultSettings();
   settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: false });

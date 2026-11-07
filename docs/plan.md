@@ -110,9 +110,11 @@ first written on 2026-10-12 (20:50 UTC); each row gives the date of its latest c
 | Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
 | A software keyboard or extra PIN page, left to the person | エポスNet | On `7226178` (2026-10-13 07:35 UTC) the ID and password login ended `authenticated`, but the site did not ask for the card security code that time; the PIN page itself is not rechecked |
 | A CAPTCHA the person solves, then the signed-in page | Q-move | Done: on `8b60ff2` (2026-10-13 06:56 UTC) the owner ticked the reCAPTCHA while Pateat watched, and the record ended `authenticated`. Earlier a disabled field had kept the signed-in page from the judge ([ADR 0029](adr/0029-local-sign-in-state.md)) |
+| A CAPTCHA the site shows only after its button was pressed, then the next sign-in step in the same document | Epic Games | On 2026-11-07 the result settled as unknown while the owner solved the hCaptcha after Continue, so the password step was not continued ([issue #1379](https://github.com/risu729/pateat/issues/1379)). The result now waits for the person while the CAPTCHA shows ([ADR 0029, amended 2026-11-07](adr/0029-local-sign-in-state.md#amendment-a-captcha-after-the-step-2026-11-07)); synthetic tests only, recheck in the owner's Chrome |
 | A signed-in page on another host of the same site | JAL (`jallogin.jal.co.jp` to `www.jal.co.jp`, after a passkey), モッピー (`ssl.pc.moppy.jp` to `pc.moppy.jp`, after a password) | Both records ended `left-origin`. JAL: done (signed in on `4deb95d` in the owner's Chrome, 2026-10-13 09:05 UTC: the `www.jal.co.jp` page was judged `signed-in`, marked `moved`, and the account choice was saved; started from JAL's own sign-in button in a fresh tab). モッピー: done; a password login completes when the new host's page shows the account's username, or, when it does not, a marker learned on that host shows or the judge answers `signed-in` once (signed in on `fdf57ef` in the owner's Chrome, 2026-10-13 02:53 UTC: the `pc.moppy.jp` page was judged `signed-in`, marked `moved`, and the account choice was saved) ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
 | A signed-in page on another site after a TOTP code | Microsoft (`login.microsoftonline.com` to `m365.cloud.microsoft`, Grok Bot) | Ended `left-origin` on 2026-10-12 22:05 UTC. A move to another site within 30 seconds of a submitted TOTP code now completes on the same checks as モッピー, the username or one judgement (owner's 「コード送信後だけ」, 2026-10-13 01:59 UTC; synthetic tests only; recheck on the Grok Bot) ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
 | A signed-in page on another site after a passkey second factor | Oracle Cloud (security key after the password on an `oraclecloud.com` sign-in host, then `cloud.oracle.com`) | Ended `left-origin` on 2026-10-13 02:59 UTC, 3 seconds after Pateat answered the security key. A move to another site within 30 seconds of a passkey Pateat answered after the item's password now completes on the same checks (owner's 「同じ扱い」, 2026-10-13 03:13 UTC). Done: on `4deb95d` in the owner's Chrome (2026-10-13 08:58 UTC) the sign-in page that went away before it was read kept the login ([#484](https://github.com/risu729/pateat/pull/484)), the IDCS login answered the security key, `cloud.oracle.com` was judged `signed-in`, marked `moved`, and the account choice was saved ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
+| A sign-in form in a frame of another host of the site, then the page's own route to the signed-in page ([ADR 0086](adr/0086-logins-in-frames-like-top-pages.md)) | Apple Account (`idmsa.apple.com` inside `account.apple.com/sign-in`) | Stayed at the identifier step in the owner's Chrome on 2026-11-07 ([#1378](https://github.com/risu729/pateat/issues/1378)): frames were never sent for generation. Deliveries 1 (reading in the frame, its watch, the tab's new page), 2 (the popup's choice for the frame and why a frame is not logged in to) and 3 (generation of a shown frame's page, its continuation, handlers, repair and judge) are in; the owner's check on Apple follows |
 | Google's own sign-in (email first, account choice) | Google | Done: on `8b60ff2` (2026-10-13 07:24 UTC), from `accounts.google.com/AddSession` without signing out, Pateat answered with the item's passkey, returned to `myaccount.google.com`, and the record ended `authenticated`; nobody pressed anything |
 | Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site, and that a pick of an item with a passkey signs in with it ([ADR 0034](adr/0034-answer-page-passkey-requests.md), local tests only) |
 | Fill only after a logout | アパホテル | Done; replaced on 2026-10-23 by [ADR 0062](adr/0062-log-in-again-after-a-logout.md), which logs in again after a logout; the asks after a rejection or a stopped login still fill once |
@@ -1332,7 +1334,9 @@ items the owner mentioned and gates still open on 2026-10-11.
   [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not
   enough.
 - Signing in through an identity provider
-  ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
+  ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5),
+  with one item per site account holding its password and every SSO method
+  ([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md), owner 2026-11-07).
 - Signing in with a code or link sent by email, which
   [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
   page ends `challenge`). It has the same priority as signing in through an identity
@@ -3156,12 +3160,17 @@ rather than for the corpus at the time. Since 2026-10-23 the check accepts a but
 outside every form for the fields of the page's only password form when that form lists
 no button of its own, no field outside every form is on the page, and the button is the
 only one outside every form and names no passkey (`besideForm`, owner's choice 11:47
-UTC, local tests only; recorded in [Bitwarden
-differences](bitwarden-differences.md#submit-button-outside-the-form)); on the live page
-in cloud Chromium (main `b803056`) generation then planned 会員ID, パスワード and
-ログイン, and the check accepted it. The Japanese set now has 108 cases (15 abstain, 11
-passkey buttons, 27 `advance`) and the English set 45 (5 abstain, 3 passkey buttons, 13
-`advance`); the heuristic scores 0.73 (18 false submits) and 0.64 (7).
+UTC, local tests only; recorded in
+[Bitwarden differences](bitwarden-differences.md#submit-button-outside-the-form)); on
+the live page in cloud Chromium (main `b803056`) generation then planned 会員ID,
+パスワード and ログイン, and the check accepted it. Since 2026-11-07 the button need not
+be the only one outside every form: it comes right after the form's last described
+element, and other buttons outside every form may follow it, as LeetCode's "Sign Up"
+follows its "Sign In" ([#1373](https://github.com/risu729/pateat/issues/1373); its
+generation failed `mixed-groups` in production on build `377561e`; agent fix, local
+tests only). The Japanese set now has 108 cases (15 abstain, 11 passkey buttons, 27
+`advance`) and the English set 45 (5 abstain, 3 passkey buttons, 13 `advance`); the
+heuristic scores 0.73 (18 false submits) and 0.64 (7).
 
 A third pass (main `74d5b3c`) added livedoor, FC2, GMO Coin, Seven Bank, Sakura Internet
 and bitFlyer Lightning. Since #901 the probe runs the main frame in a world of its own,
@@ -3220,11 +3229,10 @@ when a field is outside one. In those forms the candidates are visible text, ema
 number and password inputs, checkboxes, buttons (disabled ones too, since many enable
 after typing), script links (an `<a>` without `href` that has an `onclick` attribute or
 `role="button"` or sets a pointer cursor itself, as IIJmio's login (owner-approved
-2026-10-23), or an
-`<a href>` with a `javascript:` URL or with an empty or
-fragment-only `href` and an `onclick` attribute or `role="button"`) as buttons, other
-elements with `role="button"` that have an `id`, `name` or `data-testid`, or in a login
-form or beside a password form a unique text (as
+2026-10-23), or an `<a href>` with a `javascript:` URL or with an empty or fragment-only
+`href` and an `onclick` attribute or `role="button"`) as buttons, other elements with
+`role="button"` that have an `id`, `name` or `data-testid`, or in a login form or beside
+a password form a unique text (as
 [architecture](architecture.md#declarative-recipes-and-ai) describes) and, as context
 only, links. Up to four buttons outside every form are also kept as optional candidates
 when they sit anywhere inside the element two levels above a login form with a password
@@ -3253,45 +3261,45 @@ element transparent only because it or each transparent ancestor has a running o
 CSS animation, CSS transition or script animation that still takes its opacity above 0
 later in its current iteration, in the direction it plays (one still in its delay from
 the iteration's start), counts as opaque, wherever the content script reads whether an
-element is shown (fields, buttons and their text,
-lists of accounts, sign-in entries and the signed-in page). An input at opacity 0 with
-no such animation stays transparent, as does one under an animation that holds the
-opacity at 0 for the rest of its iteration (a fade-out that then holds, a carousel's
-slide hidden until its next cycle) or finished at 0. Labels come from `aria-labelledby`,
-`aria-label`, `<label>`, the text next to a field (the preceding table cell, `<dt>` or
-sibling, at most three levels up, never across another control or its label), then
-`title`; image `alt` names buttons, including `<input type="image">`. A text, email,
-tel, number or password field also gets a `description`: the rendered text of the
-elements its `aria-describedby` names, such as `半角数字3桁` under a branch number
-field, left out when it equals the label. Error messages can echo what the user typed,
-so a field marked `aria-invalid="true"` gets no description, and neither an element the
-field's `aria-errormessage` names nor the text of an alert, status or other live region,
-around the description or inside it, ever counts. An error message with none of these
-marks is still read. The description reaches the generation, finite-choice and
-completion roles as untrusted page text, like labels. The owner chose on 2026-10-12 to
-add only this now and to consider the rest only if field or button mapping gets worse on
-real pages. Not observed today: text after a field that no `aria-describedby` names (a
-hint printed under an input), a second label source once one is found (the text next to
-a field when a `<label>` exists), text around a button (a line above a passkey button,
-or which `h1`-`h3` heading a button sits under) and a button's `aria-describedby`, the
-`pattern` attribute, and whether a button is disabled. Whatever the model saw, the
-executor still checks a field's `maxlength` and `minlength` before it fills and the
-browser's validation, `pattern` included, before it clicks. Text is redacted as
-[architecture](architecture.md#declarative-recipes-and-ai) describes. Each target is the
-first of `id`, `name` and `data-testid` that matches exactly one element, as the
-executor resolves it, skipping an `id` React's `useId` generated and trying one holding
-a random-looking run or Mantine's `mantine-` prefix (2026-10-13) last, and for an input
-without one, its first `autocomplete` token that is `username`, `email`,
-`current-password`, `one-time-code` or `webauthn` and that no other input carries, then
-its visible name when no other shown fillable input has it, then its `name` when it is
-the one shown element with that name in a form with a shown password input not marked
-`new-password` ([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md)), before such an
-`id` ([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
+element is shown (fields, buttons and their text, lists of accounts, sign-in entries and
+the signed-in page). An input at opacity 0 with no such animation stays transparent, as
+does one under an animation that holds the opacity at 0 for the rest of its iteration (a
+fade-out that then holds, a carousel's slide hidden until its next cycle) or finished at
+0. Labels come from `aria-labelledby`, `aria-label`, `<label>`, the text next to a field
+(the preceding table cell, `<dt>` or sibling, at most three levels up, never across
+another control or its label), then `title`; image `alt` names buttons, including
+`<input type="image">`. A text, email, tel, number or password field also gets a
+`description`: the rendered text of the elements its `aria-describedby` names, such as
+`半角数字3桁` under a branch number field, left out when it equals the label. Error
+messages can echo what the user typed, so a field marked `aria-invalid="true"` gets no
+description, and neither an element the field's `aria-errormessage` names nor the text
+of an alert, status or other live region, around the description or inside it, ever
+counts. An error message with none of these marks is still read. The description reaches
+the generation, finite-choice and completion roles as untrusted page text, like labels.
+The owner chose on 2026-10-12 to add only this now and to consider the rest only if
+field or button mapping gets worse on real pages. Not observed today: text after a field
+that no `aria-describedby` names (a hint printed under an input), a second label source
+once one is found (the text next to a field when a `<label>` exists), text around a
+button (a line above a passkey button, or which `h1`-`h3` heading a button sits under)
+and a button's `aria-describedby`, the `pattern` attribute, and whether a button is
+disabled. Whatever the model saw, the executor still checks a field's `maxlength` and
+`minlength` before it fills and the browser's validation, `pattern` included, before it
+clicks. Text is redacted as [architecture](architecture.md#declarative-recipes-and-ai)
+describes. Each target is the first of `id`, `name` and `data-testid` that matches
+exactly one element, as the executor resolves it, skipping an `id` React's `useId`
+generated and trying one holding a random-looking run or Mantine's `mantine-` prefix
+(2026-10-13) last, and for an input without one, its first `autocomplete` token that is
+`username`, `email`, `current-password`, `one-time-code` or `webauthn` and that no other
+input carries, then its visible name when no other shown fillable input has it, then its
+`name` when it is the one shown element with that name in a form with a shown password
+input not marked `new-password`
+([ADR 0072](adr/0072-field-name-in-the-sign-in-form.md)), before such an `id`
+([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
 locator when its text matches exactly one button and redaction leaves it unchanged, and
 a script link when its text matches no button and exactly one script link. The page
 includes every shadow root, open or closed, as the official Bitwarden extension reads
-it, except another extension's overlay, a closed root on a host right under the
-`<body>` or `<html>` element that is no custom element the page defined
+it, except another extension's overlay, a closed root on a host right under the `<body>`
+or `<html>` element that is no custom element the page defined
 ([ADR 0070](adr/0070-shadow-roots-as-page-content.md)): a shadow tree's fields, buttons
 and text are described, counted for the locators and found by the executor as the
 document's own, and a control in a component's shadow tree belongs to the form that
@@ -3302,33 +3310,36 @@ me"), or a control the executor cannot act on (a select, radio, text area, anoth
 type, or a read-only, disabled, transparent or tiny field) makes the observation
 incomplete, as do more than 48 candidates, so inference rejects it; a page without a
 field, or where nothing in a login form can be located or acted on, is refused. The
-login forms are
-those with one password field that is not `new-password`, or with a `username` or
-`one-time-code` field, as ADR 0016 detects a login; failing that, any with a password
-field; otherwise every form that holds a field. Any other form with such a control, such
-as a search form with a category select or a sign-up form with a birth-date select, is
-left out entirely, so every form the observation describes is complete. On the 233
-observed Formasaurus login pages of the real-page corpus (2026-10-11), this cut the
-incomplete ones from 108 to 52: 55 became complete, each still showing the form
-Formasaurus labels as the login form, and one whose login form has no locatable control
-now gives no observation. Fields outside every form count as one more form, whose
-controls are those outside every form; since 2026-10-23 a control the executor cannot
-act on that is not a field counts there only inside the fields' area, their nearest
-common ancestor (a lone field itself) and up to four levels above it (never the body or
-the root element), so a language picker in a page footer without footer markup, as on
-dアカウント's login page (`cfg.smt.docomo.ne.jp`, read in cloud Chromium on main
-`381116f`), no longer makes the page incomplete (agent fix, local tests only; not
-checked in the owner's Chrome). Links are context only: the plan check accepts only a
-button as the page action. Known limits: a read-only username shown again on a password
-step makes that step incomplete, and honeypot inputs moved to the right or clipped by
-`overflow: hidden` stay candidates. `extractSignedInObservation` describes the page
-after a generated recipe's final submission the same way, but over the whole page: every
-field, then buttons and links up to 48 candidates, listed in document order. A field it
-cannot describe marks it incomplete, except a read-only, transparent or tiny field that
-does not look like a sign-in field, which is left out since 2026-10-12: the page after
-アパホテル's login was logged as `unfillable-field` and never judged, and a read-only
-date picker of its hotel search is the inferred cause. In the owner's Chrome on
-2026-10-12 (06:17 UTC) the page after the login was then judged `signed-in` with the
+login forms are those with one password field that is not `new-password`, or with a
+`username` or `one-time-code` field, as ADR 0016 detects a login; failing that, any with
+a password field; otherwise every form that holds a field. Any other form with such a
+control, such as a search form with a category select or a sign-up form with a
+birth-date select, is left out entirely, so every form the observation describes is
+complete. On the 233 observed Formasaurus login pages of the real-page corpus
+(2026-10-11), this cut the incomplete ones from 108 to 52: 55 became complete, each
+still showing the form Formasaurus labels as the login form, and one whose login form
+has no locatable control now gives no observation. Fields outside every form count as
+one more form, whose controls are those outside every form; since 2026-11-07 a site
+search box outside every form (a search input, a box named for search, or a field in a
+search landmark) is no such field, so a navigation bar's search box no longer brings
+that bar's buttons into a sign-in page's description (LeetCode,
+[#1373](https://github.com/risu729/pateat/issues/1373)); since 2026-10-23 a control the
+executor cannot act on that is not a field counts there only inside the fields' area,
+their nearest common ancestor (a lone field itself) and up to four levels above it
+(never the body or the root element), so a language picker in a page footer without
+footer markup, as on dアカウント's login page (`cfg.smt.docomo.ne.jp`, read in cloud
+Chromium on main `381116f`), no longer makes the page incomplete (agent fix, local tests
+only; not checked in the owner's Chrome). Links are context only: the plan check accepts
+only a button as the page action. Known limits: a read-only username shown again on a
+password step makes that step incomplete, and honeypot inputs moved to the right or
+clipped by `overflow: hidden` stay candidates. `extractSignedInObservation` describes
+the page after a generated recipe's final submission the same way, but over the whole
+page: every field, then buttons and links up to 48 candidates, listed in document order.
+A field it cannot describe marks it incomplete, except a read-only, transparent or tiny
+field that does not look like a sign-in field, which is left out since 2026-10-12: the
+page after アパホテル's login was logged as `unfillable-field` and never judged, and a
+read-only date picker of its hotel search is the inferred cause. In the owner's Chrome
+on 2026-10-12 (06:17 UTC) the page after the login was then judged `signed-in` with the
 ログアウト button as its marker. A disabled field that does not look like a sign-in
 field is left out too since 2026-10-12 (22:03 UTC), but such a page completes only on
 `signed-in` ([ADR 0029](adr/0029-local-sign-in-state.md)): Q-move's signed-in page was
