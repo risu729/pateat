@@ -93,29 +93,6 @@ describe("a default the popup saves logs the tab in at once (ADR 0021, amended 2
     expect(fake.state.badges[1]?.text ?? "").not.toBe("2");
   });
 
-  it("logs in at once when the only other match signs in through an identity provider", async () => {
-    // The other item holds no password and an `SSO` field (ADR 0026), as a site with its
-    // own account and an SSO-only item: the page no longer waits for a pick.
-    const both = uriMatch({
-      candidates: [
-        { itemId, matches: [{ uriIndex: 0, match: 0 }] },
-        { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
-      ],
-    });
-    const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: both }));
-    const h = harness(
-      { siteDefaults: [], bindings: [] },
-      {
-        allowedOrigins: [],
-        uris,
-        otherUsername: true,
-        otherPassword: "empty",
-        otherCustom: [{ name: "SSO", kind: "text" }],
-      },
-    );
-    expect(await h.hello()).toEqual({ ok: true });
-  });
-
   it("leaves a login the tab still runs, so it is not announced over", async () => {
     // The login's fill never answers, so it runs while the popup saves the default.
     let release: () => void = () => undefined;

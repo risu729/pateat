@@ -198,7 +198,7 @@ are never sent to the service or a model.
 | `password` | a new value-free catalog flag: the item's password is non-empty and not excluded ([ADR 0023](0023-synced-vault-policy.md)) |
 | `totp` | a new catalog flag: the item has a TOTP secret and the field is not excluded |
 | `passkey`, `discoverable passkey` | one `findVaultPasskeys` search per RP ID the origin may use; an incomplete search counts as not known |
-| `sso` | the item's `SSO` field under ADR 0026's rules; an excluded field means no SSO, a duplicate or unreadable one stops the login |
+| `sso` | the item's `SSO` fields under ADR 0026's rules (`SSO`, `SSO 2`… since 2026-11-07); an excluded field means no SSO, a duplicate or unreadable one stops the login |
 
 Today the catalog lists `login.password` and `login.totp-code` for every login item,
 whether or not they hold a value; the two flags fix that (owner, 13:42 UTC).
@@ -208,7 +208,9 @@ whether or not they hold a value; the two flags fix that (owner, 13:42 UTC).
 1. **One route is chosen at start**, in this order (owner, 13:40 UTC: passkey before
    SSO), and recorded:
    1. `passkey`, if the recipe has that route and the item has a discoverable passkey;
-   2. `sso`, if the item has it. An SSO item never uses `password` (ADR 0026);
+   2. `sso`, if the item has it. An SSO item with no password never uses `password`
+      (ADR 0026); one that also holds a password keeps that route (owner, 2026-11-07,
+      [#1380](https://github.com/risu729/pateat/issues/1380));
    3. `password`, if the item has a password and its binding fills one variant.
 
    If none fits, the login stops with `no-route`. A login on the `passkey` route that

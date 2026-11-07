@@ -1,9 +1,10 @@
 # ADR 0026: Signing in to a site through an identity provider
 
-Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented. The
-owner set it as low priority: this record fixes the direction, and implementation waits.
-Builds on [ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11
-by [ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
+Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented apart
+from the account choice below (2026-11-07). The owner set it as low priority: this
+record fixes the direction, and implementation waits. Builds on
+[ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11 by
+[ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
 routes, chosen after a passkey route and before a password route. Amended on 2026-10-12
 by [ADR 0033](0033-no-site-specific-features.md) (owner, 13:46 UTC): no fixed list of
 identity providers or of their pages; the IdP's origin comes from the item and its pages
@@ -15,12 +16,14 @@ format is not implemented yet. Researched from public documentation only; no rea
 or account has been used.
 
 Implemented on 2026-11-07 ([#1374](https://github.com/risu729/pateat/issues/1374)): an
-item that signs in only through an IdP, with a usable Text or Hidden field named `SSO`
-or `SSO 2`, `SSO 3`… and no usable login password, is left out of the page's account
-matches (`signsInOnlyThroughProvider` in `apps/extension/src/vault/site-candidates.ts`).
-It is then never chosen for a password login, never makes the tab ask between it and the
-site's own account, and never scopes recipe generation. Its passkeys still answer
-passkey requests.
+item that signs in only through an IdP has a usable Text or Hidden field named `SSO` or
+`SSO 2`, `SSO 3`… and no usable login password (`signsInOnlyThroughProvider` in
+`apps/extension/src/vault/site-candidates.ts`). When several items match a page with no
+saved default, such items are not counted (`ownLogins` in
+`apps/extension/src/login/runtime/choice-save.ts`), so the site's own item logs in
+instead of the tab asking which account to use. When every match is such an item,
+nothing changes. Picks, saved defaults, the lists the tab asks or a paused site offers,
+hidden usernames and the chooser's comparisons still see every match.
 
 Date: 2026-10-11
 
@@ -117,9 +120,11 @@ The owner chose, on 2026-10-11:
 
 ## Consequences
 
-- Until SSO logins are implemented, an SSO-only item is not used on its site at all
-  (implemented 2026-11-07); before that, it was used like any other item, so a site with
-  both its own item and an SSO item asked which account to use instead of logging in.
+- Until SSO logins are implemented, an item in this shape is otherwise used like any
+  other item: a pick or the only match runs a password route, which stops with
+  `no-route` when the item holds no password and no passkey. Before 2026-11-07 a site
+  with both its own item and an SSO item asked which account to use instead of logging
+  in.
 - A site that creates accounts without asking still does so if the item's username is
   not an account the site already knows.
 - Left to implementation: the recipe shape for SSO-only sites (no slots), generating SSO

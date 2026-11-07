@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  getItemEligibility,
   isFieldExcluded,
   sameLoginDocument,
   siteDefaultConnection,
@@ -9,7 +10,11 @@ import {
   type SettingsResponse,
 } from "@pateat/contracts";
 import { siteAccountResultSchema } from "../wire";
-import { findLiveSiteCandidates, type LiveSiteCandidate } from "../../vault/site-candidates";
+import {
+  findLiveSiteCandidates,
+  signsInOnlyThroughProvider,
+  type LiveSiteCandidate,
+} from "../../vault/site-candidates";
 import type { PasskeyItem } from "../../passkeys/runtime";
 import { loginUsernameFieldId } from "../vault";
 import {
@@ -321,7 +326,7 @@ export async function choose(
   delete live.autoChoice;
   const found = await siteCandidates(rt, snapshot, live);
   if ("reason" in found) return { reason: found.reason };
-  const { candidates } = found;
+  const candidates = ownLogins(snapshot, found.candidates);
   if (candidates.length > 1) {
     // The account the page itself put into the recipe's account input picks one of them,
     // for this document and the login it starts only, and is never saved (ADR 0028
@@ -380,6 +385,30 @@ export async function choose(
     source: "match",
     candidates: candidates.length,
   };
+}
+
+/**
+ * The matches an automatic choice picks from: among several, an item that signs in only
+ * through an identity provider (ADR 0026) is not one of the site's own accounts, so the
+ * site's own item is used without asking. Until SSO logins exist such an item is still
+ * used when it is the only match, or when every match is one, so its passkey route stays;
+ * picks, defaults, the asked and paused lists, username hiding and the chooser's
+ * comparisons still see every match.
+ */
+export function ownLogins(
+  snapshot: Extract<SettingsResponse, { ok: true }>,
+  candidates: readonly LiveSiteCandidate[],
+): LiveSiteCandidate[] {
+  const own = candidates.filter((candidate) => {
+    const found = getItemEligibility(
+      snapshot.snapshot.settings,
+      snapshot.catalog,
+      candidate.connectionId,
+      candidate.itemId,
+    );
+    return !found.eligible || !signsInOnlyThroughProvider(found.item, found.fieldIds);
+  });
+  return own.length ? own : [...candidates];
 }
 
 /**

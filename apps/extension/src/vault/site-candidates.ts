@@ -3,6 +3,7 @@ import {
   connectionUse,
   getItemEligibility,
   isSupportedSite,
+  loginFieldFacts,
   parseSiteUrl,
   type LocalSettings,
   type VaultCatalog,
@@ -45,18 +46,17 @@ const SSO_FIELD_NAME = /^SSO(?: (?:[2-9]|[1-9]\d+))?$/;
 
 /**
  * Whether the item signs in only through an identity provider (ADR 0026): a Text or Hidden
- * `SSO` field this device may use, and no login password it may use. Its username is the
- * provider's account, so a password login, or a recipe generated for one, never uses it.
- * An item with a password as well keeps its native login (ADR 0026, amended 2026-11-07); an excluded `SSO` field
- * means no SSO. Only field names and the password's `empty` flag are read, never a value.
+ * `SSO` field this device may use, and no login password it may use (`loginFieldFacts`).
+ * Its username is the provider's account. An item with a password as well keeps its own
+ * password login (ADR 0026, amended 2026-11-07), and an excluded `SSO` field means no SSO.
+ * Only field names and the catalog's `empty` flags are read, never a value.
  */
 export function signsInOnlyThroughProvider(
   item: Pick<VaultItemMetadata, "fields">,
   usableFieldIds: readonly string[],
 ): boolean {
+  if (loginFieldFacts(item, usableFieldIds).password) return false;
   const usable = new Set(usableFieldIds);
-  const password = item.fields.find((field) => field.id === "login.password");
-  if (password && password.empty !== true && usable.has(password.id)) return false;
   return item.fields.some(
     (field) =>
       usable.has(field.id) &&
@@ -67,8 +67,7 @@ export function signsInOnlyThroughProvider(
 }
 
 /** Provider URI matches for one page, narrowed by local settings before anything else.
- * Items that sign in only through an identity provider are left out until SSO logins
- * exist (ADR 0026). Matches are candidate scope only: they never become `allowedOrigins`, site defaults,
+ * Matches are candidate scope only: they never become `allowedOrigins`, site defaults,
  * or a field grant, and account/recipe/document checks still gate any release.
  * Callers must not pass a per-navigation signal: host cancellation retires the whole
  * session, so aborting a page query would lock the vault.
@@ -143,11 +142,9 @@ export async function findLiveSiteCandidates(input: {
       unavailableConnections.push({ connectionId: connection.id, reason: "stale-snapshot" });
       continue;
     }
-    const eligible = (itemId: string) => {
-      if (connection.quarantinedItemIds?.includes(itemId)) return false;
-      const found = getItemEligibility(settings, catalog, connection.id, itemId);
-      return found.eligible && !signsInOnlyThroughProvider(found.item, found.fieldIds);
-    };
+    const eligible = (itemId: string) =>
+      !connection.quarantinedItemIds?.includes(itemId) &&
+      getItemEligibility(settings, catalog, connection.id, itemId).eligible;
     const incomplete = new Map<string, Set<string>>();
     const note = (itemId: string, reason: string) => {
       if (!eligible(itemId)) return;
