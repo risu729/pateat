@@ -7,7 +7,10 @@ import {
   sameLoginTarget,
   showsBesideForm,
   isChooserDocument,
+  isCodeField,
+  judgedCodeInput,
   fillRoles,
+  splitCodeInputs,
   type GenerationUnavailableReason,
   type LoginObservation,
   type LoginRecipe,
@@ -73,15 +76,25 @@ const judgedInputRoles: ReadonlySet<ObservedCandidate["role"]> = new Set([...fil
 
 /**
  * The digest of the inputs a judged description shows: each fill-role field's and select's
- * role and locator, in order of neither the page nor the description. A kept `challenge`
- * answers only a page described with the same inputs: one judged on a description that
- * missed its code field, as a page read while it was still being drawn may, kept no
- * handler for it (ADR 0029 amendment of 2026-11-06).
+ * role and locator, and whether the service reads it as a code input, of a split code
+ * (`splitCodeInputs`) or on its own (`isCodeField`, `judgedCodeInput`), in order of
+ * neither the page nor the description. A kept `challenge` answers only a page described
+ * with the same inputs: one judged on a description that missed its code field, as a page
+ * read while it was still being drawn may, kept no handler for it (ADR 0029 amendment of
+ * 2026-11-06); nor did one whose code input the service did not read as one, as Epic
+ * Games' and HCP Cloud's before the code rules took them (ADR 0027 amendment of
+ * 2026-11-07), which is judged again once they do.
  */
 export async function judgedInputs(observation: LoginObservation): Promise<string> {
+  const code = (candidate: ObservedCandidate) =>
+    splitCodeInputs(observation, candidate)
+      ? "split"
+      : isCodeField(candidate) || judgedCodeInput(candidate)
+        ? "code"
+        : null;
   const inputs = observation.candidates
     .filter((candidate) => judgedInputRoles.has(candidate.role))
-    .map((candidate) => JSON.stringify([candidate.role, candidate.target]))
+    .map((candidate) => JSON.stringify([candidate.role, candidate.target, code(candidate)]))
     .toSorted();
   const digest = await crypto.subtle.digest(
     "SHA-256",

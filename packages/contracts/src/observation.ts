@@ -452,34 +452,80 @@ export function isCodeField(candidate: ObservedCandidate): boolean {
 
 /**
  * The inputs of a code split into one input per digit that `field` is one of (ADR 0027,
- * owner decision 2026-10-12 19:21 UTC), in page order: every fill-role input of its form
- * that {@link isCodeField} accepts, when there are 6 to 8, each takes one character
- * (`maxlength` 1) and each has an attribute or visible-name locator. Undefined for any
- * other field.
+ * owner decision 2026-10-12 19:21 UTC), in page order, when there are 6 to 8 and each has
+ * an attribute or visible-name locator: every fill-role input of its form that
+ * {@link isCodeField} accepts, when each takes one character (`maxlength` 1); or every
+ * fill-role input of its form, when the first is marked `one-time-code` and declares no
+ * `maxlength` and each is an `unmarkedDigit` (ADR 0027 amendment of 2026-11-07, as Epic
+ * Games' six inputs are, and Notion's of 2026-11-04). Undefined for any other field.
  */
 export function splitCodeInputs(
   page: Pick<LoginObservation, "candidates">,
   field: ObservedCandidate,
 ): ObservedCandidate[] | undefined {
-  const inputs = page.candidates.filter(
-    (candidate) =>
-      candidate.group === field.group &&
-      (fillRoles as readonly string[]).includes(candidate.role) &&
-      isCodeField(candidate),
-  );
-  return inputs.includes(field) &&
+  const located = (inputs: ObservedCandidate[]) =>
     inputs.length >= 6 &&
     inputs.length <= 8 &&
-    inputs.every((input) => input.maxLength === 1 && input.target.by !== "text")
-    ? inputs
+    inputs.includes(field) &&
+    inputs.every((input) => input.target.by !== "text");
+  const typed = page.candidates.filter(
+    (candidate) =>
+      candidate.group === field.group && (fillRoles as readonly string[]).includes(candidate.role),
+  );
+  const inputs = typed.filter((candidate) => isCodeField(candidate));
+  if (located(inputs) && inputs.every((input) => input.maxLength === 1)) return inputs;
+  // A code split into inputs that declare no `maxlength`, as the extension's
+  // `splitCodeInputs` reads it (ADR 0027 amendments of 2026-11-04 and 2026-11-07): every
+  // fill-role input of the form, the first marked `one-time-code` without a `maxlength`.
+  const first = typed[0];
+  return first !== undefined &&
+    first.autocomplete === "one-time-code" &&
+    first.maxLength === undefined &&
+    located(typed) &&
+    typed.every(unmarkedDigit)
+    ? typed
     : undefined;
+}
+
+/**
+ * A digit input of a code split into inputs that may declare no `maxlength`, as the
+ * extension's `unmarkedDigit` reads one (ADR 0027 amendment of 2026-11-04): a text input
+ * with `inputmode="numeric"`, or a tel or number input, that declares no `maxlength` or 1
+ * and whose `autocomplete` names nothing but `off` or `one-time-code`.
+ */
+function unmarkedDigit(candidate: ObservedCandidate): boolean {
+  return (
+    (candidate.maxLength === undefined || candidate.maxLength === 1) &&
+    (candidate.autocomplete === undefined ||
+      candidate.autocomplete === "off" ||
+      candidate.autocomplete === "one-time-code") &&
+    (candidate.role === "tel" ||
+      candidate.role === "number" ||
+      (candidate.role === "text" && candidate.inputMode === "numeric"))
+  );
+}
+
+/**
+ * A text input with `inputmode="numeric"` that declares no `maxlength` and whose
+ * `autocomplete` names nothing or only `off` (ADR 0027 amendment of 2026-11-07), as HCP
+ * Cloud's "Enter your one-time code" is: a `totp` handler's code field when the judge
+ * names it, though {@link isCodeField} does not count it as a code input anywhere else.
+ * The extension's TOTP fill rule takes it the same way (`acceptsSecret`).
+ */
+export function judgedCodeInput(candidate: ObservedCandidate): boolean {
+  return (
+    candidate.role === "text" &&
+    candidate.inputMode === "numeric" &&
+    candidate.maxLength === undefined &&
+    (candidate.autocomplete === undefined || candidate.autocomplete === "off")
+  );
 }
 
 /**
  * Whether `field` and `button` of this page may be a `totp` handler's code field and the
  * button that submits it (ADR 0027): a fill-role input located by an attribute or its
  * visible name (ADR 0037) that
- * {@link isCodeField} accepts, either with at least 6 characters when it limits them and
+ * {@link isCodeField} or {@link judgedCodeInput} accepts, either with at least 6 characters when it limits them and
  * the only such input in its form, or the first of a code split into one input per digit
  * ({@link splitCodeInputs}), which the executor fills one digit per input; and a button
  * of that form, or no button on a page that submits the code once it is in (ADR 0027
@@ -511,15 +557,21 @@ export function totpCodeRefusal(
 ): string | undefined {
   if (!(fillRoles as readonly string[]).includes(field.role)) return "not-input";
   if (field.target.by === "text") return "text-locator";
-  if (!isCodeField(field)) return "not-code-field";
+  if (!isCodeField(field) && !judgedCodeInput(field)) return "not-code-field";
   const split = splitCodeInputs(page, field);
   if (split) {
     if (split[0] !== field) return "several-code-fields";
   } else {
     if (field.maxLength !== undefined && field.maxLength < 6) return "code-too-short";
+    // A field taken only as the judge named it counts the inputs taken so as code inputs
+    // too.
+    const judged = !isCodeField(field);
     if (
       page.candidates.some(
-        (other) => other !== field && other.group === field.group && isCodeField(other),
+        (other) =>
+          other !== field &&
+          other.group === field.group &&
+          (isCodeField(other) || (judged && judgedCodeInput(other))),
       )
     )
       return "several-code-fields";

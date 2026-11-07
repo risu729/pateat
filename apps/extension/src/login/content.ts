@@ -2169,17 +2169,44 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           step.effect === "submit" &&
           step.fields.length === 1;
         // A `totp` handler's code split into one input per digit goes in one digit per
-        // input (ADR 0027, owner decision 2026-10-12 19:21 UTC).
-        const split =
-          command.code && (step.effect === "prepare" || buttonless) && step.fields.length === 1
-            ? splitCodeInputs(
-                writableInputs[0] as HTMLInputElement,
-                command.values[0]!.value.length,
-                writable,
-              )
-            : undefined;
-        // Which shape its digits keep is decided once, from its first input as found.
-        const unmarked = split !== undefined && split[0]!.maxLength !== 1;
+        // input (ADR 0027, owner decision 2026-10-12 19:21 UTC). An input the page's
+        // description leaves out, as a honeypot hidden from assistive technology, moved
+        // off the screen, transparent or tiny, is not counted, as the service never saw it
+        // (ADR 0027 amendment of 2026-11-07).
+        const codeStep =
+          command.code !== undefined &&
+          (step.effect === "prepare" || buttonless) &&
+          step.fields.length === 1;
+        const described = (input: HTMLInputElement) =>
+          writable(input) && presence(input) === "visible";
+        const split = codeStep
+          ? splitCodeInputs(
+              writableInputs[0] as HTMLInputElement,
+              command.values[0]!.value.length,
+              described,
+            )
+          : undefined;
+        // Nor is a code typed whole into the first of inputs that would split a code once
+        // the form's other inputs are left out, or that split a code of another length, as
+        // the item's code for a site that asks for more or fewer digits: that input keeps
+        // one digit.
+        if (
+          codeStep &&
+          !split &&
+          [6, 7, 8].some((length) =>
+            splitCodeInputs(
+              writableInputs[0] as HTMLInputElement,
+              length,
+              (input) => described(input) && unmarkedDigit(input),
+            ),
+          )
+        )
+          return fail("value-mismatch");
+        // Which shape its digits keep is decided once, from its inputs as found: one-digit
+        // inputs the TOTP fill rule takes, or the shape without `maxlength`.
+        const unmarked =
+          split !== undefined &&
+          !split.every((digit) => digit.maxLength === 1 && acceptsSecret(digit, "otp"));
         const fits = (input: Control, value: (typeof command.values)[number]) =>
           split
             ? split.every(

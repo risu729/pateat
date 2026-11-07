@@ -374,14 +374,30 @@ describe("splitCodeInputs without maxlength (ADR 0027 amendment of 2026-11-04)",
   it("takes inputs outside any form, unless another field outside any form shows", () => {
     document.body.innerHTML = `<div>${notion()}</div>`;
     expect(splitCodeInputs(input("d1"), 6, usable)).toHaveLength(6);
-    document.body.innerHTML = `<header><input type="search"></header><div>${notion()}</div>`;
+    document.body.innerHTML = `<header><input id="q" type="text"></header><div>${notion()}</div>`;
     expect(splitCodeInputs(input("d1"), 6, usable)).toBeUndefined();
     // One the fill cannot use, as a hidden one, does not count.
-    expect(splitCodeInputs(input("d1"), 6, (one) => one.type !== "search")).toHaveLength(6);
+    expect(splitCodeInputs(input("d1"), 6, (one) => one.id !== "q")).toHaveLength(6);
   });
 
-  it("refuses a digit whose autocomplete names a phone number's or card's part", () => {
-    for (const token of ["tel-local", "cc-number", "bday-day"]) {
+  // ADR 0027 amendment of 2026-11-07: the inputs are read as the page's description shows
+  // them, so the service never keeps a split code the fill would type whole into one box.
+  it("reads the inputs as the page's description shows them", () => {
+    // Epic Games' six inputs, each marked one-time-code.
+    document.body.innerHTML = `<form>${notion(undefined, () => 'autocomplete="one-time-code"')}</form>`;
+    expect(splitCodeInputs(input("d1"), 6, usable)).toHaveLength(6);
+    // A token the description does not show, a length past 1024 or of 0.
+    document.body.innerHTML = `<form>${notion('autocomplete="section-otp one-time-code" maxlength="2000"', () => 'autocomplete="section-otp off" maxlength="0"')}</form>`;
+    expect(splitCodeInputs(input("d1"), 6, usable)).toHaveLength(6);
+    // A search or date input, which the description leaves out, takes no digit.
+    document.body.innerHTML = `<form><input type="search"><input type="date">${notion()}</form>`;
+    expect(splitCodeInputs(input("d1"), 6, usable)).toHaveLength(6);
+  });
+
+  it("refuses a digit whose autocomplete names a phone number's or birth date's part", () => {
+    // Only tokens the page's description shows count, as the service sees no other: a card
+    // number's `cc-number` is not one (ADR 0027 amendment of 2026-11-07).
+    for (const token of ["tel-local", "tel", "bday-day", "postal-code"]) {
       document.body.innerHTML = `<form>${notion(undefined, (place) => (place === 3 ? `autocomplete="${token}"` : 'autocomplete="off"'))}</form>`;
       expect(splitCodeInputs(input("d1"), 6, usable), token).toBeUndefined();
     }

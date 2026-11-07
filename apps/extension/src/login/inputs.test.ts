@@ -52,6 +52,17 @@ describe("secret input rule", () => {
     ["otp", password, false],
     ["otp", text, false],
     ["otp", longTel, false],
+    // A numeric text input without a maxlength, as HCP Cloud's code input (ADR 0027
+    // amendment of 2026-11-07); never a tel input without one, as a phone number's.
+    ["otp", input({ inputMode: "numeric" }), true],
+    ["otp", input({ inputMode: "numeric", autocomplete: "off" }), true],
+    ["otp", input({ inputMode: "numeric", autocomplete: "username" }), false],
+    ["otp", input({ inputMode: "numeric", maxLength: 12 }), false],
+    // A length of 0 or past 1024 the page's description leaves out, as none.
+    ["otp", input({ inputMode: "numeric", maxLength: 0 }), true],
+    ["otp", input({ inputMode: "numeric", maxLength: 2000 }), true],
+    ["otp", unboundedTel, false],
+    ["hidden", input({ inputMode: "numeric" }), false],
     ["hidden", password, true],
     ["hidden", declared, true],
     ["hidden", newPassword, true],

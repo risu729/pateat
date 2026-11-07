@@ -321,7 +321,9 @@ function showsPassword(document: Document): boolean {
 
 /** S3: a shown input that the executor would type a one-time code into. */
 function showsCode(document: Document): boolean {
-  // As the executor's `acceptsSecret` for a code; the attributes first, as they cost less.
+  // As the login's `codeInput`, the service's `isCodeField`: a numeric input without a
+  // `maxlength`, which only a judge's code fills (ADR 0027 amendment of 2026-11-07), is no
+  // sign of a code step here. The attributes first, as they cost less.
   return queryAll<HTMLInputElement>(document, "input").some(
     (input) =>
       (autocompleteTokens(input).includes("one-time-code") ||

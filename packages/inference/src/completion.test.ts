@@ -721,6 +721,62 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
     ]);
   });
 
+  describe("a numeric input without a maxlength (ADR 0027 amendment of 2026-11-07)", () => {
+    // HCP Cloud's /u/mfa-otp-challenge (2026-11-07 16:29 UTC): one text input `#code`,
+    // `inputmode="numeric"`, `autocomplete="off"`, no `maxlength`, "Enter your one-time code".
+    const hcp = field({ maxLength: undefined, autocomplete: "off" });
+
+    it("keeps the code in it when the judge names it", async () => {
+      expect(await judged([hcp, submit()], answer())).toMatchObject({
+        status: "ok",
+        value: { decision: "challenge", totp: kept },
+      });
+      expect(await judged([field({ maxLength: undefined }), submit()], answer())).toMatchObject({
+        value: { totp: kept },
+      });
+    });
+
+    it.each([
+      [
+        "a tel input",
+        field({ role: "tel", inputMode: undefined, maxLength: undefined }),
+        "not-code-field",
+      ],
+      [
+        "a text input without inputmode",
+        field({ inputMode: undefined, maxLength: undefined }),
+        "not-code-field",
+      ],
+    ])("drops %s without a maxlength", async (_label, candidate, why) => {
+      expect(await judged([candidate, submit()], answer())).toMatchObject({
+        value: { totpDropped: why },
+      });
+    });
+
+    it("drops it beside another such input of its form", async () => {
+      const other = field({
+        id: "other",
+        target: { by: "id", value: "pin" },
+        maxLength: undefined,
+      });
+      expect(await judged([hcp, other, submit()], answer())).toMatchObject({
+        value: { totpDropped: "several-code-fields" },
+      });
+    });
+
+    it("still keeps a marked code field beside one", async () => {
+      // Only a field taken as the judge named it counts such inputs as code inputs.
+      const other = field({
+        id: "other",
+        target: { by: "id", value: "pin" },
+        maxLength: undefined,
+      });
+      expect(await judged([field(), other, submit()], answer())).toMatchObject({
+        value: { totp: kept },
+      });
+    });
+  });
+
   it("drops a field limited to five characters", async () => {
     expect(hasTotp(await judged([field({ maxLength: 5 }), submit()], answer()))).toBe(false);
   });
@@ -874,6 +930,58 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
       it("tells the model when to leave submit out", () => {
         expect(completionInstructions).toContain(
           "left out only when no button on the page submits",
+        );
+      });
+    });
+
+    describe("inputs that declare no maxlength (ADR 0027 amendment of 2026-11-07)", () => {
+      // Epic Games' /id/login/mfa (2026-11-07 16:26 UTC): six text inputs code-input-0 to
+      // code-input-5, each `inputmode="numeric"` and `autocomplete="one-time-code"`, none
+      // with a `maxlength`.
+      const epic = boxes(6, { maxLength: undefined, autocomplete: "one-time-code" });
+
+      it.each(["d1", "d4"])(
+        "keeps the first of six such inputs when %s is named",
+        async (named) => {
+          expect(await judged([...epic, submit()], answer({ field: named }))).toMatchObject({
+            status: "ok",
+            value: { decision: "challenge", totp: first },
+          });
+        },
+      );
+
+      it("keeps them when only the first is marked, as on Notion's page", async () => {
+        const notion = epic.map((box, index) =>
+          index === 0 ? box : { ...box, autocomplete: "off" },
+        );
+        expect(await judged([...notion, submit()], answer({ field: "d3" }))).toMatchObject({
+          value: { totp: first },
+        });
+      });
+
+      it.each([
+        [
+          "the first is not marked as a one-time code",
+          epic.map((box, index) => (index === 0 ? { ...box, autocomplete: undefined } : box)),
+        ],
+        [
+          "the first declares a maxlength of 6",
+          epic.map((box, index) => (index === 0 ? { ...box, maxLength: 6 } : box)),
+        ],
+        [
+          "one is an input without a numeric keyboard",
+          epic.map((box, index) =>
+            index === 3 ? { ...box, inputMode: undefined, autocomplete: undefined } : box,
+          ),
+        ],
+        [
+          "an email input sits in their form",
+          [...epic, field({ id: "mail", role: "email", target: { by: "id", value: "mail" } })],
+        ],
+        ["there are five", epic.slice(0, 5)],
+      ])("drops them when %s", async (_label, candidates) => {
+        expect(hasTotp(await judged([...candidates, submit()], answer({ field: "d1" })))).toBe(
+          false,
         );
       });
     });
