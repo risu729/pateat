@@ -2914,8 +2914,15 @@ matches twice and waits, or, if the login form has not rendered yet, fills the o
 input (never with a secret, which goes only into an input the fill check accepts for it,
 such as a password or `current-password` input for the password); and a signed-in page
 that shows such an input cannot become the completion. A script button is a control only
-scripts make clickable: a script link, or another element with `role="button"`, but
-never a form control or anything inside an `<a href>`. A script link is an `<a>` without
+scripts make clickable: a script link, another element with `role="button"`, or an
+element without a role that the page puts in the tab order (`tabindex` of 0 or more),
+sets a pointer cursor itself and holds no control, link, role or other tab stop, such as
+Logi ID's passkey sign-in `<div class="button" tabindex="0">` (2026-11-07,
+[#1375](https://github.com/risu729/pateat/issues/1375)), but never a form control or
+anything inside an `<a href>`. Such a tab stop is no `<label>` or `<summary>`, and a
+role inside it that only shows content (`img`, `presentation`, `none`, `generic`,
+`graphics-symbol`), as an icon's, does not count. It is located as a
+`role="button"` one is. A script link is an `<a>` without
 `href` that has an `onclick` attribute or `role="button"`, such as
 `<a id="login" onclick="document.loginForm.submit()">`, or sets a pointer cursor
 itself (CSS `cursor: pointer` that its parent does not have), such as IIJmio's
@@ -2970,9 +2977,13 @@ hidden native button rather than clicking a script link with its text. A recipe 
 names a script link by text clicks a native button instead if the page later adds one
 with the same text. Other script buttons, such as a `<div role="button">`, are often
 widgets such as menus and toggles, so their `id`, `name` or `data-testid` names them,
-and their rendered text only inside a login `<form>` or beside a password form, or on a
+and their rendered text only inside a login `<form>` or beside a password form, on a
 judged page when it names the authenticator app's code
 ([ADR 0081](adr/0081-authenticator-method-button.md#amendment-a-role-button-that-chooses-the-authenticator-app)),
+or when it names a passkey on a passkey-only start page
+([ADR 0053](adr/0053-passkey-only-generation.md)) or beside an account list
+([ADR 0079](adr/0079-passkey-button-beside-an-account-list.md)), since that name already
+tells it from a menu or a toggle (2026-11-07),
 when no native button (shown or hidden), script link or other such element carries that
 text: since 2026-10-13, when Instagram's Log in control was a `<div role="button">` with
 no attribute to name it and the page was described without it, the executor matches them

@@ -15,6 +15,7 @@ import {
   isFragmentButton,
   isScriptButton,
   renderedText,
+  scriptControls,
   shown,
   widthFolded,
 } from "./text";
@@ -24,7 +25,7 @@ export const KEYPAD_MIN_KEYS = 10;
 /** A keypad without every digit has at least as many letters as the Latin alphabet. */
 export const KEYPAD_MIN_LETTERS = 26;
 
-const keySelector = "button, input, a, [role], [onclick]";
+const keySelector = `button, input, a, ${scriptControls}, [onclick]`;
 
 /**
  * A control a person presses on a keypad: a button, a submit, button or image input, a

@@ -78,6 +78,7 @@ import {
   readBehindModal,
   readOwnInert,
   renderedText,
+  scriptControls,
   shown,
 } from "../page/text";
 import {
@@ -195,7 +196,7 @@ const ignoredTypes = new Set(["hidden", "reset"]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
 /** Every element `describe` may accept, script buttons included. */
-const observed = "input, select, textarea, button, a, [role]";
+const observed = `input, select, textarea, button, a, ${scriptControls}`;
 /**
  * The attributes an element is named by, in order: a test attribute first, as test tools
  * do, since a site keeps it as a stable hook while an `id` may be a render counter
@@ -413,7 +414,7 @@ function locatorIndex(document: Document): LocatorIndex {
     const text = buttonText(element);
     if (text !== undefined) count(isScriptLink(element) ? "script-text" : "text", text);
   }
-  for (const element of queryAll(document, "[role]")) {
+  for (const element of queryAll(document, scriptControls)) {
     const text = isRoleButton(element) ? buttonText(element) : undefined;
     if (text !== undefined) count("role-text", text);
   }
@@ -1552,8 +1553,9 @@ const markerWidgetRoles = new Set([
  * A signed-in page's ARIA widgets that `describe` does not accept (ADR 0029 amendment of
  * 2026-11-04): a shown element whose first role is a tab, menu item, tree item or link,
  * as Notion's sidebar `<div role="tab" id="sidebar-tab-default-home">` is, that is no
- * native control, `<a>`, script button or part of a link, and holds no `<a>`, control or
- * `role="button"` element, in its shadow tree either, that would be described itself. It is drafted as a link, which no step or handler
+ * native control, `<a>`, script button or part of a link, and holds no `<a>`, control,
+ * `role="button"` element or pointer tab stop, in its shadow tree either, that would be
+ * described itself. It is drafted as a link, which no step or handler
  * presses, and a marker takes it only by an attribute (`markerWidgetTarget`).
  */
 function markerWidgets(document: Document): Draft[] {
@@ -1568,6 +1570,7 @@ function markerWidgets(document: Document): Draft[] {
       isScriptButton(element) ||
       closestAcross(element, "a[href]") !== null ||
       queryAll(element, `a, [role~='button' i], ${controls}`).length > 0 ||
+      queryAll(element, "[tabindex]").some(isScriptButton) ||
       presence(element) !== "visible"
     )
       return [];
@@ -1904,8 +1907,9 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
 
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
   // Script buttons are often widgets (menus, toggles), and text locators name only the
-  // `<a>` ones and, in a login form or beside a password form, the `role="button"` ones,
-  // so one without a locator is left out rather than marking the page incomplete.
+  // `<a>` ones and, in a login form or beside a password form, the `role="button"` ones
+  // and pointer tab stops, so one without a locator is left out rather than marking the
+  // page incomplete.
   const scripted: typeof required = [];
   // Icon buttons follow the same rule, but only in a form that has another button to
   // submit with: an icon-only button may itself be the form's script submit.
@@ -1989,8 +1993,8 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
   }
 
   // Links and script buttons without a locator are left out without flawing their form.
-  // A `role="button"` element is named by its text only inside a login form or beside a
-  // password form, where it is the form's own control rather than a widget elsewhere; a
+  // A `role="button"` element or pointer tab stop is named by its text only inside a login
+  // form or beside a password form, where it is the form's own control rather than a widget elsewhere; a
   // search form beside the login form names none. A link never takes the text of such an
   // element, whatever its form, since one observation's candidates need distinct targets
   // and the login's own control needs that text more.
@@ -2666,7 +2670,10 @@ function readPasskey(document: Document): ObservationResult {
 
 /**
  * The enabled buttons among `found` whose label or lasting locator names a passkey or
- * security key and not its registration (ADR 0053).
+ * security key and not its registration (ADR 0053), on a passkey-only start page and
+ * beside an account list (ADR 0079). A script button other than a link, such as
+ * `<div role="button">` or a pointer tab stop, is located by its text too, as in a login
+ * form: naming a passkey already tells it from a menu or a toggle.
  */
 function passkeyButtons(
   document: Document,
@@ -2681,7 +2688,7 @@ function passkeyButtons(
       !enabled(entry.draft.element)
     )
       return [];
-    const target = locate(entry.draft.element, index, { tokens, lasting: true });
+    const target = locate(entry.draft.element, index, { tokens, lasting: true, roles: true });
     if (!target) return [];
     const button = { target, label: entry.draft.label };
     if (!namesPasskey(button) || registersPasskey(button)) return [];
