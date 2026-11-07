@@ -101,8 +101,11 @@ describe("pageSigns", () => {
       "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/x",
     ]) {
       document.body.innerHTML = frame(src);
-      expect(pageSigns(document), src).toEqual({ ...none, captcha: true });
+      expect(pageSigns(document), src).toEqual({ ...none, captcha: true, captchaUnsolved: true });
     }
+    // Solved: its service's token field holds the token, and the widget still shows.
+    document.body.innerHTML = `${frame("https://newassets.hcaptcha.com/captcha/v1/x/static/hcaptcha.html")}<textarea name="h-captcha-response">token</textarea>`;
+    expect(pageSigns(document)).toEqual({ ...none, captcha: true });
     // An invisible check's badge, a tiny frame and another Google frame do not count.
     for (const html of [
       frame("https://www.google.com/recaptcha/api2/anchor?k=x&size=invisible"),

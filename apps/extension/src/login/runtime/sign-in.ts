@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  awaitPerson,
   followPage,
   personAnswered,
   routeSignInPaths,
@@ -27,7 +28,7 @@ import {
   WATCH_POLL_MS,
   WATCH_SETTLE_MS,
 } from "./constants";
-import { current, report, send, stepWaitMs, change } from "./attempt";
+import { current, report, reportAttempt, save, send, stepWaitMs, change } from "./attempt";
 import { terminal } from "./attempt-state";
 import { observe, reconcile, askAgain } from "./reconcile";
 import { allowed } from "./plan-2";
@@ -204,6 +205,8 @@ export async function readSignInState(
       path: string;
       /** Why S1 is not read as the form shown again, or F2 not on it, for the log. */
       misses: { reshownMiss?: ReshownMiss; alertMiss?: AlertMiss };
+      /** S4 shows and is not solved yet (ADR 0029 amendment of 2026-11-07). */
+      captchaUnsolved: boolean;
     }
   | undefined
 > {
@@ -355,7 +358,38 @@ export async function readSignInState(
     loaded: parsed.output.loaded,
     path: observed.path,
     misses,
+    captchaUnsolved: page.captchaUnsolved === true,
   };
+}
+
+/**
+ * Whether the page a step's result is read on waits for the person over a CAPTCHA (ADR
+ * 0029, S4, amendment of 2026-11-07), as a site that asks for one only once its button was
+ * pressed does. Only a page that still shows the sign-in form (S1) with no failure next to
+ * it (`unknown`) waits: while it shows a CAPTCHA the person has not solved (`unsolved`),
+ * or, once one showed while this result was read (`shown`), after it closed (`after`): the
+ * site may go on once the person presses its button again. A failure next to the form or
+ * a sign-in in the loaded document (`decides`) and any other reading (`undefined`) are read
+ * as without a CAPTCHA; a page that could not be read, or one still loading that would
+ * decide, is `unread`. On the passkey route, which rejects no credential, a failure next to
+ * the form waits as `unknown` does. Only reads.
+ */
+async function captchaWait(
+  rt: Runtime,
+  run: Execution,
+  shown: boolean,
+): Promise<"unsolved" | "after" | "decides" | "unread" | undefined> {
+  const reading = await readSignInState(rt, run);
+  if (!reading) return "unread";
+  // The passkey route rejects no credential, so a failure there leaves the form waiting.
+  const decides =
+    reading.decision === "signed-in" ||
+    (reading.decision === "rejected" && run.metadata.route !== "passkey");
+  // Only a loaded document decides, as the settled reading counts only then.
+  if (decides) return reading.loaded ? "decides" : "unread";
+  if (reading.decision !== "unknown" && reading.decision !== "rejected") return undefined;
+  if (reading.captchaUnsolved) return "unsolved";
+  return shown ? "after" : undefined;
 }
 
 // State transitions, journal writes and DOM effects form an ordered protocol.
@@ -367,17 +401,69 @@ export async function reconcileBounded(rt: Runtime, run: Execution): Promise<voi
   // the sign-in completes the login in the round that reads it, also by its sign-in state
   // (ADR 0029, amended 2026-11-03); only a page nothing proves waits for the budget to run
   // out before it is settled or judged.
-  let until = Date.now() + (run.metadata.operationEffect === "advance" ? stepWaitMs(rt) : 3000);
+  const budget = () => (run.metadata.operationEffect === "advance" ? stepWaitMs(rt) : 3000);
+  let until = Date.now() + budget();
   // A held click's button may show this long before the page is left to the person.
   const holdUntil = Date.now() + HELD_CLICK_WAIT_MS;
+  // The CAPTCHA wait of this result, if any: whether a CAPTCHA showed, what the page
+  // waits for now, and until when it may (ADR 0029, S4, amendment of 2026-11-07). A later
+  // document of the login reads its own result in its own call.
+  let captcha: { wait?: "unsolved" | "after"; until: number } | undefined;
   const observing = () => ["awaiting-result", "reconciling"].includes(run.metadata.state);
   // Each round re-authorizes against settings, so the longer advance budget polls slower.
   const interval = run.metadata.operationEffect === "advance" ? 200 : 50;
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
   while (current(rt, run) && observing()) {
-    const settle = Date.now() >= until;
+    let settle = Date.now() >= until;
+    // Once the result would settle, a page that waits for the person over a CAPTCHA is
+    // neither settled nor judged, but still read every round, so a next step or a sign-in
+    // that shows meanwhile goes on as usual.
+    if (settle) {
+      const read = await captchaWait(rt, run, captcha !== undefined);
+      if (!current(rt, run) || !observing()) return;
+      // A page that could not be read this round changes nothing about a running wait.
+      const wait = read === "unread" ? captcha?.wait : read === "decides" ? undefined : read;
+      if (wait) {
+        if (captcha?.wait !== wait) {
+          // Logged as the click left to the person under a CAPTCHA is (ADR 0019).
+          if (!captcha?.wait)
+            reportAttempt(rt, run.metadata, run.recipe, undefined, {
+              stop: "captcha-shown",
+            });
+          captcha = { wait, until: Date.now() + HELD_CLICK_WAIT_MS };
+        }
+        if (Date.now() >= captcha.until) {
+          await change(rt, run, {
+            type: "OBSERVED",
+            result: "challenge",
+            document: run.live.document,
+          });
+          return;
+        }
+        if (run.metadata.timing.personSince === undefined) {
+          // The person's time, kept with the record as for a held click (ADR 0019).
+          run.metadata = awaitPerson(run.metadata);
+          await save(rt, run);
+          if (!current(rt, run) || !observing()) return;
+        }
+        settle = false;
+      } else if (captcha?.wait) {
+        delete captcha.wait;
+        run.metadata = followPage(personAnswered(run.metadata));
+        // A failure or a sign-in decides in this round, as without a CAPTCHA. A page that
+        // moved on from the CAPTCHA otherwise gets the step's usual budget for its answer.
+        if (read === undefined) {
+          until = Date.now() + budget();
+          settle = false;
+        }
+      }
+    }
     const held = await reconcile(rt, run, settle);
     if (!current(rt, run) || !observing()) return;
+    if (captcha?.wait && !held) {
+      await sleep(500);
+      continue;
+    }
     // A held button gone means the person pressed it (ADR 0019); the site's answer to the
     // press is then waited for.
     if (!held) run.metadata = followPage(personAnswered(run.metadata));
