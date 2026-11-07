@@ -90,11 +90,12 @@ merge.
 
 - The extension's settings page can edit another profile with its own vault catalog
   (ADR 0024). Its requests go to `/extension/profiles`, behind the host-wide Access
-  application (`ACCESS_AUD`), which requires WARP, and only from an extension the
+  application (`ACCESS_AUD`), which then required WARP, and only from an extension the
   pairing allowlist names (owner, root A on 2026-10-19); for reads, see the next
   point. The "pateat pair" application
-  of [ADR 0030](0030-pairing-without-warp.md) is not accepted there, so a browser
-  without WARP can pair but cannot edit other profiles. ADR 0030 is unchanged.
+  of [ADR 0030](0030-pairing-without-warp.md) was not accepted there, so a browser
+  without WARP could pair but could not edit other profiles; this ADR left ADR 0030
+  unchanged. Its 2026-11-07 amendment removed that application, above.
 - Chrome leaves `Origin` out of an extension page's `fetch` `GET` to a host the
   extension can access (seen in Chromium 153, issue
   [#1124](https://github.com/risu729/pateat/issues/1124)), so the allowlist cannot be
@@ -126,5 +127,6 @@ merge.
   would need two compare-and-set writes, which ADR 0024 already rejected.
 - Keeping the device's entries when it takes an existing profile: the owner chose the
   profile's, with the warning and the new-profile choice instead.
-- Editing other profiles under "pateat pair": it would let a browser without WARP
-  change the policy other browsers use, which ADR 0030 does not allow.
+- Editing other profiles under "pateat pair": it would have let a browser without WARP
+  change the policy other browsers use, which ADR 0030 did not allow before its
+  2026-11-07 amendment.

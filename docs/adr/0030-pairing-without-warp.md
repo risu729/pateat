@@ -3,8 +3,8 @@
 Status: accepted by the owner on 2026-10-12 (05:17 to 05:28 UTC). Implemented in the
 Worker and the extension. The 2026-11-07 amendment below replaces the separate
 application and audience; the original decision is preserved as history. The original
-"pateat pair" application and `ACCESS_PAIR_AUD` secret were set up by the owner (see
-[delivery](../delivery.md#production-settings)). Amends
+"pateat pair" application and `ACCESS_PAIR_AUD` secret were set up by the owner as the
+[decision](#decision) below records. Amends
 [ADR 0020](0020-direct-device-pairing.md) (the sign-in tab and the audiences
 `POST /pair` accepts).
 

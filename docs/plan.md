@@ -816,10 +816,10 @@ than in this repository.
   [browser agents and logins](research/2026-10-11-browser-agent-logins.md) found no
   documented install for the ChatGPT cloud browser. On Grok Bot's computer the owner
   loaded the unpacked build on 2026-10-12, and it stayed after the computer slept and
-  after a computer update. Pairing there is refused by the service's WARP-only Access
-  policy; [ADR 0030](adr/0030-pairing-without-warp.md) adds a "pateat pair" Access
-  application without WARP for pairing only (consolidated into the parent application by
-  the
+  after a computer update. Pairing there was refused by the service's then WARP-only
+  Access policy; [ADR 0030](adr/0030-pairing-without-warp.md) adds a "pateat pair"
+  Access application without WARP for pairing only (consolidated into the parent
+  application by the
   [2026-11-07 amendment](adr/0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)).
   With it, the Grok Bot computer paired on 2026-10-12 and Pateat logged in to Vpass
   there with the owner's existing Bitwarden account, once the connection's policy was
