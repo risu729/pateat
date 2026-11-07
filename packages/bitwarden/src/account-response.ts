@@ -541,4 +541,3 @@ export function uriMatchDefault(
   if (values.size > 1) return "unavailable";
   return ([...values][0] ?? 0) as 0 | 1 | 2 | 3 | 4 | 5;
 }
-

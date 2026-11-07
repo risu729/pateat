@@ -329,4 +329,3 @@ export function createBitwardenAccountMapper(
     }),
   };
 }
-

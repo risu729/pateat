@@ -48,4 +48,3 @@ export interface BitwardenAccountMapper {
    */
   map(input: unknown): BitwardenResult<PreparedBitwardenAccount>;
 }
-
