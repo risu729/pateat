@@ -671,6 +671,28 @@ setup messages are excluded from the production build. Chrome use may not be
 able to operate another extension's settings page; manual setup is a supported
 test prerequisite, not a reason to expose settings mutations to a web page.
 
+The failure-sign fixtures deliberately have no learned rejection marker. Open
+`/credential-failure?error=alert`, `?error=plain` or no `error` parameter; add
+`&new-document` (or `?new-document`) to answer in a new document. Each press is
+counted in session storage without retaining the submitted value. The identifier
+counterparts are `/identifier-failure?error=plain` and `/identifier-failure`;
+their Next leaves the identifier form shown and never reveals the password.
+`login.spec.ts` characterizes the existing ADR 0029 outcomes, watch or immediate
+account ask, popup status data, result badge data, and competing-tab admission.
+A plain or silent first new password document remains `unknown-submit`, but the
+existing `formAgain` rule releases its watch and asks for an account at once.
+These fixtures do not change the outcome rules or establish real-site compatibility.
+
+The probe's `planFor` deliberately runs a full login on a new document that production
+would only fill while asking for an account. After an immediate account ask these probe
+tests therefore record one extra press in the competing tab and the reopened original
+tab, followed by each document's own refusal. A watched result still prevents another
+tab from pressing anything. These probe counts do not establish production submission
+behavior. The normal provider branch in `runtime-tests/admission-20.test.ts` separately
+asserts that a form answered with an accessible alert, plain text or no text causes no
+new submission: its response document is left alone, and a later document of the same
+tab or another tab is filled once without pressing anything.
+
 ### Installed Chrome synthetic passkey probe
 
 This prepares a manual acceptance run of the passkey bridge; it is not evidence

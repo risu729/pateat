@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
+import { credentialFailurePage } from "./credential-failure-fixture";
 
 type FixtureOutcome = "authenticated" | "credential-rejected" | "unknown";
 export type LoginPostEvidence = {
@@ -111,6 +112,15 @@ export async function startLoginFixture(
         if (run.holdResult) run.pending.push(finish);
         else finish();
       });
+      return;
+    }
+    const failurePage = credentialFailurePage(fixtureUrl);
+    if (failurePage !== undefined) {
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      response.end(failurePage);
       return;
     }
     if (path === "/slow-image") {

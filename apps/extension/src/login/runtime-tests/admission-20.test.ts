@@ -815,4 +815,80 @@ describe("production login document admission", () => {
       await h.login.handle({ version: 1, type: "login.probe.status" }, trusted),
     ).toBeUndefined();
   });
+  describe("a first new password document after a refused sign-in (issue 1319)", () => {
+    it.each([
+      ["an accessible alert", true],
+      ["a plain-text error without a failure mark", false],
+      ["no error text or failure mark", false],
+    ] as const)(
+      "%s leaves later documents and other tabs fill-only in production",
+      async (_label, alert) => {
+        const report = vi.fn<(entry: LoginReport) => void>();
+        const h = harness({}, { report });
+        const response = { documentId: "failure-response" };
+        const noSigns = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
+        fake.state.present = new Set(["password", "login"]);
+        // The page reader sends only signs: plain and absent text both have no F2.
+        fake.state.signs = (message) =>
+          message["fields"] ? { ...noSigns, password: true, alert } : noSigns;
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.gone.add("synthetic-document");
+          setTimeout(() => void h.hello(response, false), 0);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        const outcome = alert ? "credential-rejected" : "unknown-submit";
+        await vi.waitFor(
+          () =>
+            expect(report).toHaveBeenCalledWith(
+              expect.objectContaining({ type: "attempt", outcome }),
+            ),
+          { timeout: 8_000 },
+        );
+        if (!alert)
+          await vi.waitFor(
+            () => expect(fake.state.storage["pateat.login-attempts.v5"]).toEqual([]),
+            { timeout: 8_000 },
+          );
+        // The form that answered the original submission must never be filled again.
+        expect(await h.hello(response)).toEqual({ ok: false, reason: "account-asked" });
+        const sent = (): Record<string, unknown>[] =>
+          fake.state.messages.filter((entry) => entry.type === "login.execute");
+        const kinds = (offset = 0) =>
+          sent()
+            .slice(offset)
+            .map((entry) => {
+              const operation = entry["operation"] as { step: { kind: string } };
+              return operation.step.kind;
+            });
+        expect(kinds()).toEqual(["fill", "click"]);
+        fake.state.gone.clear();
+        fake.state.onExecute = undefined;
+        const fillOnce = async (from: Record<string, unknown>) => {
+          const before = sent().length;
+          expect(await h.hello(from)).toEqual({ ok: true });
+          await vi.waitFor(() => expect(kinds(before)).toEqual(["fill"]));
+          await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
+          const tabId = (from["tab"] as { id: number } | undefined)?.id ?? 1;
+          expect(report).toHaveBeenCalledWith(
+            expect.objectContaining({ type: "start", tabId, fillOnly: true }),
+          );
+          // The ended fill's document asks, and still never receives a submit operation.
+          expect(await h.hello(from)).toEqual({ ok: false, reason: "account-asked" });
+          expect(kinds(before)).toEqual(["fill"]);
+        };
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        await fillOnce({ tab: { id: 2 }, documentId: "other-tab" });
+        await fillOnce({ documentId: "same-tab-next-document" });
+        expect(kinds()).toEqual(["fill", "click", "fill", "fill"]);
+      },
+      12_000,
+    );
+  });
 });
