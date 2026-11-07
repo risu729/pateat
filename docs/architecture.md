@@ -571,7 +571,8 @@ guess:
 
 ### Unsupported vault session cases
 
-Implementation module ownership is described in the [development workflow](development.md#workspace-and-tasks).
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
 
 These cases of the crypto host and the vault manager are known and not handled; each
 fails as stated rather than retrying:
