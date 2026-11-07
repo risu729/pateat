@@ -77,7 +77,10 @@ export const page = (
   ...extra,
 });
 
-export const signedIn = (...markers: string[]): JudgeExpected => ({ decisions: ["signed-in"], markers });
+export const signedIn = (...markers: string[]): JudgeExpected => ({
+  decisions: ["signed-in"],
+  markers,
+});
 export const rejected: JudgeExpected = { decisions: ["rejected"] };
 export const optional: JudgeExpected = { decisions: ["optional"] };
 export const unclear: JudgeExpected = { decisions: ["unclear"] };
