@@ -45,6 +45,19 @@ jobs:
           # Each Vitest run writes coverage/<run>/coverage-final.json.
           PATEAT_COVERAGE: "1"
         run: mise run check
+      - name: Prepare tested docs artifact
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: mise exec -- node .github/scripts/docs-artifact.mjs pack
+      - name: Archive tested docs artifact
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docs-${{ github.sha }}
+          path: work/docs-release/
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
       - name: Summarize test coverage
         # Report only: a failed test run still gets the table of what it measured, and the
         # summary never fails the job.
@@ -289,3 +302,71 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           DATABASE: ${{ steps.restore.outputs.database }}
         run: mise exec -- node services/api/smoke/hosted.ts
+  deploy-docs:
+    name: Deploy tested docs
+    needs: [verify, ci-check]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    environment: docs
+    concurrency:
+      group: docs-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Require the docs credentials before anything else
+        env:
+          API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [[ -z "${API_TOKEN}" || ! "${CLOUDFLARE_ACCOUNT_ID}" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "::error::Set the docs environment secret CLOUDFLARE_API_TOKEN and variable CLOUDFLARE_ACCOUNT_ID."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Release only the current main head
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
+          if [[ "${head}" = "${GITHUB_SHA}" ]]; then
+            echo "release=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "release=false" >> "${GITHUB_OUTPUT}"
+            echo "A newer main revision exists; leaving the docs unchanged." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+      - uses: $/.github/actions/setup
+        if: ${{ steps.source.outputs.release == 'true' }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ steps.source.outputs.release == 'true' }}
+        with:
+          name: docs-${{ github.sha }}
+          path: work/docs-release/
+      - name: Verify the tested docs output and source provenance
+        if: ${{ steps.source.outputs.release == 'true' }}
+        run: mise exec -- node .github/scripts/docs-artifact.mjs restore
+      - name: Activate the exact prebuilt docs
+        if: ${{ steps.source.outputs.release == 'true' }}
+        id: deploy
+        uses: risu729/wrangler-deploy-action@c85532bf934238e9811676cbf10a4d08ff88ae12 # v3.0.0
+        with:
+          mode: production
+          working-directory: apps/docs
+          worker: pateat-docs
+          build-mode: production
+          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          production-strategy: versions
+          deploy-triggers: "false"
+      - name: Verify deployment readback and public English and Japanese pages
+        if: ${{ steps.source.outputs.release == 'true' }}
+        env:
+          DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment-id }}
+        run: |
+          test -n "${DEPLOYMENT_ID}"
+          mise exec -- node .github/scripts/docs-artifact.mjs smoke

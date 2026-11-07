@@ -1138,9 +1138,12 @@ Once the fixes have settled:
   [`apps/docs`](development.md#docs-website) builds in CI with English and Japanese
   pages ([ADR 0047](adr/0047-japanese-user-docs-locales.md)) for
   installation, setup, permissions and a draft privacy policy with the Chrome Web Store
-  Limited Use statement. Still to do: deploying it (a public assets-only Worker with
-  per-PR previews, as the owner chose on 2026-10-23; adding that deployment still waits
-  for the owner's go-ahead), and updating the installation page once releases exist.
+  Limited Use statement. The owner authorized deployment in
+  [issue 1322](https://github.com/risu729/pateat/issues/1322) on 2026-11-06.
+  The main-only assets deployment at `/docs/` is implemented with same-run tested
+  artifacts; its [bootstrap](delivery.md#docs-bootstrap) and a verified hosted release
+  remain pending. Per-PR previews await a separate credential/trust decision, and the
+  installation page still needs updating once releases exist.
   The [operations runbook](operations.md) holds M6's operational docs: the current
   retry/revert procedures and the unverified D1 restore and rollback-automation
   boundaries. No gap in it is known as of 2026-11-06. This does not complete
