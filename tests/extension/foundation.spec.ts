@@ -395,11 +395,10 @@ test("dragging the page scrollbar releases a clicked section link", async () => 
       await page.mouse.down();
       await page.mouse.move(x, 0, { steps: 10 });
       await page.mouse.up();
-      // The press can land on the track beside the thumb, which pages the window instead of
-      // dragging it, so a script takes the page the rest of the way. A script's scroll is no
-      // page input: only the released hold lets it mark the first section.
-      await page.evaluate(() => scrollTo(0, 0));
-      await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+      // The press can land above or below the thumb, which pages the window instead of
+      // dragging the thumb, so a script then scrolls to the top. A script's scroll brings no
+      // page input, so only the released hold lets it mark the first section.
+      await expect.poll(() => page.evaluate(() => (scrollTo(0, 0), scrollY))).toBe(0);
       await expect(nav.getByRole("link", { name: "Bitwarden", exact: true })).toHaveAttribute(
         "aria-current",
         "location",
