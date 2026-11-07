@@ -295,7 +295,9 @@ release-plz (owner, 2026-11-03 03:19 UTC:
    release text names this commit and tag, attaches the ZIP and `SHA256SUMS` to the
    draft, appends the release text to it and publishes it as the latest release. If
    `Pack` or `Publish release` fails, the release stays a draft with its tag; fix the
-   cause and re-run the failed jobs.
+   cause and re-run the failed jobs. Immutable releases are on, so a published
+   release's tag and files can no longer change; the files go onto the draft before it
+   is published, never after.
 
 The release PR and the tag are made with the bot GitHub App's token, because a PR or tag
 made with `GITHUB_TOKEN` starts no workflow and the release PR would get no `CI Check`.
@@ -357,7 +359,9 @@ PRs. Require workflow approval for all external fork contributors; retain Action
 artifacts/logs for 90 days, using Kuebiko as the reference for these settings.
 Kogane currently requires approval only for first-time contributors. Enable secret
 scanning/push protection and security updates consistently
-with existing repositories where GitHub supports them. No deployment credentials
+with existing repositories where GitHub supports them. Immutable releases are enabled,
+as in Kuebiko, before the first release (owner, 2026-11-07 13:21 UTC: 「Immutable
+releasesは有効化して」). No deployment credentials
 are created for this PR.
 
 ### Merging
