@@ -824,7 +824,8 @@ saved for `https://example.com` does not apply on `https://example.com.`.
 
 ### Unsupported cases in the popup and settings page
 
-Implementation module ownership is described in the [development workflow](development.md#workspace-and-tasks).
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
 
 Checked against the code on 2026-10-17:
 

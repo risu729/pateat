@@ -273,7 +273,7 @@ export function SitePolicy({
     catalog,
     edit,
     savedMatch,
-    originInput,
+    focusOrigin: () => originInput.current?.focus(),
   });
 
   // Rules and origins together, by hostname; a rule comes before the origins on its host.

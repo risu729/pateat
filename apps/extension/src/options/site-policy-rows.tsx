@@ -24,7 +24,6 @@ import { Button } from "./button";
 import { Badge, controlClass, RowTitle, StatusLines, type Tone } from "./ui";
 
 import type { TFunction } from "i18next";
-import type { RefObject } from "react";
 import {
   siteAccountOptions,
   matchedBy,
@@ -146,7 +145,7 @@ export function createSitePolicyRows({
   catalog,
   edit,
   savedMatch,
-  originInput,
+  focusOrigin,
 }: {
   t: TFunction;
   idPrefix: string;
@@ -154,7 +153,7 @@ export function createSitePolicyRows({
   catalog: VaultCatalog;
   edit: (update: (value: LocalSettings) => void) => boolean;
   savedMatch: (origin: string) => Extract<SiteAccountsResponse, { ok: true }> | undefined;
-  originInput: RefObject<HTMLInputElement | null>;
+  focusOrigin: () => void;
 }) {
   /** An origin row: its default account, editable in place, and a way to exclude its host. */
   function originRow(selected: SiteDefault) {
@@ -245,7 +244,7 @@ export function createSitePolicyRows({
                 if (value === NO_DEFAULT) {
                   // The row goes away with its default, so focus moves to the add form.
                   if (edit((settings) => replaceDefault(settings, origin)))
-                    originInput.current?.focus();
+                    focusOrigin();
                   return undefined;
                 }
                 const next = defaultFor(
@@ -273,7 +272,7 @@ export function createSitePolicyRows({
                   );
                   settings.excludedSites.push({ hostname: site, includeSubdomains: true });
                 });
-                originInput.current?.focus();
+                focusOrigin();
               }}
             >
               <Pause aria-hidden size={16} strokeWidth={2} />
@@ -324,7 +323,7 @@ export function createSitePolicyRows({
               aria-label={t("Remove default for {{origin}}", { origin: entry.origin })}
               onClick={() => {
                 if (edit((settings) => replaceDefault(settings, entry.origin)))
-                  originInput.current?.focus();
+                  focusOrigin();
               }}
             >
               {t("Remove default")}
@@ -342,7 +341,7 @@ export function createSitePolicyRows({
                   (entry) => entry.hostname !== rule.hostname,
                 );
               });
-              originInput.current?.focus();
+              focusOrigin();
             }}
           >
             {t("Resume")}
@@ -375,7 +374,7 @@ export function createSitePolicyRows({
                   (entry) => entry.hostname !== rule.hostname,
                 );
               });
-              originInput.current?.focus();
+              focusOrigin();
             }}
           >
             {t("Stop asking")}
