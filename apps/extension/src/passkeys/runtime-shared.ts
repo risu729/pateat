@@ -3,11 +3,7 @@ import { senderDocumentOrigin } from "../messaging/sender";
 import { type PasskeyPolicy } from "./policy";
 
 import { type RelatedOrigins } from "./related-origins";
-import {
-  type PasskeyCandidate,
-  type PasskeyCandidates,
-  type PasskeyDisplay,
-} from "./select";
+import { type PasskeyCandidate, type PasskeyCandidates, type PasskeyDisplay } from "./select";
 import { CHOOSER_MAX_WAIT_MS, CHOOSER_MIN_WAIT_MS, type RuntimeResult } from "./wire";
 
 /** The browser-supplied sender of a bridge message. */
@@ -248,111 +244,111 @@ export function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<
 }
 
 export type PasskeyRuntimeOptions<TCandidate extends PasskeyCandidate> = {
-    extensionId: string;
-    timeoutMs?: () => number;
+  extensionId: string;
+  timeoutMs?: () => number;
+  /**
+   * Per-origin presence and verification policy; the initial policy when absent. Read
+   * for each request, so a changed setting applies to the next one.
+   */
+  policy?: (origin: string) => PasskeyPolicy | Promise<PasskeyPolicy>;
+  /** Receives a value-free report of each finished request. */
+  report?: (report: PasskeyRequestReport) => void;
+  /**
+   * Asks the user when several passkeys match and no site default is among them, or for any
+   * match on a paused site (ADR 0062).
+   */
+  chooser?: PasskeyChooser;
+  /**
+   * Whether the origin's hostname is one whose passkey requests go to the browser, added by
+   * the chooser's "Always for this site" (ADR 0007). Such a request is handed on whatever
+   * its mediation. The list is read alongside the first lookups, so the request's deadline
+   * runs as it would without it, and is awaited before any signing, chooser or login wait.
+   */
+  browserSite?: (origin: string) => Promise<boolean> | boolean;
+  /**
+   * Adds the origin's hostname to those sites when the person chose "Always for this site".
+   * Called only after the request was handed on, because a settings save cancels pending
+   * passkey requests.
+   */
+  addBrowserSite?: (origin: string) => Promise<void>;
+  /**
+   * Saves a passkey chosen in the window as the origin's site default. Called only after the
+   * assertion was handed back, because a settings save cancels pending passkey requests.
+   */
+  remember?: (origin: string, candidate: TCandidate) => Promise<void>;
+  /**
+   * The vault item of a login that has not ended in this tab and origin (ADR 0027). Its
+   * request is answered with that item only, never the site default or the chooser.
+   */
+  loginAccount?: (
+    tabId: number,
+    origin: string,
+  ) => Promise<PasskeyItem | undefined> | PasskeyItem | undefined;
+  /**
+   * Told of each request of a top document that does not wait for an autofill choice
+   * (conditional mediation), so a login can tell that the page asked for a passkey after
+   * its submission (ADR 0029: S5). Never changes the answer.
+   */
+  requested?: (tabId: number, origin: string) => void;
+  /**
+   * Told of each assertion returned to a page, with the RP ID it was made for and the
+   * passkey that signed it, so a login that then moves to that site's other origin can
+   * complete (ADR 0022). Never changes the answer.
+   */
+  answered?: (
+    tabId: number,
+    origin: string,
+    rpId: string,
+    signed: TCandidate,
     /**
-     * Per-origin presence and verification policy; the initial policy when absent. Read
-     * for each request, so a changed setting applies to the next one.
+     * `silent` when Pateat signed by itself, with no login of the tab and no choice in the
+     * chooser window, which the relogin guard counts (ADR 0062); the tab's window kind; the
+     * top document the assertion went to.
      */
-    policy?: (origin: string) => PasskeyPolicy | Promise<PasskeyPolicy>;
-    /** Receives a value-free report of each finished request. */
-    report?: (report: PasskeyRequestReport) => void;
-    /**
-     * Asks the user when several passkeys match and no site default is among them, or for any
-     * match on a paused site (ADR 0062).
-     */
-    chooser?: PasskeyChooser;
-    /**
-     * Whether the origin's hostname is one whose passkey requests go to the browser, added by
-     * the chooser's "Always for this site" (ADR 0007). Such a request is handed on whatever
-     * its mediation. The list is read alongside the first lookups, so the request's deadline
-     * runs as it would without it, and is awaited before any signing, chooser or login wait.
-     */
-    browserSite?: (origin: string) => Promise<boolean> | boolean;
-    /**
-     * Adds the origin's hostname to those sites when the person chose "Always for this site".
-     * Called only after the request was handed on, because a settings save cancels pending
-     * passkey requests.
-     */
-    addBrowserSite?: (origin: string) => Promise<void>;
-    /**
-     * Saves a passkey chosen in the window as the origin's site default. Called only after the
-     * assertion was handed back, because a settings save cancels pending passkey requests.
-     */
-    remember?: (origin: string, candidate: TCandidate) => Promise<void>;
-    /**
-     * The vault item of a login that has not ended in this tab and origin (ADR 0027). Its
-     * request is answered with that item only, never the site default or the chooser.
-     */
-    loginAccount?: (
-      tabId: number,
-      origin: string,
-    ) => Promise<PasskeyItem | undefined> | PasskeyItem | undefined;
-    /**
-     * Told of each request of a top document that does not wait for an autofill choice
-     * (conditional mediation), so a login can tell that the page asked for a passkey after
-     * its submission (ADR 0029: S5). Never changes the answer.
-     */
-    requested?: (tabId: number, origin: string) => void;
-    /**
-     * Told of each assertion returned to a page, with the RP ID it was made for and the
-     * passkey that signed it, so a login that then moves to that site's other origin can
-     * complete (ADR 0022). Never changes the answer.
-     */
-    answered?: (
-      tabId: number,
-      origin: string,
-      rpId: string,
-      signed: TCandidate,
-      /**
-       * `silent` when Pateat signed by itself, with no login of the tab and no choice in the
-       * chooser window, which the relogin guard counts (ADR 0062); the tab's window kind; the
-       * top document the assertion went to.
-       */
-      facts?: { silent?: true; incognito: boolean; documentId: string },
-    ) => void;
-    /**
-     * Whether a request of the origin treats the site's saved default as unset: the person's
-     * own request, of no running login, then opens the chooser with every passkey that fits
-     * and none preselected, also for one passkey (ADR 0063: a site that asks every time after
-     * a pick that did not make its account the default). `paused` does the same for a site
-     * whose automatic login is paused (ADR 0062): the window says so, and where it cannot open
-     * the request is handed on as `paused`. A conditional request never gets here without a
-     * login, so it is handed on as before. A value that cannot be read counts as false.
-     */
-    defaultUnset?: (
-      origin: string,
-      incognito: boolean,
-    ) => Promise<boolean | "paused"> | boolean | "paused";
-    /**
-     * Whether the tab's Pateat login of the origin signed in and no logout was detected
-     * since. A request there that names its credentials is a re-verification while signed
-     * in, a `confirm` page, on which Pateat never presses; it is handed on (ADR 0035).
-     */
-    reverification?: (tabId: number, origin: string, rpId: string) => Promise<boolean>;
-    /**
-     * Decides a `conditional` request of a top document through the login of its page
-     * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).
-     */
-    conditional?: (input: {
-      tabId: number;
-      origin: string;
-      documentId: string;
-      signal: AbortSignal;
-      /** Whether the page's tab is incognito, as its sender says; it keeps its own pauses. */
-      incognito: boolean;
-    }) => Promise<ConditionalDecision>;
-    /**
-     * Reads whether an RP lists the page's origin, for a request whose RP ID belongs to
-     * another site (WebAuthn related origins, ADR 0084). Without it such a request is handed
-     * on, as before.
-     */
-    relatedOrigins?: RelatedOrigins;
-    /**
-     * Holds vault replacement off while the vault is read and signed with for a request,
-     * until the returned function is called (ADR 0025).
-     */
-    hold?: () => Promise<() => void>;
+    facts?: { silent?: true; incognito: boolean; documentId: string },
+  ) => void;
+  /**
+   * Whether a request of the origin treats the site's saved default as unset: the person's
+   * own request, of no running login, then opens the chooser with every passkey that fits
+   * and none preselected, also for one passkey (ADR 0063: a site that asks every time after
+   * a pick that did not make its account the default). `paused` does the same for a site
+   * whose automatic login is paused (ADR 0062): the window says so, and where it cannot open
+   * the request is handed on as `paused`. A conditional request never gets here without a
+   * login, so it is handed on as before. A value that cannot be read counts as false.
+   */
+  defaultUnset?: (
+    origin: string,
+    incognito: boolean,
+  ) => Promise<boolean | "paused"> | boolean | "paused";
+  /**
+   * Whether the tab's Pateat login of the origin signed in and no logout was detected
+   * since. A request there that names its credentials is a re-verification while signed
+   * in, a `confirm` page, on which Pateat never presses; it is handed on (ADR 0035).
+   */
+  reverification?: (tabId: number, origin: string, rpId: string) => Promise<boolean>;
+  /**
+   * Decides a `conditional` request of a top document through the login of its page
+   * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).
+   */
+  conditional?: (input: {
+    tabId: number;
+    origin: string;
+    documentId: string;
+    signal: AbortSignal;
+    /** Whether the page's tab is incognito, as its sender says; it keeps its own pauses. */
+    incognito: boolean;
+  }) => Promise<ConditionalDecision>;
+  /**
+   * Reads whether an RP lists the page's origin, for a request whose RP ID belongs to
+   * another site (WebAuthn related origins, ADR 0084). Without it such a request is handed
+   * on, as before.
+   */
+  relatedOrigins?: RelatedOrigins;
+  /**
+   * Holds vault replacement off while the vault is read and signed with for a request,
+   * until the returned function is called (ADR 0025).
+   */
+  hold?: () => Promise<() => void>;
 };
 
 export type Operation = {

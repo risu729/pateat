@@ -236,9 +236,20 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       }
     };
     const answer = createPasskeyAnswer({
-      source, options, request: admission.request, origin, context, message, operation,
-      detail, after, received, unlisted,
-      setStep: (next) => { step = next; },
+      source,
+      options,
+      request: admission.request,
+      origin,
+      context,
+      message,
+      operation,
+      detail,
+      after,
+      received,
+      unlisted,
+      setStep: (next) => {
+        step = next;
+      },
       resetTimer: (remaining) => {
         clearTimeout(timer);
         timer = setTimeout(expire, remaining);
