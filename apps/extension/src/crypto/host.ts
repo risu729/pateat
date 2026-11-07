@@ -8,24 +8,17 @@ import type {
   PreparedBitwardenAccount,
   LocalVaultMetadata,
 } from "@pateat/bitwarden";
-import { localVaultMetadataSchema } from "@pateat/bitwarden";
 import {
   ARGON2ID_JOB_BUDGET_MS,
   boundedMessage,
   commandSchema,
   CRYPTO_PORT,
-  customDigestsSchema,
-  loginUsernamesSchema,
   derivesArgon2id,
   JOB_BUDGET_MS,
   lifecycleSchema,
   progressSchema,
   replySchema,
-  passkeyMatchesSchema,
-  passkeyRpIdsSchema,
-  passkeySignatureSchema,
   sessionSchema,
-  uriCandidatesSchema,
   type CustomDigests,
   type LoginUsernames,
   type HostOperation,
@@ -35,8 +28,9 @@ import {
   type HostUnlock,
 } from "./wire";
 import type { PasskeyMatches, PasskeySignRequest, PasskeySignature } from "./passkey";
-import { fromBase64Url } from "../passkeys/encoding";
 import { newId } from "@pateat/contracts/ids";
+import { resultCodes, unique, validHostResult, type OpenedHostSession } from "./host-result";
+export type { OpenedHostSession } from "./host-result";
 
 type Listener<T extends unknown[]> = {
   addListener(listener: (...args: T) => void): void;
@@ -84,24 +78,6 @@ const fail = (
     | "timeout"
     | "resource-limit",
 ): BitwardenResult<never> => ({ ok: false, error: { code } });
-export type OpenedHostSession = {
-  session: HostSessionRef;
-  metadata: {
-    connectionId: string;
-    userId: string;
-    accountVersion: "v1" | "v2";
-    securityVersion: 1 | 2;
-  };
-};
-
-/** Item IDs are UUIDs, which may arrive in either case. */
-function unique(itemIds: readonly string[]): boolean {
-  return new Set(itemIds.map((id) => id.toLowerCase())).size === itemIds.length;
-}
-
-function sameOrigin(targetUrl: string, origin: string): boolean {
-  return URL.parse(targetUrl)?.origin === origin;
-}
 
 /** A connection's live session plus the candidate a sync opens before retiring it. */
 const MAX_SESSIONS_PER_CONNECTION = 2;
@@ -140,36 +116,6 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       cleanup(): void;
     }
   >();
-  const resultCodes = new Set([
-    "invalid-profile",
-    "invalid-options",
-    "invalid-request",
-    "connection-mismatch",
-    "account-mismatch",
-    "authentication-expired",
-    "unsupported-unlock",
-    "cancelled",
-    "timeout",
-    "network",
-    "redirect",
-    "http-error",
-    "response-too-large",
-    "invalid-response",
-    "invalid-crypto-input",
-    "crypto-failed",
-    "unsupported-crypto",
-    "security-downgrade",
-    "crypto-locked",
-    "resource-limit",
-    "invalid-field-input",
-    "stale-field-reference",
-    "field-denied",
-    "field-missing",
-    "unsupported-field",
-    "invalid-totp",
-    "invalid-uri-input",
-    "uri-context-unavailable",
-  ]);
   function finish(id: string, result: BitwardenResult<unknown>) {
     const job = pending.get(id);
     if (!job) return;
@@ -330,163 +276,12 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         finish(parsed.output.requestId, fail("crypto-failed"));
         return;
       }
-      if (job.operation.kind === "verify-received-ciphers") {
-        const checked = v.safeParse(
-          v.strictObject({
-            verifiedCipherCount: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(10_000)),
-          }),
-          result.data,
-        );
-        if (!checked.success) {
-          cancelOwned(parsed.output.requestId, "crypto-locked");
-          return;
-        }
-      }
-      if (
-        job.operation.kind === "verify-password" &&
-        !v.safeParse(v.strictObject({ matches: v.boolean() }), result.data).success
-      ) {
-        cancelOwned(parsed.output.requestId, "crypto-locked");
+      if (!validHostResult(job.connectionId, job.operation, result.data, generation)) {
+        if (job.operation.kind === "open") refuseOpen(parsed.output.requestId, job.operation);
+        else cancelOwned(parsed.output.requestId, "crypto-locked");
         return;
       }
-      if (job.operation.kind === "catalog") {
-        const metadata = v.safeParse(localVaultMetadataSchema, result.data);
-        if (
-          !metadata.success ||
-          metadata.output.connectionId !== job.connectionId ||
-          metadata.output.userId !== job.operation.session.userId ||
-          metadata.output.snapshotId !== job.operation.session.snapshotId
-        ) {
-          cancelOwned(parsed.output.requestId, "crypto-locked");
-          return;
-        }
-      }
-      if (job.operation.kind === "match-uris") {
-        const candidates = v.safeParse(uriCandidatesSchema, result.data);
-        if (
-          !candidates.success ||
-          candidates.output.connectionId !== job.connectionId ||
-          candidates.output.userId !== job.operation.session.userId ||
-          candidates.output.snapshotId !== job.operation.session.snapshotId ||
-          !sameOrigin(job.operation.targetUrl, candidates.output.targetOrigin)
-        ) {
-          cancelOwned(parsed.output.requestId, "crypto-locked");
-          return;
-        }
-      }
-      if (job.operation.kind === "custom-digest") {
-        const requested = job.operation.itemIds;
-        const checked = v.safeParse(customDigestsSchema, result.data);
-        if (
-          !checked.success ||
-          Object.keys(checked.output.digests).length !== requested.length ||
-          !requested.every((id) => Object.hasOwn(checked.output.digests, id))
-        ) {
-          cancelOwned(parsed.output.requestId, "crypto-locked");
-          return;
-        }
-      }
-      if (job.operation.kind === "login-usernames") {
-        const requested = job.operation.itemIds;
-        const checked = v.safeParse(loginUsernamesSchema, result.data);
-        if (
-          !checked.success ||
-          Object.keys(checked.output.usernames).length !== requested.length ||
-          !requested.every((id) => Object.hasOwn(checked.output.usernames, id))
-        ) {
-          cancelOwned(parsed.output.requestId, "crypto-locked");
-          return;
-        }
-      }
-      if (job.operation.kind === "passkey-rp-ids") {
-        const operation = job.operation;
-        const listed = v.safeParse(passkeyRpIdsSchema, result.data);
-        if (
-          !listed.success ||
-          listed.output.connectionId !== job.connectionId ||
-          listed.output.userId !== operation.session.userId ||
-          listed.output.snapshotId !== operation.session.snapshotId ||
-          listed.output.itemId !== operation.itemId.toLowerCase() ||
-          !unique(listed.output.rpIds)
-        ) {
-          cancelOwned(parsed.output.requestId, "crypto-locked");
-          return;
-        }
-      }
-      if (job.operation.kind === "passkey-find" || job.operation.kind === "passkey-sign") {
-        const operation = job.operation;
-        const bound = (entry: { connectionId: string; userId: string; snapshotId: string }) =>
-          entry.connectionId === job.connectionId &&
-          entry.userId === operation.session.userId &&
-          entry.snapshotId === operation.session.snapshotId;
-        let valid: boolean;
-        if (operation.kind === "passkey-find") {
-          const found = v.safeParse(passkeyMatchesSchema, result.data);
-          valid =
-            found.success &&
-            bound(found.output) &&
-            found.output.rpId === operation.rpId &&
-            found.output.candidates.every(
-              (candidate) => bound(candidate) && candidate.rpId === operation.rpId,
-            ) &&
-            unique([
-              ...found.output.candidates.map((candidate) => candidate.itemId),
-              ...found.output.unavailableItemIds,
-            ]);
-        } else {
-          const signed = v.safeParse(passkeySignatureSchema, result.data);
-          const der = signed.success ? fromBase64Url(signed.output.signature) : undefined;
-          valid =
-            signed.success &&
-            bound(signed.output) &&
-            signed.output.itemId === operation.itemId.toLowerCase() &&
-            signed.output.credentialId === operation.credentialId &&
-            der !== undefined &&
-            der.length >= 8 &&
-            der.length <= 72;
-        }
-        if (!valid) {
-          cancelOwned(parsed.output.requestId, "crypto-locked");
-          return;
-        }
-      }
-      if (job.operation.kind === "export-unlock") {
-        const exported = result.data as {
-          userKey?: unknown;
-          metadata?: LocalCryptoSession["metadata"];
-        };
-        if (
-          typeof exported?.userKey !== "string" ||
-          exported.userKey.length === 0 ||
-          exported.userKey.length > 1_048_576 ||
-          exported.metadata?.connectionId !== job.connectionId ||
-          exported.metadata.userId !== job.operation.session.userId ||
-          !["v1", "v2"].includes(exported.metadata.accountVersion) ||
-          ![1, 2].includes(exported.metadata.securityVersion)
-        ) {
-          cancelOwned(parsed.output.requestId, "crypto-locked");
-          return;
-        }
-      }
-      if (job.operation.kind === "open") {
-        const opened = result.data as OpenedHostSession;
-        const ref = v.safeParse(sessionSchema, opened?.session);
-        if (
-          !ref.success ||
-          ref.output.brokerGeneration !== generation ||
-          ref.output.connectionId !== job.connectionId ||
-          ref.output.userId !== job.operation.prepared.binding.userId ||
-          ref.output.snapshotId !== job.operation.snapshotId ||
-          opened.metadata?.userId !== ref.output.userId ||
-          opened.metadata.connectionId !== job.connectionId ||
-          opened.metadata.accountVersion !== job.operation.prepared.binding.accountVersion ||
-          (opened.metadata.securityVersion !== 1 && opened.metadata.securityVersion !== 2) ||
-          opened.metadata.securityVersion < job.operation.prepared.minimumSecurityVersion
-        ) {
-          refuseOpen(parsed.output.requestId, job.operation);
-          return;
-        }
-      } else if (
+      if (
         "session" in job.operation &&
         job.operation.kind !== "lock" &&
         !validSession(job.operation.session)

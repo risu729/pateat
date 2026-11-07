@@ -266,6 +266,11 @@ the pinned SDK, independently of vault-unlock parameters. Provider settings, cac
 reconciliation and persistent unlock still need their own integration and acceptance
 tests.
 
+The background broker in `apps/extension/src/crypto/host.ts` checks successful replies
+through `host-result.ts`, whose pure admission rules bind each result to its requested
+operation and account. The broker retains cancellation, session retirement and the
+checks before and after its asynchronous checkpoint.
+
 The background host uses a packaged offscreen document with the `WORKERS`
 reason to construct Dedicated Workers. A private runtime Port starts in that
 document; the background validates its browser-supplied extension identity and
@@ -609,6 +614,9 @@ fails as stated rather than retrying:
   for the open.
 
 ## Settings, eligibility and operation grants
+
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
 
 Settings, exclusions, account defaults and inference settings are edited on the
 service's owner-authenticated web UI
@@ -2733,6 +2741,20 @@ and request log row. A device's own document marks only the units it changed or 
 `device`. The rows go with their layout and the recipe's revocation; the request log's
 Delete all clears their device and log row. `/manage` shows the model and time of each
 layout's first page.
+
+The shared `canonicalJson` helper in `packages/contracts` serializes each unit's
+content before hashing: object keys in code-unit order (including integer-like
+keys), omitted `undefined` object members and preserved array order. Undefined
+array elements and holes serialize as `null`; parsed recipes never contain either.
+Inputs are plain JSON-shaped data without cycles or custom `toJSON` methods.
+Login recipe equality uses the same helper.
+
+Custom-field evidence uses it too. Its admitted material has only the named keys
+`fields`, `key`, `organizationId` or `data`; each field retains only `name`,
+`value`, `type` and `linkedId` through the Bitwarden cipher admission schema.
+Sealed `data` stays an opaque string. No integer-like object key reaches that
+hash, so code-unit order produces the previous serialization despite JavaScript's
+integer-key enumeration rule. One shared order suffices for both hashes.
 
 A generated recipe has no signed-in marker until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
