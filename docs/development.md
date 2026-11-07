@@ -345,9 +345,11 @@ Focused tasks are available for diagnosis:
 | `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
 | `mise run //apps/docs:dev` | Serve the docs website with live reload ([docs website](#docs-website)) |
-| `mise run //apps/docs:build` | Render the docs website into `apps/docs/.vitepress/dist/docs/` |
+| `mise run //apps/docs:render` | Render the docs website into `apps/docs/.vitepress/dist/docs/` with its public address |
+| `mise run //apps/docs:build` | Render the docs website and package it as an assets-only Worker |
 | `mise run //apps/docs:test` | Build the docs website and check every local link and fragment in the built pages |
 | `mise run //apps/docs:preview` | Build and serve the built docs website |
+| `mise run //apps/docs:bootstrap` | Create the docs Worker and its routes once with the owner's local Cloudflare login ([docs bootstrap](delivery.md#docs-bootstrap)) |
 | `mise run check:sdk-source` | Validate installed SDK metadata against its pin and render [exact source notices](sdk-source.md#pinned-upstream-source) without writing files |
 
 On Linux, `mise run browser:install --with-deps` also installs the browser's system

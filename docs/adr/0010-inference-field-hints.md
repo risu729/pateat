@@ -159,9 +159,11 @@ pre-click check already treats it. This is a general form rule; it does not clai
 the issue's example site clears fields.
 
 After a preparing fill's existing form-replacement check and before its rejection
-checks, such an input ends the step as `structural-mismatch` with `form-changed`. This
-permits the existing repair path rather than permanently rejecting the value because the
-emptied input is required, newly ARIA-invalid, or has new required-field feedback.
+checks, any filled input of the step that the page emptied while it is still writable
+ends the step as `structural-mismatch` with `form-changed`, whatever rejection the
+step's other inputs show. This permits the existing repair path rather than permanently
+rejecting the value because the emptied input is required, newly ARIA-invalid, or has
+new required-field feedback.
 Hidden, disabled and read-only inputs do not trigger this rule. Code submission watches
 keep their own rejection checks and submission priority. No wait is added.
 
