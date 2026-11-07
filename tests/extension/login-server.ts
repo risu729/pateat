@@ -116,7 +116,10 @@ export async function startLoginFixture(
     }
     const failurePage = credentialFailurePage(fixtureUrl);
     if (failurePage !== undefined) {
-      response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      response.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      });
       response.end(failurePage);
       return;
     }

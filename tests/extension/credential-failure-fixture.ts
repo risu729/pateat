@@ -4,9 +4,10 @@ export function credentialFailurePage(url: URL): string | undefined {
   if (!identifier && url.pathname !== "/credential-failure") return undefined;
   const style = url.searchParams.get("error");
   const alert = style === "alert";
-  const message = style === "plain" || alert
-    ? `<p id="failure-message"${alert ? ' role="alert"' : ""}>${identifier ? "Account not found" : "Username or password was not accepted"}</p>`
-    : "";
+  const message =
+    style === "plain" || alert
+      ? `<p id="failure-message"${alert ? ' role="alert"' : ""}>${identifier ? "Account not found" : "Username or password was not accepted"}</p>`
+      : "";
   const answered = url.searchParams.has("answered");
   const newDocument = url.searchParams.has("new-document");
   const nextUrl = new URL(url.pathname, url.origin);
@@ -23,10 +24,12 @@ export function credentialFailurePage(url: URL): string | undefined {
       document.querySelector('button').addEventListener('click', () => {
         const key = ${JSON.stringify(identifier ? "identityClicks" : "submitClicks")};
         sessionStorage.setItem(key, String(Number(sessionStorage.getItem(key) || 0) + 1));
-        ${newDocument
-          ? `location.assign(${JSON.stringify(nextUrl.pathname + nextUrl.search)});`
-          : `document.getElementById('answer').innerHTML = ${JSON.stringify(message)};
-            document.getElementById('response-state').textContent = 'Answer received';`}
+        ${
+          newDocument
+            ? `location.assign(${JSON.stringify(nextUrl.pathname + nextUrl.search)});`
+            : `document.getElementById('answer').innerHTML = ${JSON.stringify(message)};
+            document.getElementById('response-state').textContent = 'Answer received';`
+        }
       });
     </script></html>`;
 }
