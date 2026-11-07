@@ -101,13 +101,13 @@ otherwise nothing changes for that frame:
 
 ### Delivery 2: the popup
 
-- While a login in a frame of the tab waits for an account, the popup offers the
-  choice for the frame's origin, so a person with two Apple items can pick one. The
-  choice says the sign-in form is embedded in this page from the frame's host, lists
-  the frame origin's default first, and "Make it the default for" names the frame's
-  host, since the pick's default is saved for the frame's origin (ADR 0017). The page's
-  own default list stays beside it, named "Default account for" the page's host (chosen
-  by an agent). A frame of the page's own origin waits as the page does. The choice ends,
+- While a login in a frame of the tab waits for an account, the popup offers the choice
+  for the frame's origin, so a person with two Apple items can pick one. The choice says
+  the sign-in form is embedded in this page from the frame's host, lists the frame
+  origin's default first, and "Make it the default for" names the frame's host, since
+  the pick's default is saved for the frame's origin (ADR 0017). The page's own default
+  list stays beside it, named "Default account for" the page's host (chosen by an
+  agent). A frame of the page's own origin waits as the page does. The choice ends,
   badge and all, once the tab shows another page than the one the frame was announced
   in, or a new page replaced the frame's. The choice answer carries `frame`, and so does
   `login.popup`.

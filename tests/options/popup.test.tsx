@@ -1050,7 +1050,9 @@ test("a choice in a frame of the page's own origin is shown as the page's", asyn
     .element(page.getByText("The sign-in form is embedded in this page from bank.example."))
     .not.toBeInTheDocument();
   // As for the page's own choice, it is the only list.
-  await expect.element(page.getByRole("group", { name: "Default account" })).not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("group", { name: "Default account" }))
+    .not.toBeInTheDocument();
 });
 
 test("a choice of another site that does not wait in a frame is not shown", async () => {
