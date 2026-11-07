@@ -106,6 +106,34 @@ describe("a button beside a form without one of its own", () => {
     expect(
       actionPurpose(page(signUp), loginSlots, { fields: [both[0]!], action: submit }, "advance"),
     ).toBe("submit");
+    // So it may when the form's last element is a link or checkbox of the form.
+    const remember = page(signUp);
+    remember.candidates.splice(3, 0, input("keep", { role: "checkbox", group: "f1" }));
+    expect(validatePagePlan(remember, loginSlots, { fields: both, action: submit }).ok).toBe(true);
+    // Not between two elements of the form, as a field of it the page places later.
+    const split = page();
+    split.candidates.push(input("later", { group: "f1" }));
+    expect(validatePagePlan(split, loginSlots, { fields: both, action: submit })).toEqual({
+      ok: false,
+      reason: "mixed-groups",
+    });
+    // A known limit: the check reads order, not words, so the first button of a row after
+    // the form is taken whatever it says, as "Cancel" before "Sign in"; only words that
+    // name a passkey or registering, as "Create account", refuse it.
+    const row = page(input("in", { role: "button", label: "Sign in" }));
+    row.candidates[3] = input("go", { role: "button", label: "Cancel" });
+    expect(validatePagePlan(row, loginSlots, { fields: both, action: submit }).ok).toBe(true);
+    expect(
+      validatePagePlan(row, loginSlots, {
+        fields: both,
+        action: { candidate: "in", purpose: "submit" },
+      }),
+    ).toEqual({ ok: false, reason: "mixed-groups" });
+    row.candidates[3] = input("go", { role: "button", label: "Create account" });
+    expect(validatePagePlan(row, loginSlots, { fields: both, action: submit })).toEqual({
+      ok: false,
+      reason: "mixed-groups",
+    });
     // The following button is no form's button: pressing it after the fields is refused.
     expect(
       validatePagePlan(page(signUp), loginSlots, {

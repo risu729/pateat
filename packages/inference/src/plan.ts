@@ -180,7 +180,7 @@ export const isActionRole = (role: ObservedCandidate["role"]) =>
  * The form a button outside every form presses for: the one form the plan's fields share,
  * when that form holds the page's only password field and shows no button of its own, no
  * field outside every form is on the page, and the action names no passkey and comes
- * right after one of that form's elements in page order, with no other element between
+ * right after that form's last element in page order, with no other element between
  * them, so another button outside every form may follow it. Such a button
  * can only be one the extractor kept beside that password form (`besideDepth`), as Sakura
  * Internet's login button follows its form (2026-10-23) and LeetCode's "Sign In" button
@@ -201,7 +201,10 @@ export function besideForm(
   if (passwords.length === 0 || passwords.some((password) => password.group !== group))
     return undefined;
   const at = page.candidates.findIndex((candidate) => candidate.id === action.id);
-  return page.candidates[at - 1]?.group !== group ||
+  const formBefore = page.candidates[at - 1]?.group === group;
+  const formAfter = page.candidates.slice(at + 1).some((candidate) => candidate.group === group);
+  return !formBefore ||
+    formAfter ||
     page.candidates.some(
       (candidate) =>
         (isActionRole(candidate.role) && candidate.group === group) ||

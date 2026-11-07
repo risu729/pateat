@@ -998,7 +998,7 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["pw", "go"]);
   });
 
-  it("leaves a site search box outside every form, and the bar around it, out of a sign-in page", () => {
+  it("leaves out a search box outside every form and the bar it sits in", () => {
     // LeetCode's sign-in page (2026-11-07), reduced: a navigation bar with menu buttons and
     // a search box outside every form, then a card whose form holds the fields while its
     // "Sign In" and "Sign Up" buttons sit outside it.

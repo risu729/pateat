@@ -141,6 +141,10 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   nothing the page handles. LeetCode's "Sign In" button is a `type="button"` just after
   its form, followed by a "Sign Up" button outside the form, with a search box in the
   navigation bar (2026-11-07, [#1373](https://github.com/risu729/pateat/issues/1373)).
+  The check reads order, and of words only those that name a passkey or registering (as
+  "Create account"): on a page whose buttonless form is followed by a row such as
+  "Cancel" then "Sign in", it accepts a plan that presses the first and refuses one that
+  presses the second (known limit).
 
 ## Frames
 
