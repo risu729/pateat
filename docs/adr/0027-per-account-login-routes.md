@@ -1621,14 +1621,24 @@ passed the passkey button check, and a passkey-only recipe or a `passkey` route 
 press it instead of the sign-in button.
 
 - The registration words (`registration` in `packages/contracts/src/passkey-button.ts`)
-  also take the words of a control that helps when a passkey is lost or does not work:
-  forgot, forgotten, forget, lost, reset, recover, recovery, trouble, can't (also cant),
-  cannot and unable as whole Latin words, and 忘れ, 紛失, リセット, 復旧, できない,
-  使えない and お困り anywhere. So "Forgot your passkey?", "Can't use your passkey?",
-  "パスキーを忘れた場合" and "パスキーを使用できない場合" are refused as passkey buttons
-  everywhere the registration words apply: the generated `passkey` route, the
-  passkey-only start page of [ADR 0053](0053-passkey-only-generation.md), the button
-  beside an account list of [ADR 0079](0079-passkey-button-beside-an-account-list.md)
-  and the judge's `passkey` handler check.
-- A sign-in button whose text happens to hold one of these words, such as "Sign in with
-  a passkey you can't lose", is refused too; no real page with one is known.
+  also take the words of a link that helps when a passkey is lost or does not work, or
+  that explains passkeys: forgot, forgotten, forget, lost, reset, recover, recovery,
+  trouble, troubleshoot, help, can't (also cant), can not, cannot, unable, don't have,
+  not working, learn more and what is or are as whole Latin words, and 忘れ, 紛失,
+  なくし, 無くし, リセット, 復旧, できない, できません, 使えない, 使えません,
+  お持ちでない, お困り, とは, について and 詳しく anywhere. So "Forgot your passkey?",
+  "Don't have your passkey?", "Learn more about passkeys", "パスキーを忘れた場合" and
+  "パスキーをお持ちでない方" are refused as passkey buttons everywhere the registration
+  words apply: the extension's passkey buttons of a passkey-only start page
+  ([ADR 0053](0053-passkey-only-generation.md)) and beside an account list
+  ([ADR 0079](0079-passkey-button-beside-an-account-list.md)), which then never reach
+  the service; the generated `passkey` route and the service's checks of those pages;
+  the judge's `passkey` handler check and the passkey choices it is offered.
+- A button outside a password form whose words read so is never that form's action
+  either (`besideForm`), as before for a passkey or registration button: a "Reset" or
+  "Help" button after the form is no sign-in button.
+- A sign-in button whose text happens to hold one of these words, such as "Forgot
+  password? Sign in with a passkey", is refused too; no real page with one is known.
+- The generation instructions are unchanged: on a passkey-only page or beside a list
+  such a link no longer reaches the model, and elsewhere a `passkeyButton` naming one is
+  dropped silently, as a registration button is.

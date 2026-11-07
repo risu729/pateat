@@ -5032,11 +5032,13 @@ describe("passkey-only start observation", () => {
 
   it("reads a pointer tab stop without a role as the passkey button (Logi ID, 2026-11-07)", () => {
     // Logi ID's page for a device that signed in with a passkey before, shortened; its
-    // hCaptcha keeps two hidden text areas (#1375).
+    // hCaptcha keeps two hidden text areas, and its "forgot your passkey" link names a
+    // passkey too but is no sign-in button (#1375).
     page(`<style>.button, .forgot_link { cursor: pointer }</style>
       <div class="description">このデバイスでは以前にパスキーでログインしています。</div>
       <div class="captcha"><textarea name="h-captcha-response" style="display: none"></textarea></div>
       <div class="submit"><div class="button" tabindex="0"><p class="button_text">🔑 パスキーを使用してログイン</p></div></div>
+      <a class="forgot_link" tabindex="0">パスキーを忘れた場合</a>
       <a class="forgot_link" tabindex="0">サインイン</a>`);
     const result = extractPasskeyObservation(document);
     if (!result.ok) throw new Error(result.reason);

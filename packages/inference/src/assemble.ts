@@ -329,7 +329,10 @@ export type HandlerRejection =
   | "origin-mismatch"
   /** The button is not a button of the judged page. */
   | "not-on-page"
-  /** The button registers, adds or sets up a passkey rather than signing in with one. */
+  /**
+   * The button registers, adds or sets up a passkey, or helps with or explains one, rather
+   * than signing in with one (`registersPasskey`).
+   */
   | "registration"
   /**
    * A `password` handler's button whose label or text does not name the password as the

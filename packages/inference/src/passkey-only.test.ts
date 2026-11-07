@@ -73,8 +73,15 @@ describe("passkey-only generation boundaries", () => {
     expect(v.is(loginRecipeSchema, { ...assembled.recipe, passkey: undefined })).toBe(false);
   });
 
-  it.each(["Create a passkey", "Register security key", "Add a passkey", "Set up passkey"])(
-    "rejects registration control %s",
+  it.each([
+    "Create a passkey",
+    "Register security key",
+    "Add a passkey",
+    "Set up passkey",
+    "パスキーを忘れた場合",
+    "Forgot your passkey?",
+  ])(
+    "rejects registration or recovery control %s",
     (text) => {
       expect(
         validateGeneratedPage(

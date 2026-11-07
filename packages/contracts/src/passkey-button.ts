@@ -4,17 +4,19 @@ import type { ObservedCandidate } from "./observation";
 /**
  * Words of a button that registers, adds, sets up, turns on or manages a passkey ("Add a
  * passkey", "Set up security key", "Manage passkeys", "パスキーを登録", "パスキーを設定",
- * "パスキーを有効にする"), or that helps when one is lost or does not work ("Forgot your
- * passkey?", "Lost security key", "Can't use your passkey?", "パスキーを忘れた場合",
- * "パスキーを使用できない場合"; Logi ID, 2026-11-07,
- * [#1375](https://github.com/risu729/pateat/issues/1375)). The model is told not to name
- * one; this local check also refuses it, and can refuse a sign-in button whose text
- * happens to match. Latin words match whole words, Japanese ones anywhere except 設定済み
+ * "パスキーを有効にする"), or of a link that helps when one is lost or does not work, or
+ * that explains passkeys ("Forgot your passkey?", "Can't use your passkey?", "Don't have
+ * your passkey?", "Learn more about passkeys", "パスキーを忘れた場合",
+ * "パスキーを使用できない場合", "パスキーをお持ちでない方", "パスキーとは"; Logi ID,
+ * 2026-11-07, [#1375](https://github.com/risu729/pateat/issues/1375)). The model is told
+ * not to name a registration button; this local check also refuses all of them, and can
+ * refuse a sign-in button whose text happens to match, as "Forgot password? Sign in with
+ * a passkey". Latin words match whole words, Japanese ones anywhere except 設定済み
  * ("already set up") and 有効な ("valid"), which describe the passkey a sign-in button
  * uses.
  */
 const registration =
-  /\b(?:add|register|create|set\s*up|new|enrol?l|manage|enable|turn\s*on|forgot(?:ten)?|forget|lost|reset|recover(?:y)?|trouble|can\s?t|cannot|unable)\b|登録|追加|作成|設定(?!済)|有効(?!な)|管理|忘れ|紛失|リセット|復旧|できない|使えない|お困り/iu;
+  /\b(?:add|register|create|set\s*up|new|enrol?l|manage|enable|turn\s*on|forgot(?:ten)?|forget|lost|reset|recover(?:y)?|trouble(?:shoot(?:ing)?)?|help|can\s?t|can\s*not|unable|don\s?t\s+have|not\s+working|learn\s+more|what\s+(?:is|are))\b|登録|追加|作成|設定(?!済)|有効(?!な)|管理|忘れ|紛失|なくし|無くし|リセット|復旧|できない|できません|使えない|使えません|お持ちでない|お困り|とは|について|詳しく/iu;
 /**
  * A locator value as words: `addPasskey`, `register_key` and `#set-up-key` read as
  * "add Passkey", "register key" and "set up key".
@@ -25,9 +27,11 @@ const words = (value: string) =>
 const labelWords = (value: string) => value.replaceAll(/[^\p{L}\p{N}]+/gu, " ");
 /**
  * Whether a button registers, adds, creates or sets up a passkey or security key, or
- * helps recover a lost one, rather than signing in with one (ADR 0027): its label, its text or its `id`, `name` or test ID
- * locator reads so, or a host its locator looks inside (ADR 0070). Shared by the generated passkey route and the judge's `passkey`
- * handler.
+ * helps with or explains one, rather than signing in with one (ADR 0027): its label, its
+ * text or its `id`, `name` or test ID locator reads so, or a host its locator looks inside
+ * (ADR 0070). Shared by the generated passkey route, the passkey-only start page and the
+ * judge's `passkey` handler; a button beside a password form that reads so is never that
+ * form's action either (`besideForm`).
  */
 export const registersPasskey = (button: Pick<ObservedCandidate, "label" | "target">) =>
   [button.label, ...targetValues(button.target)].some(
