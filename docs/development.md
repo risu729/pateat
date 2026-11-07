@@ -20,6 +20,12 @@ retention rules and serialized mutations for attempts, slot maps, samples and re
 `generation.ts` coordinates requests and outcomes and re-exports the public storage
 contracts and constants. Queue ownership and mutation order are preserved.
 
+The passkey runtime keeps request admission, cancellation and conditional-login waiting
+in `passkeys/runtime.ts`. `runtime-answer.ts` owns account selection, chooser
+interaction, current-settings revalidation and signing. `runtime-shared.ts` owns their
+contracts and existing utilities. The caller retains the mutable deadline and report
+cause, updated through synchronous callbacks at the original points.
+
 The Bitwarden provider's `account.ts` keeps cached-context readmission and the public
 exports. `account-map.ts` owns live response correlation; `account-response.ts` owns
 pure provider DTO normalization and consistency decisions; `account-types.ts` holds
@@ -41,6 +47,12 @@ renderers with their focus refs in `site-policy.tsx`. `site-policy-rules.ts` own
 account-option and rule decisions; `site-policy-rows.tsx` owns the reusable site-row
 component and default-account editor. Existing controls, keys, focus behavior and
 public exports are preserved.
+
+The extension's `service/transport.ts` retains endpoint contracts and response mapping.
+`service-call.ts` owns bounded JSON fetching, credential and redirect rules,
+cancellation and request timing. `service-timing.ts` owns pure timing parsing and
+aggregation. The transport facade preserves its public exports and existing tests stay
+in place.
 
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
