@@ -138,6 +138,7 @@ text above is kept; these parts change:
 - **Field rules.** "Exactly one `SSO` field" becomes one field per method. The value is
   still never filled into a page; only its label may be sent to the model, to find the
   site's button for that IdP. "Never a candidate on the IdP's pages and never used by a
-  password recipe" becomes ADR 0085's rules per route: an item with bracket-valued
-  fields is used for its own password sign-in and, as an IdP, for direct sign-in, while
-  a chain where the IdP signs in through another IdP still stops.
+  password recipe or by recipe generation" becomes ADR 0085's rules per route: an item
+  with bracket-valued fields is used for its own password sign-in and recipe generation,
+  with its `SSO` fields left out, and, as an IdP, for direct sign-in, while a chain
+  where the IdP signs in through another IdP still stops.

@@ -43,9 +43,9 @@ methods.
 - **The URL form, for an SSO-only account with one IdP: unchanged.** Username is the IdP
   account's username, Password is empty, and one Text or Hidden field `SSO` holds the
   IdP's origin, such as `SSO` = `https://accounts.google.com`, read as in ADR 0026.
-- **The bracket form, for an account with its own password and SSO.** The item keeps its
-  own Username, Password, TOTP, passkeys, URIs and other data, and gets one Text or
-  Hidden field per SSO method:
+- **The bracket form, for an account with its own password and SSO, or with several
+  IdPs.** The item keeps its own Username, Password, TOTP, passkeys, URIs and other
+  data, and gets one Text or Hidden field per SSO method:
 
   | Field name | Value                         |
   | ---------- | ----------------------------- |
@@ -134,14 +134,16 @@ ADR 0026's item-wide exclusions are replaced by rules per route:
 
 - Custom fields named `SSO` or `SSO <number>` are reserved. Such a field is never a fill
   binding or a custom-field offer, never read for a Text shape, never generated as a
-  slot, never filled into a page and never sent to the service. Of its value, only the
-  label may be sent to the model, as in point 4 above. Excluding such a field from
-  automatic fill ([ADR 0023](0023-synced-vault-policy.md)) turns that method off.
+  slot, never filled into a page and never sent to the service or a model, except its
+  label, which goes through the service to the model to find the site's button (point 4
+  above). A Linked field that reads such a field is treated the same (agent's addition,
+  not confirmed by the owner). Excluding such a field from automatic fill
+  ([ADR 0023](0023-synced-vault-policy.md)) turns that method off.
 - The login stops on brackets that do not parse, an empty label or username, a
   duplicate field name or method number, two methods that resolve to the same IdP
   account, the URL and bracket forms on one item, and a mapping that does not resolve.
   The message and diagnostics name the field and the error, never its value.
-- Whitespace and username normalization are defined explicitly and consistently with
+- Whitespace and username normalization must be defined explicitly and consistently with
   account matching (ADR 0026: surrounding spaces and letter case are ignored). The
   exact rules are added to this ADR when the implementation chooses them.
 - Permission and account creation pages still stop, and success is still the site's own

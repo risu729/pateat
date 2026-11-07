@@ -1607,6 +1607,6 @@ ADR's text as follows; the accepted text above is kept.
   `SSO` or `SSO <number>`, and a Linked field that reads one, is never offered, read for
   a shape or bound to a slot.
 - [What the model receives](#what-the-model-receives): the SSO label, such as `GitHub`,
-  is the one exception to "never the facts": it may be sent to find the site's button
-  for that IdP when a recipe is generated. The IdP username and the mapping to an IdP
-  item are never sent.
+  is the one exception to "never the facts": it may be sent through the service to find
+  the site's button for that IdP when a recipe is generated. The IdP username and the
+  mapping to an IdP item are never sent.
