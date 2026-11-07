@@ -88,4 +88,3 @@ export function parseLocalSettings(value: unknown): LocalSettings {
 
 export const popupPageSectionShown = (settings: Pick<LocalSettings, "popupPageSection">) =>
   settings.popupPageSection !== false;
-

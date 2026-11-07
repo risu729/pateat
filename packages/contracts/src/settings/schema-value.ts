@@ -214,4 +214,3 @@ export const localSettingsSchema = v.pipe(
     popupPageSection: v.optional(v.boolean()),
   }),
 );
-

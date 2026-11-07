@@ -209,4 +209,3 @@ export const settingsResponseSchema = v.variant("ok", [
   }),
   v.strictObject({ version: v.literal(1), ok: v.literal(false), error: settingsErrorSchema }),
 ]);
-
