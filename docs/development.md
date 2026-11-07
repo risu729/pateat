@@ -10,6 +10,11 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
+Continuation page admission and generation submission live in
+`login/runtime/continuation-question.ts`; `continuation.ts` retains recipe/layout
+takeover and execution and preserves its original exports. The extraction leaves
+request recording, stale-run checks and reporting in the same order.
+
 The options Sites editor keeps form state, account queries and saved-row event
 renderers with their focus refs in `site-policy.tsx`. `site-policy-rules.ts` owns
 account-option and rule decisions; `site-policy-rows.tsx` owns the reusable site-row
@@ -45,6 +50,12 @@ settings; `vault-policy.ts` owns account, item and custom-field eligibility;
 `schema.ts` directly, and site policy imports vault eligibility, so schemas have no
 policy imports or initialization cycles. This source split preserves schema order,
 validation messages and policy behavior; its tests keep their existing files.
+
+`apps/extension/src/crypto/host.ts` keeps the crypto broker, its session lifecycle,
+request lanes and cancellation effects. `host-result.ts` owns pure operation-result
+admission, including account binding, requested item coverage and passkey signature
+bounds. The public host exports remain available from `host.ts`; existing test files
+and assertions stay in place.
 
 The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
@@ -342,7 +353,7 @@ chose on 2026-10-11 before its stable release
 English pages are in `apps/docs/src`: an introduction, installation, setup, permissions
 and a draft privacy policy with the Chrome Web Store Limited Use statement. Their
 Japanese translations are at the same paths under `apps/docs/src/ja/`, served under
-`/ja/` with `hreflang` links when `PATEAT_DOCS_URL` is set
+`/docs/ja/` with `hreflang` links when `PATEAT_DOCS_URL` is set
 ([ADR 0047](adr/0047-japanese-user-docs-locales.md)). The site
 serves the extension's own `apps/extension/icons/icon.svg` through a small Vite plugin
 in `.vitepress/config.ts` instead of keeping a copy, and `.vitepress/theme/brand.css`
@@ -350,11 +361,19 @@ sets VitePress's default theme to the icon's green, darkened where text needs 4.
 contrast. The pages link to this `docs/` directory, which the site does not include, by
 absolute GitHub URLs.
 
+The VitePress base is `/docs/`. The `render` task sets
+`PATEAT_DOCS_URL=https://pateat.takuk.me/docs` and renders into `.vitepress/dist`;
+`build` then packages those files with the existing Cloudflare Vite plugin as the
+assets-only `pateat-docs` Worker. Its asset base path is `/docs`, with ordinary HTML
+handling and a real 404 page. Only the exact `/docs` and `/docs/*` routes are declared;
+no Worker code, service bindings or data bindings are included. Deployment and its
+credential bootstrap are separate from the build.
+
 VitePress fails the build on a dead link between pages. `//apps/docs:test` builds the
-site and then checks, with `apps/docs/check-links.mjs`, that every local link, asset
-and fragment in the built HTML resolves; it is one of the `//...:test` tasks, so
-`check:runtime` and CI's `Verify` job build the site on every run. A pull request that
-changes only `docs/` or `apps/docs/` skips the browser shards
+site and then checks, with `apps/docs/check-links.mjs`, that every local link, asset and
+fragment in the built HTML resolves; it is one of the `//...:test` tasks, so
+`check:runtime` and CI's `Verify` job build the site on every run. Every pull request
+runs the full CI graph, including the browser shards
 ([CI](delivery.md#current-foundation-workflows)).
 
 The owner decided on 2026-10-23 that the site is deployed as a public Cloudflare Worker

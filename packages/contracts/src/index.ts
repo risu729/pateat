@@ -1,3 +1,4 @@
+export * from "./canonical-json";
 export * from "./extension-id";
 export * from "./device-model";
 export * from "./generation";
