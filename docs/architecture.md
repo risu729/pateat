@@ -610,6 +610,8 @@ fails as stated rather than retrying:
 
 ## Settings, eligibility and operation grants
 
+Implementation module ownership is described in the [development workflow](development.md#workspace-and-tasks).
+
 Settings, exclusions, account defaults and inference settings are edited on the
 service's owner-authenticated web UI
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension's settings

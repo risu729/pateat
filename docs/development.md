@@ -31,8 +31,9 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 without contacting a database, and the check graph fails if committed migrations drift.
 
 The shared settings contract lives under `packages/contracts/src/settings/`.
-`schema.ts` owns validation, inferred types and the URL, detail-format and timestamp
-helpers used by validation. `defaults.ts` owns the synthetic catalog and default
+`schema.ts` is the public validation facade. Component schemas and pure validation
+helpers live in `schema-primitives.ts`, the complete settings value in
+`schema-value.ts`, and snapshot, message and catalog schemas in `schema-messages.ts`. `defaults.ts` owns the synthetic catalog and default
 settings; `vault-policy.ts` owns account, item and custom-field eligibility;
 `site-policy.ts` owns site rules and saved-account resolution. The existing
 `settings.ts` entrypoint re-exports the same public names. Internal modules import
