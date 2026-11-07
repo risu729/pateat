@@ -1,5 +1,6 @@
 import type { BitwardenProfile } from "@pateat/bitwarden";
 import {
+  canonicalJson,
   customFieldReviewFor,
   customFieldReviewState,
   excludedFieldReference,
@@ -50,24 +51,6 @@ function cipherEvidence(
     key: cipher.key ?? null,
     organizationId: cipher.organizationId ?? null,
   };
-}
-
-/**
- * JSON with every object's keys in code-unit order, so every device serializes the same
- * server ciphertext the same way whatever order it was received in.
- */
-function canonicalJson(value: unknown): string {
-  const canonical = (item: unknown): unknown => {
-    if (Array.isArray(item)) return item.map(canonical);
-    if (item && typeof item === "object")
-      return Object.fromEntries(
-        Object.entries(item)
-          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-          .map(([key, entry]) => [key, canonical(entry)]),
-      );
-    return item;
-  };
-  return JSON.stringify(canonical(value));
 }
 
 export type ItemEvidence = { evidence: string; revisionDate?: string };
