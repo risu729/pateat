@@ -41,7 +41,7 @@ jobs:
           FILE: packages/inference/src/providers/claude-pricing.json
         run: |
           set -euo pipefail
-          open_pr=$(gh pr list -R "${REPO}" --head "${BRANCH}" --base main --state open --json number --jq '.[0].number // empty')
+          open_pr=$(gh pr list -R "${REPO}" --head "${BRANCH}" --base main --state open --json number,isCrossRepository --jq 'map(select(.isCrossRepository | not))[0].number // empty')
           echo "open-pr=${open_pr}" >> "${GITHUB_OUTPUT}"
           if git diff --quiet -- "${FILE}"; then
             echo "The rates are unchanged."
@@ -118,8 +118,9 @@ jobs:
             gh api -X POST "repos/${REPO}/git/refs" -f ref="refs/heads/${BRANCH}" -f sha="${BASE_SHA}" >/dev/null
           fi
           # The contents API commits as the bot App, and GitHub signs that commit. An open
-          # proposal gets a new commit on top, so it is never left without changes. Both the
-          # push and the new pull request start CI, since the App's token made them.
+          # proposal gets a new commit on top, so it is never left without changes. The new
+          # pull request, or the new commit on an open one, starts CI, since the App's token
+          # made it.
           blob=$(gh api "repos/${REPO}/contents/${FILE}?ref=${BRANCH}" --jq .sha)
           gh api -X PUT "repos/${REPO}/contents/${FILE}" \
             -f message="chore(inference): refresh Claude rates from the pricing page" \

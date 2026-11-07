@@ -78,16 +78,17 @@ The other workflows:
   commit keeps its own result. It needs no Actions cache: dependency caching is off by
   default in advanced setup and its TRAP cache is disabled, so the workflow sets
   `cache-mode: none`.
-- `pricing.yml` refreshes the committed Claude rates daily (ADR 0014). The
-  `Refresh Claude rates` job, with a read-only token, runs the pricing task and hands a
-  changed file to `Propose the change`. That job runs no repository code. It uses the
-  bot App's token ([extension releases](#extension-releases)) from the `release`
-  environment to commit the file to `pricing/claude-rates` through the contents API, so
-  GitHub signs the commit, and to open the PR, or to close a stale one when the page
-  lists main's rates again. A push or PR made with the App's token starts CI, which the
-  job token's would not, and the repository does not let GitHub Actions create or
-  approve pull requests (owner, 2026-11-07 13:25 UTC: 「料金の自動更新はbot
-  app使って」).
+- `pricing.yml` refreshes the committed Claude rates daily (ADR 0014). The `Refresh
+  Claude rates` job, with a read-only token, runs the pricing task and hands a changed
+  file to the `Propose the change` job. `Propose the change` runs no repository code. It
+  uses the bot App's token ([extension releases](#extension-releases)) from the
+  `release` environment to commit the file to `pricing/claude-rates` through the
+  contents API, so GitHub signs the commit, and to open the PR, or to close a stale one
+  when the page lists main's rates again. The new PR, or the new commit on an open one,
+  starts CI because the App's token made it; the job token's would not, and the
+  repository does not let GitHub Actions create or approve pull requests (owner,
+  2026-11-07 13:25 UTC: 「料金の自動更新はbot app使って」). A PR from a fork with the
+  same branch name is ignored.
 - `release.yml` maintains the extension release PR and publishes merged ones
   ([extension releases](#extension-releases)).
 
