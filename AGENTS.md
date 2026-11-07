@@ -79,10 +79,12 @@
   and the Chromium component suites in their own job with `PATEAT_SKIP_ORDERS` and
   `PATEAT_SKIP_COMPONENTS` ([CI](docs/delivery.md#current-foundation-workflows)), is not
   a skip.
-- An agent that acts on GitHub as the owner's account never pushes to, closes or
-  reopens a PR it did not open, except that it closes a PR its own merged PR
-  superseded, after commenting there with a link to that PR (owner, 2026-10-23 12:18
-  UTC).
+- An agent that acts on GitHub as the owner's account never pushes to, closes or reopens
+  a PR it did not open, except that it closes a PR its own merged PR superseded, after
+  commenting there with a link to that PR (owner, 2026-10-23 12:18 UTC), and that an
+  agent asked to merge another agent's PRs pushes merge commits that resolve their
+  conflicts with `main`; it fixes its review findings in its own follow-up PR (owner,
+  2026-11-07 06:05 UTC).
 - Write every PR, issue, commit, workflow run and URL you mention in PR and issue text
   and in messages to the owner as a Markdown link, never a bare `#123`, SHA or URL.
 
