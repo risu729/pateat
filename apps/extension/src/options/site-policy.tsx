@@ -4,28 +4,53 @@ import {
   isSiteExcluded,
   normalizeHostname,
   parseSiteUrl,
+  resolveSiteAccount,
+  siteDefaultConnection,
   type LocalSettings,
   type SiteAccountsResponse,
+  type SiteDefault,
   type VaultCatalog,
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Clock, Info, LockKeyhole, Pause } from "lucide-react";
+import {
+  CircleCheck,
+  Clock,
+  Info,
+  LockKeyhole,
+  Pause,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import * as v from "valibot";
-
+import { pauseSite } from "../login/pause";
+import { unavailableReason } from "./unavailable-reason";
 import { Button } from "./button";
-import { checkClass, controlClass, fieldClass, Panel, RowList, StatusLines } from "./ui";
+import {
+  Badge,
+  checkClass,
+  controlClass,
+  fieldClass,
+  Panel,
+  RowList,
+  StatusLines,
+  type Tone,
+} from "./ui";
 
-import { createSitePolicyRows, SiteRow } from "./site-policy-rows";
+import { SiteRow, DefaultAccountEditor } from "./site-policy-rows";
 import {
   siteAccountOptions,
   matchedBy,
+  NO_DEFAULT,
+  SAVED_ELSEWHERE,
   defaultFor,
   replaceDefault,
   hostOf,
+  ruleFor,
 } from "./site-policy-rules";
 export { siteAccountOptions } from "./site-policy-rules";
+type ExcludedSite = LocalSettings["excludedSites"][number];
 /**
  * An HTTP(S) origin with nothing after the host and port, as its canonical `URL.origin`:
  * the scheme and host in lowercase, a Unicode host in punycode, and no default port.
@@ -43,6 +68,12 @@ const originSchema = v.pipe(
 
 export const SITE_ACCOUNTS_DELAY_MS = 300;
 const WAIT_FOR_ACCOUNTS = "Wait until the matching accounts are listed.";
+
+function ruleName(rule: ExcludedSite): string {
+  return rule.includeSubdomains
+    ? i18n.t("{{hostname}} and subdomains", { hostname: rule.hostname })
+    : rule.hostname;
+}
 
 /**
  * The sites whose passkey requests go to the browser, added by the passkey window's "Always
@@ -266,15 +297,234 @@ export function SitePolicy({
   if (found && !found.complete)
     accountNote += t(" Some vaults or items could not be checked, so this list may be incomplete.");
 
-  const { originRow, ruleRow, repromptRow } = createSitePolicyRows({
-    t,
-    idPrefix,
-    draft,
-    catalog,
-    edit,
-    savedMatch,
-    focusOrigin: () => originInput.current?.focus(),
-  });
+  /** An origin row: its default account, editable in place, and a way to exclude its host. */
+  function originRow(selected: SiteDefault) {
+    const { origin } = selected;
+    const mapped = siteDefaultConnection(selected, catalog);
+    const connection = mapped.ok
+      ? catalog.connections.find((entry) => entry.id === mapped.connectionId)
+      : undefined;
+    const item = connection?.items.find((entry) => entry.id === selected.itemId);
+    const resolved = resolveSiteAccount(draft, catalog, origin);
+    // A live vault item has no static origins; its URI rules (or a passkey) are
+    // checked against each page, so the draft policy cannot call it a mismatch.
+    const liveItem = Boolean(item && connection?.snapshotId);
+    const matches = savedMatch(origin);
+    const match = liveItem
+      ? matches?.accounts.find(
+          (entry) => entry.connectionId === connection?.id && entry.itemId === item?.id,
+        )
+      : undefined;
+    let line: { tone: Tone; icon: LucideIcon; text: string } | undefined;
+    if (resolved.ok) line = undefined;
+    else if (!liveItem || resolved.reason !== "item-origin-mismatch")
+      line = { tone: "warn", icon: TriangleAlert, text: t(unavailableReason(resolved.reason)) };
+    else if (match)
+      line = {
+        tone: "ok",
+        icon: CircleCheck,
+        text: t("Matches this origin by {{method}}. It is checked again at each login.", {
+          method: t(matchedBy({ uri: match.uri, passkey: match.passkey })),
+        }),
+      };
+    else if (matches?.complete && !connection?.quarantinedItemIds?.includes(selected.itemId))
+      line = {
+        tone: "warn",
+        icon: TriangleAlert,
+        text: t(
+          "No URI rule or passkey of this item matches this origin. A URI rule on a longer path is checked at each login.",
+        ),
+      };
+    else
+      line = {
+        tone: "idle",
+        icon: Info,
+        text: t(
+          "Whether it matches a page is checked against its URI rules or passkeys at each login.",
+        ),
+      };
+    const unavailable = !resolved.ok && (!liveItem || resolved.reason !== "item-origin-mismatch");
+    const current = connection && item ? JSON.stringify([connection.id, item.id]) : SAVED_ELSEWHERE;
+    const offered = siteAccountOptions(catalog, matches, false, draft);
+    const currentText = t("{{item}} in {{account}}{{availability}}", {
+      item: `${item?.label ?? selected.itemName ?? selected.itemId}${match?.username ? ` · ${match.username}` : ""}`,
+      account:
+        connection?.label ?? selected.accountName ?? t("account {{id}}", { id: selected.userId }),
+      availability: !connection
+        ? t(" (not available here)")
+        : unavailable
+          ? t(" (unavailable)")
+          : "",
+    });
+    const options = [
+      ...(offered.some((entry) => entry.value === current)
+        ? []
+        : [{ value: current, text: currentText }]),
+      ...offered.map((entry) => ({
+        value: entry.value,
+        text:
+          entry.value === current
+            ? currentText
+            : t("{{item}} in {{account}}", { item: entry.label, account: entry.connectionLabel }),
+      })),
+      { value: NO_DEFAULT, text: t("No default") },
+    ];
+    const site = pauseSite(origin) ?? hostOf(origin);
+    return (
+      <SiteRow
+        key={`origin ${origin}`}
+        title={origin}
+        lines={line && <StatusLines small lines={[line]} />}
+        controls={
+          <>
+            <DefaultAccountEditor
+              idPrefix={idPrefix}
+              origin={origin}
+              options={options}
+              current={current}
+              save={(value) => {
+                if (value === NO_DEFAULT) {
+                  // The row goes away with its default, so focus moves to the add form.
+                  if (edit((settings) => replaceDefault(settings, origin)))
+                    originInput.current?.focus();
+                  return undefined;
+                }
+                const next = defaultFor(
+                  origin,
+                  offered.find((entry) => entry.value === value),
+                  catalog,
+                );
+                if (!next.ok) return next.message;
+                edit((settings) => replaceDefault(settings, origin, next.value));
+                return undefined;
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              aria-label={t(
+                "Pause automatic login on {{site}} and its subdomains, which includes {{origin}}",
+                { site, origin },
+              )}
+              onClick={() => {
+                // As the popup pauses it: the registrable site with its subdomains (ADR 0062).
+                edit((settings) => {
+                  settings.excludedSites = settings.excludedSites.filter(
+                    (entry) => entry.hostname !== site,
+                  );
+                  settings.excludedSites.push({ hostname: site, includeSubdomains: true });
+                });
+                originInput.current?.focus();
+              }}
+            >
+              <Pause aria-hidden size={16} strokeWidth={2} />
+              {t("Pause")}
+            </Button>
+          </>
+        }
+      />
+    );
+  }
+
+  /**
+   * An exclusion rule, which pauses automatic login of its hosts until it is removed
+   * (ADR 0062), with the defaults it keeps from being used by themselves.
+   */
+  function ruleRow(rule: ExcludedSite) {
+    const name = ruleName(rule);
+    const kept = draft.siteDefaults.filter(
+      (entry) => ruleFor(draft.excludedSites, entry.origin) === rule,
+    );
+    return (
+      <SiteRow
+        key={`rule ${rule.hostname}`}
+        title={name}
+        badges={
+          <Badge muted icon={Pause}>
+            {t("Paused")}
+          </Badge>
+        }
+        lines={kept.map((entry) => (
+          <div key={entry.origin} className="flex flex-wrap items-center gap-x-2">
+            <StatusLines
+              small
+              lines={[
+                {
+                  tone: "idle",
+                  icon: Info,
+                  text: t(
+                    "The default for {{origin}} is kept; while the site is paused it is only listed first in the popup.",
+                    { origin: entry.origin },
+                  ),
+                },
+              ]}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label={t("Remove default for {{origin}}", { origin: entry.origin })}
+              onClick={() => {
+                if (edit((settings) => replaceDefault(settings, entry.origin)))
+                  originInput.current?.focus();
+              }}
+            >
+              {t("Remove default")}
+            </Button>
+          </div>
+        ))}
+        controls={
+          <Button
+            type="button"
+            variant="outline"
+            aria-label={t("Resume {{name}}", { name })}
+            onClick={() => {
+              edit((settings) => {
+                settings.excludedSites = settings.excludedSites.filter(
+                  (entry) => entry.hostname !== rule.hostname,
+                );
+              });
+              originInput.current?.focus();
+            }}
+          >
+            {t("Resume")}
+          </Button>
+        }
+      />
+    );
+  }
+
+  /** A site that asks for the master password before a re-prompt item is used. */
+  function repromptRow(rule: ExcludedSite) {
+    const name = ruleName(rule);
+    return (
+      <SiteRow
+        key={`reprompt ${rule.hostname}`}
+        title={name}
+        badges={
+          <Badge muted icon={LockKeyhole}>
+            {t("Asks for the master password")}
+          </Badge>
+        }
+        controls={
+          <Button
+            type="button"
+            variant="outline"
+            aria-label={t("Stop asking for the master password on {{name}}", { name })}
+            onClick={() => {
+              edit((settings) => {
+                settings.repromptSites = settings.repromptSites.filter(
+                  (entry) => entry.hostname !== rule.hostname,
+                );
+              });
+              originInput.current?.focus();
+            }}
+          >
+            {t("Stop asking")}
+          </Button>
+        }
+      />
+    );
+  }
 
   // Rules and origins together, by hostname; a rule comes before the origins on its host.
   const rows = [

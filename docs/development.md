@@ -10,10 +10,10 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
-The options Sites editor keeps form state and account queries in `site-policy.tsx`.
-`site-policy-rules.ts` owns account-option and rule decisions; `site-policy-rows.tsx`
-renders saved defaults, pause and re-prompt rows from that render's current draft,
-callbacks and a deferred focus callback. Existing controls, keys, focus behavior and
+The options Sites editor keeps form state, account queries and saved-row event
+renderers with their focus refs in `site-policy.tsx`. `site-policy-rules.ts` owns
+account-option and rule decisions; `site-policy-rows.tsx` owns the reusable site-row
+component and default-account editor. Existing controls, keys, focus behavior and
 public exports are preserved.
 
 The workspace uses one lockfile, `bun.lock`, which aube installs from
