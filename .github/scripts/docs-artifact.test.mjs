@@ -90,10 +90,11 @@ test("docs output refuses executable Workers, bundled modules, bindings, wrong r
   }
 });
 
-test("the page language is read from the html tag only", () => {
+test("the page language is read from the html tag that begins the page", () => {
   assert(htmlLanguage('<!doctype html><html lang="ja" dir="ltr"><head>', "ja"));
   assert(htmlLanguage("<html lang=en>", "en"));
   assert(!htmlLanguage('<html lang="en"><a lang="ja">', "ja"));
+  assert(!htmlLanguage('<p></p><html lang="ja">', "ja"));
   assert(!htmlLanguage('<html lang="ja-JP">', "ja"));
   assert(!htmlLanguage('<p>lang="ja"</p>', "ja"));
   assert(htmlLanguage('<HTML LANG = "ja">', "ja"));

@@ -126,10 +126,12 @@ async function restore() {
   assert.deepEqual(await inventory(build), manifest.files);
 }
 
-/** Whether the `lang` attribute of a page's `<html>` tag is exactly `language`. */
+/**
+ * Whether the `lang` attribute of the `<html>` tag that begins a page, after any doctype,
+ * is exactly `language`. Nothing may come before it, so a comment cannot pose as the tag.
+ */
 export function htmlLanguage(html, language) {
-  const page = html.replaceAll(/<!--[\s\S]*?-->/gu, "");
-  const tag = /<html(?=[\s/>])([^>]*)>/iu.exec(page)?.[1] ?? "";
+  const tag = /^\s*(?:<!doctype html>\s*)?<html(?=[\s/>])([^>]*)>/iu.exec(html)?.[1] ?? "";
   // Each attribute with its optional quoted or bare value, so a value cannot pose as one.
   for (const [, name, ...values] of tag.matchAll(
     /([^\s"'=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/gu,
