@@ -331,6 +331,7 @@ export type LoginRuntimeOptions = {
   /**
    * Whether a stored login waits for the site, so the worker stays up while the waits kept
    * in memory end it (ADR 0022). A watch's deadline needs only the `siteWait` alarm.
+   * Called only when `siteWait` is given.
    */
   keepAwake?: (awake: boolean) => void;
   /**

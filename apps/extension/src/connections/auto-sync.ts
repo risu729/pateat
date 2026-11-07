@@ -115,9 +115,12 @@ export function createVaultSyncRecords(storage: VaultSyncStorage) {
     async revision(connectionId: string): Promise<number | undefined> {
       return (await queue.then(load)).connections[connectionId]?.revisionMs;
     },
-    /** Recorded after a full sync applied; it also ends a stop for a deleted account. */
+    /**
+     * Recorded after a full sync applied; it also ends a stop for a deleted account. It
+     * drops the last failure, so the next failed check warns again.
+     */
     setRevision: (connectionId: string, revisionMs: number) =>
-      update(connectionId, ({ outcome, ...entry }) => ({
+      update(connectionId, ({ outcome, failure: _failure, ...entry }) => ({
         ...entry,
         revisionMs,
         ...(outcome === undefined || outcome === "account-deleted" ? {} : { outcome }),

@@ -88,9 +88,11 @@ stop, and no check starts while either runs. Forget, removal, disabling and perm
 removal cancel it and delete its stored revision.
 
 The record is `pateat.vault-sync-schedule.v1` in `chrome.storage.local`, holding no
-secret: per connection the local time of the last check, its outcome, the server
-revision of the last applied sync, the local time a run of deferrals began and, after a
-429, the local time before which no check is sent. The check time is written before the
+secret: per connection the local time of the last check, its outcome, the local time of
+the last check that found the revision unchanged, the cause and HTTP
+status of a failed check (only to log a repeated failure quietly), the server revision
+of the last applied sync, the local time a run of deferrals began and, after a 429, the
+local time before which no check is sent. The check time is written before the
 request, so a restart does not resend it at once; a check time in the future counts as
 due. The diagnostics page shows the last check, its outcome and, after a 429, when the
 next check may be sent.

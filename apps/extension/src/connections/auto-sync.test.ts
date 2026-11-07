@@ -214,6 +214,19 @@ describe("vault check schedule", () => {
       previous: "failed",
       previousFailure: { cause: "http-error", status: 503 },
     });
+    // A sync that applied forgets the failure, so the next failed check warns again.
+    await h.records.setRevision("a", 7);
+    expect(h.stored()?.connections["a"]?.["failure"]).toBeUndefined();
+    h.advance(VAULT_CHECK_INTERVAL_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report).toHaveBeenLastCalledWith({
+      connectionId: "a",
+      outcome: "failed",
+      cause: "http-error",
+      status: 503,
+      previous: "failed",
+    });
     // A check that does not fail forgets the failure.
     h.run.mockResolvedValue("unchanged");
     h.advance(VAULT_CHECK_INTERVAL_MS);
