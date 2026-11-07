@@ -2178,8 +2178,26 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 writable,
               )
             : undefined;
-        // Which shape its digits keep is decided once, from its first input as found.
-        const unmarked = split !== undefined && split[0]!.maxLength !== 1;
+        // A code whose inputs would split once the form's other inputs are left out, as one
+        // beside an input the page's description leaves out, is never typed whole into
+        // its first input, which keeps one digit (ADR 0027 amendment of 2026-11-07).
+        if (
+          command.code &&
+          !split &&
+          (step.effect === "prepare" || buttonless) &&
+          step.fields.length === 1 &&
+          splitCodeInputs(
+            writableInputs[0] as HTMLInputElement,
+            command.values[0]!.value.length,
+            (input) => writable(input) && unmarkedDigit(input),
+          )
+        )
+          return fail("value-mismatch");
+        // Which shape its digits keep is decided once, from its inputs as found: one-digit
+        // inputs the TOTP fill rule takes, or the shape without `maxlength`.
+        const unmarked =
+          split !== undefined &&
+          !split.every((digit) => digit.maxLength === 1 && acceptsSecret(digit, "otp"));
         const fits = (input: Control, value: (typeof command.values)[number]) =>
           split
             ? split.every(

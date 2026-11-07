@@ -8,8 +8,12 @@ export { visible };
 
 /** The input types a page's description shows as fill fields (observation/extract.ts). */
 const describedTypes = new Set(["text", "email", "tel", "number", "password"]);
-/** The `autocomplete` tokens a page's description names. */
-const describedTokens: ReadonlySet<string> = new Set(observedAutocompleteTokens);
+/** The input's `autocomplete` as the page's description shows it (`autocomplete`). */
+const describedAutocomplete = (input: HTMLInputElement) => {
+  const tokens = autocompleteTokens(input);
+  if (tokens.length === 1 && tokens[0] === "off") return "off";
+  return observedAutocompleteTokens.find((token) => tokens.includes(token));
+};
 /**
  * Whether the page's description shows no `maxlength` for the input: none, 0 or past 1024,
  * or any on a number input, whose length it leaves out (and the browser ignores).
@@ -21,14 +25,12 @@ const noDescribedLimit = (input: HTMLInputElement) =>
  * amendment of 2026-11-04), read as the page's description shows it, so the service's
  * `splitCodeInputs` never keeps a split the fill would not take (ADR 0027 amendment of
  * 2026-11-07): a text input with `inputmode="numeric"`, or a tel or number input, that
- * shows no `maxlength` or 1, and whose `autocomplete` names no token the description
- * shows but `off` or `one-time-code`, so a phone number's or card's part is never one.
+ * shows no `maxlength` or 1, and whose `autocomplete` the description shows as none,
+ * `off` or `one-time-code`, so a phone number's or birth date's part is never one.
  */
 export const unmarkedDigit = (input: HTMLInputElement) =>
   (noDescribedLimit(input) || input.maxLength === 1) &&
-  autocompleteTokens(input).every(
-    (token) => !describedTokens.has(token) || token === "off" || token === "one-time-code",
-  ) &&
+  [undefined, "off", "one-time-code"].includes(describedAutocomplete(input)) &&
   (input.type === "tel" ||
     input.type === "number" ||
     (input.type === "text" && input.getAttribute("inputmode")?.trim().toLowerCase() === "numeric"));

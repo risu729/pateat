@@ -1679,14 +1679,19 @@ Decision:
   and with no `autocomplete` but `off` or `one-time-code`. The handler names the first;
   the login types one digit per input as before.
 - The service sees the inputs only as the page's description shows them, so the
-  extension's split rule now reads them the same way, and the service never keeps a
-  split the login would type whole into its first input: a `maxlength` of 0 or past
-  1024, or any on a number input, counts as none; only the `autocomplete` tokens the
-  description shows count, so `section-otp one-time-code` is marked and a token it never
+  extension's split rule now reads them the same way: a `maxlength` of 0 or past 1024,
+  or any on a number input, counts as none; an input's `autocomplete` is read as the
+  description reads it, so `section-otp one-time-code` is marked and a token it never
   shows, such as `cc-number`, is no refusal; and only the inputs the description shows
   as fill fields (text, email, tel, number and password) are counted, so a search or
   date input in the form, or outside any form beside inputs outside any form, no longer
   refuses the split and takes no digit. An email or other text input still refuses it.
+  The shape the digits keep is the one-digit shape only when every input declares
+  `maxlength` 1 and passes the TOTP fill rule.
+- The extension still sees inputs the description leaves out, as a honeypot input hidden
+  from assistive technology or moved off the screen. When such an input alone keeps the
+  code's inputs from being a split, the code is not typed whole into the first of them:
+  the fill ends `value-mismatch` and the login goes to the person.
 - A text input with `inputmode="numeric"`, no `maxlength` (or 0 or one past 1024, which
   the description leaves out) and no `autocomplete` but `off` (`judgedCodeInput`) may be
   a `totp` handler's code field when the judge names it, under the other checks of
