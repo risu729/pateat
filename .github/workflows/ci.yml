@@ -25,13 +25,13 @@ jobs:
       - uses: $/.github/actions/setup
       - name: Format the two credential test files
         run: |
-          mise exec -- oxfmt --write apps/extension/src/login/runtime-tests/admission-20.test.ts tests/extension/login.spec.ts
+          mise exec -- oxfmt --write apps/extension/src/login/runtime-tests/admission-20.test.ts tests/extension/login.spec.ts format-validation/judge-builders.ts
       - name: Export formatter patch
         if: ${{ !cancelled() }}
         run: |
           mise exec -- node --input-type=module <<'NODE'
           import { execFileSync } from "node:child_process";
-          const paths = ["apps/extension/src/login/runtime-tests/admission-20.test.ts","tests/extension/login.spec.ts"];
+          const paths = ["apps/extension/src/login/runtime-tests/admission-20.test.ts","tests/extension/login.spec.ts","format-validation/judge-builders.ts"];
           const patch = execFileSync("git", ["diff", "--", ...paths], { encoding: "utf8" });
           const encoded = Buffer.from(patch, "utf8").toString("base64");
           for (let i = 0; i < encoded.length; i += 12000) console.log("FORMAT_PATCH " + i / 12000 + " " + encoded.slice(i, i + 12000));
