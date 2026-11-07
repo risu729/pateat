@@ -1,11 +1,6 @@
 import { createServiceCall } from "./service-call";
 import type { ServiceTiming } from "./service-timing";
-export {
-  serverTimings,
-  serviceTiming,
-  addTimings,
-  type ServiceTiming,
-} from "./service-timing";
+export { serverTimings, serviceTiming, addTimings, type ServiceTiming } from "./service-timing";
 import {
   devicePairResultSchema,
   profileSchema,
@@ -771,4 +766,3 @@ export function createServiceTransport(
     return { kind: "failed", error: "unexpected-response", ...timed };
   }
 }
-

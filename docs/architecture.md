@@ -3494,10 +3494,7 @@ browser's own handling would differ.
 
 ## Minimal service
 
-The extension's `service/transport.ts` retains endpoint contracts and response mapping.
-`service-call.ts` owns bounded JSON fetching, credential and redirect rules, cancellation
-and request timing. `service-timing.ts` owns pure timing parsing and aggregation. The
-transport facade preserves its public exports and existing tests stay in place.
+Implementation module ownership is described in the [development workflow](development.md#workspace-and-tasks).
 
 Use one optional Cloudflare Worker and D1 for private settings/recipe revisions
 and inference. Do not add queues, Durable Objects, browser rendering,
