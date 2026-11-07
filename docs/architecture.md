@@ -696,8 +696,8 @@ revision ([ADR 0024](adr/0024-settings-profiles.md),
 chosen when it pairs or on the management page's Devices page; `/manage/profiles`
 renames, copies and deletes profiles, and the Sites pages edit one profile at a time.
 The extension's settings page can edit another profile with its own vault catalog
-through `/extension/profiles`, behind the host-wide Access application, which requires
-WARP; that does not move its device. When a device's profile changes, the extension
+through `/extension/profiles`, behind the same host-wide Access application as pairing
+and management; that does not move its device. When a device's profile changes, the extension
 replaces its exclusions, saved accounts and vault policy with the new profile's and
 drops its merge base for them, while bindings and personal-detail links keep merging.
 Chrome use access to these pages is not assumed. Keep settings and execution operations
@@ -3798,7 +3798,7 @@ planned change. Each is current behavior that the service does not handle.
   The change feed refuses any query parameter but `after` and `limit` with 400, and a
   cursor above the owner's newest change answers an empty, complete page.
   `Authorization` must be `Bearer` in any letter case, one space and the credential.
-  A misconfigured `ACCESS_AUD` or `ACCESS_PAIR_AUD` (for example with stray
+  A misconfigured `ACCESS_AUD` (for example with stray
   whitespace) refuses every token with 403.
 
 ### Device enrollment
@@ -3832,9 +3832,9 @@ steady-state API calls carry no cookie.
   the device label ([device labels](#unsupported-service-edge-cases)),
   `credentials: "include"`, `redirect: "manual"` and
   `X-Requested-With: XMLHttpRequest`, so the browser's Access session travels with it.
-  The route sits behind Access; the Worker verifies the token (the host-wide
-  application's audience, or "pateat pair"'s, which also admits browsers without WARP,
-  [ADR 0030](adr/0030-pairing-without-warp.md)) and requires
+  The route sits behind the same host-wide Access application as management; the
+  Worker verifies its `ACCESS_AUD` token
+  ([ADR 0030 amendment](adr/0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)) and requires
   `Origin: chrome-extension://<id>` for an ID in `PAIRING_EXTENSION_IDS`, which lists
   Pateat's manifest-pinned production ID. It then limits pairing per identity, creates
   the owner on first pairing and the device, and answers the credential once; only its

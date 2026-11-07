@@ -108,9 +108,9 @@ build their own copy of the Worker output. The setup order below sets the releas
 credentials last, after pairing works through Access; the typed-code enrollment did when
 the owner paired on 2026-10-11. Installed Chrome first paired directly with the deployed
 service on 2026-10-11 ([device enrollment](architecture.md#device-enrollment)). A
-deployment also needs the `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` and `ACCESS_PAIR_AUD`
-Worker secrets; the owner pages answer 503 without the first two, and cf refuses to
-deploy without any of them. Artifact tests reject tampering and mismatched provenance.
+deployment also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets; the
+owner pages and pairing answer 503 without either, and cf refuses to deploy without
+both. Artifact tests reject tampering and mismatched provenance.
 
 ### Production settings
 
@@ -119,57 +119,41 @@ The owner decided these on 2026-10-11, following the kogane repository:
 - Host: the Worker serves only the Custom Domain `pateat.takuk.me`
   (`cloudflare.config.ts`); `workers.dev` and version preview URLs stay off.
 - Access: one Access application covers the whole host, so a new route is protected
-  by default. It uses the owner's existing reusable Access policy, which allows the
-  owner's email domain and requires a device connected through Cloudflare Gateway
-  (WARP); the owner decided on 2026-10-11 that owner pages need not open from a phone
-  without WARP. A more specific Access application with a Bypass policy exempts the
-  paths clients call without an Access login: `/v1/*` (device credentials from the
-  extension's background), `/health` (release check),
-  and `/.well-known/openid-configuration` and `/.well-known/jwks.json` (fetched
-  anonymously by Anthropic for Workload Identity Federation). The Worker still
-  verifies the Access token itself on the owner pages. `POST /pair` (direct pairing,
-  [ADR 0020](adr/0020-direct-device-pairing.md)) must not be added to the Bypass
-  application: it needs the owner's Access session.
-- Pairing without WARP: the owner decided on 2026-10-12 that browsers without WARP, such
-  as an agent's cloud computer, may pair permanently
-  ([ADR 0030](adr/0030-pairing-without-warp.md)). A third self-hosted Access
-  application, "pateat pair", covers `pateat.takuk.me` with path `pair` (and the paths
-  below it) and takes precedence there. Its Login method is One-time PIN, the team's
-  only identity provider (checked 2026-10-12), as on the host-wide application. Policy 1
-  is the same reusable policy as the host-wide application (email domain and WARP);
-  Policy 2 includes the owner's email address only and requires the One-time PIN login
-  method, without WARP. Session Duration is 15 minutes, and Cookie Path Attribute and
-  Binding Cookie are on. Its Application Audience (AUD) Tag is the `ACCESS_PAIR_AUD`
-  Worker secret; the Worker accepts it on `/pair` and `/pair/signed-in` only, and an
-  empty value turns it off while "pateat pair" does not exist; once it exists, Access
-  issues only its audience on `/pair`, so emptying the secret then stops all pairing.
-  `/manage`, and `/extension/profiles` where the extension edits other settings profiles
-  ([ADR 0076](adr/0076-settings-profiles-delivered.md)), keep requiring WARP. If another
-  identity provider is added under Integrations, Identity providers, Policy 2 still
-  admits One-time PIN sign-ins only. After pairing on a vendor's machine, open
-  `https://<team domain>/cdn-cgi/access/logout` there (the `ACCESS_TEAM_DOMAIN` host);
-  the service's own `/cdn-cgi/access/logout` finds no Access cookie in that browser,
-  because "pateat pair"'s cookie is sent below `/pair` only.
+  by default. Its reusable Owner policy admits the owner's One-time PIN sign-in;
+  WARP is not a requirement. A more specific Access application with a Bypass policy
+  exempts `/v1/*` (device credentials), `/health` (release check),
+  `/.well-known/openid-configuration` and `/.well-known/jwks.json` (anonymous
+  Workload Identity Federation metadata), and `/docs` and `/docs/*` (public docs).
+  The Worker verifies the Access token itself on pairing, management and the
+  extension profile editor. `POST /pair` must not be added to the Bypass application:
+  it needs the owner's Access session.
+- Pairing shares the host-wide Access application with `/manage` and
+  `/extension/profiles`. On 2026-11-07 the owner approved removing the redundant
+  "pateat pair" application: both applications already used the same Owner policy,
+  so the former pairing-only audience no longer provided a separate permission
+  boundary ([ADR 0030 amendment](adr/0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)).
+  The Worker accepts `ACCESS_AUD` only and no longer declares `ACCESS_PAIR_AUD`.
+  The sign-in tab stays at `/pair/signed-in`; signing in there creates no device.
+  Remove the child Access application before releasing this cleanup: the existing
+  Worker already accepts the parent audience, whereas leaving the child would make
+  Access issue an audience the updated Worker rejects. An obsolete stored secret
+  does not restore acceptance. If old path-scoped cookies cause a redirect loop, see
+  the [operations runbook](operations.md). After signing in on a vendor's machine, end the
+  Access session at `https://<team domain>/cdn-cgi/access/logout`.
 - Pairing extension IDs: `PAIRING_EXTENSION_IDS` is a committed JSON variable in
   `cloudflare.config.ts` that lists Pateat's production extension ID. It is not a
   secret, workflows do not synchronize it, and it needs no GitHub environment variable
   or Worker secret; a release deploys the committed list.
-- Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ACCESS_PAIR_AUD`, `OIDC_ISSUER`
+- Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER`
   and `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize
   them. cf refuses to create a Worker without its declared secrets, so the first deploy
-  passes all five at once with
+  passes all four at once with
   `cf deploy --prebuilt --mode production --secrets-file <file>` (JSON) and deletes the
   file afterwards; later changes use
   `cf workers secrets update <NAME> --worker pateat-api --type secret_text --text <value>`;
   cf refuses the update without `--type secret_text`. With several accounts visible to
   the login, cf also needs `CLOUDFLARE_ACCOUNT_ID`. Versions created by routine releases
   keep the secrets.
-- Adding `ACCESS_PAIR_AUD` (2026-10-12): cf also refuses a release whose declared secret
-  is missing, and the AUD tag exists only after "pateat pair" is created, while
-  creating it before the Worker accepts its tag stops all pairing. The order is
-  therefore: set `ACCESS_PAIR_AUD` to the placeholder `none`, which no Access token
-  carries; merge the change and let it release; create "pateat pair"; then immediately
-  set `ACCESS_PAIR_AUD` to its Application Audience (AUD) Tag.
 - Delivery: the `Deploy tested server` job of `ci.yml` releases automatically after
   `CI Check` passes on a main push (the owner chose this single workflow on
   2026-10-12; it replaced a separate `deploy-server.yml` started by `workflow_run`).
@@ -554,8 +538,10 @@ Japanese page smoke checks must pass.
 The owner saved the Access change on 2026-11-07 at 03:43 UTC, as recorded in
 [issue 1322](https://github.com/risu729/pateat/issues/1322). The `pateat bypass`
 application covers `/v1/*`, `/health`, `/.well-known/openid-configuration`,
-`/.well-known/jwks.json`, `/docs` and `/docs/*`. Pairing keeps its own
-`pateat pair` application on `/pair`. A cookie-free check at 03:44 UTC found
+`/.well-known/jwks.json`, `/docs` and `/docs/*`. At that time, pairing still had its own
+`pateat pair` application on `/pair`; the owner approved consolidating it into the
+host-wide application later that day (see [Production settings](#production-settings)).
+A cookie-free check at 03:44 UTC found
 `/docs`, `/docs/` and `/docs/guide` reaching the API's JSON 404 without an
 Access page, `/manage` still returning Access 403, and `/health` returning 200.
 The docs routes are not deployed by that Access change.

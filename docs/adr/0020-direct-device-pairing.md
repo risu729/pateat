@@ -6,7 +6,8 @@ may change in their PRs. The manifest `key`, `POST /pair` and the extension swit
 implemented, and the typed-code flow is removed. Pairing installed Chrome with the
 deployed service is not yet recorded; the [plan](../plan.md) tracks it.
 [ADR 0030](0030-pairing-without-warp.md) amends the sign-in tab, which now opens
-`/pair/signed-in`, and lets `POST /pair` accept a second Access audience.
+`/pair/signed-in`, and originally let `POST /pair` accept a second Access audience;
+the 2026-11-07 amendment below consolidates it into the host-wide audience.
 This replaces the typed-code pairing in the architecture's
 [device enrollment](../architecture.md#device-enrollment) section and settles the
 "enrollment transport" that [ADR 0003](0003-service-and-ai.md) left open.
@@ -235,3 +236,10 @@ These need the owner's answer:
 Credential idle expiry, which this ADR left open, was decided separately on
 2026-10-11: a credential expires after 90 days unused and each use renews it (see the
 architecture's [device enrollment](../architecture.md#device-enrollment)).
+
+## 2026-11-07 amendment: shared Access audience
+
+The [2026-11-07 amendment to ADR 0030](0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)
+retains `/pair/signed-in` and removes the second audience. Pairing and management now
+share the host-wide application and `ACCESS_AUD`; the historical description above
+of a browser reaching pairing without management no longer describes the policy.

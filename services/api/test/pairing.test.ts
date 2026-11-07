@@ -5,20 +5,14 @@ import { describe, expect, it } from "vitest";
 import { app } from "../src/app";
 import { hashDeviceToken } from "../src/auth";
 import {
-  claims,
   deviceApi,
-  forgedAccess,
   installAccessKeys,
   ISSUER,
-  newSubject,
   ORIGIN,
   owner,
   ownerIdFor,
-  PAIR_AUDIENCE,
-  pairOwner,
   rejectedTokens,
   request,
-  signAccess,
   type Owner,
 } from "./access-helpers";
 import { PAIR_LIMIT, withLimiter } from "./limiter";
@@ -224,111 +218,28 @@ describe("pairing sign-in", () => {
   });
 });
 
-describe("pairing through the pairing-only Access application", () => {
-  it("pairs the same owner as the host-wide application for the same subject", async () => {
-    const subject = newSubject();
-    const response = await pair(await pairOwner(subject));
-    expect(response.status).toBe(201);
-    expect(corsHeaders(response)).toEqual([]);
-    const result = v.parse(devicePairResultSchema, await response.json());
-    expect((await deviceApi(result.credential)).status).toBe(200);
-    const ownerId = await ownerIdFor(subject);
-    expect(ownerId).not.toBeNull();
-
-    expect((await pairAgain(await owner(subject))).status).toBe(201);
-    expect(await ownerIdFor(subject)).toBe(ownerId);
-    expect(await devicesOf(subject)).toHaveLength(2);
-    // The device list, behind the host-wide application, shows both devices.
-    const listed = v.parse(
-      manageDevicesSchema,
-      await (await request("/manage/api/devices", { access: (await owner(subject)).token })).json(),
-    );
-    expect(listed.devices).toHaveLength(2);
-    expect(listed.devices.map((device) => device.id)).toContain(result.deviceId);
-  });
-
-  it.each([
-    ["a longer audience", [`${PAIR_AUDIENCE}-other`]],
-    ["a shorter audience", [PAIR_AUDIENCE.slice(0, -1)]],
-    ["no audience", []],
-  ])("refuses %s without creating a device", async (_, aud) => {
-    const before = await rowCounts();
-    const subject = newSubject();
-    const response = await request("/pair", pairInit(await signAccess(claims(subject, { aud }))));
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "forbidden" });
-    expect(await ownerIdFor(subject)).toBeNull();
-    expect(await rowCounts()).toEqual(before);
-  });
-
-  it.each([
-    [
-      "a forged signature",
-      async () => forgedAccess(claims(newSubject(), { aud: [PAIR_AUDIENCE] })),
-    ],
-    [
-      "another issuer",
-      async () =>
-        signAccess(
-          claims(newSubject(), { aud: [PAIR_AUDIENCE], iss: "https://other.cloudflareaccess.com" }),
-        ),
-    ],
-    [
-      "an expired token",
-      async () =>
-        signAccess(
-          claims(newSubject(), { aud: [PAIR_AUDIENCE], exp: Math.floor(Date.now() / 1000) - 1 }),
-        ),
-    ],
-    [
-      "a service token without a subject",
-      async () => signAccess(claims("", { aud: [PAIR_AUDIENCE], common_name: "service" })),
-    ],
-  ])("rejects a pairing-audience token with %s", async (_, token) => {
-    const before = await rowCounts();
-    const response = await request("/pair", pairInit(await token()));
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "forbidden" });
-    expect(await rowCounts()).toEqual(before);
-  });
-
+describe("pairing Access configuration", () => {
   it.each([
     ["empty", ""],
     ["unset", undefined],
-  ])("accepts the host-wide audience only when the pairing audience is %s", async (_, value) => {
-    const overridden = { ...env, ACCESS_PAIR_AUD: value } as unknown as Env;
-    const viaPair = await pairOwner();
-    const refused = await app.request(`${ORIGIN}/pair`, pairInit(viaPair.token), overridden);
-    expect(refused.status).toBe(403);
-    expect(await refused.json()).toEqual({ error: "forbidden" });
-    expect(await ownerIdFor(viaPair.subject)).toBeNull();
-
-    const viaHost = await owner();
-    const paired = await app.request(`${ORIGIN}/pair`, pairInit(viaHost.token), overridden);
-    expect(paired.status).toBe(201);
-    expect(await devicesOf(viaHost.subject)).toHaveLength(1);
-  });
-
-  it("fails closed without the host-wide audience even with the pairing audience set", async () => {
-    const by = await pairOwner();
+  ])("fails closed when the parent audience is %s", async (_, audience) => {
+    const by = await owner();
     const response = await app.request(`${ORIGIN}/pair`, pairInit(by.token), {
       ...env,
-      ACCESS_AUD: "",
-    });
+      ACCESS_AUD: audience,
+    } as unknown as Env);
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "access_unavailable" });
     expect(await ownerIdFor(by.subject)).toBeNull();
+    expect(await devicesOf(by.subject)).toEqual([]);
   });
 });
 
 describe("signed-in page", () => {
   const SIGNED_IN_TEXT = "Close this tab and go back to Pateat&#39;s settings page.";
 
-  it.each([
-    ["the host-wide application", owner],
-    ["the pairing-only application", pairOwner],
-  ])("tells a browser signed in through %s to go back to the settings page", async (_, as) => {
-    const by = await as();
+  it("tells a browser signed in through the parent application to go back to settings", async () => {
+    const by = await owner();
     const response = await request("/pair/signed-in", {
       access: by.token,
       headers: { Origin: EXTENSION_ORIGIN },
@@ -343,21 +254,18 @@ describe("signed-in page", () => {
     const body = await response.text();
     expect(body).toContain("<h1>Signed in</h1>");
     expect(body).toContain(SIGNED_IN_TEXT);
-    // The icon is inlined, so no request reaches a path another Access application guards.
+    // The icon is inlined, so the page needs no further requests.
     expect(body).toContain('<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,');
     expect(response.headers.get("Content-Security-Policy")).toContain("img-src data:");
-    // A browser without WARP could not open /manage, so the page does not link to it.
+    // The return page directs the user back to the extension rather than the owner UI.
     expect(body).not.toContain("/manage");
     expect(body).not.toContain("<script");
     // Signing in creates no owner; pairing does.
     expect(await ownerIdFor(by.subject)).toBeNull();
   });
 
-  it.each([
-    ["the host-wide application", owner],
-    ["the pairing-only application", pairOwner],
-  ])("answers HEAD through the guarded page for %s", async (_, as) => {
-    const by = await as();
+  it("answers HEAD through the guarded page for the parent application", async () => {
+    const by = await owner();
     const response = await request("/pair/signed-in", { method: "HEAD", access: by.token });
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
@@ -390,40 +298,18 @@ describe("signed-in page", () => {
     expect(body).not.toContain(SIGNED_IN_TEXT);
   });
 
-  it("refuses the pairing audience when it is turned off", async () => {
-    const overridden = { ...env, ACCESS_PAIR_AUD: "" };
-    const refused = await app.request(
-      `${ORIGIN}/pair/signed-in`,
-      { headers: { "Cf-Access-Jwt-Assertion": (await pairOwner()).token } },
-      overridden,
-    );
-    expect(refused.status).toBe(403);
-    expect(await refused.text()).toContain("Access denied");
-    const accepted = await app.request(
+  it.each([
+    ["empty", ""],
+    ["unset", undefined],
+  ])("is unavailable when the parent audience is %s", async (_, audience) => {
+    const response = await app.request(
       `${ORIGIN}/pair/signed-in`,
       { headers: { "Cf-Access-Jwt-Assertion": (await owner()).token } },
-      overridden,
+      { ...env, ACCESS_AUD: audience } as unknown as Env,
     );
-    expect(accepted.status).toBe(200);
-    expect(await accepted.text()).toContain(SIGNED_IN_TEXT);
-  });
-
-  it("is unavailable without Access configuration", async () => {
-    const tokens = [(await owner()).token, (await pairOwner()).token];
-    const responses = await Promise.all(
-      tokens.map((token) =>
-        app.request(
-          `${ORIGIN}/pair/signed-in`,
-          { headers: { "Cf-Access-Jwt-Assertion": token } },
-          { ...env, ACCESS_AUD: "" },
-        ),
-      ),
-    );
-    expect(responses.map((response) => response.status)).toEqual([503, 503]);
-    for (const response of responses)
-      expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
-    const bodies = await Promise.all(responses.map((response) => response.text()));
-    for (const body of bodies) expect(body).toContain("Owner sign-in is not configured");
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
+    expect(await response.text()).toContain("Owner sign-in is not configured");
   });
 
   it.each(["POST", "PUT", "DELETE", "OPTIONS"])(
@@ -431,7 +317,7 @@ describe("signed-in page", () => {
     async (method) => {
       const response = await request("/pair/signed-in", {
         method,
-        access: (await pairOwner()).token,
+        access: (await owner()).token,
         headers: { Origin: EXTENSION_ORIGIN, "Access-Control-Request-Method": "GET" },
       });
       expect(response.status).toBe(405);

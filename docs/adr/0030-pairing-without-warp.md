@@ -1,8 +1,9 @@
 # ADR 0030: Pairing from browsers without WARP
 
 Status: accepted by the owner on 2026-10-12 (05:17 to 05:28 UTC). Implemented in the
-Worker and the extension. The "pateat pair" Access application and the `ACCESS_PAIR_AUD`
-Worker secret are set up by the owner (see
+Worker and the extension. The 2026-11-07 amendment below replaces the separate
+application and audience; the original decision is preserved as history. The original
+"pateat pair" application and `ACCESS_PAIR_AUD` secret were set up by the owner (see
 [delivery](../delivery.md#production-settings)). Amends
 [ADR 0020](0020-direct-device-pairing.md) (the sign-in tab and the audiences
 `POST /pair` accepts).
@@ -120,3 +121,53 @@ a way through without WARP should stay once it works, not only for a test (05:17
   ([research](../research/2026-10-11-browser-agent-logins.md#observed-on-a-grok-bot-computer)).
 
 ADR 0020 asks for a cookie probe whenever cookie settings change.
+
+## 2026-11-07 amendment: one Access application
+
+Status: accepted by the owner on 2026-11-07 at 13:00 UTC: "pairは統合しておいてください。pateatにPR必要なら作って。"
+("Consolidate pair. Create a Pateat PR if needed.") This amendment replaces the separate
+pairing application, audience and WARP distinction above, and amends the Access
+requirements in [ADR 0076](0076-settings-profiles-delivered.md). The implementation
+in this change accepts the host-wide audience only; deployment evidence is separate.
+
+### Context
+
+The host-wide `pateat` application and the child `pateat pair` application now both use
+the same reusable Owner policy, which permits the owner's One-time PIN sign-in without
+WARP. The child's separate audience and path-scoped cookies no longer enforce the
+original distinction between pairing and management. Keeping them adds configuration
+and another login session without a separate permission boundary.
+
+### Decision
+
+- Remove the child Access application. `/pair` and `/pair/signed-in` inherit the parent,
+  alongside `/manage` and `/extension/profiles`; none are bypassed.
+- Use the same Access verification middleware and `ACCESS_AUD` audience on all those
+  routes. Remove `ACCESS_PAIR_AUD` from the Worker configuration and accepted audiences;
+  no compatibility period is needed before release. Issuer, RS256 signature, expiry
+  and user-subject verification, extension-origin checks and device credentials stay
+  in force.
+- Keep `/pair/signed-in` as the extension's sign-in page. Its return-to-settings message
+  remains useful, and merely visiting it creates no owner or device.
+
+### Consequences
+
+The same policy now controls pairing, management and editing other profiles. A browser
+that can sign in with the owner's One-time PIN can reach all of them; WARP is no
+longer the management boundary. This reflects the existing shared policy rather than
+adding a second permission rule in application code.
+
+Remove the child before deploying this cleanup: the previous Worker accepts the parent
+already, while the updated Worker rejects the child's audience. Existing path-scoped
+`CF_Authorization` or `CF_Binding` cookies from the child can cause a redirect loop.
+Remove only those obsolete cookies scoped to `/pair`, then open `/pair/signed-in`
+again; preserve the parent's host-wide session. The 2026-11-07 browser check rendered
+that page after this cleanup and rendered `/manage`; it created no device and does not
+prove the full pairing round trip. Cookie-free requests to both pages redirected to
+the parent audience, and `/health` and `/docs/` remained public.
+
+### Alternatives
+
+Keeping the child would retain independent sessions and configuration with identical
+identity admission. Restoring a WARP-only management policy would recreate the original
+separation but is a different policy decision from consolidating the existing setup.

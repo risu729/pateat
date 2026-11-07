@@ -11,9 +11,9 @@ import * as v from "valibot";
 
 /** Why a profile editor request failed; the editor words each one. */
 export type ProfileEditorFailure =
-  /** No WARP sign-in reached the service: a redirect, a `401` or a body that is not JSON. */
+  /** No Access sign-in reached the service: a redirect, a `401` or a body that is not JSON. */
   | "sign-in-needed"
-  /** The service refused the sign-in, for example from a browser without WARP. */
+  /** The service refused the Access sign-in. */
   | "forbidden"
   /** The service does not list this extension's ID in `PAIRING_EXTENSION_IDS`. */
   | "extension-not-allowed"
@@ -33,7 +33,7 @@ export class ProfileEditorError extends Error {
 }
 
 /**
- * Edits profiles other than this device's on the service's WARP application, with the
+ * Edits profiles other than this device's on the service's host-wide Access application, with the
  * browser's sign-in there (ADR 0076). Each call throws a `ProfileEditorError`.
  */
 export interface ProfileEditorClient {
@@ -74,7 +74,7 @@ export interface ServiceClient {
   forget(): Promise<ServiceResponse>;
   /**
    * Opens the service's `/pair/signed-in` page in an ordinary tab, where the user signs
-   * in. A browser without WARP can sign in there but not on `/manage` (ADR 0030).
+   * in through the same Access application as `/manage` (ADR 0030).
    */
   openSignIn(origin: string): Promise<void>;
 }

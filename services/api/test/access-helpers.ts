@@ -12,8 +12,8 @@ export const ORIGIN = "https://pateat.invalid";
 const TEAM = "pateat-test.cloudflareaccess.com";
 export const ISSUER = `https://${TEAM}`;
 const AUDIENCE = "pateat-test-audience";
-/** The synthetic "pateat pair" application's audience, which pairing routes also accept. */
-export const PAIR_AUDIENCE = "pateat-test-pair-audience";
+/** The obsolete pairing application audience, used only to verify rejection. */
+export const OBSOLETE_PAIR_AUDIENCE = "pateat-test-pair-audience";
 const JWKS_URL = `${ISSUER}/cdn-cgi/access/certs`;
 
 type SigningKey = { privateJwk: HonoJsonWebKey; publicJwk: HonoJsonWebKey };
@@ -128,11 +128,6 @@ export async function owner(subject = newSubject()) {
   return { subject, token: await signAccess(claims(subject)) };
 }
 
-/** The owner signed in through the "pateat pair" application (ADR 0030). */
-export async function pairOwner(subject = newSubject()) {
-  return { subject, token: await signAccess(claims(subject, { aud: [PAIR_AUDIENCE] })) };
-}
-
 export type Owner = Awaited<ReturnType<typeof owner>>;
 
 /** Tokens every Access-guarded route must refuse with 403. */
@@ -143,6 +138,19 @@ export const rejectedTokens: [string, () => Promise<string>][] = [
     async () => signAccess(claims(newSubject(), { iss: "https://other.cloudflareaccess.com" })),
   ],
   ["another audience", async () => signAccess(claims(newSubject(), { aud: ["other-audience"] }))],
+  [
+    "the obsolete pairing application's audience",
+    async () => signAccess(claims(newSubject(), { aud: [OBSOLETE_PAIR_AUDIENCE] })),
+  ],
+  [
+    "a longer audience",
+    async () => signAccess(claims(newSubject(), { aud: [`${AUDIENCE}-other`] })),
+  ],
+  [
+    "a shorter audience",
+    async () => signAccess(claims(newSubject(), { aud: [AUDIENCE.slice(0, -1)] })),
+  ],
+  ["no audience", async () => signAccess(claims(newSubject(), { aud: [] }))],
   [
     "an expired token",
     async () => signAccess(claims(newSubject(), { exp: Math.floor(Date.now() / 1000) - 1 })),

@@ -280,7 +280,7 @@ test("retries once when the settings page is shown again after signing in", asyn
       await expect(options.getByText(/in the new tab, then come back here/)).toBeVisible();
       await signIn(context, service);
       // Access sends the signed-in browser back to the page; it answers with the
-      // pairing application's audience and asks to go back to the settings page.
+      // parent application's audience and asks to go back to the settings page.
       await signInPage.bringToFront();
       await signInPage.goto(`${service.origin}/pair/signed-in`);
       await expect(

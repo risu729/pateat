@@ -22,12 +22,13 @@ import {
   jwks,
   type JwksMode,
   newSubject,
+  OBSOLETE_PAIR_AUDIENCE,
   ORIGIN,
   owner,
   ownerIdFor,
-  pairOwner,
   rejectedTokens,
   request,
+  signAccess,
   type Owner,
 } from "./access-helpers";
 import { writeRecipe } from "../src/recipe-store";
@@ -109,10 +110,13 @@ describe("Access verification", () => {
     expect(await response.text()).not.toContain("Pateat test app");
   });
 
-  it("refuses the pairing-only application's audience on every owner route", async () => {
-    // The owner exists and has a device, paired through the pairing-only application.
-    const viaPair = await pairOwner();
-    const device = await pairDevice(viaPair);
+  it("refuses the obsolete pairing application's audience on every owner route", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    const viaPair = {
+      subject: by.subject,
+      token: await signAccess(claims(by.subject, { aud: [OBSOLETE_PAIR_AUDIENCE] })),
+    };
     const pages = [
       "/manage",
       "/manage/dashboard",
@@ -162,7 +166,7 @@ describe("Access verification", () => {
       apiResponses.map(() => ({ error: "forbidden" })),
     );
 
-    // The device was not revoked, no identifiers were saved, and the host-wide
+    // The device was not revoked, no identifiers were saved, and the parent
     // application still reaches the owner.
     expect((await deviceApi(device.credential)).status).toBe(200);
     expect(
@@ -200,7 +204,7 @@ describe("Access verification", () => {
     "treats %s for the signing keys as an outage, not a refused sign-in",
     async (_, mode) => {
       const viaHost = await owner();
-      const viaPair = await pairOwner();
+      const pairingOwner = await owner();
       const pages: [string, string][] = [
         ["/manage", viaHost.token],
         ["/manage/sites", viaHost.token],
@@ -209,12 +213,12 @@ describe("Access verification", () => {
         ["/manage/claude", viaHost.token],
         ["/manage/profiles", viaHost.token],
         ["/extension/signed-in", viaHost.token],
-        ["/pair/signed-in", viaPair.token],
+        ["/pair/signed-in", pairingOwner.token],
       ];
       const { pageResponses, apiResponses, missing } = await duringOutage(mode, async () => ({
         pageResponses: await Promise.all(pages.map(([path, access]) => request(path, { access }))),
         apiResponses: await Promise.all([
-          postPair(viaPair.token),
+          postPair(pairingOwner.token),
           postPair(viaHost.token),
           manageApi("/manage/api/devices", viaHost.token, "GET"),
           manageApi("/manage/api/profiles", viaHost.token, "GET"),
@@ -238,12 +242,12 @@ describe("Access verification", () => {
       );
       expect(missing.map((response) => response.status)).toEqual([401, 401]);
       // No owner was created by the pairing attempts.
-      expect(await ownerIdFor(viaPair.subject)).toBeNull();
+      expect(await ownerIdFor(pairingOwner.subject)).toBeNull();
       expect(await ownerIdFor(viaHost.subject)).toBeNull();
 
       // Once the keys answer again, the same tokens work.
       expect((await request("/manage", { access: viaHost.token })).status).toBe(200);
-      expect((await postPair(viaPair.token)).status).toBe(201);
+      expect((await postPair(pairingOwner.token)).status).toBe(201);
     },
   );
 
@@ -259,7 +263,7 @@ describe("Access verification", () => {
       const responses = await duringOutage("hang", async () =>
         Promise.all([
           request("/manage", { access: (await owner()).token }),
-          postPair((await pairOwner()).token),
+          postPair((await owner()).token),
         ]),
       );
       expect(responses.map((response) => response.status)).toEqual([503, 503]);

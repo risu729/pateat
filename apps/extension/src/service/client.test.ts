@@ -40,7 +40,7 @@ describe("profile editor", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens the WARP application's /extension/signed-in page", async () => {
+  it("opens the owner application's /extension/signed-in page", async () => {
     const { client, openTab } = harness();
     await client.profileEditor?.openSignIn(ORIGIN);
     expect(openTab.mock.calls).toEqual([[`${ORIGIN}/extension/signed-in`]]);

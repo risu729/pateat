@@ -11,7 +11,7 @@ import { jsonBody, requireJsonBody, validate } from "../validation";
 const profileParam = v.strictObject({ profileId: profileIdSchema });
 
 /**
- * Profile editing from an allowed extension's settings page with the owner's WARP-backed
+ * Profile editing from an allowed extension's settings page with the owner's Access
  * session (ADR 0076); it never changes which profile the extension's device uses.
  */
 export const profileEditorRoutes = new Hono<ApiEnv>()
