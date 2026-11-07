@@ -28,14 +28,17 @@ test("docs provenance accepts only the same trusted main run", () => {
     assert.throws(() => verifyDocsProvenance({ ...manifest, ...changed }, expected));
 });
 
-test("docs output refuses executable Workers, bindings, wrong routes and preview output", async () => {
+test("docs output refuses executable Workers, bindings, wrong routes, root assets and preview output", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "pateat-docs-output-"));
   try {
-    await mkdir(resolve(directory, "workers/default"), { recursive: true });
+    const assets = resolve(directory, "workers/default/assets");
+    await mkdir(resolve(assets, "docs"), { recursive: true });
+    await writeFile(resolve(assets, "docs/index.html"), "<html></html>");
+    await writeFile(resolve(assets, "docs/404.html"), "<html></html>");
     const config = { buildContext: { mode: "production", isPreview: false } };
     const worker = {
       name: "pateat-docs",
-      assets: { basePath: "/docs", notFoundHandling: "404-page" },
+      assets: { notFoundHandling: "404-page" },
       workersDev: false,
       previewUrls: false,
       triggers: [
@@ -52,7 +55,8 @@ test("docs output refuses executable Workers, bindings, wrong routes and preview
       { entrypoint: "index.js" },
       { env: { API: { type: "service" } } },
       { triggers: [{ pattern: "pateat.takuk.me/*", zone: "takuk.me" }] },
-      { assets: { basePath: "/", notFoundHandling: "single-page-application" } },
+      { assets: { basePath: "/docs", notFoundHandling: "404-page" } },
+      { assets: { notFoundHandling: "single-page-application" } },
       { previewUrls: true },
     ]) {
       // These cases intentionally mutate the same build directory in sequence.
@@ -67,6 +71,9 @@ test("docs output refuses executable Workers, bindings, wrong routes and preview
       JSON.stringify({ buildContext: { mode: "production", isPreview: true } }),
     );
     await assert.rejects(verifyDocsBuild(directory));
+    await writeFile(resolve(directory, "config.json"), JSON.stringify(config));
+    await writeFile(resolve(assets, "index.html"), "<html></html>");
+    await assert.rejects(verifyDocsBuild(directory), /under \/docs\//u);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

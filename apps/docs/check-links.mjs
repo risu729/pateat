@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 const base = "/docs/";
-const dist = path.resolve(".vitepress/dist");
+const dist = path.resolve(".vitepress/dist/docs");
 if (!existsSync(dist)) throw new Error(`Build the site first: ${dist} is missing.`);
 
 /** @param {string} directory */
