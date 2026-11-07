@@ -2790,7 +2790,9 @@ describe("unhandled errors", () => {
     async (end) => {
       const log = createDiagnosticsLog({
         build: { version: "0.1.0", revision: "1c42ad3" },
-        settings: async () => { throw new Error("not needed"); },
+        settings: async () => {
+          throw new Error("not needed");
+        },
         recipeCache: async () => undefined,
         connections: async () => ({ ok: true, kind: "status", connections: [] }),
         databaseName: `log-test-${crypto.randomUUID()}`,
@@ -2799,17 +2801,39 @@ describe("unhandled errors", () => {
       for (const level of ["debug", "info", "warn"] as const)
         vi.spyOn(console, level).mockImplementation(() => undefined);
       const attempt = {
-        tabId: 4, origin: "https://login.example", recipeId: "synthetic-recipe",
-        recipeRevision: 1, route: "password", stepIndex: 1, stepCount: 2,
+        tabId: 4,
+        origin: "https://login.example",
+        recipeId: "synthetic-recipe",
+        recipeRevision: 1,
+        route: "password",
+        stepIndex: 1,
+        stepCount: 2,
       } as const;
-      log.login({ ...attempt, type: "attempt", state: "reconciling",
-        outcome: "unknown-submit", settled: true, watched: true });
+      log.login({
+        ...attempt,
+        type: "attempt",
+        state: "reconciling",
+        outcome: "unknown-submit",
+        settled: true,
+        watched: true,
+      });
       if (end === "closed")
-        log.login({ ...attempt, type: "attempt-closed", state: "reconciling",
-          outcome: "unknown-submit", settled: true, watched: true, cause: "tab-closed" });
+        log.login({
+          ...attempt,
+          type: "attempt-closed",
+          state: "reconciling",
+          outcome: "unknown-submit",
+          settled: true,
+          watched: true,
+          cause: "tab-closed",
+        });
       else
-        log.login({ ...attempt, type: "attempt", state: end,
-          outcome: end === "authenticated" ? "authenticated" : "unknown-submit" });
+        log.login({
+          ...attempt,
+          type: "attempt",
+          state: end,
+          outcome: end === "authenticated" ? "authenticated" : "unknown-submit",
+        });
       await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
       const entries = await log.logger.entries();
       expect(entries[0]!.level).toBe("info");

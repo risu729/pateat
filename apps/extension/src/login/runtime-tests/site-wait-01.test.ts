@@ -366,9 +366,14 @@ describe("a login whose wait for the site ran out", () => {
     const report = vi.fn<(report: LoginReport) => void>();
     const restarted = twoSites({ report });
     expect(await restarted.login.active()).toBe(false);
-    expect(report).toHaveBeenCalledWith(expect.objectContaining({
-      type: "attempt-closed", cause: "tab-closed", settled: true, watched: true,
-    }));
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "attempt-closed",
+        cause: "tab-closed",
+        settled: true,
+        watched: true,
+      }),
+    );
     expect(at(origin)).toBeUndefined();
   });
 

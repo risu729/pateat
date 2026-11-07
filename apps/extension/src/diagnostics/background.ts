@@ -897,6 +897,7 @@ export function createDiagnosticsLog(options: {
                 : report.state === "blocked" || (report.settled && !report.watched)
                   ? "warn"
                   : report.watched ||
+                      report.state === "watching" ||
                       report.state === "authenticated" ||
                       report.state === "retryable" ||
                       report.routeChange !== undefined ||
