@@ -26,6 +26,12 @@ and concurrent-slot admission; `call-log.ts` owns retained inference records and
 projections; `call-types.ts` owns shared contracts. The split preserves reservation,
 charging, logging and request-lifetime ordering.
 
+The options Sites editor keeps form state, account queries and saved-row event
+renderers with their focus refs in `site-policy.tsx`. `site-policy-rules.ts` owns
+account-option and rule decisions; `site-policy-rows.tsx` owns the reusable site-row
+component and default-account editor. Existing controls, keys, focus behavior and
+public exports are preserved.
+
 The extension's `service/transport.ts` retains endpoint contracts and response mapping.
 `service-call.ts` owns bounded JSON fetching, credential and redirect rules,
 cancellation and request timing. `service-timing.ts` owns pure timing parsing and
