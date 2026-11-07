@@ -10,7 +10,7 @@ export function canonicalJson(value: unknown): string | undefined {
   if (value && typeof value === "object")
     return `{${Object.entries(value)
       .filter(([, member]) => member !== undefined)
-      .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([key, member]) => `${JSON.stringify(key)}:${canonicalJson(member)}`)
       .join(",")}}`;
   return JSON.stringify(value);
