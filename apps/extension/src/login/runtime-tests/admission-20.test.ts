@@ -838,8 +838,7 @@ describe("production login document admission", () => {
         fake.state.signs = (message) =>
           message["fields"] ? { ...noSigns, password: true, alert } : noSigns;
         fake.state.onExecute = async (message) => {
-          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click")
-            return;
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
           fake.state.gone.add("synthetic-document");
           setTimeout(() => void h.hello(response, false), 0);
         };
@@ -859,8 +858,7 @@ describe("production login document admission", () => {
           );
         // The form that answered the original submission must never be filled again.
         expect(await h.hello(response)).toEqual({ ok: false, reason: "account-asked" });
-        const sent = () =>
-          fake.state.messages.filter((entry) => entry.type === "login.execute");
+        const sent = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
         const kinds = (offset = 0) =>
           sent()
             .slice(offset)

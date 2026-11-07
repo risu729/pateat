@@ -610,7 +610,7 @@ These fixtures do not change the outcome rules or establish real-site compatibil
 
 The probe's `planFor` deliberately runs a full login on a new document that production
 would only fill while asking for an account. After an immediate account ask these probe
-tests therefore record one extra press in the competing tab and the reloaded original
+tests therefore record one extra press in the competing tab and the reopened original
 tab, followed by each document's own refusal. A watched result still prevents another
 tab from pressing anything. These probe counts do not establish production submission
 behavior. The normal provider branch in `runtime-tests/admission-20.test.ts` separately

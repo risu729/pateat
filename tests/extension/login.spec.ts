@@ -2757,9 +2757,9 @@ for (const variant of [
         ).toBe(0);
         expect(await count()).toEqual(expected);
         if (released) {
-          // A fresh document gets the probe's same fill-only exception once. Its own
-          // denial bounds that extra press; the production harness below forbids it.
-          await page.reload();
+          // Reopen the start page, with its response flag cleared, in the original tab.
+          // The probe's fill-only exception permits one press; its own denial bounds it.
+          await page.goto(`${fixture.origin}${variant.path}`);
           await expect
             .poll(async () =>
               (await documents()).find(
