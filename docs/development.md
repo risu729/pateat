@@ -353,9 +353,10 @@ no Worker code, service bindings or data bindings are included. Deployment and i
 credential bootstrap are separate from the build.
 
 VitePress fails the build on a dead link between pages. `//apps/docs:test` builds the
-site and then checks, with `apps/docs/check-links.mjs`, that every local link, asset
-and fragment in the built HTML resolves; it is one of the `//...:test` tasks, so
-`check:runtime` and CI's `Verify` job build the site on every run. Every pull request runs the full CI graph, including the browser shards
+site and then checks, with `apps/docs/check-links.mjs`, that every local link, asset and
+fragment in the built HTML resolves; it is one of the `//...:test` tasks, so
+`check:runtime` and CI's `Verify` job build the site on every run. Every pull request
+runs the full CI graph, including the browser shards
 ([CI](delivery.md#current-foundation-workflows)).
 
 The owner decided on 2026-10-23 that the site is deployed as a public Cloudflare Worker

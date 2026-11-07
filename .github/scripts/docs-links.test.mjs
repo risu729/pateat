@@ -11,18 +11,26 @@ test("the docs link check resolves the deployed prefix, relative pages and fragm
   const directory = mkdtempSync(resolve(tmpdir(), "pateat-docs-links-"));
   try {
     mkdirSync(resolve(directory, ".vitepress/dist/ja"), { recursive: true });
-    writeFileSync(resolve(directory, ".vitepress/dist/index.html"),
-      '<a href="/docs/setup#step">Setup</a><a href="/docs/ja/">日本語</a><img src="/docs/icon.svg">');
-    writeFileSync(resolve(directory, ".vitepress/dist/setup.html"),
-      '<h1 id="step">Setup</h1><a href="./">Home</a>');
-    writeFileSync(resolve(directory, ".vitepress/dist/ja/index.html"),
-      '<a href="../setup#step">English setup</a>');
+    writeFileSync(
+      resolve(directory, ".vitepress/dist/index.html"),
+      '<a href="/docs/setup#step">Setup</a><a href="/docs/ja/">日本語</a><img src="/docs/icon.svg">',
+    );
+    writeFileSync(
+      resolve(directory, ".vitepress/dist/setup.html"),
+      '<h1 id="step">Setup</h1><a href="./">Home</a>',
+    );
+    writeFileSync(
+      resolve(directory, ".vitepress/dist/ja/index.html"),
+      '<a href="../setup#step">English setup</a>',
+    );
     writeFileSync(resolve(directory, ".vitepress/dist/icon.svg"), "<svg/>");
     const checked = spawnSync(process.execPath, [checker], { cwd: directory, encoding: "utf8" });
     assert.equal(checked.status, 0, checked.stderr);
     assert.match(checked.stdout, /Checked 5 local references in 3 built pages/);
-    writeFileSync(resolve(directory, ".vitepress/dist/setup.html"),
-      '<a href="/setup">Unprefixed</a><a href="/docs/missing">Missing</a>');
+    writeFileSync(
+      resolve(directory, ".vitepress/dist/setup.html"),
+      '<a href="/setup">Unprefixed</a><a href="/docs/missing">Missing</a>',
+    );
     const broken = spawnSync(process.execPath, [checker], { cwd: directory, encoding: "utf8" });
     assert.equal(broken.status, 1);
     assert.match(broken.stderr, /missing target: \/setup/);

@@ -10,9 +10,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": [
-    ".vitepress/**/*.ts",
-    "cloudflare.config.ts",
-    "vite.config.ts"
-  ]
+  "include": [".vitepress/**/*.ts", "cloudflare.config.ts", "vite.config.ts"]
 }

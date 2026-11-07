@@ -18,9 +18,12 @@ function htmlFiles(directory) {
 
 /** Maps a site path to its built file, as cleanUrls serves it. @param {string} pathname */
 function resolve(pathname) {
-  const relative = pathname === base.slice(0, -1)
-    ? ""
-    : pathname.startsWith(base) ? pathname.slice(base.length) : undefined;
+  const relative =
+    pathname === base.slice(0, -1)
+      ? ""
+      : pathname.startsWith(base)
+        ? pathname.slice(base.length)
+        : undefined;
   if (relative === undefined) return undefined;
   const file = path.join(dist, decode(relative));
   if (file !== dist && !file.startsWith(dist + path.sep)) return undefined;
