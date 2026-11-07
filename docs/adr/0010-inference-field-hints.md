@@ -201,3 +201,6 @@ read rendered identifiers and hidden, read-only or disabled account inputs, neve
 the writable input's typed value. Sign-in state reads sign-in controls and compares
 the username with rendered header/navigation text, not the filled field. Their
 account-identity rules remain unchanged; separator insertion is local to typing.
+`siteValueChoice`/`sameAccountValue` compare only recorded page-owned values before
+Pateat starts acting; recording stops before it types. Code-submission checks read
+emptiness, not equality with a typed value.
