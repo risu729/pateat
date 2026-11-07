@@ -1,7 +1,7 @@
 // Connects the service worker's existing decisions to the local log (ADR 0019).
 import type { LocalSettings } from "@pateat/contracts";
 import * as v from "valibot";
-import type { VaultSyncOutcome } from "../connections/auto-sync";
+import type { VaultSyncReport } from "../connections/auto-sync";
 import type { VaultTimeoutReport } from "../vault/timeout";
 import type { SignInStep } from "../connections/runtime";
 import type { RefreshReport } from "../connections/sessions";
@@ -248,18 +248,19 @@ export function createDiagnosticsLog(options: {
      * An automatic vault check (ADR 0025): debug when nothing changed, info when a sync was
      * applied or waits for a login, else warn.
      */
-    vaultCheck(event: {
-      connectionId: string;
-      outcome: VaultSyncOutcome;
-      previous?: VaultSyncOutcome | undefined;
-    }) {
+    vaultCheck(event: VaultSyncReport) {
       // A check repeats every few minutes, also from a newly woken worker; the same stored
       // result again, such as a sign-in that still needs the password and sends nothing,
       // is only detail.
-      const repeated = event.previous === event.outcome;
+      // Failed checks always warn: their cause can change, and it is not stored.
+      const repeated = event.outcome !== "failed" && event.previous === event.outcome;
       void logger.log(
         "vault.check",
-        { connection: event.connectionId, outcome: event.outcome },
+        {
+          connection: event.connectionId,
+          outcome: event.outcome,
+          ...(event.outcome === "failed" ? { cause: event.cause, status: event.status } : {}),
+        },
         {
           level:
             event.outcome === "unchanged" ||
@@ -496,8 +497,8 @@ export function createDiagnosticsLog(options: {
           { source },
         );
       else if (report.type === "attempt-closed")
-        // A login whose tab closed ended there; the person closed it, so it is not a
-        // problem line (ADR 0019, amended 2026-11-04).
+        // Closing an unfinished watched result is its final problem line. A person
+        // closing an ordinary running login is still info (ADR 0019).
         void logger.log(
           "login.attempt",
           {
@@ -514,7 +515,7 @@ export function createDiagnosticsLog(options: {
             unsubmitted: report.unsubmitted,
             fillOnly: report.fillOnly,
           },
-          { source, level: "info" },
+          { source, level: report.watched ? "warn" : "info" },
         );
       else if (report.type === "ask-ended")
         void logger.log(
@@ -863,6 +864,7 @@ export function createDiagnosticsLog(options: {
             handler: report.handler,
             outcome: report.outcome,
             cause: report.cause,
+            fieldIndex: report.fieldIndex,
             reason: report.reason,
             settled: report.settled,
             unconfirmed: report.unconfirmed,
@@ -879,8 +881,8 @@ export function createDiagnosticsLog(options: {
           },
           {
             source,
-            // A login that stopped, or whose result settled as unknown, did not finish. A resumed
-            // attempt that changed nothing repeats what was already logged.
+            // A watched result is provisional: only its terminal result is a problem.
+            // A resumed attempt that changed nothing repeats what was already logged.
             // A fill-only login while its tab asks for an account ends by design without
             // pressing anything. A route change is kept for the log too (ADR 0034).
             level: report.repeat
@@ -894,9 +896,11 @@ export function createDiagnosticsLog(options: {
                   // A click left to the person under a CAPTCHA explains a later challenge.
                   report.cause === "captcha-shown"
                 ? "info"
-                : report.state === "blocked" || report.state === "watching" || report.settled
+                : report.state === "blocked" || (report.settled && !report.watched)
                   ? "warn"
-                  : report.state === "authenticated" ||
+                  : report.watched ||
+                      report.state === "watching" ||
+                      report.state === "authenticated" ||
                       report.state === "retryable" ||
                       report.routeChange !== undefined ||
                       report.layoutFrom !== undefined

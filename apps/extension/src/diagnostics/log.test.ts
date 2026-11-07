@@ -2436,6 +2436,46 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps only a fixed fill cause and field position in uploaded problem lines", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    log.login({
+      type: "attempt",
+      tabId: 4,
+      origin: "https://login.example",
+      recipeId: "synthetic-recipe",
+      recipeRevision: 1,
+      route: "password",
+      state: "blocked",
+      stepIndex: 0,
+      stepCount: 2,
+      operation: "fill",
+      effect: "prepare",
+      outcome: "fill-rejected",
+      cause: "input-pattern-mismatch",
+      fieldIndex: 1,
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(1));
+    const [entry] = await log.logger.entries();
+    expect(entry!.fields).toMatchObject({ cause: "input-pattern-mismatch", fieldIndex: 1 });
+    expect(problemLine(entry!)?.fields).toMatchObject({
+      cause: "input-pattern-mismatch",
+      fieldIndex: 1,
+    });
+    expect(problemLine(entry!)?.fields).not.toHaveProperty("value");
+    expect(problemLine(entry!)?.fields).not.toHaveProperty("label");
+    vi.restoreAllMocks();
+  });
+
   it("names a login's stop before a missing password (ADR 0036)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
@@ -2702,9 +2742,18 @@ describe("unhandled errors", () => {
     outcomes.forEach((outcome, index) =>
       log.vaultCheck({ connectionId, outcome, previous: outcomes[index - 1] }),
     );
+    log.vaultCheck({ connectionId, outcome: "failed", cause: "network" });
+    log.vaultCheck({ connectionId, outcome: "failed", cause: "network", previous: "failed" });
+    log.vaultCheck({
+      connectionId,
+      outcome: "failed",
+      cause: "http-error",
+      status: 503,
+      previous: "failed",
+    });
     log.vaultRefresh({ connectionId, outcome: "not-sent", cause: "no-refresh-token" });
     log.recipeSync("busy", { scope: "full", added: 0, updated: 0, removed: 0 });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(9));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(12));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(
       entries.map((entry) => [
@@ -2720,10 +2769,22 @@ describe("unhandled errors", () => {
       ["vault.check", "debug", "deferred", undefined],
       ["vault.check", "warn", "reauthentication-required", undefined],
       ["vault.check", "debug", "reauthentication-required", undefined],
+      ["vault.check", "warn", "failed", "network"],
+      ["vault.check", "warn", "failed", "network"],
+      ["vault.check", "warn", "failed", "http-error"],
       ["vault.refresh", "info", "not-sent", "no-refresh-token"],
       ["service.sync", "info", "busy", undefined],
     ]);
     expect(JSON.stringify(entries)).not.toContain(connectionId);
+    const failures = entries.filter(
+      (entry) => entry.event === "vault.check" && entry.fields["outcome"] === "failed",
+    );
+    expect(failures.at(-1)?.fields["status"]).toBe(503);
+    expect(failures.map(problemLine).map((line) => line?.fields)).toEqual([
+      { outcome: "failed", cause: "network" },
+      { outcome: "failed", cause: "network" },
+      { outcome: "failed", cause: "http-error", status: 503 },
+    ]);
     vi.restoreAllMocks();
   });
 
@@ -2784,7 +2845,68 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs a running login whose tab closed as info, also when it was watched (ADR 0019)", async () => {
+  it.each(
+    (["reconciling", "watching"] as const).flatMap((state) =>
+      (["authenticated", "blocked", "closed"] as const).map((end) => ({ state, end })),
+    ),
+  )("sends only the final problem for $state ending $end", async ({ state, end }) => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    const attempt = {
+      tabId: 4,
+      origin: "https://login.example",
+      recipeId: "synthetic-recipe",
+      recipeRevision: 1,
+      route: "password",
+      stepIndex: 1,
+      stepCount: 2,
+    } as const;
+    const outcome = state === "watching" ? "challenge" : "unknown-submit";
+    const settled = state === "reconciling" ? { settled: true as const } : {};
+    log.login({
+      ...attempt,
+      type: "attempt",
+      state,
+      outcome,
+      ...settled,
+      watched: true,
+    });
+    if (end === "closed")
+      log.login({
+        ...attempt,
+        type: "attempt-closed",
+        state,
+        outcome,
+        ...settled,
+        watched: true,
+        cause: "tab-closed",
+      });
+    else
+      log.login({
+        ...attempt,
+        type: "attempt",
+        state: end,
+        outcome: end === "authenticated" ? "authenticated" : outcome,
+      });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
+    const entries = await log.logger.entries();
+    expect(entries[0]!.level).toBe("info");
+    expect(entries.filter(sentToService)).toHaveLength(end === "authenticated" ? 0 : 1);
+    expect(entries[1]!.level).toBe(end === "authenticated" ? "info" : "warn");
+    vi.restoreAllMocks();
+  });
+
+  it("logs an ordinary running login whose tab closed as info (ADR 0019)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -2809,8 +2931,7 @@ describe("unhandled errors", () => {
       cause: "tab-closed",
     } as const;
     log.login({ ...closed, state: "awaiting-result" });
-    log.login({ ...closed, state: "watching", outcome: "challenge", settled: true });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(1));
     expect(
       (await log.logger.entries()).map((entry) => [entry.event, entry.level, entry.fields]),
     ).toEqual([
@@ -2828,11 +2949,6 @@ describe("unhandled errors", () => {
           cause: "tab-closed",
           tab: 4,
         },
-      ],
-      [
-        "login.attempt",
-        "info",
-        expect.objectContaining({ state: "watching", outcome: "challenge", settled: true }),
       ],
     ]);
     vi.restoreAllMocks();

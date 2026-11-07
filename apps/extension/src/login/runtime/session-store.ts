@@ -1,7 +1,7 @@
 import { parseAttemptMetadata, type LoginAttemptMetadata } from "@pateat/contracts";
 import { recordKey } from "./steps";
 import { terminal } from "./attempt-state";
-import { SITE_MOVE_MS, SITE_WAIT_MS } from "./constants";
+import { SITE_MOVE_MS, SITE_WAIT_MS, WATCH_MS } from "./constants";
 import type { Runtime } from "./state";
 
 // Toolbar and session storage failures only lose the badge or a pick; never a login.
@@ -104,12 +104,17 @@ export function armSiteWait(rt: Runtime, now = Date.now()): void {
   for (const stored of rt.persisted.values()) {
     const run = rt.attempts.get(stored.document.tabId)?.metadata;
     const record = run?.id === stored.id ? run : stored;
-    const since = record.timing.pageSince;
-    if (since === undefined || terminal(record)) continue;
-    // A clock set back before the wait began ends it too (`siteWaitOver`).
-    const due =
-      since <= now && since + SITE_WAIT_MS > now ? since + SITE_WAIT_MS : now + SITE_MOVE_MS;
-    when = Math.min(when ?? due, due);
+    if (terminal(record)) continue;
+    // The same persistent alarm also ends a watch whose page never announces again.
+    for (const [since, duration] of [
+      [record.timing.pageSince, SITE_WAIT_MS],
+      [record.watch?.since, WATCH_MS],
+    ] as const) {
+      if (since === undefined) continue;
+      // A clock set back before either wait began ends it too.
+      const due = since <= now && since + duration > now ? since + duration : now + SITE_MOVE_MS;
+      when = Math.min(when ?? due, due);
+    }
   }
   if (when === rt.vars.siteWaitAt) return;
   rt.vars.siteWaitAt = when;

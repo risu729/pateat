@@ -30,6 +30,14 @@ export type VaultSyncOutcome =
   | "account-deleted"
   | "skipped";
 
+/** Failure details are diagnostic only; the schedule persists the outcome alone. */
+export type VaultSyncFailure = { outcome: "failed"; cause: string; status?: number };
+export type VaultSyncResult = Exclude<VaultSyncOutcome, "failed"> | VaultSyncFailure;
+export type VaultSyncReport = {
+  connectionId: string;
+  previous?: VaultSyncOutcome | undefined;
+} & ({ outcome: Exclude<VaultSyncOutcome, "failed"> } | VaultSyncFailure);
+
 const time = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER));
 const entrySchema = v.strictObject({
   /** Local `Date.now()` of the last check that was sent. */
@@ -124,17 +132,13 @@ export function createVaultAutoSync(deps: {
   records: VaultSyncRecords;
   /** Connections to check: configured, enabled in settings, with automatic unlock. */
   connections(): Promise<string[]>;
-  run(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncOutcome>;
+  run(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncResult>;
   /** Whether a login attempt is in progress, including one between pages. */
   loginActive(): Promise<boolean>;
   online?: () => boolean;
   nowMs?: () => number;
   /** Each check's outcome, with the stored one of the check before it. */
-  report?: (event: {
-    connectionId: string;
-    outcome: VaultSyncOutcome;
-    previous?: VaultSyncOutcome | undefined;
-  }) => void;
+  report?: (event: VaultSyncReport) => void;
 }) {
   const now = deps.nowMs ?? Date.now;
   const online = deps.online ?? (() => globalThis.navigator?.onLine !== false);
@@ -220,13 +224,14 @@ export function createVaultAutoSync(deps: {
       // Written before the request, so a restart in between does not send it again at once.
       // oxlint-disable-next-line no-await-in-loop -- one connection at a time
       await deps.records.update(connectionId, (current) => ({ ...current, checkedAt: at }));
-      let outcome: VaultSyncOutcome;
+      let result: VaultSyncResult;
       try {
         // oxlint-disable-next-line no-await-in-loop -- one connection at a time
-        outcome = await deps.run(connectionId, holdFor(entry?.deferredSince));
+        result = await deps.run(connectionId, holdFor(entry?.deferredSince));
       } catch {
-        outcome = "failed";
+        result = { outcome: "failed", cause: "exception" };
       }
+      const outcome = typeof result === "string" ? result : result.outcome;
       const finished = now();
       // A connection removed or disabled meanwhile keeps no record of this check; a failed
       // read keeps the outcome, so a 429 back-off or a deleted account is not lost.
@@ -260,7 +265,11 @@ export function createVaultAutoSync(deps: {
           }
       }
       try {
-        deps.report?.({ connectionId, outcome, previous: entry?.outcome });
+        deps.report?.({
+          connectionId,
+          ...(typeof result === "string" ? { outcome: result } : result),
+          previous: entry?.outcome,
+        });
       } catch {
         // A report never changes the schedule.
       }

@@ -774,6 +774,9 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
         },
         undefined,
         result.output.detail,
+        undefined,
+        undefined,
+        result.output.fieldIndex,
       );
       return;
     }

@@ -4,9 +4,18 @@
 description = "Serve the docs website with live reload."
 run = "node node_modules/vitepress/bin/vitepress.js dev"
 
-[tasks.build]
+[tasks.render]
+env.PATEAT_DOCS_URL = "https://pateat.takuk.me/docs"
 description = "Render the docs website into .vitepress/dist."
 run = "node node_modules/vitepress/bin/vitepress.js build"
+
+[tasks.build]
+description = "Package the rendered docs as an assets-only Worker."
+depends = [":render"]
+run = [
+  "node ../../.github/scripts/docs-artifact.mjs revision",
+  "node ../../node_modules/vite/bin/vite.js build",
+]
 
 [tasks.preview]
 description = "Build the docs website and serve the built pages."
@@ -19,4 +28,12 @@ run = "tsc --noEmit -p tsconfig.json"
 [tasks.test]
 description = "Build the docs website and check every local link in the built pages."
 depends = [":build"]
-run = "node check-links.mjs"
+run = ["node check-links.mjs", "node ../../.github/scripts/docs-artifact.mjs check"]
+
+[tasks.bootstrap]
+description = "Create the docs Worker and its routes once with the owner's local Cloudflare login."
+depends = [":test"]
+run = [
+  "node ../../node_modules/cf/bin/cf deploy --prebuilt --mode production",
+  "node ../../node_modules/cf/bin/cf workers triggers deploy --prebuilt --mode production",
+]

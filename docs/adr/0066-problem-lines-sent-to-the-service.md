@@ -18,6 +18,11 @@ owner's devices (read 2026-11-06). Amends [ADR 0019](0019-local-diagnostics-and-
 device sends). Amended on 2026-11-02: the profile setting described in ADR 0055's
 amendment of that day turns the sending off; it is on by default.
 
+Amended on 2026-11-07 for [issue 1317](https://github.com/risu729/pateat/issues/1317):
+send only the final watched failure, as
+[the dated amendment](#amendment-send-the-final-watched-result-2026-11-07) records.
+Implemented with runtime and diagnostics regression coverage; CI validates it.
+
 Date: 2026-10-23
 
 ## Context
@@ -182,3 +187,14 @@ condition that no value leaves.
   reasons, close to a browsing history of every page a login touches.
 - **Keep the lines 30 days.** Enough to fix a failure, but the owner chose a year, the
   same as the other logs.
+
+## Amendment: send the final watched result (2026-11-07)
+
+As recorded in
+[ADR 0019](0019-local-diagnostics-and-logs.md#amendment-a-watched-result-has-one-final-problem-line-2026-11-07),
+a login's provisional watched result is `info` and stays local. Its successful final
+result stays local too; a final blocked result, an expired watch, or a tab closed while
+the result is watched is `warn` and is eligible for the existing problem-line upload.
+The persistent alarm and startup reconciliation end expired watches without waiting for
+another page. An ended record is not warned again on tab closure. The existing redaction
+and upload allowlists are unchanged.

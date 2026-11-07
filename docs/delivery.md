@@ -527,3 +527,86 @@ The configured monthly spending threshold uses accumulated reported or estimated
 cost; it does not promise an exact invoice ceiling. Direct extension inference,
 Access-free service authentication, E2EE settings sync and remote MCP are later
 options with their own acceptance gates, not dependencies of the initial release.
+
+## Docs website delivery
+
+The separate `pateat-docs` Worker serves only static assets at
+`https://pateat.takuk.me/docs/` and `/docs/ja/`. Its exact `/docs` and `/docs/*` routes
+take precedence over the API Worker's Custom Domain without capturing other paths. The
+build is described in [development](development.md#docs-website).
+[Cloudflare documents this route precedence](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/#interaction-with-routes)
+and
+[asset base paths](https://developers.cloudflare.com/workers/static-assets/routing/advanced/serving-a-subdirectory/).
+
+Every CI run packages and checks the docs without credentials. A trusted main-push
+Verify job archives the tested output as `docs-<sha>`, recording repository,
+revision, run ID and file digests. After `CI Check` passes, `Deploy tested docs`
+downloads that artifact from the same run, verifies its provenance, asset-only
+configuration and digests, and deploys that exact output with the pinned deployment
+action. No build or PR artifact is promoted inside the credential-bearing job.
+The docs lock is separate from the server lock; an old run that acquires it after
+main advanced skips release. Deployment readback and public revision, English and
+Japanese page smoke checks must pass.
+
+The owner saved the Access change on 2026-11-07 at 03:43 UTC, as recorded in
+[issue 1322](https://github.com/risu729/pateat/issues/1322). The `pateat bypass`
+application covers `/v1/*`, `/health`, `/.well-known/openid-configuration`,
+`/.well-known/jwks.json`, `/docs` and `/docs/*`. Pairing keeps its own
+`pateat pair` application on `/pair`. A cookie-free check at 03:44 UTC found
+`/docs`, `/docs/` and `/docs/guide` reaching the API's JSON 404 without an
+Access page, `/manage` still returning Access 403, and `/health` returning 200.
+The docs routes are not deployed by that Access change.
+
+### Docs bootstrap
+
+The owner authorized deployment in
+[issue 1322](https://github.com/risu729/pateat/issues/1322). Until the new `docs`
+environment has its credential, the deploy job fails at its first step without
+checking out code or changing Cloudflare. It uses no enable switch and leaves the
+API Worker's separate production job and token unchanged.
+
+The Worker must exist before its token is created: the Account API token form
+only lists existing Workers under Specified Workers (checked by the owner's local
+session on 2026-11-07 at 03:46 UTC; owner decision at 03:47 UTC). After this change
+merges, the owner's local session uses the pinned toolchain and its own Cloudflare
+login, with the intended account selected, and runs from the repository:
+
+```sh
+mise run //apps/docs:bootstrap
+```
+
+The task builds and checks the docs, then executes these commands in `apps/docs`:
+
+```sh
+node ../../node_modules/cf/bin/cf deploy --prebuilt --mode production
+node ../../node_modules/cf/bin/cf workers triggers deploy --prebuilt --mode production
+```
+
+The first deploy creates `pateat-docs`; the trigger command installs only the exact
+`/docs` and `/docs/*` routes. These two routes replace the issue's broader
+`/docs*` proposal so paths such as `/docs-other` still reach the API. The
+[prebuilt cf commands](https://developers.cloudflare.com/cf/projects/#deploy-a-prebuilt-build)
+do not rebuild or run automatic project configuration. Check the public English
+`https://pateat.takuk.me/docs/` and Japanese `/docs/ja/` pages after bootstrap.
+
+Only then, in the owner's Chrome:
+
+1. Create the **Account API token** `pateat-github-actions-docs`, never a user token.
+2. Set **Individual Workers Editor**, **Specified Workers = pateat-docs**.
+3. Set **Workers Routes Edit**, **Specified Domains = takuk.me**.
+4. Create the GitHub environment `docs`, restricted to branch `main`, with secret
+   `CLOUDFLARE_API_TOKEN` containing this token and variable `CLOUDFLARE_ACCOUNT_ID`
+   containing the exact account ID. The same secret name in the separate environment
+   does not reuse the service's production token.
+
+Later main pushes deploy through CI. Routine versions preserve the bootstrap
+routes with `deploy-triggers: false`. No token is created or read by a cloud agent.
+
+### Docs previews
+
+Per-PR previews remain a proposal. A same-repository PR build can still execute
+attacker-controlled dependencies or build code, so giving it even a docs-only
+token changes the delivery trust model. This implementation has no privileged
+`pull_request_target` path, no fork previews and no automatic upload of PR code.
+After an owner decision, a separate preview workflow can use isolated docs-only
+credentials and preview hosting without changing the production routes.

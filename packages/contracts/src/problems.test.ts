@@ -184,6 +184,14 @@ describe("problem report contract (ADR 0066)", () => {
   });
 
   it("checks each field by the kind its event gives it", () => {
+    expect(
+      problemFieldsAllowed("vault.check", { outcome: "failed", cause: "http-error", status: 503 }),
+    ).toBe(true);
+    expect(problemFieldsAllowed("vault.check", { status: "503" })).toBe(false);
+    expect(
+      problemFieldsAllowed("vault.check", { cause: "https://example.test/private?token=secret" }),
+    ).toBe(false);
+    expect(problemFieldsAllowed("vault.check", { message: "private message" })).toBe(false);
     expect(problemFieldsAllowed("vault.refresh", { outcome: "failed", status: 503 })).toBe(true);
     expect(problemFieldsAllowed("vault.refresh", { status: "503" })).toBe(false);
     expect(problemFieldsAllowed("log.dropped", { tab: 4, count: 2 })).toBe(true);

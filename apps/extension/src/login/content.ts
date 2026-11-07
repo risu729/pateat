@@ -45,7 +45,7 @@ import {
   visible,
   watchCodeSubmission,
 } from "../page/code-submission";
-import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
+import { fillBaseline, fillRejection, inputValueMismatch, unreadyForm } from "../page/fill-checks";
 import {
   clickDestinations,
   formDestinations,
@@ -1800,9 +1800,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           | "submitted"
           | "captcha",
         detail?: ExecutionDetail,
+        fieldIndex?: number,
       ) => ({
         ok: false,
         reason,
+        ...(fieldIndex === undefined ? {} : { fieldIndex }),
         // A stop after a key press leaves its characters in the field, which only the
         // page's own keys or a reload clear, so the person is told to reload it; a page
         // that may have submitted them is waited for instead (ADR 0067).
@@ -2011,7 +2013,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         )
           return fail("structural-mismatch", "target-missing");
         if (!form.noValidate && !button?.formNoValidate && !form.checkValidity())
-          return fail("fill-rejected");
+          return fail("fill-rejected", "form-invalid");
         const refused = await destinationRefusal(() =>
           button ? clickDestinations(button) : formDestinations(field, "fill"),
         );
@@ -2326,7 +2328,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 if (stopped && code?.submitted()) return fail("submitted");
                 if (stopped && taken(digit, stopped)) break;
                 // A digit the page kept out is never followed by the rest.
-                if (stopped === "refused") return fail("fill-rejected");
+                if (stopped === "refused") return fail("fill-rejected", "typed-refused", index);
                 if (stopped) return fail("cancelled", stopped);
               }
             } else if (keypads[index]) {
@@ -2370,7 +2372,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                     : undefined;
                 },
               });
-              if (stopped === "refused") return fail("fill-rejected");
+              if (stopped === "refused") return fail("fill-rejected", "typed-refused", index);
               // The field was pressed to open its keypad before a key was missing, so even
               // without a key press the page may have changed (`mutated`).
               if (stopped === "key-missing" || stopped === "keypad-closed")
@@ -2429,7 +2431,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               if (stopped && code?.submitted()) return fail("submitted");
               // A value the page kept a character of out is never submitted.
               if (stopped && !taken(input, stopped)) {
-                if (stopped === "refused") return fail("fill-rejected");
+                if (stopped === "refused") return fail("fill-rejected", "typed-refused", index);
                 return fail("cancelled", stopped);
               }
             } else {
@@ -2463,8 +2465,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             }
             if (cancelled) return fail("cancelled", "document-cancelled");
             if (code.submitted()) return fail("submitted");
-            if (rejectsFill(split ?? writableInputs, baseline, { statuses: false }))
-              return fail("fill-rejected");
+            const rejection = fillRejection(split ?? writableInputs, baseline, { statuses: false });
+            if (rejection)
+              return fail(
+                "fill-rejected",
+                rejection.detail,
+                rejection.fieldIndex === undefined ? undefined : split ? 0 : rejection.fieldIndex,
+              );
             return { ok: true, mutation: "possible" };
           }
           // A preparing fill is followed by a click; the page's own validation must accept
@@ -2476,7 +2483,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             // observes the page instead of clicking.
             if (writableInputs.some((input) => !input.isConnected))
               return fail("structural-mismatch", "form-replaced");
-            if (rejectsFill(writableInputs, baseline)) return fail("fill-rejected");
+            const rejection = fillRejection(writableInputs, baseline);
+            if (rejection) return fail("fill-rejected", rejection.detail, rejection.fieldIndex);
           }
           return { ok: true, mutation: "possible" };
         } finally {

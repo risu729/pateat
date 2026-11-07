@@ -68,6 +68,9 @@
   made after review, including material conflict resolutions. This standing merge
   permission does not approve new library/provider choices or changes to how the
   service is deployed.
+- Fix small review findings that do not block a merge (wording, naming, ordering, stale
+  docs) right away, in the PR or a follow-up PR; never leave a found one unfixed (owner,
+  2026-11-07 05:59 UTC).
 - Have an independent subagent review a design proposal or plan (facts against the
   code, UX gaps, security and permission impact) before asking the owner to decide,
   and say in the ask that it was reviewed.
@@ -76,10 +79,12 @@
   and the Chromium component suites in their own job with `PATEAT_SKIP_ORDERS` and
   `PATEAT_SKIP_COMPONENTS` ([CI](docs/delivery.md#current-foundation-workflows)), is not
   a skip.
-- An agent that acts on GitHub as the owner's account never pushes to, closes or
-  reopens a PR it did not open, except that it closes a PR its own merged PR
-  superseded, after commenting there with a link to that PR (owner, 2026-10-23 12:18
-  UTC).
+- An agent that acts on GitHub as the owner's account never pushes to, closes or reopens
+  a PR it did not open, except that it closes a PR its own merged PR superseded, after
+  commenting there with a link to that PR (owner, 2026-10-23 12:18 UTC), and that an
+  agent asked to merge another agent's PRs pushes merge commits that resolve their
+  conflicts with `main`; it fixes its review findings in its own follow-up PR (owner,
+  2026-11-07 06:05 UTC).
 - Write every PR, issue, commit, workflow run and URL you mention in PR and issue text
   and in messages to the owner as a Markdown link, never a bare `#123`, SHA or URL.
 
