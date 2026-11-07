@@ -311,11 +311,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(clicks("confirm")).toBe(0);
     });
     it.each([
-      ["its inputs", ["birth", "phone"]],
-      ["its button and one input", ["birth", "confirm"]],
+      ["its inputs", ["birth", "phone"], "ok.ok.missing"],
+      ["its button and one input", ["birth", "confirm"], "ok.missing.ok"],
     ])(
       "is not entered while only %s show",
-      async (_label, present) => {
+      async (_label, present, why) => {
         onClick({ login: { path: "/confirm", present } });
         const report = vi.fn<(report: LoginReport) => void>();
         const h = harness({}, { passkeys: noPasskey, report });
@@ -327,7 +327,12 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           { timeout: 6_000 },
         );
         expect(detailFills()).toEqual([]);
-        expect(handlerReports(report)).toEqual([]);
+        // Said once, with the check of each input and then the button (#1381).
+        expect(
+          report.mock.calls.flatMap(([value]) =>
+            value.type === "handler" ? [[value.handler, value.outcome, value.why]] : [],
+          ),
+        ).toEqual([[0, "not-shown", why]]);
       },
       10_000,
     );

@@ -172,6 +172,7 @@ export const PROBLEM_EVENT_FIELDS = {
     kind: "code",
     outcome: "code",
     steps: "count",
+    why: "code",
     url: "path",
   },
   "login.state": {
@@ -396,11 +397,15 @@ export const PROBLEM_PAGE_FIELDS = { tab: "count" } as const satisfies Record<
  * The `info` lines that say why Pateat did nothing on a page, which leave like `warn` and
  * `error` lines (ADR 0066; owner, 2026-10-23 13:00 UTC): each event with the `outcome`
  * values that count, or `"any"` for every `info` line of it. A refused login or sign-in
- * entry press, and a page generation skipped, abstained from or found unavailable.
+ * entry press, a page handler not run, and a page generation skipped, abstained from or
+ * found unavailable.
  */
 export const PROBLEM_INFO_LINES = {
   "login.refused": "any",
   "login.entry": ["refused"],
+  // A page handler Pateat did not run, so a code or button left to the person is told
+  // apart from one Pateat filled (#1381).
+  "login.handler": ["not-shown", "shown-again", "missing-fact", "code-used", "no-room"],
   "recipe.generate": ["skipped", "abstained", "unavailable"],
 } as const satisfies Partial<Record<ProblemEventName, "any" | readonly string[]>>;
 

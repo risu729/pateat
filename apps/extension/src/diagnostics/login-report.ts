@@ -352,6 +352,7 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             kind: report.kind,
             outcome: report.outcome,
             steps: report.steps,
+            why: report.why,
           },
           { source },
         );

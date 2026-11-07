@@ -183,16 +183,60 @@ export async function enterHandler(
     return true;
   });
   if (!observable.length) return false;
+  const reportHandler = (
+    entry: (typeof entries)[number],
+    outcome: Extract<LoginReport, { type: "handler" }>["outcome"],
+  ) =>
+    report(rt, run.live.document, {
+      type: "handler",
+      tabId: run.live.document.tabId,
+      origin: run.live.document.origin,
+      recipeId: run.recipe.id,
+      recipeRevision: run.recipe.revision,
+      handler: entry.index,
+      kind: entry.handler.kind,
+      outcome,
+      steps: handlerSteps(entry.handler).length,
+    });
+  const byOrder = (left: (typeof entries)[number], right: (typeof entries)[number]) =>
+    handlerOrder[left.handler.kind] - handlerOrder[right.handler.kind];
+  // The page did not show a handler this login has not run yet as it needs: the first
+  // such handler's reason is kept, and logged once the login leaves the page to the
+  // person (`handlerMiss`), as a code page left to the person (#1381) must be told apart
+  // in the log from one Pateat filled (ADR 0019). `moved` when the page left the path
+  // before it was read; otherwise each own target's check, as `ok.missing` for a code
+  // field there and a button gone, or several (`matches-2`), hidden or not writable.
+  const notShown = (why: (entry: (typeof observable)[number]) => string) => {
+    const fresh = observable
+      .filter((entry) => !run.metadata.handlers.some((entered) => entered.index === entry.index))
+      .sort(byOrder)[0];
+    if (!fresh) return;
+    run.handlerMiss = {
+      documentId: run.live.document.documentId,
+      path,
+      handler: fresh.index,
+      kind: fresh.handler.kind,
+      steps: handlerSteps(fresh.handler).length,
+      why: codes(why(fresh)),
+    };
+  };
   const observed = await observe(
     rt,
     run,
     observable.flatMap((entry) => entry.targets),
     observable.flatMap((entry) => entry.require),
+    { explain: true },
   );
-  if (!observed || observed.path !== path) return false;
+  if (!observed) return false;
+  if (observed.path !== path) {
+    if (current(rt, run)) notShown(() => "moved");
+    return false;
+  }
   let offset = 0;
+  const offsets = new Map<number, number>();
   let shown = observable
     .filter((entry) => {
+      offsets.set(entry.index, offset);
       const states = observed.targets.slice(offset, offset + entry.targets.length);
       offset += entry.targets.length;
       return (
@@ -201,8 +245,19 @@ export async function enterHandler(
         states.slice(entry.own).every((state) => state !== "unique")
       );
     })
-    .sort((left, right) => handlerOrder[left.handler.kind] - handlerOrder[right.handler.kind]);
-  if (!shown.length) return false;
+    .sort(byOrder);
+  if (!shown.length) {
+    notShown((entry) => {
+      const from = offsets.get(entry.index) ?? 0;
+      const own = (observed.checks ?? observed.targets).slice(from, from + entry.own);
+      // A route field still shown beside a code page's button keeps it the sign-in page.
+      const besideForm = observed.targets
+        .slice(from + entry.own, from + entry.targets.length)
+        .some((state) => state === "unique");
+      return [...own, ...(besideForm ? ["sign-in-shown"] : [])].join(".");
+    });
+    return false;
+  }
   // A `detail` handler learned beside the sign-in form on a route path (ADR 0061) is not
   // entered for the first time while that form shows a failure beside its fields: the
   // password was wrong, and the login ends rejected rather than with the handler.
@@ -225,21 +280,6 @@ export async function enterHandler(
       if (!shown.length) return false;
     }
   }
-  const reportHandler = (
-    entry: (typeof entries)[number],
-    outcome: Extract<LoginReport, { type: "handler" }>["outcome"],
-  ) =>
-    report(rt, run.live.document, {
-      type: "handler",
-      tabId: run.live.document.tabId,
-      origin: run.live.document.origin,
-      recipeId: run.recipe.id,
-      recipeRevision: run.recipe.revision,
-      handler: entry.index,
-      kind: entry.handler.kind,
-      outcome,
-      steps: handlerSteps(entry.handler).length,
-    });
   const challenge = () =>
     stop
       ? stop.end()
@@ -388,6 +428,13 @@ export async function enterHandler(
   reportHandler(fresh, "entered");
   await change(rt, run, event);
   return true;
+}
+
+/** Dot-joined check codes cut to whole codes within the log's 64 characters. */
+function codes(joined: string): string {
+  if (joined.length <= 64) return joined;
+  const cut = joined.slice(0, 65);
+  return cut.slice(0, cut.lastIndexOf("."));
 }
 
 /**

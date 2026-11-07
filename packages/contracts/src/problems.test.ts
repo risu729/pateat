@@ -153,6 +153,20 @@ describe("problem report contract (ADR 0066)", () => {
     expect(accepts(problemReportSchema, info("login.entry", { outcome: "refused" }))).toBe(true);
     for (const outcome of ["skipped", "abstained", "unavailable"])
       expect(accepts(problemReportSchema, info("recipe.generate", { outcome }))).toBe(true);
+    // A page handler Pateat did not run, with why, so a code page left to the person is
+    // told apart from one Pateat filled (#1381); an entered one stays on the device.
+    for (const outcome of ["not-shown", "shown-again", "missing-fact", "code-used", "no-room"])
+      expect(
+        accepts(
+          problemReportSchema,
+          info("login.handler", {
+            kind: "totp",
+            outcome,
+            ...(outcome === "not-shown" ? { why: "ok.missing" } : {}),
+          }),
+        ),
+      ).toBe(true);
+    expect(accepts(problemReportSchema, info("login.handler", { outcome: "entered" }))).toBe(false);
     expect(accepts(problemReportSchema, info("login.entry", { outcome: "pressed" }))).toBe(false);
     expect(accepts(problemReportSchema, info("login.entry", {}))).toBe(false);
     expect(accepts(problemReportSchema, info("recipe.generate", { outcome: "recipe" }))).toBe(

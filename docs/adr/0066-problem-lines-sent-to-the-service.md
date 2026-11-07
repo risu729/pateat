@@ -23,6 +23,10 @@ send only the final watched failure, as
 [the dated amendment](#amendment-send-the-final-watched-result-2026-11-07) records.
 Implemented with runtime and diagnostics regression coverage; CI validates it.
 
+Amended on 2026-11-07 for [issue 1381](https://github.com/risu729/pateat/issues/1381):
+a page handler Pateat did not run is a did-nothing line too, as
+[the dated amendment](#amendment-a-page-handler-not-run-2026-11-07) records.
+
 Date: 2026-10-23
 
 ## Context
@@ -198,3 +202,26 @@ the result is watched is `warn` and is eligible for the existing problem-line up
 The persistent alarm and startup reconciliation end expired watches without waiting for
 another page. An ended record is not warned again on tab closure. The existing redaction
 and upload allowlists are unchanged.
+
+## Amendment: a page handler not run (2026-11-07)
+
+On VRChat's code page (2026-11-07 12:48 UTC), the judge learned a `totp` handler and the
+running login took the new revision over, but the handler was never entered and the
+person typed the code. Only the login's step index showed that Pateat typed nothing, and
+no line said why: a handler the page did not show was passed over silently, and the
+other reasons (`shown-again`, `missing-fact`, `code-used`, `no-room`) stayed in the
+local log. Now:
+
+- A handler on the page's path that the login has not run yet, whose elements do not
+  show as it needs, is logged as `login.handler` with outcome `not-shown` and `why`:
+  `moved` when the page left the path before it was read, else the check that decided
+  each of its own targets in order (a `totp` handler's code field, then its button; a
+  `detail` handler's inputs, then its button), joined with dots, as
+  `ok.missing`, then `sign-in-shown` when a route field still showed beside it. Codes
+  only. The last such reason is kept and logged only once the login leaves the page to
+  the person (it is watched or blocked, or its result settled as unknown) without that
+  handler entered, so a code page read while it still renders logs nothing when its
+  handler is entered after all; each is logged once.
+- `login.handler` lines with outcome `not-shown`, `shown-again`, `missing-fact`,
+  `code-used` or `no-room` are did-nothing lines (`PROBLEM_INFO_LINES`) and go to the
+  service. `entered` and the `detail-*` outcomes stay local, as before.
