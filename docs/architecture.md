@@ -1313,35 +1313,35 @@ already showed and renders again is not new, nor is a mark the input had before 
 fill. The text stays in the content script. A rejected fill reports a fixed cause:
 `typed-refused`, the failing input validity flag (`input-pattern-mismatch`, for
 example), `aria-invalid`, `alert-shown`, `status-shown`, or `form-invalid` for Enter's
-form check. A field-specific cause also logs its zero-based index in the fill step's
-fields; split code inputs map to their one recipe field. Cause codes reach the
-outcome/timing records; the field index reaches the service through the existing warning
-problem line. No page text, label, identifier or value leaves with these diagnostics. A
-fill that submits through its own event is checked only before filling. When a filled
-input was replaced during the wait, nothing is clicked and the attempt observes the page
-instead. After that replacement check, a filled input that is now empty and still
-writable ends the fill as `structural-mismatch` (`form-changed`) before validity, ARIA
-and feedback checks. This permits the existing recipe repair path to handle a page that
-cleared its form, including a required input; it never submits the emptied form. A click
-is not made, and the attempt ends `structural-mismatch` and moves to reconciling, when
-the page emptied a shown input that this document's fills wrote to since the last click,
-or, for a submitting click, when a shown password input that was not writable when those
-fills began is empty. Only the clicked element's form counts (the page, for an element
-outside a form), and only once Pateat filled something in it since the last click.
-St.George's logon page (`ibanking.stgeorge.com.au`) with a remembered access number
-hides its Security Number field; typing the access number clears every field and shows
-it (2026-10-12), so the form would otherwise be sent with the access number and Security
-Number empty. A passkey button beside an empty password field, a registration panel's
-password field shown from the start, and an earlier step's field the page hid and
-cleared do not hold a click. When the page shows a CAPTCHA frame (ADR 0029's S4) as a
-click is about to run and none of its services' token fields holds a token yet, the form
-stays filled and nothing is clicked: the click is left to the person and held as a
-handler's click is, up to two minutes while its button shows
-([ADR 0029](adr/0029-local-sign-in-state.md)); a chooser's click on its list is made as
-before. Explicit credential rejection stops retries with that credential. A structural
-mismatch sends the page for repair, once a UTC day per recipe and device
-([ADR 0041](adr/0041-repair-stale-recipes.md)); unknown submission outcomes require
-reconciliation before any resubmission.
+form check, whose attempt ends `structural-mismatch`. A field-specific cause also logs
+its zero-based index in the fill step's fields; split code inputs map to their one
+recipe field. Cause codes reach the outcome/timing records; the field index reaches the
+service through the existing warning problem line. No page text, label, identifier or
+value leaves with these diagnostics. A fill that submits through its own event is
+checked only before filling. When a filled input was replaced during the wait, nothing
+is clicked and the attempt observes the page instead. After that replacement check, a
+filled input that is now empty and still writable ends the fill as `structural-mismatch`
+(`form-changed`) before validity, ARIA and feedback checks. This permits the existing
+recipe repair path to handle a page that cleared its form, including a required input;
+it never submits the emptied form. A click is not made, and the attempt ends
+`structural-mismatch` and moves to reconciling, when the page emptied a shown input that
+this document's fills wrote to since the last click, or, for a submitting click, when a
+shown password input that was not writable when those fills began is empty. Only the
+clicked element's form counts (the page, for an element outside a form), and only once
+Pateat filled something in it since the last click. St.George's logon page
+(`ibanking.stgeorge.com.au`) with a remembered access number hides its Security Number
+field; typing the access number clears every field and shows it (2026-10-12), so the
+form would otherwise be sent with the access number and Security Number empty. A passkey
+button beside an empty password field, a registration panel's password field shown from
+the start, and an earlier step's field the page hid and cleared do not hold a click.
+When the page shows a CAPTCHA frame (ADR 0029's S4) as a click is about to run and none
+of its services' token fields holds a token yet, the form stays filled and nothing is
+clicked: the click is left to the person and held as a handler's click is, up to two
+minutes while its button shows ([ADR 0029](adr/0029-local-sign-in-state.md)); a
+chooser's click on its list is made as before. Explicit credential rejection stops
+retries with that credential. A structural mismatch sends the page for repair, once a
+UTC day per recipe and device ([ADR 0041](adr/0041-repair-stale-recipes.md)); unknown
+submission outcomes require reconciliation before any resubmission.
 
 Every click Pateat makes on a page (a step's, a chooser's list, an account switch and a
 sign-in entry) first sends the element the mouse events a person's click sends, in

@@ -101,34 +101,24 @@ export function fillBaseline(inputs: readonly FilledControl[]): FillBaseline {
   };
 }
 
-/**
- * Whether the page rejected a fill once its own handlers ran: a filled input fails its
- * constraint validation (read without firing `invalid`), became `aria-invalid="true"`,
- * or an alert or relevant live region shows text that none showed before the fill. A
- * mark the input already had before the fill, such as one left by an earlier failed
- * sign-in that no script clears, is not the page's answer. The caller handles a filled
- * input that is no longer connected first. Without `statuses`, only alerts and the inputs'
- * own marks count, for a fill whose status regions may announce the page's own
- * submission.
- */
-export const fillRejectionDetails = [
-  "input-value-missing",
-  "input-type-mismatch",
-  "input-pattern-mismatch",
-  "input-too-long",
-  "input-too-short",
-  "input-range-underflow",
-  "input-range-overflow",
-  "input-step-mismatch",
-  "input-bad-input",
-  "input-custom-error",
-  "aria-invalid",
-  "alert-shown",
-  "status-shown",
-] as const;
+/** The fixed codes {@link fillRejection} returns. */
+export type FillRejectionDetail =
+  | "input-value-missing"
+  | "input-type-mismatch"
+  | "input-pattern-mismatch"
+  | "input-too-long"
+  | "input-too-short"
+  | "input-range-underflow"
+  | "input-range-overflow"
+  | "input-step-mismatch"
+  | "input-bad-input"
+  | "input-custom-error"
+  | "aria-invalid"
+  | "alert-shown"
+  | "status-shown";
 
 export type FillRejection = {
-  detail: (typeof fillRejectionDetails)[number];
+  detail: FillRejectionDetail;
   /** Zero-based position in the supplied controls; the caller maps split-code inputs. */
   fieldIndex?: number;
 };
@@ -145,7 +135,18 @@ const validityDetails = {
   valueMissing: "input-value-missing",
 } as const;
 
-/** The first rejecting check, using only fixed codes and a control index. */
+/**
+ * Whether the page rejected a fill once its own handlers ran: a filled input fails its
+ * constraint validation (read without firing `invalid`), became `aria-invalid="true"`,
+ * or an alert or relevant live region shows text that none showed before the fill. A
+ * mark the input already had before the fill, such as one left by an earlier failed
+ * sign-in that no script clears, is not the page's answer. The caller handles a filled
+ * input that is no longer connected first. Without `statuses`, only alerts and the inputs'
+ * own marks count, for a fill whose status regions may announce the page's own
+ * submission.
+ *
+ * Returns the first rejecting check, using only fixed codes and a control index.
+ */
 export function fillRejection(
   inputs: readonly FilledControl[],
   before: FillBaseline,
