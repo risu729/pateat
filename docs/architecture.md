@@ -1092,7 +1092,11 @@ rejected, the length is checked after every typing; a value of the same length, 
 a mask or a case the page changed, is kept. Since the owner's decision on 2026-11-07
 at 03:45 UTC, a value changed only by inserting ASCII spaces (U+0020) and hyphen-minus
 (U+002D) is kept too: removing only the inserted characters must give exactly the typed
-value, with its original characters and separators preserved in order. The held value,
+value, with its original characters and separators preserved in order. Each insertion
+sits between two of the typed characters, never before the first or after the last, and
+a number input gets no insertion, since there a hyphen only changes the number. The rule
+covers every typed field, password and code fields included; a one-digit field of a
+split code cannot take an insertion within its `maxlength` of 1. The held value,
 including insertions, must still fit `maxlength`. Other inserted punctuation gets no
 exception. This exact comparison uses raw characters, so an inserted fullwidth space
 or hyphen cannot become an allowed separator through width folding

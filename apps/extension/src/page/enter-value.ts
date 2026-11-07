@@ -89,15 +89,19 @@ export function gap(): Promise<void> {
 }
 
 /**
- * Whether removing only inserted ASCII spaces and hyphens from `held` leaves exactly
- * `value`. Match original characters first so its own separators must remain in order.
- * Compare the raw characters: width folding must not admit another inserted separator.
+ * Whether removing only ASCII spaces and hyphens inserted between two of `value`'s
+ * characters from `held` leaves exactly `value`. Match original characters first so its
+ * own separators must remain in order. A separator before the first or after the last
+ * character groups nothing and could change the value, as a leading hyphen makes a
+ * number negative. Compare the raw characters: width folding must not admit another
+ * inserted separator.
  */
 function withInsertedSeparators(held: string, value: string): boolean {
   let at = 0;
   for (const character of held) {
     if (value.startsWith(character, at)) at += character.length;
-    else if (character !== " " && character !== "-") return false;
+    else if ((character !== " " && character !== "-") || at === 0 || at === value.length)
+      return false;
   }
   return at === value.length;
 }
@@ -123,7 +127,8 @@ function withInsertedSeparators(held: string, value: string): boolean {
  * too (owner decision, 2026-10-18 02:07 UTC; see {@link widthFolded}). A value changed
  * only by inserting ASCII spaces (U+0020) and hyphen-minus (U+002D) is kept too: removing
  * only the inserted characters must give exactly `value`, preserving its own separators
- * and every original character in order (owner decision, 2026-11-07 03:45 UTC; ADR 0010).
+ * and every original character in order (owner decision, 2026-11-07 03:45 UTC; ADR 0010),
+ * when each sits between two of its characters and the input is not a number input.
  * These exceptions require the held value, including inserted separators, to fit the
  * field's `maxlength`. Other inserted characters get no exception. After `change` and
  * blur the page gets another pause and the same checks apply, unless the page emptied
@@ -235,8 +240,10 @@ export async function typeValue<Cause extends string>(
     // could not have left in it.
     if (input.type !== "number" && input.maxLength >= 0 && held.length > input.maxLength)
       return "refused";
+    // A number input holds no grouping, so a hyphen there only changes the number, as
+    // `1e5` to `1e-5`.
     return widthFolded(held) !== widthFolded(value) &&
-      !withInsertedSeparators(held, value) &&
+      (input.type === "number" || !withInsertedSeparators(held, value)) &&
       (cancelledKey || [...held].length !== [...value].length) &&
       !(cleared && held === "")
       ? "refused"

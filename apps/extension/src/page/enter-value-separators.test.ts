@@ -65,7 +65,7 @@ describe("typing into page-formatted values", () => {
     },
   );
 
-  it.each(["/", ".", "(", "\u00a0", "\u2212", "\uff0d", "\u3000"])(
+  it.each(["/", ".", "(", "\t", "\u00a0", "\u2010", "\u2013", "\u2212", "\uff0d", "\u3000"])(
     "refuses an inserted character outside ASCII space/hyphen: %j",
     async (separator) => {
       const input = field();
@@ -105,6 +105,26 @@ describe("typing into page-formatted values", () => {
       expect(input.value).toBe(held);
     },
   );
+
+  it.each([
+    ["12345678", " 12345678"],
+    ["12345678", "-12345678"],
+    ["12345678", "12345678 "],
+    ["12345678", "12345678----"],
+  ] as const)("refuses a separator before or after the value: %j to %j", async (typed, held) => {
+    const input = field();
+    rewriteLastInput(input, typed, held);
+    expect(await typeValue(input, typed, setter)).toBe("refused");
+    expect(input.value).toBe(held);
+  });
+
+  it("refuses a hyphen a page inserts into a number input", async () => {
+    const input = field();
+    input.type = "number";
+    rewriteLastInput(input, "1e5", "1e-5");
+    expect(await typeValue(input, "1e5", setter)).toBe("refused");
+    expect(input.value).toBe("1e-5");
+  });
 
   it.each([
     ["1234-5678", "1234- 5678"],
