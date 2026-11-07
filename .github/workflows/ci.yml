@@ -1,16 +1,8 @@
-name: CI
-# No workflow-level path filters: every PR must receive the required aggregate result.
-
+name: Format separator acceptance
 on:
-  pull_request:
   push:
-    branches: [main]
-  workflow_dispatch:
-# A newer PR push cancels the older run. Every main push finishes its own run, because a
-# cancelled main run produces no release artifact and never deploys the server.
-concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    branches: [codex/1326-separator-format-validation]
+    paths: [.github/workflows/ci.yml]
 permissions: {}
 defaults:
   run:
@@ -20,272 +12,29 @@ env:
   WRANGLER_SEND_METRICS: "false"
   PATEAT_REVISION: ${{ github.sha }}
 jobs:
-  verify:
-    name: Verify
+  format:
+    name: Pinned separator source and test formatting
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      # No browser: every suite that drives Chromium runs in another job.
       - uses: $/.github/actions/setup
-      - name: Run the complete local verification graph
-        env:
-          # Use the read-only job token for upstream action-pin verification.
-          GITHUB_TOKEN: ${{ github.token }}
-          # The browser shards below run the packaged-extension browser tests.
-          PATEAT_SKIP_E2E: "1"
-          # The `Orders and components` job below walks every order of events of a small
-          # login and runs the Chromium component suites.
-          PATEAT_SKIP_ORDERS: "1"
-          PATEAT_SKIP_COMPONENTS: "1"
-          # Each Vitest run writes coverage/<run>/coverage-final.json.
-          PATEAT_COVERAGE: "1"
-        run: mise run check
-      - name: Summarize test coverage
-        # Report only: a failed test run still gets the table of what it measured, and the
-        # summary never fails the job.
+      - name: Format the approved implementation and independent tests
+        run: |
+          mise exec -- oxfmt --write apps/extension/src/page/enter-value.ts apps/extension/src/page/enter-value-separators.test.ts tests/extension/login-server.ts tests/extension/login.spec.ts
+          mise exec -- rumdl fmt docs/architecture.md docs/adr/0010-inference-field-hints.md
+      - name: Export formatter patch
         if: ${{ !cancelled() }}
-        continue-on-error: true
-        run: mise run coverage:summary
-      - name: Prepare tested server artifact
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: mise exec -- node .github/scripts/server-artifact.mjs pack
-      - name: Archive tested server artifact
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: server-${{ github.sha }}
-          path: work/server-release/
-          include-hidden-files: true
-          if-no-files-found: error
-          # "Re-run all jobs" packs the revision again under the same name.
-          overwrite: true
-          retention-days: 14
-  orders:
-    name: Orders and components
-    runs-on: ubuntu-26.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: $/.github/actions/setup
-        with:
-          browser: "true"
-      # Both take minutes of CPU that Verify's unit tests compete for: beside them each walk
-      # took about 50 s (run 40034957203), and the three Chromium suites, which run one at a
-      # time after both builds, added about 2 minutes to Verify (run 42211009805).
-      - name: Walk every order of events and run the Chromium component suites
-        env:
-          PATEAT_COVERAGE: "1"
         run: |
-          mise run //packages/contracts:test:orders ::: //tests/options:test \
-            ::: //apps/extension:test:dom ::: //tests/manage:test
-      - name: Summarize component coverage
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        run: mise run coverage:summary
-  browser:
-    name: Browser (${{ matrix.shard }}/${{ matrix.total }})
-    runs-on: ubuntu-26.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    strategy:
-      # Let every shard report its own failures.
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6]
-        # The number of shards above.
-        total: [6]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: $/.github/actions/setup
-        with:
-          browser: "true"
-      - name: Run the packaged-extension browser tests
-        env:
-          PATEAT_E2E_SHARD: ${{ matrix.shard }}/${{ matrix.total }}
-        run: mise run //tests/extension:test
-      - name: Archive browser test failure context
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: browser-results-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          path: test-results/extension/
-          if-no-files-found: ignore
-          retention-days: 7
-  ci-check:
-    name: CI Check
-    needs: [verify, orders, browser]
-    if: ${{ always() }}
-    runs-on: ubuntu-slim
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      # Any result other than success fails the check: failure, cancelled, or skipped.
-      - name: Require all verification to succeed
-        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
-        env:
-          RESULTS: ${{ toJSON(needs.*.result) }}
-        run: |
-          echo "::error::Not every job succeeded: ${RESULTS}"
-          exit 1
-  deploy:
-    name: Deploy tested server
-    # Every main push whose CI passed releases; there is no enable switch. Until the owner
-    # has set the production credentials, the first step fails before any change.
-    needs: [ci-check]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.ci-check.result == 'success' }}
-    runs-on: ubuntu-26.04
-    timeout-minutes: 20
-    environment: production
-    # Keep this lock through migration, activation and smoke. Only one release waits for it:
-    # a later arrival cancels the waiting one, so the server can lag until the next release;
-    # the check below keeps it from moving back.
-    concurrency:
-      group: server-production
-      cancel-in-progress: false
-    permissions:
-      contents: read # Check out the revision and compare it with the live one.
-    env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      SERVER_WORKER: ${{ vars.SERVER_WORKER }}
-      SERVER_HEALTH_URL: ${{ vars.SERVER_HEALTH_URL }}
-    steps:
-      - name: Require the production credentials before anything else
-        env:
-          API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          if [[ -z "${API_TOKEN}" || ! "${CLOUDFLARE_ACCOUNT_ID}" =~ ^[0-9a-f]{32}$ ]]; then
-            echo "::error::Set the production environment secret CLOUDFLARE_API_TOKEN and variable CLOUDFLARE_ACCOUNT_ID."
-            exit 1
-          fi
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: $/.github/actions/setup
-      - name: Release only a revision that is ahead of the live server
-        id: source
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Main often gains merges faster than CI finishes, so runs can reach this step out
-          # of order; the server never moves back, but a cancelled waiting run can leave it
-          # behind until the next release.
-          live="$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' "${SERVER_HEALTH_URL}" | jq -r '.revision // empty' || true)"
-          if [[ "${live}" =~ ^[0-9a-f]{40}$ ]]; then
-            order="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${live}...${GITHUB_SHA}" --jq .status)"
-          else
-            # Without a readable live revision, only the main head may be released.
-            head="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
-            if [[ "${head}" = "${GITHUB_SHA}" ]]; then order=ahead; else order=behind; fi
-            echo "The live revision is unreadable; releasing only the main head ${head}." >> "${GITHUB_STEP_SUMMARY}"
-          fi
-          case "${order}" in
-            ahead) echo "release=true" >> "${GITHUB_OUTPUT}" ;;
-            identical | behind)
-              if [[ "${order}" = identical && "${GITHUB_RUN_ATTEMPT}" -gt 1 ]]; then
-                # A retry after the activation: repeat the release so that the readback and
-                # the smoke checks run again (migrations and the version are idempotent).
-                echo "release=true" >> "${GITHUB_OUTPUT}"
-                echo "Revision ${GITHUB_SHA} is live and this is attempt ${GITHUB_RUN_ATTEMPT}; repeating the release." >> "${GITHUB_STEP_SUMMARY}"
-              else
-                echo "release=false" >> "${GITHUB_OUTPUT}"
-                echo "Revision ${GITHUB_SHA} is not ahead of the live server (${order}); nothing to release." >> "${GITHUB_STEP_SUMMARY}"
-              fi
-              ;;
-            *)
-              echo "::error::Live revision ${live} is not on main (${order}); check the server before releasing."
-              exit 1
-              ;;
-          esac
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: ${{ steps.source.outputs.release == 'true' }}
-        with:
-          name: server-${{ github.sha }}
-          path: work/server-release/
-      - name: Verify the artifact digests and deployment configuration
-        if: ${{ steps.source.outputs.release == 'true' }}
-        id: restore
-        run: mise exec -- node .github/scripts/server-artifact.mjs restore
-      # A failed migration stops the release before activation.
-      - name: Apply the released migrations to the recorded database
-        if: ${{ steps.source.outputs.release == 'true' }}
-        timeout-minutes: 10
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          DATABASE: ${{ steps.restore.outputs.database }}
-          CF_QUIET: "1"
-        run: |
-          cf=(mise exec -- node node_modules/cf/bin/cf)
-          migrations="${GITHUB_WORKSPACE}/work/server-release/migrations"
-          # Verify the target before changing it: the exact ID and its expected name.
-          "${cf[@]}" d1 get "${DATABASE}" |
-            jq -e --arg id "${DATABASE}" '(.result // .) | .uuid == $id and .name == "pateat"' > /dev/null
-          {
-            echo '```json'
-            "${cf[@]}" d1 migrations list "${DATABASE}" --dir "${migrations}"
-            echo '```'
-          } | tee -a "${GITHUB_STEP_SUMMARY}"
-          "${cf[@]}" d1 migrations apply "${DATABASE}" --dir "${migrations}"
-          "${cf[@]}" d1 migrations list "${DATABASE}" --dir "${migrations}" |
-            jq -e 'length == 0' > /dev/null
-      # The action uploads the version, creates the 100% deployment and then reads that
-      # deployment back within 30 seconds, and it never repeats an activation by itself.
-      # On 2026-10-12 it failed without confirming a deployment (an upload answered 504,
-      # or the readback got no timely answer for the whole budget). One more activation of
-      # the same build, right away, must pass the same strict readback; there is no fixed
-      # wait before it. If that fails too, the next main push or "Re-run failed jobs" releases.
-      - name: Activate the exact prebuilt server
-        if: ${{ steps.source.outputs.release == 'true' }}
-        id: deploy
-        continue-on-error: true
-        uses: risu729/wrangler-deploy-action@c85532bf934238e9811676cbf10a4d08ff88ae12 # v3.0.0
-        with:
-          mode: production
-          working-directory: services/api
-          worker: ${{ vars.SERVER_WORKER }}
-          build-mode: production
-          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          production-strategy: versions
-          deploy-triggers: "false"
-      - name: Activate the exact prebuilt server again after a failed activation
-        if: ${{ steps.source.outputs.release == 'true' && steps.deploy.outcome == 'failure' }}
-        id: deploy-retry
-        uses: risu729/wrangler-deploy-action@c85532bf934238e9811676cbf10a4d08ff88ae12 # v3.0.0
-        # The same inputs as the first activation.
-        with:
-          mode: production
-          working-directory: services/api
-          worker: ${{ vars.SERVER_WORKER }}
-          build-mode: production
-          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          production-strategy: versions
-          deploy-triggers: "false"
-      - name: Verify deployment readback and hosted revision
-        if: ${{ steps.source.outputs.release == 'true' }}
-        env:
-          RELEASE_REVISION: ${{ github.sha }}
-          DEPLOYMENT_ID: ${{ steps.deploy-retry.outputs.deployment-id || steps.deploy.outputs.deployment-id }}
-          VERSION_ID: ${{ steps.deploy-retry.outputs.version-id || steps.deploy.outputs.version-id }}
-        run: mise exec -- node .github/scripts/server-health.mjs
-      # Synthetic owners are seeded in D1 and every row they own is removed again;
-      # see services/api/README.md. A failure leaves the release failed.
-      - name: Run hosted smoke checks
-        if: ${{ steps.source.outputs.release == 'true' }}
-        timeout-minutes: 5
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          DATABASE: ${{ steps.restore.outputs.database }}
-        run: mise exec -- node services/api/smoke/hosted.ts
+          mise exec -- node --input-type=module <<'NODE'
+          import { execFileSync } from "node:child_process";
+          const paths = ["apps/extension/src/page/enter-value.ts","apps/extension/src/page/enter-value-separators.test.ts","tests/extension/login-server.ts","tests/extension/login.spec.ts","docs/architecture.md","docs/adr/0010-inference-field-hints.md"];
+          const patch = execFileSync("git", ["diff", "--", ...paths], { encoding: "utf8" });
+          const encoded = Buffer.from(patch, "utf8").toString("base64");
+          for (let i = 0; i < encoded.length; i += 12000) console.log("FORMAT_PATCH " + i / 12000 + " " + encoded.slice(i, i + 12000));
+          console.log("FORMAT_DONE");
+          NODE

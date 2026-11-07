@@ -2772,3 +2772,41 @@ test("a cleared required password takes precedence over concurrent failure feedb
     await fixture.close();
   }
 });
+
+for (const [name, query, account] of [
+  ["spaces", "space", "0000 1234"],
+  ["hyphens", "hyphen", "0000-1234"],
+] as const) {
+  test("keeps account grouping with " + name + " and completes every login field", async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin);
+        const page = await context.newPage();
+        await page.goto(fixture.origin + "/identity?group-account=" + query);
+        await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+        expect(
+          await page.evaluate(() => ({
+            identity: JSON.parse(sessionStorage.getItem("identity") || "null") as unknown,
+            identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
+            submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+            identityMatched: sessionStorage.getItem("identityMatched"),
+            passwordMatched: sessionStorage.getItem("passwordMatched"),
+          })),
+        ).toEqual({
+          identity: ["007", account],
+          identityClicks: 1,
+          submitClicks: 1,
+          identityMatched: "true",
+          passwordMatched: "true",
+        });
+        await expect
+          .poll(() => logs(worker, "login.attempt"))
+          .toContainEqual(expect.objectContaining({ outcome: "authenticated" }));
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+}
