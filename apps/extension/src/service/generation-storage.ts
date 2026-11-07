@@ -439,7 +439,11 @@ export function createGenerationStorage({
     claimSample,
     claimReplace,
     releaseReplace,
-    // Read the current queue at the caller's fence, rather than capturing its initial promise.
+    recentSamples,
+    sameSample,
+    // Read each current queue at the caller's fence, rather than its initial promise.
     pendingAttempts: () => queue,
+    pendingSlots: () => slotQueue,
+    pendingSamples: () => sampleQueue,
   };
 }

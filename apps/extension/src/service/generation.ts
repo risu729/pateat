@@ -185,7 +185,11 @@ export function createLoginGeneration(options: {
     claimSample,
     claimReplace,
     releaseReplace,
+    recentSamples,
+    sameSample,
     pendingAttempts,
+    pendingSlots,
+    pendingSamples,
   } = createGenerationStorage({ storage, slotStorage, sampleStorage, now });
 
   async function connected() {
@@ -397,7 +401,7 @@ export function createLoginGeneration(options: {
     async slotFields(recipeId: string): Promise<LoginBindingTemplate | undefined> {
       const connection = await service.connection().catch(() => undefined);
       if (!connection) return undefined;
-      await slotQueue;
+      await pendingSlots();
       return (await readSlotMaps())?.find(
         (map) =>
           map.service === connection.origin &&
@@ -414,7 +418,7 @@ export function createLoginGeneration(options: {
       const { recipeId, branch } = sample;
       // The service files a sample under the layout the login ran (ADR 0060).
       if (!v.is(recipeBranchSchema, branch)) return { outcome: "not-due", reason: "no-layout" };
-      await sampleQueue;
+      await pendingSamples();
       const due = await recentSamples().then(
         (samples) => !samples.some(sameSample(connection, recipeId, branch)),
         () => false,
