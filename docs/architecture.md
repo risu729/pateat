@@ -955,16 +955,22 @@ route: on the list, an account whose item holds a discoverable passkey presses i
 any other takes the list
 ([ADR 0079](adr/0079-passkey-button-beside-an-account-list.md)). A list by names that
 names no matching item and shows no control for another account is sent for its button
-alone. A conditional passkey request alone sends nothing, and
-the page right after a submitted password form is not sent. The request also offers one
-slot per custom field a matching item allows (Text, Hidden, or Linked with an allowed
-source), named by field name and position, under an opaque ID such as `custom-1`
-([ADR 0027](adr/0027-per-account-login-routes.md)). Just before sending, it reads the
-matching items' usernames and the values of Text fields and of Linked fields that read
-the username or a Text field for their shape, each sent only when all items agree. A
-list of accounts is sent with no slots or shapes at all, and a sign-in entry page
-without slots; both have the matching items' usernames hidden as every page sent does
-(owner, 2026-10-23 11:48 UTC;
+alone. A conditional passkey request alone sends nothing, and the page right after a
+submitted password form is not sent. The request also offers one slot per custom field a
+matching item allows (Text, Hidden, or Linked with an allowed source), named by field
+name and position, under an opaque ID such as `custom-1`
+([ADR 0027](adr/0027-per-account-login-routes.md)). A field named `SSO` or
+`SSO <number>` (`isSsoFieldName`: after NFKC normalization, ignoring surrounding white
+space and letter case) is never offered, read for a shape, bound to a slot or used as a
+personal detail, and a Linked field that reads one is never offered; a binding or
+generated slot map that names such a field refuses `sso-field` before any fill, and a
+`password` variant with such a binding is passed over for the next
+([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md)). Just before sending, it
+reads the matching items' usernames and the values of Text fields and of Linked fields
+that read the username or a Text field for their shape, each sent only when all items
+agree. A list of accounts is sent with no slots or shapes at all, and a sign-in entry
+page without slots; both have the matching items' usernames hidden as every page sent
+does (owner, 2026-10-23 11:48 UTC;
 [ADR 0028](adr/0028-account-chooser-login-pages.md#amendment-2026-10-23-sent-without-slots),
 [ADR 0031](adr/0031-sign-in-entry-pages.md#amendment-2026-10-23-the-matching-items-usernames-are-hidden)).
 The returned recipe enters the recipe cache and starts at once: `login.reconnect` asks
