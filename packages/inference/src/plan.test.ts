@@ -96,6 +96,25 @@ describe("a button beside a form without one of its own", () => {
     );
   });
 
+  it("presses it when other buttons outside every form follow it", () => {
+    // LeetCode's sign-in page (2026-11-07): the username and password in a form, then the
+    // "Sign In" button outside it, then a "Sign Up" button outside it too.
+    const signUp = input("up", { role: "button", label: "Sign Up" });
+    expect(validatePagePlan(page(signUp), loginSlots, { fields: both, action: submit }).ok).toBe(
+      true,
+    );
+    expect(
+      actionPurpose(page(signUp), loginSlots, { fields: [both[0]!], action: submit }, "advance"),
+    ).toBe("submit");
+    // The following button is no form's button: pressing it after the fields is refused.
+    expect(
+      validatePagePlan(page(signUp), loginSlots, {
+        fields: both,
+        action: { candidate: "up", purpose: "submit" },
+      }),
+    ).toEqual({ ok: false, reason: "mixed-groups" });
+  });
+
   it("refuses it for any other form, field or button", () => {
     for (const extra of [
       input("own", { role: "button", group: "f1" }),
@@ -105,16 +124,24 @@ describe("a button beside a form without one of its own", () => {
         validatePagePlan(page(extra), loginSlots, { fields: both, action: submit }),
         extra.id,
       ).toEqual({ ok: false, reason: "mixed-groups" });
-    // Nor for a form beside another password form, beside another button outside every
-    // form, or as a passkey or sign-up button.
-    for (const extra of [
-      input("other", { role: "password", group: "f2" }),
+    // Nor for a form beside another password form, or after another button outside every
+    // form that comes between the form and it, or as a passkey or sign-up button.
+    expect(
+      validatePagePlan(page(input("other", { role: "password", group: "f2" })), loginSlots, {
+        fields: both,
+        action: submit,
+      }),
+    ).toEqual({ ok: false, reason: "mixed-groups" });
+    const between = page();
+    between.candidates.splice(
+      3,
+      0,
       input("passkey", { role: "button", label: "パスキーでログイン" }),
-    ])
-      expect(
-        validatePagePlan(page(extra), loginSlots, { fields: both, action: submit }),
-        extra.id,
-      ).toEqual({ ok: false, reason: "mixed-groups" });
+    );
+    expect(validatePagePlan(between, loginSlots, { fields: both, action: submit })).toEqual({
+      ok: false,
+      reason: "mixed-groups",
+    });
     for (const label of ["Sign in with a passkey", "Create a passkey"]) {
       const named = page();
       named.candidates[3] = input("go", { role: "button", label });

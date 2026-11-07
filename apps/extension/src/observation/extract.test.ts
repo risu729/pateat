@@ -998,6 +998,52 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["pw", "go"]);
   });
 
+  it("leaves a site search box outside every form, and the bar around it, out of a sign-in page", () => {
+    // LeetCode's sign-in page (2026-11-07), reduced: a navigation bar with menu buttons and
+    // a search box outside every form, then a card whose form holds the fields while its
+    // "Sign In" and "Sign Up" buttons sit outside it.
+    const card = `<main><div class="card"><div class="stack">
+        <form><input id="id_login" autocomplete="username" placeholder="Username or E-mail">
+          <input id="id_password" type="password" autocomplete="current-password"></form>
+        <div><button id="signin_btn" type="button">Sign In</button></div>
+        <div><a href="#">Forgot Password?</a><button type="button">Sign Up</button></div>
+      </div></div></main>`;
+    for (const search of [
+      `<input placeholder="Search">`,
+      `<input type="search">`,
+      `<div role="search"><input id="q"></div>`,
+    ]) {
+      page(
+        `<nav><button id="interview" type="button">Interview</button>
+          <button id="store" type="button">Store</button>${search}</nav>${card}`,
+      );
+      const observation = observe();
+      expect(observation.complete, search).toBe(true);
+      expect(
+        observation.candidates.map((candidate) => [candidate.target.value, candidate.group]),
+        search,
+      ).toEqual([
+        ["id_login", "f1"],
+        ["id_password", "f1"],
+        ["signin_btn", undefined],
+        ["Sign Up", undefined],
+      ]);
+    }
+    // Any other field outside every form still brings the controls outside every form.
+    page(`<nav><button id="store" type="button">Store</button><input id="q"></nav>${card}`);
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual([
+      "store",
+      "q",
+      "id_login",
+      "id_password",
+      "signin_btn",
+      "Sign Up",
+    ]);
+    // A page whose only field is a search box outside every form is no sign-in page.
+    page(`<nav><input placeholder="Search"><button>Go</button></nav>`);
+    expect(extractLoginObservation()).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
   it("never gives a role=button control and a link of another form the same text locator", () => {
     // The login form's Help widget is named by its text there; the link of a form that is
     // no login form, such as a newsletter form beside it, is not checked against it.

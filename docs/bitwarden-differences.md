@@ -130,13 +130,17 @@ Pateat's rule is `besideForm` in `packages/inference/src/plan.ts`
   only inside that form and otherwise calls the form's `requestSubmit()`
   ([auto-submit-login.ts](https://github.com/bitwarden/clients/blob/abccf1e342dccba06a3cc635cd4c706defa64a32/apps/browser/src/autofill/content/auto-submit-login.ts#L133-L142)).
   Pateat's generated recipe may click a button outside the form (owner's choice,
-  2026-10-23 11:47 UTC). It does so only when every filled field is in that
-  one form, that form holds the page's only password field and has no button the page's
+  2026-10-23 11:47 UTC). It does so only when every filled field is in that one form,
+  that form holds the page's only password field and has no button the page's
   description lists (a script or icon button without a locator is not listed), no field
-  outside every form is on the page, and the button is the only one outside every form
-  and names no passkey, so it is the one the extractor keeps beside that form. Sakura
-  Internet's login button is a script `type="button"` just after its form: submitting
-  the form would post nothing the page handles.
+  outside every form is on the page (a site search box outside every form is no such
+  field: the description leaves it out), and the button names no passkey and comes right
+  after that form's last described element, so it is one the extractor keeps beside that
+  form; other buttons outside every form may follow it. Sakura Internet's login button
+  is a script `type="button"` just after its form: submitting the form would post
+  nothing the page handles. LeetCode's "Sign In" button is a `type="button"` just after
+  its form, followed by a "Sign Up" button outside the form, with a search box in the
+  navigation bar (2026-11-07, [#1373](https://github.com/risu729/pateat/issues/1373)).
 
 ## Frames
 

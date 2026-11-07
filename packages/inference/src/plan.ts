@@ -179,10 +179,13 @@ export const isActionRole = (role: ObservedCandidate["role"]) =>
 /**
  * The form a button outside every form presses for: the one form the plan's fields share,
  * when that form holds the page's only password field and shows no button of its own, no
- * field outside every form is on the page, and the action is the only button outside
- * every form and names no passkey. Such a button can only be the one the extractor kept
- * beside that password form (`besideDepth`), as Sakura Internet's login button follows
- * its form (2026-10-23). Undefined for any other action, which presses for its own group.
+ * field outside every form is on the page, and the action names no passkey and comes
+ * right after one of that form's elements in page order, with no other element between
+ * them, so another button outside every form may follow it. Such a button
+ * can only be one the extractor kept beside that password form (`besideDepth`), as Sakura
+ * Internet's login button follows its form (2026-10-23) and LeetCode's "Sign In" button
+ * follows its form, before a "Sign Up" button outside it too (2026-11-07). Undefined for
+ * any other action, which presses for its own group.
  */
 export function besideForm(
   page: Pick<LoginObservation, "candidates">,
@@ -197,13 +200,14 @@ export function besideForm(
   const passwords = page.candidates.filter((candidate) => candidate.role === "password");
   if (passwords.length === 0 || passwords.some((password) => password.group !== group))
     return undefined;
-  return page.candidates.some(
-    (candidate) =>
-      (isActionRole(candidate.role) &&
-        (candidate.group === group ||
-          (candidate.group === undefined && candidate.id !== action.id))) ||
-      (candidate.group === undefined && (fillRoles as readonly string[]).includes(candidate.role)),
-  )
+  const at = page.candidates.findIndex((candidate) => candidate.id === action.id);
+  return page.candidates[at - 1]?.group !== group ||
+    page.candidates.some(
+      (candidate) =>
+        (isActionRole(candidate.role) && candidate.group === group) ||
+        (candidate.group === undefined &&
+          (fillRoles as readonly string[]).includes(candidate.role)),
+    )
     ? undefined
     : group;
 }
