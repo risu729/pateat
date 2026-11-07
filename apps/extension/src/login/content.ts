@@ -987,7 +987,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    */
   function noteShown(): void {
     const path = pagePath();
-    if (shownTimer || shown.has(path) || !(asksSignIn() || listsHere())) return;
+    // A frame that does not show in the tab's page reports nothing yet (ADR 0086), so a
+    // hidden frame is never repaired as a stale page.
+    if (shownTimer || shown.has(path) || !(asksSignIn() || listsHere()) || !inTab.shown()) return;
     shownTimer = setTimeout(() => {
       shownTimer = undefined;
       if (
@@ -999,7 +1001,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       )
         return;
       const asks = asksSignIn();
-      if (!asks && !listsHere()) return;
+      if ((!asks && !listsHere()) || !inTab.shown()) return;
       shown.add(path);
       const miss = startMiss();
       const later = laterReport();

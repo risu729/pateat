@@ -184,6 +184,7 @@ export async function generationSlotsFor(
     return undefined;
   }
   let { candidates } = scope;
+  let topComplete = true;
   // A frame's item must match the URL the tab shows now as well, as for every fill
   // (ADR 0017, ADR 0086), so a page of another site that embeds the frame gets nothing.
   if (framed && candidates.length) {
@@ -201,6 +202,7 @@ export async function generationSlotsFor(
       return undefined;
     }
     const tabOrigin = new URL(tabUrl!).origin;
+    topComplete = !top.unavailableConnections.length && !top.incompleteItems.length;
     candidates = candidates.filter(
       (candidate) =>
         top.candidates.some(
@@ -220,6 +222,13 @@ export async function generationSlotsFor(
     }
   }
   const items = catalogItems(snapshot.catalog, candidates);
+  // Every item that matches the frame's URL may be the one the frame shows the account of.
+  const frameOnly = framed
+    ? catalogItems(
+        snapshot.catalog,
+        scope.candidates.filter((candidate) => !candidates.includes(candidate)),
+      )
+    : [];
   // Only slots a matching item can fill; built-in fields keep these IDs on every device.
   const slots = generationSlots.filter(({ fieldId }) =>
     items.some(({ connection, item }) =>
@@ -289,10 +298,11 @@ export async function generationSlotsFor(
     slots: slots.map(({ slot }) => slot),
     offers,
     items,
+    ...(frameOnly.length ? { frameOnly } : {}),
     settings: snapshot.snapshot.settings,
     catalog: snapshot.catalog,
     // An item that could not be checked might have another username.
-    complete: !scope.unavailableConnections.length && !scope.incompleteItems.length,
+    complete: topComplete && !scope.unavailableConnections.length && !scope.incompleteItems.length,
   };
 }
 
@@ -342,14 +352,15 @@ export async function sharedShape(
 }
 
 /**
- * The matching items' username reads: none for an item without one, with an empty one
- * (the catalog's value-free `empty` flag) or whose username the user excluded.
+ * The matching items' username reads, also those of the items that match only a frame's
+ * URL (ADR 0086): none for an item without one, with an empty one (the catalog's
+ * value-free `empty` flag) or whose username the user excluded.
  */
 export function usernameReads(
   _rt: Runtime,
-  scope: Pick<GenerationScope, "items" | "settings" | "catalog">,
+  scope: Pick<GenerationScope, "items" | "frameOnly" | "settings" | "catalog">,
 ) {
-  return scope.items.flatMap(({ connection, item }) => {
+  return [...scope.items, ...(scope.frameOnly ?? [])].flatMap(({ connection, item }) => {
     const excluded = isFieldExcluded(
       scope.settings,
       scope.catalog,

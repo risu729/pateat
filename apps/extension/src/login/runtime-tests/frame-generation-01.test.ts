@@ -7,7 +7,8 @@ const fake = await vi.hoisted(async () => (await import("./browser-fake")).creat
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
-const { origin, sender, target, startsOf, uriMatch, harness } = createRuntimeTestHarness(fake);
+const { origin, itemId, otherItemId, sender, target, startsOf, uriMatch, harness } =
+  createRuntimeTestHarness(fake);
 
 // A sign-in form in a frame of the tab's page is sent for generation as the tab's page is,
 // as Apple Account's `idmsa.apple.com` frame in `account.apple.com/sign-in` (ADR 0086,
@@ -56,13 +57,14 @@ describe("a frame's sign-in page sent for generation (ADR 0086)", () => {
     return { frameId: 3, documentId: "frame-one", tab: { id: 1, url: top } };
   };
   /** Every URL matches the item, except one of `evil.example`. */
-  const uris = vi.fn<LiveUriMatcher>(async (_connection, url) => ({
+  const matchAll: LiveUriMatcher = async (_connection, url) => ({
     ok: true,
     data: uriMatch({
       targetOrigin: new URL(url).origin,
       ...(new URL(url).hostname === "evil.example" ? { candidates: [] } : {}),
     }),
-  }));
+  });
+  const uris = vi.fn<LiveUriMatcher>(matchAll);
   function setup() {
     const report = vi.fn<(entry: LoginReport) => void>();
     const service = {
@@ -87,6 +89,7 @@ describe("a frame's sign-in page sent for generation (ADR 0086)", () => {
       allowedOrigins: [],
       uris,
       username: true,
+      otherUsername: true,
       custom: [],
       generation: service,
       report,
@@ -135,7 +138,8 @@ describe("a frame's sign-in page sent for generation (ADR 0086)", () => {
     fake.state.extracted = { login: loginPage };
     fake.state.signs = undefined;
     fake.state.loaded = true;
-    uris.mockClear();
+    uris.mockReset();
+    uris.mockImplementation(matchAll);
   });
 
   it("sends the frame's own page under its origin and logs in there with the recipe", async () => {
@@ -170,6 +174,26 @@ describe("a frame's sign-in page sent for generation (ADR 0086)", () => {
     await vi.waitFor(() =>
       expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(2),
     );
+  });
+
+  it("sends the page for the items that match the tab too, hiding every frame item's username", async () => {
+    const { h, service } = setup();
+    const one = { itemId, matches: [{ uriIndex: 0, match: 0 as const }] };
+    const other = { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 as const }] };
+    // Both items match the frame; only the first matches the tab's page.
+    uris.mockImplementation(async (_connection, url) => ({
+      ok: true,
+      data: uriMatch({
+        targetOrigin: new URL(url).origin,
+        candidates: new URL(url).origin === origin ? [one, other] : [one],
+      }),
+    }));
+    await h.hello(frame(), false);
+    expect(await signIn(h, frame())).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+    const read = h.fields.mock.calls.map(([request]) => [request.account.itemId, request.fieldId]);
+    expect(read).toContainEqual([itemId, "login.username"]);
+    expect(read).toContainEqual([otherItemId, "login.username"]);
   });
 
   it("never sends a frame inside a page the item does not match", async () => {

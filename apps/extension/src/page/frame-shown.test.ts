@@ -64,6 +64,24 @@ describe("whether a frame shows in the tab's page", () => {
     }
   });
 
+  it("leaves out a frame of the page's own origin that an ancestor clips away", async () => {
+    const wrapper = document.createElement("div");
+    wrapper.setAttribute("style", "max-height:0;overflow:hidden");
+    document.body.append(wrapper);
+    try {
+      const element = await frame(visible);
+      wrapper.append(element);
+      await new Promise((resolve) => element.addEventListener("load", resolve, { once: true }));
+      const changed = vi.fn();
+      const watch = watchFrameShown(element.contentWindow!, changed);
+      // Its box is whole and in the viewport; the observer's reading tells.
+      await vi.waitFor(() => expect(watch.shown()).toBe(false));
+      watch.stop();
+    } finally {
+      wrapper.remove();
+    }
+  });
+
   it("reads a frame inside a page of another origin from its observer", async () => {
     const element = await frame(visible);
     const watch = watchFrameShown(crossOrigin(element), () => undefined);

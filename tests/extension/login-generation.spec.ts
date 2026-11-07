@@ -63,7 +63,7 @@ type Candidate = { id: string; role: string; target: { by: string; value: string
 type Prompt = {
   task: string;
   signedIn?: boolean;
-  observation: { path: string; candidates: Candidate[] };
+  observation: { origin: string; path: string; candidates: Candidate[] };
 };
 
 /**

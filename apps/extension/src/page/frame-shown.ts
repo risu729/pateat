@@ -50,20 +50,23 @@ function elementsShown(view: Window): { shown: boolean; top: boolean } {
  * origin, and otherwise as an `IntersectionObserver` with the implicit root reads it from
  * inside the frame. A `display: none`, empty, one-pixel or off-screen frame does not, and
  * one below the fold does once scrolled to. `changed` hears each change the observer or a
- * resize of the frame shows. Without an observer, a frame inside a page of another origin
- * never shows.
+ * resize of the frame shows; a change of `visibility` around the frame, which neither
+ * shows, is read at the next look. Without an observer, a frame inside a page of another
+ * origin never shows.
  */
 export function watchFrameShown(view: Window, changed: () => void): FrameShown {
   if (view.top === view) return { shown: () => true, stop: () => undefined };
   const Observer = (view as Window & typeof globalThis).IntersectionObserver as
     | typeof IntersectionObserver
     | undefined;
-  // False until the observer's first reading, which comes at the frame's next rendering.
-  let intersecting = false;
+  // Unread until the observer's first reading, which comes at the frame's next rendering.
+  let intersecting: boolean | undefined;
+  // The observer also sees a frame clipped away by an ancestor's overflow or `clip-path`;
+  // until its first reading, a frame whose elements all show up to the tab's page shows.
   const shown = () => {
     if (view.innerWidth <= 1 || view.innerHeight <= 1) return false;
     const elements = elementsShown(view);
-    return elements.shown && (elements.top || intersecting);
+    return elements.shown && (intersecting ?? elements.top);
   };
   let last = shown();
   const read = () => {
@@ -75,7 +78,13 @@ export function watchFrameShown(view: Window, changed: () => void): FrameShown {
     ? new Observer((entries) => {
         const entry = entries.at(-1);
         if (!entry) return;
-        intersecting = entry.isIntersecting;
+        // A target clipped away by an ancestor's overflow still touches the clip's edge,
+        // which counts as intersecting with no area; only a target with no area of its
+        // own, as a root element of absolutely placed content, intersects so when shown.
+        const area = (rect: DOMRectReadOnly) => rect.width * rect.height;
+        intersecting =
+          entry.isIntersecting &&
+          (area(entry.intersectionRect) > 0 || area(entry.boundingClientRect) === 0);
         read();
       })
     : undefined;

@@ -321,8 +321,11 @@ export async function generateFor(
           if (rt.documents.get(frameKey(other.document)) !== other) return;
           const tab = await browser.tabs.get(other.document.tabId).catch(() => undefined);
           const url = tab?.url ? new URL(tab.url) : undefined;
+          // A frame's tab still shows the page the frame announced in (ADR 0086).
           const shown =
-            url?.origin === other.document.origin && observedPath(url.pathname) === other.path;
+            other.document.frameId === 0
+              ? url?.origin === other.document.origin && observedPath(url.pathname) === other.path
+              : other.topUrl !== undefined && url?.origin === new URL(other.topUrl).origin;
           note(rt, other.document, other.url, "reconnect-failed", undefined, !shown);
         }
       }),

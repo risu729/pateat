@@ -139,9 +139,11 @@ How delivery 3 is implemented (chosen by an agent):
 - Whether the frame shows is read inside the frame, as Chrome has no
   `runtime.getFrameId` to find the frame's element from the tab's page: the frame's
   viewport is more than a pixel each way and part of it is in the tab's viewport, as an
-  `IntersectionObserver` with the implicit root reports it; where the page around the
-  frame is of the frame's own origin, its frame element is read instead (rendered, not
-  `visibility: hidden`, more than a pixel each way, in its page's viewport). A
+  `IntersectionObserver` with the implicit root reports it, with some area unless the
+  frame's root element has none (an ancestor's overflow clip leaves an intersection
+  without area); where the page around the frame is of the frame's own origin, its
+  frame element must also be rendered, not `visibility: hidden`, more than a pixel each
+  way and in its page's viewport, which is read before the observer's first reading. A
   `display: none`, empty, one-pixel or off-screen frame does not show; one below the
   fold shows once scrolled to. Checked in cloud Chromium on 2026-11-07 with frames of
   another origin. Until it shows, the frame offers nothing; once it shows, it offers
@@ -158,6 +160,12 @@ How delivery 3 is implemented (chosen by an agent):
   as one (ADR 0035); it is not sent again either. Entry repair stays the tab page's.
 - Once a recipe is stored, every frame of its origin and path that holds no login
   announces again, as the tab's pages do.
+- A frame that does not show reports no sign-in input left without a ready first step,
+  so a hidden frame is never repaired as a stale page. A recipe the item cannot run
+  (ADR 0058 A) is repaired from a frame too, except for the passkey route.
+- The usernames hidden from a frame's page are those of every item that matches the
+  frame's URL, also one that does not match the tab's URL and that the page is not sent
+  for.
 - The frame count of ADR 0035 (`frame`) is gone: such frames are now sent.
 - The described-page watch (ADR 0027 amendment of 2026-11-04) and route reads in place
   stay the tab page's, as after delivery 1.
@@ -171,10 +179,15 @@ How delivery 3 is implemented (chosen by an agent):
   costs one message on load, as before.
 - Base-domain matching lets any page of the item's registrable domain embed the frame,
   as it already lets it fill one (ADR 0017).
-- A frame hidden until the person opens it, as a sign-in dialog, is sent once it shows,
-  also after the step wait (checked in Chromium by an extension test).
+- A frame hidden until the person opens it, as a sign-in dialog, is sent once it shows:
+  within the step wait as any page, and after it for a sign-in input shown then, as a
+  form shown in place later is (ADR 0016, amended 2026-11-04; checked in Chromium by an
+  extension test). An identifier alone, a list or a passkey button shown only after the
+  wait is not sent, as in the tab's page.
 - Whether a frame shows says nothing about a page that covers it or makes it
-  transparent: such a frame counts as shown.
+  transparent, nor, inside a page of another origin, about `visibility: hidden` on its
+  element: such a frame counts as shown. A change of `visibility` around a frame of the
+  page's own origin is read at the frame's next look, as after a change of its page.
 - A watched login in a frame reads only new documents of its frame and the tab's new
   page: a change in place inside the frame's document, as Apple's code page, is not read
   again, so its result comes from the page that replaces the frame's page.

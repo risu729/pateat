@@ -1595,101 +1595,98 @@ the input or leaves the path once the last character is in is taken as submittin
 code, one that kept a character out of an input it still shows ends the login
 `fill-rejected`, and otherwise the page is held and settled as after a handler's click
 ([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-23-code-pages-without-a-button)).
-The `password` handler
-([ADR 0048](adr/0048-password-method-button.md), owner 2026-10-18 01:38 UTC) clicks a
-button such as "Password" on a page that asks how to confirm the sign-in, as an
-`advance`, and the route's steps then type the password. It needs the `password` fact
-and is entered only by a login on the `password` route without a stop, that is not
-fill-only (ADR 0062 B, while its tab asks), in the tab's top document on the
-recipe's own origin, and that has not filled its password yet; never while one of the
-route's fill fields on that path shows writable; and only when the button names the
-password by the shared word list (`namesPasswordControl` in `packages/contracts`,
-English and Japanese), so a "Forgot password?", "One-time password" or "Use Touch ID or
-password" button is never pressed. A button with an accessible name (`aria-labelledby`,
-else `aria-label`) names it when that name passes the list and all the text it holds,
-shown or not (`aria-hidden` text, images' `alt` and an input button's `value` too),
-holds none of the list's refused words, so a "Select" labelled "Select Password."
-passes and a "Send code" with that label does not, even when "Send code" is
-`aria-hidden`; a text too long to read in full (over 480 characters) refuses it, and
-only one with no text at all passes on its name alone (since 2026-10-19, ADR 0048's
-amendment). One without a name names it by its rendered text. The content script reads
-them when the handler is entered (`password-choice`) and again in the click's own task,
-just before the press (`passwordChoice`); a button that no longer passes there is not
-pressed and the step fails as one whose target is missing (`target-missing`). A
-`password` handler's button may be named by its accessible name and may then be a link
-to a fragment of its own page ([locators](#declarative-recipes-and-ai)). The service
-learns one only from a button of the judged page whose label and text or
-accessible-name locator pass the same list, that is no route step's or other handler's
-element there, for a recipe with no `password` handler on that path and no step that
-fills the password (`not-password`, `password-filled`, `step-target`, `duplicate`,
-`not-on-page`, `origin-mismatch` or `invalid-recipe` otherwise), and never from a stop's
-page (`stop`). On a later login the route's next step on the same path confirms its
-click as an in-place `advance` does, only when that step was not ready just before the
-click. The `authenticator` handler
-([ADR 0081](adr/0081-authenticator-method-button.md), owner 2026-11-02 06:58 UTC)
-clicks a button such as "Use code from authenticator" on a page after
-the password that asks how to confirm the sign-in, as an `advance`; the code page
-it shows is judged and may add a `totp` handler on the same path. It needs the `totp`
-fact and a code the account may fill, and is entered only by a login on the `password`
-route that filled its password in this login and typed no code yet, that is not
-fill-only, in the tab's top document on the recipe's own origin, never while one of the
-route's fill fields on that path shows writable, and only while its rendered text names
-an authenticator app by the shared word list (`namesAuthenticatorChoice` in
+The `password` handler ([ADR 0048](adr/0048-password-method-button.md), owner 2026-10-18
+01:38 UTC) clicks a button such as "Password" on a page that asks how to confirm the
+sign-in, as an `advance`, and the route's steps then type the password. It needs the
+`password` fact and is entered only by a login on the `password` route without a stop,
+that is not fill-only (ADR 0062 B, while its tab asks), on the recipe's own origin in
+the tab's page or a frame of it (ADR 0086), and that has not filled its password yet;
+never while one of the route's fill fields on that path shows writable; and only when
+the button names the password by the shared word list (`namesPasswordControl` in
+`packages/contracts`, English and Japanese), so a "Forgot password?", "One-time
+password" or "Use Touch ID or password" button is never pressed. A button with an
+accessible name (`aria-labelledby`, else `aria-label`) names it when that name passes
+the list and all the text it holds, shown or not (`aria-hidden` text, images' `alt` and
+an input button's `value` too), holds none of the list's refused words, so a "Select"
+labelled "Select Password." passes and a "Send code" with that label does not, even when
+"Send code" is `aria-hidden`; a text too long to read in full (over 480 characters)
+refuses it, and only one with no text at all passes on its name alone (since 2026-10-19,
+ADR 0048's amendment). One without a name names it by its rendered text. The content
+script reads them when the handler is entered (`password-choice`) and again in the
+click's own task, just before the press (`passwordChoice`); a button that no longer
+passes there is not pressed and the step fails as one whose target is missing
+(`target-missing`). A `password` handler's button may be named by its accessible name
+and may then be a link to a fragment of its own page
+([locators](#declarative-recipes-and-ai)). The service learns one only from a button of
+the judged page whose label and text or accessible-name locator pass the same list, that
+is no route step's or other handler's element there, for a recipe with no `password`
+handler on that path and no step that fills the password (`not-password`,
+`password-filled`, `step-target`, `duplicate`, `not-on-page`, `origin-mismatch` or
+`invalid-recipe` otherwise), and never from a stop's page (`stop`). On a later login the
+route's next step on the same path confirms its click as an in-place `advance` does,
+only when that step was not ready just before the click. The `authenticator` handler
+([ADR 0081](adr/0081-authenticator-method-button.md), owner 2026-11-02 06:58 UTC) clicks
+a button such as "Use code from authenticator" on a page after the password that asks
+how to confirm the sign-in, as an `advance`; the code page it shows is judged and may
+add a `totp` handler on the same path. It needs the `totp` fact and a code the account
+may fill, and is entered only by a login on the `password` route that filled its
+password in this login and typed no code yet, that is not fill-only, on the recipe's own
+origin in the tab's page or a frame of it (ADR 0086), never while one of the route's
+fill fields on that path shows writable, and only while its rendered text names an
+authenticator app by the shared word list (`namesAuthenticatorChoice` in
 `packages/contracts`) and none of its text, hidden text and accessible name names
 another way, such as a text message or a backup code (`authenticator-choice` when
 entered, `authenticatorChoice` in the click's own task). The service learns one from a
 button of the judged page whose label and text locator pass the same list
-(`not-authenticator` otherwise), never named by its accessible name.
-When several handlers show, the first that qualifies is entered: a `password`
-handler, then a `passkey` handler, then a `totp` handler, then an `authenticator`
-handler, then a `detail` handler
-([ADR 0061](adr/0061-personal-details-during-a-login.md)), which the judge learns from
-a page that asks for a personal detail, such as a birth date or the last four digits of
-a phone number, with each input's detail and the button that submits them. The
-owner's settings link the login item, per site and detail, to the identity or card
-item's field that holds the value (`detailLinks`, synced as the owner's like the
-bindings). A login fills the first input with
-a usable link that is writable, checking the radio button that chooses it first, and
-clicks the button; the value is made in the service worker from the vault read (the
-date or card expiry date in the input's format, the last four digits, a card code, a
-whole card number or a PIN, read only from the login item or a card item, as its
-digits; every linked value is filled, a whole card number and a PIN included, by the
-owner's decision of 2026-10-23 11:41 UTC). A `detail` handler with no usable link ends
-the attempt `challenge` with `detail-unlinked`, and the popup then proposes the vault
-fields that could give each detail, a card first when its last four digits or brand
-match those the page shows, compared in the service worker (owner, 2026-10-23 12:26
-UTC); its **Fill** fills the input, unless the page shows
+(`not-authenticator` otherwise), never named by its accessible name. When several
+handlers show, the first that qualifies is entered: a `password` handler, then a
+`passkey` handler, then a `totp` handler, then an `authenticator` handler, then a
+`detail` handler ([ADR 0061](adr/0061-personal-details-during-a-login.md)), which the
+judge learns from a page that asks for a personal detail, such as a birth date or the
+last four digits of a phone number, with each input's detail and the button that submits
+them. The owner's settings link the login item, per site and detail, to the identity or
+card item's field that holds the value (`detailLinks`, synced as the owner's like the
+bindings). A login fills the first input with a usable link that is writable, checking
+the radio button that chooses it first, and clicks the button; the value is made in the
+service worker from the vault read (the date or card expiry date in the input's format,
+the last four digits, a card code, a whole card number or a PIN, read only from the
+login item or a card item, as its digits; every linked value is filled, a whole card
+number and a PIN included, by the owner's decision of 2026-10-23 11:41 UTC). A `detail`
+handler with no usable link ends the attempt `challenge` with `detail-unlinked`, and the
+popup then proposes the vault fields that could give each detail, a card first when its
+last four digits or brand match those the page shows, compared in the service worker
+(owner, 2026-10-23 12:26 UTC); its **Fill** fills the input, unless the page shows
 another account than the login item's, without pressing the button and keeps the link
 for the tab, saved only once the watched login ends `authenticated`. A link whose value
 the site refused, as when the login is rejected or the handler's page shows again, is
-removed. A `detail` handler on a route path is not entered for the first time while
-its sign-in state reads `rejected` (S1 with F1 or F2): the login goes on to read the
-page and ends `credential-rejected`. A `password` handler shown
-but passed over, as when its button shows again after its press, ends the attempt
-`challenge` instead of letting a handler beside it be entered, so a `password` login
-never presses a passkey button there. Otherwise one is passed over when it already
-ran, the item lacks its fact, or, for a `totp` handler, the login already types a TOTP
-code (`code-used`), since a login types at most one code. When every shown handler is
-passed over, the attempt ends `challenge`. After the code goes in, the content script
-watches the page for 2 seconds before the click: a submit event, the document unloading
-or navigating, the field or form disabled, removed or replaced, the field cleared, the
-button gone, hidden, busy, disabled after it was enabled or still disabled half a second
-after the code went in, or a new busy indicator in the form each mean the page submitted
-the code by itself. So do a page that leaves the path or shows a signed-in marker or the
-rejection without the button before the click, and a new document after the fill. Each
-counts as the handler's click (`AUTO_SUBMITTED`); the code is never filled again or
-followed by a click. A route step that fills only the `totp` slot, followed by a click
-on the same path, is watched and settled the same way. A button rendered again at the
-same locator and a status message alone, such as a digit counter, are not signs, and a
-status message never refuses the code. While a handler's or the `passkey` route's
-clicked button, or the button of a code the page submitted itself, still shows in that
-document, the page is neither judged nor settled for up to two minutes; then it ends
-`challenge`. A new document of the tab that shows the `passkey` route's button again
-ends `challenge` at once, and so does one that shows a handler that already ran and no
-other that qualifies; a handler shown there that still qualifies, such as a `totp`
-handler beside a `passkey` handler that already ran, is entered. Each round of the
-observation that nothing above explained also reads the page's sign-in state ([ADR
-0029](adr/0029-local-sign-in-state.md)): on the `password` and `passkey` routes,
+removed. A `detail` handler on a route path is not entered for the first time while its
+sign-in state reads `rejected` (S1 with F1 or F2): the login goes on to read the page
+and ends `credential-rejected`. A `password` handler shown but passed over, as when its
+button shows again after its press, ends the attempt `challenge` instead of letting a
+handler beside it be entered, so a `password` login never presses a passkey button
+there. Otherwise one is passed over when it already ran, the item lacks its fact, or,
+for a `totp` handler, the login already types a TOTP code (`code-used`), since a login
+types at most one code. When every shown handler is passed over, the attempt ends
+`challenge`. After the code goes in, the content script watches the page for 2 seconds
+before the click: a submit event, the document unloading or navigating, the field or
+form disabled, removed or replaced, the field cleared, the button gone, hidden, busy,
+disabled after it was enabled or still disabled half a second after the code went in, or
+a new busy indicator in the form each mean the page submitted the code by itself. So do
+a page that leaves the path or shows a signed-in marker or the rejection without the
+button before the click, and a new document after the fill. Each counts as the handler's
+click (`AUTO_SUBMITTED`); the code is never filled again or followed by a click. A route
+step that fills only the `totp` slot, followed by a click on the same path, is watched
+and settled the same way. A button rendered again at the same locator and a status
+message alone, such as a digit counter, are not signs, and a status message never
+refuses the code. While a handler's or the `passkey` route's clicked button, or the
+button of a code the page submitted itself, still shows in that document, the page is
+neither judged nor settled for up to two minutes; then it ends `challenge`. A new
+document of the tab that shows the `passkey` route's button again ends `challenge` at
+once, and so does one that shows a handler that already ran and no other that qualifies;
+a handler shown there that still qualifies, such as a `totp` handler beside a `passkey`
+handler that already ran, is entered. Each round of the observation that nothing above
+explained also reads the page's sign-in state
+([ADR 0029](adr/0029-local-sign-in-state.md)): on the `password` and `passkey` routes,
 evidence of a sign-in in the fully loaded document completes the login as
 `authenticated` at once, without waiting for the budget
 ([ADR 0029, amended 2026-11-03](adr/0029-local-sign-in-state.md#amendment-read-the-result-at-once-and-correct-it-2026-11-03));
@@ -1717,15 +1714,15 @@ the attempt has not ended. The page of a login's stop before its item's missing 
 is the exception: sent as a stop's page, it must show the route's password field, and
 the service keeps only a `passkey` handler from it
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md), owner 2026-10-13 05:39 UTC). So
-is a `password` login's page without a chooser or a stop, in the tab's top document on
-the recipe's own origin, that still shows a route fill field on a route path, with its
-sign-in state read and no failure beside it (S1 with F1 or F2), when its description
-also shows, in a form other than every shown route fill field's, a text, tel or number
-input that is no route fill field and a button of that form (`showsBesideForm`), and its
-path has no `detail` handler: sent with `beside: true`, it is judged under its own
-prompt version and instructions, and the service keeps only a `detail` handler from it
-(other handlers logged with `beside`) and any other answer, or a `challenge` that adds
-no `detail` handler, as `unclear`
+is a `password` login's page without a chooser or a stop, on the recipe's own origin in
+the tab's page or a frame of it (ADR 0086), that still shows a route fill field on a
+route path, with its sign-in state read and no failure beside it (S1 with F1 or F2),
+when its description also shows, in a form other than every shown route fill field's, a
+text, tel or number input that is no route fill field and a button of that form
+(`showsBesideForm`), and its path has no `detail` handler: sent with `beside: true`, it
+is judged under its own prompt version and instructions, and the service keeps only a
+`detail` handler from it (other handlers logged with `beside`) and any other answer, or
+a `challenge` that adds no `detail` handler, as `unclear`
 ([ADR 0061](adr/0061-personal-details-during-a-login.md)). Any other such page is
 described, then not sent (`sign-in-shown`). At most 2 pages count per effect step: the
 attempt counts a page once its complete description is in hand, before the request, so a
