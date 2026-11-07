@@ -533,6 +533,22 @@ describe("production login document admission", () => {
         {},
         "totp-field-mismatch",
       ],
+      [
+        "the bound custom field is reserved for SSO methods (ADR 0085)",
+        { custom: [{ name: "SSO", kind: "text" }] },
+        {
+          bindings: [
+            {
+              ...branchBinding,
+              slots: [
+                { slot: "branch", field: { custom: "SSO" } },
+                { slot: "password", field: "password" },
+              ],
+            },
+          ],
+        },
+        "sso-field",
+      ],
     ])(
       "refuses a synced binding before any field read when %s",
       async (_name, live, overrides, reason) => {

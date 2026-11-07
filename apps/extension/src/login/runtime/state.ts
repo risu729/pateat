@@ -394,6 +394,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     "field-missing",
     "field-ambiguous",
     "field-count-changed",
+    "sso-field",
     "totp-field-mismatch",
     "no-route",
   ]);

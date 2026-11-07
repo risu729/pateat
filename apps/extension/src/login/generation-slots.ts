@@ -1,6 +1,7 @@
 import {
   customFieldReference,
   customFieldSlotDescriptions,
+  isSsoFieldName,
   semanticSlotSchema,
   type SemanticSlot,
   type VaultFieldReference,
@@ -54,14 +55,15 @@ const strictness: Record<SemanticSlot["kind"], number> = {
  * 0027, owner 2026-10-23). A Linked field that reads the password counts only when the
  * password holds a value. Bitwarden links only built-in fields today; a Linked field that
  * reads a Text field would be offered like that Text field, and not when that field holds
- * a TOTP key.
+ * a TOTP key. A field named `SSO`, `SSO 2`, … (`isSsoFieldName`, ADR 0085) is never
+ * offered, nor a Linked field that reads one.
  */
 function offerClass(
   item: Pick<VaultItemMetadata, "fields">,
   field: VaultItemMetadata["fields"][number],
   allowed: ReadonlySet<string>,
 ): OfferClass | undefined {
-  if (field.totpSeed === true) return undefined;
+  if (field.totpSeed === true || isSsoFieldName(field.name)) return undefined;
   if (field.kind === "text") return { kind: "identifier", source: "text", priority: 0 };
   if (field.kind === "hidden") return { kind: "hidden", priority: 2 };
   if (field.kind !== "linked" || !field.linkedFieldId || !allowed.has(field.linkedFieldId))
@@ -71,7 +73,7 @@ function offerClass(
     return { kind: "identifier", source: "username", priority: 1 };
   if (source?.id === "login.password")
     return source.empty === true ? undefined : { kind: "secret", priority: 3 };
-  if (source?.kind === "text" && source.totpSeed !== true)
+  if (source?.kind === "text" && source.totpSeed !== true && !isSsoFieldName(source.name))
     return { kind: "identifier", source: "text", priority: 1 };
   return undefined;
 }

@@ -1593,8 +1593,9 @@ buttonless code field's form shows no button had nothing to check.
 ## Amendment 2026-11-07: one item for password and SSO
 
 Accepted by the owner on 2026-11-07 (12:51 UTC) with
-[ADR 0085](0085-one-item-for-native-and-sso-login.md); not implemented. It changes this
-ADR's text as follows; the accepted text above is kept.
+[ADR 0085](0085-one-item-for-native-and-sso-login.md); not implemented, except the
+custom-field bullet, implemented by ADR 0085's amendment of the same day. It changes
+this ADR's text as follows; the accepted text above is kept.
 
 - [The item's facts](#the-items-facts): the `sso` fact comes from the item's `SSO`,
   `SSO 2`, … fields in either form of ADR 0085. An excluded field turns its method off;

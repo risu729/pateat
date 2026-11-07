@@ -6,12 +6,16 @@ Status: accepted by the owner on 2026-11-07 (12:51 UTC:
 implemented. The owner asked for the format itself: keep the SSO-only format, keep a
 mixed account's own credentials, one readable value such as `[GitHub] github-user` per
 SSO method, and no separate provider and username fields or JSON. The selection and
-validation rules below were written in #1380 as proposed implementation details and were
-accepted with it. Amends [ADR 0026](0026-sign-in-through-identity-providers.md) (item
-format, which IdP item is used, field rules and item-wide exclusions) and
+validation rules below were written in
+[#1380](https://github.com/risu729/pateat/issues/1380) as proposed implementation
+details and were accepted with it. Amends
+[ADR 0026](0026-sign-in-through-identity-providers.md) (item format, which IdP item is
+used, field rules and item-wide exclusions) and
 [ADR 0027](0027-per-account-login-routes.md) (the `sso` fact, the route order, the
 custom-field offers and what the model receives), each in a dated amendment section. The
-`sso` route itself is still unimplemented (ADR 0027 delivery 5).
+`sso` route itself is still unimplemented (ADR 0027 delivery 5); the reserved field
+names are implemented
+([amendment](#amendment-2026-11-07-the-reserved-field-names-implemented)).
 
 Date: 2026-11-07
 
@@ -175,3 +179,24 @@ ADR 0026's item-wide exclusions are replaced by rules per route:
   syntax, stale mappings, an item used both as a site account and an IdP, no nested IdP
   sign-in and no unsafe fallback.
 - Real-site checks need real accounts and separate owner approval, as in ADR 0026.
+
+## Amendment 2026-11-07: the reserved field names, implemented
+
+Chosen by an agent, not confirmed by the owner, after production generation requests
+for `https://leetcode.com/accounts/login/` offered an item's `SSO` field as a fill slot.
+`isSsoFieldName` in `packages/contracts/src/recipes.ts` reserves a custom-field name
+when, after NFKC normalization and trimming surrounding white space, it is `SSO`, or
+`SSO` and a number with any white space between, ignoring letter case: `SSO`, `sso 2`,
+`ＳＳＯ　２` and `SSO 1` are reserved; `SSO2`, `SSO-2` and `SSO login` are not.
+
+- `customFieldOffers` never offers such a field, nor a Linked field that reads one, so
+  it is never read for a shape or generated as a slot.
+- A saved binding that names such a field refuses `sso-field` before any field is read;
+  a sibling binding used as a template or a generated slot map that names one is passed
+  over, and refuses `sso-field` when no other fits; a `password` variant with such a
+  binding is passed over for the next one, as for `field-missing`.
+- `givesDetail` never takes such a field as a personal detail
+  ([ADR 0061](0061-personal-details-during-a-login.md)).
+- A binding saved before this that names such a field now refuses `sso-field` on every
+  login of a one-variant recipe; revoking the recipe in the web UI has it generated
+  again without the field (ADR 0027).
