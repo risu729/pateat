@@ -32,7 +32,7 @@ export interface SignInSigns {
   /** E3: the page is the same-origin return target the sign-in page's URL named. */
   readonly e3: boolean;
   /**
-   * S1 holds in the first new top document after the attempt's password submission: the
+   * S1 holds in the first new document of the login's frame (the top one for a top-level login) after the attempt's password submission: the
    * site showed its sign-in form again as a new page, and F1 and F2 were read on it
    * without an earlier reading to compare with.
    */

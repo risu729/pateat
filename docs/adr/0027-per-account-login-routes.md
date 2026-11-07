@@ -130,6 +130,9 @@ Amended on 2026-11-07 by
 the persistent alarm ends expired watches and their provisional result is info until
 a final failure. Earlier references below to a watched line being warn are historical.
 
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; implemented): a `password` login in a frame is watched too.
+
 Date: 2026-10-11
 
 ## Context

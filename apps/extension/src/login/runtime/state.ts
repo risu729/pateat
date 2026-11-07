@@ -162,6 +162,13 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
    */
   const moveJudgements = new Map<string, { documentId: string; verdict: Promise<boolean> }>();
 
+  /**
+   * By tab: the `password` login in a frame whose frame went away when the tab's page
+   * changed its URL in place, as a single-page site's route after a sign-in in a frame
+   * (ADR 0086), until the page announces again and is read for that login's result.
+   */
+  const leftFrames = new Map<number, string>();
+
   /** Top documents' own conditional passkey requests, waiting for their login (ADR 0034). */
   const parkedRequests = new Set<ParkedRequest>();
 
@@ -437,6 +444,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     passkeyPages,
     siteMoves,
     moveJudgements,
+    leftFrames,
     parkedRequests,
     choicePasskeys,
     continuations,

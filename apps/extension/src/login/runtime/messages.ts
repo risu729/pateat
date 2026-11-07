@@ -545,6 +545,7 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
   rt.passwordSubmits.delete(tabId);
   rt.passwordFills.delete(tabId);
   rt.afterSignIn.delete(tabId);
+  rt.leftFrames.delete(tabId);
   for (const key of rt.hellos.keys()) if (key.startsWith(`${tabId}:`)) rt.hellos.delete(key);
   for (const [key, live] of rt.documents)
     if (live.document.tabId === tabId) rt.documents.delete(key);

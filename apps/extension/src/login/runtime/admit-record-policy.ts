@@ -90,7 +90,7 @@ export function nextRecordStep(
         : { kind: "advance", next: "abandon-watch" };
     case "abandon-watch":
       return recorded.watch &&
-        page.frameId === 0 &&
+        page.frameId === recorded.document.frameId &&
         page.showsFirstStep &&
         page.documentId !== recorded.watch.documentId
         ? { kind: "abandon-watch", next: "pause" }

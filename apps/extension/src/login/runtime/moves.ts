@@ -24,8 +24,9 @@ import { usernameShape, readUsernames, hideUsernames } from "./markers";
 import { generationSlotsFor, usernameReads, judgeSlots } from "./generation-scope";
 import { SITE_MOVE_READINGS, SIGN_IN_RECHECK_MS, SITE_MOVE_MS } from "./constants";
 import { tabAttempt } from "./hold";
-import { siteWaitOver, terminal } from "./attempt-state";
+import { siteWaitOver, terminal, watchOver } from "./attempt-state";
 import { keep } from "./session-store";
+import { browser } from "wxt/browser";
 import type { Runtime } from "./state";
 
 /**
@@ -544,6 +545,69 @@ export function passwordMoveFits(
     loginMoveFits(record.document.origin, siteOrigin, true)
     ? { at: factor }
     : undefined;
+}
+
+/**
+ * For a `password` login in a frame whose tab showed a new top-level page (ADR 0086): the
+ * time of the step the move follows, when that page is to be read for the login's result,
+ * as a top-level login's move to another origin of the site is (`passwordMoveFits`): the
+ * login's last effect step, other than a passkey's, or a second factor it entered ran at
+ * most `SITE_MOVE_MS` ago, or the login is watched and its watch still lasts, as when the
+ * person entered a code the site sent. A login with a stop never runs in a frame.
+ */
+export function frameMoveFits(
+  rt: Runtime,
+  record: LoginAttemptMetadata,
+  tabId: number,
+): { at: number } | undefined {
+  if (record.route !== "password" || record.document.frameId === 0) return undefined;
+  const now = Date.now();
+  const effect = rt.effects.get(tabId);
+  const own = effect?.attemptId === record.id && !effect.passkey ? effect : undefined;
+  const at = own && Math.max(own.at, own.code ?? 0);
+  if (at !== undefined && now >= at && now - at <= SITE_MOVE_MS) return { at };
+  if (record.watch !== undefined && !watchOver(record, now))
+    return { at: at ?? record.watch.since };
+  return undefined;
+}
+
+/**
+ * The tab's page changed its URL: when a `password` login in one of its frames may end
+ * on the page there (`frameMoveFits`) and that frame no longer answers, as when a
+ * single-page site's route replaced the sign-in frame after the sign-in (ADR 0086), the
+ * tab's top document is asked to announce again, so its page is read for that login's
+ * result as a new page around the frame is. A frame that does not answer in time counts
+ * as still there, as for a new page (ADR 0017).
+ */
+export async function frameLeftInPlace(rt: Runtime, tab: { id?: number | undefined }) {
+  const tabId = tab.id;
+  if (tabId === undefined) return;
+  await rt.vars.sessionLoaded;
+  const record = tabAttempt(rt, tabId);
+  if (!record || terminal(record) || !frameMoveFits(rt, record, tabId)) return;
+  const key = frameKey(record.document);
+  const frame = rt.documents.get(key);
+  const top = rt.documents.get(frameKey({ tabId, frameId: 0 }));
+  if (!top) return;
+  if (frame?.document.documentId === record.document.documentId) {
+    const answers = await Promise.race([
+      send(rt, frame, { type: "login.observe", path: frame.path, targets: [] }).then(
+        () => true,
+        () => false,
+      ),
+      new Promise<boolean>((resolve) => setTimeout(resolve, 1000, true)),
+    ]);
+    if (answers || rt.documents.get(key) !== frame) return;
+    rt.documents.delete(key);
+  }
+  rt.leftFrames.set(tabId, record.id);
+  await browser.tabs
+    .sendMessage(
+      tabId,
+      { version: 1, type: "login.reconnect" },
+      { frameId: 0, documentId: top.document.documentId },
+    )
+    .catch(() => undefined);
 }
 
 /**

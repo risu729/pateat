@@ -27,6 +27,7 @@ import {
   moveUsername,
   judgeMove,
   stopMoveFits,
+  frameMoveFits,
 } from "./moves";
 import { pauseOf } from "./pause";
 import { asksEveryTime } from "./entry-press";
@@ -37,7 +38,7 @@ import { change, current } from "./attempt";
 import { allowed } from "./plan-2";
 import { reconcileBounded } from "./sign-in";
 import { type RouteChange } from "./report";
-import { planFor } from "./plan";
+import { planFor, itemMatchesUrl } from "./plan";
 import type { Runtime } from "./state";
 
 /**
@@ -173,6 +174,61 @@ export async function signedInByPassword(
     live.moveMiss = "no-factor";
     return false;
   }
+  return signedInOnMovedPage(rt, record, live, effect.at);
+}
+
+/**
+ * Whether a `password` login in a frame ended its sign-in on `live`, the new top-level page
+ * its tab showed in place of the frame's page (ADR 0086): the move follows the login's
+ * last step or comes during its watch (`frameMoveFits`), the login's item matches that
+ * page's URL as it matched the frame's page (ADR 0017), and the page reads as a top-level
+ * login's move does (`signedInByPassword`). Pateat fills and clicks nothing there.
+ */
+export async function signedInAfterFrame(
+  rt: Runtime,
+  record: LoginAttemptMetadata,
+  live: LiveDocument,
+): Promise<boolean> {
+  delete live.moveMiss;
+  const fits =
+    live.document.frameId === 0 && live.topUrl === undefined
+      ? frameMoveFits(rt, record, live.document.tabId)
+      : undefined;
+  if (!fits) {
+    live.moveMiss = "no-factor";
+    return false;
+  }
+  const stillLive = () => rt.documents.get(frameKey(live.document)) === live;
+  const judging = rt.moveJudgements.get(record.id);
+  if (judging?.documentId === live.document.documentId)
+    return (await judging.verdict) && stillLive();
+  const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
+  if (!stillLive()) return false;
+  const matched =
+    snapshot.ok && snapshot.snapshot.revision === record.policyRevision
+      ? await itemMatchesUrl(rt, snapshot, record.account, live.url, snapshot.catalog)
+      : { reason: "settings-revision" };
+  if (!stillLive()) return false;
+  if ("reason" in matched) {
+    live.moveMiss = "no-vault-match";
+    return false;
+  }
+  return signedInOnMovedPage(rt, record, live, fits.at);
+}
+
+/**
+ * Reads `live`, the page a `password` login's tab moved to after the step at `since`, for
+ * the login's result (ADR 0022): quiet and showing the account's username, or else judged
+ * `signed-in` once (`judgeMove`). A login that stops before its item's missing password
+ * skips the username (ADR 0036).
+ */
+async function signedInOnMovedPage(
+  rt: Runtime,
+  record: LoginAttemptMetadata,
+  live: LiveDocument,
+  since: number,
+): Promise<boolean> {
+  const stillLive = () => rt.documents.get(frameKey(live.document)) === live;
   const username = await moveUsername(rt, record);
   if (!stillLive()) return false;
   if (!username) {
@@ -183,10 +239,10 @@ export async function signedInByPassword(
   // username in the header or navigation (ADR 0036): a quiet page is judged.
   const reading =
     record.stopAt === undefined
-      ? await quietMove(rt, live, effect.at, username, true)
-      : (await quietMove(rt, live, effect.at)) && ("unproven" as const);
+      ? await quietMove(rt, live, since, username, true)
+      : (await quietMove(rt, live, since)) && ("unproven" as const);
   if (reading !== "unproven" || !stillLive()) return reading === "signed-in";
-  const verdict = judgeMove(rt, record, live, username, effect.at);
+  const verdict = judgeMove(rt, record, live, username, since);
   rt.moveJudgements.set(record.id, { documentId: live.document.documentId, verdict });
   try {
     return (await verdict) && stillLive();

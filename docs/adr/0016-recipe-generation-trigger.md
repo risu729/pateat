@@ -71,6 +71,10 @@ Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md): an empty r
 password input beside the page's software keyboard counts as a sign-in input for
 condition 3.
 
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; delivery 3, not implemented yet): a frame's page is sent too when the item
+matches both the frame's and the tab's URL and the frame is shown in the page.
+
 Date: 2026-10-11
 
 ## Context

@@ -26,6 +26,7 @@ import { type LogoutSource } from "../switch";
  */
 export type MoveMiss =
   | "no-factor"
+  | "no-vault-match"
   | "no-username"
   | "page-gone"
   | "unreadable"
