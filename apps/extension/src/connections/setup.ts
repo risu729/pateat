@@ -7,7 +7,7 @@ import {
 } from "@pateat/bitwarden";
 import type { LocalVaultHandle } from "../vault/manager";
 import type { VaultEntry } from "../vault/record";
-import type { VaultApplyHold, VaultSyncEntry, VaultSyncOutcome } from "./auto-sync";
+import type { VaultApplyHold, VaultSyncEntry, VaultSyncResult } from "./auto-sync";
 import { setupBeginSchema, setupContinuationSchema } from "./wire";
 import { profileServer } from "./policy";
 import type {
@@ -34,6 +34,16 @@ type AutoReply =
   | { ok: true; kind: "unchanged" }
   | { ok: true; kind: "deferred" }
   | { ok: false; error: { code: "account-deleted" } };
+/** Carry codes and HTTP status only, never provider values or error messages. */
+function syncFailure(failure: { code: string; status?: number }): VaultSyncResult {
+  return {
+    outcome: "failed",
+    cause: failure.code,
+    ...(failure.code === "http-error" && failure.status !== undefined
+      ? { status: failure.status }
+      : {}),
+  };
+}
 type Flow = {
   id: string;
   configuration: BitwardenConnectionConfiguration;
@@ -488,7 +498,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
    * and no replacement while a login or passkey request runs. It never asks for input and
    * never makes setup or the Sync button report busy.
    */
-  function autoSync(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncOutcome> {
+  function autoSync(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncResult> {
     if (
       disabling.has(connectionId) ||
       active.has(connectionId) ||
@@ -500,7 +510,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     // removed before the outcome is answered, so the next check is not skipped.
     let settled!: Promise<void>;
     const work = autoCheck(connectionId, hold)
-      .catch((): VaultSyncOutcome => "failed")
+      .catch((): VaultSyncResult => ({ outcome: "failed", cause: "exception" }))
       .finally(() => {
         if (autoRuns.get(connectionId) === settled) autoRuns.delete(connectionId);
       });
@@ -511,7 +521,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
     autoRuns.set(connectionId, settled);
     return work;
   }
-  async function autoCheck(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncOutcome> {
+  async function autoCheck(connectionId: string, hold: VaultApplyHold): Promise<VaultSyncResult> {
     const capturedEpoch = connectionEpoch.get(connectionId) ?? 0;
     const configuration = await deps.registry.get(connectionId);
     if (!configuration) return "skipped";
@@ -544,10 +554,10 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       manual: {},
     };
     autoFlows.set(connectionId, current);
-    return (async (): Promise<VaultSyncOutcome> => {
+    return (async (): Promise<VaultSyncResult> => {
       if (!(await permitted(current))) return "skipped";
       const transport = deps.transportFor(configuration.profile);
-      if (!transport.ok) return "failed";
+      if (!transport.ok) return syncFailure(transport.error);
       const authorization = await deps.sessions.acquire(configuration.profile, {
         cacheRevision: entry.revision,
         transport: transport.data,
@@ -559,7 +569,9 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         if (failure.code === "setup-reauthentication-required") return "reauthentication-required";
         // Another refresh of this connection is running in this worker.
         if (failure.code === "cancelled") return "skipped";
-        return failure.code === "http-error" && failure.status === 429 ? "rate-limited" : "failed";
+        return failure.code === "http-error" && failure.status === 429
+          ? "rate-limited"
+          : syncFailure(failure);
       }
       if (!alive(current) || (connectionEpoch.get(connectionId) ?? 0) !== capturedEpoch)
         return "skipped";
@@ -577,9 +589,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       // Stopped by a sign-in, forget, removal or permission loss.
       if (failure.code === "cancelled") return "skipped";
       if (failure.code === "setup-reauthentication-required") return "reauthentication-required";
-      return failure.code === "http-error" && failure.status === 429 ? "rate-limited" : "failed";
+      return failure.code === "http-error" && failure.status === 429
+        ? "rate-limited"
+        : syncFailure(failure);
     })()
-      .catch((): VaultSyncOutcome => "failed")
+      .catch((): VaultSyncResult => ({ outcome: "failed", cause: "exception" }))
       .finally(() => {
         clearTimeout(current.timer);
         current.password = "";

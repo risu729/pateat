@@ -104,7 +104,7 @@ export const PROBLEM_EVENT_FIELDS = {
   "vault.state": { state: "code", previous: "code", providerSession: "code", synced: "flag" },
   "vault.sync": { outcome: "code", check: "code" },
   "vault.sign-in": { step: "code", outcome: "code" },
-  "vault.check": { outcome: "code" },
+  "vault.check": { outcome: "code", cause: "code", status: "count" },
   "vault.timeout": { trigger: "code", action: "code", outcome: "code" },
   "vault.refresh": { outcome: "code", cause: "code", status: "count" },
   "service.sync": {

@@ -1,7 +1,7 @@
 // Connects the service worker's existing decisions to the local log (ADR 0019).
 import type { LocalSettings } from "@pateat/contracts";
 import * as v from "valibot";
-import type { VaultSyncOutcome } from "../connections/auto-sync";
+import type { VaultSyncReport } from "../connections/auto-sync";
 import type { VaultTimeoutReport } from "../vault/timeout";
 import type { SignInStep } from "../connections/runtime";
 import type { RefreshReport } from "../connections/sessions";
@@ -248,18 +248,19 @@ export function createDiagnosticsLog(options: {
      * An automatic vault check (ADR 0025): debug when nothing changed, info when a sync was
      * applied or waits for a login, else warn.
      */
-    vaultCheck(event: {
-      connectionId: string;
-      outcome: VaultSyncOutcome;
-      previous?: VaultSyncOutcome | undefined;
-    }) {
+    vaultCheck(event: VaultSyncReport) {
       // A check repeats every few minutes, also from a newly woken worker; the same stored
       // result again, such as a sign-in that still needs the password and sends nothing,
       // is only detail.
-      const repeated = event.previous === event.outcome;
+      // Failed checks always warn: their cause can change, and it is not stored.
+      const repeated = event.outcome !== "failed" && event.previous === event.outcome;
       void logger.log(
         "vault.check",
-        { connection: event.connectionId, outcome: event.outcome },
+        {
+          connection: event.connectionId,
+          outcome: event.outcome,
+          ...(event.outcome === "failed" ? { cause: event.cause, status: event.status } : {}),
+        },
         {
           level:
             event.outcome === "unchanged" ||
