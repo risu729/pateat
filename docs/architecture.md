@@ -1344,9 +1344,9 @@ clicked: the click is left to the person and held as a handler's click is, up to
 minutes while its button shows ([ADR 0029](adr/0029-local-sign-in-state.md)); a
 chooser's click on its list is made as before. A CAPTCHA the page shows only once the
 step ran, as Epic Games' hCaptcha after Continue, holds the step's result instead: while
-it shows unsolved, and in its document while the sign-in form still shows with no
+it shows unsolved beside the sign-in form, and while that form still shows with no
 failure after it closed, the result is neither settled nor judged, up to two minutes,
-though the page is still read for a next step, a continuation or a sign-in
+though the page is still read for a next step, a continuation, a failure or a sign-in
 ([ADR 0029, amended 2026-11-07](adr/0029-local-sign-in-state.md#amendment-a-captcha-after-the-step-2026-11-07)).
 Explicit credential rejection stops retries with that credential. A structural mismatch
 sends the page for repair, once a UTC day per recipe and device

@@ -232,6 +232,40 @@ describe("a CAPTCHA the page shows after a step (ADR 0029, S4)", () => {
     expect(service.generate).not.toHaveBeenCalled();
     expect(service.judge).not.toHaveBeenCalled();
   });
+  it("keeps its two-minute bound when a reading of the page fails", async () => {
+    const { h, service } = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 2);
+    // One reading in five cannot be read, as a page that answered nothing would.
+    let reads = 0;
+    fake.state.signs = () => (++reads % 5 === 0 ? { broken: true } : unsolved);
+    await until(settled("watching", "challenge"), 150_000);
+    expect(service.generate).not.toHaveBeenCalled();
+  });
+  it("rejects in the round that reads a failure next to the form, CAPTCHA or not", async () => {
+    const { h } = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 2);
+    await vi.advanceTimersByTimeAsync(20_000);
+    unsettled();
+    // The site refuses the email beside its CAPTCHA.
+    fake.state.signs = { ...unsolved, invalid: true, alert: true };
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(status()![0]).toMatchObject({ outcome: "credential-rejected" });
+  });
+  it("judges a page without the sign-in form that shows a CAPTCHA widget, as before", async () => {
+    const { h, service } = start();
+    // The page after Next shows no sign-in form, only a widget of a form of its own.
+    fake.state.onExecute = async () => {
+      fake.state.signs = unsolved;
+      fake.state.observedPath = "/home";
+      fake.state.present = new Set(["logout"]);
+      fake.state.extracted = { "signed-in": homePage };
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => service.judge.mock.calls.length === 1, 30_000);
+    expect(status()![0]!["outcome"]).not.toBe("challenge");
+  });
   it("settles the email form as before once no CAPTCHA showed", async () => {
     const { h, service } = start();
     fake.state.onExecute = undefined;

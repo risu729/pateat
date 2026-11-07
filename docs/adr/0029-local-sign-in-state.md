@@ -849,37 +849,49 @@ recipe filled the email (`#email`) and clicked Continue (`#continue`, an `advanc
 site asks for its hCaptcha only once Continue is pressed: the challenge frame, hidden
 until then (`visibility: hidden`, so S4 did not hold before the click), opened at 520 by
 570 pixels over the email form and Continue became disabled (seen again in a cloud
-Chromium on the same day). The click had run, so nothing was held, and, as the code
-reads such a page, about ten seconds later, while the person was still solving the
-challenge, the result's budget ran out: the page showed the email field (S1) and no
-failure, so it settled as unknown in that document. A login settled as unknown never
-reads its own document again, so the password step Epic showed in the same document
-after the CAPTCHA was never continued: the owner typed the password, and the login ended
-`challenge` at `/id/login/mfa` at 12:21:59 UTC (`login_timings`, recipe
-`gen-c60c77ad79bcdc0eb37e347b5f8e153f` revision 1, `personMs` 390541 of 426784).
+Chromium on the same day). The click had run, so nothing was held. The owner's local log
+shows the rest: the login started at 12:14:57.937 UTC, and at 12:15:13.252, while the
+person was still solving the challenge, the result's budget ran out and `login.state`
+read `unknown` (`s1`, `s2` and `s4`, `reshownMiss` `not-submit`), so it settled as
+unknown in that document (`login.attempt` `reconciling`, `unknown-submit`, cause
+`sign-in-shown`). A login settled as unknown never reads its own document again, so the
+password step Epic showed in the same document after the CAPTCHA was never continued:
+the owner typed the password, and the login ended `challenge` at `/id/login/mfa` at
+12:21:59 UTC (`login_timings`, recipe `gen-c60c77ad79bcdc0eb37e347b5f8e153f` revision 1,
+`personMs` 390541 of 426784).
 
 Once a step's result would settle or be judged, Pateat now first reads the page's
-sign-in state. While the top document shows a CAPTCHA widget (S4) that the person has
-not solved, that is, no token field of its service holds a token (`captchaUnsolved` in
-`login.state`'s answer), the result is neither settled nor judged: the person solves it.
-The page is still read every round as before, so a next step, a continuation's password
-form (ADR 0018), a rejection marker or a signed-in page that shows meanwhile goes on at
-once. When the CAPTCHA closes, the page's answer gets the step's usual budget again. In
-the document that showed such a CAPTCHA while this result was read, a page that still
-reads `unknown` (the sign-in form shows, with no failure next to it) waits too: the
-person may have closed the challenge, or the site may want its button pressed again, and
-the person's press is read as after Pateat's own step, as for a held click. A failure
-next to the sign-in form (`rejected`) and a sign-in (`signed-in`) still decide at once,
-with or without a CAPTCHA. Each wait lasts at most two minutes (`HELD_CLICK_WAIT_MS`, as
-for a held click) from when it began or changed between the two kinds; then the login
-ends `challenge` and is watched. The wait is the person's time (`personMs`, ADR 0019),
-and its start is logged as `login.attempt` with the cause `captcha-shown`. Pateat does
-not solve CAPTCHAs, press the button again, or read the token; the wait is kept in
-memory only, so a restarted worker reads the page as before.
+sign-in state. Only a page that still shows the sign-in form (S1) with no failure next
+to it (`unknown`) waits. While its top document shows a CAPTCHA widget (S4) that the
+person has not solved, that is, no token field of its service holds a token
+(`captchaUnsolved` in `login.state`'s answer), the result is neither settled nor judged:
+the person solves it. The page is still read every round as before, so a next step, a
+continuation's password form (ADR 0018), a rejection marker or a signed-in page that
+shows meanwhile goes on at once. Once such a CAPTCHA showed while this result was read,
+a page that still reads `unknown` after it closed waits too: the person may have closed
+the challenge, or the site may want its button pressed again, and the person's press is
+read as after Pateat's own step, as for a held click. A failure next to the sign-in form
+(`rejected`) and a sign-in (`signed-in`) decide in the round that reads them, with or
+without a CAPTCHA. A page that moved on otherwise, as to a code page, gets the step's
+usual budget again for its answer, and a reading that fails changes nothing about a
+running wait. Each wait lasts at most two minutes (`HELD_CLICK_WAIT_MS`, as for a held
+click) from when it began or changed between the two kinds; then the login ends
+`challenge` and is watched. The wait is the person's time (`personMs`, ADR 0019), and
+its start is logged as `login.attempt` with the cause `captcha-shown`. Pateat does not
+solve CAPTCHAs, press the button again, or read the token. The wait is kept in memory
+only: a restarted worker that reads the same document again starts a new wait there if
+the CAPTCHA is still unsolved, logs `captcha-shown` again, and counts the gap of the
+restart as the person's time, but it no longer knows a CAPTCHA closed there, so it
+settles a form shown after one as before.
 
 - Only the top document's frames count, as for S4; a login in a frame is not read.
 - A page that shows the form with a CAPTCHA the person already solved (a token is there)
   reads as before, so a widget that stays shown after it passed holds nothing.
+- A page without the sign-in form is read as before, CAPTCHA or not: a signed-in page
+  with a widget in a form of its own is still judged.
+- A failure next to the form beside an unsolved CAPTCHA, as a message asking for the
+  CAPTCHA, still rejects the login in its own document, as before this amendment; only
+  the sign-in form shown again in a new document with a CAPTCHA is never rejected.
 - Not chosen: pressing the button again once the CAPTCHA passed (a second submission the
   recipe's budget does not cover, and on most sites the CAPTCHA's own callback goes on
   by itself); a longer fixed budget after every click (a fixed wait, ADR 0082); reading

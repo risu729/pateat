@@ -363,24 +363,26 @@ export async function readSignInState(
 }
 
 /**
- * Why the page a step's result is read on waits for the person over a CAPTCHA (ADR 0029,
- * S4, amendment of 2026-11-07), as a site that asks for one only once its button was
- * pressed does: it shows one the person has not solved yet (`unsolved`), or, in the
- * document that showed one while this result was read (`shownHere`), it still shows the
- * sign-in form with no failure next to it (`after`): the site may go on once the person
- * presses its button again. A failure next to the sign-in form and a sign-in decide at
- * once, as without a CAPTCHA. Only reads.
+ * Whether the page a step's result is read on waits for the person over a CAPTCHA (ADR
+ * 0029, S4, amendment of 2026-11-07), as a site that asks for one only once its button was
+ * pressed does. Only a page that still shows the sign-in form (S1) with no failure next to
+ * it (`unknown`) waits: while it shows a CAPTCHA the person has not solved (`unsolved`),
+ * or, once one showed while this result was read (`shown`), after it closed (`after`): the
+ * site may go on once the person presses its button again. A failure next to the form or
+ * a sign-in (`decides`) and any other reading (`undefined`) are read as without a CAPTCHA;
+ * a page that could not be read is `unread`. Only reads.
  */
 async function captchaWait(
   rt: Runtime,
   run: Execution,
-  shownHere: boolean,
-): Promise<"unsolved" | "after" | undefined> {
+  shown: boolean,
+): Promise<"unsolved" | "after" | "decides" | "unread" | undefined> {
   const reading = await readSignInState(rt, run);
-  if (!reading || reading.decision === "rejected" || reading.decision === "signed-in")
-    return undefined;
+  if (!reading) return "unread";
+  if (reading.decision === "rejected" || reading.decision === "signed-in") return "decides";
+  if (reading.decision !== "unknown") return undefined;
   if (reading.captchaUnsolved) return "unsolved";
-  return shownHere && reading.decision === "unknown" ? "after" : undefined;
+  return shown ? "after" : undefined;
 }
 
 // State transitions, journal writes and DOM effects form an ordered protocol.
@@ -396,9 +398,10 @@ export async function reconcileBounded(rt: Runtime, run: Execution): Promise<voi
   let until = Date.now() + budget();
   // A held click's button may show this long before the page is left to the person.
   const holdUntil = Date.now() + HELD_CLICK_WAIT_MS;
-  // The CAPTCHA wait of this result, if any: in which document a CAPTCHA showed, what the
-  // page waits for now, and until when it may (ADR 0029, S4, amendment of 2026-11-07).
-  let captcha: { documentId: string; wait?: "unsolved" | "after"; until: number } | undefined;
+  // The CAPTCHA wait of this result, if any: whether a CAPTCHA showed, what the page
+  // waits for now, and until when it may (ADR 0029, S4, amendment of 2026-11-07). A later
+  // document of the login reads its own result in its own call.
+  let captcha: { wait?: "unsolved" | "after"; until: number } | undefined;
   const observing = () => ["awaiting-result", "reconciling"].includes(run.metadata.state);
   // Each round re-authorizes against settings, so the longer advance budget polls slower.
   const interval = run.metadata.operationEffect === "advance" ? 200 : 50;
@@ -409,17 +412,18 @@ export async function reconcileBounded(rt: Runtime, run: Execution): Promise<voi
     // neither settled nor judged, but still read every round, so a next step or a sign-in
     // that shows meanwhile goes on as usual.
     if (settle) {
-      const { documentId } = run.live.document;
-      const wait = await captchaWait(rt, run, captcha?.documentId === documentId);
+      const read = await captchaWait(rt, run, captcha !== undefined);
       if (!current(rt, run) || !observing()) return;
+      // A page that could not be read this round changes nothing about a running wait.
+      const wait = read === "unread" ? captcha?.wait : read === "decides" ? undefined : read;
       if (wait) {
-        if (captcha?.documentId !== documentId || captcha.wait !== wait) {
+        if (captcha?.wait !== wait) {
           // Logged as the click left to the person under a CAPTCHA is (ADR 0019).
           if (!captcha?.wait)
             reportAttempt(rt, run.metadata, run.recipe, undefined, {
               stop: "captcha-shown",
             });
-          captcha = { documentId, wait, until: Date.now() + HELD_CLICK_WAIT_MS };
+          captcha = { wait, until: Date.now() + HELD_CLICK_WAIT_MS };
         }
         if (Date.now() >= captcha.until) {
           await change(rt, run, {
@@ -437,11 +441,14 @@ export async function reconcileBounded(rt: Runtime, run: Execution): Promise<voi
         }
         settle = false;
       } else if (captcha?.wait) {
-        // The page moved on from the CAPTCHA: its answer gets the step's usual budget.
         delete captcha.wait;
         run.metadata = followPage(personAnswered(run.metadata));
-        until = Date.now() + budget();
-        settle = false;
+        // A failure or a sign-in decides in this round, as without a CAPTCHA. A page that
+        // moved on from the CAPTCHA otherwise gets the step's usual budget for its answer.
+        if (read === undefined) {
+          until = Date.now() + budget();
+          settle = false;
+        }
       }
     }
     const held = await reconcile(rt, run, settle);
