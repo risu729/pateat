@@ -414,10 +414,21 @@ describe("synced account bindings", () => {
         sso,
       ),
     ).toEqual({ ok: false, slot: "x", reason: "sso-field" });
+    expect(resolveDetailSourceField({ custom: "SSO" }, sso)).toBeUndefined();
   });
 
   it("reserves `SSO` and `SSO <number>` by name only (ADR 0085)", () => {
-    for (const name of ["SSO", "sso", " SSO ", "SSO 2", "SSO  3", "sso 10"])
+    for (const name of [
+      "SSO",
+      "sso",
+      " SSO ",
+      "SSO 2",
+      "SSO  3",
+      "sso 10",
+      "SSO\t2",
+      "SSO\u00a02",
+      "ＳＳＯ　２",
+    ])
       expect(isSsoFieldName(name), name).toBe(true);
     for (const name of [null, undefined, "", "SSO2", "SSO-2", "SSO login", "My SSO", "SSO 2a"])
       expect(isSsoFieldName(name), String(name)).toBe(false);

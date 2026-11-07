@@ -105,6 +105,13 @@ const link = (
 ): DetailLink => ({ ...owner, detail, source, ...overrides });
 
 describe("which vault fields give a personal detail (ADR 0061)", () => {
+  it("never reads a detail from a field reserved for SSO methods (ADR 0085)", () => {
+    for (const name of ["SSO", "SSO 2", "sso 3"])
+      for (const detail of ["secret-answer", "member-id", "pin", "phone-last-4"] as const)
+        expect(givesDetail(detail, custom(0, name)), `${detail} ${name}`).toBe(false);
+    expect(givesDetail("secret-answer", custom(0, "SSO login question"))).toBe(true);
+  });
+
   it("reads a phone number from the identity's phone or a Text or Hidden custom field", () => {
     expect(givesDetail("phone-last-4", builtin("identity.phone", "Phone"))).toBe(true);
     expect(givesDetail("phone-last-4", custom(0, "Phone"))).toBe(true);

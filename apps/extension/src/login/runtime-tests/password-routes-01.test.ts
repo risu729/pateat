@@ -316,6 +316,11 @@ describe("password route variants (ADR 0027)", () => {
         async () => [{ slot: "branch", field: { custom: "Twice" } }],
         "field-ambiguous",
       ],
+      [
+        "names a field reserved for SSO methods (ADR 0085)",
+        async () => [{ slot: "branch", field: { custom: "SSO" } }],
+        "sso-field",
+      ],
     ])("refuses when the only template %s", async (_label, slotFields, reason) => {
       const own = bound([{ slot: "password", field: "password" }]);
       const { h, report } = start(
@@ -325,6 +330,7 @@ describe("password route variants (ADR 0027)", () => {
             { name: "Branch", kind: "text" },
             { name: "Twice", kind: "text" },
             { name: "Twice", kind: "text" },
+            { name: "SSO", kind: "text" },
           ],
           generation: service(slotFields),
         },
@@ -382,6 +388,21 @@ describe("password route variants (ADR 0027)", () => {
   });
   it("moves to the next variant when a field of the first is excluded", async () => {
     const { h } = start({ bindings: [everything], ...excluding(branchField) });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ variant: 1 });
+    expect(filled()).toEqual([["contract", "password"]]);
+  });
+  it("moves to the next variant when the first binds a field reserved for SSO (ADR 0085)", async () => {
+    const reserved = bound([
+      { slot: "branch", field: { custom: "SSO" } },
+      { slot: "contract", field: { custom: "Contract" } },
+      { slot: "password", field: "password" },
+    ]);
+    const { h } = start(
+      { bindings: [reserved] },
+      { custom: [...both.custom, { name: "SSO", kind: "text" }] },
+    );
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
     expect(status()![0]).toMatchObject({ variant: 1 });
