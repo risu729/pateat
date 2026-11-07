@@ -202,13 +202,14 @@ export const attemptMetadataSchema = v.pipe(
       v.strictObject({ operationId: identifier, pages: integer(MAX_JUDGED_PAGES) }),
     ),
     /**
-     * A top-level `password` login watched after its result stopped at `challenge`
-     * (`watching`) or settled as unknown (ADR 0027): since when, in epoch milliseconds, the
-     * document it began in, and the pages sent to be judged since, apart from the effect
-     * step's own (`judged`). Kept by `transitionLoginAttempt`. `path` is the path of that
-     * document the login was last read on, as the runtime observes it, so a route the
-     * document takes in place, as a single-page site's, is read once as the tab's next page,
-     * also after a worker restart (ADR 0027 amendment of 2026-10-25).
+     * A `password` login, in the tab's page or in a frame (ADR 0086), watched after its
+     * result stopped at `challenge` (`watching`) or settled as unknown (ADR 0027): since
+     * when, in epoch milliseconds, the document it began in, and the pages sent to be
+     * judged since, apart from the effect step's own (`judged`). Kept by
+     * `transitionLoginAttempt`. `path` is the path of that document the login was last read
+     * on, as the runtime observes it, so a route the document takes in place, as a
+     * single-page site's, is read once as the tab's next page, also after a worker restart
+     * (ADR 0027 amendment of 2026-10-25).
      */
     watch: v.optional(
       v.strictObject({
@@ -331,7 +332,7 @@ export const attemptMetadataSchema = v.pipe(
   ),
   v.check(
     (metadata) => metadata.state !== "watching" || watched(metadata),
-    "Only a top-level password login is watched",
+    "Only a password login is watched",
   ),
   v.check(
     (metadata) => (metadata.operationId === undefined) === (metadata.operationKind === undefined),

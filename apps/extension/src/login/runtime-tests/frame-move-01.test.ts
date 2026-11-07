@@ -90,6 +90,8 @@ describe("a login in a frame whose page is replaced (ADR 0086)", () => {
     fake.state.present = undefined;
     fake.state.awaited = { ok: true };
     fake.state.gone = new Set();
+    fake.state.goneFrames = new Set();
+    fake.state.onPresent = undefined;
     fake.state.extracted = {};
     fake.state.signs = undefined;
     fake.state.loaded = true;
@@ -111,7 +113,7 @@ describe("a login in a frame whose page is replaced (ADR 0086)", () => {
     expect(executes()).toHaveLength(2);
   });
 
-  it("ends cancelled, as before, when the new page does not show the sign-in", async () => {
+  it("ends cancelled, as before, when the new page does not show the account's username", async () => {
     holdClicks();
     const reports: LoginReport[] = [];
     const h = await framed(reports);
@@ -179,6 +181,7 @@ describe("a login in a frame whose page is replaced (ADR 0086)", () => {
       const h = await framed();
       fake.state.signs = signedIn;
       fake.state.gone.add("frame-one");
+      fake.state.goneFrames.add(3);
       fake.state.tabUrls[1] = home;
       fake.state.onReconnect = () => h.hello({ documentId: "page-one", url: home }, false);
       await h.login.tabLoaded({ id: 1, url: home } as never);
@@ -188,10 +191,12 @@ describe("a login in a frame whose page is replaced (ADR 0086)", () => {
       expect(fake.state.reconnects).toEqual([{ tabId: 1, frameId: 0, documentId: "page-one" }]);
     });
 
-    it("leaves a login whose frame still answers", async () => {
+    it("leaves a login whose frame still shows a document, also its next one", async () => {
       holdClicks();
       const h = await framed();
       fake.state.signs = signedIn;
+      // The frame moved to its next document, which has not announced yet.
+      fake.state.gone.add("frame-one");
       fake.state.tabUrls[1] = home;
       await h.login.tabLoaded({ id: 1, url: home } as never);
       await new Promise((resolve) => setTimeout(resolve, 50));

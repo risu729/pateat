@@ -163,9 +163,12 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   const moveJudgements = new Map<string, { documentId: string; verdict: Promise<boolean> }>();
 
   /**
-   * By tab: the `password` login in a frame whose frame went away when the tab's page
-   * changed its URL in place, as a single-page site's route after a sign-in in a frame
-   * (ADR 0086), until the page announces again and is read for that login's result.
+   * By tab: the `password` login in a frame whose frame went away with its page, by a new
+   * top document or by a URL change in place, as a single-page site's route after a
+   * sign-in in a frame (ADR 0086), until a hello of the tab's top page ends that login on
+   * its page. An entry of a login that ended another way, or whose frame announced again,
+   * is dropped at the next top hello, as it reads only for the tab's current login; the
+   * tab's closing drops it too.
    */
   const leftFrames = new Map<number, string>();
 

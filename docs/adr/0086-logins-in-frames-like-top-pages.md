@@ -62,18 +62,31 @@ otherwise nothing changes for that frame:
   new document of the same frame after a password submission is read as `reshown`, as
   the first new top document is for a top-level login.
 - A `password` login in a frame whose result stops at `challenge` or settles as unknown
-  is watched (ADR 0027) for the same 10 minutes. Showing the route's first step again in
-  a new document of the same frame abandons the watch, as in the tab's page.
+  is watched (ADR 0027) for the same 10 minutes, and so is one whose wait for the site
+  runs out (ADR 0022, amended 2026-11-03): it holds its origin against other tabs for
+  the watch, as a top-level login does. Showing the route's first step again in a new
+  document of the same frame abandons the watch, as in the tab's page.
 - When the page around the frame is replaced, by a new top document or by a URL change
-  of the same document whose frame no longer answers within a second, the page there is
-  read for the login's result, as a top-level login's page of another origin of the site
-  is right after a password submission (ADR 0022), when:
+  of the same document whose frame no longer shows a document, the page there is read
+  for the login's result, as a top-level login's page of another origin of the site is
+  right after a password submission (ADR 0022), when:
   - the login's last effect step, other than a passkey's, or a code it entered ran at
     most 30 seconds before (`SITE_MOVE_MS`), or the login is watched and its watch still
     lasts, as while the person enters a code the site sent to a device; and
   - the login's item matches the new page's URL (chosen by an agent in place of
     "the same site as the frame", since a bank page may embed a sign-in frame from a
     vendor's own site).
+
+  Whether the frame still shows a document is asked by its frame ID alone, which every
+  document answers from its start (`login.frame.present`, answered by the
+  `document_start` content script), so a frame that moved to its next document is still
+  there once that document starts; a frame that does not answer within a second counts
+  as still there, as for a new page (ADR 0017). The frame is asked the same way when the
+  tab's top page announces while the worker knows no document of the frame, as after a
+  worker restart during the watch (chosen by an agent after review). The move is kept
+  until a hello of the tab's top page ends the login, so the page announcing again
+  during the check, or going away before it was read, still leaves the login to the
+  tab's page.
 
   The page then completes the login when it is quiet and shows the account's username,
   or else when the judge answers `signed-in` once (`judgeMove`), and the account choice

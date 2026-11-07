@@ -199,9 +199,6 @@ export async function signedInAfterFrame(
     return false;
   }
   const stillLive = () => rt.documents.get(frameKey(live.document)) === live;
-  const judging = rt.moveJudgements.get(record.id);
-  if (judging?.documentId === live.document.documentId)
-    return (await judging.verdict) && stillLive();
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (!stillLive()) return false;
   const matched =
@@ -213,6 +210,11 @@ export async function signedInAfterFrame(
     live.moveMiss = "no-vault-match";
     return false;
   }
+  // A verdict for this document is reused only once its URL matched too, as when the page
+  // changed its path in place after the judge was asked.
+  const judging = rt.moveJudgements.get(record.id);
+  if (judging?.documentId === live.document.documentId)
+    return (await judging.verdict) && stillLive();
   return signedInOnMovedPage(rt, record, live, fits.at);
 }
 

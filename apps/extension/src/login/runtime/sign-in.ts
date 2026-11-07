@@ -274,11 +274,12 @@ export async function readSignInState(
   const { tabId, origin: pageOrigin } = run.live.document;
   const effect = rt.effects.get(tabId);
   // The sign-in form shown again in the first new document of the login's frame after this
-  // attempt's password submission (the tab's top document for a login there, ADR 0086), as by a site that answers a failed submission with its sign-in
-  // page: its inputs' marks and the alerts next to it are read without the step's own
-  // reading (owner, 2026-10-12 22:03 UTC). A later document, such as the person's own
-  // retry, is not; nor is one after an advance or a passkey step. Without the step in
-  // memory, as after a worker restart, it is not read.
+  // attempt's password submission (the tab's top document for a top-level login, ADR 0086),
+  // as by a site that answers a failed submission with its sign-in page: its inputs' marks
+  // and the alerts next to it are read without the step's own reading (owner, 2026-10-12
+  // 22:03 UTC). A later document, such as the person's own retry, is not; nor is one after
+  // an advance or a passkey step. Without the step in memory, as after a worker restart, it
+  // is not read.
   const reshownMiss: ReshownMiss | undefined =
     effect?.attemptId !== metadata.id
       ? "no-effect"

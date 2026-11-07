@@ -188,6 +188,16 @@ export const reconnectSchema = v.strictObject({
    */
   fresh: v.optional(v.literal(true)),
 });
+/**
+ * Asks a frame, by its frame ID alone, whether a document still shows there, answered from
+ * the start of every document (`login-start`), also one whose login content script has not
+ * run yet: the frame of a login that no answer comes from went away with its page (ADR
+ * 0086).
+ */
+export const framePresentSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.frame.present"),
+});
 export const authorizeSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.operation.authorize"),

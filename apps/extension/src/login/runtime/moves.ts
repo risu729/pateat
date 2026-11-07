@@ -572,12 +572,27 @@ export function frameMoveFits(
 }
 
 /**
+ * Whether frame `frameId` of the tab still shows a document, asked by its frame ID alone,
+ * which any document of it answers from its start (`login.frame.present`, ADR 0086): a
+ * frame that moved to its next document is still there. A frame that does not answer
+ * within a second counts as still there, as for a new page (ADR 0017).
+ */
+export function framePresent(tabId: number, frameId: number): Promise<boolean> {
+  return Promise.race([
+    browser.tabs.sendMessage(tabId, { version: 1, type: "login.frame.present" }, { frameId }).then(
+      (answer) => answer === true,
+      () => false,
+    ),
+    new Promise<boolean>((resolve) => setTimeout(resolve, 1000, true)),
+  ]);
+}
+
+/**
  * The tab's page changed its URL: when a `password` login in one of its frames may end
- * on the page there (`frameMoveFits`) and that frame no longer answers, as when a
+ * on the page there (`frameMoveFits`) and that frame no longer shows a document, as when a
  * single-page site's route replaced the sign-in frame after the sign-in (ADR 0086), the
  * tab's top document is asked to announce again, so its page is read for that login's
- * result as a new page around the frame is. A frame that does not answer in time counts
- * as still there, as for a new page (ADR 0017).
+ * result as a new page around the frame is (`framePresent`).
  */
 export async function frameLeftInPlace(rt: Runtime, tab: { id?: number | undefined }) {
   const tabId = tab.id;
@@ -585,21 +600,12 @@ export async function frameLeftInPlace(rt: Runtime, tab: { id?: number | undefin
   await rt.vars.sessionLoaded;
   const record = tabAttempt(rt, tabId);
   if (!record || terminal(record) || !frameMoveFits(rt, record, tabId)) return;
-  const key = frameKey(record.document);
-  const frame = rt.documents.get(key);
+  const { frameId } = record.document;
+  const answers = await framePresent(tabId, frameId);
+  const latest = tabAttempt(rt, tabId);
   const top = rt.documents.get(frameKey({ tabId, frameId: 0 }));
-  if (!top) return;
-  if (frame?.document.documentId === record.document.documentId) {
-    const answers = await Promise.race([
-      send(rt, frame, { type: "login.observe", path: frame.path, targets: [] }).then(
-        () => true,
-        () => false,
-      ),
-      new Promise<boolean>((resolve) => setTimeout(resolve, 1000, true)),
-    ]);
-    if (answers || rt.documents.get(key) !== frame) return;
-    rt.documents.delete(key);
-  }
+  if (answers || !top || latest?.id !== record.id || terminal(latest)) return;
+  rt.documents.delete(frameKey({ tabId, frameId }));
   rt.leftFrames.set(tabId, record.id);
   await browser.tabs
     .sendMessage(

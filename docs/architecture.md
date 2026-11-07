@@ -1870,7 +1870,10 @@ longer allow its account on the page; otherwise the watch takes over their revis
 since it only reads, so another site's saved account choice does not end it. The
 `passkey` route still ends `challenge` at once; a login in a frame is watched too, and
 the page that replaces its frame's page during the watch is read for its result
-([ADR 0086](adr/0086-logins-in-frames-like-top-pages.md)). The attempt store is
+([ADR 0086](adr/0086-logins-in-frames-like-top-pages.md)). Whether that frame is gone is
+asked with `login.frame.present` by its frame ID alone, which the `document_start`
+content script (`login-start`) answers in every document, and the move is kept in
+`leftFrames` until a hello of the tab's top page ends the login. The attempt store is
 `pateat.login-attempts.v5` since the login's site time (2026-10-18); a previous store is
 left unread, as one record that no longer parses would stop the whole store from
 loading.
