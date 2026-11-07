@@ -108,6 +108,11 @@ compromised destination page.
 
 ## Vault adapter
 
+The Bitwarden provider's `account.ts` keeps cached-context readmission and the public
+exports. `account-map.ts` owns live response correlation; `account-response.ts` owns
+pure provider DTO normalization and consistency decisions; `account-types.ts` holds
+their shared contracts. Existing account tests retain their files and assertions.
+
 Distinguish a provider type from a connection and model multiple simultaneous
 vault connections from the start. Scope item and field IDs by connection.
 Adapters are developer-written and bundled with extension releases; no remotely
