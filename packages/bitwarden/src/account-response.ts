@@ -214,7 +214,7 @@ export function modernUnlock(input: unknown): Sdk.MasterPasswordUnlockData {
   };
 }
 /** The token's copy may omit the contained key ID hint; every present value must still agree. */
-export function sameUnlock(a: Sdk.MasterPasswordUnlockData, b: Sdk.MasterPasswordUnlockData): boolean {
+function sameUnlock(a: Sdk.MasterPasswordUnlockData, b: Sdk.MasterPasswordUnlockData): boolean {
   const { containedKeyId: left, ...leftRequired } = a;
   const { containedKeyId: right, ...rightRequired } = b;
   return same(leftRequired, rightRequired) && (left == null || right == null || left === right);
@@ -541,3 +541,5 @@ export function uriMatchDefault(
   if (values.size > 1) return "unavailable";
   return ([...values][0] ?? 0) as 0 | 1 | 2 | 3 | 4 | 5;
 }
+
+export { sameUnlock };
