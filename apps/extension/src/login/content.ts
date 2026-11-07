@@ -2483,6 +2483,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             // observes the page instead of clicking.
             if (writableInputs.some((input) => !input.isConnected))
               return fail("structural-mismatch", "form-replaced");
+            // A page that cleared a filled, still writable input changed its form. Repair
+            // that structure before reading required/ARIA/feedback as a rejected value.
+            if (
+              writableInputs.some(
+                (input) =>
+                  input instanceof HTMLInputElement && input.value === "" && writable(input),
+              )
+            )
+              return fail("structural-mismatch", "form-changed");
             const rejection = fillRejection(writableInputs, baseline);
             if (rejection) return fail("fill-rejected", rejection.detail, rejection.fieldIndex);
           }

@@ -813,7 +813,7 @@ export async function startLoginFixture(
             }[fixtureUrl.searchParams.get("password-input") ?? ""] ?? 'type="password"'
           }${
             maxLength !== null && /^\d{1,3}$/u.test(maxLength) ? ` maxlength="${maxLength}"` : ""
-          }></label>${
+          }${fixtureUrl.searchParams.get("reject-fill") === "switch-form" ? " required" : ""}></label>${
             switchPointer !== null && masked.test(switchPointer)
               ? `<div id="use-another" data-test="use-another-account" style="cursor: pointer"${inPlace ? ` data-shown="Signed in as ${switchPointer}"` : ""} data-next="${slowSwitch ? "/slow-switch" : path}?${new URLSearchParams({ shown: switchPointer, ...(form === null ? {} : { form }) }).toString().replace(/&/gu, "&amp;")}"><span>Use another account</span></div>`
               : ""
