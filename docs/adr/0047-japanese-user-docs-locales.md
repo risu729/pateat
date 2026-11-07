@@ -33,9 +33,10 @@ people from the other version
   or `lang="ja"` on its HTML.
 - No page redirects by the browser's language or remembers a choice; the switch is the
   only way between them.
-- Every page names both versions with `<link rel="alternate" hreflang>` (`en`, `ja`,
-  and `x-default` for English). The links need absolute URLs, so the build adds them
-  only when `PATEAT_DOCS_URL` names the site's origin, which the deployment sets.
+- Every page names both versions with `<link rel="alternate" hreflang>` (`en`, `ja`, and
+  `x-default` for English). The links need absolute URLs, so the build adds them only
+  when `PATEAT_DOCS_URL` names the site's address; the docs `render` task sets it to
+  `https://pateat.takuk.me/docs`.
 - A Japanese heading carries the English heading's ID (`{#vault-timeout}`), so a link
   or language switch to a section works in both languages. `scripts/check-docs.mjs`
   reads explicit IDs and Unicode headings.
@@ -56,8 +57,7 @@ remembered choice.
 
 Search engines see two language versions of each page and can show the one that fits
 the reader, without a redirect hiding either. Each page change costs a translation in
-the same PR. Until the site is deployed with `PATEAT_DOCS_URL`, built pages have no
-`hreflang` links.
+the same PR.
 
 ## Alternatives
 

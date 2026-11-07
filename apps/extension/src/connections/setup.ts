@@ -34,16 +34,6 @@ type AutoReply =
   | { ok: true; kind: "unchanged" }
   | { ok: true; kind: "deferred" }
   | { ok: false; error: { code: "account-deleted" } };
-/** Carry codes and HTTP status only, never provider values or error messages. */
-function syncFailure(failure: { code: string; status?: number }): VaultSyncResult {
-  return {
-    outcome: "failed",
-    cause: failure.code,
-    ...(failure.code === "http-error" && failure.status !== undefined
-      ? { status: failure.status }
-      : {}),
-  };
-}
 type Flow = {
   id: string;
   configuration: BitwardenConnectionConfiguration;
@@ -62,6 +52,16 @@ type Flow = {
   retire?: () => Promise<void>;
   retirement?: Promise<void>;
 };
+/** Carry codes and HTTP status only, never provider values or error messages. */
+function syncFailure(failure: { code: string; status?: number }): VaultSyncResult {
+  return {
+    outcome: "failed",
+    cause: failure.code,
+    ...(failure.code === "http-error" && failure.status !== undefined
+      ? { status: failure.status }
+      : {}),
+  };
+}
 
 /** Only the exact trusted options Port gets a caller. Secrets never enter a metadata query cache. */
 export function createConnectionSetupService(deps: ConnectionSetupDependencies) {

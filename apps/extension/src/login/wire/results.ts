@@ -102,7 +102,8 @@ export const executionResultSchema = v.strictObject({
    * clears by reloading the page (ADR 0067).
    * `fill-rejected`: after a preparing fill the page marked a filled input invalid or
    * showed a new alert (ADR 0010), or while typing it kept a character out so the input
-   * does not hold the value.
+   * does not hold the value. Enter's form check also fails with it (`form-invalid`); that
+   * attempt ends `structural-mismatch`.
    * `submitted`: after a `totp` handler's code fill the page showed that it submits the
    * code by itself (ADR 0027), or after a key press on a keypad the page moved to another
    * path or took the field out of the document, perhaps submitting the characters so far

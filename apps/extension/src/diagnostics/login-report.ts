@@ -28,6 +28,8 @@ const requestTimes = (timing: ServiceTiming | undefined) => ({
 
 /** Binds login report projection to the worker's logger, without owning runtime state. */
 export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>, "log">) {
+  // The method of the diagnostics log's report object, moved as it was; only it is
+  // returned.
   return {
     login(report: LoginReport) {
       const source = { tabId: report.tabId, origin: report.origin };

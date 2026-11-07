@@ -55,10 +55,11 @@ aggregation. The transport facade preserves its public exports and existing test
 in place.
 
 `apps/extension/src/diagnostics/background.ts` owns the worker logger, connection-state
-watches and non-login report entry points. `diagnostics/login-report.ts` owns the login
-report field projections and log-level decisions, including generation and judge timing;
-its reporter receives the same logger without owning runtime or persistence state. The
-public `createDiagnosticsLog` facade and its report methods remain unchanged.
+watches and the report entry points other than `login`. `diagnostics/login-report.ts`
+owns the login report field projections and log-level decisions, including generation
+and judge timing; its reporter receives the same logger without owning runtime or
+persistence state. The `createDiagnosticsLog` in `background.ts` is the public facade
+for both, with the same report methods.
 
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
@@ -123,8 +124,9 @@ the original effects and stale-document checks. Every runtime module stays withi
 1,000-line limit. Cross-tab holds, admission record phases and the relogin guard use
 pure decisions with separate tests; see [policy inputs](#login-runtime-policy-inputs).
 
-The synthetic judged-page corpus keeps its public `judgeCorpus` and type exports in
-`packages/inference/src/corpus/judge.ts`. Its companion `judge-builders.ts` owns
+The synthetic judged-page corpus keeps its public `judgeCorpus` in
+`packages/inference/src/corpus/judge.ts`, which re-exports the `JudgeCase` and
+`JudgeExpected` types. Its companion `judge-builders.ts` defines those types and owns
 the typed candidate/page constructors and ground-truth ID normalization. The case
 table remains in its original order and uses those same constructors; no corpus IDs,
 objects, expected decisions or test discovery change.
@@ -343,9 +345,11 @@ Focused tasks are available for diagnosis:
 | `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
 | `mise run //apps/docs:dev` | Serve the docs website with live reload ([docs website](#docs-website)) |
-| `mise run //apps/docs:build` | Render the docs website into `apps/docs/.vitepress/dist/docs/` |
+| `mise run //apps/docs:render` | Render the docs website into `apps/docs/.vitepress/dist/docs/` with its public address |
+| `mise run //apps/docs:build` | Render the docs website and package it as an assets-only Worker |
 | `mise run //apps/docs:test` | Build the docs website and check every local link and fragment in the built pages |
 | `mise run //apps/docs:preview` | Build and serve the built docs website |
+| `mise run //apps/docs:bootstrap` | Create the docs Worker and its routes once with the owner's local Cloudflare login ([docs bootstrap](delivery.md#docs-bootstrap)) |
 | `mise run check:sdk-source` | Validate installed SDK metadata against its pin and render [exact source notices](sdk-source.md#pinned-upstream-source) without writing files |
 
 On Linux, `mise run browser:install --with-deps` also installs the browser's system

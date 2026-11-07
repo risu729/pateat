@@ -130,11 +130,12 @@ exposes which existing check rejected the fill. This is an implementation choice
 the requested logging scope, not a new rule for accepting page rewrites. A typed refusal
 reports `typed-refused`; constraint validation reports `input-` followed by its fixed
 flag name (`value-missing`, `pattern-mismatch`, `type-mismatch`, `too-long`,
-`too-short`, `range-underflow`, `range-overflow`, `step-mismatch`, `bad-input`,
-or `custom-error`). New ARIA marks, alert text and relevant status text report
+`too-short`, `range-underflow`, `range-overflow`, `step-mismatch`, `bad-input`, or
+`custom-error`). New ARIA marks, alert text and relevant status text report
 `aria-invalid`, `alert-shown` and `status-shown`. Enter's form check reports
-`form-invalid`. The first rejecting input/check wins; existing feedback baselines and
-unchanged custom validity messages are treated as before.
+`form-invalid`, and its attempt ends `structural-mismatch`. The first rejecting
+input/check wins; existing feedback baselines and unchanged custom validity messages are
+treated as before.
 
 For a field-specific rejection, `fieldIndex` is its zero-based position in the recipe
 fill step, including position zero for any digit of a split code. It is a bounded count,
@@ -142,11 +143,12 @@ not a DOM identifier, slot name or label. The execution result, attempt report, 
 log and existing service problem-line allowlist carry it. Outcome and timing records
 carry the fixed cause only; their schema and database need no additional column.
 A keypad that already received a key retains its existing `keypad-pressed` cause so
-the person is still told to reload before another attempt.
+the person is still told to reload before another attempt; a field-specific rejection
+there keeps its `fieldIndex`.
 
 The page's text, messages, labels and values stay in the content script. The checks
-still stop the same fills, add no waits, and neither accept separators nor claim to
-verify any real site's behavior.
+still stop the same fills, add no waits, and do not claim to verify any real site's
+behavior. The inserted-separator exception came later, in the amendment below.
 
 ## Amendment 2026-11-07: a cleared filled input changes the form
 
@@ -157,9 +159,11 @@ pre-click check already treats it. This is a general form rule; it does not clai
 the issue's example site clears fields.
 
 After a preparing fill's existing form-replacement check and before its rejection
-checks, such an input ends the step as `structural-mismatch` with `form-changed`. This
-permits the existing repair path rather than permanently rejecting the value because the
-emptied input is required, newly ARIA-invalid, or has new required-field feedback.
+checks, any filled input of the step that the page emptied while it is still writable
+ends the step as `structural-mismatch` with `form-changed`, whatever rejection the
+step's other inputs show. This permits the existing repair path rather than permanently
+rejecting the value because the emptied input is required, newly ARIA-invalid, or has
+new required-field feedback.
 Hidden, disabled and read-only inputs do not trigger this rule. Code submission watches
 keep their own rejection checks and submission priority. No wait is added.
 
@@ -167,12 +171,21 @@ keep their own rejection checks and submission priority. No wait is added.
 
 The owner accepted the rule in
 [issue 1326, part 4](https://github.com/risu729/pateat/issues/1326#issuecomment-6701829301)
-on 2026-11-07 at 03:45 UTC: "spaces and hyphens only". A held value changed only
-by inserting ASCII spaces (U+0020) and hyphen-minus (U+002D) is kept when removing
-only those insertions leaves exactly the typed value. Every original character,
-including an original space or hyphen, must remain in order. The held value,
-including the insertions, must fit `maxlength` (ignored for number inputs, as
-before). Other inserted characters, including `/`, `.` and `(`, get no exception.
+on 2026-11-07 at 03:45 UTC: "spaces and hyphens only". A held value changed only by
+inserting ASCII spaces (U+0020) and hyphen-minus (U+002D) is kept when removing only
+those insertions leaves exactly the typed value. Every original character, including an
+original space or hyphen, must remain in order. The held value, including the
+insertions, must fit `maxlength`. Other inserted characters, including `/`, `.` and `(`,
+get no exception.
+
+Claude's implementation choices (2026-11-07, after review): an insertion must sit
+between two typed characters, because a separator before the first or after the last
+groups nothing and a leading hyphen can change the value; and a number input takes no
+insertion, since a hyphen there only changes the number (`1e5` to `1e-5`). The rule
+covers every typed field, password and code fields included, as the owner's rule names
+no field kind; a one-character value, such as a digit of a split code, has nothing
+between to take an insertion. Characters are compared as whole code points, so no
+insertion can split a surrogate pair.
 
 This applies to the settled check after the last character, including a cancelled
 key the page wrote itself, and again after `change` and blur. Match raw characters

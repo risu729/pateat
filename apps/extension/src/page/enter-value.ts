@@ -89,17 +89,27 @@ export function gap(): Promise<void> {
 }
 
 /**
- * Whether removing only inserted ASCII spaces and hyphens from `held` leaves exactly
- * `value`. Match original characters first so its own separators must remain in order.
- * Compare the raw characters: width folding must not admit another inserted separator.
+ * Whether removing only ASCII spaces and hyphens inserted between two of `value`'s
+ * characters from `held` leaves exactly `value`. Every original character, its own
+ * separators included, must remain in order. A separator before the first or after the
+ * last character groups nothing and could change the value, as a leading hyphen makes a
+ * number negative. Compare the raw characters, whole code points, so width folding
+ * cannot admit another inserted separator and none can split a surrogate pair.
  */
 function withInsertedSeparators(held: string, value: string): boolean {
-  let at = 0;
+  const typed = [...value];
+  // `matched[i]`: the held characters read so far can be the first `i` typed characters
+  // with insertions. A held separator may be either typed or inserted, so all are tracked.
+  let matched = typed.map((_, i) => i === 0).concat(typed.length === 0);
   for (const character of held) {
-    if (value.startsWith(character, at)) at += character.length;
-    else if (character !== " " && character !== "-") return false;
+    const inserted = character === " " || character === "-";
+    matched = matched.map(
+      (_, i) =>
+        (i > 0 && matched[i - 1] === true && typed[i - 1] === character) ||
+        (inserted && i > 0 && i < typed.length && matched[i] === true),
+    );
   }
-  return at === value.length;
+  return matched[typed.length] === true;
 }
 
 /**
@@ -123,7 +133,8 @@ function withInsertedSeparators(held: string, value: string): boolean {
  * too (owner decision, 2026-10-18 02:07 UTC; see {@link widthFolded}). A value changed
  * only by inserting ASCII spaces (U+0020) and hyphen-minus (U+002D) is kept too: removing
  * only the inserted characters must give exactly `value`, preserving its own separators
- * and every original character in order (owner decision, 2026-11-07 03:45 UTC; ADR 0010).
+ * and every original character in order (owner decision, 2026-11-07 03:45 UTC; ADR 0010),
+ * when each sits between two of its characters and the input is not a number input.
  * These exceptions require the held value, including inserted separators, to fit the
  * field's `maxlength`. Other inserted characters get no exception. After `change` and
  * blur the page gets another pause and the same checks apply, unless the page emptied
@@ -235,8 +246,10 @@ export async function typeValue<Cause extends string>(
     // could not have left in it.
     if (input.type !== "number" && input.maxLength >= 0 && held.length > input.maxLength)
       return "refused";
+    // A number input holds no grouping, so a hyphen there only changes the number, as
+    // `1e5` to `1e-5`.
     return widthFolded(held) !== widthFolded(value) &&
-      !withInsertedSeparators(held, value) &&
+      (input.type === "number" || !withInsertedSeparators(held, value)) &&
       (cancelledKey || [...held].length !== [...value].length) &&
       !(cleared && held === "")
       ? "refused"

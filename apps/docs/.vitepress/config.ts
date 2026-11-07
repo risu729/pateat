@@ -25,7 +25,7 @@ function extensionIcon(): Plugin {
 }
 
 /**
- * The site's public origin, such as `https://docs.example.com`, set by the deployment.
+ * The site's public address, `https://pateat.takuk.me/docs`, set by the `render` task.
  * Without it the build leaves out the `hreflang` links, which need absolute URLs.
  */
 const siteUrl = process.env["PATEAT_DOCS_URL"]?.replace(/\/$/, "");
