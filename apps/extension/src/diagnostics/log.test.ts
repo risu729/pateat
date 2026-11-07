@@ -2436,6 +2436,46 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps only a fixed fill cause and field position in uploaded problem lines", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    log.login({
+      type: "attempt",
+      tabId: 4,
+      origin: "https://login.example",
+      recipeId: "synthetic-recipe",
+      recipeRevision: 1,
+      route: "password",
+      state: "blocked",
+      stepIndex: 0,
+      stepCount: 2,
+      operation: "fill",
+      effect: "prepare",
+      outcome: "fill-rejected",
+      cause: "input-pattern-mismatch",
+      fieldIndex: 1,
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(1));
+    const [entry] = await log.logger.entries();
+    expect(entry!.fields).toMatchObject({ cause: "input-pattern-mismatch", fieldIndex: 1 });
+    expect(problemLine(entry!)?.fields).toMatchObject({
+      cause: "input-pattern-mismatch",
+      fieldIndex: 1,
+    });
+    expect(problemLine(entry!)?.fields).not.toHaveProperty("value");
+    expect(problemLine(entry!)?.fields).not.toHaveProperty("label");
+    vi.restoreAllMocks();
+  });
+
   it("names a login's stop before a missing password (ADR 0036)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

@@ -88,6 +88,7 @@ export const reportAttempt = (
     /** A completion corrected (ADR 0029, amended 2026-11-03): its times went with it. */
     corrected?: true;
     stop?: StopCause;
+    fieldIndex?: number;
     reason?: string;
     routeChange?: RouteChange;
     layoutFrom?: string;
@@ -342,6 +343,8 @@ export async function change(
   routeChange?: RouteChange,
   /** Why the login stopped where it did, for the log: `password-empty` (ADR 0036). */
   reason?: string,
+  /** Zero-based fill-step field index, for the rejecting check only. */
+  fieldIndex?: number,
 ): Promise<void> {
   if (!current(rt, run)) return;
   // A stop before the page received the prepared operation takes its effect back, so the
@@ -405,6 +408,7 @@ export async function change(
       {
         ...(settled ? { settled } : {}),
         ...(stop ? { stop } : {}),
+        ...(fieldIndex === undefined ? {} : { fieldIndex }),
         ...(reason ? { reason } : {}),
         ...(routeChange && run.metadata.route !== previous.route ? { routeChange } : {}),
         ...(layoutFrom === undefined ? {} : { layoutFrom }),

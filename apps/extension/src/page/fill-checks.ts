@@ -55,7 +55,7 @@ const ariaInvalid = (input: FilledControl) =>
 
 function feedbackTexts(
   inputs: readonly FilledControl[],
-  regions: "all" | "alert" = "all",
+  regions: "all" | "alert" | "status" = "all",
 ): Set<string> {
   const root = inputs[0]?.ownerDocument ?? document;
   const form = inputs[0] && formOf(inputs[0]);
@@ -70,7 +70,7 @@ function feedbackTexts(
     ),
   );
   const shown = [
-    ...queryAll(root, alertSelector),
+    ...(regions === "status" ? [] : queryAll(root, alertSelector)),
     ...(regions === "alert" ? [] : queryAll(root, statusSelector)).filter(
       (element) => (form && containsAcross(form, element)) || named.has(element),
     ),
@@ -111,28 +111,74 @@ export function fillBaseline(inputs: readonly FilledControl[]): FillBaseline {
  * own marks count, for a fill whose status regions may announce the page's own
  * submission.
  */
-export function rejectsFill(
+export const fillRejectionDetails = [
+  "input-value-missing",
+  "input-type-mismatch",
+  "input-pattern-mismatch",
+  "input-too-long",
+  "input-too-short",
+  "input-range-underflow",
+  "input-range-overflow",
+  "input-step-mismatch",
+  "input-bad-input",
+  "input-custom-error",
+  "aria-invalid",
+  "alert-shown",
+  "status-shown",
+] as const;
+
+export type FillRejection = {
+  detail: (typeof fillRejectionDetails)[number];
+  /** Zero-based position in the supplied controls; the caller maps split-code inputs. */
+  fieldIndex?: number;
+};
+
+const validityDetails = {
+  badInput: "input-bad-input",
+  patternMismatch: "input-pattern-mismatch",
+  rangeOverflow: "input-range-overflow",
+  rangeUnderflow: "input-range-underflow",
+  stepMismatch: "input-step-mismatch",
+  tooLong: "input-too-long",
+  tooShort: "input-too-short",
+  typeMismatch: "input-type-mismatch",
+  valueMissing: "input-value-missing",
+} as const;
+
+/** The first rejecting check, using only fixed codes and a control index. */
+export function fillRejection(
   inputs: readonly FilledControl[],
   before: FillBaseline,
   { statuses = true }: { statuses?: boolean } = {},
-): boolean {
-  const rejected = inputs.some((input, index) => {
-    const previous = before.inputs[index]!;
-    if (ariaInvalid(input) && !previous.ariaInvalid) return true;
+): FillRejection | undefined {
+  for (const [fieldIndex, input] of inputs.entries()) {
+    const previous = before.inputs[fieldIndex]!;
+    if (ariaInvalid(input) && !previous.ariaInvalid) return { detail: "aria-invalid", fieldIndex };
     const { validity } = input;
-    if (validity.valid) return false;
+    if (validity.valid) continue;
+    for (const flag of validityFlags)
+      if (validity[flag]) return { detail: validityDetails[flag], fieldIndex };
     // Only an unchanged custom message that was already set is left over.
-    const leftOver =
+    if (
       validity.customError &&
-      validityFlags.every((flag) => !validity[flag]) &&
-      previous.customError !== "" &&
-      input.validationMessage === previous.customError;
-    return !leftOver;
-  });
-  // Compared by text, so a page that re-renders a message it already showed is not a
-  // new message.
-  const texts = feedbackTexts(inputs, statuses ? "all" : "alert");
-  return rejected || [...texts].some((text) => !before.texts.has(text));
+      (previous.customError === "" || input.validationMessage !== previous.customError)
+    )
+      return { detail: "input-custom-error", fieldIndex };
+  }
+  // Compared against every baseline message, including messages of another region kind.
+  for (const kind of statuses ? (["alert", "status"] as const) : (["alert"] as const))
+    if ([...feedbackTexts(inputs, kind)].some((text) => !before.texts.has(text)))
+      return { detail: kind === "alert" ? "alert-shown" : "status-shown" };
+  return undefined;
+}
+
+/** Whether the page rejected the fill; see {@link fillRejection} for its fixed cause. */
+export function rejectsFill(
+  inputs: readonly FilledControl[],
+  before: FillBaseline,
+  options: { statuses?: boolean } = {},
+): boolean {
+  return fillRejection(inputs, before, options) !== undefined;
 }
 
 /**

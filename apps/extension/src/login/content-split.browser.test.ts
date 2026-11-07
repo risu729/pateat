@@ -371,6 +371,8 @@ describe("a login's fill of a split detail (login.execute)", () => {
     expect(await execute({ kind: "fill", fields: birthDate() })).toEqual({
       ok: false,
       reason: "fill-rejected",
+      detail: "aria-invalid",
+      fieldIndex: 2,
       mutation: "possible",
     });
   });
