@@ -2918,8 +2918,8 @@ element without a role that the page puts in the tab order (`tabindex` of 0 or m
 sets a pointer cursor itself and holds no control, link, role or other tab stop, such as
 Logi ID's passkey sign-in `<div class="button" tabindex="0">` (2026-11-07,
 [#1375](https://github.com/risu729/pateat/issues/1375)), but never a form control or
-anything inside an `<a href>`. Such a tab stop is no `<label>` or `<summary>`, and a role
-inside it that only shows content (`img`, `presentation`, `none`, `generic`,
+anything inside an `<a href>`. Such a tab stop is no `<label>` or `<summary>`, and a
+role inside it that only shows content (`img`, `presentation`, `none`, `generic`,
 `graphics-symbol`), as an icon's, does not count. It is located as a
 `role="button"` one is. A script link is an `<a>` without
 `href` that has an `onclick` attribute or `role="button"`, such as
