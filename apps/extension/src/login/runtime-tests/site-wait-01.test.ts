@@ -113,6 +113,11 @@ describe("a login whose wait for the site ran out", () => {
   };
   /** The stored login as a stopped worker left it, its wait for the site begun `ago` ms ago. */
   const stoppedWorker = (ago: number) => {
+    // A stopped worker cannot finish an old submit or handle events after its restart.
+    vi.clearAllTimers();
+    fake.state.removed.length = 0;
+    fake.state.replaced.length = 0;
+    fake.state.onExecute = undefined;
     const record = at(origin)!;
     const now = Date.now();
     fake.state.storage["pateat.login-attempts.v5"] = [
@@ -405,9 +410,10 @@ describe("a login whose wait for the site ran out", () => {
     const { h, since } = await settledLogin({ siteWait, report });
     fake.state.removed.at(-1)!(1);
     await vi.waitFor(() => expect(at(origin)).toBeUndefined());
-    const closed = () => report.mock.calls
-      .map(([entry]) => entry)
-      .filter((entry) => entry.type === "attempt-closed");
+    const closed = () =>
+      report.mock.calls
+        .map(([entry]) => entry)
+        .filter((entry) => entry.type === "attempt-closed");
     expect(closed()).toEqual([
       expect.objectContaining({ watched: true, settled: true, cause: "tab-closed" }),
     ]);
@@ -446,7 +452,11 @@ describe("a login whose wait for the site ran out", () => {
     const record = structuredClone(at(origin)!);
     fake.state.storage["pateat.login-attempts.v5"] = [
       record,
-      { ...structuredClone(record), id: crypto.randomUUID(), document: { ...record.document, tabId: 2 } },
+      {
+        ...structuredClone(record),
+        id: crypto.randomUUID(),
+        document: { ...record.document, tabId: 2 },
+      },
     ];
     fake.state.openTabs = [1, 2];
     fake.state.tabUrls[2] = `${origin}/callback`;
@@ -460,8 +470,9 @@ describe("a login whose wait for the site ran out", () => {
     expect(ended).toHaveLength(2);
     expect(ended.map((entry) => entry.tabId).sort()).toEqual([1, 2]);
     expect(stored()).toHaveLength(2);
-    expect(stored().every((entry) => entry.state === "blocked" && entry.watch === undefined)).toBe(true);
+    expect(stored().every((entry) => entry.state === "blocked" && entry.watch === undefined)).toBe(
+      true,
+    );
     expect(executes()).toHaveLength(2);
   });
-
 });

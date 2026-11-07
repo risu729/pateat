@@ -498,7 +498,8 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       counting,
       entryBlocks,
       appliedPolicy,
-      siteWaitAt: undefined,
+      // Chrome may retain an alarm from the previous worker; first synchronize it.
+      siteWaitAt: Number.NaN,
       sessionRead: undefined!,
       sessionLoaded: undefined!,
       loaded: undefined!,

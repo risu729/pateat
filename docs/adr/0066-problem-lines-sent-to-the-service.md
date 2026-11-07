@@ -18,10 +18,10 @@ owner's devices (read 2026-11-06). Amends [ADR 0019](0019-local-diagnostics-and-
 device sends). Amended on 2026-11-02: the profile setting described in ADR 0055's
 amendment of that day turns the sending off; it is on by default.
 
-Amended on 2026-11-07 for
-[issue 1317](https://github.com/risu729/pateat/issues/1317): send only the final
-watched failure, as [the dated amendment](#amendment-send-the-final-watched-result-2026-11-07)
-records. Implemented with runtime and diagnostics regression coverage; CI validates it.
+Amended on 2026-11-07 for [issue 1317](https://github.com/risu729/pateat/issues/1317):
+send only the final watched failure, as
+[the dated amendment](#amendment-send-the-final-watched-result-2026-11-07) records.
+Implemented with runtime and diagnostics regression coverage; CI validates it.
 
 Date: 2026-10-23
 
