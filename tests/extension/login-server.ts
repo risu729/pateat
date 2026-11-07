@@ -233,13 +233,13 @@ export async function startLoginFixture(
               ? `<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><form><label>Account${account}</label></form><button id="next" type="button">Next</button>`
               : `<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><label>Account${account}</label><button id="next" type="button">Next</button>`,
           `${
-          groupSeparator === undefined
-            ? ""
-            : `const groupedAccount = document.getElementById('account');
+            groupSeparator === undefined
+              ? ""
+              : `const groupedAccount = document.getElementById('account');
         groupedAccount.addEventListener('input', () => {
           groupedAccount.value = groupedAccount.value.replace(/[- ]/g, '').replace(/(.{4})(?=.)/g, '$1' + ${JSON.stringify(groupSeparator)});
         });`
-        }
+          }
         document.getElementById('next').addEventListener('click', () => {
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
           sessionStorage.setItem('identity', JSON.stringify([document.getElementById('branch').value, document.getElementById('account').value]));

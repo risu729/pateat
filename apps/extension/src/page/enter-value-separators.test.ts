@@ -24,17 +24,20 @@ function rewriteLastInput(input: HTMLInputElement, typed: string, held: string):
 }
 
 describe("typing into page-formatted values", () => {
-  it.each([" ", "-"])("keeps an input formatter that groups every four digits with %j", async (separator) => {
-    const input = field();
-    const ended: string[] = [];
-    input.addEventListener("input", () => (input.value = group(input.value, separator)));
-    for (const event of ["change", "blur"])
-      input.addEventListener(event, () => ended.push(event));
-    expect(await typeValue(input, "123456789012", setter)).toBeUndefined();
-    expect(input.value).toBe("1234" + separator + "5678" + separator + "9012");
-    expect(ended).toEqual(["change", "blur"]);
-    expect(document.activeElement).toBe(document.body);
-  });
+  it.each([" ", "-"])(
+    "keeps an input formatter that groups every four digits with %j",
+    async (separator) => {
+      const input = field();
+      const ended: string[] = [];
+      input.addEventListener("input", () => (input.value = group(input.value, separator)));
+      for (const event of ["change", "blur"])
+        input.addEventListener(event, () => ended.push(event));
+      expect(await typeValue(input, "123456789012", setter)).toBeUndefined();
+      expect(input.value).toBe("1234" + separator + "5678" + separator + "9012");
+      expect(ended).toEqual(["change", "blur"]);
+      expect(document.activeElement).toBe(document.body);
+    },
+  );
 
   it.each([
     ["change", " "],
@@ -48,16 +51,19 @@ describe("typing into page-formatted values", () => {
     expect(input.value).toBe("1234" + separator + "5678");
   });
 
-  it.each([" ", "-"])("keeps a formatter that writes cancelled keys with %j separators", async (separator) => {
-    const input = field();
-    input.addEventListener("keydown", (event) => {
-      if (event.key.length !== 1) return;
-      event.preventDefault();
-      input.value = group(input.value + event.key, separator);
-    });
-    expect(await typeValue(input, "12345678", setter)).toBeUndefined();
-    expect(input.value).toBe("1234" + separator + "5678");
-  });
+  it.each([" ", "-"])(
+    "keeps a formatter that writes cancelled keys with %j separators",
+    async (separator) => {
+      const input = field();
+      input.addEventListener("keydown", (event) => {
+        if (event.key.length !== 1) return;
+        event.preventDefault();
+        input.value = group(input.value + event.key, separator);
+      });
+      expect(await typeValue(input, "12345678", setter)).toBeUndefined();
+      expect(input.value).toBe("1234" + separator + "5678");
+    },
+  );
 
   it.each(["/", ".", "(", "\u00a0", "\u2212", "\uff0d", "\u3000"])(
     "refuses an inserted character outside ASCII space/hyphen: %j",
@@ -90,22 +96,28 @@ describe("typing into page-formatted values", () => {
     ["12 34", "1234"],
     ["12-34", "12 34-"],
     ["12 34", "12-34 "],
-  ] as const)("refuses dropped, changed or moved original characters: %j to %j", async (typed, held) => {
-    const input = field();
-    rewriteLastInput(input, typed, held);
-    expect(await typeValue(input, typed, setter)).toBe("refused");
-    expect(input.value).toBe(held);
-  });
+  ] as const)(
+    "refuses dropped, changed or moved original characters: %j to %j",
+    async (typed, held) => {
+      const input = field();
+      rewriteLastInput(input, typed, held);
+      expect(await typeValue(input, typed, setter)).toBe("refused");
+      expect(input.value).toBe(held);
+    },
+  );
 
   it.each([
     ["1234-5678", "1234- 5678"],
     ["1234 5678", "1234 -5678"],
-  ] as const)("preserves original separators while permitting additional ones: %j to %j", async (typed, held) => {
-    const input = field();
-    rewriteLastInput(input, typed, held);
-    expect(await typeValue(input, typed, setter)).toBeUndefined();
-    expect(input.value).toBe(held);
-  });
+  ] as const)(
+    "preserves original separators while permitting additional ones: %j to %j",
+    async (typed, held) => {
+      const input = field();
+      rewriteLastInput(input, typed, held);
+      expect(await typeValue(input, typed, setter)).toBeUndefined();
+      expect(input.value).toBe(held);
+    },
+  );
 
   it.each([
     ["input", 8, "refused"],
