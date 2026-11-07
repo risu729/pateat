@@ -115,6 +115,13 @@ describe("answerInput", () => {
     expect(answers('<input name="memorable_word">')).toBe(true);
   });
 
+  it("takes kana spellings of the Japanese phrases", () => {
+    expect(answers('<label>秘密のこたえ<input type="text"></label>')).toBe(true);
+    expect(answers('<input placeholder="ヒミツノコタエ">')).toBe(true);
+    expect(answers('<input aria-label="あいことば">')).toBe(true);
+    expect(answers('<input aria-label="質問のこたえ">')).toBe(true);
+  });
+
   it("leaves out a survey's or contact form's answer, a secret alone and a security code", () => {
     expect(answers('<input aria-label="Your answer">')).toBe(false);
     expect(answers('<label>回答<input type="text"></label>')).toBe(false);
