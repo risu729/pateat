@@ -45,6 +45,7 @@ describe("a CAPTCHA the page shows after a step (ADR 0029, S4)", () => {
     fake.state.gone = new Set();
     fake.state.extracted = {};
     fake.state.signs = undefined;
+    fake.state.loaded = true;
   });
   const emailFirst = parseLoginRecipe({
     version: 1,
@@ -250,6 +251,19 @@ describe("a CAPTCHA the page shows after a step (ADR 0029, S4)", () => {
     unsettled();
     // The site refuses the email beside its CAPTCHA.
     fake.state.signs = { ...unsolved, invalid: true, alert: true };
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(status()![0]).toMatchObject({ outcome: "credential-rejected" });
+  });
+  it("lets a failure decide only once the document has loaded", async () => {
+    const { h } = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 2);
+    await vi.advanceTimersByTimeAsync(20_000);
+    fake.state.loaded = false;
+    fake.state.signs = { ...unsolved, invalid: true, alert: true };
+    await vi.advanceTimersByTimeAsync(5_000);
+    unsettled();
+    fake.state.loaded = true;
     await vi.advanceTimersByTimeAsync(1_500);
     expect(status()![0]).toMatchObject({ outcome: "credential-rejected" });
   });
