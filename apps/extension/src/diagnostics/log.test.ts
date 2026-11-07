@@ -2702,9 +2702,18 @@ describe("unhandled errors", () => {
     outcomes.forEach((outcome, index) =>
       log.vaultCheck({ connectionId, outcome, previous: outcomes[index - 1] }),
     );
+    log.vaultCheck({ connectionId, outcome: "failed", cause: "network" });
+    log.vaultCheck({ connectionId, outcome: "failed", cause: "network", previous: "failed" });
+    log.vaultCheck({
+      connectionId,
+      outcome: "failed",
+      cause: "http-error",
+      status: 503,
+      previous: "failed",
+    });
     log.vaultRefresh({ connectionId, outcome: "not-sent", cause: "no-refresh-token" });
     log.recipeSync("busy", { scope: "full", added: 0, updated: 0, removed: 0 });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(9));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(12));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(
       entries.map((entry) => [
@@ -2720,10 +2729,22 @@ describe("unhandled errors", () => {
       ["vault.check", "debug", "deferred", undefined],
       ["vault.check", "warn", "reauthentication-required", undefined],
       ["vault.check", "debug", "reauthentication-required", undefined],
+      ["vault.check", "warn", "failed", "network"],
+      ["vault.check", "warn", "failed", "network"],
+      ["vault.check", "warn", "failed", "http-error"],
       ["vault.refresh", "info", "not-sent", "no-refresh-token"],
       ["service.sync", "info", "busy", undefined],
     ]);
     expect(JSON.stringify(entries)).not.toContain(connectionId);
+    const failures = entries.filter(
+      (entry) => entry.event === "vault.check" && entry.fields["outcome"] === "failed",
+    );
+    expect(failures.at(-1)?.fields["status"]).toBe(503);
+    expect(failures.map(problemLine).map((line) => line?.fields)).toEqual([
+      { outcome: "failed", cause: "network" },
+      { outcome: "failed", cause: "network" },
+      { outcome: "failed", cause: "http-error", status: 503 },
+    ]);
     vi.restoreAllMocks();
   });
 
