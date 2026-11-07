@@ -343,7 +343,7 @@ Focused tasks are available for diagnosis:
 | `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
 | `mise run //apps/docs:dev` | Serve the docs website with live reload ([docs website](#docs-website)) |
-| `mise run //apps/docs:build` | Render the docs website into `apps/docs/.vitepress/dist/` |
+| `mise run //apps/docs:build` | Render the docs website into `apps/docs/.vitepress/dist/docs/` |
 | `mise run //apps/docs:test` | Build the docs website and check every local link and fragment in the built pages |
 | `mise run //apps/docs:preview` | Build and serve the built docs website |
 | `mise run check:sdk-source` | Validate installed SDK metadata against its pin and render [exact source notices](sdk-source.md#pinned-upstream-source) without writing files |
@@ -408,10 +408,12 @@ contrast. The pages link to this `docs/` directory, which the site does not incl
 absolute GitHub URLs.
 
 The VitePress base is `/docs/`. The `render` task sets
-`PATEAT_DOCS_URL=https://pateat.takuk.me/docs` and renders into `.vitepress/dist`;
-`build` then packages those files with the existing Cloudflare Vite plugin as the
-assets-only `pateat-docs` Worker. Its asset base path is `/docs`, with ordinary HTML
-handling and a real 404 page. Only the exact `/docs` and `/docs/*` routes are declared;
+`PATEAT_DOCS_URL=https://pateat.takuk.me/docs` and renders into `.vitepress/dist/docs`;
+`build` then packages `.vitepress/dist` with the existing Cloudflare Vite plugin as the
+assets-only `pateat-docs` Worker, so every asset path starts with `/docs/`. The Worker
+sets no asset base path, because the account refuses a non-root one (API error 100343
+at the first bootstrap, 2026-11-07); it uses ordinary HTML handling and the real
+`/docs/404.html` page. Only the exact `/docs` and `/docs/*` routes are declared;
 no Worker code, service bindings or data bindings are included. Deployment and its
 credential bootstrap are separate from the build.
 

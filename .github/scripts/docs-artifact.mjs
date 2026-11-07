@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cp, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { inventory } from "./server-artifact.mjs";
 
@@ -19,8 +19,13 @@ export async function verifyDocsBuild(directory) {
   assert.equal(worker.name, workerName);
   assert.equal(worker.entrypoint, undefined, "The docs Worker must contain only assets");
   assert.equal(Object.keys(worker.env ?? {}).length, 0, "The docs Worker has no bindings");
-  assert.equal(worker.assets?.basePath, "/docs");
+  // The pages are nested under the assets' docs/ directory instead (cloudflare.config.ts).
+  assert.equal(worker.assets?.basePath, undefined, "The account offers no asset base path");
   assert.equal(worker.assets?.notFoundHandling, "404-page");
+  const assets = resolve(directory, "workers/default/assets");
+  assert.deepEqual(await readdir(assets), ["docs"], "Every docs asset must be under /docs/");
+  assert((await lstat(resolve(assets, "docs/index.html"))).isFile());
+  assert((await lstat(resolve(assets, "docs/404.html"))).isFile());
   assert.notEqual(worker.assets?.runWorkerFirst, true);
   assert.equal(worker.workersDev, false);
   assert.equal(worker.previewUrls, false);
@@ -58,7 +63,7 @@ async function revision() {
     execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   assert(/^[0-9a-f]{40}$/u.test(value), "Invalid source revision");
   await writeFile(
-    resolve(root, "apps/docs/.vitepress/dist/revision.json"),
+    resolve(root, "apps/docs/.vitepress/dist/docs/revision.json"),
     JSON.stringify({ revision: value }) + "\n",
   );
 }
