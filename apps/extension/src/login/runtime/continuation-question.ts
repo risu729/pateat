@@ -287,4 +287,3 @@ export function ownPasswordField(
       !isFieldExcluded(scope.settings, scope.catalog, connection.id, item.id, "login.password"),
   );
 }
-

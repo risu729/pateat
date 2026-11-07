@@ -23,7 +23,7 @@ import {
 } from "@pateat/contracts";
 import { loginReadiness } from "../wire";
 import { type Execution } from "./types";
-import { change, current, report, send } from "./attempt";
+import { change, current, report } from "./attempt";
 import { enterHandler } from "./handlers";
 import { waitFor, observe } from "./reconcile";
 import { inPlaceNext, stepTargets } from "./steps";
@@ -33,11 +33,7 @@ import { stopsPastPlan } from "./attempt-state";
 
 import type { Runtime } from "./state";
 
-import {
-  askContinuation,
-  recordedContinuation,
-  ownPasswordField,
-} from "./continuation-question";
+import { askContinuation, recordedContinuation } from "./continuation-question";
 export {
   askContinuation,
   recordedContinuation,
@@ -658,4 +654,3 @@ export async function continueWith(
   if (run.metadata.recipeRevision === next.revision) taking?.();
   return current(rt, run) && run.metadata.state === "ready";
 }
-
