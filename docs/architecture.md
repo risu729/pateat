@@ -3366,6 +3366,9 @@ as stated, never as a guessed recipe:
 
 ## Existing passkeys
 
+Implementation module ownership is described in the
+[development workflow](development.md#workspace-and-tasks).
+
 Register the MAIN-world bridge at document start without waiting for remote
 configuration. Relay permitted WebAuthn requests to local signing code, then
 return standards-compatible assertions. Validate challenge, RP ID, origin,
