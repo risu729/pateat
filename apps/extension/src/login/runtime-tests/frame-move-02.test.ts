@@ -202,6 +202,52 @@ describe("a login in a frame, read on its own frame and its tab's pages (ADR 008
     );
   }, 15_000);
 
+  const presences = () =>
+    fake.state.messages.filter((entry) => entry.type === "login.frame.present");
+
+  it("never asks the frame while the tab's page announces again around it", async () => {
+    holdClicks();
+    const h = await framed();
+    expect(await h.hello({ documentId: "page-one", url: page }, false)).toMatchObject({
+      ok: false,
+    });
+    expect(presences()).toEqual([]);
+    expect(record()).toMatchObject({ state: "submit-intent" });
+  });
+
+  it.each([
+    ["shows a document", undefined],
+    // The frame's document went away before it answered, as one swapped for its next.
+    ["is between its documents", () => Promise.reject(new Error("The message port closed."))],
+  ])(
+    "keeps a watched login after a worker restart when its frame %s",
+    async (_label, onPresent) => {
+      fake.state.onExecute = (message) => {
+        if ((message["operation"] as { step: { kind: string } }).step.kind === "click")
+          fake.state.observed = ["missing", "missing"];
+        return Promise.resolve();
+      };
+      fake.state.signs = { ...quiet, code: true };
+      await framed();
+      await vi.waitFor(() => expect(record()).toMatchObject({ watch: {} }), { timeout: 8_000 });
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      onTestFinished(() => {
+        fake.browser.tabs.query = query;
+      });
+      const restarted = harness({ siteDefaults: [] }, { allowedOrigins: [], uris, username: true });
+      fake.state.onPresent = onPresent;
+      fake.state.signs = signedIn;
+      // The same page announces again; its frame has not yet.
+      await restarted.hello({ documentId: "page-one", url: page }, false);
+      expect(presences()).toHaveLength(1);
+      expect(record()).toMatchObject({ state: "reconciling", watch: {} });
+      // Only the restart's own announcement request reached the tab.
+      expect(fake.state.reconnects).toEqual([{ tabId: 1 }]);
+    },
+    15_000,
+  );
+
   it("rejects the sign-in form shown again in the frame's next document", async () => {
     // The site answers the submission with its sign-in page, in the frame's next document.
     fake.state.signs = (message) =>

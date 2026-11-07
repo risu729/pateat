@@ -166,9 +166,9 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
    * By tab: the `password` login in a frame whose frame went away with its page, by a new
    * top document or by a URL change in place, as a single-page site's route after a
    * sign-in in a frame (ADR 0086), until a hello of the tab's top page ends that login on
-   * its page. An entry of a login that ended another way, or whose frame announced again,
-   * is dropped at the next top hello, as it reads only for the tab's current login; the
-   * tab's closing drops it too.
+   * its page. An entry reads only for the tab's current login: one of a login that ended
+   * another way, or whose frame announced again, is dropped at a top hello while that
+   * login still holds the tab, else when the tab closes or another entry replaces it.
    */
   const leftFrames = new Map<number, string>();
 

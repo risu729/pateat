@@ -131,6 +131,11 @@ otherwise nothing changes for that frame:
 - A watched login in a frame reads only new documents of its frame and the tab's new
   page: a change in place inside the frame's document, as Apple's code page, is not read
   again, so its result comes from the page that replaces the frame's page.
+- A worker restart forgets the step's time, so after a restart within 30 seconds of the
+  step the tab's new page is refused as busy until the login's site wait settles it; it
+  is then watched, and the page's next announcement is read for its result.
+- Whether a frame is gone is told only by Chrome answering that no document of it
+  listens; a document that went away before it answered leaves the frame there.
 
 ## Alternatives
 
