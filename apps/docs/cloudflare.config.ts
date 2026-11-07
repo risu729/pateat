@@ -3,7 +3,7 @@ import { defineConfig, triggers } from "cf/config";
 export default defineConfig({
   worker: {
     name: "pateat-docs",
-    compatibilityDate: "2026-11-07",
+    compatibilityDate: "2026-11-04",
     // This Worker has no entrypoint, secrets, or service/data bindings. The pages sit in
     // the assets' `docs/` directory, so they serve at `/docs/` without an asset base path,
     // which this account does not offer (API error 100343).
