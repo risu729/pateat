@@ -10,6 +10,11 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
+`packages/bitwarden/src/local-crypto-admission.ts` owns structural context schemas,
+encrypted DTO admission and ciphertext framing checks. `local-crypto.ts` keeps native
+SDK initialization, session operations and cleanup, and re-exports the original
+admission API. Structural acceptance still grants no cryptographic trust.
+
 The extension's `service/generation-storage.ts` owns local generation record schemas,
 retention rules and serialized mutations for attempts, slot maps, samples and repairs.
 `generation.ts` coordinates requests and outcomes and re-exports the public storage
@@ -19,6 +24,12 @@ Continuation page admission and generation submission live in
 `login/runtime/continuation-question.ts`; `continuation.ts` retains recipe/layout
 takeover and execution and preserves its original exports. The extraction leaves
 request recording, stale-run checks and reporting in the same order.
+
+The service's Claude call boundary keeps its public facade in `claude/calls.ts`.
+`call-execution.ts` owns provider sequencing and sending; `call-budget.ts` owns spend
+and concurrent-slot admission; `call-log.ts` owns retained inference records and their
+projections; `call-types.ts` owns shared contracts. The split preserves reservation,
+charging, logging and request-lifetime ordering.
 
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
@@ -40,11 +51,12 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 `mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
-The shared settings contract lives under `packages/contracts/src/settings/`.
-`schema.ts` owns validation, inferred types and the URL, detail-format and timestamp
-helpers used by validation. `defaults.ts` owns the synthetic catalog and default
-settings; `vault-policy.ts` owns account, item and custom-field eligibility;
-`site-policy.ts` owns site rules and saved-account resolution. The existing
+The shared settings contract lives under `packages/contracts/src/settings/`. `schema.ts`
+is the public validation facade. Component schemas and pure validation helpers live in
+`schema-primitives.ts`, the complete settings value in `schema-value.ts`, and snapshot,
+message and catalog schemas in `schema-messages.ts`. `defaults.ts` owns the synthetic
+catalog and default settings; `vault-policy.ts` owns account, item and custom-field
+eligibility; `site-policy.ts` owns site rules and saved-account resolution. The existing
 `settings.ts` entrypoint re-exports the same public names. Internal modules import
 `schema.ts` directly, and site policy imports vault eligibility, so schemas have no
 policy imports or initialization cycles. This source split preserves schema order,
