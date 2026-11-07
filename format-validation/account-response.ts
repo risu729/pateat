@@ -214,7 +214,10 @@ export function modernUnlock(input: unknown): Sdk.MasterPasswordUnlockData {
   };
 }
 /** The token's copy may omit the contained key ID hint; every present value must still agree. */
-export function sameUnlock(a: Sdk.MasterPasswordUnlockData, b: Sdk.MasterPasswordUnlockData): boolean {
+export function sameUnlock(
+  a: Sdk.MasterPasswordUnlockData,
+  b: Sdk.MasterPasswordUnlockData,
+): boolean {
   const { containedKeyId: left, ...leftRequired } = a;
   const { containedKeyId: right, ...rightRequired } = b;
   return same(leftRequired, rightRequired) && (left == null || right == null || left === right);
