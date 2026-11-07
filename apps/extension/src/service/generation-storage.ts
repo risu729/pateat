@@ -193,7 +193,7 @@ export function createGenerationStorage({
 }: {
   storage: GenerationAttemptStorage;
   slotStorage: GeneratedSlotStorage;
-  sampleStorage?: PageSampleStorage;
+  sampleStorage: PageSampleStorage | undefined;
   now: () => number;
 }) {
   // Writes are serialized so two pages sent together are both remembered.
