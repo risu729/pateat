@@ -78,11 +78,17 @@ The other workflows:
   commit keeps its own result. It needs no Actions cache: dependency caching is off by
   default in advanced setup and its TRAP cache is disabled, so the workflow sets
   `cache-mode: none`.
-- `pricing.yml` refreshes the committed Claude rates daily (ADR 0014): on a change it
-  commits through the contents API, so GitHub signs the commit, opens a PR from
-  `pricing/claude-rates`, and starts `ci.yml` there by `workflow_dispatch`, since a push
-  or PR made with the job token starts no workflow. Opening that PR needs the repository
-  setting that allows GitHub Actions to create pull requests.
+- `pricing.yml` refreshes the committed Claude rates daily (ADR 0014). The `Refresh
+  Claude rates` job, with a read-only token, runs the pricing task and hands a changed
+  file to the `Propose the change` job. `Propose the change` runs no repository code. It
+  uses the bot App's token ([extension releases](#extension-releases)) from the
+  `release` environment to commit the file to `pricing/claude-rates` through the
+  contents API, so GitHub signs the commit, and to open the PR, or to close a stale one
+  when the page lists main's rates again. The new PR, or the new commit on an open one,
+  starts CI because the App's token made it; the job token's would not, and the
+  repository does not let GitHub Actions create or approve pull requests (owner,
+  2026-11-07 13:25 UTC: 「料金の自動更新はbot app使って」). A PR from a fork with the
+  same branch name is ignored.
 - `release.yml` maintains the extension release PR and publishes merged ones
   ([extension releases](#extension-releases)).
 
@@ -304,12 +310,14 @@ made with `GITHUB_TOKEN` starts no workflow and the release PR would get no `CI 
 The App's client ID is the repository variable `BOT_APP_CLIENT_ID`, which a job's `if`
 can read (an environment's variables come only after the job starts), and its private
 key is the `release` environment's secret `BOT_PRIVATE_KEY`; the App needs contents and
-pull requests write access to this repository. Until the variable is set, the
-`Release PR` job is skipped. The App is `pateat-release-bot` (App ID 5594177), owned by
-risu729, private, with no webhook, Contents and Pull requests read and write, and
-installed on this repository only; it was created on 2026-11-03 from the owner's PC at
-the owner's request, its private key went straight into the secret and the downloaded
-file was deleted. Its first run,
+pull requests write access to this repository. The `release` environment accepts only
+`main`, so a workflow on another branch cannot read the key (owner, 2026-11-07 13:25
+UTC). `pricing.yml` uses the same App and environment for its rates PR. Until the
+variable is set, the `Release PR` job is skipped. The App is `pateat-release-bot` (App
+ID 5594177), owned by risu729, private, with no webhook, Contents and Pull requests read
+and write, and installed on this repository only; it was created on 2026-11-03 from the
+owner's PC at the owner's request, its private key went straight into the secret and the
+downloaded file was deleted. Its first run,
 [41630408709](https://github.com/risu729/pateat/actions/runs/41630408709), made the
 token and finished the `Release PR` job. To replace the key, generate a new one on the
 App's page, set it with `gh secret set BOT_PRIVATE_KEY --env release`, and delete the
@@ -354,9 +362,10 @@ M1 must configure the aggregate job and scanning/quality services or explicitly
 resolve unavailable integrations before normal merges. Required checks must not
 remain permanent bypass requirements.
 
-Use read-only workflow permissions by default and prohibit Actions from approving
-PRs. Require workflow approval for all external fork contributors; retain Actions
-artifacts/logs for 90 days, using Kuebiko as the reference for these settings.
+Use read-only workflow permissions by default and prohibit Actions from creating
+or approving PRs. Require workflow approval for all external fork contributors;
+retain Actions artifacts/logs for 90 days, using Kuebiko as the reference for these
+settings.
 Kogane currently requires approval only for first-time contributors. Enable secret
 scanning/push protection and security updates consistently
 with existing repositories where GitHub supports them. Immutable releases are enabled,
