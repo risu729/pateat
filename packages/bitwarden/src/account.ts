@@ -1,15 +1,9 @@
 import type * as Sdk from "@bitwarden/sdk-internal";
-import { same, uuid } from "./account-response";
-import { bitwardenEmail as email } from "./email";
-import type { PreparedBitwardenAccount } from "./account-types";
-export type {
-  BitwardenAccountBinding,
-  PreparedBitwardenAccount,
-  BitwardenAccountMapper,
-} from "./account-types";
-export { createBitwardenAccountMapper } from "./account-map";
 import * as v from "valibot";
 
+import { same, uuid } from "./account-response";
+import type { PreparedBitwardenAccount } from "./account-types";
+import { bitwardenEmail as email } from "./email";
 import { normalizeBitwardenProfile } from "./environment";
 import { failure, type BitwardenResult } from "./errors";
 import {
@@ -18,6 +12,13 @@ import {
   encryptedCatalogContextSchema,
 } from "./local-crypto";
 import { admitBitwardenUriMatchContext } from "./uri";
+
+export type {
+  BitwardenAccountBinding,
+  PreparedBitwardenAccount,
+  BitwardenAccountMapper,
+} from "./account-types";
+export { createBitwardenAccountMapper } from "./account-map";
 
 /** Admit a previously accepted encrypted context without online tokens or expiring JWT claims.
  * This is structural admission only; restore must verify account state and every cipher with SDK.

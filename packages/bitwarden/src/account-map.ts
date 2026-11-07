@@ -1,7 +1,7 @@
 import type * as Sdk from "@bitwarden/sdk-internal";
 import * as v from "valibot";
 
-import { bitwardenEmail } from "./email";
+import { bitwardenEmail as email } from "./email";
 import { normalizeBitwardenProfile } from "./environment";
 import { failure, mismatch, type BitwardenResult } from "./errors";
 import { encryptedCatalogContextSchema } from "./local-crypto";
@@ -41,7 +41,6 @@ import {
 } from "./account-response";
 import type { BitwardenAccountMapper, PreparedBitwardenAccount } from "./account-types";
 
-const email = bitwardenEmail;
 const bindingSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("bootstrap"), email }),
   v.strictObject({

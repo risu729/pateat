@@ -1,7 +1,7 @@
 import type * as Sdk from "@bitwarden/sdk-internal";
 import * as v from "valibot";
 import { decodeBase64, decodeBase64Url } from "./base64";
-import { bitwardenEmail } from "./email";
+import { bitwardenEmail as email } from "./email";
 import type { BitwardenErrorCode, BitwardenMismatchCheck } from "./errors";
 import { admitLocalCryptoCipher } from "./local-crypto";
 
@@ -11,7 +11,6 @@ export const uuid = v.pipe(
   v.uuid(),
   v.transform((value) => value.toLowerCase()),
 );
-const email = bitwardenEmail;
 
 export class AdmissionFailure extends Error {
   readonly code: BitwardenErrorCode;
@@ -214,7 +213,10 @@ export function modernUnlock(input: unknown): Sdk.MasterPasswordUnlockData {
   };
 }
 /** The token's copy may omit the contained key ID hint; every present value must still agree. */
-function sameUnlock(a: Sdk.MasterPasswordUnlockData, b: Sdk.MasterPasswordUnlockData): boolean {
+export function sameUnlock(
+  a: Sdk.MasterPasswordUnlockData,
+  b: Sdk.MasterPasswordUnlockData,
+): boolean {
   const { containedKeyId: left, ...leftRequired } = a;
   const { containedKeyId: right, ...rightRequired } = b;
   return same(leftRequired, rightRequired) && (left == null || right == null || left === right);
@@ -541,5 +543,3 @@ export function uriMatchDefault(
   if (values.size > 1) return "unavailable";
   return ([...values][0] ?? 0) as 0 | 1 | 2 | 3 | 4 | 5;
 }
-
-export { sameUnlock };
