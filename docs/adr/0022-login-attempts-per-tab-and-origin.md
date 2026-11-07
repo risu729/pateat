@@ -210,28 +210,29 @@ fix them now; the SSO policy itself is recorded separately.
     `cancelled` instead, as no step runs any more. A page of the tab being admitted
     decides first too. Its record keeps the time it last changed, as for a watch that
     ran out. A worker start checks the stored records before any page announces, and a
-    `browser.alarms` alarm (`pateat.login-site-wait`) at the first such end wakes a
-    stopped worker to check again; one that memory still decides is looked at again 30
-    seconds later, Chrome's shortest alarm delay. A page of the tab that ends such a
-    login only after its wait, or its watch, ran out ends it at that time too, so the
-    time between counts for nothing; a move that completes it still ends it when the
-    page shows. A bound, not a pause: nothing waits for it to pass. While any stored
-    login waits for the site, or one whose wait ran out is still decided in memory, the
-    worker calls an extension API every 20 seconds, as it does during a model call, so
-    Chrome's 30-second idle stop does not lose the waits kept in memory (owner's
-    question at 11:16 UTC on 2026-11-03); an update, a reload, a browser restart or a
-    crash still stops it, which the bound covers. Amended on 2026-11-04 (agent's choice,
-    not confirmed by the owner): an app.notion.com tab went to `about:blank` right after
-    its password submit; at the bound the login settled as unknown and was watched for
-    10 minutes, so the site's other tabs were refused `origin-busy` for about 11 minutes
-    until the tab closed. Pateat may read the URL of every HTTP(S) page and of no other
-    page, so a tab without a URL shows `about:blank`, a new tab page or another browser
-    page, where the login can neither go on nor show its result: such a top-level login
-    ends as a move to another origin (`LEFT` in the attempt machine). It is not watched,
-    and its record holds the site for 5 minutes from its last change, as any
-    `left-origin` record does. A tab that could not be read at all, as one
-    Chrome is replacing, still settles as unknown; a site's own `blob:` page counts as
-    its origin.
+    `browser.alarms` alarm (`pateat.login-site-wait`) at the first such end, or at the
+    end of a stored login's watch, wakes a stopped worker to check again; one that
+    memory still decides is looked at again 30 seconds later, Chrome's shortest alarm
+    delay. A page of the tab that ends such a login only after its wait, or its watch,
+    ran out ends it at that time too, so the time between counts for nothing; a move
+    that completes it still ends it when the page shows. A bound, not a pause: nothing
+    waits for it to pass. While any stored login waits for the site, or one whose wait
+    ran out is still decided in memory, the worker calls an extension API every 20
+    seconds, as it does during a model call, so Chrome's 30-second idle stop does not
+    lose the waits kept in memory (owner's question at 11:16 UTC on 2026-11-03); an
+    update, a reload, a browser restart or a crash still stops it, which the bound
+    covers. A watch alone keeps no worker up: its end is in the stored record, which the
+    alarm checks. Amended on 2026-11-04 (agent's choice, not confirmed by the owner): an
+    app.notion.com tab went to `about:blank` right after its password submit; at the
+    bound the login settled as unknown and was watched for 10 minutes, so the site's
+    other tabs were refused `origin-busy` for about 11 minutes until the tab closed.
+    Pateat may read the URL of every HTTP(S) page and of no other page, so a tab without
+    a URL shows `about:blank`, a new tab page or another browser page, where the login
+    can neither go on nor show its result: such a top-level login ends as a move to
+    another origin (`LEFT` in the attempt machine). It is not watched, and its record
+    holds the site for 5 minutes from its last change, as any `left-origin` record does.
+    A tab that could not be read at all, as one Chrome is replacing, still settles as
+    unknown; a site's own `blob:` page counts as its origin.
   - **A move after a passkey answer** (amended 2026-10-12). Such an attempt ends
     `authenticated` instead when all of these hold: after its last effect step and at
     most 30 seconds before the move, Pateat returned an assertion to a passkey request

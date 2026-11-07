@@ -329,6 +329,12 @@ export type LoginRuntimeOptions = {
    */
   siteWait?: (when: number | undefined) => Promise<void> | void;
   /**
+   * Whether a stored login waits for the site, so the worker stays up while the waits kept
+   * in memory end it (ADR 0022). A watch's deadline needs only the `siteWait` alarm.
+   * Called only when `siteWait` is given.
+   */
+  keepAwake?: (awake: boolean) => void;
+  /**
    * Told once the runtime has handled a tab's top-frame announcement, which may count
    * the site's items for the toolbar badge (ADR 0021).
    */

@@ -252,7 +252,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       },
       resetTimer: (remaining) => {
         clearTimeout(timer);
-        timer = setTimeout(expire, remaining);
+        timer = setTimeout(expire, remaining());
       },
     });
     // Told whether the answer of a login's conditional request went back (ADR 0034).

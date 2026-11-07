@@ -549,6 +549,10 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
   for (const [key, live] of rt.documents)
     if (live.document.tabId === tabId) rt.documents.delete(key);
   const gone = rt.attempts.get(tabId);
+  // The stored record as the run is dropped, so the step below can tell whether a site-wait
+  // alarm replaced it in between.
+  const storedAtDrop =
+    gone && [...rt.persisted.values()].find((metadata) => metadata.id === gone.metadata.id);
   if (gone) rt.continuations.delete(gone.metadata.id);
   rt.attempts.delete(tabId);
   rt.effects.delete(tabId);
@@ -614,8 +618,11 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
           ended.set(metadata.id, metadata);
           rt.persisted.delete(key);
         }
-      // The running login's own metadata may be newer than its stored record.
-      if (gone && gone.metadata.document.tabId === tabId)
+      // The running login's own metadata may be newer than its stored record, unless a
+      // site-wait alarm replaced the stored record after the run was dropped above, as when
+      // it ended the login or settled its watch.
+      const stored = gone && ended.get(gone.metadata.id);
+      if (gone && gone.metadata.document.tabId === tabId && stored === storedAtDrop)
         ended.set(gone.metadata.id, gone.metadata);
       if (closed) for (const metadata of ended.values()) reportClosed(rt, metadata);
       // A closed tab's login no longer waits for the site (ADR 0022).

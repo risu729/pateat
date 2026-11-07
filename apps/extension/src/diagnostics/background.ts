@@ -227,9 +227,13 @@ export function createDiagnosticsLog(options: {
     vaultCheck(event: VaultSyncReport) {
       // A check repeats every few minutes, also from a newly woken worker; the same stored
       // result again, such as a sign-in that still needs the password and sends nothing,
-      // is only detail.
-      // Failed checks always warn: their cause can change, and it is not stored.
-      const repeated = event.outcome !== "failed" && event.previous === event.outcome;
+      // or the same failure with the same cause and status, is only detail. A failure with
+      // a new cause or status warns again.
+      const repeated =
+        event.previous === event.outcome &&
+        (event.outcome !== "failed" ||
+          (event.previousFailure?.cause === event.cause &&
+            event.previousFailure.status === event.status));
       void logger.log(
         "vault.check",
         {
