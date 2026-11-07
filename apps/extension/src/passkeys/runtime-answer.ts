@@ -45,7 +45,7 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
   received: number;
   unlisted: (signal: AbortSignal) => Promise<void>;
   setStep: (step: PasskeyStopCause) => void;
-  resetTimer: (remaining: number) => void;
+  resetTimer: (remaining: () => number) => void;
 }) {
   return async (login: PasskeyItem | undefined, signal: AbortSignal): Promise<RuntimeResult> => {
     setStep("passkey-lookup");
@@ -184,7 +184,7 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
       )
         return declined;
       // The window waits for a person, so the lookup budget no longer applies.
-      resetTimer(remaining);
+      resetTimer(() => remaining);
       await unlisted(signal);
       operation.asked = true;
       operation.choosing = true;
@@ -218,7 +218,7 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
       const chosen = offered[choice.index];
       if (!chosen) return { kind: "delegate", reason: "chooser-invalid" };
       // Signing gets its own budget, so a choice made near the deadline still answers.
-      resetTimer(options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS);
+      resetTimer(() => options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS);
       // Settings may have changed while the person decided, by a sync, a save or another
       // tab's login, and signing refuses a candidate from older settings. So the chosen
       // passkey is looked up again and used only if the current settings still offer it.
