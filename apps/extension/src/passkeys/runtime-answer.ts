@@ -47,10 +47,7 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
   setStep: (step: PasskeyStopCause) => void;
   resetTimer: (remaining: number) => void;
 }) {
-  return async (
-    login: PasskeyItem | undefined,
-    signal: AbortSignal,
-  ): Promise<RuntimeResult> => {
+  return async (login: PasskeyItem | undefined, signal: AbortSignal): Promise<RuntimeResult> => {
     setStep("passkey-lookup");
     // Whether the site treats its default as unset (ADR 0062, ADR 0063), read alongside the
     // lookup so the deadline runs as without it; asked only without a login, and a failed
@@ -110,10 +107,7 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     ): Promise<Signed | { reason: string }> => {
       try {
         setStep("passkey-lookup");
-        const current = await abortable(
-          source.candidates(origin, request.rpId, signal),
-          signal,
-        );
+        const current = await abortable(source.candidates(origin, request.rpId, signal), signal);
         const same = current
           ? matchingPasskeys(request, current.candidates).filter(
               (entry) => entry.credentialId === credentialId && entry.counter === 0,

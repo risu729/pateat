@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitepress";
 
+const base = "/docs/";
 const repository = "https://github.com/risu729/pateat";
 
 /** Serves the extension's own icon at /icon.svg, so the site keeps no copy of it. */
@@ -12,7 +13,7 @@ function extensionIcon(): Plugin {
   return {
     name: "pateat-extension-icon",
     configureServer(server) {
-      server.middlewares.use("/icon.svg", (_request, response) => {
+      server.middlewares.use(`${base}icon.svg`, (_request, response) => {
         response.setHeader("Content-Type", "image/svg+xml");
         response.end(source());
       });
@@ -39,13 +40,14 @@ function englishPath(relativePath: string) {
 }
 
 export default defineConfig({
+  base,
   title: "Pateat",
   description:
     "Logs in to websites and answers passkey sign-ins from your own Bitwarden vault, kept on this device.",
   lang: "en",
   srcDir: "src",
   cleanUrls: true,
-  head: [["link", { rel: "icon", type: "image/svg+xml", href: "/icon.svg" }]],
+  head: [["link", { rel: "icon", type: "image/svg+xml", href: `${base}icon.svg` }]],
   vite: { plugins: [extensionIcon()] },
   // Each page names its other-language version for search engines; no page redirects by
   // the browser's language (ADR 0047).
