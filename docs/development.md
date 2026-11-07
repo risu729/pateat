@@ -10,6 +10,11 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
+`packages/bitwarden/src/local-crypto-admission.ts` owns structural context schemas,
+encrypted DTO admission and ciphertext framing checks. `local-crypto.ts` keeps native
+SDK initialization, session operations and cleanup, and re-exports the original
+admission API. Structural acceptance still grants no cryptographic trust.
+
 Continuation page admission and generation submission live in
 `login/runtime/continuation-question.ts`; `continuation.ts` retains recipe/layout
 takeover and execution and preserves its original exports. The extraction leaves
