@@ -96,6 +96,10 @@ This replaces "a confirmed result never changes" and also amends
 [ADR 0062](0062-log-in-again-after-a-logout.md) and
 [ADR 0082](0082-waits-on-signals.md).
 
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; implemented): a login in a frame is read in its frame's document, and the
+first new document of that frame after a password submission counts as `reshown`.
+
 Date: 2026-10-12
 
 ## Context

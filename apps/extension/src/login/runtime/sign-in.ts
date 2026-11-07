@@ -39,7 +39,7 @@ import type { Runtime } from "./state";
  * Reads and logs the sign-in state of ADR 0029 for a page no check explained: its signs
  * and what the ADR does with it. Returns the decision, `confirmed` when it was read in the
  * fully loaded document, on the passkey route too (ADR 0029 amendments of 2026-10-24 and
- * 2026-11-03). A login in a frame is not read, as the ADR reads the top document.
+ * 2026-11-03), in the document the login runs in: the tab's page or its frame (ADR 0086).
  */
 export async function signInState(
   rt: Runtime,
@@ -211,7 +211,6 @@ export async function readSignInState(
   | undefined
 > {
   const { recipe, metadata } = run;
-  if (run.live.topUrl !== undefined) return undefined;
   // Each marker shown, with the fields it needs gone counted even when hidden, as the
   // completion check counts them: a login form that hides itself again after a failed
   // sign-in is not a sign-in.
@@ -277,12 +276,13 @@ export async function readSignInState(
   const s1 = observed.targets.slice(0, fills.length).some((state) => state === "unique");
   const { tabId, origin: pageOrigin } = run.live.document;
   const effect = rt.effects.get(tabId);
-  // The sign-in form shown again in the first new top document after this attempt's
-  // password submission, as by a site that answers a failed submission with its sign-in
-  // page: its inputs' marks and the alerts next to it are read without the step's own
-  // reading (owner, 2026-10-12 22:03 UTC). A later document, such as the person's own
-  // retry, is not; nor is one after an advance or a passkey step. Without the step in
-  // memory, as after a worker restart, it is not read.
+  // The sign-in form shown again in the first new document of the login's frame after this
+  // attempt's password submission (the tab's top document for a top-level login, ADR 0086),
+  // as by a site that answers a failed submission with its sign-in page: its inputs' marks
+  // and the alerts next to it are read without the step's own reading (owner, 2026-10-12
+  // 22:03 UTC). A later document, such as the person's own retry, is not; nor is one after
+  // an advance or a passkey step. Without the step in memory, as after a worker restart, it
+  // is not read.
   const reshownMiss: ReshownMiss | undefined =
     effect?.attemptId !== metadata.id
       ? "no-effect"

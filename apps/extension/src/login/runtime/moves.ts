@@ -24,8 +24,9 @@ import { usernameShape, readUsernames, hideUsernames } from "./markers";
 import { generationSlotsFor, usernameReads, judgeSlots } from "./generation-scope";
 import { SITE_MOVE_READINGS, SIGN_IN_RECHECK_MS, SITE_MOVE_MS } from "./constants";
 import { tabAttempt } from "./hold";
-import { siteWaitOver, terminal } from "./attempt-state";
+import { siteWaitOver, terminal, watchOver } from "./attempt-state";
 import { keep } from "./session-store";
+import { browser } from "wxt/browser";
 import type { Runtime } from "./state";
 
 /**
@@ -544,6 +545,89 @@ export function passwordMoveFits(
     loginMoveFits(record.document.origin, siteOrigin, true)
     ? { at: factor }
     : undefined;
+}
+
+/**
+ * For a `password` login in a frame whose tab showed a new top-level page (ADR 0086): the
+ * time of the step the move follows, when that page is to be read for the login's result,
+ * as a top-level login's move to another origin of the site is (`passwordMoveFits`): the
+ * login's last effect step, other than a passkey's, or a second factor it entered ran at
+ * most `SITE_MOVE_MS` ago, or the login is watched and its watch still lasts, as when the
+ * person entered a code the site sent. A login with a stop never runs in a frame.
+ */
+export function frameMoveFits(
+  rt: Runtime,
+  record: LoginAttemptMetadata,
+  tabId: number,
+): { at: number } | undefined {
+  if (record.route !== "password" || record.document.frameId === 0) return undefined;
+  const now = Date.now();
+  const effect = rt.effects.get(tabId);
+  const own = effect?.attemptId === record.id && !effect.passkey ? effect : undefined;
+  const at = own && Math.max(own.at, own.code ?? 0);
+  if (at !== undefined && now >= at && now - at <= SITE_MOVE_MS) return { at };
+  if (record.watch !== undefined && !watchOver(record, now))
+    return { at: at ?? record.watch.since };
+  return undefined;
+}
+
+/**
+ * Whether frame `frameId` of the tab still shows a document, asked by its frame ID alone,
+ * which any document of it answers from its start (`login.frame.present`, ADR 0086): a
+ * frame that moved to its next document is still there. Only Chrome's own answer that no
+ * document of the frame listens means it is gone; a document that went away before it
+ * answered, as one swapped for the frame's next, leaves the frame there. A frame that
+ * does not answer within a second counts as still there, as for a new page (ADR 0017).
+ */
+export async function framePresent(tabId: number, frameId: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      browser.tabs
+        .sendMessage(tabId, { version: 1, type: "login.frame.present" }, { frameId })
+        .then(
+          (answer) => answer === true,
+          (error: unknown) => !String(error).includes("Receiving end does not exist"),
+        ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(resolve, 1000, true);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The tab's page changed its URL: when a `password` login in one of its frames may end
+ * on the page there (`frameMoveFits`) and that frame no longer shows a document, as when a
+ * single-page site's route replaced the sign-in frame after the sign-in (ADR 0086), the
+ * tab's top document is asked to announce again, so its page is read for that login's
+ * result as a new page around the frame is (`framePresent`).
+ */
+export async function frameLeftInPlace(rt: Runtime, tab: { id?: number | undefined }) {
+  const tabId = tab.id;
+  if (tabId === undefined) return;
+  await rt.vars.sessionLoaded;
+  const record = tabAttempt(rt, tabId);
+  if (!record || terminal(record) || !frameMoveFits(rt, record, tabId)) return;
+  const { frameId } = record.document;
+  const key = frameKey({ tabId, frameId });
+  const frame = rt.documents.get(key);
+  const answers = await framePresent(tabId, frameId);
+  const latest = tabAttempt(rt, tabId);
+  const top = rt.documents.get(frameKey({ tabId, frameId: 0 }));
+  if (answers || !top || latest?.id !== record.id || terminal(latest)) return;
+  // A document of the frame that announced during the question is kept.
+  if (rt.documents.get(key) === frame) rt.documents.delete(key);
+  rt.leftFrames.set(tabId, record.id);
+  await browser.tabs
+    .sendMessage(
+      tabId,
+      { version: 1, type: "login.reconnect" },
+      { frameId: 0, documentId: top.document.documentId },
+    )
+    .catch(() => undefined);
 }
 
 /**

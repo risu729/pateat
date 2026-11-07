@@ -106,17 +106,12 @@ export const loginAttemptStateSchema = v.picklist([
   "blocked",
 ]);
 /**
- * Whether a login is watched (ADR 0027): a top-level `password` login whose result stopped
- * at `challenge` or settled as unknown. Later pages of its tab are read for its result.
+ * Whether a login is watched (ADR 0027): a `password` login whose result stopped at
+ * `challenge` or settled as unknown, in the tab's page or in a frame (ADR 0086). Later
+ * pages of its tab are read for its result.
  */
-const watched = (metadata: {
-  route: string;
-  document: { frameId: number };
-  state: string;
-  settled?: true | undefined;
-}) =>
+const watched = (metadata: { route: string; state: string; settled?: true | undefined }) =>
   metadata.route === "password" &&
-  metadata.document.frameId === 0 &&
   (metadata.state === "watching" ||
     (metadata.state === "reconciling" && metadata.settled === true));
 /** Allowlisted metadata only. Never persist an XState snapshot or resolved field values. */
@@ -207,13 +202,14 @@ export const attemptMetadataSchema = v.pipe(
       v.strictObject({ operationId: identifier, pages: integer(MAX_JUDGED_PAGES) }),
     ),
     /**
-     * A top-level `password` login watched after its result stopped at `challenge`
-     * (`watching`) or settled as unknown (ADR 0027): since when, in epoch milliseconds, the
-     * document it began in, and the pages sent to be judged since, apart from the effect
-     * step's own (`judged`). Kept by `transitionLoginAttempt`. `path` is the path of that
-     * document the login was last read on, as the runtime observes it, so a route the
-     * document takes in place, as a single-page site's, is read once as the tab's next page,
-     * also after a worker restart (ADR 0027 amendment of 2026-10-25).
+     * A `password` login, in the tab's page or in a frame (ADR 0086), watched after its
+     * result stopped at `challenge` (`watching`) or settled as unknown (ADR 0027): since
+     * when, in epoch milliseconds, the document it began in, and the pages sent to be
+     * judged since, apart from the effect step's own (`judged`). Kept by
+     * `transitionLoginAttempt`. `path` is the path of that document the login was last read
+     * on, as the runtime observes it, so a route the document takes in place, as a
+     * single-page site's, is read once as the tab's next page, also after a worker restart
+     * (ADR 0027 amendment of 2026-10-25).
      */
     watch: v.optional(
       v.strictObject({
@@ -336,7 +332,7 @@ export const attemptMetadataSchema = v.pipe(
   ),
   v.check(
     (metadata) => metadata.state !== "watching" || watched(metadata),
-    "Only a top-level password login is watched",
+    "Only a password login is watched",
   ),
   v.check(
     (metadata) => (metadata.operationId === undefined) === (metadata.operationKind === undefined),
@@ -640,6 +636,13 @@ const leftOrigin = (left: LoginDocument, right: LoginDocument) =>
   left.tabId === right.tabId &&
   left.origin !== right.origin;
 /**
+ * A new top-level page of the same tab replaced the page around the attempt's frame, as
+ * after a sign-in in a frame that hands its result to its page (ADR 0086), whatever origin
+ * the new page has.
+ */
+const leftFrame = (left: LoginDocument, right: LoginDocument) =>
+  left.frameId !== 0 && right.frameId === 0 && left.tabId === right.tabId;
+/**
  * Whether a login of an item without a password is watched at its stop with nothing in
  * flight (ADR 0036): its watch's pages are judged, though no step names them.
  */
@@ -785,7 +788,12 @@ function record(
         settled: event.result === "unknown" ? true : undefined,
       };
     case "NAVIGATED":
-      if (leftOrigin(context.document, event.document))
+      // A frame's page that left without a sign-in confirmed is recorded here only for a
+      // watched login, which ends where it stopped; any other ends `cancelled`.
+      if (
+        leftOrigin(context.document, event.document) ||
+        leftFrame(context.document, event.document)
+      )
         // The result of a submission on the previous origin cannot be observed here, unless
         // the runtime confirmed the sign-in. A watched login ends where it stopped, as when
         // its watch ends: it never signed in, so its first step showing again is no logout
@@ -1082,7 +1090,7 @@ const valueRejected = (context: LoginAttemptMetadata, event: LoginAttemptEvent) 
   !(event.challenge === true && event.stage !== "before-fill");
 /**
  * A split `detail` value no input takes is left to the person as a challenge (ADR 0061);
- * a top-level `password` login is then watched for their finish, as after a judged
+ * a `password` login is then watched for their finish, as after a judged
  * challenge (ADR 0027).
  */
 const valueRejectedTransitions = [
@@ -1171,7 +1179,6 @@ function createLoginAttemptMachine() {
         event.type === "VALUE_REJECTED" &&
         event.challenge === true &&
         context.route === "password" &&
-        context.document.frameId === 0 &&
         valueRejected(context, event),
       retryAvailable: ({ context, event }) =>
         context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
@@ -1190,8 +1197,14 @@ function createLoginAttemptMachine() {
       leftSignedIn: ({ context, event }) =>
         event.type === "NAVIGATED" &&
         event.signedIn === true &&
-        leftOrigin(context.document, event.document) &&
+        (leftOrigin(context.document, event.document) ||
+          leftFrame(context.document, event.document)) &&
         maySignIn(context),
+      // A watched login in a frame whose page left ends where it stopped (ADR 0086).
+      leftFrameWatched: ({ context, event }) =>
+        event.type === "NAVIGATED" &&
+        leftFrame(context.document, event.document) &&
+        watched(context),
       observedAuthenticated: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "authenticated" &&
@@ -1211,12 +1224,12 @@ function createLoginAttemptMachine() {
         context.operationId === undefined &&
         context.document.frameId === 0 &&
         (!event.document || sameScope(context.document, event.document)),
-      // A top-level password login that stops at a step left to the person is watched.
+      // A password login that stops at a step left to the person is watched, in a frame
+      // too (ADR 0086).
       observedWatched: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "challenge" &&
         context.route === "password" &&
-        context.document.frameId === 0 &&
         (!event.document || sameScope(context.document, event.document)),
       observedCredentialRejected: ({ context, event }) =>
         event.type === "OBSERVED" &&
@@ -1504,6 +1517,7 @@ function createLoginAttemptMachine() {
         // A top-level attempt ends when its tab leaves the origin; it is never resubmitted.
         { guard: "leftSignedIn", target: ".authenticated", actions: "record" },
         { guard: "leftOrigin", target: ".blocked", actions: "record" },
+        { guard: "leftFrameWatched", target: ".blocked", actions: "record" },
         { target: ".blocked", actions: "invalidNavigation" },
       ],
       LEFT: { guard: "leftPage", target: ".blocked", actions: "record" },
@@ -1636,6 +1650,7 @@ function createLoginAttemptMachine() {
             { guard: "sameScope", actions: "watchedNavigation" },
             { guard: "leftSignedIn", target: "authenticated", actions: "record" },
             { guard: "leftOrigin", target: "blocked", actions: "record" },
+            { guard: "leftFrameWatched", target: "blocked", actions: "record" },
             { target: "blocked", actions: "invalidNavigation" },
           ],
           LEFT: { guard: "leftPage", target: "blocked", actions: "record" },

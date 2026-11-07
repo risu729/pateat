@@ -47,6 +47,11 @@ record. The 61-second end of that hold lives in the worker's memory, and an MV3 
 that stops after 30 idle seconds loses it; while the record waited it counted as a login
 in progress and held settings writes back.
 
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; implemented): the tab's new page after a `password` login in a frame, or its
+page's URL changed in place once the frame went away, is read as a move right after a
+password submission is, also during the login's watch, when the item matches its URL.
+
 Date: 2026-10-11
 
 Amended on 2026-10-11 (18:27 UTC, owner's choice in the thread): a finished login in

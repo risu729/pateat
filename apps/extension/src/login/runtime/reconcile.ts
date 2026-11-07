@@ -420,12 +420,8 @@ export async function reconcile(
     (Date.now() - (run.answeredAt ?? 0) < REQUEST_HOLD_MS || (await showsNothing(rt, run)))
   )
     return current(rt, run) ? "held" : undefined;
-  // An advance on the next step's own path that was never confirmed says why in the log,
-  // in a top document, the only one whose sign-in state is read.
-  const advance =
-    inPlace && next && run.live.topUrl === undefined
-      ? await advanceMiss(rt, run, inPlace, next.path)
-      : undefined;
+  // An advance on the next step's own path that was never confirmed says why in the log.
+  const advance = inPlace && next ? await advanceMiss(rt, run, inPlace, next.path) : undefined;
   if (!current(rt, run) || terminal(run.metadata)) return undefined;
   const state = effectful(run.metadata) ? await signInState(rt, run, advance) : undefined;
   if (!current(rt, run) || terminal(run.metadata)) return undefined;
@@ -524,6 +520,8 @@ export async function toStop(rt: Runtime, run: Execution): Promise<boolean> {
  * any sign-in page.
  */
 export async function askAgain(rt: Runtime, run: Execution): Promise<void> {
+  // A login in a frame stays watched instead: the popup offers no choice that waits in a
+  // frame yet (ADR 0086).
   if (!current(rt, run) || run.live.document.frameId !== 0) return;
   const { metadata } = run;
   const { document } = run.live;
