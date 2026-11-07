@@ -1,3 +1,11 @@
+import { createServiceCall } from "./service-call";
+import type { ServiceTiming } from "./service-timing";
+export {
+  serverTimings,
+  serviceTiming,
+  addTimings,
+  type ServiceTiming,
+} from "./service-timing";
 import {
   devicePairResultSchema,
   profileSchema,
@@ -36,88 +44,6 @@ import {
 import * as v from "valibot";
 
 export type TransportFailure = "unreachable" | "unexpected-response" | "rate-limited";
-
-/**
- * How long one request to the service took, for the local log (ADR 0019): from just before
- * it was sent until its body was read (`roundTripMs`), and from the answer's
- * `Server-Timing` header, the service's own time (`total`), its token exchange (`token`)
- * and model call (`model`). `networkMs` is the round trip less the service's time: the
- * network both ways, the Worker's start and the body's transfer. An answer without the
- * header, such as an edge error page, or no answer at all has the round trip only.
- */
-export type ServiceTiming = {
-  roundTripMs: number;
-  serverMs?: number;
-  networkMs?: number;
-  tokenMs?: number;
-  modelMs?: number;
-};
-
-/** The longest `dur` taken from a `Server-Timing` header: a day; anything longer is wrong. */
-const MAX_SERVER_TIMING_MS = 86_400_000;
-
-/**
- * A `Server-Timing` header's metric `dur`ations by name; malformed entries, and durations
- * that are not finite or longer than a day, are skipped.
- */
-export function serverTimings(header: string | null | undefined): Map<string, number> {
-  const metrics = new Map<string, number>();
-  if (!header) return metrics;
-  // Entries and their parameters are separated outside quoted `desc` values.
-  for (const entry of header.match(/(?:[^,"]|"(?:[^"\\]|\\.)*")+/gu) ?? []) {
-    const [name, ...parameters] = (entry.match(/(?:[^;"]|"(?:[^"\\]|\\.)*")+/gu) ?? []).map(
-      (part) => part.trim(),
-    );
-    if (!name || metrics.has(name)) continue;
-    for (const parameter of parameters) {
-      const match = /^dur\s*=\s*"?([0-9]+(?:\.[0-9]+)?)"?$/iu.exec(parameter);
-      if (match) {
-        const duration = Number(match[1]);
-        if (Number.isFinite(duration) && duration <= MAX_SERVER_TIMING_MS)
-          metrics.set(name, Math.round(duration));
-        break;
-      }
-    }
-  }
-  return metrics;
-}
-
-/** One request's timing from its round trip and its answer's `Server-Timing` header. */
-export function serviceTiming(roundTripMs: number, header?: string | null): ServiceTiming {
-  const roundTrip = Math.max(0, Math.round(roundTripMs));
-  const metrics = serverTimings(header);
-  const server = metrics.get("total");
-  const token = metrics.get("token");
-  const model = metrics.get("model");
-  return {
-    roundTripMs: roundTrip,
-    ...(server === undefined
-      ? {}
-      : { serverMs: server, networkMs: Math.max(0, roundTrip - server) }),
-    ...(token === undefined ? {} : { tokenMs: token }),
-    ...(model === undefined ? {} : { modelMs: model }),
-  };
-}
-
-/**
- * Several requests' timing added up, as for one sync: the service's and the network's
- * time only when every request had the service's time.
- */
-export function addTimings(
-  total: ServiceTiming | undefined,
-  next: ServiceTiming | undefined,
-): ServiceTiming | undefined {
-  if (!total || !next) return total ?? next;
-  return {
-    roundTripMs: total.roundTripMs + next.roundTripMs,
-    ...(total.serverMs === undefined || next.serverMs === undefined
-      ? {}
-      : {
-          serverMs: total.serverMs + next.serverMs,
-          networkMs: (total.networkMs ?? 0) + (next.networkMs ?? 0),
-        }),
-  };
-}
 
 type Profile = v.InferOutput<typeof profileSchema>;
 /** The profile a pairing device takes: an existing one, or a new one by name (ADR 0076). */
@@ -429,7 +355,6 @@ export interface ServiceTransport {
 }
 
 const errorSchema = v.object({ error: v.string() });
-const MAX_RESPONSE_BYTES = 16 * 1024;
 /** A full page of recipes; the service accepts each recipe write up to 128 KiB. */
 const MAX_RECIPE_PAGE_BYTES = 16 * 1024 * 1024;
 /** The service accepts settings writes up to 128 KiB; reads stay within twice that. */
@@ -448,57 +373,8 @@ const recipeConflictSchema = v.strictObject({
   current: v.nullable(syncRecipeChangeSchema),
 });
 
-/** Reads at most the byte limit, cancelling the stream instead of buffering more. */
-async function readBounded(response: Response, limit: number): Promise<string | undefined> {
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    // oxlint-disable-next-line no-await-in-loop -- stream chunks arrive in order
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      void reader.cancel().catch(() => undefined);
-      return undefined;
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    return undefined;
-  }
-}
-
 /** The diagnostics page waits for this read, so it gives up sooner than sync does. */
 export const DEVICE_TIMEOUT_MS = 5_000;
-
-/** Per-call options; only pairing sends the browser's login session. */
-type CallOptions = {
-  limit?: number;
-  timeout?: number;
-  /**
-   * Sends the browser's cookies for the service and leaves redirects unfollowed.
-   * A redirect or a body that is not JSON then means the login front-end answered
-   * instead of the Worker, so the caller is told to sign in. A non-JSON 429 or 5xx is
-   * an edge error page, such as Cloudflare's rate-limit or server error pages, and is
-   * reported as rate limiting or an unexpected response instead.
-   */
-  session?: boolean;
-};
-
-function isJson(response: Response) {
-  const type = response.headers.get("Content-Type") ?? "";
-  return type.split(";")[0]!.trim().toLowerCase() === "application/json";
-}
 
 /**
  * Talks only to the configured service origin. Redirects, caches and referrers are
@@ -513,83 +389,10 @@ export function createServiceTransport(
     now?: () => number;
   } = {},
 ): ServiceTransport {
-  const fetchResponse = options.fetch ?? globalThis.fetch.bind(globalThis);
-  const now = options.now ?? Date.now;
+  const call = createServiceCall(options);
   const timeoutMs = options.timeoutMs ?? 15_000;
   // The service allows the model 60 seconds after exchanging the owner's token.
   const inferenceTimeoutMs = options.inferenceTimeoutMs ?? 90_000;
-
-  async function call(
-    origin: string,
-    path: string,
-    init: RequestInit,
-    { limit = MAX_RESPONSE_BYTES, timeout = timeoutMs, session = false }: CallOptions = {},
-  ) {
-    const url = new URL(path, origin).href;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    // Measured from just before the request leaves until its body is read or it fails.
-    const sentAt = now();
-    let headers: Headers | undefined;
-    const timing = () => serviceTiming(now() - sentAt, headers?.get("Server-Timing"));
-    try {
-      const response = await fetchResponse(url, {
-        ...init,
-        signal: controller.signal,
-        redirect: session ? "manual" : "error",
-        credentials: session ? "include" : "omit",
-        cache: "no-store",
-        referrerPolicy: "no-referrer",
-      });
-      headers = response.headers;
-      // Decided before reading the body: a login or edge error page is never parsed.
-      // Status 0 falls through to "unexpected-response" for any caller that ignores
-      // `signIn`.
-      if (session && (response.type === "opaqueredirect" || !isJson(response))) {
-        void response.body?.cancel().catch(() => undefined);
-        if (response.type !== "opaqueredirect" && response.status === 429)
-          return { failed: "rate-limited" as const, timing: timing() };
-        if (response.type !== "opaqueredirect" && response.status >= 500)
-          return { failed: "unexpected-response" as const, timing: timing() };
-        return { status: 0, body: undefined, signIn: true as const, timing: timing() };
-      }
-      if (response.redirected || (response.url && response.url !== url)) {
-        void response.body?.cancel().catch(() => undefined);
-        return { failed: "unexpected-response" as const, timing: timing() };
-      }
-      // Every caller reads a 429 as "slow down" without its body, which may be an edge
-      // page that is not JSON, such as Cloudflare's rate-limit page.
-      if (response.status === 429) {
-        void response.body?.cancel().catch(() => undefined);
-        const retryAfter = response.headers.get("Retry-After");
-        return {
-          status: 429,
-          body: undefined,
-          timing: timing(),
-          ...(retryAfter && /^\d{1,6}$/u.test(retryAfter)
-            ? { retryAfterMs: Number(retryAfter) * 1000 }
-            : {}),
-        };
-      }
-      const text = await readBounded(response, limit);
-      if (text === undefined) return { failed: "unexpected-response" as const, timing: timing() };
-      let body: unknown;
-      try {
-        body = text ? JSON.parse(text) : undefined;
-      } catch {
-        return { failed: "unexpected-response" as const, timing: timing() };
-      }
-      return { status: response.status, body, timing: timing() };
-    } catch {
-      return {
-        failed: "unreachable" as const,
-        ...(controller.signal.aborted ? { timedOut: true as const } : {}),
-        timing: timing(),
-      };
-    } finally {
-      clearTimeout(timer);
-    }
-  }
 
   function errorCode(body: unknown) {
     const parsed = v.safeParse(errorSchema, body);
@@ -968,3 +771,4 @@ export function createServiceTransport(
     return { kind: "failed", error: "unexpected-response", ...timed };
   }
 }
+
