@@ -111,6 +111,19 @@ export async function choiceFor(rt: Runtime, tabId: number): Promise<ChoiceRespo
     if (waiting && live) clearChoice(rt, tabId);
     return { ok: false, reason: "no-choice" };
   }
+  // A choice that waits in a frame holds only while the tab still shows the page the
+  // frame was announced in (ADR 0086): a tab that moved on, before its new page announced
+  // or on a page Pateat does not run on, ends it.
+  if (waiting.document.frameId !== 0) {
+    const tab = await browser.tabs.get(tabId).catch(() => undefined);
+    const shown = tab?.url ? URL.parse(tab.url)?.origin : undefined;
+    const framed = live.topUrl ? URL.parse(live.topUrl)?.origin : undefined;
+    if (rt.pending.get(tabId) !== waiting) return { ok: false, reason: "no-choice" };
+    if (shown === undefined || shown !== framed) {
+      clearChoice(rt, tabId);
+      return { ok: false, reason: "no-choice" };
+    }
+  }
   // A default saved since the refusal decides the page's next login instead.
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (rt.pending.get(tabId) !== waiting) return { ok: false, reason: "no-choice" };
@@ -246,12 +259,15 @@ export async function popupStatus(rt: Runtime, tabId: number): Promise<StatusRes
     (attempt.pageOrigin ?? attempt.account.origin) === pageOrigin;
   // The worker's view of the page holds only while the tab still shows its path.
   const shown = live?.document.origin === pageOrigin && live.path === path ? live : undefined;
-  // A frame of the page whose sign-in form only its own URL matches (ADR 0086).
+  // A frame of the page whose sign-in form only its own URL matches (ADR 0086), announced
+  // in the page the tab still shows.
   const mismatched = [...rt.documents.values()].find(
     (entry) =>
       entry.document.tabId === tabId &&
       entry.document.frameId !== 0 &&
-      entry.reason === "frame-top-mismatch",
+      entry.reason === "frame-top-mismatch" &&
+      entry.topUrl !== undefined &&
+      URL.parse(entry.topUrl)?.origin === pageOrigin,
   );
   const pageState = shown && {
     ...(shown.state ? { state: shown.state } : {}),

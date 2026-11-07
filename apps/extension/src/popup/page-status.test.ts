@@ -498,7 +498,7 @@ describe("pageStatusLines", () => {
       [
         "frame-mismatch",
         "idle",
-        "Pateat does not log in to the sign-in form this page embeds from idmsa.apple.com, because this page (evil.example) does not match its vault item.",
+        "Pateat does not log in to the sign-in form this page embeds from idmsa.apple.com, because this page (evil.example) does not match the vault item.",
       ],
     ]);
   });

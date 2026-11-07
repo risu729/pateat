@@ -55,7 +55,7 @@ import {
   type DetailResponse,
 } from "../login/detail-wire";
 import { pauseSite } from "../login/pause";
-import { PageStatusSection } from "./page-status";
+import { hostnameOf, PageStatusSection } from "./page-status";
 import {
   PAUSE_CHOICES,
   PauseControl,
@@ -105,10 +105,6 @@ export function popupOrigin(url: string | undefined): string | undefined {
     normalizeHostname(parsed.hostname)
     ? parsed.origin
     : undefined;
-}
-
-function hostnameOf(origin: string): string {
-  return normalizeHostname(new URL(origin).hostname) ?? new URL(origin).hostname;
 }
 
 /** Which rules of a site list cover a hostname, and how the popup changes its own. */
@@ -1087,9 +1083,6 @@ export function SiteApp({
     const currentValue =
       current && mapped?.ok ? JSON.stringify([mapped.connectionId, current.itemId]) : undefined;
     const currentOption = options.find((entry) => entry.value === currentValue);
-    const currentConnection = mapped?.ok
-      ? catalog.connections.find((entry) => entry.id === mapped.connectionId)
-      : undefined;
     const shown = options.some((entry) => entry.value === chosen)
       ? chosen
       : (currentOption?.value ?? "");
@@ -1101,6 +1094,8 @@ export function SiteApp({
         ? choice.data
         : undefined;
     const choiceOrigin = offered?.origin ?? origin;
+    // A frame of the page's own origin waits as the page does.
+    const embedded = offered !== undefined && choiceOrigin !== origin;
     const choiceDefault =
       choiceOrigin === origin
         ? current
@@ -1147,18 +1142,32 @@ export function SiteApp({
     // A pick in a private window is used for this login only unless the user says otherwise.
     const asDefault = makeDefault ?? !tab.data?.incognito;
     // A saved default missing from a list is shown with its saved labels.
-    const savedDefault: Omit<AccountCard, "value"> | undefined = current && {
-      title:
-        currentConnection?.items.find((item) => item.id === current.itemId)?.label ??
-        current.itemName ??
-        current.itemId,
-      sub:
-        currentConnection?.label ??
-        t("{{account}}, not available here", {
-          account: current.accountName ?? t("Vault account"),
-        }),
-      isDefault: true,
+    const savedCard = (
+      entry: NonNullable<typeof current>,
+      mapping: typeof mapped,
+    ): Omit<AccountCard, "value"> => {
+      const connection = mapping?.ok
+        ? catalog.connections.find((item) => item.id === mapping.connectionId)
+        : undefined;
+      return {
+        title:
+          connection?.items.find((item) => item.id === entry.itemId)?.label ??
+          entry.itemName ??
+          entry.itemId,
+        sub:
+          connection?.label ??
+          t("{{account}}, not available here", {
+            account: entry.accountName ?? t("Vault account"),
+          }),
+        isDefault: true,
+      };
     };
+    const savedDefault = current && savedCard(current, mapped);
+    // The frame origin's saved default, named when the frame's choice leaves it out.
+    const embeddedMissing =
+      embedded && choiceDefault && !pickOptions.some((entry) => entry.value === choiceValue)
+        ? savedCard(choiceDefault, choiceMapped)
+        : undefined;
     // While the site's matches are still listed, the saved default is not missing yet: its
     // row then shows with its username rather than briefly as the item's saved labels.
     const listing = accounts.isEnabled && accounts.isPending;
@@ -1438,11 +1447,22 @@ export function SiteApp({
                 )}
               </p>
             </div>
-            {offered.frame && (
+            {embedded && (
               <p id="popup-choice-frame" className="popup-muted">
                 {t("The sign-in form is embedded in this page from {{hostname}}.", {
                   hostname: hostnameOf(choiceOrigin),
                 })}
+              </p>
+            )}
+            {embeddedMissing && (
+              <p id="popup-choice-default" className="popup-notice popup-notice--warning">
+                <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
+                <span>
+                  {t("The saved default, {{title}} ({{sub}}), is not one of these accounts.", {
+                    title: embeddedMissing.title,
+                    sub: embeddedMissing.sub,
+                  })}
+                </span>
               </p>
             )}
             {offered.held && (
@@ -1498,7 +1518,7 @@ export function SiteApp({
             </Button>
           </section>
         )}
-        {offered && !offered.frame && (showChoice || !labelled) ? (
+        {offered && !embedded && (showChoice || !labelled) ? (
           // The account choice is the only list while the page waits for it: its cards
           // mark the saved default, and a saved default can still be removed here.
           showChoice && (
@@ -1536,7 +1556,10 @@ export function SiteApp({
           <>
             <fieldset className="popup-fieldset popup-section">
               <legend id="popup-default-heading" className="popup-legend">
-                {t("Default account")}
+                {/* Beside a frame's choice, the list names whose default it is (ADR 0086). */}
+                {embedded
+                  ? t("Default account for {{hostname}}", { hostname })
+                  : t("Default account")}
               </legend>
               {missingDefault && (
                 <div id="popup-default" className="popup-choice popup-choice--static">

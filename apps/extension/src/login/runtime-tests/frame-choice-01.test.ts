@@ -103,6 +103,37 @@ describe("the popup for a login in a frame (ADR 0086)", () => {
     expect(h.fields.mock.calls[0]![0]).toMatchObject({ account: { itemId: otherItemId } });
   });
 
+  it("ends a frame's choice and names no refused frame once the tab shows another page", async () => {
+    const h = harness({ siteDefaults: [], bindings: [] }, { allowedOrigins: [], uris: uris(both) });
+    await h.hello({ documentId: "page-one", url: page }, false);
+    expect(await h.hello(frame())).toEqual({ ok: false, reason: "account-ambiguous" });
+    expect(fake.state.badges[1]).toMatchObject({ text: "2" });
+    // The tab moves to another site whose page has not announced.
+    fake.state.tabUrls[1] = "https://unrelated.example/";
+    expect(await ask(h, "login.choice.get")).toEqual({ ok: false, reason: "no-choice" });
+    expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
+  });
+
+  it("names no refused frame of a page the tab no longer shows", async () => {
+    const h = harness({}, { allowedOrigins: [], uris: uris() });
+    const evil = "https://evil.example/";
+    fake.state.tabUrls[1] = evil;
+    await h.hello({ documentId: "page-one", url: evil }, false);
+    expect(await h.hello(frame(evil))).toEqual({ ok: false, reason: "frame-top-mismatch" });
+    fake.state.tabUrls[1] = "https://unrelated.example/";
+    expect(await ask(h, "login.status.get")).not.toHaveProperty("mismatchedFrame");
+  });
+
+  it("ends a frame's choice when a new page in the tab has replaced the frame's page", async () => {
+    const h = harness({ siteDefaults: [], bindings: [] }, { allowedOrigins: [], uris: uris(both) });
+    await h.hello({ documentId: "page-one", url: page }, false);
+    expect(await h.hello(frame())).toEqual({ ok: false, reason: "account-ambiguous" });
+    expect(fake.state.badges[1]).toMatchObject({ text: "2" });
+    fake.state.gone.add("frame-one");
+    await h.hello({ documentId: "page-two", url: `${portal}/home` }, false);
+    expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
+  });
+
   it("says which frame is not logged in to because the tab's page does not match", async () => {
     const h = harness({}, { allowedOrigins: [], uris: uris() });
     const evil = "https://evil.example/";

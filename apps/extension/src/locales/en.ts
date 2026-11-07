@@ -118,6 +118,7 @@ export const en = {
     "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 10 minutes.",
   "Account to log in with": "Account to log in with",
   "Make it the default for {{hostname}}": "Make it the default for {{hostname}}",
+  "Default account for {{hostname}}": "Default account for {{hostname}}",
   "The sign-in form is embedded in this page from {{hostname}}.":
     "The sign-in form is embedded in this page from {{hostname}}.",
   "Log in": "Log in",
@@ -303,8 +304,8 @@ export const en = {
   "Pateat did not log in: {{why}}.": "Pateat did not log in: {{why}}.",
   "No login started: {{why}}.": "No login started: {{why}}.",
   "The login could not be confirmed.": "The login could not be confirmed.",
-  "Pateat does not log in to the sign-in form this page embeds from {{frame}}, because this page ({{page}}) does not match its vault item.":
-    "Pateat does not log in to the sign-in form this page embeds from {{frame}}, because this page ({{page}}) does not match its vault item.",
+  "Pateat does not log in to the sign-in form this page embeds from {{frame}}, because this page ({{page}}) does not match the vault item.":
+    "Pateat does not log in to the sign-in form this page embeds from {{frame}}, because this page ({{page}}) does not match the vault item.",
   "Logged in.": "Logged in.",
   "Waiting for you to finish the site's other step, such as a code.":
     "Waiting for you to finish the site's other step, such as a code.",

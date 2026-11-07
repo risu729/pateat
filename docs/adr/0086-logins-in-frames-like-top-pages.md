@@ -106,13 +106,17 @@ otherwise nothing changes for that frame:
   choice says the sign-in form is embedded in this page from the frame's host, lists
   the frame origin's default first, and "Make it the default for" names the frame's
   host, since the pick's default is saved for the frame's origin (ADR 0017). The page's
-  own default list stays beside it (chosen by an agent). The choice answer carries
-  `frame`, and so does `login.popup`.
+  own default list stays beside it, named "Default account for" the page's host (chosen
+  by an agent). A frame of the page's own origin waits as the page does. The choice ends,
+  badge and all, once the tab shows another page than the one the frame was announced
+  in, or a new page replaced the frame's. The choice answer carries `frame`, and so does
+  `login.popup`.
 - A frame refused because only its own URL matches the item (`frame-top-mismatch`) is
   explained in the popup: the sign-in form embedded in this page (`idmsa.apple.com`) is
   not logged in to because this page (`evil.example`) does not match the item. The
-  page's status carries the frame's origin as `mismatchedFrame`, and the page section
-  shows the line under the login's.
+  page's status carries the frame's origin as `mismatchedFrame`, only for a frame
+  announced in the page the tab still shows, and the page section shows the line under
+  the login's.
 
 ### Delivery 3: generation
 

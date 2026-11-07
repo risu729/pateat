@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import { Bug, CircleCheck, CircleX, Info, LoaderCircle, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
+import { normalizeHostname } from "@pateat/contracts";
 import type { StatusResponse } from "../login/choice-wire";
 
 type Status = Extract<StatusResponse, { ok: true }>;
@@ -255,8 +256,8 @@ function loginLines(status: Status, t: TFunction): StatusLine[] {
           id: "frame-mismatch",
           tone: "idle",
           text: t(
-            "Pateat does not log in to the sign-in form this page embeds from {{frame}}, because this page ({{page}}) does not match its vault item.",
-            { frame: hostOf(status.mismatchedFrame.origin), page: hostOf(status.origin) },
+            "Pateat does not log in to the sign-in form this page embeds from {{frame}}, because this page ({{page}}) does not match the vault item.",
+            { frame: hostnameOf(status.mismatchedFrame.origin), page: hostnameOf(status.origin) },
           ),
         },
       ]
@@ -265,8 +266,9 @@ function loginLines(status: Status, t: TFunction): StatusLine[] {
 }
 
 /** An origin's hostname, as the popup names a site. */
-function hostOf(origin: string): string {
-  return URL.parse(origin)?.hostname ?? origin;
+export function hostnameOf(origin: string): string {
+  const { hostname } = new URL(origin);
+  return normalizeHostname(hostname) ?? hostname;
 }
 
 function attemptLines(status: Status, t: TFunction): StatusLine[] {
