@@ -123,6 +123,9 @@ describe("answerInput", () => {
     expect(answers('<input aria-label="しつもんのかいとう">')).toBe(true);
     expect(answers('<input aria-label="ひみつの答え">')).toBe(true);
     expect(answers('<input aria-label="合い言葉">')).toBe(true);
+    expect(answers('<input aria-label="ヒミツノコトバ">')).toBe(true);
+    expect(answers('<input aria-label="質問への答え">')).toBe(true);
+    expect(answers('<input aria-label="秘密の解答">')).toBe(true);
     // Half-width katakana reads as full-width.
     expect(answers('<input placeholder="ﾋﾐﾂﾉｺﾀｴ">')).toBe(true);
   });
@@ -131,6 +134,9 @@ describe("answerInput", () => {
     expect(answers('<label>ご質問<input type="text"></label>')).toBe(false);
     expect(answers('<label>アンケートのこたえ<input type="text"></label>')).toBe(false);
     expect(answers('<label>ひみつ<input type="text"></label>')).toBe(false);
+  });
+
+  it("leaves out a search box whose words name a secret question", () => {
     expect(answers('<input placeholder="キーワード検索 (秘密の質問)">')).toBe(false);
   });
 

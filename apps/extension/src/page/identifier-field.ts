@@ -43,12 +43,12 @@ const secretWords: ReadonlySet<string> = new Set(["secret", "security", "memorab
 const answerWords: ReadonlySet<string> = new Set(["answer", "question", "word", "phrase"]);
 /**
  * The Japanese phrases, read on kana-folded text (`kanaFolded`): the secret question or its
- * answer (`秘密の質問`, `秘密のこたえ`, `ひみつの答え`), a question's answer (`質問の回答`,
- * `しつもんのこたえ`) and the passphrase (`合言葉`, `合い言葉`, `あいことば`), each in kanji or
- * kana.
+ * answer (`秘密の質問`, `秘密のこたえ`, `ひみつの答え`, `秘密の言葉`), a question's answer
+ * (`質問の回答`, `質問への答え`, `しつもんのこたえ`) and the passphrase (`合言葉`, `合い言葉`,
+ * `あいことば`), each in kanji or kana.
  */
 const answerPhrase =
-  /(?:秘密|ひみつ)の(?:質問|しつもん|答|こたえ|回答|かいとう)|(?:質問|しつもん)の(?:答|こたえ|回答|かいとう)|合い?言葉|あいことば/u;
+  /(?:秘密|ひみつ)の(?:質問|しつもん|答|こたえ|回答|解答|かいとう|言葉|ことば)|(?:質問|しつもん)(?:へ)?の(?:答|こたえ|回答|かいとう)|合い?言葉|あいことば/u;
 /**
  * `text` folded for the Japanese phrases: NFKC, so half-width katakana is full-width, then
  * katakana as hiragana, so `秘密のコタエ` and `秘密のこたえ` read alike.
