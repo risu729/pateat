@@ -11,7 +11,7 @@ import {
   createVaultAutoSync,
   createVaultSyncRecords,
   type VaultApplyHold,
-  type VaultSyncOutcome,
+  type VaultSyncResult,
 } from "./auto-sync";
 
 function harness(options: { ids?: string[]; online?: boolean } = {}) {
@@ -24,7 +24,7 @@ function harness(options: { ids?: string[]; online?: boolean } = {}) {
       stored = structuredClone(record);
     },
   });
-  const run = vi.fn<(id: string, hold: VaultApplyHold) => Promise<VaultSyncOutcome>>(
+  const run = vi.fn<(id: string, hold: VaultApplyHold) => Promise<VaultSyncResult>>(
     async () => "unchanged",
   );
   const report = vi.fn();
@@ -62,7 +62,7 @@ function harness(options: { ids?: string[]; online?: boolean } = {}) {
 afterEach(() => vi.useRealTimers());
 
 /** A run that takes the replacement hold and applies a new snapshot, as a sync does. */
-async function applied(_id: string, hold: VaultApplyHold): Promise<VaultSyncOutcome> {
+async function applied(_id: string, hold: VaultApplyHold): Promise<VaultSyncResult> {
   const release = await hold.take();
   release?.();
   return release ? "synced" : "deferred";
@@ -177,6 +177,38 @@ describe("vault check schedule", () => {
     await h.settle();
     expect(h.stored()?.connections["a"]?.["outcome"]).toBe("failed");
     expect(h.run).toHaveBeenCalledTimes(2);
+    expect(h.report).toHaveBeenCalledWith({
+      connectionId: "a",
+      outcome: "failed",
+      cause: "exception",
+      previous: undefined,
+    });
+    expect(JSON.stringify(h.report.mock.calls)).not.toContain("synthetic");
+  });
+  it("reports a failure code and HTTP status without storing them", async () => {
+    const h = harness();
+    h.run.mockResolvedValue({ outcome: "failed", cause: "http-error", status: 503 });
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report).toHaveBeenCalledWith({
+      connectionId: "a",
+      outcome: "failed",
+      cause: "http-error",
+      status: 503,
+      previous: undefined,
+    });
+    expect(h.stored()?.connections["a"]).toEqual({ checkedAt: h.now(), outcome: "failed" });
+    h.advance(VAULT_CHECK_INTERVAL_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.run).toHaveBeenCalledTimes(2);
+    expect(h.report).toHaveBeenLastCalledWith({
+      connectionId: "a",
+      outcome: "failed",
+      cause: "http-error",
+      status: 503,
+      previous: "failed",
+    });
   });
 });
 
@@ -204,10 +236,10 @@ describe("vault replacement hold", () => {
     await h.settle();
     const confirmed = h.now();
     h.advance(VAULT_CHECK_INTERVAL_MS);
-    let finish!: (outcome: VaultSyncOutcome) => void;
+    let finish!: (outcome: VaultSyncResult) => void;
     h.run.mockImplementationOnce(
       () =>
-        new Promise<VaultSyncOutcome>((resolve) => {
+        new Promise<VaultSyncResult>((resolve) => {
           finish = resolve;
         }),
     );
@@ -218,7 +250,7 @@ describe("vault replacement hold", () => {
       checkedAt: h.now(),
       unchangedAt: confirmed,
     });
-    finish("failed");
+    finish({ outcome: "failed", cause: "network" });
     await h.settle();
     expect(h.stored()?.connections["a"]).toMatchObject({
       outcome: "failed",
@@ -279,7 +311,7 @@ describe("vault replacement hold", () => {
     let finish!: () => void;
     h.run.mockImplementationOnce(
       () =>
-        new Promise<VaultSyncOutcome>((resolve) => {
+        new Promise<VaultSyncResult>((resolve) => {
           finish = () => resolve("unchanged");
         }),
     );
@@ -333,7 +365,7 @@ describe("vault check after a page finds no matching item", () => {
     let finish!: () => void;
     h.run.mockImplementationOnce(
       () =>
-        new Promise<VaultSyncOutcome>((resolve) => {
+        new Promise<VaultSyncResult>((resolve) => {
           finish = () => resolve("unchanged");
         }),
     );
@@ -358,7 +390,7 @@ describe("vault check after a page finds no matching item", () => {
     for (const outcome of [
       "unchanged",
       "deferred",
-      "failed",
+      { outcome: "failed", cause: "network" },
       "skipped",
       "reauthentication-required",
     ] as const) {
@@ -385,7 +417,7 @@ describe("vault check after a page finds no matching item", () => {
     let finish!: () => void;
     h.run.mockImplementationOnce(
       () =>
-        new Promise<VaultSyncOutcome>((resolve) => {
+        new Promise<VaultSyncResult>((resolve) => {
           finish = () => resolve("synced");
         }),
     );

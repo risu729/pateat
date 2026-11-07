@@ -1279,13 +1279,83 @@ describe("durable provider sessions", () => {
     { label: "null", response: { status: 200, body: null }, outcome: "synced" },
     { label: "negative", response: { status: 200, body: -1 }, outcome: "account-deleted" },
     { label: "429", response: { status: 429, body: {} }, outcome: "rate-limited" },
-    { label: "503", response: { status: 503, body: {} }, outcome: "failed" },
+    {
+      label: "503",
+      response: { status: 503, body: {} },
+      outcome: { outcome: "failed", cause: "http-error", status: 503 },
+    },
   ] as const)("a $label revision date answers $outcome", async ({ response, outcome }) => {
     const h = harness({ existing: true });
     await connected(h);
     h.revisionResponses.push(response);
-    expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toBe(outcome);
+    expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toEqual(outcome);
   });
+  it("an unavailable transport reports its code", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.transportFor.mockReturnValueOnce({ ok: false, error: { code: "network" } });
+    expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toEqual({
+      outcome: "failed",
+      cause: "network",
+    });
+  });
+  it.each([429, 503])("a refresh HTTP %i retains its outcome and status", async (status) => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.advance(3_601_000);
+    h.tokenResponses.push({ status, body: {} });
+    const result = await h.restart().service.autoSync(accountProfile.connectionId, hold());
+    expect(result).toEqual(
+      status === 429 ? "rate-limited" : { outcome: "failed", cause: "http-error", status },
+    );
+  });
+  it("a session store failure reports its code", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.advance(3_601_000);
+    h.sessionMemory.failNext("storage-uncertain");
+    expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toEqual({
+      outcome: "failed",
+      cause: "storage-uncertain",
+    });
+  });
+  it.each([429, 503])("a sync HTTP %i retains its outcome and status", async (status) => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    h.syncResponses.push({ status, body: {} });
+    expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toEqual(
+      status === 429 ? "rate-limited" : { outcome: "failed", cause: "http-error", status },
+    );
+  });
+  it("a decrypt or acceptance failure reports its code and releases the hold", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    h.manager.accept.mockResolvedValueOnce({ ok: false, error: { code: "crypto-failed" } });
+    const held = hold();
+    expect(await h.restart().service.autoSync(accountProfile.connectionId, held)).toEqual({
+      outcome: "failed",
+      cause: "crypto-failed",
+    });
+    expect(held.released()).toBe(true);
+  });
+  it.each(["registry", "policy"] as const)(
+    "a thrown %s error reports only exception",
+    async (stage) => {
+      const h = harness({ existing: true });
+      await connected(h);
+      const thrown = new Error("synthetic-private-message https://example.test/token");
+      h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+      if (stage === "registry") h.registry.get.mockRejectedValueOnce(thrown);
+      else h.policy.adopt.mockRejectedValueOnce(thrown);
+      const held = hold();
+      const result = await h.restart().service.autoSync(accountProfile.connectionId, held);
+      expect(result).toEqual({ outcome: "failed", cause: "exception" });
+      expect(JSON.stringify(result)).not.toContain(thrown.message);
+      if (stage === "policy") expect(held.released()).toBe(true);
+    },
+  );
   it("a 401 on the revision date discards the session it used", async () => {
     const h = harness({ existing: true });
     await connected(h);
