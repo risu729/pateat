@@ -10,6 +10,11 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
+`packages/bitwarden/src/local-crypto-admission.ts` owns structural context schemas,
+encrypted DTO admission and ciphertext framing checks. `local-crypto.ts` keeps native
+SDK initialization, session operations and cleanup, and re-exports the original
+admission API. Structural acceptance still grants no cryptographic trust.
+
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
 

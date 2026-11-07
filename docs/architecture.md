@@ -571,6 +571,11 @@ guess:
 
 ### Unsupported vault session cases
 
+`packages/bitwarden/src/local-crypto-admission.ts` owns structural context schemas,
+encrypted DTO admission and ciphertext framing checks. `local-crypto.ts` keeps native
+SDK initialization, session operations and cleanup, and re-exports the original
+admission API. Structural acceptance still grants no cryptographic trust.
+
 These cases of the crypto host and the vault manager are known and not handled; each
 fails as stated rather than retrying:
 
