@@ -596,6 +596,18 @@ setup messages are excluded from the production build. Chrome use may not be
 able to operate another extension's settings page; manual setup is a supported
 test prerequisite, not a reason to expose settings mutations to a web page.
 
+The failure-sign fixtures deliberately have no learned rejection marker. Open
+`/credential-failure?error=alert`, `?error=plain` or no `error` parameter; add
+`&new-document` (or `?new-document`) to answer in a new document. Each press is
+counted in session storage without retaining the submitted value. The identifier
+counterparts are `/identifier-failure?error=plain` and `/identifier-failure`;
+their Next leaves the identifier form shown and never reveals the password.
+`login.spec.ts` characterizes the existing ADR 0029 outcomes, watch or immediate
+account ask, popup status data, result badge data, and competing-tab admission.
+A plain or silent first new password document remains `unknown-submit`, but the
+existing `formAgain` rule releases its watch and asks for an account at once.
+These fixtures do not change the outcome rules or establish real-site compatibility.
+
 ### Installed Chrome synthetic passkey probe
 
 This prepares a manual acceptance run of the passkey bridge; it is not evidence

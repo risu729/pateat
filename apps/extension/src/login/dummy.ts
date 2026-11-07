@@ -22,6 +22,8 @@ const PROBE_PATHS = [
   "/delayed-result",
   "/rejection",
   "/unknown",
+  "/credential-failure",
+  "/identifier-failure",
   "/ambiguous",
   "/delayed",
   "/input-submit",
@@ -230,6 +232,31 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
     return totpRecipe(origin, path, path === "/totp-typed");
   if (path === "/identifier-first") return identifierFirstRecipe(origin, path);
   if (path === "/identifier-swap") return identifierFirstRecipe(origin, path, true);
+  if (path === "/credential-failure" || path === "/identifier-failure") {
+    const identifier = path === "/identifier-failure";
+    return parseLoginRecipe({
+      version: 1,
+      id: `demo-${path.slice(1)}`,
+      revision: 1,
+      origin,
+      pageKind: "sign-in",
+      slots: identifier ? ["account", "password"] : ["password"],
+      steps: identifier
+        ? [
+            { kind: "fill", path, fields: [{ slot: "account", target: target("account") }] },
+            { kind: "click", path, target: target("next"), purpose: "advance" },
+            { kind: "fill", path, fields: [{ slot: "password", target: target("password") }] },
+            { kind: "click", path, target: target("login"), purpose: "submit" },
+          ]
+        : [
+            { kind: "fill", path, fields: [{ slot: "password", target: target("password") }] },
+            { kind: "click", path, target: target("login"), purpose: "submit" },
+          ],
+      completion: [{ target: target("authenticated") }],
+      // Deliberately no rejection marker: these pages exercise the local failure signs.
+      maxSubmissions: identifier ? 2 : 1,
+    });
+  }
   const multi = path === "/identity";
   const inputAdvance = path === "/input-advance";
   const inputSubmit = path === "/input-submit" || path === "/change-submit";

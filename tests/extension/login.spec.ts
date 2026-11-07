@@ -2590,3 +2590,93 @@ test("a page that shows a CAPTCHA gets the password but leaves the login button 
     await fixture.close();
   }
 });
+
+/**
+ * Characterize the local failure signs before changing ADR 0029. These recipes have no
+ * learned rejection marker, so a fixture's plain error cannot bypass the local reading.
+ */
+for (const variant of [
+  { name: "an alert in the submitted document", path: "/credential-failure?error=alert", rejected: true },
+  { name: "an alert in the first new document", path: "/credential-failure?error=alert&new-document", rejected: true },
+  { name: "plain text in the submitted document", path: "/credential-failure?error=plain", rejected: false },
+  { name: "plain text in the first new document", path: "/credential-failure?error=plain&new-document", rejected: false },
+  { name: "a silent form in the first new document", path: "/credential-failure?new-document", rejected: false },
+  { name: "an unknown identifier with plain text after advance", path: "/identifier-failure?error=plain", rejected: false },
+  { name: "an unknown identifier without text after advance", path: "/identifier-failure", rejected: false },
+]) {
+  test(`current failure handling: ${variant.name}`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin);
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}${variant.path}`);
+        await expect(page.locator("#response-state")).toHaveText("Answer received");
+        const outcome = variant.rejected ? "credential-rejected" : "unknown-submit";
+        await expect.poll(() => logs(worker, "login.attempt"), { timeout: 20_000 }).toContainEqual(
+          expect.objectContaining({ outcome }),
+        );
+        await expect.poll(() => stateLogs(worker)).toContainEqual(
+          expect.objectContaining({
+            decision: variant.rejected ? "rejected" : "unknown",
+            s1: true,
+            f2: variant.rejected,
+            ...(variant.path.includes("identifier") ? { reshownMiss: "not-submit" } : {}),
+          }),
+        );
+        const status = () => send(options, { version: 1, type: "login.probe.status" });
+        if (variant.rejected || variant.path.includes("new-document"))
+          await expect.poll(status).toMatchObject({ attempts: [], asks: ["rejected"] });
+        else
+          await expect.poll(status).toMatchObject({
+            attempts: [{ state: "reconciling", outcome: "unknown-submit", submissions: 1, watch: expect.any(Object) }],
+          });
+        // The popup's stored login result retains the distinction even after a brief
+        // unknown badge expires. The choice badge may take priority after a rejection.
+        const presentation = () => worker.evaluate(async (url) => {
+          const chrome = (globalThis as unknown as {
+            chrome: {
+              tabs: { query: (query: object) => Promise<{ id?: number; url?: string }[]> };
+              storage: { session: { get: (key: string) => Promise<Record<string, unknown>> } };
+            };
+          }).chrome;
+          const tab = (await chrome.tabs.query({})).find((entry) => entry.url === url);
+          const stored = (await chrome.storage.session.get("pateat.login-badge.v1"))["pateat.login-badge.v1"] as {
+            statuses: [number, { login?: { outcome?: string } }][];
+            results: [number, { kind: string; reason: string }][];
+          };
+          return {
+            login: stored.statuses.find(([tabId]) => tabId === tab?.id)?.[1].login,
+            result: stored.results.find(([tabId]) => tabId === tab?.id)?.[1],
+          };
+        }, page.url());
+        await expect.poll(presentation).toMatchObject({
+          login: { outcome },
+          result: { kind: variant.rejected ? "failed" : "unsettled", reason: outcome },
+        });
+        const count = () => page.evaluate(() => ({
+          identity: Number(sessionStorage.getItem("identityClicks") || 0),
+          password: Number(sessionStorage.getItem("submitClicks") || 0),
+        }));
+        const expected = variant.path.includes("identifier")
+          ? { identity: 1, password: 0 }
+          : { identity: 0, password: 1 };
+        expect(await count()).toEqual(expected);
+        // Wake the submitted page and admit a competing tab while this result is held.
+        await page.evaluate(() => document.body.append(document.createElement("p")));
+        const other = await context.newPage();
+        await other.goto(`${fixture.origin}${variant.path}`);
+        await expect.poll(async () => JSON.stringify(await status())).toMatch(
+          /origin-busy|account-asked|site-wait|other-tab/u,
+        );
+        await expect(other.locator("#response-state")).toHaveText("Waiting for submission");
+        expect(await other.evaluate(() => Number(sessionStorage.getItem("submitClicks") || 0))).toBe(0);
+        expect(await other.evaluate(() => Number(sessionStorage.getItem("identityClicks") || 0))).toBe(0);
+        expect(await count()).toEqual(expected);
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+}
