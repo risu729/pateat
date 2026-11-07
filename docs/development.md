@@ -10,6 +10,12 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
+`apps/extension/src/diagnostics/background.ts` owns the worker logger, connection-state
+watches and non-login report entry points. `diagnostics/login-report.ts` owns the login
+report field projections and log-level decisions, including generation and judge timing;
+its reporter receives the same logger without owning runtime or persistence state. The
+public `createDiagnosticsLog` facade and its report methods remain unchanged.
+
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
 
