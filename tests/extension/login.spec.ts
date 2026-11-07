@@ -2657,7 +2657,8 @@ for (const variant of [
           }),
         );
         const status = () => send(options, { version: 1, type: "login.probe.status" });
-        if (variant.rejected || variant.path.includes("new-document"))
+        const released = variant.rejected || variant.path.includes("new-document");
+        if (released)
           await expect.poll(status).toMatchObject({ attempts: [], asks: ["rejected"] });
         else
           await expect.poll(status).toMatchObject({
@@ -2743,25 +2744,43 @@ for (const variant of [
             reason: expect.stringMatching(/origin-busy|account-asked|site-wait|other-tab/u),
           }),
         );
-        await expect(other.locator("#response-state")).toHaveText("Waiting for submission");
+        // The probe intentionally runs a full login where production only fills while
+        // asking. Record its one extra press after release; a watched result still holds.
+        await expect(other.locator("#response-state")).toHaveText(
+          released ? "Answer received" : "Waiting for submission",
+        );
         expect(
           await other.evaluate(() => Number(sessionStorage.getItem("submitClicks") || 0)),
-        ).toBe(0);
+        ).toBe(released ? 1 : 0);
         expect(
           await other.evaluate(() => Number(sessionStorage.getItem("identityClicks") || 0)),
         ).toBe(0);
         expect(await count()).toEqual(expected);
-        // A reload makes a fresh document announce in the original tab. Its refusal
-        // proves the same tab cannot replay the operation either.
-        await page.reload();
-        await expect
-          .poll(async () =>
-            (await documents()).find(
-              (entry) => entry.tabId === tabId && entry.documentId !== originalDocument,
-            ),
-          )
-          .toMatchObject({ state: "denied" });
-        expect(await count()).toEqual(expected);
+        if (released) {
+          // A fresh document gets the probe's same fill-only exception once. Its own
+          // denial bounds that extra press; the production harness below forbids it.
+          await page.reload();
+          await expect
+            .poll(async () =>
+              (await documents()).find(
+                (entry) => entry.tabId === tabId && entry.documentId !== originalDocument,
+              ),
+            )
+            .toMatchObject({ state: "denied" });
+          expect(await count()).toEqual({ identity: 0, password: 2 });
+        } else {
+          await expect.poll(status).toMatchObject({
+            attempts: [
+              {
+                state: "reconciling",
+                outcome: "unknown-submit",
+                submissions: 1,
+                watch: expect.any(Object),
+              },
+            ],
+          });
+          expect(await count()).toEqual(expected);
+        }
       });
     } finally {
       await fixture.close();
