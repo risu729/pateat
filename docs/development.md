@@ -11,8 +11,8 @@ until its required checks and acceptance gates pass.
 ## Workspace and tasks
 
 The passkey runtime keeps request admission, cancellation and conditional-login waiting
-in `passkeys/runtime.ts`. `runtime-answer.ts` owns account selection, chooser interaction,
-current-settings revalidation and signing. `runtime-shared.ts` owns their contracts and
+in `passkeys/runtime.ts`. `runtime-answer.ts` owns account selection, chooser
+interaction, current-settings revalidation and signing. `runtime-shared.ts` owns their contracts and
 existing utilities. The caller retains the mutable deadline and report cause, updated
 through synchronous callbacks at the original points.
 
