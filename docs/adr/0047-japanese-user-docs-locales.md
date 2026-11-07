@@ -8,6 +8,9 @@ follow Google's recommendation; private pages put UX first), and on a decision c
 (about 13:07 UTC) `/ja/` plus `hreflang`, with no redirect. The owner also said at 12:59
 UTC to pick the generally best option for front-end design details instead of asking.
 First proposed in [PR 721](https://github.com/risu729/pateat/pull/721) on 2026-10-17.
+Amended on 2026-11-07 by [PR 1346](https://github.com/risu729/pateat/pull/1346): the
+site is served under `/docs/` on `pateat.takuk.me`, so the paths below are relative to
+it (English at `/docs/`, Japanese at `/docs/ja/`).
 
 Date: 2026-10-23
 
