@@ -30,12 +30,14 @@ export type VaultSyncOutcome =
   | "account-deleted"
   | "skipped";
 
-/** Failure details are diagnostic only; the schedule persists the outcome alone. */
+/** Failure details are diagnostic only; the schedule reads the outcome alone. */
 export type VaultSyncFailure = { outcome: "failed"; cause: string; status?: number };
 export type VaultSyncResult = Exclude<VaultSyncOutcome, "failed"> | VaultSyncFailure;
 export type VaultSyncReport = {
   connectionId: string;
   previous?: VaultSyncOutcome | undefined;
+  /** The stored cause of the check before, when it failed too. */
+  previousFailure?: { cause: string; status?: number | undefined } | undefined;
 } & ({ outcome: Exclude<VaultSyncOutcome, "failed"> } | VaultSyncFailure);
 
 const time = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER));
@@ -64,6 +66,14 @@ const entrySchema = v.strictObject({
   deferredSince: v.optional(time),
   /** Local time before which no check is sent, after a 429. */
   retryAt: v.optional(time),
+  /** The last check's failure code and HTTP status, so the log tells a new cause from the
+   * same failure repeated; the schedule never reads it. */
+  failure: v.optional(
+    v.strictObject({
+      cause: v.pipe(v.string(), v.minLength(1), v.maxLength(64)),
+      status: v.optional(time),
+    }),
+  ),
 });
 const recordSchema = v.strictObject({
   version: v.literal(1),
@@ -244,10 +254,18 @@ export function createVaultAutoSync(deps: {
       }
       // oxlint-disable-next-line no-await-in-loop -- one connection at a time
       await deps.records.update(connectionId, (current) => {
-        const { deferredSince, retryAt: _retryAt, ...rest } = current;
+        const { deferredSince, retryAt: _retryAt, failure: _failure, ...rest } = current;
         return {
           ...rest,
           outcome,
+          ...(typeof result === "string"
+            ? {}
+            : {
+                failure: {
+                  cause: result.cause,
+                  ...(result.status === undefined ? {} : { status: result.status }),
+                },
+              }),
           // Only this check's own answer confirms the snapshot; a record cleared meanwhile
           // has no check time and gets none.
           ...(outcome === "unchanged" && current.checkedAt === at ? { unchangedAt: at } : {}),
@@ -269,6 +287,9 @@ export function createVaultAutoSync(deps: {
           connectionId,
           ...(typeof result === "string" ? { outcome: result } : result),
           previous: entry?.outcome,
+          ...(entry?.outcome === "failed" && entry.failure
+            ? { previousFailure: entry.failure }
+            : {}),
         });
       } catch {
         // A report never changes the schedule.

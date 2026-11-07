@@ -2743,17 +2743,33 @@ describe("unhandled errors", () => {
       log.vaultCheck({ connectionId, outcome, previous: outcomes[index - 1] }),
     );
     log.vaultCheck({ connectionId, outcome: "failed", cause: "network" });
-    log.vaultCheck({ connectionId, outcome: "failed", cause: "network", previous: "failed" });
+    // The same failure again is only detail; a new cause or status warns again.
+    log.vaultCheck({
+      connectionId,
+      outcome: "failed",
+      cause: "network",
+      previous: "failed",
+      previousFailure: { cause: "network" },
+    });
     log.vaultCheck({
       connectionId,
       outcome: "failed",
       cause: "http-error",
       status: 503,
       previous: "failed",
+      previousFailure: { cause: "network" },
+    });
+    log.vaultCheck({
+      connectionId,
+      outcome: "failed",
+      cause: "http-error",
+      status: 429,
+      previous: "failed",
+      previousFailure: { cause: "http-error", status: 503 },
     });
     log.vaultRefresh({ connectionId, outcome: "not-sent", cause: "no-refresh-token" });
     log.recipeSync("busy", { scope: "full", added: 0, updated: 0, removed: 0 });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(12));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(13));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(
       entries.map((entry) => [
@@ -2770,7 +2786,8 @@ describe("unhandled errors", () => {
       ["vault.check", "warn", "reauthentication-required", undefined],
       ["vault.check", "debug", "reauthentication-required", undefined],
       ["vault.check", "warn", "failed", "network"],
-      ["vault.check", "warn", "failed", "network"],
+      ["vault.check", "debug", "failed", "network"],
+      ["vault.check", "warn", "failed", "http-error"],
       ["vault.check", "warn", "failed", "http-error"],
       ["vault.refresh", "info", "not-sent", "no-refresh-token"],
       ["service.sync", "info", "busy", undefined],
@@ -2779,11 +2796,12 @@ describe("unhandled errors", () => {
     const failures = entries.filter(
       (entry) => entry.event === "vault.check" && entry.fields["outcome"] === "failed",
     );
-    expect(failures.at(-1)?.fields["status"]).toBe(503);
+    expect(failures.at(-1)?.fields["status"]).toBe(429);
     expect(failures.map(problemLine).map((line) => line?.fields)).toEqual([
       { outcome: "failed", cause: "network" },
-      { outcome: "failed", cause: "network" },
+      undefined,
       { outcome: "failed", cause: "http-error", status: 503 },
+      { outcome: "failed", cause: "http-error", status: 429 },
     ]);
     vi.restoreAllMocks();
   });

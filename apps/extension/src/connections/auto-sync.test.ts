@@ -185,7 +185,7 @@ describe("vault check schedule", () => {
     });
     expect(JSON.stringify(h.report.mock.calls)).not.toContain("synthetic");
   });
-  it("reports a failure code and HTTP status without storing them", async () => {
+  it("reports a failure code and HTTP status, and the stored one of the check before", async () => {
     const h = harness();
     h.run.mockResolvedValue({ outcome: "failed", cause: "http-error", status: 503 });
     h.auto.refreshIfStale();
@@ -197,7 +197,11 @@ describe("vault check schedule", () => {
       status: 503,
       previous: undefined,
     });
-    expect(h.stored()?.connections["a"]).toEqual({ checkedAt: h.now(), outcome: "failed" });
+    expect(h.stored()?.connections["a"]).toEqual({
+      checkedAt: h.now(),
+      outcome: "failed",
+      failure: { cause: "http-error", status: 503 },
+    });
     h.advance(VAULT_CHECK_INTERVAL_MS);
     h.auto.refreshIfStale();
     await h.settle();
@@ -208,7 +212,14 @@ describe("vault check schedule", () => {
       cause: "http-error",
       status: 503,
       previous: "failed",
+      previousFailure: { cause: "http-error", status: 503 },
     });
+    // A check that does not fail forgets the failure.
+    h.run.mockResolvedValue("unchanged");
+    h.advance(VAULT_CHECK_INTERVAL_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.stored()?.connections["a"]?.["failure"]).toBeUndefined();
   });
 });
 
