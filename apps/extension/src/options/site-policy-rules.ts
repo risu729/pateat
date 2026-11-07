@@ -1,5 +1,3 @@
-
-
 import {
   getItemEligibility,
   normalizeHostname,
@@ -165,4 +163,3 @@ export function ruleFor(rules: ExcludedSite[], origin: string): ExcludedSite | u
         Number(left.includeSubdomains) - Number(right.includeSubdomains),
     )[0];
 }
-

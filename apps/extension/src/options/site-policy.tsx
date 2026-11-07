@@ -17,7 +17,7 @@ import * as v from "valibot";
 import { Button } from "./button";
 import { checkClass, controlClass, fieldClass, Panel, RowList, StatusLines } from "./ui";
 
-import { createSitePolicyRows } from "./site-policy-rows";
+import { createSitePolicyRows, SiteRow } from "./site-policy-rows";
 import {
   siteAccountOptions,
   matchedBy,
@@ -267,7 +267,13 @@ export function SitePolicy({
     accountNote += t(" Some vaults or items could not be checked, so this list may be incomplete.");
 
   const { originRow, ruleRow, repromptRow } = createSitePolicyRows({
-    t, idPrefix, draft, catalog, edit, savedMatch, originInput,
+    t,
+    idPrefix,
+    draft,
+    catalog,
+    edit,
+    savedMatch,
+    originInput,
   });
 
   // Rules and origins together, by hostname; a rule comes before the origins on its host.
@@ -485,4 +491,3 @@ export function SitePolicy({
     </Panel>
   );
 }
-

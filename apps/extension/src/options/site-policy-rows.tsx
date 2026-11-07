@@ -48,7 +48,7 @@ function ruleName(rule: ExcludedSite): string {
  * One site in the list: what it is, its state lines, and the controls that act on it. Each
  * kind of row passes its own controls, so another per-site setting adds controls here.
  */
-function SiteRow({
+export function SiteRow({
   title,
   badges,
   lines,
@@ -139,7 +139,15 @@ function DefaultAccountEditor({
 }
 
 /** Renders the site's saved defaults and policy rows from the current render's state. */
-export function createSitePolicyRows({ t, idPrefix, draft, catalog, edit, savedMatch, originInput }: {
+export function createSitePolicyRows({
+  t,
+  idPrefix,
+  draft,
+  catalog,
+  edit,
+  savedMatch,
+  originInput,
+}: {
   t: TFunction;
   idPrefix: string;
   draft: LocalSettings;
