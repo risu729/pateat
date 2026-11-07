@@ -80,18 +80,12 @@ describe("passkey-only generation boundaries", () => {
     "Set up passkey",
     "パスキーを忘れた場合",
     "Forgot your passkey?",
-  ])(
-    "rejects registration or recovery control %s",
-    (text) => {
-      expect(
-        validateGeneratedPage(
-          { ...observation, candidates: [{ ...button, label: text }] },
-          [],
-          draft,
-        ).ok,
-      ).toBe(false);
-    },
-  );
+  ])("rejects registration or recovery control %s", (text) => {
+    expect(
+      validateGeneratedPage({ ...observation, candidates: [{ ...button, label: text }] }, [], draft)
+        .ok,
+    ).toBe(false);
+  });
 
   it("rejects links, unlabeled controls, fill forms and mismatched model button choices", () => {
     for (const changed of [
