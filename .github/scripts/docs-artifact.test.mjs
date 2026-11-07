@@ -3,7 +3,9 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
-import { verifyDocsBuild, verifyDocsProvenance } from "./docs-artifact.mjs";
+import { htmlLanguage, verifyDocsBuild, verifyDocsProvenance } from "./docs-artifact.mjs";
+
+/* oxlint-disable no-await-in-loop -- The cases change the same build directory in turn. */
 
 test("docs provenance accepts only the same trusted main run", () => {
   const expected = { repository: "risu729/pateat", revision: "a".repeat(40), runId: "1" };
@@ -28,13 +30,17 @@ test("docs provenance accepts only the same trusted main run", () => {
     assert.throws(() => verifyDocsProvenance({ ...manifest, ...changed }, expected));
 });
 
-test("docs output refuses executable Workers, bindings, wrong routes, root assets and preview output", async () => {
+test("docs output refuses executable Workers, bundled modules, bindings, wrong routes, root assets and preview output", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "pateat-docs-output-"));
   try {
     const assets = resolve(directory, "workers/default/assets");
     await mkdir(resolve(assets, "docs"), { recursive: true });
     await writeFile(resolve(assets, "docs/index.html"), "<html></html>");
     await writeFile(resolve(assets, "docs/404.html"), "<html></html>");
+    await writeFile(
+      resolve(assets, "docs/revision.json"),
+      JSON.stringify({ revision: "a".repeat(40) }),
+    );
     const config = { buildContext: { mode: "production", isPreview: false } };
     const worker = {
       name: "pateat-docs",
@@ -53,18 +59,23 @@ test("docs output refuses executable Workers, bindings, wrong routes, root asset
     await verifyDocsBuild(directory);
     for (const changed of [
       { entrypoint: "index.js" },
+      { main: "index.js" },
+      { mainModule: "index.js" },
       { env: { API: { type: "service" } } },
       { triggers: [{ pattern: "pateat.takuk.me/*", zone: "takuk.me" }] },
       { assets: { basePath: "/docs", notFoundHandling: "404-page" } },
       { assets: { notFoundHandling: "single-page-application" } },
+      { assets: { notFoundHandling: "404-page", runWorkerFirst: true } },
+      { workersDev: true },
       { previewUrls: true },
     ]) {
-      // These cases intentionally mutate the same build directory in sequence.
-      // eslint-disable-next-line no-await-in-loop
       await put({ ...worker, ...changed });
-      // eslint-disable-next-line no-await-in-loop
       await assert.rejects(verifyDocsBuild(directory));
     }
+    await put(worker);
+    await writeFile(resolve(directory, "workers/default/index.js"), "export default {};");
+    await assert.rejects(verifyDocsBuild(directory), /no bundled module/u);
+    await rm(resolve(directory, "workers/default/index.js"));
     await put(worker);
     await writeFile(
       resolve(directory, "config.json"),
@@ -77,4 +88,12 @@ test("docs output refuses executable Workers, bindings, wrong routes, root asset
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("the page language is read from the html tag only", () => {
+  assert(htmlLanguage('<!doctype html><html lang="ja" dir="ltr"><head>', "ja"));
+  assert(htmlLanguage("<html lang=en>", "en"));
+  assert(!htmlLanguage('<html lang="en"><a lang="ja">', "ja"));
+  assert(!htmlLanguage('<html lang="ja-JP">', "ja"));
+  assert(!htmlLanguage('<p>lang="ja"</p>', "ja"));
 });

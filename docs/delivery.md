@@ -16,11 +16,12 @@ split over these jobs (times from main
 
 | Job | Runs | When | Time |
 | --- | --- | --- | --- |
-| `Verify` | `mise run check` with `PATEAT_SKIP_E2E=1`, `PATEAT_SKIP_ORDERS=1`, `PATEAT_SKIP_COMPONENTS=1` and `PATEAT_COVERAGE=1`: hk's static checks, every typecheck and unit test (with [coverage](development.md#test-coverage)) and the server build checks, without a browser; on a main push it also packs the server artifact | always | 4 to 6 minutes before 2026-11-06 (5m48s in that run) |
+| `Verify` | `mise run check` with `PATEAT_SKIP_E2E=1`, `PATEAT_SKIP_ORDERS=1`, `PATEAT_SKIP_COMPONENTS=1` and `PATEAT_COVERAGE=1`: hk's static checks, every typecheck and unit test (with [coverage](development.md#test-coverage)) and the server build checks, without a browser; on a main push it also packs the server and docs artifacts | always | 4 to 6 minutes before 2026-11-06 (5m48s in that run) |
 | `Orders and components` | `mise run //packages/contracts:test:orders` (the walks over every order of events of the small logins) beside the three Chromium component suites `//tests/options:test`, `//apps/extension:test:dom` and `//tests/manage:test` (one at a time, with coverage) | always | about 3 minutes expected |
 | `Browser (1/6)` to `(6/6)` | `mise run //tests/extension:test` with `PATEAT_E2E_SHARD=<n>/6`, the packaged-extension Playwright suite | always | 2.5 to 4 minutes |
 | `CI Check` | fails unless every job above succeeded (a failed, cancelled or skipped job fails it); the only required status check | always, even after a failure | seconds |
 | `Deploy tested server` | releases the tested server (below) | main push after `CI Check` passed | about 1 minute |
+| `Deploy tested docs` | releases the tested docs website ([docs website delivery](#docs-website-delivery)) | main push after `CI Check` passed | about 1 minute expected |
 
 Rules and their reasons:
 
@@ -546,10 +547,13 @@ Verify job archives the tested output as `docs-<sha>`, recording repository,
 revision, run ID and file digests. After `CI Check` passes, `Deploy tested docs`
 downloads that artifact from the same run, verifies its provenance, asset-only
 configuration and digests, and deploys that exact output with the pinned deployment
-action. No build or PR artifact is promoted inside the credential-bearing job.
+action. A failed activation is repeated once right away with the same inputs, as for
+the server. No build or PR artifact is promoted inside the credential-bearing job.
 The docs lock is separate from the server lock; an old run that acquires it after
-main advanced skips release. Deployment readback and public revision, English and
-Japanese page smoke checks must pass.
+main advanced skips release. The action's deployment readback must return deployment
+and version IDs, and the public `revision.json` must name the released revision
+(retried 30 times, 2 seconds apart, while the version propagates) before the English
+and Japanese installation pages are checked for their `<html lang>`.
 
 The owner saved the Access change on 2026-11-07 at 03:43 UTC, as recorded in
 [issue 1322](https://github.com/risu729/pateat/issues/1322). The `pateat bypass`
@@ -597,19 +601,21 @@ Only then, in the owner's Chrome:
 1. Create the **Account API token** `pateat-github-actions-docs`, never a user token.
 2. Set **Individual Workers Editor**, **Specified Workers = pateat-docs**.
 3. Set **Workers Routes Edit**, **Specified Domains = takuk.me**.
-4. Create the GitHub environment `docs`, restricted to branch `main`, with secret
+4. Open the GitHub environment `docs`, which GitHub creates without rules on the first
+   main run that names it, and restrict it to branch `main` first. Then add secret
    `CLOUDFLARE_API_TOKEN` containing this token and variable `CLOUDFLARE_ACCOUNT_ID`
-   containing the exact account ID. The same secret name in the separate environment
-   does not reuse the service's production token.
+   containing the account ID that holds `pateat-docs`, the same value as the
+   `production` environment's `CLOUDFLARE_ACCOUNT_ID`. The same secret name in the
+   separate environment does not reuse the service's production token.
 
 Later main pushes deploy through CI. Routine versions preserve the bootstrap
 routes with `deploy-triggers: false`. No token is created or read by a cloud agent.
 
 ### Docs previews
 
-Per-PR previews remain a proposal. A same-repository PR build can still execute
-attacker-controlled dependencies or build code, so giving it even a docs-only
-token changes the delivery trust model. This implementation has no privileged
-`pull_request_target` path, no fork previews and no automatic upload of PR code.
-After an owner decision, a separate preview workflow can use isolated docs-only
+Per-PR docs previews are not built; they wait for an owner decision. A same-repository
+PR build can still execute attacker-controlled dependencies or build code, so giving it
+even a docs-only token changes the delivery trust model. This implementation has no
+privileged `pull_request_target` path, no fork previews and no automatic upload of PR
+code. After an owner decision, a separate preview workflow can use isolated docs-only
 credentials and preview hosting without changing the production routes.
