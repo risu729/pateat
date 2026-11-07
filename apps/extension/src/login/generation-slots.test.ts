@@ -88,6 +88,19 @@ describe("custom-field offers (ADR 0027)", () => {
     ]);
   });
 
+  it("never offers a field reserved for SSO methods, nor a Linked field reading one (ADR 0085)", () => {
+    const sso = custom(1, "SSO", "text");
+    const offers = customFieldOffers([
+      item("item-1", [
+        custom(0, "Branch number", "text"),
+        sso,
+        custom(2, "sso 2", "hidden"),
+        custom(3, "SSO copy", "linked", { linkedFieldId: sso.id }),
+      ]),
+    ]);
+    expect(offers.map((offer) => offer.slot.fieldName)).toEqual(["Branch number"]);
+  });
+
   it("skips Boolean, unsupported, unnamed, blank and over-long names and excluded fields", () => {
     const offers = customFieldOffers([
       item(

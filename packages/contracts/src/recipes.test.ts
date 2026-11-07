@@ -15,6 +15,7 @@ import {
   defaultLoginBinding,
   fillLoginBinding,
   findLoginBinding,
+  isSsoFieldName,
   loginDisplayNames,
   languageDecides,
   layoutFirstSteps,
@@ -392,6 +393,34 @@ describe("synced account bindings", () => {
         reason: "field-missing",
       });
     }
+  });
+
+  it("never binds a field reserved for SSO methods (ADR 0085)", () => {
+    const sso = [
+      ...fields,
+      { id: `custom.${snapshotId}.4`, name: "SSO" },
+      { id: `custom.${snapshotId}.5`, name: " sso 2 " },
+    ];
+    for (const name of ["SSO", " sso 2 ", "Sso 12"]) {
+      expect(resolve(binding({ slots: [{ slot: "x", field: { custom: name } }] }), sso)).toEqual({
+        ok: false,
+        slot: "x",
+        reason: "sso-field",
+      });
+    }
+    expect(
+      resolve(
+        binding({ slots: [{ slot: "x", field: { custom: "SSO", position: 1, count: 1 } }] }),
+        sso,
+      ),
+    ).toEqual({ ok: false, slot: "x", reason: "sso-field" });
+  });
+
+  it("reserves `SSO` and `SSO <number>` by name only (ADR 0085)", () => {
+    for (const name of ["SSO", "sso", " SSO ", "SSO 2", "SSO  3", "sso 10"])
+      expect(isSsoFieldName(name), name).toBe(true);
+    for (const name of [null, undefined, "", "SSO2", "SSO-2", "SSO login", "My SSO", "SSO 2a"])
+      expect(isSsoFieldName(name), String(name)).toBe(false);
   });
 
   it("counts same-name fields over the whole item in vault order", () => {
