@@ -2663,16 +2663,42 @@ for (const variant of [
           ? { identity: 1, password: 0 }
           : { identity: 0, password: 1 };
         expect(await count()).toEqual(expected);
-        // Wake the submitted page and admit a competing tab while this result is held.
+        const tabs = () => worker.evaluate(async () => {
+          const chrome = (globalThis as unknown as {
+            chrome: { tabs: { query: (query: object) => Promise<{ id?: number; url?: string }[]> } };
+          }).chrome;
+          return chrome.tabs.query({});
+        });
+        const originalTabs = await tabs();
+        const tabId = originalTabs.find((tab) => tab.url === page.url())?.id;
+        expect(tabId).toBeDefined();
+        const documents = async () => ((await status()) as {
+          documents: { tabId: number; documentId: string; state?: string; reason?: string }[];
+        }).documents;
+        const originalDocument = (await documents()).find((entry) => entry.tabId === tabId)?.documentId;
+        expect(originalDocument).toBeDefined();
+        // Admit a competing tab while the original result is held. Wait for that tab's
+        // own refusal, not an earlier account ask belonging to the submitted page.
         await page.evaluate(() => document.body.append(document.createElement("p")));
         const other = await context.newPage();
         await other.goto(`${fixture.origin}${variant.path}`);
-        await expect.poll(async () => JSON.stringify(await status())).toMatch(
-          /origin-busy|account-asked|site-wait|other-tab/u,
-        );
+        const otherTabId = (await tabs()).find((tab) => !originalTabs.some((old) => old.id === tab.id))?.id;
+        expect(otherTabId).toBeDefined();
+        await expect.poll(documents).toContainEqual(expect.objectContaining({
+          tabId: otherTabId,
+          state: "denied",
+          reason: expect.stringMatching(/origin-busy|account-asked|site-wait|other-tab/u),
+        }));
         await expect(other.locator("#response-state")).toHaveText("Waiting for submission");
         expect(await other.evaluate(() => Number(sessionStorage.getItem("submitClicks") || 0))).toBe(0);
         expect(await other.evaluate(() => Number(sessionStorage.getItem("identityClicks") || 0))).toBe(0);
+        expect(await count()).toEqual(expected);
+        // A reload makes a fresh document announce in the original tab. Its refusal
+        // proves the same tab cannot replay the operation either.
+        await page.reload();
+        await expect.poll(async () => (await documents()).find(
+          (entry) => entry.tabId === tabId && entry.documentId !== originalDocument,
+        )).toMatchObject({ state: "denied" });
         expect(await count()).toEqual(expected);
       });
     } finally {
