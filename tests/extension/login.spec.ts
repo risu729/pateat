@@ -1553,14 +1553,16 @@ test("a code page without Verify that keeps a digit out refuses the code (#916)"
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/totp-typed?single&ui=drop`);
       await expect.poll(status).toContain('"outcome":"fill-rejected"');
-      await expect.poll(() => logs(worker, "login.attempt")).toContainEqual(
-        expect.objectContaining({
-          state: "blocked",
-          outcome: "fill-rejected",
-          cause: "typed-refused",
-          fieldIndex: 0,
-        }),
-      );
+      await expect
+        .poll(() => logs(worker, "login.attempt"))
+        .toContainEqual(
+          expect.objectContaining({
+            state: "blocked",
+            outcome: "fill-rejected",
+            cause: "typed-refused",
+            fieldIndex: 0,
+          }),
+        );
       // Five of the six characters went in and the page never submitted them.
       expect(await codeEvidence(page)).toEqual({
         codeInputs: 5,
@@ -2611,7 +2613,6 @@ test("a page that shows a CAPTCHA gets the password but leaves the login button 
   }
 });
 
-
 test("Enter form validation reports a form-wide fill rejection without submitting", async () => {
   const fixture = await startLoginFixture();
   try {
@@ -2634,7 +2635,8 @@ test("Enter form validation reports a form-wide fill rejection without submittin
       await page.goto(`${fixture.origin}/enter-submit`);
       const rejected = async () =>
         (await logs(worker, "login.attempt")).find(
-          (entry) => entry["outcome"] === "structural-mismatch" && entry["cause"] === "form-invalid",
+          (entry) =>
+            entry["outcome"] === "structural-mismatch" && entry["cause"] === "form-invalid",
         );
       await expect.poll(rejected).toMatchObject({
         state: "reconciling",

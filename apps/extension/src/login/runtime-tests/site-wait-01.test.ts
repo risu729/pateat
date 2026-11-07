@@ -411,9 +411,7 @@ describe("a login whose wait for the site ran out", () => {
     fake.state.removed.at(-1)!(1);
     await vi.waitFor(() => expect(at(origin)).toBeUndefined());
     const closed = () =>
-      report.mock.calls
-        .map(([entry]) => entry)
-        .filter((entry) => entry.type === "attempt-closed");
+      report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "attempt-closed");
     expect(closed()).toEqual([
       expect.objectContaining({ watched: true, settled: true, cause: "tab-closed" }),
     ]);

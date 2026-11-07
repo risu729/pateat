@@ -45,12 +45,7 @@ import {
   visible,
   watchCodeSubmission,
 } from "../page/code-submission";
-import {
-  fillBaseline,
-  fillRejection,
-  inputValueMismatch,
-  unreadyForm,
-} from "../page/fill-checks";
+import { fillBaseline, fillRejection, inputValueMismatch, unreadyForm } from "../page/fill-checks";
 import {
   clickDestinations,
   formDestinations,

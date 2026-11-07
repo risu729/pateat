@@ -276,4 +276,3 @@ describe("unreadyForm", () => {
     expect(check(new Set(), [])).toBe(false);
   });
 });
-

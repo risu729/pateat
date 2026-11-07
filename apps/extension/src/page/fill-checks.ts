@@ -153,8 +153,7 @@ export function fillRejection(
 ): FillRejection | undefined {
   for (const [fieldIndex, input] of inputs.entries()) {
     const previous = before.inputs[fieldIndex]!;
-    if (ariaInvalid(input) && !previous.ariaInvalid)
-      return { detail: "aria-invalid", fieldIndex };
+    if (ariaInvalid(input) && !previous.ariaInvalid) return { detail: "aria-invalid", fieldIndex };
     const { validity } = input;
     if (validity.valid) continue;
     for (const flag of validityFlags)

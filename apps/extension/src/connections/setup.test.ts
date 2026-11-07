@@ -1288,7 +1288,9 @@ describe("durable provider sessions", () => {
     const h = harness({ existing: true });
     await connected(h);
     h.revisionResponses.push(response);
-    expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toEqual(outcome);
+    expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toEqual(
+      outcome,
+    );
   });
   it("an unavailable transport reports its code", async () => {
     const h = harness({ existing: true });
