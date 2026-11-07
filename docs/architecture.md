@@ -266,6 +266,11 @@ the pinned SDK, independently of vault-unlock parameters. Provider settings, cac
 reconciliation and persistent unlock still need their own integration and acceptance
 tests.
 
+The background broker in `apps/extension/src/crypto/host.ts` checks successful replies
+through `host-result.ts`, whose pure admission rules bind each result to its requested
+operation and account. The broker retains cancellation, session retirement and the
+checks before and after its asynchronous checkpoint.
+
 The background host uses a packaged offscreen document with the `WORKERS`
 reason to construct Dedicated Workers. A private runtime Port starts in that
 document; the background validates its browser-supplied extension identity and
