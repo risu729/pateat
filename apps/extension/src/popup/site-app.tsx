@@ -1093,7 +1093,23 @@ export function SiteApp({
     const shown = options.some((entry) => entry.value === chosen)
       ? chosen
       : (currentOption?.value ?? "");
-    const offered = choice.data?.ok && choice.data.origin === origin ? choice.data : undefined;
+    // A choice that waits in a frame of the page is for the frame's origin (ADR 0086): the
+    // default it lists first and the one a pick may become are that origin's, as every
+    // login there is (ADR 0017).
+    const offered =
+      choice.data?.ok && (choice.data.origin === origin || choice.data.frame)
+        ? choice.data
+        : undefined;
+    const choiceOrigin = offered?.origin ?? origin;
+    const choiceDefault =
+      choiceOrigin === origin
+        ? current
+        : saved.snapshot.settings.siteDefaults.find((entry) => entry.origin === choiceOrigin);
+    const choiceMapped = choiceDefault ? siteDefaultConnection(choiceDefault, catalog) : undefined;
+    const choiceValue =
+      choiceDefault && choiceMapped?.ok
+        ? JSON.stringify([choiceMapped.connectionId, choiceDefault.itemId])
+        : undefined;
     // The choice shows once the site's matches are listed, so each account is named by its
     // username from the first frame rather than by a shortened item ID.
     const labelled = !accounts.isEnabled || !accounts.isPending;
@@ -1114,7 +1130,7 @@ export function SiteApp({
     };
     // While the tab asks, the saved default is listed first (ADR 0021 D).
     const pickOptions = siteAccountOptions(catalog, matches, false, saved.snapshot.settings).sort(
-      (a, b) => Number(b.value === currentValue) - Number(a.value === currentValue),
+      (a, b) => Number(b.value === choiceValue) - Number(a.value === choiceValue),
     );
     // After the site rejected a login of this tab or another tab of the site, nothing is
     // chosen until the user picks, so Log in never sends the rejected account again by
@@ -1422,6 +1438,13 @@ export function SiteApp({
                 )}
               </p>
             </div>
+            {offered.frame && (
+              <p id="popup-choice-frame" className="popup-muted">
+                {t("The sign-in form is embedded in this page from {{hostname}}.", {
+                  hostname: hostnameOf(choiceOrigin),
+                })}
+              </p>
+            )}
             {offered.held && (
               <p id="popup-pick-held" className="popup-notice popup-notice--warning">
                 <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
@@ -1436,7 +1459,7 @@ export function SiteApp({
               <legend className="visually-hidden">{t("Account to log in with")}</legend>
               <AccountChoices
                 name="popup-pick"
-                cards={accountCards(pickOptions, found?.accounts, currentValue, usedValue)}
+                cards={accountCards(pickOptions, found?.accounts, choiceValue, usedValue)}
                 checked={shownPick}
                 disabled={busy}
                 onChange={setPicked}
@@ -1450,7 +1473,7 @@ export function SiteApp({
                 disabled={busy}
                 onChange={(event) => setMakeDefault(event.target.checked)}
               />
-              {t("Make it the default for {{hostname}}", { hostname })}
+              {t("Make it the default for {{hostname}}", { hostname: hostnameOf(choiceOrigin) })}
             </label>
             <Button
               id="popup-pick"
@@ -1466,7 +1489,7 @@ export function SiteApp({
                     offered,
                     { ...selected, name: accountName(selected, found?.accounts) },
                     asDefault,
-                    shownPick === currentValue,
+                    shownPick === choiceValue,
                   );
               }}
             >
@@ -1475,7 +1498,7 @@ export function SiteApp({
             </Button>
           </section>
         )}
-        {offered && (showChoice || !labelled) ? (
+        {offered && !offered.frame && (showChoice || !labelled) ? (
           // The account choice is the only list while the page waits for it: its cards
           // mark the saved default, and a saved default can still be removed here.
           showChoice && (

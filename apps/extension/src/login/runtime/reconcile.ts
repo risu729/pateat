@@ -520,9 +520,8 @@ export async function toStop(rt: Runtime, run: Execution): Promise<boolean> {
  * any sign-in page.
  */
 export async function askAgain(rt: Runtime, run: Execution): Promise<void> {
-  // A login in a frame stays watched instead: the popup offers no choice that waits in a
-  // frame yet (ADR 0086).
-  if (!current(rt, run) || run.live.document.frameId !== 0) return;
+  // A login in a frame asks in its frame, whose choice the popup offers (ADR 0086).
+  if (!current(rt, run)) return;
   const { metadata } = run;
   const { document } = run.live;
   const { tabId } = document;
@@ -559,7 +558,7 @@ export async function askAgain(rt: Runtime, run: Execution): Promise<void> {
     .sendMessage(
       tabId,
       { version: 1, type: "login.reconnect" },
-      { frameId: 0, documentId: document.documentId },
+      { frameId: document.frameId, documentId: document.documentId },
     )
     .catch(() => undefined);
 }

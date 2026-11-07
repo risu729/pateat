@@ -293,6 +293,7 @@ export const PROBLEM_EVENT_FIELDS = {
     paused: "flag",
     held: "flag",
     rejectedElsewhere: "flag",
+    frame: "flag",
     recordState: "code",
     recordOutcome: "code",
     pageReason: "code",

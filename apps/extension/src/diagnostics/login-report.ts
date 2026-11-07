@@ -156,6 +156,7 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             paused: report.paused,
             held: report.held,
             rejectedElsewhere: report.rejectedElsewhere,
+            frame: report.frame,
             recordState: report.recordState,
             recordOutcome: report.recordOutcome,
             pageReason: report.pageReason,
