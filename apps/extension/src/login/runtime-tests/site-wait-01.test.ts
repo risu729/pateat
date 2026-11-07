@@ -376,5 +376,4 @@ describe("a login whose wait for the site ran out", () => {
     );
     expect(at(origin)).toBeUndefined();
   });
-
 });

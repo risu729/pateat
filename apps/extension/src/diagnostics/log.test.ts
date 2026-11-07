@@ -2784,7 +2784,6 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-
   it.each(["authenticated", "blocked", "closed"] as const)(
     "sends only the final problem for a watched result ending %s",
     async (end) => {
