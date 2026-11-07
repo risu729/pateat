@@ -89,6 +89,20 @@ export function gap(): Promise<void> {
 }
 
 /**
+ * Whether removing only inserted ASCII spaces and hyphens from `held` leaves exactly
+ * `value`. Match original characters first so its own separators must remain in order.
+ * Compare the raw characters: width folding must not admit another inserted separator.
+ */
+function withInsertedSeparators(held: string, value: string): boolean {
+  let at = 0;
+  for (const character of held) {
+    if (value.startsWith(character, at)) at += character.length;
+    else if (character !== " " && character !== "-") return false;
+  }
+  return at === value.length;
+}
+
+/**
  * Types `value` into `input` as a person would: focus (which blurs the field focused
  * before) without scrolling; a field that already holds text is cleared first, as by
  * selecting it all and deleting; then each character as a keyboard sends it, `keydown`,
@@ -106,9 +120,13 @@ export function gap(): Promise<void> {
  * handlers dropped a character it does not allow. A value of the same length, such as a
  * mask or a case the page changed, is kept, and so is one the page rewrote between
  * full-width and half-width characters, whatever its length and after a cancelled key
- * too (owner decision, 2026-10-18 02:07 UTC; see {@link widthFolded}), unless it no
- * longer fits the field's `maxlength`. After `change` and blur the page gets another
- * pause, and a value of another length then is `refused` too, unless the page emptied
+ * too (owner decision, 2026-10-18 02:07 UTC; see {@link widthFolded}). A value changed
+ * only by inserting ASCII spaces (U+0020) and hyphen-minus (U+002D) is kept too: removing
+ * only the inserted characters must give exactly `value`, preserving its own separators
+ * and every original character in order (owner decision, 2026-11-07 03:45 UTC; ADR 0010).
+ * These exceptions require the held value, including inserted separators, to fit the
+ * field's `maxlength`. Other inserted characters get no exception. After `change` and
+ * blur the page gets another pause and the same checks apply, unless the page emptied
  * the field, as a form that switches to other fields does; the caller's checks see to
  * that. A page that cancels the clearing `beforeinput` and does not clear the
  * field itself within such a pause refuses the value before any character is typed.
@@ -218,6 +236,7 @@ export async function typeValue<Cause extends string>(
     if (input.type !== "number" && input.maxLength >= 0 && held.length > input.maxLength)
       return "refused";
     return widthFolded(held) !== widthFolded(value) &&
+      !withInsertedSeparators(held, value) &&
       (cancelledKey || [...held].length !== [...value].length) &&
       !(cleared && held === "")
       ? "refused"

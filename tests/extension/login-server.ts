@@ -221,10 +221,20 @@ export async function startLoginFixture(
     } else if (path === "/identity") {
       // The account number is a Hidden vault field, which fills only password or short
       // numeric inputs; `?account-input=text` renders a plain text input instead.
+      const groupSeparator =
+        fixtureUrl.searchParams.get("group-account") === "space"
+          ? " "
+          : fixtureUrl.searchParams.get("group-account") === "hyphen"
+            ? "-"
+            : undefined;
+      const expectedAccount =
+        groupSeparator === undefined ? "00001234" : "0000" + groupSeparator + "1234";
       const account =
         fixtureUrl.searchParams.get("account-input") === "text"
           ? '<input id="account">'
-          : '<input id="account" inputmode="numeric" maxlength="8">';
+          : groupSeparator === undefined
+            ? '<input id="account" inputmode="numeric" maxlength="8">'
+            : '<input id="account" inputmode="numeric" maxlength="9">';
       response.end(
         html(
           fixtureUrl.searchParams.has("split-forms")
@@ -232,10 +242,18 @@ export async function startLoginFixture(
             : fixtureUrl.searchParams.has("account-form")
               ? `<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><form><label>Account${account}</label></form><button id="next" type="button">Next</button>`
               : `<h1>Synthetic identity step</h1><label>Branch<input id="branch"></label><label>Account${account}</label><button id="next" type="button">Next</button>`,
-          `document.getElementById('next').addEventListener('click', () => {
+          `${
+            groupSeparator === undefined
+              ? ""
+              : `const groupedAccount = document.getElementById('account');
+        groupedAccount.addEventListener('input', () => {
+          groupedAccount.value = groupedAccount.value.replace(/[- ]/g, '').replace(/(.{4})(?=.)/g, '$1' + ${JSON.stringify(groupSeparator)});
+        });`
+          }
+        document.getElementById('next').addEventListener('click', () => {
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
           sessionStorage.setItem('identity', JSON.stringify([document.getElementById('branch').value, document.getElementById('account').value]));
-          sessionStorage.setItem('identityMatched', String(document.getElementById('branch').value === '007' && document.getElementById('account').value === '00001234'));
+          sessionStorage.setItem('identityMatched', String(document.getElementById('branch').value === '007' && document.getElementById('account').value === ${JSON.stringify(expectedAccount)}));
           ${issuedRunId === undefined ? "" : `void fetch('/effect/${issuedRunId}', {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', stage:'identity', branch:document.getElementById('branch').value, account:document.getElementById('account').value})});`}
           location.href = '/password${fixtureUrl.searchParams.has("slow-password") ? "?slow=1" : ""}';
         });
