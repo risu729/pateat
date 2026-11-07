@@ -133,7 +133,9 @@ export const executionResultSchema = v.strictObject({
    * input refused its secret, the page's inputs have no value setter, a code field's
    * submission watch could not start, the form or the clicked button would send the form
    * off the document's origin to a destination the background did not allow, or the
-   * background could not decide that now (ADR 0051).
+   * background could not decide that now (ADR 0051). A rejected fill names typing refusal,
+   * the input validity flag, a new ARIA mark, new alert/status feedback, or form validation;
+   * only fixed codes leave the content script (ADR 0010).
    */
   detail: v.optional(
     v.picklist([
@@ -159,8 +161,25 @@ export const executionResultSchema = v.strictObject({
       "keypad-missing",
       "keypad-key-missing",
       "keypad-pressed",
+      "typed-refused",
+      "input-value-missing",
+      "input-type-mismatch",
+      "input-pattern-mismatch",
+      "input-too-long",
+      "input-too-short",
+      "input-range-underflow",
+      "input-range-overflow",
+      "input-step-mismatch",
+      "input-bad-input",
+      "input-custom-error",
+      "aria-invalid",
+      "alert-shown",
+      "status-shown",
+      "form-invalid",
     ]),
   ),
+  /** Zero-based index in the fill step's fields, when a field rejected the fill. */
+  fieldIndex: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(19))),
   /**
    * With `wrong-account`: the command's account switch is on the page and can be clicked
    * with `login.switch`. Nothing was filled or clicked.

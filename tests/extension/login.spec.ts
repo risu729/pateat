@@ -1545,7 +1545,7 @@ for (const [mode, query] of [
 test("a code page without Verify that keeps a digit out refuses the code (#916)", async () => {
   const fixture = await startLoginFixture();
   try {
-    await withLoginExtension(async (context, _worker, id) => {
+    await withLoginExtension(async (context, worker, id) => {
       const options = await context.newPage();
       await configure(options, id, fixture.origin, true, undefined, true);
       const status = async () =>
@@ -1553,6 +1553,16 @@ test("a code page without Verify that keeps a digit out refuses the code (#916)"
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/totp-typed?single&ui=drop`);
       await expect.poll(status).toContain('"outcome":"fill-rejected"');
+      await expect
+        .poll(() => logs(worker, "login.attempt"))
+        .toContainEqual(
+          expect.objectContaining({
+            state: "blocked",
+            outcome: "fill-rejected",
+            cause: "typed-refused",
+            fieldIndex: 0,
+          }),
+        );
       // Five of the six characters went in and the page never submitted them.
       expect(await codeEvidence(page)).toEqual({
         codeInputs: 5,
@@ -2061,7 +2071,7 @@ test("a password fills only a password input and one step stays inside one form"
 test("values the page would not accept are never submitted", async () => {
   const fixture = await startLoginFixture();
   try {
-    await withLoginExtension(async (context, _worker, id) => {
+    await withLoginExtension(async (context, worker, id) => {
       const options = await context.newPage();
       await configure(options, id, fixture.origin);
       const status = async () =>
@@ -2077,10 +2087,22 @@ test("values the page would not accept are never submitted", async () => {
       // The page's own handlers reject the filled value: the login button is never clicked.
       // One tab at a time, since the origin's attempt holds its tab until it closes.
       /* eslint-disable no-await-in-loop */
-      for (const rejection of ["alert", "invalid", "custom"]) {
+      for (const [rejection, cause, fieldIndex] of [
+        ["alert", "alert-shown", undefined],
+        ["invalid", "aria-invalid", 0],
+        ["custom", "input-custom-error", 0],
+      ] as const) {
         const page = await context.newPage();
         await page.goto(`${fixture.origin}/single?reject-fill=${rejection}`);
         await expect.poll(status).toContain("fill-rejected");
+        await expect
+          .poll(async () => {
+            const rejected = (await logs(worker, "login.attempt")).find(
+              (entry) => entry["outcome"] === "fill-rejected" && entry["cause"] === cause,
+            );
+            return rejected && [rejected["cause"], rejected["fieldIndex"]];
+          })
+          .toEqual([cause, fieldIndex]);
         // Cover the click the attempt would have made next.
         await page.waitForTimeout(500);
         expect(await clicks(page)).toBe(0);
@@ -2585,6 +2607,106 @@ test("a page that shows a CAPTCHA gets the password but leaves the login button 
         .poll(async () => (await status()).attempts)
         .toMatchObject([{ state: "authenticated", submissions: 1 }]);
       expect(await clicks(page)).toBe(1);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("Enter form validation reports a form-wide fill rejection without submitting", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, worker, id) => {
+      // Reuse the buttonless form; its additional required checkbox is not a filled field.
+      await context.route(
+        (url) => url.origin === fixture.origin && url.pathname === "/enter-submit",
+        async (route) => {
+          const response = await route.fetch();
+          const body = (await response.text()).replace(
+            "</form>",
+            '<label>Required agreement<input id="agreement" type="checkbox" required></label></form>',
+          );
+          await route.fulfill({ response, body });
+        },
+      );
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const diagnostics = await context.newPage();
+      await diagnostics.goto(`chrome-extension://${id}/diagnostics.html`);
+      expect(
+        await send(diagnostics, { version: 1, type: "diagnostics.logs.debug", enabled: true }),
+      ).toMatchObject({ ok: true });
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/enter-submit`);
+      const rejected = async () =>
+        (await logs(worker, "login.attempt")).find(
+          (entry) =>
+            entry["outcome"] === "structural-mismatch" && entry["cause"] === "form-invalid",
+        );
+      await expect.poll(rejected).toMatchObject({
+        state: "reconciling",
+        outcome: "structural-mismatch",
+        cause: "form-invalid",
+      });
+      expect(await rejected()).not.toHaveProperty("fieldIndex");
+      await expect(page.locator("#password")).not.toHaveValue("");
+      await expect(page.locator("#agreement")).not.toBeChecked();
+      expect(await clicks(page)).toBe(0);
+      await expect(page.locator("#authenticated")).toHaveCount(0);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a page-wide alert after a split code reports no invented field index", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, worker, id) => {
+      await context.route(
+        (url) => url.origin === fixture.origin && url.pathname === "/totp-code",
+        async (route) => {
+          const response = await route.fetch();
+          const body = (await response.text()).replace(
+            "</body>",
+            `<script>
+              const feedback = document.createElement('p');
+              feedback.id = 'code-rejection';
+              feedback.setAttribute('role', 'alert');
+              document.body.append(feedback);
+              const form = document.getElementById('code-form');
+              form.addEventListener('input', () => {
+                if ([...form.querySelectorAll('input')].every((input) => input.value.length === 1))
+                  feedback.textContent = 'Synthetic code was not accepted';
+              });
+            </script></body>`,
+          );
+          await route.fulfill({ response, body });
+        },
+      );
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin, true, undefined, true);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/totp?split`);
+      const rejected = async () =>
+        (await logs(worker, "login.attempt")).find(
+          (entry) => entry["outcome"] === "fill-rejected" && entry["cause"] === "alert-shown",
+        );
+      await expect.poll(rejected).toMatchObject({
+        state: "blocked",
+        outcome: "fill-rejected",
+        cause: "alert-shown",
+      });
+      expect(await rejected()).not.toHaveProperty("fieldIndex");
+      await expect(page.locator("#code-rejection")).toHaveText("Synthetic code was not accepted");
+      expect(await codeEvidence(page)).toEqual({
+        codeInputs: 6,
+        verifyClicks: 0,
+        autoSubmits: 0,
+        codeMatched: null,
+      });
+      expect(JSON.stringify(await logs(worker, "login.attempt"))).not.toContain("012345");
+      await expect(page.locator("#authenticated")).toHaveCount(0);
     });
   } finally {
     await fixture.close();

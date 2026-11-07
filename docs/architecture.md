@@ -1234,15 +1234,15 @@ account the typed values are cleared and nothing is pressed
 ([ADR 0049](adr/0049-start-at-a-later-step.md#amendment-2026-11-03-the-shown-account-checked-at-the-click)).
 A fill-only login's, a software keyboard's or a code's fill, or one that may submit by
 itself, first waits until the document has loaded and its DOM has not changed for 1
-second, for at most 5 seconds and until 2 seconds before the
-operation expires. The content script compares the username with the account identifiers
-shown in the form, or the page when there is no form, and the first eight `h1`-`h3`
-headings; every element boundary but a `<wbr>` separates words, format characters are
-left out (so `taro.yamada@<wbr>example.com` is one address), and `mailto:` links,
-`<address>` and `<footer>` are skipped as contact addresses. An unmasked address in a
-hidden or read-only input for an identifier (type `email`, autocomplete `username` or
-`email`, or a name or ID with `user`, `mail`, `login`, `account` or `ident`) counts too,
-as the form submits it: a form for a remembered account may keep the address only there
+second, for at most 5 seconds and until 2 seconds before the operation expires. The
+content script compares the username with the account identifiers shown in the form, or
+the page when there is no form, and the first eight `h1`-`h3` headings; every element
+boundary but a `<wbr>` separates words, format characters are left out (so
+`taro.yamada@<wbr>example.com` is one address), and `mailto:` links, `<address>` and
+`<footer>` are skipped as contact addresses. An unmasked address in a hidden or
+read-only input for an identifier (type `email`, autocomplete `username` or `email`, or
+a name or ID with `user`, `mail`, `login`, `account` or `ident`) counts too, as the form
+submits it: a form for a remembered account may keep the address only there
 ([ADR 0049](adr/0049-start-at-a-later-step.md)). An input the person can type into is
 never read. The username never leaves the content script or reaches status. An email
 username is compared with shown email addresses. A username of digits only is compared
@@ -1300,10 +1300,16 @@ the fill. Alerts are `role="alert"` and `aria-live="assertive"` regions anywhere
 document or shadow tree, for both the fill check and the sign-in state reading; a
 matching ID in another tree does not name that region (ADR 0070). A message the page
 already showed and renders again is not new, nor is a mark the input had before the
-fill. The text stays in the content script; only the outcome leaves it. A fill that
-submits through its own event is checked only before filling. When a filled input was
-replaced during the wait, nothing is clicked and the attempt observes the page instead.
-A click is not made, and the attempt ends `structural-mismatch` and moves to
+fill. The text stays in the content script. A rejected fill reports a fixed cause:
+`typed-refused`, the failing input validity flag (`input-pattern-mismatch`, for
+example), `aria-invalid`, `alert-shown`, `status-shown`, or `form-invalid` for Enter's
+form check. A field-specific cause also logs its zero-based index in the fill step's
+fields; split code inputs map to their one recipe field. Cause codes reach the
+outcome/timing records; the field index reaches the service through the existing warning
+problem line. No page text, label, identifier or value leaves with these diagnostics. A
+fill that submits through its own event is checked only before filling. When a filled
+input was replaced during the wait, nothing is clicked and the attempt observes the page
+instead. A click is not made, and the attempt ends `structural-mismatch` and moves to
 reconciling, when the page emptied a shown input that this document's fills wrote to
 since the last click, or, for a submitting click, when a shown password input that was
 not writable when those fills began is empty. Only the clicked element's form counts

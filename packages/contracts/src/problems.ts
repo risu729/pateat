@@ -137,6 +137,7 @@ export const PROBLEM_EVENT_FIELDS = {
     handler: "count",
     outcome: "code",
     cause: "code",
+    fieldIndex: "count",
     reason: "code",
     settled: "flag",
     unconfirmed: "flag",
