@@ -10,6 +10,11 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
+The extension's `service/generation-storage.ts` owns local generation record schemas,
+retention rules and serialized mutations for attempts, slot maps, samples and repairs.
+`generation.ts` coordinates requests and outcomes and re-exports the public storage
+contracts and constants. Queue ownership and mutation order are preserved.
+
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
 

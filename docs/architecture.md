@@ -3494,6 +3494,8 @@ browser's own handling would differ.
 
 ## Minimal service
 
+Implementation module ownership is described in the [development workflow](development.md#workspace-and-tasks).
+
 Use one optional Cloudflare Worker and D1 for private settings/recipe revisions
 and inference. Do not add queues, Durable Objects, browser rendering,
 vector search, or an agent framework without a demonstrated need. Use bound SQL
