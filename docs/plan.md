@@ -807,35 +807,35 @@ than in this repository.
   M1/M6 "Chrome use coexistence" gate, and it can only be checked by using them.
 - Agents with their own cloud computer, such as ChatGPT Dots and Grok Bot, often decline
   to log in even with the user's permission, and passwords must not be given to them.
-  Pateat installed in that computer's browser could log them in without the agent
-  seeing a password (owner, 2026-10-11 18:52 UTC). Whether an extension can be
-  installed there, and how these agents handle logins today (such as handing control
-  to the user to sign in by hand), is researched first:
+  Pateat installed in that computer's browser could log them in without the agent seeing
+  a password (owner, 2026-10-11 18:52 UTC). Whether an extension can be installed there,
+  and how these agents handle logins today (such as handing control to the user to sign
+  in by hand), is researched first:
   [browser agents and logins](research/2026-10-11-browser-agent-logins.md) found no
   documented install for the ChatGPT cloud browser. On Grok Bot's computer the owner
   loaded the unpacked build on 2026-10-12, and it stayed after the computer slept and
   after a computer update. Pairing there is refused by the service's WARP-only Access
   policy; [ADR 0030](adr/0030-pairing-without-warp.md) adds a "pateat pair" Access
-  application without WARP for pairing only (consolidated into the parent application
-  by the [2026-11-07 amendment](adr/0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)).
-  With it, the Grok Bot computer paired on
-  2026-10-12 and Pateat logged in to Vpass there with the owner's existing Bitwarden
-  account, once the connection's policy was enabled by hand. The logins the Bot needs
-  are listed below. ChatGPT Dots is paused: the owner does not plan to resume ChatGPT
-  Pro for a while (owner, 2026-10-19 23:09 UTC), and no Pro purchase reached the
-  owner's mail between 2026-10-12 and then. To resume once the owner has Pro again,
-  Claude opens Dots on the web in the owner's own Chrome and tells the owner exactly
-  what to do there (owner, 2026-10-12 06:14 UTC), in the two stages used on the Grok
-  Bot computer: stage A checks during a takeover whether `chrome://extensions` or the
-  Web Store opens and an unpacked build loads
-  ([check 3](research/2026-10-11-browser-agent-logins.md#what-to-check-next)), and
-  stage B pairs the extension and logs in to one site. Stage A ran in a dot's cloud
-  browser on 2026-10-30: **Load unpacked** failed with "extension installation is
-  blocked by policy", from a mandatory machine `ExtensionInstallBlocklist` of `["*"]`,
-  and the dots pages read on 2026-11-04 describe no extension setting
-  ([issue #1156](https://github.com/risu729/pateat/issues/1156)). Stage B cannot run
-  in that browser until OpenAI offers an install path. A Google Chrome installed
-  separately on the dot's computer accepted an extension for one user
+  application without WARP for pairing only (consolidated into the parent application by
+  the
+  [2026-11-07 amendment](adr/0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)).
+  With it, the Grok Bot computer paired on 2026-10-12 and Pateat logged in to Vpass
+  there with the owner's existing Bitwarden account, once the connection's policy was
+  enabled by hand. The logins the Bot needs are listed below. ChatGPT Dots is paused:
+  the owner does not plan to resume ChatGPT Pro for a while (owner, 2026-10-19 23:09
+  UTC), and no Pro purchase reached the owner's mail between 2026-10-12 and then. To
+  resume once the owner has Pro again, Claude opens Dots on the web in the owner's own
+  Chrome and tells the owner exactly what to do there (owner, 2026-10-12 06:14 UTC), in
+  the two stages used on the Grok Bot computer: stage A checks during a takeover whether
+  `chrome://extensions` or the Web Store opens and an unpacked build loads
+  ([check 3](research/2026-10-11-browser-agent-logins.md#what-to-check-next)), and stage
+  B pairs the extension and logs in to one site. Stage A ran in a dot's cloud browser on
+  2026-10-30: **Load unpacked** failed with "extension installation is blocked by
+  policy", from a mandatory machine `ExtensionInstallBlocklist` of `["*"]`, and the dots
+  pages read on 2026-11-04 describe no extension setting
+  ([issue #1156](https://github.com/risu729/pateat/issues/1156)). Stage B cannot run in
+  that browser until OpenAI offers an install path. A Google Chrome installed separately
+  on the dot's computer accepted an extension for one user
   ([openai/codex#50057](https://github.com/openai/codex/issues/50057)), but the dot's
   tasks kept using the managed browser. The owner saw the same: it could be driven but
   not made the dot's default browser (owner, 2026-11-04 12:20 UTC), so it is not

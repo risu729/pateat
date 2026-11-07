@@ -239,7 +239,8 @@ architecture's [device enrollment](../architecture.md#device-enrollment)).
 
 ## 2026-11-07 amendment: shared Access audience
 
-The [2026-11-07 amendment to ADR 0030](0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)
+The
+[2026-11-07 amendment to ADR 0030](0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)
 retains `/pair/signed-in` and removes the second audience. Pairing and management now
-share the host-wide application and `ACCESS_AUD`; the historical description above
-of a browser reaching pairing without management no longer describes the policy.
+share the host-wide application and `ACCESS_AUD`; the historical description above of a
+browser reaching pairing without management no longer describes the policy.

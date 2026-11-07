@@ -128,28 +128,27 @@ The owner decided these on 2026-10-11, following the kogane repository:
   extension profile editor. `POST /pair` must not be added to the Bypass application:
   it needs the owner's Access session.
 - Pairing shares the host-wide Access application with `/manage` and
-  `/extension/profiles`. On 2026-11-07 the owner approved removing the redundant
-  "pateat pair" application: both applications already used the same Owner policy,
-  so the former pairing-only audience no longer provided a separate permission
-  boundary ([ADR 0030 amendment](adr/0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)).
-  The Worker accepts `ACCESS_AUD` only and no longer declares `ACCESS_PAIR_AUD`.
-  The sign-in tab stays at `/pair/signed-in`; signing in there creates no device.
-  Remove the child Access application before releasing this cleanup: the existing
-  Worker already accepts the parent audience, whereas leaving the child would make
-  Access issue an audience the updated Worker rejects. An obsolete stored secret
-  does not restore acceptance. If old path-scoped cookies cause a redirect loop, see
-  the [operations runbook](operations.md). After signing in on a vendor's machine, end the
+  `/extension/profiles`. On 2026-11-07 the owner approved removing the redundant "pateat
+  pair" application: both applications already used the same Owner policy, so the former
+  pairing-only audience no longer provided a separate permission boundary
+  ([ADR 0030 amendment](adr/0030-pairing-without-warp.md#2026-11-07-amendment-one-access-application)).
+  The Worker accepts `ACCESS_AUD` only and no longer declares `ACCESS_PAIR_AUD`. The
+  sign-in tab stays at `/pair/signed-in`; signing in there creates no device. Remove the
+  child Access application before releasing this cleanup: the existing Worker already
+  accepts the parent audience, whereas leaving the child would make Access issue an
+  audience the updated Worker rejects. An obsolete stored secret does not restore
+  acceptance. If old path-scoped cookies cause a redirect loop, see the
+  [operations runbook](operations.md). After signing in on a vendor's machine, end the
   Access session at `https://<team domain>/cdn-cgi/access/logout`.
 - Pairing extension IDs: `PAIRING_EXTENSION_IDS` is a committed JSON variable in
   `cloudflare.config.ts` that lists Pateat's production extension ID. It is not a
   secret, workflows do not synchronize it, and it needs no GitHub environment variable
   or Worker secret; a release deploys the committed list.
-- Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER`
-  and `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize
-  them. cf refuses to create a Worker without its declared secrets, so the first deploy
-  passes all four at once with
-  `cf deploy --prebuilt --mode production --secrets-file <file>` (JSON) and deletes the
-  file afterwards; later changes use
+- Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER` and
+  `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize them.
+  cf refuses to create a Worker without its declared secrets, so the first deploy passes
+  all four at once with `cf deploy --prebuilt --mode production --secrets-file <file>`
+  (JSON) and deletes the file afterwards; later changes use
   `cf workers secrets update <NAME> --worker pateat-api --type secret_text --text <value>`;
   cf refuses the update without `--type secret_text`. With several accounts visible to
   the login, cf also needs `CLOUDFLARE_ACCOUNT_ID`. Versions created by routine releases

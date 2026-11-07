@@ -124,11 +124,12 @@ ADR 0020 asks for a cookie probe whenever cookie settings change.
 
 ## 2026-11-07 amendment: one Access application
 
-Status: accepted by the owner on 2026-11-07 at 13:00 UTC: "pairは統合しておいてください。pateatにPR必要なら作って。"
-("Consolidate pair. Create a Pateat PR if needed.") This amendment replaces the separate
-pairing application, audience and WARP distinction above, and amends the Access
-requirements in [ADR 0076](0076-settings-profiles-delivered.md). The implementation
-in this change accepts the host-wide audience only; deployment evidence is separate.
+Status: accepted by the owner on 2026-11-07 at 13:00 UTC:
+"pairは統合しておいてください。pateatにPR必要なら作って。" ("Consolidate pair. Create a
+Pateat PR if needed.") This amendment replaces the separate pairing application,
+audience and WARP distinction above, and amends the Access requirements in
+[ADR 0076](0076-settings-profiles-delivered.md). The implementation in this change
+accepts the host-wide audience only; deployment evidence is separate.
 
 ### Context
 
