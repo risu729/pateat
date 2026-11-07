@@ -8,11 +8,16 @@ visibility condition below were in the proposal; details marked "chosen by an ag
 were not asked. Amends [ADR 0016](0016-recipe-generation-trigger.md) (frames are sent,
 delivery 3), [ADR 0017](0017-login-forms-in-frames.md) (a whole-tab navigation after a
 frame's login), [ADR 0022](0022-login-attempts-per-tab-and-origin.md) (moves),
-[ADR 0027](0027-per-account-login-routes.md) (which logins are watched) and
-[ADR 0029](0029-local-sign-in-state.md) (frames are read).
+[ADR 0027](0027-per-account-login-routes.md) (which logins are watched),
+[ADR 0029](0029-local-sign-in-state.md) (frames are read), and for delivery 3
+[ADR 0018](0018-recipe-generation-route.md), [ADR 0035](0035-page-kinds-per-site.md)
+(frames are no longer counted as pages not sent),
+[ADR 0041](0041-repair-stale-recipes.md), [ADR 0048](0048-password-method-button.md),
+[ADR 0061](0061-personal-details-during-a-login.md) and
+[ADR 0081](0081-authenticator-method-button.md) (each also in a frame).
 
-Delivery 1, the reading after a step and the tab's new page, and delivery 2, the popup,
-are implemented. Delivery 3 is not.
+Deliveries 1 (the reading after a step and the tab's new page), 2 (the popup) and 3
+(generation) are implemented.
 
 Date: 2026-11-07
 
@@ -129,6 +134,42 @@ otherwise nothing changes for that frame:
   0048, ADR 0081), automatic repair (ADR 0041) and the judge run in a frame as in the
   tab's page.
 
+How delivery 3 is implemented (chosen by an agent):
+
+- Whether the frame shows is read inside the frame, as Chrome has no
+  `runtime.getFrameId` to find the frame's element from the tab's page: the frame's
+  viewport is more than a pixel each way and part of it is in the tab's viewport, as an
+  `IntersectionObserver` with the implicit root reports it, with some area unless the
+  frame's root element has none (an ancestor's overflow clip leaves an intersection
+  without area); where the page around the frame is of the frame's own origin, its
+  frame element must also be rendered, not `visibility: hidden`, more than a pixel each
+  way and in its page's viewport, which is read before the observer's first reading. A
+  `display: none`, empty, one-pixel or off-screen frame does not show; one below the
+  fold shows once scrolled to. Checked in cloud Chromium on 2026-11-07 with frames of
+  another origin. Until it shows, the frame offers nothing; once it shows, it offers
+  its page as a page whose form shows then would: within the step wait, or later once
+  per path (ADR 0016, amended 2026-11-04). The worker asks for the description to send
+  with `shown`, which a frame that does not show then answers `frame-hidden`, logged as
+  the page's skip.
+- The items the page is sent for are those that match the frame's URL and the URL the
+  tab shows then (or whose origins the item was granted for the tab's origin); with
+  none, the skip is logged `no-vault-match` `frame-top-mismatch`.
+- A frame's page is never sent as a sign-in entry (ADR 0031), whose press leads the
+  tab's page, nor as a passkey-only page (ADR 0053), since Pateat answers passkey
+  requests only in the tab's page. A frame on a `confirm` recipe's path is not watched
+  as one (ADR 0035); it is not sent again either. Entry repair stays the tab page's.
+- Once a recipe is stored, every frame of its origin and path that holds no login
+  announces again, as the tab's pages do.
+- A frame that does not show reports no sign-in input left without a ready first step,
+  so a hidden frame is never repaired as a stale page. A recipe the item cannot run
+  (ADR 0058 A) is repaired from a frame too, except for the passkey route.
+- The usernames hidden from a frame's page are those of every item that matches the
+  frame's URL, also one that does not match the tab's URL and that the page is not sent
+  for.
+- The frame count of ADR 0035 (`frame`) is gone: such frames are now sent.
+- The described-page watch (ADR 0027 amendment of 2026-11-04) and route reads in place
+  stay the tab page's, as after delivery 1.
+
 ## Consequences
 
 - A sign-in form in a frame of an item's site works like one in its page, at the same
@@ -138,8 +179,15 @@ otherwise nothing changes for that frame:
   costs one message on load, as before.
 - Base-domain matching lets any page of the item's registrable domain embed the frame,
   as it already lets it fill one (ADR 0017).
-- Until delivery 3, a frame logs in only with a recipe made for its origin some other
-  way, as before.
+- A frame hidden until the person opens it, as a sign-in dialog, is sent once it shows:
+  within the step wait as any page, and after it for a sign-in input shown then, as a
+  form shown in place later is (ADR 0016, amended 2026-11-04; checked in Chromium by an
+  extension test). An identifier alone, a list or a passkey button shown only after the
+  wait is not sent, as in the tab's page.
+- Whether a frame shows says nothing about a page that covers it or makes it
+  transparent, nor, inside a page of another origin, about `visibility: hidden` on its
+  element: such a frame counts as shown. A change of `visibility` around a frame of the
+  page's own origin is read at the frame's next look, as after a change of its page.
 - A watched login in a frame reads only new documents of its frame and the tab's new
   page: a change in place inside the frame's document, as Apple's code page, is not read
   again, so its result comes from the page that replaces the frame's page.

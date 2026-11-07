@@ -59,6 +59,11 @@ Amended on 2026-11-03 by the owner (11:13 UTC,
 button stays disabled while a password input opens beside it is
 [replaced by its page's steps](#replacing-a-disabled-final-advance); implemented.
 
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; delivery 3): a login in a frame of the tab's page is continued after its
+advance as one in the tab's page is, under ADR 0017's rule that its item matches the
+tab's URL too.
+
 Date: 2026-10-11
 
 ## Context

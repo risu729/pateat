@@ -238,34 +238,4 @@ describe("a page that looks like a verification but is not sent (ADR 0035)", () 
       history.replaceState(null, "", home);
     }
   });
-
-  it("reports a frame the worker asks about once a later reading finds a secret answer", async () => {
-    vi.useFakeTimers();
-    reply.value = { ok: false, reason: "recipe-not-found", frame: true };
-    document.body.innerHTML = `<main><p>Loading</p></main>`;
-    uninstall = installLoginContent();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(ready()).toHaveLength(1);
-    document.body.insertAdjacentHTML(
-      "beforeend",
-      `<form><input type="text" name="secret_answer" aria-label="Secret answer"></form>`,
-    );
-    // The frame is read again a second later, not on each change.
-    expect(ready()).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(ready()).toContainEqual(
-      expect.objectContaining({ unoffered: { path: path(), why: "frame" } }),
-    );
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(ready().filter((message) => message["unoffered"])).toHaveLength(1);
-  });
-
-  it("never reports a frame whose readings find nothing", async () => {
-    vi.useFakeTimers();
-    reply.value = { ok: false, reason: "recipe-not-found", frame: true };
-    document.body.innerHTML = `<main><label>Your answer<input type="text"></label></main>`;
-    uninstall = installLoginContent();
-    await vi.advanceTimersByTimeAsync(11_000);
-    expect(ready()).toHaveLength(1);
-  });
 });

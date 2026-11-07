@@ -65,20 +65,20 @@ export async function startsFor(rt: Runtime, documentOrigin: string): Promise<Lo
 
 /**
  * Whether this document may be sent for generation once it shows a sign-in input: a
- * top-level page on whose path no cached recipe of its origin starts (several starting
+ * page on whose path no cached recipe of its origin starts (several starting
  * there count too), and whose path was not sent within the retry window (ADR 0016). An
  * entry recipe's path counts as a start (ADR 0031); it is added here only, since
  * `startsFor` leaves out a path several starts share. So does the first page of a recipe
- * generated as `confirm` or `unclear`, which never starts (ADR 0035). A frame is never
- * sent; one that would be offered as the tab's page is `frame`, asked to report a sign-in
- * input or a secret answer so that such pages are counted (ADR 0035).
+ * generated as `confirm` or `unclear`, which never starts (ADR 0035). A frame inside the
+ * page is offered as the tab's page is (ADR 0086): its document is sent only once it shows
+ * in the tab's page, which its content script tells, and for an item that matches the
+ * tab's URL as well (`generationSlotsFor`).
  */
 export async function offersGeneration(
   rt: Runtime,
   live: LiveDocument,
-): Promise<true | "frame" | GenerationHold | undefined> {
-  const framed = live.document.frameId !== 0;
-  if (!rt.generation || !rt.uris || (!framed && live.topUrl)) return undefined;
+): Promise<true | GenerationHold | undefined> {
+  if (!rt.generation || !rt.uris) return undefined;
   if (probeMode && live.document.origin === rt.vars.origin) return undefined;
   const starts = await rt.recipes.starts(live.document.origin).catch(() => undefined);
   if (starts === undefined || starts.some((start) => start.path === live.path)) return undefined;
@@ -91,12 +91,7 @@ export async function offersGeneration(
     routes.some((recipe) => !runsLogin(recipe) && recipe.steps[0]?.path === live.path)
   )
     return undefined;
-  const hold = await rt.generation
-    .available(live.document.origin, live.path)
-    .catch(() => undefined);
-  // A frame counts only where its page would be sent now.
-  if (framed) return hold === true ? "frame" : undefined;
-  return hold;
+  return rt.generation.available(live.document.origin, live.path).catch(() => undefined);
 }
 
 /**
@@ -134,7 +129,7 @@ export async function offersOther(
   live: LiveDocument,
   chooser: LoginChooserRecipe,
 ): Promise<true | GenerationHold | undefined> {
-  if (!rt.generation || !rt.uris || live.document.frameId !== 0 || live.topUrl) return undefined;
+  if (!rt.generation || !rt.uris) return undefined;
   if (probeMode && live.document.origin === rt.vars.origin) return undefined;
   return rt.generation
     .available(
@@ -168,10 +163,12 @@ export async function generationSlotsFor(
   // The URL the page shows now: a same-document URL change (history.pushState) since the
   // document announced shows only in the tab's committed URL.
   let url = live.url;
+  const framed = live.document.frameId !== 0;
+  let tabUrl: string | undefined;
   try {
     const tab = await browser.tabs.get(live.document.tabId);
-    if (live.document.frameId === 0 && tab.url && new URL(tab.url).origin === live.document.origin)
-      url = tab.url;
+    tabUrl = tab.url;
+    if (!framed && tab.url && new URL(tab.url).origin === live.document.origin) url = tab.url;
   } catch {
     miss("vault-unavailable", "tab");
     return undefined;
@@ -186,7 +183,52 @@ export async function generationSlotsFor(
     miss("no-vault-match", scope.reason);
     return undefined;
   }
-  const items = catalogItems(snapshot.catalog, scope.candidates);
+  let { candidates } = scope;
+  let topComplete = true;
+  // A frame's item must match the URL the tab shows now as well, as for every fill
+  // (ADR 0017, ADR 0086), so a page of another site that embeds the frame gets nothing.
+  if (framed && candidates.length) {
+    const top =
+      tabUrl && /^https?:$/.test(new URL(tabUrl).protocol)
+        ? await findLiveSiteCandidates({
+            settings: snapshot.snapshot.settings,
+            catalog: snapshot.catalog,
+            url: tabUrl,
+            match: rt.uris,
+          })
+        : undefined;
+    if (!top?.ok) {
+      miss("no-vault-match", top ? top.reason : "tab-url");
+      return undefined;
+    }
+    const tabOrigin = new URL(tabUrl!).origin;
+    topComplete = !top.unavailableConnections.length && !top.incompleteItems.length;
+    candidates = candidates.filter(
+      (candidate) =>
+        top.candidates.some(
+          (entry) =>
+            entry.connectionId === candidate.connectionId && entry.itemId === candidate.itemId,
+        ) ||
+        snapshot.catalog.connections
+          .find((connection) => connection.id === candidate.connectionId)
+          ?.items.find((item) => item.id === candidate.itemId)
+          ?.allowedOrigins.includes(tabOrigin),
+    );
+    if (!candidates.length) {
+      const unavailable = top.unavailableConnections[0]?.reason;
+      if (unavailable) miss("vault-unavailable", logCode(unavailable));
+      else miss("no-vault-match", "frame-top-mismatch");
+      return undefined;
+    }
+  }
+  const items = catalogItems(snapshot.catalog, candidates);
+  // Every item that matches the frame's URL may be the one the frame shows the account of.
+  const frameOnly = framed
+    ? catalogItems(
+        snapshot.catalog,
+        scope.candidates.filter((candidate) => !candidates.includes(candidate)),
+      )
+    : [];
   // Only slots a matching item can fill; built-in fields keep these IDs on every device.
   const slots = generationSlots.filter(({ fieldId }) =>
     items.some(({ connection, item }) =>
@@ -256,10 +298,11 @@ export async function generationSlotsFor(
     slots: slots.map(({ slot }) => slot),
     offers,
     items,
+    ...(frameOnly.length ? { frameOnly } : {}),
     settings: snapshot.snapshot.settings,
     catalog: snapshot.catalog,
     // An item that could not be checked might have another username.
-    complete: !scope.unavailableConnections.length && !scope.incompleteItems.length,
+    complete: topComplete && !scope.unavailableConnections.length && !scope.incompleteItems.length,
   };
 }
 
@@ -309,14 +352,15 @@ export async function sharedShape(
 }
 
 /**
- * The matching items' username reads: none for an item without one, with an empty one
- * (the catalog's value-free `empty` flag) or whose username the user excluded.
+ * The matching items' username reads, also those of the items that match only a frame's
+ * URL (ADR 0086): none for an item without one, with an empty one (the catalog's
+ * value-free `empty` flag) or whose username the user excluded.
  */
 export function usernameReads(
   _rt: Runtime,
-  scope: Pick<GenerationScope, "items" | "settings" | "catalog">,
+  scope: Pick<GenerationScope, "items" | "frameOnly" | "settings" | "catalog">,
 ) {
-  return scope.items.flatMap(({ connection, item }) => {
+  return [...scope.items, ...(scope.frameOnly ?? [])].flatMap(({ connection, item }) => {
     const excluded = isFieldExcluded(
       scope.settings,
       scope.catalog,

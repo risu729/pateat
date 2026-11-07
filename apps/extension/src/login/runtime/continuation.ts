@@ -274,7 +274,8 @@ export async function switchLayout(rt: Runtime, run: Execution): Promise<boolean
 /**
  * Whether the attempt's in-flight step is the final `advance` step of a recipe that can be
  * continued on the page it leads to (ADR 0018): a `password` route login on the recipe's
- * own steps (variant 0), in the tab's own page, with recipe generation configured, whose
+ * own steps (variant 0), in the tab's page or a frame of it (ADR 0086), with recipe
+ * generation configured, whose
  * recipe has no completion and no alternatives. A login of an item without a password
  * asks only when its stop lies just past that advance (ADR 0036). A `password` handler's
  * click counts as that advance when it is the plan's last step and the recipe's own last
@@ -291,8 +292,6 @@ export function continuable(rt: Runtime, run: Execution): boolean {
     metadata.route !== "password" ||
     metadata.variant !== 0 ||
     (metadata.stopAt !== undefined && !stopsPastPlan(metadata)) ||
-    run.live.document.frameId !== 0 ||
-    run.live.topUrl !== undefined ||
     metadata.operationId === undefined ||
     metadata.operationEffect !== "advance" ||
     recipe.completion !== undefined ||

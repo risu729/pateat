@@ -28,6 +28,10 @@ moved from the recipe to each of its layouts, every layout of a recipe has the s
 kind, and a layout generated with another kind replaces the recipe's layouts (the last
 two not confirmed by the owner). A chooser branch stays `sign-in`.
 
+Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
+13:06 UTC; delivery 3): frames are sent for generation, so a frame is no longer counted
+as a page that looks like a verification but is not sent (`frame`).
+
 Date: 2026-10-12
 
 ## Context
@@ -319,8 +323,9 @@ followed the same day, all local, with these readings:
   signed in earlier, is counted. On the tab's next document after a password submit the
   page is part of that sign-in and logs `nothing-offered` `after-sign-in`; after
   Pateat's own login of the origin in the tab it is not offered for generation, so not
-  counted. `frame` counts when a frame whose page would be sent now shows a sign-in
-  input or such an answer at one of five readings within the step wait. Each logs
+  counted. Until ADR 0086 sent frames (2026-11-07), `frame` counted when a frame whose
+  page would be sent now showed a sign-in input or such an answer at one of five
+  readings within the step wait. Each logs
   `recipe.generate` `skipped` with that reason at info, and the bug report counts them
   over 24 hours, like passkey delegations.
 

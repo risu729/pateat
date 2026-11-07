@@ -142,7 +142,8 @@ export async function repairUnfit(
 /**
  * Sends a generated recipe's start page to be repaired once it showed a sign-in input for
  * the step wait without a ready first step and the miss counts as stale (ADR 0041,
- * proposed): only the tab's own page on the recipe's start path, with a vault item that
+ * proposed): only a page on the recipe's start path, in the tab or a frame of it (ADR
+ * 0086), with a vault item that
  * matches it as for a first page, once per document and recipe revision. The service adds
  * a layout for the page beside the recipe's others, and the page announces again and
  * starts it, as after a first page.
@@ -155,7 +156,7 @@ export async function repairStale(
   /** The page lists accounts by email instead of asking for a sign-in (ADR 0041 section 6). */
   accounts?: true,
 ): Promise<void> {
-  if (!rt.repairs || !rt.generation || live.document.frameId !== 0 || live.topUrl) return;
+  if (!rt.repairs || !rt.generation) return;
   if (!recipe.id.startsWith("gen-")) return;
   const key = frameKey(live.document);
   // Every layout's first steps on the path (ADR 0060): a page that shows one layout's
@@ -229,7 +230,7 @@ export async function repairChooserForm(
   chooser: LoginChooserRecipe,
   miss: StartMiss | undefined,
 ): Promise<void> {
-  if (!rt.repairs || !rt.generation || live.document.frameId !== 0 || live.topUrl) return;
+  if (!rt.repairs || !rt.generation) return;
   if (!chooser.id.startsWith("gen-")) return;
   const key = frameKey(live.document);
   // Every layout is checked; a lookup that fails sends nothing, as one may have the button.
@@ -278,7 +279,8 @@ export async function repairChooserForm(
 
 /**
  * Sends the page where a generated recipe's later step did not show for repair (ADR 0041
- * section 4, proposed): a top-frame `password` login of the layout's own steps, with no
+ * section 4, proposed): a `password` login of the layout's own steps, also in a frame (ADR
+ * 0086), with no
  * other variant or handler, whose `advance` reached the step's path, where the step's
  * elements never showed.
  */
@@ -288,8 +290,6 @@ export async function repairLaterStep(rt: Runtime, run: Execution, step: number)
   if (
     !rt.repairs ||
     !rt.generation ||
-    live.document.frameId !== 0 ||
-    live.topUrl ||
     !recipe.id.startsWith("gen-") ||
     recipe.layout === undefined ||
     run.chooser ||
@@ -310,14 +310,15 @@ export async function repairLaterStep(rt: Runtime, run: Execution, step: number)
 /**
  * Sends a generated chooser's list for repair (ADR 0041 section 6, owner 2026-10-23 13:03
  * UTC) when the list of accounts shows but a button the chooser names does not: only the
- * tab's own page, once per document and chooser revision, as a start page's.
+ * page, in the tab or a frame of it, once per document and chooser revision, as a start
+ * page's.
  */
 export async function repairChooser(
   rt: Runtime,
   live: LiveDocument,
   chooser: LoginChooserRecipe,
 ): Promise<void> {
-  if (!rt.repairs || !rt.generation || live.document.frameId !== 0 || live.topUrl) return;
+  if (!rt.repairs || !rt.generation) return;
   if (!chooser.id.startsWith("gen-") || rt.documents.get(frameKey(live.document)) !== live) return;
   await sendRepair(rt, live, chooser, { kind: "list", during: true });
 }

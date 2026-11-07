@@ -72,8 +72,8 @@ password input beside the page's software keyboard counts as a sign-in input for
 condition 3.
 
 Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
-13:06 UTC; delivery 3, not implemented yet): a frame's page is sent too when the item
-matches both the frame's and the tab's URL and the frame is shown in the page.
+13:06 UTC; delivery 3, implemented): a frame's page is sent too when the item matches
+both the frame's and the tab's URL and the frame is shown in the page.
 
 Date: 2026-10-11
 
@@ -183,7 +183,9 @@ new owner decision:
   ended attempt keeps until the tab closes, even when no recipe starts on its path. The
   one exception is an `account-switched` record of the same origin. A generated
   recipe's later pages go through its continuation in ADR 0018 instead.
-- Frames are not sent; only the tab's own page is.
+- Frames are not sent; only the tab's own page is. Superseded on 2026-11-07 by
+  [ADR 0086](0086-logins-in-frames-like-top-pages.md): a frame that shows in the tab's
+  page is sent for an item that matches the tab's URL too.
 
 ## Pages where no recipe starts
 

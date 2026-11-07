@@ -131,7 +131,7 @@ describe("production login document admission", () => {
     const uris = async () => ({ ok: true as const, data: uriMatch() });
     const status = () => fake.state.storage["pateat.login-attempts.v5"];
 
-    it("counts a frame or a secret answer that looks like a verification, never sending it (ADR 0035)", async () => {
+    it("counts a secret answer that looks like a verification, never sending it (ADR 0035)", async () => {
       const service = generation();
       const report = vi.fn<(report: LoginReport) => void>();
       let matched = true;
@@ -167,38 +167,6 @@ describe("production login document admission", () => {
       expect(skips()).toEqual([
         { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "text-answer" },
       ]);
-      // A frame inside another site's page: asked to report, then counted, never sent.
-      fake.state.tabUrls = { 1: "https://top.example/" };
-      const frame = {
-        frameId: 3,
-        documentId: "frame-document",
-        token: "frame-token",
-        path: "/",
-        url: "https://login.example/",
-        tab: { id: 1, url: "https://top.example/" },
-      };
-      expect(
-        await h.login.handle(
-          { version: 1, type: "login.document.ready", token: "frame-token" },
-          sender(frame),
-        ),
-      ).toEqual({ ok: false, reason: "recipe-not-found", frame: true });
-      expect(await unoffered("frame", frame)).toMatchObject({ frame: true });
-      expect(skips().at(-1)).toEqual({
-        type: "generation",
-        tabId: 1,
-        origin,
-        outcome: "skipped",
-        reason: "frame",
-      });
-      // A frame whose page would not be sent now, as one sent recently, is not asked.
-      service.available.mockResolvedValueOnce("sent");
-      expect(
-        await h.login.handle(
-          { version: 1, type: "login.document.ready", token: "held-token" },
-          sender({ ...frame, documentId: "held-frame", token: "held-token", frameId: 4 }),
-        ),
-      ).toEqual({ ok: false, reason: "recipe-not-found" });
       // Without a vault match neither counts: the answer is logged as nothing offered.
       matched = false;
       fake.state.tabUrls = {};
@@ -231,7 +199,6 @@ describe("production login document admission", () => {
         detail: "after-sign-in",
       });
       expect(skips().filter((skip) => skip.reason === "text-answer")).toHaveLength(1);
-      expect(skips().filter((skip) => skip.reason === "frame")).toHaveLength(1);
       expect(service.generate).not.toHaveBeenCalled();
       expect(h.fields).not.toHaveBeenCalled();
     });
@@ -792,7 +759,7 @@ describe("production login document admission", () => {
           expect.objectContaining({ verdict: "not-sent", reason: "sign-in-shown" }),
         ]);
       }, 10_000);
-      it("does not send it from a login in a frame", async () => {
+      it("sends it from a login in a frame as from the tab's page (ADR 0086)", async () => {
         fake.state.extracted = { "signed-in": besidePage };
         fake.state.signs = quiet;
         // The tab's page around the frame is another site's, which the item matches too.
@@ -818,11 +785,12 @@ describe("production login document admission", () => {
         await vi.waitFor(
           () =>
             expect(judgeReports(report)).toEqual([
-              expect.objectContaining({ verdict: "not-sent", reason: "sign-in-shown" }),
+              expect.objectContaining({ verdict: "sent", beside: true }),
+              expect.objectContaining({ verdict: "unclear", beside: true }),
             ]),
           { timeout: 6_000 },
         );
-        expect(service.judge).not.toHaveBeenCalled();
+        expect(service.judge).toHaveBeenCalledTimes(1);
       }, 10_000);
       it("ends rejected rather than entering a learned detail handler beside a failure", async () => {
         fake.state.extracted = { "signed-in": besidePage };

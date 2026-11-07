@@ -431,6 +431,11 @@ type GenerationScope = {
     connection: VaultConnectionMetadata;
     item: VaultCatalog["connections"][number]["items"][number];
   }[];
+  /**
+   * For a frame's page: the items that match the frame's URL but not the tab's, which the
+   * page is not sent for but whose usernames are hidden from it too (ADR 0086).
+   */
+  frameOnly?: GenerationScope["items"];
   settings: SettingsSnapshot["settings"];
   catalog: VaultCatalog;
   /** Every enabled connection answered and every item's URI rules were evaluated. */
@@ -491,8 +496,6 @@ export type Readiness = {
   entry?: true;
   /** A recipe generated as `confirm` or `unclear` starts here: its first step (ADR 0035). */
   confirm?: LoginReadiness;
-  /** A frame asked to report a sign-in input or a secret answer (ADR 0035). */
-  frame?: true;
 };
 
 export type Announced = { path: string } | undefined;
