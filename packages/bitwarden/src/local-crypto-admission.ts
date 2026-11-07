@@ -413,4 +413,3 @@ export function admitLocalCryptoCipher(input: unknown): BitwardenResult<Sdk.Ciph
     return failure("unsupported-crypto");
   }
 }
-
