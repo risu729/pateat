@@ -119,7 +119,11 @@ export async function endSiteWaits(rt: Runtime): Promise<void> {
   const decided = (stored: LoginAttemptMetadata) =>
     reading(stored) || rt.passkeyPages.get(stored.document.tabId)?.attemptId === stored.id;
   for (const [key, stored] of [...rt.persisted]) {
-    const record = latest(stored)?.metadata ?? stored;
+    // A previous write yields: another alarm or tab-close may have ended or removed
+    // a later snapshot entry. Never report or restore that stale copy.
+    const current = rt.persisted.get(key);
+    if (current?.id !== stored.id) continue;
+    const record = latest(current)?.metadata ?? current;
     const watchEnd = watchEndedAt(record, Date.now());
     if (watchEnd !== undefined && !reading(stored)) {
       const run = latest(stored);
@@ -145,10 +149,14 @@ export async function endSiteWaits(rt: Runtime): Promise<void> {
     const before = run?.metadata ?? now;
     const at = siteWaitOver(before, Date.now());
     if (at === undefined) continue;
-    const after = lapsed(rt, before, tab, at);
+    let after = lapsed(rt, before, tab, at);
+    // A delayed alarm can discover both deadlines at once, as after a long suspension.
+    const newWatchEnd = watchEndedAt(after, Date.now());
+    if (newWatchEnd !== undefined)
+      after = transitionLoginAttempt(after, { type: "WATCH_ENDED" }, newWatchEnd);
     if (run) run.metadata = after;
     if (terminal(after) || idle(after)) rt.continuations.delete(after.id);
-    reportLapse(rt, before, after, run?.recipe, at);
+    reportLapse(rt, before, after, run?.recipe, newWatchEnd ?? at);
     // It ran out without the login moving on, so the record keeps its time (ADR 0022).
     // eslint-disable-next-line no-await-in-loop
     await keep(rt, after, false).catch(() => undefined);
@@ -175,8 +183,11 @@ export function endLostSiteWaits(
     }
     const at = siteWaitOver(stored, Date.now());
     if (at === undefined) continue;
-    const after = lapsed(rt, stored, tabs.get(stored.document.tabId), at);
-    reportLapse(rt, stored, after, undefined, at);
+    let after = lapsed(rt, stored, tabs.get(stored.document.tabId), at);
+    const newWatchEnd = watchEndedAt(after, Date.now());
+    if (newWatchEnd !== undefined)
+      after = transitionLoginAttempt(after, { type: "WATCH_ENDED" }, newWatchEnd);
+    reportLapse(rt, stored, after, undefined, newWatchEnd ?? at);
     rt.persisted.set(key, after);
   }
 }

@@ -2784,9 +2784,13 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-  it.each(["authenticated", "blocked", "closed"] as const)(
-    "sends only the final problem for a watched result ending %s",
-    async (end) => {
+  it.each(
+    (["reconciling", "watching"] as const).flatMap((state) =>
+      (["authenticated", "blocked", "closed"] as const).map((end) => ({ state, end })),
+    ),
+  )(
+    "sends only the final problem for $state ending $end",
+    async ({ state, end }) => {
       const log = createDiagnosticsLog({
         build: { version: "0.1.0", revision: "1c42ad3" },
         settings: async () => {
@@ -2808,21 +2812,23 @@ describe("unhandled errors", () => {
         stepIndex: 1,
         stepCount: 2,
       } as const;
+      const outcome = state === "watching" ? "challenge" : "unknown-submit";
+      const settled = state === "reconciling" ? { settled: true as const } : {};
       log.login({
         ...attempt,
         type: "attempt",
-        state: "reconciling",
-        outcome: "unknown-submit",
-        settled: true,
+        state,
+        outcome,
+        ...settled,
         watched: true,
       });
       if (end === "closed")
         log.login({
           ...attempt,
           type: "attempt-closed",
-          state: "reconciling",
-          outcome: "unknown-submit",
-          settled: true,
+          state,
+          outcome,
+          ...settled,
           watched: true,
           cause: "tab-closed",
         });
@@ -2831,7 +2837,7 @@ describe("unhandled errors", () => {
           ...attempt,
           type: "attempt",
           state: end,
-          outcome: end === "authenticated" ? "authenticated" : "unknown-submit",
+          outcome: end === "authenticated" ? "authenticated" : outcome,
         });
       await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
       const entries = await log.logger.entries();
@@ -2842,7 +2848,7 @@ describe("unhandled errors", () => {
     },
   );
 
-  it("logs a running login whose tab closed as info, also when it was watched (ADR 0019)", async () => {
+  it("logs an ordinary running login whose tab closed as info (ADR 0019)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -2867,8 +2873,7 @@ describe("unhandled errors", () => {
       cause: "tab-closed",
     } as const;
     log.login({ ...closed, state: "awaiting-result" });
-    log.login({ ...closed, state: "watching", outcome: "challenge", settled: true });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(1));
     expect(
       (await log.logger.entries()).map((entry) => [entry.event, entry.level, entry.fields]),
     ).toEqual([
@@ -2886,11 +2891,6 @@ describe("unhandled errors", () => {
           cause: "tab-closed",
           tab: 4,
         },
-      ],
-      [
-        "login.attempt",
-        "info",
-        expect.objectContaining({ state: "watching", outcome: "challenge", settled: true }),
       ],
     ]);
     vi.restoreAllMocks();

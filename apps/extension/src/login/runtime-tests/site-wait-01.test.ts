@@ -376,4 +376,92 @@ describe("a login whose wait for the site ran out", () => {
     );
     expect(at(origin)).toBeUndefined();
   });
+  it("completes a settled watch before its alarm and never reports expiry afterwards", async () => {
+    const siteWait = vi.fn<(when: number | undefined) => void>();
+    const report = vi.fn<(report: LoginReport) => void>();
+    const { h, since } = await settledLogin({ siteWait, report });
+    h.recipes.recipe.mockResolvedValue(recipe);
+    fake.state.present = new Set(["authenticated"]);
+    fake.state.observedPath = "/callback";
+    await navigate(h, `${origin}/callback`, "signed-in-document");
+    await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "authenticated" }));
+    expect(at(origin)!.watch).toBeUndefined();
+    expect(siteWait).toHaveBeenLastCalledWith(undefined);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(since + WATCH_MS + 1);
+    onTestFinished(() => clock.mockRestore());
+    await h.login.siteWaitDue();
+    expect(attempts(report).filter((entry) => entry.state === "authenticated")).toHaveLength(1);
+    expect(attempts(report).filter((entry) => entry.state === "blocked")).toHaveLength(0);
+    // The terminal result also prevents a final tab-close problem.
+    fake.state.removed.at(-1)!(1);
+    await vi.waitFor(() => expect(at(origin)).toBeUndefined());
+    expect(report.mock.calls.filter(([entry]) => entry.type === "attempt-closed")).toHaveLength(0);
+    expect(executes()).toHaveLength(2);
+  });
+
+  it("reports an immediate tab removal while watched only once, even if its alarm follows", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const siteWait = vi.fn<(when: number | undefined) => void>();
+    const { h, since } = await settledLogin({ siteWait, report });
+    fake.state.removed.at(-1)!(1);
+    await vi.waitFor(() => expect(at(origin)).toBeUndefined());
+    const closed = () => report.mock.calls
+      .map(([entry]) => entry)
+      .filter((entry) => entry.type === "attempt-closed");
+    expect(closed()).toEqual([
+      expect.objectContaining({ watched: true, settled: true, cause: "tab-closed" }),
+    ]);
+    expect(siteWait).toHaveBeenLastCalledWith(undefined);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(since + WATCH_MS + 1);
+    onTestFinished(() => clock.mockRestore());
+    await h.login.siteWaitDue();
+    fake.state.removed.at(-1)!(1);
+    await h.login.siteWaitDue();
+    expect(closed()).toHaveLength(1);
+    expect(attempts(report).filter((entry) => entry.state === "blocked")).toHaveLength(0);
+    expect(executes()).toHaveLength(2);
+  });
+
+  it("ends a site wait and its already-expired watch in the same startup reconciliation", async () => {
+    await askedThere();
+    const since = stoppedWorker(SITE_WAIT_MS + WATCH_MS + 60_000);
+    const changedAt = at(origin)!.changedAt;
+    fake.state.tabUrls[1] = `${origin}/callback`;
+    const report = vi.fn<(report: LoginReport) => void>();
+    const siteWait = vi.fn<(when: number | undefined) => void>();
+    const restarted = twoSites({ report, siteWait });
+    expect(await restarted.login.active()).toBe(false);
+    expect(at(origin)).toMatchObject({ state: "blocked", outcome: "unknown-submit", changedAt });
+    expect(at(origin)!.watch).toBeUndefined();
+    expect(siteWait).toHaveBeenLastCalledWith(undefined);
+    const ended = attempts(report).filter((entry) => entry.state === "blocked");
+    expect(ended).toHaveLength(1);
+    expect(ended[0]!.times?.totalMs).toBe(SITE_WAIT_MS + WATCH_MS + 5_000);
+    expect(Date.now()).toBeGreaterThanOrEqual(since + WATCH_MS + 60_000);
+    expect(executes()).toHaveLength(2);
+  });
+
+  it("does not report another alarm's already-ended stored watch twice", async () => {
+    const { since } = await settledLogin();
+    const record = structuredClone(at(origin)!);
+    fake.state.storage["pateat.login-attempts.v5"] = [
+      record,
+      { ...structuredClone(record), id: crypto.randomUUID(), document: { ...record.document, tabId: 2 } },
+    ];
+    fake.state.openTabs = [1, 2];
+    fake.state.tabUrls[2] = `${origin}/callback`;
+    const report = vi.fn<(report: LoginReport) => void>();
+    const restarted = twoSites({ report });
+    expect(await restarted.login.active()).toBe(false);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(since + WATCH_MS + 1);
+    onTestFinished(() => clock.mockRestore());
+    await Promise.all([restarted.login.siteWaitDue(), restarted.login.siteWaitDue()]);
+    const ended = attempts(report).filter((entry) => entry.state === "blocked");
+    expect(ended).toHaveLength(2);
+    expect(ended.map((entry) => entry.tabId).sort()).toEqual([1, 2]);
+    expect(stored()).toHaveLength(2);
+    expect(stored().every((entry) => entry.state === "blocked" && entry.watch === undefined)).toBe(true);
+    expect(executes()).toHaveLength(2);
+  });
+
 });
