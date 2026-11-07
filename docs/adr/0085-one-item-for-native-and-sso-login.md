@@ -163,8 +163,11 @@ ADR 0026's item-wide exclusions are replaced by rules per route:
 ## Consequences
 
 - Until the `sso` route ships, Pateat does not understand either form, and an item in
-  the bracket form is used like any other item. The new format is not applied to live
-  vault items before then.
+  the bracket form is used like any other item. The one exception, since 2026-11-07, is
+  an item with an `SSO` field and no password, which is not counted when several items
+  match a page
+  ([ADR 0026](0026-sign-in-through-identity-providers.md#implementation-2026-11-07-sso-only-items-in-the-account-choice)).
+  The new format is not applied to live vault items before then.
 - No new method-only item is created for a confirmed site account. Existing mappings
   are reviewed before consolidation: a matching domain, email or IdP grant alone does
   not prove two items are the same account.

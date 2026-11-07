@@ -166,6 +166,8 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
        * for it, as the catalog flags it.
        */
       otherUsername?: boolean | "empty";
+      /** The other item holds no password, as the catalog flags it. */
+      otherPassword?: "empty";
       /** Recipe generation for pages without a recipe. */
       generation?: LoginGeneration;
       /** The repairs of generated recipes' start pages (ADR 0041). */
@@ -327,6 +329,7 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
                       label: "Password",
                       name: null,
                       kind: "hidden" as const,
+                      ...(live.otherPassword === "empty" ? { empty: true as const } : {}),
                     },
                     ...customFields(live.otherCustom ?? []),
                   ],

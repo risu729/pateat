@@ -1,9 +1,10 @@
 # ADR 0026: Signing in to a site through an identity provider
 
-Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented. The
-owner set it as low priority: this record fixes the direction, and implementation waits.
-Builds on [ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11
-by [ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
+Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented apart
+from the account choice in the last section (2026-11-07). The owner set it as low
+priority: this record fixes the direction, and implementation waits. Builds on
+[ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11 by
+[ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
 routes, chosen after a passkey route and before a password route. Amended on 2026-10-12
 by [ADR 0033](0033-no-site-specific-features.md) (owner, 13:46 UTC): no fixed list of
 identity providers or of their pages; the IdP's origin comes from the item and its pages
@@ -66,7 +67,8 @@ The owner chose, on 2026-10-11:
   its origin; an unreadable value or a duplicate field stops. The value is never filled
   into a page or sent to the service or a model. An excluded `SSO` field means no SSO.
   An item with `SSO` is never a candidate on the IdP's pages and never used by a
-  password recipe or by recipe generation, even when it has a password.
+  password recipe or by recipe generation, even when it has a password. (Amended on
+  2026-11-07: an item with a password keeps its password login.)
 - **Any IdP the item names** (ADR 0033 amendment). Pateat keeps no list of IdP origins;
   the IdP's origin is the item's `SSO` value. Before the amendment, the first IdPs were
   Google and Microsoft, with their origins fixed in Pateat.
@@ -106,9 +108,11 @@ The owner chose, on 2026-10-11:
 
 ## Consequences
 
-- Until this is implemented, an item in this shape is used like any other: Pateat may
-  generate and run a recipe that fills the email on the site. Such items should not be
-  created before the implementation.
+- Until SSO logins are implemented, an item in this shape is otherwise used like any
+  other item: a pick or the only match runs a password route, which stops with
+  `no-route` when the item holds no password and no passkey. Before 2026-11-07 a site
+  with both its own item and an SSO item asked which account to use instead of logging
+  in.
 - A site that creates accounts without asking still does so if the item's username is
   not an account the site already knows.
 - Left to implementation: the recipe shape for SSO-only sites (no slots), generating SSO
@@ -142,3 +146,20 @@ text above is kept; these parts change:
   with bracket-valued fields is used for its own password sign-in and recipe generation,
   with its `SSO` fields left out, and, as an IdP, for direct sign-in, while a chain
   where the IdP signs in through another IdP still stops.
+
+## Implementation 2026-11-07: SSO-only items in the account choice
+
+Implemented on 2026-11-07 for [#1374](https://github.com/risu729/pateat/issues/1374),
+where Devpost's own item and an SSO-only item both matched and the tab asked which
+account to use instead of logging in. An item signs in only through an IdP when it has a
+usable Text or Hidden field named `SSO` or `SSO <number>` (2 or more), in either form of
+ADR 0085, and no usable login password (`signsInOnlyThroughProvider` in
+`apps/extension/src/vault/site-candidates.ts`). When several items match a page with no
+saved default, such items are not counted (`ownLogins` in
+`apps/extension/src/login/runtime/choice-save.ts`), so the site's own item logs in. When
+two or more of the site's own items match, the tab asks among those only; when every
+match is such an item, nothing changes. Picks, saved defaults, the lists the tab asks
+later or a paused site offers, hidden usernames and the chooser's comparisons still see
+every match. Until the `sso` route exists, a pick or the only match of such an item runs
+the password route, which stops with `no-route` when the item holds no password and no
+passkey.
