@@ -57,20 +57,20 @@ test("docs output refuses executable Workers, bundled modules, bindings, wrong r
     await writeFile(resolve(directory, "config.json"), JSON.stringify(config));
     await put(worker);
     await verifyDocsBuild(directory);
-    for (const changed of [
-      { entrypoint: "index.js" },
-      { main: "index.js" },
-      { mainModule: "index.js" },
-      { env: { API: { type: "service" } } },
-      { triggers: [{ pattern: "pateat.takuk.me/*", zone: "takuk.me" }] },
-      { assets: { basePath: "/docs", notFoundHandling: "404-page" } },
-      { assets: { notFoundHandling: "single-page-application" } },
-      { assets: { notFoundHandling: "404-page", runWorkerFirst: true } },
-      { workersDev: true },
-      { previewUrls: true },
+    for (const [changed, reason] of [
+      [{ entrypoint: "index.js" }, /only assets/u],
+      [{ main: "index.js" }, /only assets/u],
+      [{ mainModule: "index.js" }, /only assets/u],
+      [{ env: { API: { type: "service" } } }, /no bindings/u],
+      [{ triggers: [{ pattern: "pateat.takuk.me/*", zone: "takuk.me" }] }, /docs routes/u],
+      [{ assets: { basePath: "/docs", notFoundHandling: "404-page" } }, /base path/u],
+      [{ assets: { notFoundHandling: "single-page-application" } }, /404 page/u],
+      [{ assets: { notFoundHandling: "404-page", runWorkerFirst: true } }, /runs first/u],
+      [{ workersDev: true }, /workers\.dev/u],
+      [{ previewUrls: true }, /preview addresses/u],
     ]) {
       await put({ ...worker, ...changed });
-      await assert.rejects(verifyDocsBuild(directory));
+      await assert.rejects(verifyDocsBuild(directory), reason);
     }
     await put(worker);
     await writeFile(resolve(directory, "workers/default/index.js"), "export default {};");
@@ -81,7 +81,7 @@ test("docs output refuses executable Workers, bundled modules, bindings, wrong r
       resolve(directory, "config.json"),
       JSON.stringify({ buildContext: { mode: "production", isPreview: true } }),
     );
-    await assert.rejects(verifyDocsBuild(directory));
+    await assert.rejects(verifyDocsBuild(directory), /production build/u);
     await writeFile(resolve(directory, "config.json"), JSON.stringify(config));
     await writeFile(resolve(assets, "index.html"), "<html></html>");
     await assert.rejects(verifyDocsBuild(directory), /under \/docs\//u);
@@ -96,4 +96,9 @@ test("the page language is read from the html tag only", () => {
   assert(!htmlLanguage('<html lang="en"><a lang="ja">', "ja"));
   assert(!htmlLanguage('<html lang="ja-JP">', "ja"));
   assert(!htmlLanguage('<p>lang="ja"</p>', "ja"));
+  assert(htmlLanguage('<HTML LANG = "ja">', "ja"));
+  assert(htmlLanguage('<html lang="ja"/>', "ja"));
+  assert(!htmlLanguage('<html data-x="a lang=ja b" lang="en">', "ja"));
+  assert(!htmlLanguage('<!-- <html lang="ja"> --><html lang="en">', "ja"));
+  assert(!htmlLanguage('<html-page lang="ja"></html-page><html lang="en">', "ja"));
 });

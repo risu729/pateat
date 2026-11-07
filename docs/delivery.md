@@ -551,9 +551,9 @@ action. A failed activation is repeated once right away with the same inputs, as
 the server. No build or PR artifact is promoted inside the credential-bearing job.
 The docs lock is separate from the server lock; an old run that acquires it after
 main advanced skips release. The action's deployment readback must return deployment
-and version IDs, and the public `revision.json` must name the released revision
-(retried 30 times, 2 seconds apart, while the version propagates) before the English
-and Japanese installation pages are checked for their `<html lang>`.
+and version IDs. Then the public `revision.json` must name the released revision and
+the English and Japanese installation pages must carry their `<html lang>`, all
+retried together up to 30 times, 2 seconds apart, while the version propagates.
 
 The owner saved the Access change on 2026-11-07 at 03:43 UTC, as recorded in
 [issue 1322](https://github.com/risu729/pateat/issues/1322). The `pateat bypass`

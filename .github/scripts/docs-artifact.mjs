@@ -15,7 +15,7 @@ const workerName = "pateat-docs";
 export async function verifyDocsBuild(directory) {
   const config = JSON.parse(await readFile(resolve(directory, "config.json"), "utf8"));
   assert.equal(config.buildContext?.mode, "production");
-  assert.equal(config.buildContext?.isPreview, false);
+  assert.equal(config.buildContext?.isPreview, false, "The docs are a production build");
   const worker = JSON.parse(
     await readFile(resolve(directory, "workers/default/worker.config.json"), "utf8"),
   );
@@ -30,7 +30,7 @@ export async function verifyDocsBuild(directory) {
   assert.equal(Object.keys(worker.env ?? {}).length, 0, "The docs Worker has no bindings");
   // The pages are nested under the assets' docs/ directory instead (cloudflare.config.ts).
   assert.equal(worker.assets?.basePath, undefined, "The account offers no asset base path");
-  assert.equal(worker.assets?.notFoundHandling, "404-page");
+  assert.equal(worker.assets?.notFoundHandling, "404-page", "Missing pages get the 404 page");
   const assets = resolve(directory, "workers/default/assets");
   assert.deepEqual(await readdir(assets), ["docs"], "Every docs asset must be under /docs/");
   assert((await lstat(resolve(assets, "docs/index.html"))).isFile());
@@ -39,15 +39,16 @@ export async function verifyDocsBuild(directory) {
     JSON.parse(await readFile(resolve(assets, "docs/revision.json"), "utf8")).revision,
     /^[0-9a-f]{40}$/u,
   );
-  assert.notEqual(worker.assets?.runWorkerFirst, true);
-  assert.equal(worker.workersDev, false);
-  assert.equal(worker.previewUrls, false);
+  assert.notEqual(worker.assets?.runWorkerFirst, true, "No Worker code runs first");
+  assert.equal(worker.workersDev, false, "The docs have no workers.dev address");
+  assert.equal(worker.previewUrls, false, "The docs have no preview addresses");
   assert.deepEqual(
     (worker.triggers ?? []).map(({ pattern, zone }) => ({ pattern, zone })),
     [
       { pattern: "pateat.takuk.me/docs", zone: "takuk.me" },
       { pattern: "pateat.takuk.me/docs/*", zone: "takuk.me" },
     ],
+    "The docs routes are exactly /docs and /docs/*",
   );
 }
 
@@ -125,10 +126,17 @@ async function restore() {
   assert.deepEqual(await inventory(build), manifest.files);
 }
 
-/** Whether a page's `<html>` tag names the language. */
+/** Whether the `lang` attribute of a page's `<html>` tag is exactly `language`. */
 export function htmlLanguage(html, language) {
-  const tag = /<html\b[^>]*>/iu.exec(html)?.[0] ?? "";
-  return new RegExp(String.raw`\slang=(["']?)${language}\1[\s>]`, "u").test(tag);
+  const page = html.replaceAll(/<!--[\s\S]*?-->/gu, "");
+  const tag = /<html(?=[\s/>])([^>]*)>/iu.exec(page)?.[1] ?? "";
+  // Each attribute with its optional quoted or bare value, so a value cannot pose as one.
+  for (const [, name, ...values] of tag.matchAll(
+    /([^\s"'=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/gu,
+  ))
+    if (name.toLowerCase() === "lang")
+      return values.find((value) => value !== undefined) === language;
+  return false;
 }
 
 async function smoke() {
@@ -143,6 +151,7 @@ async function smoke() {
       headers: { "Cache-Control": "no-cache" },
     });
   // A new version can take more than ten seconds to reach every edge, as for the server.
+  // Every check is in the retry, so one slow answer does not fail a release.
   const attempts = 30;
   let failure;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -150,6 +159,14 @@ async function smoke() {
       const response = await get("revision.json");
       assert.equal(response.status, 200, "Public docs revision must be readable without Access");
       assert.equal((await response.json()).revision, process.env.GITHUB_SHA);
+      for (const [page, language] of [
+        ["installation", "en"],
+        ["ja/installation", "ja"],
+      ]) {
+        const result = await get(page);
+        assert.equal(result.status, 200, `${page} must be served`);
+        assert(htmlLanguage(await result.text(), language), `${page} is not in ${language}`);
+      }
       failure = undefined;
       break;
     } catch (error) {
@@ -158,14 +175,6 @@ async function smoke() {
     }
   }
   if (failure) throw failure;
-  for (const [page, language] of [
-    ["installation", "en"],
-    ["ja/installation", "ja"],
-  ]) {
-    const result = await get(page);
-    assert.equal(result.status, 200);
-    assert(htmlLanguage(await result.text(), language), `${page} is not in ${language}`);
-  }
   await appendFile(
     process.env.GITHUB_STEP_SUMMARY,
     [
