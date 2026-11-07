@@ -9,7 +9,11 @@ import {
 import type { UriCandidates } from "../crypto/wire";
 import { excludeItem, setAccountPolicy } from "./__fixtures__/policy";
 import { vaultFailure } from "./record";
-import { findLiveSiteCandidates, type LiveUriMatcher } from "./site-candidates";
+import {
+  findLiveSiteCandidates,
+  signsInOnlyThroughProvider,
+  type LiveUriMatcher,
+} from "./site-candidates";
 
 const snapshotId = "11111111-1111-4111-8111-111111111111";
 const otherSnapshotId = "22222222-2222-4222-8222-222222222222";
@@ -286,5 +290,83 @@ describe("live provider URI candidates", () => {
     });
     expect(result).toMatchObject({ ok: true, unavailableConnections: [{ reason: "unavailable" }] });
     expect(JSON.stringify(result)).not.toContain("synthetic-host-loss");
+  });
+
+  it("leaves out an item that signs in only through an identity provider (ADR 0026)", async () => {
+    const ssoId = "77777777-7777-4777-8777-777777777777";
+    const mixedId = "88888888-8888-4888-8888-888888888888";
+    const value = catalog();
+    const connection = value.connections[0]!;
+    const sso = (id: string, password: { empty?: true }) => ({
+      ...item(id),
+      fields: [
+        { id: "login.username", label: "Username", name: null, kind: "text" as const },
+        {
+          id: "login.password",
+          label: "Password",
+          name: null,
+          kind: "hidden" as const,
+          ...password,
+        },
+        { id: `custom.${snapshotId}.0`, label: "SSO", name: "SSO", kind: "text" as const },
+      ],
+    });
+    connection.items.push(sso(ssoId, { empty: true }), sso(mixedId, {}));
+    const match = matcher({
+      ok: true,
+      data: candidates({
+        candidates: [loginId, ssoId, mixedId].map((itemId) => ({
+          itemId,
+          matches: [{ uriIndex: 0, match: 0 }],
+        })),
+        // Rules it could not evaluate do not hold the page for it either.
+        unavailableUris: [{ itemId: ssoId, uriIndex: 1, reason: "default-match-unavailable" }],
+      }),
+    });
+    const found = await findLiveSiteCandidates({
+      settings: settings(value),
+      catalog: value,
+      url,
+      match,
+    });
+    expect(found).toMatchObject({ ok: true, incompleteItems: [], unavailableConnections: [] });
+    // The site's own account and the one that also holds a password stay; only these two.
+    expect(found.ok && found.candidates.map((entry) => entry.itemId)).toEqual([loginId, mixedId]);
+  });
+
+  it("reads only usable Text or Hidden fields named SSO or SSO 2, SSO 3 and on", () => {
+    const fields = (name: string | null, kind: "text" | "hidden" | "boolean" = "text") => ({
+      fields: [
+        {
+          id: "login.password",
+          label: "Password",
+          name: null,
+          kind: "hidden" as const,
+          empty: true as const,
+        },
+        { id: "custom.0", label: name ?? "Custom field 1", name, kind },
+      ],
+    });
+    const all = ["login.password", "custom.0"];
+    for (const name of ["SSO", "SSO 2", "SSO 10"])
+      expect(signsInOnlyThroughProvider(fields(name), all), name).toBe(true);
+    expect(signsInOnlyThroughProvider(fields("SSO", "hidden"), all)).toBe(true);
+    for (const name of ["sso", "SSO 1", "SSO 0", "SSO2", " SSO", "SSO URL", null])
+      expect(signsInOnlyThroughProvider(fields(name), all), String(name)).toBe(false);
+    expect(signsInOnlyThroughProvider(fields("SSO", "boolean"), all)).toBe(false);
+    // An excluded SSO field means no SSO; an excluded password leaves only the SSO field.
+    expect(signsInOnlyThroughProvider(fields("SSO"), ["login.password"])).toBe(false);
+    const withPassword = {
+      fields: [
+        { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
+        fields("SSO").fields[1]!,
+      ],
+    };
+    expect(signsInOnlyThroughProvider(withPassword, all)).toBe(false);
+    expect(signsInOnlyThroughProvider(withPassword, ["custom.0"])).toBe(true);
+    // A card or identity item has no login password at all.
+    expect(signsInOnlyThroughProvider({ fields: [fields("SSO").fields[1]!] }, ["custom.0"])).toBe(
+      true,
+    );
   });
 });
