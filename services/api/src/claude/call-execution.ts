@@ -32,13 +32,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { inferenceLocks, inferenceLog } from "../db/schema";
 import { readWifCredential, resolveClaudeCredential } from "./credentials";
 import { readIssuerConfig } from "./issuer";
-import {
-  deviceClefRelay,
-  deviceRelay,
-  reserveOnce,
-  Unsent,
-  type Reservation,
-} from "./call-relays";
+import { deviceClefRelay, deviceRelay, reserveOnce, Unsent, type Reservation } from "./call-relays";
 import { fastFailingModels, readModelConfig } from "./models";
 import { newId } from "@pateat/contracts/ids";
 
