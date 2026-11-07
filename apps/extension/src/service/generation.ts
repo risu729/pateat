@@ -185,6 +185,7 @@ export function createLoginGeneration(options: {
     claimSample,
     claimReplace,
     releaseReplace,
+    pendingAttempts,
   } = createGenerationStorage({ storage, slotStorage, sampleStorage, now });
 
   async function connected() {
@@ -283,7 +284,7 @@ export function createLoginGeneration(options: {
     branch?: string,
   ): Promise<true | GenerationHold> {
     if (!(await connected())) return "not-connected";
-    await queue;
+    await pendingAttempts();
     const attempts = await recent().catch(() => []);
     return attempts.find(same(origin, path, base, branch))?.state ?? true;
   }
