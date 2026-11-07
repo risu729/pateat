@@ -2169,27 +2169,31 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           step.effect === "submit" &&
           step.fields.length === 1;
         // A `totp` handler's code split into one input per digit goes in one digit per
-        // input (ADR 0027, owner decision 2026-10-12 19:21 UTC).
-        const split =
-          command.code && (step.effect === "prepare" || buttonless) && step.fields.length === 1
-            ? splitCodeInputs(
-                writableInputs[0] as HTMLInputElement,
-                command.values[0]!.value.length,
-                writable,
-              )
-            : undefined;
-        // A code whose inputs would split once the form's other inputs are left out, as one
-        // beside an input the page's description leaves out, is never typed whole into
-        // its first input, which keeps one digit (ADR 0027 amendment of 2026-11-07).
-        if (
-          command.code &&
-          !split &&
+        // input (ADR 0027, owner decision 2026-10-12 19:21 UTC). An input the page's
+        // description leaves out, as a honeypot hidden from assistive technology or moved
+        // off the screen, is not counted, as the service never saw it (ADR 0027 amendment
+        // of 2026-11-07).
+        const codeStep =
+          command.code !== undefined &&
           (step.effect === "prepare" || buttonless) &&
-          step.fields.length === 1 &&
-          splitCodeInputs(
-            writableInputs[0] as HTMLInputElement,
-            command.values[0]!.value.length,
-            (input) => writable(input) && unmarkedDigit(input),
+          step.fields.length === 1;
+        const described = (input: HTMLInputElement) =>
+          writable(input) && presence(input) !== "absent";
+        const split = codeStep
+          ? splitCodeInputs(
+              writableInputs[0] as HTMLInputElement,
+              command.values[0]!.value.length,
+              described,
+            )
+          : undefined;
+        // Nor is a code typed whole into the first of inputs that split a code of another
+        // length, as the item's code for a site that asks for more or fewer digits: that
+        // input keeps one digit.
+        if (
+          codeStep &&
+          !split &&
+          [6, 7, 8].some((length) =>
+            splitCodeInputs(writableInputs[0] as HTMLInputElement, length, described),
           )
         )
           return fail("value-mismatch");

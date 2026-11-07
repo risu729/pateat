@@ -141,13 +141,32 @@ describe("a totp handler's code (ADR 0027 amendment of 2026-11-07)", () => {
     expect((document.getElementById("code") as HTMLInputElement).value).toBe("123456");
   });
 
-  it("never types the whole code into the first of digits beside an input the description leaves out", async () => {
-    // A honeypot hidden from assistive technology still shows, so the inputs are no split
-    // here, though the service, which never sees it, kept one.
-    await install(
-      `<form><input id="site" type="text" aria-hidden="true">${digits('autocomplete="one-time-code"')}${button}</form>`,
-    );
-    expect(await fillCode("d0")).toMatchObject({ ok: false, reason: "value-mismatch" });
+  it.each([
+    ["a text input", '<input id="site" type="text" aria-hidden="true">'],
+    ["a numeric one", '<input id="site" type="tel" aria-hidden="true">'],
+    [
+      "one moved off the screen",
+      '<input id="site" type="text" style="position:absolute;left:-9999px">',
+    ],
+  ])("leaves out %s hidden as the description leaves it out", async (_label, decoy) => {
+    // A honeypot, or a field for SMS autofill, that the service never saw.
+    await install(`<form>${decoy}${digits('autocomplete="one-time-code"')}${button}</form>`);
+    await fillCode("d0");
+    expect(values()).toEqual(["1", "2", "3", "4", "5", "6"]);
+    expect((document.getElementById("site") as HTMLInputElement).value).toBe("");
+  });
+
+  it("never types a code of another length whole into the first digit input", async () => {
+    await install(`<form>${digits('autocomplete="one-time-code"')}${button}</form>`);
+    expect(await fillCode("d0", "1234567")).toMatchObject({ ok: false, reason: "value-mismatch" });
     expect(values()).toEqual(["", "", "", "", "", ""]);
+  });
+
+  it("still types a code whole into a lone code input beside other fields", async () => {
+    await install(
+      `<form><input id="code" type="text" autocomplete="one-time-code"><input type="email"><input type="tel">${button}</form>`,
+    );
+    await fillCode("code");
+    expect((document.getElementById("code") as HTMLInputElement).value).toBe("123456");
   });
 });
