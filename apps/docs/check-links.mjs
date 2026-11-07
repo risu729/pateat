@@ -3,6 +3,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
+const base = "/docs/";
 const dist = path.resolve(".vitepress/dist");
 if (!existsSync(dist)) throw new Error(`Build the site first: ${dist} is missing.`);
 
@@ -17,7 +18,14 @@ function htmlFiles(directory) {
 
 /** Maps a site path to its built file, as cleanUrls serves it. @param {string} pathname */
 function resolve(pathname) {
-  const file = path.join(dist, decode(pathname));
+  const relative =
+    pathname === base.slice(0, -1)
+      ? ""
+      : pathname.startsWith(base)
+        ? pathname.slice(base.length)
+        : undefined;
+  if (relative === undefined) return undefined;
+  const file = path.join(dist, decode(relative));
   if (file !== dist && !file.startsWith(dist + path.sep)) return undefined;
   for (const candidate of [file, `${file}.html`, path.join(file, "index.html")]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
@@ -51,7 +59,7 @@ let count = 0;
 for (const page of pages) {
   const source = readFileSync(page, "utf8");
   const pageUrl = new URL(
-    `/${path.relative(dist, page).replaceAll(path.sep, "/")}`,
+    `${base}${path.relative(dist, page).replaceAll(path.sep, "/")}`,
     "https://site.invalid",
   );
   for (const match of source.matchAll(/\s(?:href|src)="([^"]*)"/g)) {
