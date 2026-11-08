@@ -192,9 +192,17 @@ Reasons:
 
 Consequences:
 
-- Recipes generated before keep their targets and run as before. The service compares a
-  saved target with a new page's by equality (the judge's check, the `totp` handler's
-  field, the signed-in markers), so a recipe that names a field by a test attribute
-  while it also has a usable `id` or `name` keeps the old behaviour until it is
-  generated again; JetBrains' must be removed on the management page and generated
+- Recipes generated before keep their targets and run as before: the extension finds
+  a target by its attribute whatever the order. The service, though, compares a saved
+  target with a new page's by equality (the judge's `not-judgeable` check, the page
+  sample's, `login-page` and `step-target` when a handler is learned, a form beside the
+  sign-in form), and a new page names a field by its `id` or `name` now. Those checks
+  no longer recognise the fields of a recipe that names a field by a test attribute
+  while it also has a usable `id` or `name`, until it is generated again; the
+  extension's own check that a sign-in field still shows runs first and finds it by its
+  attribute. JetBrains' recipe must be removed on the management page and generated
   again.
+- A signed-in page's field that has a test attribute is now named by its `id` or
+  `name`, filtered as before (`redactAttributes`); one without a test attribute already
+  was. The order is the same on every page, so a signed-in page names a login field
+  as its recipe does.

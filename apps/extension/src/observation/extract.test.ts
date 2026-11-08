@@ -410,13 +410,16 @@ describe("extractLoginObservation", () => {
   it("locates a field by name when the ID is missing, duplicated or unusable, then by test ID", () => {
     page(
       `<form id="f"><input id="dup" name="user"><input id="dup" name="other" data-testid="t-other">
-        <input id="has space" data-testid="t-pin">
+        <input id="has space" name="pin"><input id="has space" data-testid="t-code">
+        <input data-testid="t-note">
         <button id="go">Go</button></form>`,
     );
     expect(summary(observe()).map((candidate) => candidate.target)).toEqual([
       { by: "name", value: "user" },
       { by: "name", value: "other" },
-      { by: "test-id", value: "t-pin" },
+      { by: "name", value: "pin" },
+      { by: "test-id", value: "t-code" },
+      { by: "test-id", value: "t-note" },
       { by: "id", value: "go" },
     ]);
   });
