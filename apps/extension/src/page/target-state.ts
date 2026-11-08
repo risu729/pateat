@@ -7,7 +7,7 @@ import type { TargetCheck, TargetRequirement, TargetState } from "../login/wire"
 import { presence, presenceMiss } from "../observation/extract";
 import { authenticatorChoice } from "./authenticator-choice";
 import { visible } from "./code-submission";
-import { findTargets } from "./targets";
+import { autocompleteTokens, findTargets } from "./targets";
 import { closestAcross } from "./shadow";
 import {
   controlContent,
@@ -26,6 +26,15 @@ function textInput(element: Element | undefined): element is HTMLInputElement {
       element.type,
     )
   );
+}
+/**
+ * An input of a kind Pateat fills that is not marked `one-time-code`: a code input is a
+ * handler's field (ADR 0027), never a route's sign-in field, even when the locator that
+ * named the identifier input finds it alone after the page swapped its view in place, as
+ * JetBrains Account's code input shares the email input's `data-test` (issue #1413).
+ */
+function signInInput(element: Element | undefined): element is HTMLInputElement {
+  return textInput(element) && !autocompleteTokens(element).includes("one-time-code");
 }
 /** A shown input of a kind Pateat fills that is neither disabled nor read-only. */
 export function writable(element: Element | undefined): element is HTMLInputElement {
@@ -103,10 +112,10 @@ const byName = (target: LoginMarkerTarget) => target.by === "accessible-name";
 /**
  * One target's state in `document`: `unique` when it matches one element that is what
  * `require` asks for (a shown writable input, a shown enabled button, any shown element, an
- * input of a kind Pateat fills, or such an input shown; with `described-writable` or
- * `described-clickable`, a writable input or a clickable button that is also visible as the
- * page's description reads it; with `password-choice`, a shown control that names the
- * password choice, {@link passwordChoice}, ADR 0048); without
+ * input of a kind Pateat fills other than a code input, or such an input shown; with
+ * `described-writable` or `described-clickable`, a writable input or a clickable button
+ * that is also visible as the page's description reads it; with `password-choice`, a shown
+ * control that names the password choice, {@link passwordChoice}, ADR 0048); without
  * it, or with `present`, any one element counts. A target named by its accessible name may
  * be a link to a fragment of its own document, which counts as clickable. `links` and
  * `hidden` are {@link findTargets}'s options.
@@ -131,8 +140,8 @@ export function targetState(
     (require === "described-writable" && !(writable(element) && described())) ||
     (require === "described-clickable" && !(clickable(element, { fragment }) && described())) ||
     (require === "shown" && !shown) ||
-    (require === "input" && !textInput(element)) ||
-    (require === "shown-input" && !(textInput(element) && shown)) ||
+    (require === "input" && !signInInput(element)) ||
+    (require === "shown-input" && !(signInInput(element) && shown)) ||
     (require === "password-choice" && !passwordChoice(element, { fragment })) ||
     (require === "authenticator-choice" && !authenticatorChoice(element))
     ? "unusable"

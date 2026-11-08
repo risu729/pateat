@@ -584,6 +584,45 @@ for (const { name, start, query, passwordPath } of [
     }
   });
 
+test("a code page swapped in where the identifier's test attribute now names the code input is a challenge, never the sign-in form shown again (issue #1413)", async () => {
+  test.setTimeout(90_000);
+  const fixture = await startLoginFixture(0, { password, accountName: username });
+  const claude = syntheticClaude();
+  const service = await startSyncService({ claude: claude.answer });
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        const options = await connect(browser, service);
+
+        const page = await browser.context.newPage();
+        await page.goto(`${site}/identifier-kept?code`);
+        // The account and the password were each entered once, then the code page showed
+        // in the same document with the email input's test attribute on its code input.
+        await expect(page.locator("#code")).toBeVisible({ timeout: 60_000 });
+        expect(await page.locator("#fixture-status").textContent()).toContain(
+          "Identity clicks: 1; Submit clicks: 1; Identity matched: true; Password matched: true",
+        );
+        // Read as a code page, not as the sign-in form still showing, so the login waits for
+        // the person at a challenge instead of settling unknown. No code handler is learned:
+        // the service declines to judge a page where the recipe's username locator names the
+        // code input, so nothing is typed into it.
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+            timeout: SETTLE_MS,
+          })
+          .toMatchObject({ attempts: [{ outcome: "challenge", submissions: 2 }] });
+        await expect(page.locator("#code")).toHaveValue("");
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
+
 test("an optional page after the sign-in completes the login as signed in, presses nothing and learns no marker there (ADR 0065)", async () => {
   test.setTimeout(120_000);
   const fixture = await startLoginFixture(0, { password });
