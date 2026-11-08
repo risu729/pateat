@@ -118,6 +118,7 @@ export function judgedCompletionResult({
   route,
   stopAt,
   sent = false,
+  afterAnswer = false,
 }: {
   verdict: JudgeVerdict;
   reason?: string | undefined;
@@ -127,6 +128,8 @@ export function judgedCompletionResult({
   route: LoginRoute;
   stopAt?: number | undefined;
   sent?: boolean;
+  /** On the `passkey` route, the page is a new document after Pateat's answer. */
+  afterAnswer?: boolean;
 }): {
   result: "authenticated" | "credential-rejected" | "challenge" | "unknown";
   confirmed: boolean;
@@ -149,11 +152,12 @@ export function judgedCompletionResult({
           stopHeld
         ? "challenge"
         : "unknown";
-  // A rejection on the passkey route challenges, and a missing-password stop challenges
-  // an unknown page (ADR 0027, ADR 0036), as elsewhere in the runtime.
+  // A rejection on the passkey route challenges but in a new document after Pateat's
+  // answer (owner, 2026-11-08), and a missing-password stop challenges an unknown page
+  // (ADR 0027, ADR 0036), as elsewhere in the runtime.
   return {
     result:
-      (route === "passkey" && result === "credential-rejected") ||
+      (route === "passkey" && !afterAnswer && result === "credential-rejected") ||
       (stopAt !== undefined && result === "unknown")
         ? "challenge"
         : result,

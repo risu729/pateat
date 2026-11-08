@@ -128,15 +128,16 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   const passkeyRequests = new Map<string, number>();
 
   /**
-   * By tab and origin: the last assertion the passkey bridge returned, its RP ID, the vault
-   * item it was signed with and, when no login of the tab's origin ran, the top document it
-   * signed in.
+   * By tab and origin: the last assertion the passkey bridge returned, its RP ID, the
+   * document it went to, the vault item it was signed with and, when no login of the tab's
+   * origin ran, the top document it signed in.
    */
   const passkeyAnswers = new Map<
     string,
     {
       at: number;
       rpId: string;
+      documentId?: string;
       item?: { connectionId: string; itemId: string };
       signedIn?: string;
     }

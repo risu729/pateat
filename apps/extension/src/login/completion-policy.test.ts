@@ -277,6 +277,8 @@ describe("judgedCompletionResult", () => {
     [{}, "unknown"],
     [{ route: "passkey" }, "unknown"],
     [{ route: "passkey", verdict: "rejected" }, "challenge"],
+    [{ route: "passkey", verdict: "rejected", afterAnswer: true }, "credential-rejected"],
+    [{ route: "passkey", afterAnswer: true }, "unknown"],
     [{ route: "passkey", verdict: "signed-in" }, "authenticated", true],
     [{ stopAt: 0 }, "challenge"],
     [{ stopAt: 0, verdict: "rejected" }, "credential-rejected"],
