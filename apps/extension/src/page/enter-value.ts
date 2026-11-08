@@ -113,6 +113,38 @@ function withInsertedSeparators(held: string, value: string): boolean {
 }
 
 /**
+ * Characters a page writes in place of a typed one to hide it: the asterisk and its
+ * full-width form, the bullets and the middle dots, including the Japanese and half-width
+ * katakana ones.
+ */
+const maskSymbols = new Set(["*", "＊", "•", "●", "·", "∙", "・", "･"]);
+
+/**
+ * Whether `held` is `value` with characters at the same positions changed only in case,
+ * between full-width and half-width (see {@link widthFolded}), or into a mask symbol (see
+ * {@link maskSymbols}), as a page that hides or normalizes each character it is typed does
+ * (owner decision, 2026-11-08 06:57 UTC, issue 1368). Any other substitution, such as
+ * `1234` into `1235`, and any reordering, such as `1234` into `1243`, is a changed value.
+ * Characters are compared as whole code points.
+ */
+function rewrittenInPlace(held: string, value: string): boolean {
+  const kept = [...held];
+  const typed = [...value];
+  return (
+    kept.length === typed.length &&
+    kept.every((character, i) => {
+      if (maskSymbols.has(character)) return true;
+      const narrow = widthFolded(character);
+      const original = widthFolded(typed[i]!);
+      return (
+        narrow.toLowerCase() === original.toLowerCase() ||
+        narrow.toUpperCase() === original.toUpperCase()
+      );
+    })
+  );
+}
+
+/**
  * Types `value` into `input` as a person would: focus (which blurs the field focused
  * before) without scrolling; a field that already holds text is cleared first, as by
  * selecting it all and deleting; then each character as a keyboard sends it, `keydown`,
@@ -127,14 +159,16 @@ function withInsertedSeparators(held: string, value: string): boolean {
  * characters itself; then the typing stops with `refused`, without `change` or blur, so
  * a value the page changed is never submitted, when the field does not hold `value`
  * after a cancelled event, or holds a value of another length, as when the page's own
- * handlers dropped a character it does not allow. A value of the same length, such as a
- * mask or a case the page changed, is kept, and so is one the page rewrote between
- * full-width and half-width characters, whatever its length and after a cancelled key
- * too (owner decision, 2026-10-18 02:07 UTC; see {@link widthFolded}). A value changed
- * only by inserting ASCII spaces (U+0020) and hyphen-minus (U+002D) is kept too: removing
- * only the inserted characters must give exactly `value`, preserving its own separators
- * and every original character in order (owner decision, 2026-11-07 03:45 UTC; ADR 0010),
- * when each sits between two of its characters and the input is not a number input.
+ * handlers dropped a character it does not allow. A value of the same length is kept when
+ * no key was cancelled and each character only changed case or width or became a mask
+ * symbol, as a page that masks or upper-cases what is typed leaves it (see
+ * {@link rewrittenInPlace}); another substitution or a reordering, such as `1234` into
+ * `1235`, is refused. One the page rewrote between full-width and half-width characters
+ * is kept whatever its length and after a cancelled key too (owner decision, 2026-10-18
+ * 02:07 UTC; see {@link widthFolded}). A value changed only by inserting ASCII spaces
+ * (U+0020) and hyphen-minus (U+002D) is kept too: removing only the inserted characters
+ * must give exactly `value`, preserving its own separators and every original character
+ * in order (owner decision, 2026-11-07 03:45 UTC; ADR 0010), when each sits between two of its characters and the input is not a number input.
  * These exceptions require the held value, including inserted separators, to fit the
  * field's `maxlength`. Other inserted characters get no exception. After `change` and
  * blur the page gets another pause and the same checks apply, unless the page emptied
@@ -250,7 +284,7 @@ export async function typeValue<Cause extends string>(
     // `1e5` to `1e-5`.
     return widthFolded(held) !== widthFolded(value) &&
       (input.type === "number" || !withInsertedSeparators(held, value)) &&
-      (cancelledKey || [...held].length !== [...value].length) &&
+      (cancelledKey || !rewrittenInPlace(held, value)) &&
       !(cleared && held === "")
       ? "refused"
       : undefined;
