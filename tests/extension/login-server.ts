@@ -324,6 +324,40 @@ export async function startLoginFixture(
         });`,
         ),
       );
+    } else if (path === "/identifier-kept") {
+      // An identifier-first form that keeps its email input, filled and writable, above the
+      // password input it adds in the same document on the same path, as JetBrains Account
+      // does (issue #1413). Every input carries the same `data-test` value, and so does its
+      // one submit button, which reads "Continue" and then "Log in" beside a "Forgot
+      // password?" button without one. Its submit signs in to /account with the
+      // `accountName` option. The query is never read.
+      response.end(
+        html(
+          `<h1>Log in</h1><form id="sign-in-form" novalidate><label><input id="email" name="email" autocomplete="username" inputmode="email" aria-label="Email" placeholder="Email" data-test="input__inner"></label><div id="password-slot"></div><button data-test="button" type="submit">Continue</button><div id="extra"></div></form>`,
+          `const form = document.getElementById('sign-in-form');
+        const email = document.getElementById('email');
+        let stage = 'account';
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          if (stage === 'account') {
+            stage = 'lookup';
+            sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
+            sessionStorage.setItem('identityMatched', String(email.value === ${JSON.stringify(accountName ?? "")}));
+            updateFixtureStatus();
+            setTimeout(() => {
+              document.getElementById('password-slot').innerHTML = '<label><input id="password" name="password" type="password" autocomplete="current-password" aria-label="Password" placeholder="Password" data-test="input__inner"></label>';
+              form.querySelector('[data-test="button"]').textContent = 'Log in';
+              document.getElementById('extra').innerHTML = '<button type="button">Forgot password?</button>';
+              stage = 'password';
+            }, 300);
+          } else if (stage === 'password') {
+            sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+            sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+            location.href = '/account';
+          }
+        });`,
+        ),
+      );
     } else if (path === "/identifier-swap") {
       // An identifier-first form that swaps its views in one document on one path (ADR
       // 0013), as some identity providers do: the form fades in, and the email view keeps

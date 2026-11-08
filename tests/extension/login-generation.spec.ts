@@ -115,15 +115,22 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
       );
     // The `script-link` and `script-url` fixtures' login links have no id, so only their
     // text names them, and the `labelled` fixture's submit input only its accessible name;
-    // the `redesign` fixture's button is `continue`.
+    // the `redesign` fixture's button is `continue`; only a test attribute names the
+    // `identifier-kept` fixture's submit button.
+    const hasTest = (value: string) =>
+      prompt.observation.candidates.some(
+        ({ target }) => target.by === "data-test" && target.value === value,
+      );
     const login = () =>
       hasId("login")
         ? byTarget("login")
-        : hasId("continue")
-          ? byTarget("continue")
-          : prompt.observation.candidates.some(({ target }) => target.by === "accessible-name")
-            ? byTarget("Log in", "accessible-name")
-            : byTarget("Log in", "text");
+        : hasTest("button")
+          ? byTarget("button", "data-test")
+          : hasId("continue")
+            ? byTarget("continue")
+            : prompt.observation.candidates.some(({ target }) => target.by === "accessible-name")
+              ? byTarget("Log in", "accessible-name")
+              : byTarget("Log in", "text");
     // The `redesign` fixture names its password input `passcode`.
     const passwordField = hasId("password") ? "password" : hasId("passcode") ? "passcode" : "";
     const passwordPage = passwordField !== "";
@@ -170,14 +177,24 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
                   decision: "plan",
                   pageKind: "sign-in",
                   irreversible: "no",
-                  fields: [{ slot: "username", candidate: byTarget("account") }],
+                  // The `identifier-kept` fixture's email input is named by its test attribute.
+                  fields: [
+                    {
+                      slot: "username",
+                      candidate: hasId("account")
+                        ? byTarget("account")
+                        : byTarget("input__inner", "data-test"),
+                    },
+                  ],
                   // A form that shows no button is submitted after its last field (ADR 0064).
                   action: {
                     candidate: prompt.observation.candidates.some(
                       ({ target }) => target.by === "id" && target.value === "next",
                     )
                       ? byTarget("next")
-                      : byTarget("account"),
+                      : hasTest("button")
+                        ? byTarget("button", "data-test")
+                        : byTarget("account"),
                     purpose: "advance",
                   },
                 };
@@ -451,6 +468,14 @@ for (const { name, start, query, passwordPath } of [
     start: "/identifier-first",
     query: "?account&prefill",
     passwordPath: "/identifier-first",
+  },
+  // Continue keeps the email input, filled and writable, above the password input it adds
+  // on the same path, every input sharing one test attribute (issue #1413).
+  {
+    name: "email input kept",
+    start: "/identifier-kept",
+    query: "",
+    passwordPath: "/identifier-kept",
   },
   // Next opens the password page as a new document on another path.
   { name: "new document", start: "/identifier", query: "", passwordPath: "/identifier/password" },

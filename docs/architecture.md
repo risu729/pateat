@@ -1806,30 +1806,33 @@ passkey registration refusal. They show the yellow unsettled badge and the popup
 the login could not be confirmed. Automation still stops, the site is released to other
 tabs and later logout detection is unchanged
 ([ADR 0029 amendment](adr/0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14)).
-An `unclear` answer on a page with
-a confirmed sign of another sign-in step (S2 to S5), or the service's `judged-challenge`
-for a path judged `challenge` before in the revision, ends it `challenge`. Anything
-else, including the service's `judged-rejected` for a path judged `rejected` before, its
-`judgement-unanswered` for a path whose earlier request has no verdict, and a page that
-was not sent, leaves it unknown. A login that stops before its item's missing password
+An `unclear` answer on a page with a confirmed sign of another sign-in step (S2 to S5),
+or the service's `judged-challenge` for a path judged `challenge` before in the
+revision, ends it `challenge`. Anything else, including the service's `judged-rejected`
+for a path judged `rejected` before, its `judgement-unanswered` for a path whose earlier
+request has no verdict, and a page that was not sent, leaves it unknown. A login that
+stops before its item's missing password
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md)) never reads the username in the
 header or navigation (E2), after its steps, while watched or on a move to another origin
 of the site, since the page after the identifier may show it before the sign-in; an
 `unclear` answer that would complete it ends it `challenge` instead, watched. After a
 recipe's final `advance` step on its first `password` variant, a page that has loaded
 and shows, for a second on one path, a password input other than the recipe's own fields
-while the recipe fills no password, or a username or email input while the recipe fills
-no username and none of its fill fields is writable on the page, outside any form with a
-`new-password` or `one-time-code` input, is not judged: it is sent once per step to
-continue the recipe, offering only the slots the recipe does not fill yet and no custom
-field its generated slot map already names (`CONTINUING`, recorded before the request
-and given back by `UNCONTINUED` only when the generation claim is freed or the request
-was not sent, as for the first page, and not after `recipe-revoked` or
-`recipe-conflict`; the document that sent it never sends it again). The attempt takes
-the returned revision over (`CONTINUED`) when it keeps every step of the recorded one,
-only appends steps that fill none of its slots again, and a dry run of its route still
-resolves to its account, with the slots a saved binding lacks filled as at a login's
-start
+while the recipe fills no password, or a username or email input other than them while
+the recipe fills no username and none of its fill fields is writable on the page,
+outside any form with a `new-password` or `one-time-code` input, is not judged (the
+recipe's own fields are the inputs its fill targets each find alone: a test attribute
+the identifier input shares with the password input added beside it, as on JetBrains
+Account, names neither, [issue #1413](https://github.com/risu729/pateat/issues/1413)):
+it is sent once per step to continue the recipe, offering only the slots the recipe does
+not fill yet and no custom field its generated slot map already names (`CONTINUING`,
+recorded before the request and given back by `UNCONTINUED` only when the generation
+claim is freed or the request was not sent, as for the first page, and not after
+`recipe-revoked` or `recipe-conflict`; the document that sent it never sends it again).
+The attempt takes the returned revision over (`CONTINUED`) when it keeps every step of
+the recorded one, only appends steps that fill none of its slots again, and a dry run of
+its route still resolves to its account, with the slots a saved binding lacks filled as
+at a login's start
 ([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-19-saved-bindings-that-lack-a-slot));
 its step and submission budget grows by the appended steps and effects. A revision not
 taken over is logged with why (`recipe.generate` `notTakenOver`). The advance that the

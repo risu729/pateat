@@ -382,9 +382,9 @@ function navigationStatus(): number | undefined {
 }
 /**
  * The sign-in inputs the page shows that a generated recipe can continue on after its final
- * `advance` step (ADR 0018), other than the recipe's own `targets`: `password`, a visible
- * writable password input; `identifier`, a visible writable email input or one marked for a
- * username or an email address. Visible as the page's description reads it, so an input
+ * `advance` step (ADR 0018), other than the inputs the recipe's own `targets` each find
+ * alone: `password`, a visible writable password input; `identifier`, a visible writable
+ * email input or one marked for a username or an email address. Visible as the page's description reads it, so an input
  * hidden from assistive technology, transparent, tiny or moved before the page's start, as
  * a password input kept on an email form for the browser to fill, never counts. An input marked
  * `new-password` or `one-time-code`, and every input of a form that holds one, never
@@ -395,7 +395,15 @@ function credentialInputs(targets: readonly LoginMarkerTarget[]): {
   password: boolean;
   identifier: boolean;
 } {
-  const own = new Set(targets.flatMap((target) => matches(target)));
+  // A target names the recipe's field only when it finds that one element alone, as a step
+  // fills it: a test attribute an identifier input shares with the password input added
+  // beside it names neither (issue #1413).
+  const own = new Set(
+    targets.flatMap((target) => {
+      const found = matches(target);
+      return found.length === 1 ? found : [];
+    }),
+  );
   const other = (input: HTMLInputElement) =>
     autocompleteTokens(input).some(
       (token) => token === "new-password" || token === "one-time-code",
