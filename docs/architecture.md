@@ -1818,7 +1818,10 @@ of the site, since the page after the identifier may show it before the sign-in;
 `unclear` answer that would complete it ends it `challenge` instead, watched. After a
 recipe's final `advance` step on its first `password` variant, a page that has loaded
 and shows, for a second on one path, a password input other than the recipe's own fields
-while the recipe fills no password, or a username or email input while the recipe fills
+(the inputs its fill targets each find alone: a test attribute the identifier input
+shares with the password input added beside it, as on JetBrains Account, names neither,
+[issue #1413](https://github.com/risu729/pateat/issues/1413)) while the recipe fills no
+password, or a username or email input while the recipe fills
 no username and none of its fill fields is writable on the page, outside any form with a
 `new-password` or `one-time-code` input, is not judged: it is sent once per step to
 continue the recipe, offering only the slots the recipe does not fill yet and no custom

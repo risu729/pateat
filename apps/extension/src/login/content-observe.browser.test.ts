@@ -78,6 +78,30 @@ describe("login.observe's hidden flags (ADR 0037 amendment of 2026-10-22)", () =
   });
 });
 
+describe("login.observe's sign-in inputs after an advance (ADR 0018)", () => {
+  const field = { by: "data-test", value: "input__inner" };
+  it("leaves out the recipe's own field the target finds alone", async () => {
+    document.body.innerHTML = `<form><input id="email" autocomplete="username" aria-label="Email" data-test="input__inner"><button data-test="button">Continue</button></form>`;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await observe({ targets: [field], require: ["writable"], signIn: true })).toMatchObject({
+      targets: ["unique"],
+      signIn: { password: false, identifier: false },
+    });
+  });
+  it("counts a password input sharing the recipe's test attribute (issue #1413)", async () => {
+    // JetBrains Account keeps the email input above the password input it adds, both
+    // `data-test="input__inner"`: the target names neither alone.
+    document.body.innerHTML = `<form><input id="email" autocomplete="username" aria-label="Email" data-test="input__inner"><input id="password" type="password" autocomplete="current-password" aria-label="Password" data-test="input__inner"><button data-test="button">Log in</button><button type="button">Forgot password?</button></form>`;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await observe({ targets: [field], require: ["writable"], signIn: true })).toMatchObject({
+      targets: ["ambiguous"],
+      signIn: { password: true, identifier: true },
+    });
+  });
+});
+
 describe("login.entry.check's list of accounts (ADR 0079)", () => {
   async function check() {
     const token = sent.find((message) => typeof message["token"] === "string")?.["token"];
