@@ -542,16 +542,9 @@ export async function watchPage(rt: Runtime, run: Execution, routed = false): Pr
   }
   // The sign-in form shown again with a failure, in the first new document after the
   // submission, rejects the password even after the watch began (owner, 22:03 UTC). On
-  // the `passkey` route only one in a new document after Pateat's answer rejects the
-  // passkey (owner, 2026-11-08); otherwise nothing typed was rejected: the watch goes on
-  // (ADR 0027).
+  // the `passkey` route nothing typed was rejected: the watch goes on (ADR 0027).
   const typed = run.metadata.route !== "passkey";
-  if (
-    state?.decision === "rejected" &&
-    state.confirmed &&
-    state.reshown &&
-    failureRejects(rt, run)
-  ) {
+  if (typed && state?.decision === "rejected" && state.confirmed && state.reshown) {
     await change(rt, run, {
       type: "OBSERVED",
       result: "credential-rejected",

@@ -600,10 +600,13 @@ function stepAnswers(rt: Runtime, run: Execution) {
  * only a new document after Pateat's answer to its step's passkey request shows one, as
  * after a submitted password (owner, 2026-11-08 06:39 UTC): neither the document the
  * answer went to nor the one the step ran in, whose failure beside a password field may
- * be older than the answer. Every other route rejects one as before.
+ * be older than the answer. A recipe that answers the page's own request beside its
+ * password form keeps its fallback to the password (ADR 0034), so a failure there rejects
+ * nothing as before. Every other route rejects one as before.
  */
 export function failureRejects(rt: Runtime, run: Execution): boolean {
   if (run.metadata.route !== "passkey") return true;
+  if (passkeyAnswersRequest(run.recipe)) return false;
   const { documentId } = run.live.document;
   if (rt.effects.get(run.live.document.tabId)?.document.documentId === documentId) return false;
   return stepAnswers(rt, run).some(

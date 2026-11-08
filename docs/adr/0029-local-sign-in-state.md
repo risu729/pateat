@@ -956,10 +956,17 @@ On the `passkey` route, a failure now ends the login `credential-rejected`, as o
 `password` route, when it shows in a document other than the one Pateat's answer to the
 step's passkey request went to and the one the step ran in, once that answer went back
 in this attempt. This covers a confirmed `rejected` reading (F1 or F2 with S1), the
-recipe's rejection element, a judge answer `rejected`, the CAPTCHA wait's decision and
-a watched login's sign-in form shown again with a failure. A failure in the document the
-answer went to, before any answer, or after an answer whose document the bridge did not
-report, still ends `challenge` and is watched as before. A passkey answered by the
-browser or a phone is not Pateat's answer and changes nothing. A recipe that answers the
-page's own request beside the password form still falls back to the password on its
-rejection element (ADR 0034).
+recipe's rejection element, a judge answer `rejected` and the CAPTCHA wait's decision.
+A failure in the document the answer went to, before any answer, or after an answer
+whose document the bridge did not report, still ends `challenge` and is watched as
+before. A passkey answered by the browser or a phone is not Pateat's answer and changes
+nothing.
+
+The agent's choices, from a review of the change: a recipe that answers the page's own
+request beside its password form (ADR 0034) rejects nothing on this route as before, so
+its fallback to the password is never lost to a failure on another path. A watched
+login's sign-in form shown again (`reshown`) is read only after a password submission,
+never after a step that asked for a passkey, so a watched `passkey` login still goes on
+watching such a page. "Another document" is not checked to be newer than the answer: a
+document the browser restores from its back-forward cache keeps its id, and a failure
+that showed in it before the answer would now reject.
