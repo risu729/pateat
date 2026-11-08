@@ -58,6 +58,34 @@ unavailable. Use it for deliberate removal, not as an initial troubleshooting st
 server logout. Revoke a lost service device and secure the browser/profile
 separately: service revocation cannot erase offline secrets.
 
+## Moving the owner to another sign-in email
+
+The service finds the owner by the Access token's issuer and `sub`
+(`owner_identities`), never by email, and Access gives each email its own `sub`. A
+new sign-in email therefore opens an empty `/manage`, and its first pairing would
+create a second, empty owner. To move the owner to a new email:
+
+1. Add the new email to the Owner policy's Include, sign in with it and read
+   `user_uuid` from `https://pateat.takuk.me/cdn-cgi/access/get-identity`; it is the
+   token's `sub`. Do not pair with the new email before step 2.
+2. In D1, add the new identity to the existing owner, then delete the old
+   identity's row:
+
+   ```sql
+   INSERT INTO owner_identities (issuer, subject, owner_id, created_at)
+     SELECT issuer, 'NEW_USER_UUID', owner_id, unixepoch('subsec') * 1000
+     FROM owner_identities WHERE subject = 'OLD_SUB';
+   DELETE FROM owner_identities WHERE subject = 'OLD_SUB';
+   ```
+
+   The owner ID and every row that references it (devices, profiles, recipes,
+   settings) stay as they are, and paired devices keep working.
+3. Remove the old email from the Owner policy and, in Zero Trust **Users**, remove
+   the old user.
+
+The owner's email moved this way on 2026-11-08. This is a manual production write;
+D1 is otherwise changed only by releases.
+
 ## A failed server release
 
 The deployed source order check, artifact digests, database identity check, migration
