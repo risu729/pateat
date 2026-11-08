@@ -18,6 +18,7 @@ import {
 import {
   choosable,
   clickable,
+  codeMarked,
   keyable,
   passwordChoice,
   targetCheck,
@@ -113,6 +114,7 @@ import {
   type LoginSecretKind,
   type StartMiss,
   type TargetState,
+  signInSlot,
 } from "./wire";
 import { newId } from "@pateat/contracts/ids";
 
@@ -250,7 +252,7 @@ function readinessMiss(readiness: LoginReadiness): AwaitMiss | undefined {
 }
 /**
  * Why a step on this path is not ready (`LaterMiss`): a target that matches no unique
- * usable element, or for a later step (ADR 0049) the page's other identifier input, or what
+ * usable element, a username or password target on a code input, or for a later step (ADR 0049) the page's other identifier input, or what
  * else the page asks for beside a password started alone.
  */
 function stepMiss(readiness: LoginReadiness): LaterMiss | undefined {
@@ -269,6 +271,8 @@ function stepMiss(readiness: LoginReadiness): LaterMiss | undefined {
     return true;
   });
   if (!usable) return "target";
+  // A username or password never goes into a code input (issue #1413).
+  if (readiness.signIn?.some((target) => codeMarked(matches(target)[0]))) return "code-input";
   // A later step is no start while the page also asks for an identifier the step does not
   // fill, as a form for another account with its own email input (ADR 0049).
   if (readiness.later && credentialInputs(readiness.targets).identifier) return "identifier";
@@ -2090,8 +2094,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // date's part may be a select (ADR 0061); every other value goes into an input.
         const secretOf = (index: number) =>
           command.values.find((entry) => entry.slot === step.fields[index]!.slot)?.secret;
+        // A username or password never goes into a code input (issue #1413).
         const usable = (input: Element | undefined, index: number) =>
-          step.fields[index]!.keypad ? keyable(input) : takes(input, secretOf(index));
+          (step.fields[index]!.keypad ? keyable(input) : takes(input, secretOf(index))) &&
+          !(signInSlot(step.fields[index]!.slot) && codeMarked(input));
         if (inputs.some((input, index) => !usable(input, index)))
           return fail("structural-mismatch", "target-missing");
         // Each field's keypad, which holds the keys, shown or not yet.

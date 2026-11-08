@@ -875,6 +875,7 @@ describe("production login document admission", () => {
     path: "/signin",
     require: "writable",
     targets: [{ by: "id", value: "password" }],
+    signIn: [{ by: "id", value: "password" }],
   };
   it("refuses an admitted page without a saved recipe and never reads the vault", async () => {
     fake.state.pageUrl = "https://login.example/elsewhere";

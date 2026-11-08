@@ -34,7 +34,16 @@ function textInput(element: Element | undefined): element is HTMLInputElement {
  * JetBrains Account's code input shares the email input's `data-test` (issue #1413).
  */
 function signInInput(element: Element | undefined): element is HTMLInputElement {
-  return textInput(element) && !autocompleteTokens(element).includes("one-time-code");
+  return textInput(element) && !codeMarked(element);
+}
+/**
+ * An input marked `autocomplete="one-time-code"`, which never takes the account's username
+ * or password (issue #1413).
+ */
+export function codeMarked(element: Element | undefined): boolean {
+  return (
+    element instanceof HTMLInputElement && autocompleteTokens(element).includes("one-time-code")
+  );
 }
 /** A shown input of a kind Pateat fills that is neither disabled nor read-only. */
 export function writable(element: Element | undefined): element is HTMLInputElement {

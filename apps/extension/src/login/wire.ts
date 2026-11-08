@@ -24,6 +24,7 @@ export {
   type LoginReadiness,
   laterReadiness,
   loginReadiness,
+  signInSlot,
   LATER_MISSES,
   type LaterMiss,
   type ShownLater,

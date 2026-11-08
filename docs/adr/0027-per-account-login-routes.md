@@ -141,6 +141,10 @@ Amended on 2026-11-08 (agent, for the owner's issue #1409; implemented): the jud
 code field may also be a text input with no `inputmode` or `inputmode="text"`
 ([A code input without inputmode](#amendment-2026-11-08-a-code-input-without-inputmode)).
 
+Amended on 2026-11-08 (agent, for the owner's issue #1413; implemented): a username or
+password never goes into an input marked `one-time-code`
+([No account in a code input](#amendment-2026-11-08-no-account-in-a-code-input)).
+
 Date: 2026-10-11
 
 ## Context
@@ -1816,3 +1820,31 @@ Decision:
 - Changing `judgedCodeInput` changes the digest of a judged page's inputs
   (ADR 0029 amendment of 2026-11-07) for every page with such an input, so its row kept
   `challenge` is judged again once; Supabase's row is one.
+
+## Amendment 2026-11-08: no account in a code input
+
+Chosen by an agent, not asked, from the follow-up to the owner's report of 2026-11-08
+([issue #1413](https://github.com/risu729/pateat/issues/1413)). JetBrains Account
+(`account.jetbrains.com/login`) swaps its email form for its code form in place on the
+same path, and every input carries `data-test="input__inner"`: its recipe names the
+email input by that attribute, which on the code view finds the code input `<input
+id="code" name="code" autocomplete="one-time-code" data-test="input__inner">` alone. A
+login started on that view, as after the person opens the page again, would count the
+recipe's first step ready and type the email address into the code input.
+
+Decision:
+
+- A fill of the `username` or `password` slot never goes into an input marked
+  `autocomplete="one-time-code"`. A fill step's wait (`loginReadiness`, whose `signIn`
+  lists those fields' targets) never counts such a target on one as ready, and a wait
+  that runs out says so (`code-input`); the fill itself refuses one
+  (`structural-mismatch`, `target-missing`), whatever its locator finds.
+- On JetBrains' code view no first step is then ready, so no login starts there; the
+  page logs `not-started` with `first-step-missing`, and since every target is found
+  the recipe is not sent for repair. The code input is left to the person or a `totp`
+  handler, as on any code page.
+- Other values keep their own rules (`acceptsSecret`): a code, a Hidden field such as
+  a PIN in a short numeric input, or a personal detail, which already refuses an input
+  whose `autocomplete` marks a sign-in or code field. A page may mark a PIN input
+  `one-time-code`, and refusing every other value there would stop such a recipe
+  without any sign that it should be generated again.

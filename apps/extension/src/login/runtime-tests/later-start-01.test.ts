@@ -910,8 +910,19 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     const { h } = start([twoPages()]);
     const answer = (await h.hello({}, false)) as { starts?: unknown[] };
     expect(answer.starts).toEqual([
-      { path: "/signin/id", require: "writable", targets: [target("email")] },
-      { path: "/signin/pwd", require: "writable", targets: [target("password")], later: true },
+      {
+        path: "/signin/id",
+        require: "writable",
+        targets: [target("email")],
+        signIn: [target("email")],
+      },
+      {
+        path: "/signin/pwd",
+        require: "writable",
+        targets: [target("password")],
+        later: true,
+        signIn: [target("password")],
+      },
     ]);
   });
 });
