@@ -44,7 +44,7 @@ const describedTokens: ReadonlySet<string> = new Set(observedAutocompleteTokens)
 const describedInputModes: ReadonlySet<string> = new Set(observedInputModes);
 
 /**
- * A text input whose `inputmode` the page's description shows as none, `text` or
+ * A text input whose `inputmode` the page's description shows as absent, `text` or
  * `numeric`, that declares no `maxlength` (or 0 or one past 1024, which the page's
  * description leaves out too) and whose `autocomplete` names no token the page's
  * description shows, so the description shows it with none or `off`, as the service's

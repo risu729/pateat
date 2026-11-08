@@ -1797,15 +1797,22 @@ Decision:
   `unlimitedTextInput`) takes the same input, reading `inputmode` as the description
   does: a value it does not describe counts as none.
 - Nothing else of the amendment of 2026-11-07 changes: such an input is a code field
-  only when the judge names it on a page it judges `challenge`, `isCodeField` is
-  unchanged, so it makes no page a code page and no recipe step's code goes there, and
-  another text input of its form that the rule takes refuses it
-  (`several-code-fields`), so a form that also asks for a name or a username in a
-  plain text input never gets the code. The `inputmode="numeric"` of the amendment of
-  2026-11-07 was the only sign of a code that the description shows on such an input;
-  the judge reads the page's headings and labels, as for a personal detail (ADR 0061),
-  which already goes into a plain text input the judge names, and a TOTP code is no
-  more secret than those.
+  only when the judge names it on a page it judges `challenge`, and `isCodeField` is
+  unchanged, so it makes no page a code page and the service plans no recipe step's code
+  into it. The extension's fill rule still cannot tell which step a code comes from, so
+  it would also type a recipe step's code there; no recipe the service plans has one.
+- Another text input of its form that the rule takes refuses it
+  (`several-code-fields`), so a form that also asks for a name or a username in an
+  unmarked text input without a `maxlength` never gets the code; an input marked with an
+  `autocomplete` token or a `maxlength` does not count, and the judge must still name
+  the code field. Inputs outside any form count as one form here, so a code input
+  outside any form beside an unmarked search box outside any form is refused too, and
+  the person types the code, which also holds for the `inputmode="numeric"` input of the
+  amendment of 2026-11-07 now.
+- The `inputmode="numeric"` of the amendment of 2026-11-07 was the only sign of a code
+  that the description shows on such an input; the judge reads the page's headings and
+  labels, as for a personal detail (ADR 0061), which already goes into a plain text
+  input the judge names, and a TOTP code is no more secret than those.
 - Changing `judgedCodeInput` changes the digest of a judged page's inputs
   (ADR 0029 amendment of 2026-11-07) for every page with such an input, so its row kept
   `challenge` is judged again once; Supabase's row is one.

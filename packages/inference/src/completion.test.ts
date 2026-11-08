@@ -801,6 +801,21 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
       });
     });
 
+    it("drops a code input outside any form beside a plain text input outside any form", async () => {
+      // Inputs outside any form count as one form (ADR 0027 amendment of 2026-11-08).
+      const code = field({ maxLength: undefined, group: undefined });
+      const search = field({
+        id: "q",
+        target: { by: "id", value: "q" },
+        inputMode: undefined,
+        maxLength: undefined,
+        group: undefined,
+      });
+      expect(await judged([code, search, submit({ group: undefined })], answer())).toMatchObject({
+        value: { totpDropped: "several-code-fields" },
+      });
+    });
+
     it("drops it beside another such input of its form", async () => {
       const other = field({
         id: "other",

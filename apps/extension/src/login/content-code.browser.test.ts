@@ -141,6 +141,14 @@ describe("a totp handler's code (ADR 0027 amendment of 2026-11-07)", () => {
     expect((document.getElementById("code") as HTMLInputElement).value).toBe("123456");
   });
 
+  it("types the whole code into one text input without inputmode or maxlength, as on Supabase", async () => {
+    await install(
+      `<form><input id="code" type="text" autocomplete="off" placeholder="XXXXXX">${button}</form>`,
+    );
+    await fillCode("code");
+    expect((document.getElementById("code") as HTMLInputElement).value).toBe("123456");
+  });
+
   it.each([
     ["a text input", '<input id="site" type="text" aria-hidden="true">'],
     ["a numeric one", '<input id="site" type="tel" aria-hidden="true">'],
@@ -178,6 +186,14 @@ describe("a totp handler's code (ADR 0027 amendment of 2026-11-07)", () => {
   it("still types a code whole into a lone code input beside other fields", async () => {
     await install(
       `<form><input id="code" type="text" autocomplete="one-time-code"><input type="email"><input type="tel">${button}</form>`,
+    );
+    await fillCode("code");
+    expect((document.getElementById("code") as HTMLInputElement).value).toBe("123456");
+  });
+
+  it("types the whole code into one text input without inputmode or maxlength, as on Supabase", async () => {
+    await install(
+      `<form><input id="code" type="text" autocomplete="off" placeholder="XXXXXX">${button}</form>`,
     );
     await fillCode("code");
     expect((document.getElementById("code") as HTMLInputElement).value).toBe("123456");
