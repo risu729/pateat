@@ -11,6 +11,7 @@ import {
   type LoginRecipe,
 } from "@pateat/contracts";
 import type { ServiceTiming } from "../../service/transport";
+import { observedPath } from "../../observation/path";
 import { extractResultSchema, observationSchema, stateResultSchema } from "../wire";
 import { loginUsernameFieldId } from "../vault";
 import { loginMoveFits } from "@pateat/contracts/site";
@@ -52,10 +53,13 @@ export async function attemptRecipe(
 
 /**
  * For a `password` login whose tab moved to `live`, a quiet page of another origin
- * (`passwordMoveFits`) that does not show the account's username (ADR 0022) after a step
- * that sent no credential: whether a signed-in marker learned on that origin shows, or
- * else the judge of ADR 0029, asked once, answers `signed-in` for the page or found it
- * signed in before. A judge that cannot decide, a page that cannot be described or sent,
+ * (`passwordMoveFits`) that does not show the account's username (ADR 0022), as after an
+ * identifier's Next, or a frame's watched login past its credential's 30 seconds
+ * (`frameMoveFits`): whether a signed-in marker learned on that origin shows, or else the
+ * judge of ADR 0029, asked once, answers `signed-in` for the page or found it signed in
+ * before, or answers `optional` (ADR 0065) for a page described without leaving a
+ * disabled field out, once the attempt submitted the password or a TOTP code and without
+ * a stop (ADR 0036). A judge that cannot decide, a page that cannot be described or sent,
  * and any other verdict end the login `left-origin` (a watched one where it stopped),
  * each logged.
  * Once the answer is back, the page must still be loaded and show no password field,
@@ -72,6 +76,7 @@ export async function judgeMove(
   const { document } = live;
   const recipe = await attemptRecipe(rt, record);
   let disabledLeftOut = false;
+  let inputLeftOut = false;
   // The answer's timing, once it came (ADR 0019).
   let timed: { timing?: ServiceTiming } = {};
   const reportJudge = (
@@ -155,6 +160,7 @@ export async function judgeMove(
     else {
       observation = parsed.output;
       disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+      inputLeftOut = extracted.output.ok && extracted.output.inputLeftOut === true;
     }
   } catch {
     // The page could not be asked: `unreachable`.
@@ -198,7 +204,8 @@ export async function judgeMove(
       "password",
       hidden.observation,
       spin.sent(() => reportJudge("sent")),
-      // A description that left out a disabled field says so (ADR 0029).
+      // A description that left out a disabled field says so (ADR 0029); only `signed-in`
+      // completes a moved login then.
       branchOf(record),
       disabledLeftOut ? true : undefined,
       undefined,
@@ -208,12 +215,34 @@ export async function judgeMove(
   spend(rt, record.id, Date.now() - asked, timing);
   if (timing) timed = { timing };
   reportJudge(verdict, reason);
-  // `optional` (ADR 0065) never completes it: a login whose password or code went in
-  // completes on a quiet page alone (`credentialMoveFits`), so only a step before them,
-  // as an identifier's Next, or a stop before the item's missing password (ADR 0036)
-  // leads here, and the sign-in may still be ahead.
-  if (verdict !== "signed-in" && !(verdict === "unclear" && reason === "judged-signed-in"))
+  // `optional` (ADR 0065) completes it only on a full description with no radio button,
+  // select or text area left out, once the attempt submitted the item's password or a
+  // TOTP code (a move within the site may follow an identifier's Next), and not for a
+  // login stopped before its missing password, which only `signed-in` proves (ADR 0036).
+  const fill = rt.passwordFills.get(document.tabId);
+  const effect = rt.effects.get(document.tabId);
+  const sent =
+    (fill?.attemptId === record.id && fill.submitted) ||
+    (effect?.attemptId === record.id && effect.code !== undefined);
+  const optional = verdict === "optional";
+  if (
+    verdict !== "signed-in" &&
+    !(verdict === "unclear" && reason === "judged-signed-in") &&
+    !(optional && !disabledLeftOut && !inputLeftOut && record.stopAt === undefined && sent)
+  )
     return false;
+  // An optional page must still be on the path it was judged on.
+  if (optional) {
+    let at: unknown;
+    try {
+      at = await send(rt, live, { type: "login.observe", path: live.path, targets: [] });
+    } catch {
+      return false;
+    }
+    const shown = v.safeParse(observationSchema, at);
+    if (stale() || !shown.success || observedPath(shown.output.path) !== observation.path)
+      return false;
+  }
   // The answer can take a while: the page must still be loaded and show no sign-in step.
   let again: unknown;
   try {
@@ -310,10 +339,9 @@ export async function quietMove(
 /**
  * The time of the attempt's last credential step at most `SITE_MOVE_MS` ago, the step
  * after which a move of its tab completes it on a quiet page (ADR 0022), whatever its
- * route (owner's choice on 2026-11-08 at 02:58 UTC): its last effect step, not one that
- * asks for a passkey, once a submitting step followed its fill of the item's password; a
- * TOTP code it entered; or a passkey Pateat answered for its page after its last effect
- * step. Once a page of another origin asked for a passkey and holds the attempt
+ * route (owner's choice on 2026-11-08 at 02:58 UTC): its last submitting step, not one
+ * that asks for a passkey, after its fill of the item's password; a TOTP code it entered;
+ * or a passkey Pateat answered for its page after its last effect step. Once a page of another origin asked for a passkey and holds the attempt
  * (`passkeyPages`), only a passkey answered since counts: for the attempt's page, or for
  * that page and signed with the attempt's own item.
  */
@@ -338,9 +366,7 @@ export function lastCredential(
     ...(page
       ? []
       : [
-          ...(!effect.passkey && fill?.attemptId === record.id && fill.submitted
-            ? [effect.at]
-            : []),
+          ...(fill?.attemptId === record.id && fill.at !== undefined ? [fill.at] : []),
           ...(effect.code === undefined ? [] : [effect.code]),
         ]),
     ...[rt.passkeyAnswers.get(`${tabId} ${record.document.origin}`), own].flatMap((answer) =>

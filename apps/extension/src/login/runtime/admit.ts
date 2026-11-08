@@ -640,8 +640,20 @@ export async function admit(
         // A page of any site that asks for a passkey may still hold it.
         requestMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
         rt.passkeyPages.get(ctx.document.tabId)?.attemptId === holder.id
-      )
+      ) {
         ending = false;
+        // The frame announces again once the top page ended the attempt, as a sign-in form
+        // of the new site in a frame then starts its own login.
+        const waiting = rt.movedFrames.get(ctx.document.tabId);
+        const frames =
+          waiting?.attemptId === holder.id
+            ? waiting.frames.filter((frame) => frame.documentId !== ctx.document.documentId)
+            : [];
+        rt.movedFrames.set(ctx.document.tabId, {
+          attemptId: holder.id,
+          frames: [...frames, ctx.document],
+        });
+      }
     } else {
       const check = signedInByMove(rt, holder, ctx.live);
       rt.siteMoves.set(ctx.document.tabId, check);
@@ -667,7 +679,7 @@ export async function admit(
       reportMove(holder, miss, true);
       return { ok: false, reason: "stale-document" };
     }
-    // Nor is a page of another origin of the site that asks for a passkey soon after the
+    // Nor is a page of another origin, of any site, that asks for a passkey soon after the
     // attempt's last step: the attempt waits for the tab's next page, which a passkey
     // answered there with the attempt's own item lets complete it (`credentialMoveFits`).
     // This page starts no login of its own meanwhile.
@@ -704,6 +716,18 @@ export async function admit(
         { ...ctx.document, frameId: 0, origin: ctx.siteOrigin },
         signedIn,
       );
+      const waiting = rt.movedFrames.get(ctx.document.tabId);
+      if (ctx.document.frameId === 0 && waiting?.attemptId === holder.id) {
+        rt.movedFrames.delete(ctx.document.tabId);
+        for (const frame of waiting.frames)
+          void browser.tabs
+            .sendMessage(
+              ctx.document.tabId,
+              { version: 1, type: "login.reconnect" },
+              { frameId: frame.frameId, documentId: frame.documentId },
+            )
+            .catch(() => undefined);
+      }
       if (refusal) return refusal;
     }
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
@@ -713,7 +737,7 @@ export async function admit(
     ctx.document.frameId === 0 &&
     rt.passkeyPages.get(ctx.document.tabId)?.attemptId === holder.id
   ) {
-    // The tab came back to the attempt's origin from a page of another origin of the site
+    // The tab came back to the attempt's origin from a page of another origin
     // that asked for a passkey (ADR 0022). A passkey answered there with the attempt's
     // own item, and this page quiet, complete the attempt; otherwise it ends as that move
     // would have, without resubmitting. A page that goes away before it is read leaves

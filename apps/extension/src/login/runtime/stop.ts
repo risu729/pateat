@@ -82,7 +82,7 @@ export async function stopBeforePassword(rt: Runtime, run: Execution): Promise<v
   const { tabId } = run.live.document;
   if (bridged !== undefined) {
     // The step that asked for a passkey is the answer's, so S5 skips its answered request
-    // and a move to the passkey's site completes (ADR 0029, ADR 0022).
+    // and a move to a quiet page of any site completes (ADR 0029, ADR 0022).
     rt.effects.set(tabId, {
       attemptId: run.metadata.id,
       at: bridged,

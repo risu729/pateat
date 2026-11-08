@@ -165,6 +165,42 @@ describe("a login in a frame, read on its own frame and its tab's pages (ADR 008
     expect(executes()).toHaveLength(2);
   });
 
+  it("completes a watched login past its password's 30 seconds on a page judged optional", async () => {
+    // The site asks for a code the person enters: the login settles and is watched.
+    fake.state.onExecute = (message) => {
+      if ((message["operation"] as { step: { kind: string } }).step.kind === "click")
+        fake.state.observed = ["missing", "missing"];
+      return Promise.resolve();
+    };
+    fake.state.signs = { ...quiet, code: true };
+    const service = generation(async () => ({ verdict: "optional" }));
+    const h = await framed({ generation: service });
+    await vi.waitFor(() => expect(record()).toMatchObject({ watch: {} }), { timeout: 8_000 });
+    fake.state.signs = quiet;
+    fake.state.observedPath = "/home";
+    fake.state.extracted = {
+      "signed-in": {
+        ok: true,
+        observation: {
+          version: 1,
+          origin: portal,
+          path: "/home",
+          language: "en",
+          complete: true,
+          candidates: [{ id: "c1", role: "button", target: target("later"), label: "Not now" }],
+        },
+      },
+    };
+    const now = Date.now.bind(Date);
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + 60_000);
+    onTestFinished(() => clock.mockRestore());
+    await replaced(h);
+    await vi.waitFor(() => expect(record()).toMatchObject({ state: "authenticated" }), {
+      timeout: 8_000,
+    });
+    expect(service.judge).toHaveBeenCalledTimes(1);
+  }, 15_000);
+
   it("counts a frame that does not answer within a second as still there", async () => {
     holdClicks();
     const h = await framed();

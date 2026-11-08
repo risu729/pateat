@@ -116,7 +116,10 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
    * submitting step followed (`submitted`), so a passkey answered after that is a second
    * factor rather than the sign-in itself (ADR 0022).
    */
-  const passwordFills = new Map<number, { attemptId: string; submitted: boolean }>();
+  const passwordFills = new Map<
+    number,
+    { attemptId: string; submitted: boolean; /** The last submitting step's time. */ at?: number }
+  >();
 
   /** By tab: the URL of the document the attempt's first fill ran in, for E3. */
   const signInUrls = new Map<number, { attemptId: string; url: string }>();
@@ -154,6 +157,12 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
    * submission or a second factor, while its new top page is read (ADR 0022).
    */
   const siteMoves = new Map<number, Promise<boolean>>();
+
+  /**
+   * By tab: frames of a moved attempt's new page refused while its top page decides the
+   * move (ADR 0022), asked to announce again once that page ended the attempt.
+   */
+  const movedFrames = new Map<number, { attemptId: string; frames: LoginDocument[] }>();
 
   /**
    * By attempt: the judgement of the page its tab moved to after a password submission
@@ -449,6 +458,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     siteMoves,
     moveJudgements,
     leftFrames,
+    movedFrames,
     parkedRequests,
     choicePasskeys,
     continuations,

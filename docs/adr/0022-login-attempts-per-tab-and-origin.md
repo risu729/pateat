@@ -514,8 +514,8 @@ factor of "A move to another site after a second factor", and the stop condition
 the page of any site that asks for a passkey:
 
 - **The credential step.** A top-level attempt's last credential step is the latest of:
-  its last effect step that does not ask for a passkey, once a submitting step followed
-  its fill of the item's password; a TOTP code it entered (a click on a code button, or
+  its last submitting step, other than one that asks for a passkey, after its fill of
+  the item's password; a TOTP code it entered (a click on a code button, or
   a code fill the page may submit by itself); and a passkey Pateat answered for the
   attempt's page after its last effect step. A page of another origin that holds the
   attempt for a passkey keeps the rule above: only an answer since its request counts,
@@ -531,12 +531,14 @@ the page of any site that asks for a passkey:
 - **Without a credential step.** A move within 30 seconds of a `password` login's other
   last effect step, as an identifier's Next, or a stop's (ADR 0036), keeps the old check
   on an HTTPS origin of the site: the account's username in the header or navigation, a
-  marker learned there, or one judgement. The judge's `optional` (ADR 0065) no longer
-  completes such a move, since only a step before the password or code leads there, and
-  the sign-in may still be ahead. A frame's watch keeps the same check.
+  marker learned there, or one judgement, with `optional` (ADR 0065) as before. A frame
+  login's watch past the 30 seconds keeps the same check.
 - **A page of any site that asks for a passkey** may hold any top-level attempt within
   30 seconds of its last effect step, not only one with a stop; its page is read for
-  that request as a stop's was.
+  that request as a stop's was. A frame of such a page that announces before the top
+  page decided is refused `tab-busy` as before, and is now asked to announce again once
+  the top page ended the attempt, so a sign-in form of the new site in a frame starts
+  its own login (Claude's addition, after review).
 
 Accepted risk, as for the return to the attempt's own origin in ADR 0036: a site that
 rejects the credential and sends the tab to a quiet page of any site within 30 seconds

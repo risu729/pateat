@@ -8,6 +8,7 @@ import {
 import { browser } from "wxt/browser";
 import type { ConditionalDecision } from "../../passkeys/runtime";
 import { newId } from "@pateat/contracts/ids";
+import { loginMoveFits } from "@pateat/contracts/site";
 import { recordFor } from "./hold";
 import { countSignIn } from "./relogin";
 import { terminal, idle } from "./attempt-state";
@@ -198,7 +199,9 @@ export async function signedInAfterFrame(
     live.moveMiss = "no-vault-match";
     return false;
   }
-  if (fits.credential) return quietMove(rt, live, fits.at);
+  // As for a top-level move, an HTTPS page of any site (`credentialMoveFits`).
+  if (fits.credential && loginMoveFits(record.document.origin, live.document.origin, true))
+    return quietMove(rt, live, fits.at);
   if (judging?.documentId === live.document.documentId)
     return (await judging.verdict) && stillLive();
   return signedInOnMovedPage(rt, record, live, fits.at);

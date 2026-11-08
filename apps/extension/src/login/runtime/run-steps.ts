@@ -575,8 +575,10 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
           fill?.attemptId === run.metadata.id &&
           loginStepEffect(operation.step) === "submit" &&
           !rt.effects.get(tabId)?.passkey
-        )
+        ) {
           fill.submitted = true;
+          fill.at = at;
+        }
       } else if (codeSubmit) {
         // The page may submit the code by itself once it is in (ADR 0027), and leave
         // before it answers, so the code counts from its delivery; the page the tab moves

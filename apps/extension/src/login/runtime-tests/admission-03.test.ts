@@ -606,6 +606,12 @@ describe("production login document admission", () => {
         outcome: "left-origin",
         submissions: 1,
       });
+      // The refused frame is asked to announce again.
+      expect(fake.state.reconnects).toContainEqual({
+        tabId: 1,
+        frameId: 3,
+        documentId: "second-frame",
+      });
       fake.state.signs = undefined;
       expect(await h.hello(secondFrame())).toEqual({ ok: true });
       await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
