@@ -68,7 +68,7 @@ create a second, empty owner. To move the owner to a new email:
 1. Add the new email to the Owner policy's Include, sign in with it and read
    `user_uuid` from `https://pateat.takuk.me/cdn-cgi/access/get-identity`; it is the
    token's `sub`. Do not pair with the new email before step 2.
-2. In one D1 batch, add the new identity to the existing owner and delete the old
+2. In D1, add the new identity to the existing owner, then delete the old
    identity's row:
 
    ```sql
