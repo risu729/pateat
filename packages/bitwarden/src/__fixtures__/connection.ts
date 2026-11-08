@@ -7,6 +7,7 @@ import {
   fidoCredential,
   legacyUsername,
   reencryptedCustomFieldCiphertexts,
+  totpCiphertext,
   uriCiphertexts,
 } from "./crypto";
 
@@ -21,7 +22,9 @@ export type CustomAccountVariant =
   /** The login also stores the synthetic FIDO2 credential for `synthetic.example.test`. */
   | "passkey"
   /** The login also stores the URI `https://synthetic.example.test/login` (default match). */
-  | "uri";
+  | "uri"
+  /** As `uri`, and the login also stores the TOTP key `bitwardenTotpSecret` (./totp). */
+  | "uri-totp";
 export function rawCustomAccount(
   variant: CustomAccountVariant = "unchanged",
   nowSeconds = accountNow,
@@ -44,12 +47,13 @@ export function rawCustomAccount(
       ? { ...cipher.login, password: legacyUsername }
       : variant === "passkey"
         ? { ...cipher.login, fido2Credentials: [fidoCredential] }
-        : variant === "uri"
+        : variant === "uri" || variant === "uri-totp"
           ? {
               ...cipher.login,
               uris: [
                 { uri: uriCiphertexts.uri, uriChecksum: uriCiphertexts.checksum, match: null },
               ],
+              ...(variant === "uri-totp" ? { totp: totpCiphertext } : {}),
             }
           : cipher.login;
   const data = JSON.parse(cipher.data) as Record<string, unknown>;
@@ -75,6 +79,7 @@ export function rawCustomAccount(
             password: login.password,
             fido2Credentials: login.fido2Credentials,
             uris: login.uris,
+            totp: login.totp,
           }),
         },
       ],

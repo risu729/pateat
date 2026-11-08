@@ -153,6 +153,11 @@ export const uriCiphertexts = {
     "2.AAECAwQFBgcICQoLDA0ODw==|VNsRO6s4lU+gJqwb1jVU6HkxkKscb8/+/HCcGZeMPOs=|ZBurW8nQVzrENMrvGkQV1nhYR6j/dSKEkyxi/U+bjYk=",
 } as const;
 
+// The login's TOTP key, `bitwardenTotpSecret` of ./totp, under the same user key and fixed
+// IV, made the same way with Node AES/HMAC.
+export const totpCiphertext =
+  "2.AAECAwQFBgcICQoLDA0ODw==|+SFVjlSK4cwly2Buhe0BVPgKGjAr8ViArAJZ2bk57wI=|gh/68ypUSA4NFZyjNkmdRH+XVR5vPfx/WMpdhEYD12E=";
+
 // Regex URI patterns and their checksums under the same user key and fixed IV, made the same
 // way with Node AES/HMAC (the method reproduces `uriCiphertexts.uri` exactly). The second
 // pattern backtracks catastrophically on a long run of "a" followed by another character.

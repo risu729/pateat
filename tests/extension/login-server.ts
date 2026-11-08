@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
+import { bitwardenTotpSecret } from "../../packages/bitwarden/src/__fixtures__/totp";
 import { credentialFailurePage } from "./credential-failure-fixture";
 
 type FixtureOutcome = "authenticated" | "credential-rejected" | "unknown";
@@ -15,6 +16,26 @@ type FixtureRun = {
   evidence: LoginPostEvidence;
   pending: (() => void)[];
 };
+
+/**
+ * The RFC 6238 codes (SHA-1, six digits, 30-second steps) of a Base32 TOTP key for the
+ * step before now and the next four, so a page served now still takes the code an
+ * authenticator shows when a login fills it a minute or two later.
+ */
+function totpCodes(secret: string, now = Date.now()): string[] {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const character of secret) bits += alphabet.indexOf(character).toString(2).padStart(5, "0");
+  const key = Buffer.from((bits.match(/.{8}/gu) ?? []).map((byte) => Number.parseInt(byte, 2)));
+  const step = Math.floor(now / 30_000);
+  return [-1, 0, 1, 2, 3, 4].map((offset) => {
+    const counter = Buffer.alloc(8);
+    counter.writeBigUInt64BE(BigInt(step + offset));
+    const digest = createHmac("sha1", key).update(counter).digest();
+    const at = digest[19]! & 0x0f;
+    return String((digest.readUInt32BE(at) & 0x7fffffff) % 1_000_000).padStart(6, "0");
+  });
+}
 
 function html(body: string, script = ""): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Synthetic login fixture</title></head><body>${body}<p id="fixture-status" aria-live="polite"></p><p>Close this tab and open /identity in a new tab to start another synthetic login.</p><script>
@@ -332,7 +353,9 @@ export async function startLoginFixture(
       // password?" button without one. Its submit signs in to /account with the
       // `accountName` option. With `?code` it instead swaps a two-factor view in, in place:
       // the email and password inputs go, and a code input marked `one-time-code` with the
-      // same `data-test` shows beside the same "Log in" button. Only that flag is read, and
+      // same `data-test` shows beside the same "Log in" button. Its submit signs in to
+      // /account with the current code of the synthetic vault item's TOTP key
+      // (`bitwardenTotpSecret`) and otherwise shows an error. Only that flag is read, and
       // the query is never written into the page.
       const code = fixtureUrl.searchParams.has("code");
       response.end(
@@ -368,6 +391,11 @@ export async function startLoginFixture(
             }, 300);`
                 : "location.href = '/account';"
             }
+          } else if (stage === 'code') {
+            const matched = ${JSON.stringify(code ? totpCodes(bitwardenTotpSecret) : [])}.includes(document.getElementById('code').value);
+            sessionStorage.setItem('codeMatched', String(matched));
+            if (matched) location.href = '/account';
+            else document.getElementById('extra').innerHTML = '<p role="alert">That code is not valid.</p>';
           }
         });`,
         ),
