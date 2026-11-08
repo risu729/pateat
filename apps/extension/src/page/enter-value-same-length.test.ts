@@ -27,6 +27,8 @@ const refusedRewrites = [
   ["input", "1234", "1243"],
   ["input", "pass", "past"],
   ["input", "abcd", "abdc"],
+  ["input", "1234", "••35"],
+  ["input", "is", "ıſ"],
   ["change", "1234", "1235"],
   ["blur", "1234", "4321"],
 ] as const;
@@ -41,8 +43,12 @@ const keptRewrites = [
   ["input", "ab1", "ＡＢ１"],
   ["input", "ａｂ", "AB"],
   ["input", "card", "c••D"],
+  ["input", "1234", "∗○◦4"],
+  ["input", "straße", "STRAẞE"],
   ["change", "ab1", "AB1"],
+  ["change", "ab1", "ＡＢ１"],
   ["blur", "pa55", "••••"],
+  ["blur", "ａｂ", "ab"],
 ] as const;
 
 describe("typing into a page that rewrites the value at the same length", () => {

@@ -113,11 +113,11 @@ function withInsertedSeparators(held: string, value: string): boolean {
 }
 
 /**
- * Characters a page writes in place of a typed one to hide it: the asterisk and its
- * full-width form, the bullets and the middle dots, including the Japanese and half-width
- * katakana ones.
+ * Characters a page writes in place of a typed one to hide it: the asterisks, including
+ * the full-width and mathematical ones, the bullets and circles, and the middle dots,
+ * including the Japanese and half-width katakana ones.
  */
-const maskSymbols = new Set(["*", "＊", "•", "●", "·", "∙", "・", "･"]);
+const maskSymbols = new Set(["*", "＊", "∗", "•", "●", "○", "◦", "·", "∙", "・", "･"]);
 
 /**
  * Whether `held` is `value` with characters at the same positions changed only in case,
@@ -134,12 +134,8 @@ function rewrittenInPlace(held: string, value: string): boolean {
     kept.length === typed.length &&
     kept.every((character, i) => {
       if (maskSymbols.has(character)) return true;
-      const narrow = widthFolded(character);
-      const original = widthFolded(typed[i]!);
-      return (
-        narrow.toLowerCase() === original.toLowerCase() ||
-        narrow.toUpperCase() === original.toUpperCase()
-      );
+      // Lower case only: `ı` and `i` share the upper case `I` but are different letters.
+      return widthFolded(character).toLowerCase() === widthFolded(typed[i]!).toLowerCase();
     })
   );
 }

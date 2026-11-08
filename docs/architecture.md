@@ -1103,9 +1103,10 @@ value of another length. Since 2026-10-13, when a bank's password field held one
 character fewer than the typed value with no event cancelled and the login was sent and
 rejected, the length is checked after every typing. A value of the same length is kept
 when no key was cancelled and each character only changed case or between full-width and
-half-width, or became a mask symbol (`*`, `＊`, `•`, `●`, `·`, `∙`, `・`, `･`), as a
-page that masks or upper-cases what is typed leaves it; any other substitution or
-reordering, such as `1234` into `1235`, is refused (owner, 2026-11-08 06:57 UTC,
+half-width, or became a mask symbol (`*`, `＊`, `∗`, `•`, `●`, `○`, `◦`, `·`, `∙`, `・`,
+`･`), as a page that masks or upper-cases what is typed leaves it; any other
+substitution or reordering, such as `1234` into `1235`, is refused (owner, 2026-11-08
+06:57 UTC,
 [ADR 0010 amendment](adr/0010-inference-field-hints.md#amendment-2026-11-08-same-length-rewrites-only-change-case-width-or-mask)).
 Since the owner's decision on 2026-11-07 at
 03:45 UTC, a value changed only by inserting ASCII spaces (U+0020) and hyphen-minus
