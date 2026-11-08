@@ -330,7 +330,11 @@ export async function startLoginFixture(
       // does (issue #1413). Every input carries the same `data-test` value, and so does its
       // one submit button, which reads "Continue" and then "Log in" beside a "Forgot
       // password?" button without one. Its submit signs in to /account with the
-      // `accountName` option. The query is never read.
+      // `accountName` option. With `?code` it instead swaps a two-factor view in, in place:
+      // the email and password inputs go, and a code input marked `one-time-code` with the
+      // same `data-test` shows beside the same "Log in" button. Only that flag is read, and
+      // the query is never written into the page.
+      const code = fixtureUrl.searchParams.has("code");
       response.end(
         html(
           `<h1>Log in</h1><form id="sign-in-form" novalidate><label><input id="email" name="email" autocomplete="username" inputmode="email" aria-label="Email" placeholder="Email" data-test="input__inner"></label><div id="password-slot"></div><button data-test="button" type="submit">Continue</button><div id="extra"></div></form>`,
@@ -353,7 +357,17 @@ export async function startLoginFixture(
           } else if (stage === 'password') {
             sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
             sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
-            location.href = '/account';
+            ${
+              code
+                ? `updateFixtureStatus();
+            setTimeout(() => {
+              email.closest('label').remove();
+              document.getElementById('password-slot').innerHTML = '<p>Enter the 6-digit code from the authenticator app.</p><label><input id="code" name="code" autocomplete="one-time-code" inputmode="numeric" aria-label="Code" placeholder="6-digit code" data-test="input__inner"></label>';
+              document.getElementById('extra').innerHTML = '<button type="button">Enter a recovery code instead</button>';
+              stage = 'code';
+            }, 300);`
+                : "location.href = '/account';"
+            }
           }
         });`,
         ),

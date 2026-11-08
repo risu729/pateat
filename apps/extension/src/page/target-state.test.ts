@@ -106,6 +106,20 @@ describe("targetState", () => {
     expect(targetCheck(document, at, "settable")).toBe("not-writable");
   });
 
+  it("never takes a code input for a sign-in field, as the identifier's locator finding it (issue #1413)", () => {
+    // JetBrains Account swaps its two-factor view in, in place: the code input carries the
+    // `data-test` the email input had, so the identifier's locator now finds it alone.
+    const field = { by: "data-test", value: "input__inner" } as const;
+    page(`<form><input id="code" name="code" autocomplete="one-time-code" inputmode="numeric"
+      data-test="input__inner"><button data-test="button">Log in</button></form>`);
+    expect(targetState(document, field, "input")).toBe("unusable");
+    expect(targetState(document, field, "shown-input")).toBe("unusable");
+    expect(targetState(document, field, "writable")).toBe("unique");
+    page(`<form><input id="email" autocomplete="username" data-test="input__inner"></form>`);
+    expect(targetState(document, field, "input")).toBe("unique");
+    expect(targetState(document, field, "shown-input")).toBe("unique");
+  });
+
   it("names the check that decided each state, as codes", () => {
     const check = (html: string, require: TargetRequirement = "described-writable") => {
       page(html);

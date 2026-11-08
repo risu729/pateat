@@ -31,9 +31,10 @@ export const targetStateSchema = v.picklist(["missing", "unique", "ambiguous", "
 export type TargetState = v.InferOutput<typeof targetStateSchema>;
 /**
  * What a target's one element must be to count as `unique`: a shown writable input, a
- * shown enabled button, any shown element, an input of a kind Pateat fills (`input`, shown
- * or not) or such an input shown (`shown-input`), so another page's element with the same
- * locator is never taken for a sign-in field; `present` takes any element. With
+ * shown enabled button, any shown element, an input of a kind Pateat fills other than one
+ * marked `one-time-code` (`input`, shown or not) or such an input shown (`shown-input`),
+ * so another page's element with the same locator, as a code input, is never taken for a
+ * sign-in field; `present` takes any element. With
  * `described-writable` and `described-clickable`, the writable input or the clickable button
  * must also be visible as the page's description reads it: not hidden from assistive
  * technology, transparent unless it fades in, tiny or moved before the page's start

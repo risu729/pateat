@@ -1762,18 +1762,20 @@ path is judged again when a page of it is described in full (ADR 0029). A path k
 field that was not yet drawn when it was first judged (ADR 0029 amendment of
 2026-11-06). A page where a route's sign-in field shows (S1), on any path, is not sent;
 only an input of a kind Pateat fills counts as that field, never another element its
-locator names on another page, while the passkey route's button counts as shown. A
-handler's click is a new effect step. A `challenge` verdict that added a handler hands
-back the newer revision: the attempt takes it over (`REVISED`) when it only adds
-handlers or signed-in markers, and runs the handler on the page it is on. A resumed
-attempt accepts a newer cached revision on the same terms only while the worker still
-holds its recorded revision; after a worker restart only the recorded revision resumes.
-A resumed attempt that its cached recipe no longer runs (a revision that replaced its
-own, any other one after a restart, or a recipe or layout the cache no longer holds)
-ends on the page that resumes it, `blocked` `policy-changed` with cause
-`recipe-changed`; that page is refused `recipe-not-found` and nothing is filled there. A
-lookup that could not read the pairing or the recipe cache leaves the attempt to resume
-(owner, 2026-10-23). Later pages of the tab treat it as any login stopped
+locator names on another page nor an input marked `one-time-code`, as the code input
+JetBrains Account swaps in with the email input's test attribute
+([issue #1413](https://github.com/risu729/pateat/issues/1413)), while the passkey
+route's button counts as shown. A handler's click is a new effect step. A `challenge`
+verdict that added a handler hands back the newer revision: the attempt takes it over
+(`REVISED`) when it only adds handlers or signed-in markers, and runs the handler on the
+page it is on. A resumed attempt accepts a newer cached revision on the same terms only
+while the worker still holds its recorded revision; after a worker restart only the
+recorded revision resumes. A resumed attempt that its cached recipe no longer runs (a
+revision that replaced its own, any other one after a restart, or a recipe or layout the
+cache no longer holds) ends on the page that resumes it, `blocked` `policy-changed` with
+cause `recipe-changed`; that page is refused `recipe-not-found` and nothing is filled
+there. A lookup that could not read the pairing or the recipe cache leaves the attempt
+to resume (owner, 2026-10-23). Later pages of the tab treat it as any login stopped
 `policy-changed`: one that submitted is resumed while it holds the site for 5 minutes
 (ADR 0022, owner 2026-10-24), and then the tab's next page that shows a recipe's first
 step asks and only fills (ADR 0021 D); one that submitted nothing lets the tab's next

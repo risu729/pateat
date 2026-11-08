@@ -147,7 +147,12 @@ then answered 04:51 and 04:54 UTC):
 - **Signs that authentication goes on**, read from the top document, in any language:
   - S1: one of the recipe's sign-in fields is visible. Only an input of a kind Pateat
     fills counts as a field: on 2026-10-12 Wise's signed-in page gave the password
-    field's React ID to an empty `div`, which was read as the field. The passkey route's
+    field's React ID to an empty `div`, which was read as the field. Nor does an input
+    marked `autocomplete="one-time-code"` (2026-11-08, agent fix, not an owner
+    decision): JetBrains Account swaps its code input in, in place, with the `data-test`
+    the email input had, so the email field's locator found it alone and the code page
+    read as the sign-in form
+    ([issue #1413](https://github.com/risu729/pateat/issues/1413)). The passkey route's
     button counts when visible, as before.
   - S2: a visible password field, except one with `autocomplete="new-password"` and the
     password fields of a form with two or more of them (a password change or
