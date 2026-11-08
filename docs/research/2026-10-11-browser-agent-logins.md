@@ -9,7 +9,8 @@ the existing solutions. It is the research that the
 [Phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up) item on agents with their
 own cloud computer asks for first. It is not a decision and grants no capability.
 Later dated observations (Grok Bot on 2026-10-12, a dot's cloud browser on 2026-10-30
-and 2026-11-04) were added below and say so where they appear.
+and 2026-11-04, 1Password for Agents on 2026-11-08) were added below and say so where
+they appear.
 
 ## The agents
 
@@ -66,6 +67,7 @@ All of them keep the password out of the agent's chat:
 | ChatGPT **Save to Passwords** | A login saved in ChatGPT and reused after confirmation ([dots](https://learn.chatgpt.com/docs/dots/computers-and-apps)) | Storage details are not documented on that page |
 | The user's logged-in browser | Claude in Chrome or ChatGPT's `@Chrome` use the profile's existing cookies | A prompt injection can act on every site with a session |
 | 1Password for Claude | Claude requests a login, the person approves on their device, the 1Password extension fills and submits, and Claude "only knows which login it used" ([1Password support](https://support.1password.com/1password-claude/)) | Launched July 2026 with approval on each fill ([Flavio Copes](https://flaviocopes.com/ai-agent-passwords/)); Mac, Claude desktop app and Claude in Chrome only; no passkeys; while Agentic Mode is on, the 1Password extension and inline autofill are blocked |
+| 1Password for Agents (added 2026-11-08) | Announced 2026-10-22; the person approves a login item once and the agent may reuse it for up to 30 days | See [automatic login products](2026-11-08-auto-login-products.md#1password-for-agents) |
 | 1Password with Browserbase | The 1Password extension inside Browserbase's cloud browser, approval on the person's device | Early access since October 2025 ([Flavio Copes](https://flaviocopes.com/ai-agent-passwords/)) |
 | Bitwarden Agent Access SDK | An approved item is injected into the agent's process as environment variables, not into the model | Early alpha; pairing and approval in a CLI ([Flavio Copes](https://flaviocopes.com/ai-agent-passwords/)) |
 
@@ -96,11 +98,13 @@ machine.
 
 Differences from 1Password for Claude that matter here:
 
-- **No per-login approval.** 1Password asks on the person's device for every fill;
-  Pateat logs in automatically on every site with a recipe that eligibility and site
-  exclusions allow. A prompt-injected agent that opens such a site gets a signed-in
-  session, as with the cookies a logged-in browser already has. ADR 0024's later
-  per-device profiles are where narrower site lists for agent browsers are planned.
+- **No per-login approval.** 1Password for Claude asks on the person's device for every
+  fill; 1Password for Agents (added 2026-11-08) asks once per item and reuses the
+  approval for up to 30 days. Pateat logs in automatically on every site with a recipe
+  that eligibility and site exclusions allow. A prompt-injected agent that opens such a
+  site gets a signed-in session, as with the cookies a logged-in browser already has.
+  ADR 0024's later per-device profiles are where narrower site lists for agent browsers
+  are planned.
 - **The agent may read filled values.** 1Password has Claude pause reading the page
   until the fill finishes. A value Pateat fills is readable by the page and potentially
   its debugger ([architecture](../architecture.md#components-and-trust-boundaries)).
