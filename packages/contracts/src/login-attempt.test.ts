@@ -4150,6 +4150,13 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
       state: "ready",
       route: "password",
     });
+    // A settled one, watched, only reads its later pages (owner, 2026-11-08).
+    const settled = transitionLoginAttempt(unstopped, {
+      type: "OBSERVED",
+      result: "unknown",
+    });
+    expect(settled).toMatchObject({ state: "reconciling", settled: true });
+    expect(transitionLoginAttempt(settled, toPassword)).toMatchObject({ route: "passkey" });
   });
 
   describe("a stop just past the plan's last step", () => {
