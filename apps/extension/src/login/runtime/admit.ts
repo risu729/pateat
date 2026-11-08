@@ -644,10 +644,10 @@ export async function admit(
         ending = false;
         // The frame announces again once the top page ended the attempt, as a sign-in form
         // of the new site in a frame then starts its own login.
-        const waiting = rt.movedFrames.get(ctx.document.tabId);
+        const refused = rt.movedFrames.get(ctx.document.tabId);
         const frames =
-          waiting?.attemptId === holder.id
-            ? waiting.frames.filter((frame) => frame.documentId !== ctx.document.documentId)
+          refused?.attemptId === holder.id
+            ? refused.frames.filter((frame) => frame.documentId !== ctx.document.documentId)
             : [];
         rt.movedFrames.set(ctx.document.tabId, {
           attemptId: holder.id,
@@ -716,10 +716,10 @@ export async function admit(
         { ...ctx.document, frameId: 0, origin: ctx.siteOrigin },
         signedIn,
       );
-      const waiting = rt.movedFrames.get(ctx.document.tabId);
-      if (ctx.document.frameId === 0 && waiting?.attemptId === holder.id) {
+      const refused = rt.movedFrames.get(ctx.document.tabId);
+      if (ctx.document.frameId === 0 && refused?.attemptId === holder.id) {
         rt.movedFrames.delete(ctx.document.tabId);
-        for (const frame of waiting.frames)
+        for (const frame of refused.frames)
           void browser.tabs
             .sendMessage(
               ctx.document.tabId,
