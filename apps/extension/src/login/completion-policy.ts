@@ -21,36 +21,33 @@ const UNDECIDED_COMPLETES = new Set([
 ]);
 
 /**
- * Whether an undecided page can complete, pending a fresh reading after the judge. An
- * optional page after the sign-in (ADR 0065) completes, watched or not, only on the
- * `password` route once this attempt sent the account's credential (`sent`), without a
- * stop before a missing password, with no radio button, select or text area left out of
- * its description (`inputLeftOut`), and while the page shows no sign and no evidence.
+ * Whether an undecided page can complete, pending a fresh reading after the judge. Either
+ * kind completes only once this attempt's credential went back (`sent`): a password or code
+ * it typed and submitted, or Pateat's answer to its step's passkey request, whatever the
+ * route (owner, 2026-11-08 02:58 UTC: no rule split by sign-in method), since a quiet page
+ * before it may be the sign-in page still; an `unclear` page on a path judged signed in
+ * before needs none. An `unclear` page completes while the login is
+ * not watched and the judge's reason allows it (ADR 0029). An optional page after the
+ * sign-in (ADR 0065) completes watched or not, with no radio button, select or text area
+ * left out of its description (`inputLeftOut`). Neither completes before a stop at a missing
+ * password, and both need a page that shows no sign and no evidence.
  */
 export function undecidedCandidate({
   verdict,
   reason,
   reading,
   watched,
-  route,
   stopAt,
   sent = false,
   inputLeftOut = false,
-  answered = false,
 }: {
   verdict: JudgeVerdict;
   reason?: string | undefined;
   reading?: Reading | undefined;
   watched: boolean;
-  route: LoginRoute;
   stopAt?: number | undefined;
   sent?: boolean;
   inputLeftOut?: boolean;
-  /**
-   * On the passkey route: whether Pateat's answer to the passkey request of its step went
-   * back, without which an undecided page never completes it.
-   */
-  answered?: boolean;
 }): { completes: boolean; stopHeld: boolean } {
   const optional = verdict === "optional";
   const undecided = verdict === "unclear";
@@ -58,21 +55,16 @@ export function undecidedCandidate({
   // (ADR 0036), including a path it found signed in before; an optional page does not
   // count (ADR 0065).
   const stopHeld = (undecided || optional) && stopAt !== undefined && reason !== "judged-signed-in";
-  const quiet = reading?.confirmed === true && reading.decision === "judge";
-  if (optional)
-    return {
-      completes: quiet && sent && route !== "passkey" && !inputLeftOut && !stopHeld,
-      stopHeld,
-    };
-  // The `passkey` route completes as the `password` route does (owner, 2026-10-24 22:45
-  // UTC, ADR 0029 amendment of 2026-10-24).
+  const quiet = reading?.confirmed === true && reading.decision === "judge" && !stopHeld;
+  if (optional) return { completes: quiet && sent && !inputLeftOut, stopHeld };
+  // A path the judge found signed in before needs no credential of this attempt, as at a
+  // stop (ADR 0036): the site may sign the person in after the identifier alone.
   const completes =
     undecided &&
     quiet &&
     !watched &&
-    (route !== "passkey" || answered) &&
-    UNDECIDED_COMPLETES.has(reason) &&
-    !stopHeld;
+    (sent || reason === "judged-signed-in") &&
+    UNDECIDED_COMPLETES.has(reason);
   return { completes, stopHeld };
 }
 

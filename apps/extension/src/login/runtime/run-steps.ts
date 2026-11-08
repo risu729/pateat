@@ -552,9 +552,12 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
           (run.metadata.route === "passkey" && ownHandler === undefined) ||
           (ownHandler !== undefined && run.recipe.handlers?.[ownHandler]?.kind === "passkey");
         const before = rt.effects.get(tabId);
+        // Only a handler's later steps keep the request of the step before them: a route
+        // change, as a fall-back to the password after a passkey answer the site refused,
+        // starts without one.
         const requestAt = request
           ? at
-          : before?.attemptId === run.metadata.id
+          : ownHandler !== undefined && before?.attemptId === run.metadata.id
             ? before.requestAt
             : undefined;
         rt.effects.set(tabId, {

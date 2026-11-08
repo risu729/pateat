@@ -24,7 +24,7 @@ import {
 import {
   credentialMoveFits,
   quietMove,
-  passwordMoveFits,
+  stepMoveFits,
   moveUsername,
   judgeMove,
   requestMoveFits,
@@ -124,7 +124,7 @@ export function retryAfterPasskey(rt: Runtime, live: LiveDocument, answeredAt: n
  * last effect step, as an identifier's Next, a quiet page of another origin of the site
  * completes it once it shows the account's username in its header or navigation (ADR
  * 0029: E2), or a signed-in marker learned on its origin, or is judged `signed-in` once
- * (`passwordMoveFits`, `judgeMove`); a login that stops before its item's missing password
+ * (`stepMoveFits`, `judgeMove`); a login that stops before its item's missing password
  * skips the username (ADR 0036). Any other page soon after the last effect step is only
  * read for a passkey request, which holds the login. Pateat fills and clicks nothing there.
  */
@@ -146,7 +146,7 @@ export async function signedInByMove(
   const judging = rt.moveJudgements.get(record.id);
   if (judging?.documentId === live.document.documentId)
     return (await judging.verdict) && stillLive();
-  const effect = passwordMoveFits(rt, record, tabId, origin);
+  const effect = stepMoveFits(rt, record, tabId, origin);
   if (!effect) {
     // A login moved to a page of any site soon after its last step is read as any moved
     // page is, so a passkey request there holds it (`passkeyPageFits`).
@@ -208,7 +208,7 @@ export async function signedInAfterFrame(
 }
 
 /**
- * Reads `live`, the page a `password` login's tab moved to after the step at `since`, for
+ * Reads `live`, the page a login's tab moved to after the step at `since`, for
  * the login's result (ADR 0022): quiet and showing the account's username, or else judged
  * `signed-in` once (`judgeMove`). A login that stops before its item's missing password
  * skips the username (ADR 0036).

@@ -542,8 +542,8 @@ export type LoginReport = (
        */
       notCompleted?: "disabled-left-out" | "password-empty";
       /**
-       * The page is on another origin, which a `password` login's tab moved to right after
-       * the submission or a second factor (ADR 0022); `origin` is that page's.
+       * The page is on another origin, which a login's tab moved to right after one of its
+       * steps, on any route (ADR 0022); `origin` is that page's.
        */
       moved?: true;
       /**

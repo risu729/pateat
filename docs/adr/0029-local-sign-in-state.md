@@ -100,6 +100,10 @@ Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (ow
 13:06 UTC; implemented): a login in a frame is read in its frame's document, and the
 first new document of that frame after a password submission counts as `reshown`.
 
+Amended on 2026-11-08 (owner, 02:58 UTC: no rule split by sign-in method): an undecided
+page completes either route only once the attempt's credential went back; see
+[the amendment below](#amendment-an-undecided-page-completes-only-after-the-credential-2026-11-08).
+
 Date: 2026-10-12
 
 ## Context
@@ -918,3 +922,18 @@ those rules reads otherwise is judged again once, as for other inputs; pages the
 does not touch keep their answer. Every row kept before this change holds a digest of
 the older form, so each page kept `challenge` is judged again once, within the recipe's
 20 judgements a day.
+
+## Amendment: an undecided page completes only after the credential (2026-11-08)
+
+Owner, 2026-11-08 at 02:58 UTC,
+「同様に意味もなく認証方法で分けてあるのをすべて直して」. The amendment of 2026-10-24
+let an undecided answer complete the `passkey` route only once Pateat's answer to its
+step's passkey request went back, "since a quiet page before it may be the sign-in page
+still". That reason holds on the `password` route too, where an undecided page completed
+even after an identifier's Next alone. One rule now applies to both routes, and to
+`optional` pages (ADR 0065): an undecided or optional answer completes the login only
+once this attempt's credential went back, meaning a password or TOTP code it submitted
+(as ADR 0065 already counted it) or Pateat's answer to its step's passkey request. A
+path the judge found signed in before (`judged-signed-in`) needs none, as at a stop (ADR
+0036), since the site may sign the person in after the identifier alone. Before the
+credential, such a page settles as `unknown-submit`, as an undecided passkey page did.

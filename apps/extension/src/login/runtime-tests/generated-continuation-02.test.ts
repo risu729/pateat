@@ -882,38 +882,43 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       // Signed in, not the yellow mark of an unconfirmed sign-in.
       expect(status()![0]!["unconfirmed"]).toBeUndefined();
     });
-    it("does not complete on an optional page before the password was sent", async () => {
-      // The identifier's button submits; the page after it offers a passkey or the password.
-      const identifierOnly = parseLoginRecipe({
-        ...emailFirst,
-        steps: [
-          emailFirst.steps[0]!,
-          { kind: "click", path: "/signin", target: target("next"), purpose: "submit" },
-        ],
-      });
-      const choicePage = describedPage("/options", [
-        { id: "c1", role: "button", target: target("use-passkey"), label: "Use a passkey" },
-        { id: "c2", role: "button", target: target("use-password"), label: "Use your password" },
-      ]);
-      fake.state.onExecute = async (message) => {
-        const step = (
-          message["operation"] as { step: { kind: string; target?: { value: string } } }
-        ).step;
-        if (step.kind !== "click" || step.target?.value !== "next") return;
-        fake.state.observedPath = "/options";
-        fake.state.present = new Set(["use-passkey", "use-password"]);
-        fake.state.extracted = { "signed-in": choicePage };
-        fake.state.signs = noSigns;
-      };
-      const service = generation(undefined, async () => ({ verdict: "optional" }));
-      const h = start(service, { recipe: identifierOnly });
-      expect(await h.hello()).toEqual({ ok: true });
-      await until(() => service.judge.mock.calls.length === 1);
-      await vi.advanceTimersByTimeAsync(20_000);
-      expect(executed()).toEqual(["fill:email", "click:next"]);
-      // Not known to be signed in: it settles as an undecided page that does not complete.
-      expect(status()![0]).toMatchObject({ state: "reconciling", outcome: "unknown-submit" });
-    });
+    // Not known to be signed in: it settles as an undecided page that does not complete, and
+    // so does a page the judge cannot decide on, as on the passkey route before its answer
+    // (owner, 2026-11-08).
+    it.each(["optional", "unclear"] as const)(
+      "does not complete on an %s page before the password was sent",
+      async (verdict) => {
+        // The identifier's button submits; the page after it offers a passkey or the password.
+        const identifierOnly = parseLoginRecipe({
+          ...emailFirst,
+          steps: [
+            emailFirst.steps[0]!,
+            { kind: "click", path: "/signin", target: target("next"), purpose: "submit" },
+          ],
+        });
+        const choicePage = describedPage("/options", [
+          { id: "c1", role: "button", target: target("use-passkey"), label: "Use a passkey" },
+          { id: "c2", role: "button", target: target("use-password"), label: "Use your password" },
+        ]);
+        fake.state.onExecute = async (message) => {
+          const step = (
+            message["operation"] as { step: { kind: string; target?: { value: string } } }
+          ).step;
+          if (step.kind !== "click" || step.target?.value !== "next") return;
+          fake.state.observedPath = "/options";
+          fake.state.present = new Set(["use-passkey", "use-password"]);
+          fake.state.extracted = { "signed-in": choicePage };
+          fake.state.signs = noSigns;
+        };
+        const service = generation(undefined, async () => ({ verdict }));
+        const h = start(service, { recipe: identifierOnly });
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => service.judge.mock.calls.length === 1);
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(executed()).toEqual(["fill:email", "click:next"]);
+        expect(status()![0]).toMatchObject({ state: "reconciling", outcome: "unknown-submit" });
+      },
+    );
     it("fails closed as a challenge when its description left out a choice", async () => {
       checkup();
       const service = generation(undefined, async () => ({ verdict: "optional" }));

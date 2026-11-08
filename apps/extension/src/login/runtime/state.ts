@@ -102,8 +102,8 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       request: boolean;
       /**
        * When this attempt's latest step that asked for a passkey was delivered, kept by the
-       * later steps of a handler after it, which Pateat's answer must follow for an undecided
-       * page of the `passkey` route to complete it.
+       * later steps of a handler after it, which Pateat's answer must follow to count as the
+       * attempt's sent credential (ADR 0029, ADR 0065, amended 2026-11-08).
        */
       requestAt?: number;
       next?: string;

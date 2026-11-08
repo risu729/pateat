@@ -414,16 +414,16 @@ the plan check's code (such as `incompatible-role`).
   `{ version: 1, revision, route, observation, partial?, stop? }` for a page an effect
   step of that revision led to, on the recipe's origin
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)) or on another HTTPS
-  origin that a `password` login's tab moved to: of its registrable domain, or, right
-  after a second factor (a TOTP code, or a passkey answered after the password), of any
-  site; the service cannot see the second factor, so the extension decides when to send
-  such a page ([ADR 0022](../../docs/adr/0022-login-attempts-per-tab-and-origin.md); an
-  origin that is not HTTPS or is a bare public suffix, or another origin on another
-  route, answers 400). On that other origin the recipe's paths are not compared with the
-  page, only markers learned there count, a `signed-in` marker is stored with that
-  `origin` (or, when it cannot be learned, the answer is still `signed-in`), and a
-  `challenge` adds no handler. `partial: true` says the description left out a disabled
-  field that may not be a sign-in field
+  origin that a login's tab moved to, on any route the stored recipe has: of its
+  registrable domain, or, right after a credential step (a password, a TOTP code or a
+  passkey answer), of any site; the service cannot see that step, so the extension
+  decides when to send such a page
+  ([ADR 0022](../../docs/adr/0022-login-attempts-per-tab-and-origin.md); an origin that
+  is not HTTPS or is a bare public suffix answers 400). On that other origin the
+  recipe's paths are not compared with the page, only markers learned there count, a
+  `signed-in` marker is stored with that `origin` (or, when it cannot be learned, the
+  answer is still `signed-in`), and a `challenge` adds no handler. `partial: true` says
+  the description left out a disabled field that may not be a sign-in field
   ([ADR 0029](../../docs/adr/0029-local-sign-in-state.md)). Another revision, or a route
   the stored recipe lacks, answers `recipe-conflict`. The request never names a
   `password` variant. On the `passkey` route, a page that shows a fill field of any
@@ -436,32 +436,32 @@ the plan check's code (such as `incompatible-role`).
   (`stepElements`). A `signed-in` marker passes `addCompletion` and is stored as
   `completion` in the next revision; one it refuses only for the marker (such as one of
   the recipe's own elements, a fifth marker or one it has) answers `signed-in` without a
-  change. A `challenge` verdict that names a security-key or
-  passkey button passes `addHandler` (a button of the page, not one that registers,
-  adds, sets up, turns on or manages a passkey, not a step, switch, rejection or
-  completion target, one handler per kind and path) and is stored as a `passkey` handler
-  in the next revision. A `challenge` verdict that names a code the page does not say
-  was sent to the person or comes from another source (from an authenticator app, or
-  with no source said; ADR 0027, 2026-10-13), in the only input of its form the TOTP
-  fill rule accepts (not limited below 6 characters) with a button of that form, passes
-  `addHandler` too (a field and button of the page, the field not one a route fills or
-  another handler's, the button not a field the route fills, the `passkey` route's
-  button, a switch, rejection, completion or other handler target) and is stored as a
-  `totp` handler; a code sent to the person or from another source stores nothing. Both
-  handlers of one page land in the same next revision, and the answer carries it as
-  `change`. The kept and dropped handler kinds, with the reason a handler was dropped,
-  are logged without elements or values. A code the model named but the judge's own
-  checks refused (its source or the TOTP fill rule, before `addHandler`) is logged the
-  same way, and its request log's result carries why as `totpDropped`: its source when
-  the page says it was sent to the person or names another source (`source-sms`,
-  `source-email`, `source-other`), `unknown-field` or `unknown-submit` for an ID that is
-  no element of the page, or `not-input`, `text-locator`, `not-code-field`,
-  `code-too-short`, `several-code-fields`, `submit-not-button`, `submit-other-form` or
-  `href-locator` (an element located by a link's path, which only a marker may be). A
-  `signed-in` answer on a page that still shows the login's elements (an element a step
-  or handler uses on that path, such as a `totp` handler's code field or button, a field
-  any step fills, or the rejection) fails `addCompletion` as `login-page`, whatever the
-  marker: the call answers `invalid-output` and the path keeps `challenge`.
+  change. A `challenge` verdict that names a security-key or passkey button passes
+  `addHandler` (a button of the page, not one that registers, adds, sets up, turns on or
+  manages a passkey, not a step, switch, rejection or completion target, one handler per
+  kind and path) and is stored as a `passkey` handler in the next revision. A
+  `challenge` verdict that names a code the page does not say was sent to the person or
+  comes from another source (from an authenticator app, or with no source said; ADR
+  0027, 2026-10-13), in the only input of its form the TOTP fill rule accepts (not
+  limited below 6 characters) with a button of that form, passes `addHandler` too (a
+  field and button of the page, the field not one a route fills or another handler's,
+  the button not a field the route fills, the `passkey` route's button, a switch,
+  rejection, completion or other handler target) and is stored as a `totp` handler; a
+  code sent to the person or from another source stores nothing. Both handlers of one
+  page land in the same next revision, and the answer carries it as `change`. The kept
+  and dropped handler kinds, with the reason a handler was dropped, are logged without
+  elements or values. A code the model named but the judge's own checks refused (its
+  source or the TOTP fill rule, before `addHandler`) is logged the same way, and its
+  request log's result carries why as `totpDropped`: its source when the page says it
+  was sent to the person or names another source (`source-sms`, `source-email`,
+  `source-other`), `unknown-field` or `unknown-submit` for an ID that is no element of
+  the page, or `not-input`, `text-locator`, `not-code-field`, `code-too-short`,
+  `several-code-fields`, `submit-not-button`, `submit-other-form` or `href-locator` (an
+  element located by a link's path, which only a marker may be). A `signed-in` answer on
+  a page that still shows the login's elements (an element a step or handler uses on
+  that path, such as a `totp` handler's code field or button, a field any step fills, or
+  the rejection) fails `addCompletion` as `login-page`, whatever the marker: the call
+  answers `invalid-output` and the path keeps `challenge`.
 - `stop: true` (only with the `password` route and a `branch` that names no chooser
   branch) marks the page of a
   `password` login's stop before its item's missing password

@@ -3580,7 +3580,7 @@ describe("page judgement (ADR 0027)", () => {
       expect(await head(device, change.recipeId)).toBe(2);
     });
 
-    it("judges it only for a password login", async () => {
+    it("judges it on a route the stored recipe has, whatever the route (owner, 2026-11-08)", async () => {
       const device = await owner();
       const change = await twoPageRecipe(device);
       const calls = sent.length;
@@ -3591,7 +3591,12 @@ describe("page judgement (ADR 0027)", () => {
         route: "passkey",
         observation: movedHome,
       });
-      expect(response.status).toBe(400);
+      // This recipe has no passkey route: a conflict, as on its own origin.
+      expect(await response.json()).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "recipe-conflict",
+      });
       expect(sent).toHaveLength(calls);
     });
 
@@ -3633,7 +3638,7 @@ describe("page judgement (ADR 0027)", () => {
         },
       });
       const calls = sent.length;
-      // Only over HTTPS, and only for the password route.
+      // Only over HTTPS.
       expect(
         (
           await complete(device, change.recipeId, 3, {
@@ -3642,14 +3647,6 @@ describe("page judgement (ADR 0027)", () => {
           })
         ).status,
       ).toBe(400);
-      const passkey = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
-        version: 1,
-        slots: [],
-        revision: 3,
-        route: "passkey",
-        observation: portalHome,
-      });
-      expect(passkey.status).toBe(400);
       expect(sent).toHaveLength(calls);
     });
 
@@ -5680,6 +5677,15 @@ describe("the passkey route (ADR 0027)", () => {
       route: "passkey",
       loginPaths: ["/login", "/password"],
     });
+    // A page of another origin of the site the tab moved to is judged on this route too,
+    // as on the password route (ADR 0022, owner 2026-11-08).
+    replies.push({ text: JSON.stringify({ result: { decision: "unclear" } }) });
+    expect(
+      await judge(device, recipeId, revision, {
+        ...homePage,
+        origin: "https://www.example.test",
+      }),
+    ).toMatchObject({ status: "unclear" });
   });
 
   it("ignores a passkey button on a continued page", async () => {

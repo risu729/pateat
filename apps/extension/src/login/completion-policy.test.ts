@@ -1,3 +1,4 @@
+import type { LoginRoute } from "@pateat/contracts";
 import { describe, expect, it } from "vitest";
 import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "./completion-policy";
 import type { SignInDecision } from "./sign-in-state";
@@ -6,7 +7,7 @@ const candidate = {
   verdict: "unclear",
   reading: { decision: "judge", confirmed: true },
   watched: false,
-  route: "password",
+  sent: true,
 } as const;
 
 describe("undecidedCandidate", () => {
@@ -70,14 +71,10 @@ describe("undecidedCandidate", () => {
       completes: false,
       stopHeld: false,
     });
-    // The passkey route completes as the password route does (owner, 2026-10-24), once
-    // Pateat's answer to its step's passkey request went back.
-    expect(undecidedCandidate({ ...candidate, reason, route: "passkey", answered: true })).toEqual({
-      completes: true,
-      stopHeld: false,
-    });
-    expect(undecidedCandidate({ ...candidate, reason, route: "passkey" })).toEqual({
-      completes: false,
+    // Before the credential went back (a password or code, or Pateat's passkey answer, on
+    // any route: owner, 2026-11-08), only a path judged signed in before completes.
+    expect(undecidedCandidate({ ...candidate, reason, sent: false })).toEqual({
+      completes: reason === "judged-signed-in",
       stopHeld: false,
     });
     expect(
@@ -116,9 +113,9 @@ describe("undecidedCandidate", () => {
 });
 
 describe("an optional page after the sign-in (ADR 0065)", () => {
-  const optional = { ...candidate, verdict: "optional", sent: true } as const;
+  const optional = { ...candidate, verdict: "optional", route: "password" } as const;
   const outcome = (
-    change: Partial<Parameters<typeof undecidedCandidate>[0]>,
+    change: Partial<Parameters<typeof undecidedCandidate>[0] & { route: LoginRoute }>,
     again: { decision: SignInDecision; loaded: boolean; path: string } = {
       decision: "judge",
       loaded: true,
@@ -136,9 +133,8 @@ describe("an optional page after the sign-in (ADR 0065)", () => {
       expect(outcome(change)).toEqual({ result: "authenticated", confirmed: true });
   });
 
-  it("never completes on the passkey route, even after a handler sent a second factor", () => {
-    expect(undecidedCandidate({ ...optional, route: "passkey" }).completes).toBe(false);
-    expect(outcome({ route: "passkey" })).toEqual({ result: "challenge", confirmed: false });
+  it("completes on the passkey route as on the password route, once its answer went back", () => {
+    expect(outcome({ route: "passkey" })).toEqual({ result: "authenticated", confirmed: true });
   });
 
   it("fails closed when a radio button, select or text area was left out", () => {

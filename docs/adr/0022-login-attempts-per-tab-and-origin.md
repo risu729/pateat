@@ -528,11 +528,14 @@ the page of any site that asks for a passkey:
   username nor the judge is asked, so no page of another site is sent to the service
   for this. A login in a frame whose page is replaced (ADR 0086) reads its new page the
   same way after such a step, once its item matches that page's URL.
-- **Without a credential step.** A move within 30 seconds of a `password` login's other
-  last effect step, as an identifier's Next, or a stop's (ADR 0036), keeps the old check
-  on an HTTPS origin of the site: the account's username in the header or navigation, a
-  marker learned there, or one judgement, with `optional` (ADR 0065) as before. A frame
-  login's watch past the 30 seconds keeps the same check.
+- **Without a credential step.** A move within 30 seconds of a login's other last effect
+  step, as an identifier's Next, or a stop's (ADR 0036), keeps the old check on an HTTPS
+  origin of the site: the account's username in the header or navigation, a marker
+  learned there, or one judgement, with `optional` (ADR 0065) as before. A frame login's
+  watch past the 30 seconds keeps the same check. Both apply on any route since the
+  third change of this amendment (below): the judge is asked on the login's own route,
+  as for a page of its own origin, and the service judges a moved page on any route the
+  stored recipe has.
 - **A page of any site that asks for a passkey** may hold any top-level attempt within
   30 seconds of its last effect step, not only one with a stop; its page is read for
   that request as a stop's was. A frame of such a page that announces before the top
@@ -545,3 +548,13 @@ rejects the credential and sends the tab to a quiet page of any site within 30 s
 is recorded as signed in. That saves an automatic account choice and releases the
 origin early; it never submits anything again. A move to a page that asks for a code,
 a password or a CAPTCHA still ends `left-origin`.
+
+Third change, the same day, under the same request: a move without a credential step,
+and a frame login's watch, were only read for a `password` login, and the service judged
+a page of another origin only on that route. The route no longer decides either check;
+only a step that asks for a passkey itself (the passkey route's own step or a `passkey`
+handler's click) is left out, as its answer is the credential step above. On the passkey
+route this reaches its watch and the later steps of a handler. The extension sends the
+moved page on the login's route (the `passkey` route only on a recipe with its button,
+as for a page of its own origin), and the service accepts it on any route the stored
+recipe has, still only over HTTPS on the site or another site.

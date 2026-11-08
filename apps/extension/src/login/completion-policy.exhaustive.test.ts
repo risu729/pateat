@@ -45,7 +45,6 @@ type Case = {
   stopAt: number | undefined;
   sent: boolean;
   inputLeftOut: boolean;
-  answered: boolean;
   again: (typeof rereadings)[number];
   disabledLeftOut: boolean;
 };
@@ -59,53 +58,49 @@ function* outcomes() {
           for (const route of routes)
             for (const stopAt of [undefined, 0])
               for (const sent of flags)
-                for (const inputLeftOut of flags)
-                  for (const answered of flags) {
-                    const candidate = undecidedCandidate({
-                      verdict,
-                      reason,
-                      reading,
-                      watched,
-                      route,
-                      stopAt,
-                      sent,
-                      inputLeftOut,
-                      answered,
-                    });
-                    for (const again of candidate.completes ? rereadings : [undefined])
-                      for (const disabledLeftOut of flags) {
-                        const settled = settleCompletion({
-                          ...candidate,
-                          again,
-                          disabledLeftOut,
-                          ...(verdict === "optional" ? { path: PATH } : {}),
-                        });
-                        const { result, confirmed } = judgedCompletionResult({
-                          verdict,
-                          reason,
-                          reading,
-                          completes: settled.completes,
-                          stopHeld: candidate.stopHeld,
-                          route,
-                          stopAt,
-                          sent,
-                        });
-                        const c: Case = {
-                          verdict,
-                          reason,
-                          reading,
-                          watched,
-                          route,
-                          stopAt,
-                          sent,
-                          inputLeftOut,
-                          answered,
-                          again,
-                          disabledLeftOut,
-                        };
-                        yield { c, result, confirmed };
-                      }
-                  }
+                for (const inputLeftOut of flags) {
+                  const candidate = undecidedCandidate({
+                    verdict,
+                    reason,
+                    reading,
+                    watched,
+                    stopAt,
+                    sent,
+                    inputLeftOut,
+                  });
+                  for (const again of candidate.completes ? rereadings : [undefined])
+                    for (const disabledLeftOut of flags) {
+                      const settled = settleCompletion({
+                        ...candidate,
+                        again,
+                        disabledLeftOut,
+                        ...(verdict === "optional" ? { path: PATH } : {}),
+                      });
+                      const { result, confirmed } = judgedCompletionResult({
+                        verdict,
+                        reason,
+                        reading,
+                        completes: settled.completes,
+                        stopHeld: candidate.stopHeld,
+                        route,
+                        stopAt,
+                        sent,
+                      });
+                      const c: Case = {
+                        verdict,
+                        reason,
+                        reading,
+                        watched,
+                        route,
+                        stopAt,
+                        sent,
+                        inputLeftOut,
+                        again,
+                        disabledLeftOut,
+                      };
+                      yield { c, result, confirmed };
+                    }
+                }
 }
 
 const all = [...outcomes()];
@@ -119,7 +114,7 @@ const authenticated = (o: (typeof all)[number]) => o.result === "authenticated";
 
 describe("a judged page's outcome, over every combination", () => {
   it("walks every case, and each verdict that can complete does", () => {
-    expect(all.length).toBeGreaterThan(20_000);
+    expect(all.length).toBeGreaterThan(10_000);
     expect(new Set(all.filter(authenticated).map((o) => o.c.verdict))).toEqual(
       new Set(["signed-in", "optional", "unclear"]),
     );
@@ -161,31 +156,37 @@ describe("a judged page's outcome, over every combination", () => {
     ).toEqual([]);
   });
 
-  it("authenticates an optional page only on the password route, sent, fully described, on its path (ADR 0065)", () => {
+  it("authenticates an optional page only once sent, fully described, on its path, on any route (ADR 0065)", () => {
     expect(
       broken(
         (o) =>
           o.c.verdict !== "optional" ||
           !authenticated(o) ||
-          (o.c.route === "password" &&
-            o.c.sent &&
-            !o.c.inputLeftOut &&
-            o.c.stopAt === undefined &&
-            o.c.again?.path === PATH),
+          (o.c.sent && !o.c.inputLeftOut && o.c.stopAt === undefined && o.c.again?.path === PATH),
       ),
     ).toEqual([]);
   });
 
-  it("authenticates the passkey route without a signed-in answer only once its answer went back", () => {
+  it("authenticates without a signed-in answer only once the credential went back, on any route (owner 2026-11-08)", () => {
     expect(
       broken(
         (o) =>
-          o.c.route !== "passkey" ||
           !authenticated(o) ||
           o.c.verdict === "signed-in" ||
-          o.c.answered,
+          o.c.sent ||
+          (o.c.verdict === "unclear" && o.c.reason === "judged-signed-in"),
       ),
     ).toEqual([]);
+  });
+
+  it("decides the same on either route, but for a rejected answer (ADR 0027)", () => {
+    const key = (o: (typeof all)[number]) =>
+      JSON.stringify({ ...o.c, route: undefined, verdict: o.c.verdict });
+    const byRoute = new Map<string, Partial<Record<LoginRoute, string>>>();
+    for (const o of all)
+      if (o.c.verdict !== "rejected")
+        byRoute.set(key(o), { ...byRoute.get(key(o)), [o.c.route]: `${o.result} ${o.confirmed}` });
+    expect([...byRoute.values()].filter((r) => r.password !== r.passkey).slice(0, 5)).toEqual([]);
   });
 
   it("rejects a credential only on the password route, and only on a rejected answer", () => {
