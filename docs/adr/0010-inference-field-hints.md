@@ -198,13 +198,10 @@ matches `1-2-3` and `ｶﾞ` matches `ガ`. This is an independent equality chec
 combining width changes with inserted separators is outside the new exact-insertion
 exception. It also requires the held value to fit `maxlength`.
 
-The pre-existing same-length mask/case rule is preserved: with no cancelled key,
-a same-code-point-length rewrite can still be kept even if neither equality check
-matches. This known limit is recorded in
-[background execution](../architecture.md#background-execution); the new exception
-does not make deletions, reordering or other punctuation acceptable when they change
-the value's length. A field emptied on `change`/blur still reaches the separate
-form-change checks above.
+Same-length rewrites keep their own rule, which the amendment of 2026-11-08 below
+defines. The new exception does not make deletions, reordering or other punctuation
+acceptable when they change the value's length. A field emptied on `change`/blur still
+reaches the separate form-change checks above.
 
 Consumer audit: `inputValueMismatch` and the per-character `between` checks compare
 the planned value with the input's declared type and lengths, not with the held
@@ -217,3 +214,26 @@ account-identity rules remain unchanged; separator insertion is local to typing.
 `siteValueChoice`/`sameAccountValue` compare only page-owned values recorded before
 Pateat starts acting; recording stops before it types. Code-submission checks read
 emptiness, not equality with a typed value.
+
+## Amendment 2026-11-08: same-length rewrites only change case, width or mask
+
+The owner chose option A on
+[issue 1368](https://github.com/risu729/pateat/issues/1368) on 2026-11-08 at 06:57
+UTC: a held value of the typed value's code-point length is kept only when the
+character at each position differs from the typed one only in case or between
+full-width and half-width, or was replaced by a mask symbol. Any other substitution
+or reordering, such as `1234` into `1235` or `1243`, refuses the value. Until then any
+same-length value was kept when no key was cancelled.
+
+Claude's implementation choices (2026-11-08): each held character is width-folded as
+above and then compared with the folded typed character in lower case, so a page may
+change both, as `a` into `Ａ`; letters that only share an upper-case form, as `ı` and
+`i`, stay different. The mask symbols are `*`, `＊`, `∗`, `•`, `●`, `○`, `◦`, `·`, `∙`,
+`・` and `･`; a typed character may become any of them, and a value may be masked only
+in part, as `••34`. After a cancelled key, the check after typing still keeps only the
+width and separator exceptions, since the page wrote the character itself; the check
+after `change` and blur applies this rule as for any rewrite. A rewrite neither fold
+covers, such as hiragana into katakana or `-` into `ー`, is now refused. The check runs
+after the last character and again after `change` and blur, together with the
+`maxlength` limit and the separator exception above. No site-specific rule or wait is
+added.
