@@ -36,16 +36,16 @@ import { type MoveMiss } from "./report";
 import { countRelogin, signedInNow } from "./relogin";
 import { remember } from "./choice-save";
 import {
-  passkeyMoveFits,
+  credentialMoveFits,
   passwordMoveFits,
   passkeyPageFits,
   stillAsking,
   holdForPasskey,
-  stopMoveFits,
+  requestMoveFits,
   frameMoveFits,
   framePresent,
 } from "./moves";
-import { signedInAfterFrame, signedInByPasskey, signedInByPassword } from "./passkey";
+import { signedInAfterFrame, signedInByMove } from "./passkey";
 import type { Runtime } from "./state";
 import { admitRecord } from "./admit-record";
 import type { AdmitContext } from "./admit-context";
@@ -614,12 +614,12 @@ export async function admit(
   } else if (holder && !terminal(holder) && holder.document.frameId === 0 && leftSite(holder)) {
     // The tab's page moved to another origin: the attempt there ends without
     // resubmitting and keeps its record, and this page or its frame may start its own.
-    // A frame stands for the tab's page, which left the attempt's origin. A move to the
-    // passkey's site right after Pateat answered it, or to another origin of the site
-    // right after a password submission, or of any site right after a second factor, to a
-    // page that shows the account's username, completes the attempt instead, which only
-    // the top page can tell: a frame of the new page waits for that check, or leaves the
-    // move to the top page when one may follow.
+    // A frame stands for the tab's page, which left the attempt's origin. A move to a
+    // quiet page of any site right after a credential step, or to another origin of the
+    // site right after a `password` login's other step, to a page that shows the account's
+    // username, completes the attempt instead (`signedInByMove`), which only the top page
+    // can tell: a frame of the new page waits for that check, or leaves the move to the
+    // top page when one may follow.
     let ending = true;
     let signedIn = false;
     if (ctx.document.frameId !== 0) {
@@ -635,17 +635,27 @@ export async function admit(
       // A check that went stale, as when the top page announced again, ended nothing.
       // A login held by a page that asked for a passkey is left to the tab's top pages.
       if (
-        passkeyMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
+        credentialMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
         passwordMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
-        // A login with a stop may still be held by a page of another site (ADR 0036).
-        stopMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
+        // A page of any site that asks for a passkey may still hold it.
+        requestMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
         rt.passkeyPages.get(ctx.document.tabId)?.attemptId === holder.id
-      )
+      ) {
         ending = false;
+        // The frame announces again once the top page ended the attempt, as a sign-in form
+        // of the new site in a frame then starts its own login.
+        const refused = rt.movedFrames.get(ctx.document.tabId);
+        const frames =
+          refused?.attemptId === holder.id
+            ? refused.frames.filter((frame) => frame.documentId !== ctx.document.documentId)
+            : [];
+        rt.movedFrames.set(ctx.document.tabId, {
+          attemptId: holder.id,
+          frames: [...frames, ctx.document],
+        });
+      }
     } else {
-      const check = passkeyMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin)
-        ? signedInByPasskey(rt, holder, ctx.live)
-        : signedInByPassword(rt, holder, ctx.live);
+      const check = signedInByMove(rt, holder, ctx.live);
       rt.siteMoves.set(ctx.document.tabId, check);
       try {
         signedIn = await check;
@@ -669,9 +679,9 @@ export async function admit(
       reportMove(holder, miss, true);
       return { ok: false, reason: "stale-document" };
     }
-    // Nor is a page of another origin of the site that asks for a passkey soon after the
+    // Nor is a page of another origin, of any site, that asks for a passkey soon after the
     // attempt's last step: the attempt waits for the tab's next page, which a passkey
-    // answered there with the attempt's own item lets complete it (`passkeyMoveFits`).
+    // answered there with the attempt's own item lets complete it (`credentialMoveFits`).
     // This page starts no login of its own meanwhile.
     const asked = async () =>
       passkeyPageFits(rt, holder, ctx.document, ctx.siteOrigin) &&
@@ -706,6 +716,18 @@ export async function admit(
         { ...ctx.document, frameId: 0, origin: ctx.siteOrigin },
         signedIn,
       );
+      const refused = rt.movedFrames.get(ctx.document.tabId);
+      if (ctx.document.frameId === 0 && refused?.attemptId === holder.id) {
+        rt.movedFrames.delete(ctx.document.tabId);
+        for (const frame of refused.frames)
+          void browser.tabs
+            .sendMessage(
+              ctx.document.tabId,
+              { version: 1, type: "login.reconnect" },
+              { frameId: frame.frameId, documentId: frame.documentId },
+            )
+            .catch(() => undefined);
+      }
       if (refusal) return refusal;
     }
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
@@ -715,13 +737,13 @@ export async function admit(
     ctx.document.frameId === 0 &&
     rt.passkeyPages.get(ctx.document.tabId)?.attemptId === holder.id
   ) {
-    // The tab came back to the attempt's origin from a page of another origin of the site
+    // The tab came back to the attempt's origin from a page of another origin
     // that asked for a passkey (ADR 0022). A passkey answered there with the attempt's
     // own item, and this page quiet, complete the attempt; otherwise it ends as that move
     // would have, without resubmitting. A page that goes away before it is read leaves
     // the decision to the tab's next page.
     const asking = rt.passkeyPages.get(ctx.document.tabId)!;
-    const check = signedInByPasskey(rt, holder, ctx.live);
+    const check = signedInByMove(rt, holder, ctx.live);
     rt.siteMoves.set(ctx.document.tabId, check);
     let signedIn: boolean;
     try {

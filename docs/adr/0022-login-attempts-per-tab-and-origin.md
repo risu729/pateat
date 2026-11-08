@@ -36,6 +36,9 @@ except after a rejection, a stopped login or an abandoned watch, which ask and f
 page once without pressing; a third automatic login of a site within 10 minutes asks
 (`relogin-limit`).
 
+Amended on 2026-11-08 (owner's choice, see the last section): one move rule for every
+sign-in method.
+
 Amended on 2026-11-03 (bug fix restoring this ADR's bound on the wait after a step,
 under the owner's rule against fixed waits at 03:31 UTC that day): a login's wait for
 the site's answer to a step lasts at most 150 seconds (`SITE_WAIT_MS`: the held click's
@@ -493,3 +496,52 @@ fix them now; the SSO policy itself is recorded separately.
 - The stored format changes without migration; Pateat is unreleased.
 - Each origin a tab visited with an attempt counts towards the 100-record limit until
   the tab closes.
+
+## Amendment 2026-11-08: one move rule for every sign-in method
+
+Accepted by the owner on 2026-11-08: 「B: 静かなページなら成功」 on a decision card at
+02:58 UTC, after the agent's proposal to use one rule for the password and the passkey
+(「パスワードとパスキーで分ける意味は？」), then
+「同様に意味もなく認証方法で分けてあるのを すべて直して」. Evidence: in the owner's
+Chrome on `8364867e` at 16:27 UTC on 2026-11-07, a Logi ID login on the `passkey` route
+answered its passkey for RP ID `id.logi.com`, the tab moved to the signed-in
+`www.logicool.co.jp` 5 seconds later, and the login ended `left-origin` (`login.move`
+reason `no-factor`), as the same move after a password alone would have.
+
+This replaces the RP ID condition of "A move after a passkey answer", the username and
+judge of "A move after a password submission" after a submitted password, the second
+factor of "A move to another site after a second factor", and the stop condition of
+the page of any site that asks for a passkey:
+
+- **The credential step.** A top-level attempt's last credential step is the latest of:
+  its last submitting step, other than one that asks for a passkey, after its fill of
+  the item's password; a TOTP code it entered (a click on a code button, or
+  a code fill the page may submit by itself); and a passkey Pateat answered for the
+  attempt's page after its last effect step. A page of another origin that holds the
+  attempt for a passkey keeps the rule above: only an answer since its request counts,
+  for the attempt's page, or for that page and signed with the attempt's own item.
+- **The move.** At most 30 seconds after that step, a move to an HTTPS origin of any
+  site (or an HTTP one for a login on an HTTP origin, ADR 0050) completes the attempt
+  when the new page reads quiet: no password field, code input or CAPTCHA, and no
+  passkey request since the step, in two readings a second apart once loaded, as
+  above. It does so whatever the route and whatever the passkey's RP ID. Neither the
+  username nor the judge is asked, so no page of another site is sent to the service
+  for this. A login in a frame whose page is replaced (ADR 0086) reads its new page the
+  same way after such a step, once its item matches that page's URL.
+- **Without a credential step.** A move within 30 seconds of a `password` login's other
+  last effect step, as an identifier's Next, or a stop's (ADR 0036), keeps the old check
+  on an HTTPS origin of the site: the account's username in the header or navigation, a
+  marker learned there, or one judgement, with `optional` (ADR 0065) as before. A frame
+  login's watch past the 30 seconds keeps the same check.
+- **A page of any site that asks for a passkey** may hold any top-level attempt within
+  30 seconds of its last effect step, not only one with a stop; its page is read for
+  that request as a stop's was. A frame of such a page that announces before the top
+  page decided is refused `tab-busy` as before, and is now asked to announce again once
+  the top page ended the attempt, so a sign-in form of the new site in a frame starts
+  its own login (Claude's addition, after review).
+
+Accepted risk, as for the return to the attempt's own origin in ADR 0036: a site that
+rejects the credential and sends the tab to a quiet page of any site within 30 seconds
+is recorded as signed in. That saves an automatic account choice and releases the
+origin early; it never submits anything again. A move to a page that asks for a code,
+a password or a CAPTCHA still ends `left-origin`.

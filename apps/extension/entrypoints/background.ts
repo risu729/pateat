@@ -709,7 +709,7 @@ export default defineBackground(() => {
         loginAccount: login.loginAccount,
         // ADR 0029: the login logs whether the page asked for a passkey after a step.
         requested: login.passkeyRequested,
-        // ADR 0022: a login that moves on to the passkey's site after an answer completes.
+        // ADR 0022: a login whose tab moves to a quiet page after an answer completes.
         answered: passkeyAnswered,
         // ADR 0034: the page's own conditional request waits for the login of its page.
         // ADR 0035: a re-verification after Pateat's login in the tab is handed on.

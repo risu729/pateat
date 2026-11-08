@@ -329,13 +329,18 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
         expect.objectContaining({ type: "move", origin: auth, reason: "no-factor" }),
       );
     });
-    it("ends left-origin at once for an item with a password, as before", async () => {
+    it("holds a login of an item with a password too (owner, 2026-11-08)", async () => {
       const { h } = await moved({}, true);
       h.login.passkeyRequested(1, auth);
-      await visit(h, `${auth}/passkey`, "auth-document");
-      expect(status()![0]).toMatchObject({ state: "blocked", outcome: "left-origin" });
-      // The page was not read.
-      expect(fake.state.messages.some((entry) => entry.type === "login.state")).toBe(false);
+      expect(await visit(h, `${auth}/passkey`, "auth-document")).toEqual({
+        ok: false,
+        reason: "stale-document",
+      });
+      expect(status()![0]).not.toMatchObject({ state: "blocked" });
+      h.login.passkeyAnswered(1, auth, "elsewhere.example", item);
+      await visit(h, `${origin}/home`, "home-document");
+      expect(status()![0]).toMatchObject({ state: "authenticated" });
+      expect(passwordRead(h)).toBe(false);
     });
   });
   describe("a passkey button beside the stop's password field", () => {

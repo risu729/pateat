@@ -94,7 +94,9 @@ Before this ADR (read from the code on 2026-10-23):
    it has no stop, after the move's own re-check: the page is still on the path it was
    judged on and loaded, shows no password field, code input or CAPTCHA, and asked for
    no passkey since the step the move follows. Nothing is pressed and the page is left
-   to the person.
+   to the person. Since 2026-11-08 (ADR 0022) such a move within 30 seconds of the
+   password or code completes on a quiet page without the judge, so this applies to a
+   frame login's watch past those 30 seconds.
 4. **Nothing is learned, and nothing is reused.** The service keeps `optional` as the
    path's latest verdict and learns no marker and no handler from the page. Not
    confirmed by the owner, chosen as the safe and simple reading: a marker comes only
