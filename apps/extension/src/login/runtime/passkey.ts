@@ -82,6 +82,15 @@ export function passkeyAnswered(
   // A running login's answer is that login's step, which it follows itself (ADR 0034).
   const running = recordFor(rt, tabId, siteOrigin);
   const outside = !running || terminal(running) || idle(running);
+  // The page the answer went to signed in, as after a submitted password or code: the
+  // tab's next page of its origin is the page after a sign-in (ADR 0028), whatever the
+  // method (owner, 2026-11-08).
+  if (facts?.documentId !== undefined)
+    rt.signInSubmits.set(tabId, {
+      origin: siteOrigin,
+      documentId: facts.documentId,
+      at: Date.now(),
+    });
   rt.passkeyAnswers.set(`${tabId} ${siteOrigin}`, {
     at: Date.now(),
     rpId,

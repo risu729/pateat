@@ -378,13 +378,15 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   const hellos = new Map<string, number>();
 
   /**
-   * Per tab, the document that last submitted a form with a password input, and the
-   * tab's next document of that origin when it loads within a minute of the submission:
+   * Per tab, the document that last signed in, by submitting a form with a password or
+   * code input or by getting Pateat's passkey answer, whatever the sign-in method (owner,
+   * 2026-11-08), and the tab's next document of that origin when it loads within a minute
+   * of it:
    * the page right after a sign-in, which is never sent as a list of accounts (ADR 0028).
    * A later load, such as a reload after a logout in a single-page app, is not one. Kept
    * in memory only.
    */
-  const passwordSubmits = new Map<number, { origin: string; documentId: string; at: number }>();
+  const signInSubmits = new Map<number, { origin: string; documentId: string; at: number }>();
 
   const afterSignIn = new Map<number, string>();
 
@@ -495,7 +497,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     entryBlockRecords,
     incognitoTabs,
     hellos,
-    passwordSubmits,
+    signInSubmits,
     afterSignIn,
     confirmVisits,
     admitting,

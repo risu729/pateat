@@ -105,8 +105,8 @@ export const helloSchema = v.strictObject({
   unoffered: v.optional(v.strictObject({ path, why: v.picklist(unofferedReasons) })),
 });
 /**
- * A form with a password input was submitted in this document by anyone, Pateat or the
- * person: the tab's next page of the origin is never sent as a list of accounts (ADR 0028)
+ * A form with a password or code input was submitted in this document by anyone, Pateat
+ * or the person: the tab's next page of the origin is never sent as a list of accounts (ADR 0028)
  * or as a sign-in entry (ADR 0031).
  */
 export const submittedSchema = v.strictObject({

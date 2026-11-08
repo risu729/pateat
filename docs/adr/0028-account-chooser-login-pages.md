@@ -46,6 +46,10 @@ Amended on 2026-10-25 by [ADR 0079](0079-passkey-button-beside-an-account-list.m
 (owner, 00:16 UTC): a chooser layout may hold the passkey button shown beside the list,
 as the `passkey` branch.
 
+Amended on 2026-11-08 (owner, 02:58 UTC: no rule split by sign-in method): the page
+after a sign-in counts after a code or a passkey too; see
+[the amendment below](#amendment-2026-11-08-the-page-after-any-sign-in).
+
 Date: 2026-10-12
 
 Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window
@@ -685,3 +689,20 @@ document of its path, beside the sign-in form's `layouts` when the recipe has th
 list when the document reads one, and the form otherwise; a repair adds the kind the
 page showed instead of replacing the other ([ADR 0041](0041-repair-stale-recipes.md)
 section 6).
+
+## Amendment 2026-11-08: the page after any sign-in
+
+Owner, 2026-11-08 at 02:58 UTC,
+「同様に意味もなく認証方法で分けてあるのをすべて直して」. "The page right after a
+submitted password form" was the only page after a sign-in that was never sent as a list
+of accounts, a sign-in entry or a page asking for an identifier alone, and that a repair
+skipped (ADR 0041). A sign-in by a code or by a passkey leads to the same kind of page,
+and nothing gave a reason to treat it otherwise. Now the same skip follows any of them:
+
+- a form submitted with a code input in it, as the extension's code pages read one
+  (`autocomplete="one-time-code"` or a short numeric field), counts as a password form
+  does, for its document's next path and the tab's next document of its origin;
+- a passkey assertion Pateat returned to a tab's top document counts as that document's
+  submission, so the tab's next document of its origin within a minute is the page after
+  a sign-in. A sign-in in place within that document is not seen this way, as the
+  content script does not hear of the answer.
