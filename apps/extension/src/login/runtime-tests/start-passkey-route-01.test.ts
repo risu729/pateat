@@ -372,6 +372,37 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(clicks(button.value)).toBe(1);
     expect(fills()).toBe(0);
   });
+  it("completes an optional page once Pateat's passkey answer went back (ADR 0065)", async () => {
+    vi.useFakeTimers();
+    const checkup = observation("/checkup", [
+      { id: "c1", role: "button", target: target("remind-later"), label: "Remind me later" },
+    ]);
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind !== "click" || step.target.value !== button.value) return;
+      fake.state.observedPath = "/checkup";
+      fake.state.present = new Set();
+      fake.state.extracted = { "signed-in": checkup };
+      fake.state.signs = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
+      h.login.passkeyRequested(1, origin);
+      vi.setSystemTime(Date.now() + 1);
+      h.login.passkeyAnswered(1, origin, "login.example");
+    };
+    const service = generation(async () => ({ verdict: "optional" }));
+    const { h } = start(routed, { generation: service });
+    expect(await h.hello()).toEqual({ ok: true });
+    // The answer is this route's credential, as a submitted password is the password
+    // route's (owner, 2026-11-08).
+    await until(settled("authenticated", "authenticated"), 20_000);
+    expect(service.judge).toHaveBeenCalledTimes(1);
+    expect(clicks(target("remind-later").value)).toBe(0);
+  });
   it("holds the clicking document whatever path a same-document URL change gives it", async () => {
     vi.useFakeTimers();
     // The page moves to another path with pushState while its passkey prompt still shows.
@@ -514,10 +545,19 @@ describe("the start page's passkey route (ADR 0027)", () => {
       vi.useFakeTimers();
       onClick({ [button.value]: { path: "/elsewhere", present: [], extracted: elsewhere } });
       fake.state.signs = quiet;
-      const service = generation(async () => ({ verdict: "unclear", reason: "judged-signed-in" }));
+      const service = generation(async () => ({ verdict: "unclear" }));
       const { h } = start(routed, { generation: service });
       expect(await h.hello()).toEqual({ ok: true });
       await until(unknownSettled, 20_000);
+    });
+    it("completes on a path judged signed in before, as the password route does", async () => {
+      vi.useFakeTimers();
+      onClick({ [button.value]: { path: "/elsewhere", present: [], extracted: elsewhere } });
+      fake.state.signs = quiet;
+      const service = generation(async () => ({ verdict: "unclear", reason: "judged-signed-in" }));
+      const { h } = start(routed, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated", "authenticated"), 20_000);
     });
     it("ends as a challenge when the site asks for a passkey again after the answer", async () => {
       vi.useFakeTimers();

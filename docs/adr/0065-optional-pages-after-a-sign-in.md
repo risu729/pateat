@@ -11,6 +11,10 @@ replaced before merging. The proposal, in Japanese, is
 [ADR 0029](0029-local-sign-in-state.md) (a new judge answer and its outcome) and
 [ADR 0027](0027-per-account-login-routes.md) (a watched login completes on it).
 
+Amended on 2026-11-08 (owner, 02:58 UTC): a passkey answer counts as the sent credential
+on any route; see
+[the amendment below](#amendment-2026-11-08-a-passkey-answer-counts-as-the-sent-credential).
+
 Date: 2026-10-23
 
 ## Context
@@ -147,3 +151,15 @@ Before this ADR (read from the code on 2026-10-23):
   when the judge abstains, both with the yellow "!".
 - **`signed-in` with a marker on the prompt.** Rejected: the marker may not show on the
   usual signed-in page (Decision 4).
+
+## Amendment 2026-11-08: a passkey answer counts as the sent credential
+
+Owner, 2026-11-08 at 02:58 UTC, 「同様に意味もなく認証方法で分けてあるのをすべて直して」
+after choosing one move rule for every sign-in method (ADR 0022's amendment of that
+day). Decision 3's "the `passkey` route never completes on `optional`" had no reason of
+its own: it followed ADR 0027's settlement of that route, which ADR 0029's amendment of
+2026-10-24 already replaced for undecided pages. Now Pateat's answer to the passkey
+request of the attempt's step counts as its sent credential, as a submitted password or
+TOTP code does, on any route, so an `optional` page after that answer completes the
+login under the same conditions; before it, the page is still not known to be signed
+in. A move judged `optional` (ADR 0022) counts the answer the same way.

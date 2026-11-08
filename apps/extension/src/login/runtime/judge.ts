@@ -312,8 +312,8 @@ export function sampleSignedIn(
  * step submitted, after a route step that typed the password or a second factor's
  * handler (a handler missing from the recipe does not count). The page after an
  * identifier's Next, or after a `password` or `authenticator` handler's button (ADR 0048,
- * ADR 0081), is no page after the sign-in. The `passkey` route never completes on an optional page (ADR 0027), so its
- * own step does not count.
+ * ADR 0081), is no page after the sign-in. A passkey step's answer is counted apart
+ * (`passkeyStepAnswered`), as only the bridge knows it went back.
  */
 export function credentialSent(_rt: Runtime, run: Execution): boolean {
   const { metadata, recipe } = run;
@@ -510,20 +510,19 @@ export async function learn(
   // the login is watched (ADR 0027); one with a sign of another sign-in step goes to the
   // person, as does a page judged `challenge` before (ADR 0029). An optional page after
   // the sign-in completes as signed in, watched or not, and is left as it is (ADR 0065),
-  // but only on the `password` route once this attempt sent the credential, without a
-  // stop before a missing password and with no radio button, select or text area left
-  // out of its description; on the same path once read again.
-  const sent = credentialSent(rt, run);
+  // without a stop before a missing password and with no radio button, select or text
+  // area left out of its description; on the same path once read again. Either completes
+  // only once this attempt's credential went back: a password or code it submitted, or
+  // Pateat's answer to its step's passkey request, on any route.
+  const sent = credentialSent(rt, run) || passkeyStepAnswered(rt, run);
   const candidate = undecidedCandidate({
     verdict,
     reason,
     reading,
     watched: run.metadata.watch !== undefined,
-    route: run.metadata.route,
     stopAt: run.metadata.stopAt,
     sent,
     inputLeftOut,
-    answered: passkeyStepAnswered(rt, run),
   });
   let again: Awaited<ReturnType<typeof readSignInState>>;
   // The judge's answer can take a while: the page completes only if, once the answer is

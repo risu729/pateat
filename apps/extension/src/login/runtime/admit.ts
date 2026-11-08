@@ -37,7 +37,7 @@ import { countRelogin, signedInNow } from "./relogin";
 import { remember } from "./choice-save";
 import {
   credentialMoveFits,
-  passwordMoveFits,
+  stepMoveFits,
   passkeyPageFits,
   stillAsking,
   holdForPasskey,
@@ -636,7 +636,7 @@ export async function admit(
       // A login held by a page that asked for a passkey is left to the tab's top pages.
       if (
         credentialMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
-        passwordMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
+        stepMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
         // A page of any site that asks for a passkey may still hold it.
         requestMoveFits(rt, holder, ctx.document.tabId, ctx.siteOrigin) ||
         rt.passkeyPages.get(ctx.document.tabId)?.attemptId === holder.id

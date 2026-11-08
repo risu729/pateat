@@ -8,6 +8,7 @@ import {
   type LoginObservation,
   isLoginRouteRecipe,
   chooserRoute,
+  passkeyAnswersRequest,
   type LoginRecipe,
 } from "@pateat/contracts";
 import type { ServiceTiming } from "../../service/transport";
@@ -52,17 +53,16 @@ export async function attemptRecipe(
 }
 
 /**
- * For a `password` login whose tab moved to `live`, a quiet page of another origin
- * (`passwordMoveFits`) that does not show the account's username (ADR 0022), as after an
+ * For a login of any route whose tab moved to `live`, a quiet page of another origin
+ * (`stepMoveFits`) that does not show the account's username (ADR 0022), as after an
  * identifier's Next, or a frame's watched login past its credential's 30 seconds
  * (`frameMoveFits`): whether a signed-in marker learned on that origin shows, or else the
  * judge of ADR 0029, asked once, answers `signed-in` for the page or found it signed in
  * before, or answers `optional` (ADR 0065) for a page described without leaving a
- * disabled field out, once the attempt submitted the password or a TOTP code and without
- * a stop (ADR 0036). A judge that cannot decide, a page that cannot be described or sent,
- * and any other verdict end the login `left-origin` (a watched one where it stopped),
- * each logged.
- * Once the answer is back, the page must still be loaded and show no password field,
+ * disabled field out, once the attempt sent its credential (a password, a TOTP code or a
+ * passkey answer) and without a stop (ADR 0036). A judge that cannot decide, a page that
+ * cannot be described or sent, and any other verdict end the login `left-origin` (a
+ * watched one where it stopped), each logged. Once the answer is back, the page must still be loaded and show no password field,
  * code input or CAPTCHA, with no passkey request since `since`, the step the move
  * follows. `username` is the login's own, hidden from the page as for any judged page.
  */
@@ -201,7 +201,9 @@ export async function judgeMove(
     .judge(
       recipe.id,
       recipe.revision,
-      "password",
+      // The service knows no `passkey` route on a recipe without its button; the page's
+      // own request stands for that route the same way (ADR 0034), as for any judged page.
+      record.route === "passkey" && !passkeyAnswersRequest(recipe) ? "passkey" : "password",
       hidden.observation,
       spin.sent(() => reportJudge("sent")),
       // A description that left out a disabled field says so (ADR 0029); only `signed-in`
@@ -216,14 +218,22 @@ export async function judgeMove(
   if (timing) timed = { timing };
   reportJudge(verdict, reason);
   // `optional` (ADR 0065) completes it only on a full description with no radio button,
-  // select or text area left out, once the attempt submitted the item's password or a
-  // TOTP code (a move within the site may follow an identifier's Next), and not for a
-  // login stopped before its missing password, which only `signed-in` proves (ADR 0036).
+  // select or text area left out, once the attempt's credential went back: the item's
+  // password or a TOTP code it submitted, or Pateat's answer to its step's passkey request,
+  // whatever the route (owner, 2026-11-08; a move within the site may follow an
+  // identifier's Next), and not for a login stopped before its missing password, which
+  // only `signed-in` proves (ADR 0036).
   const fill = rt.passwordFills.get(document.tabId);
   const effect = rt.effects.get(document.tabId);
+  const own = effect?.attemptId === record.id ? effect : undefined;
+  const requestAt = own?.requestAt;
   const sent =
     (fill?.attemptId === record.id && fill.submitted) ||
-    (effect?.attemptId === record.id && effect.code !== undefined);
+    own?.code !== undefined ||
+    (requestAt !== undefined &&
+      [document.origin, record.document.origin, recipe.origin].some(
+        (from) => (rt.passkeyAnswers.get(`${document.tabId} ${from}`)?.at ?? -1) >= requestAt,
+      ));
   const optional = verdict === "optional";
   if (
     verdict !== "signed-in" &&
@@ -509,23 +519,23 @@ export function holdForPasskey(rt: Runtime, tabId: number): void {
 }
 
 /**
- * The time of the step that lets a top-level `password` attempt's tab moving to
- * `siteOrigin`, an HTTPS origin of the attempt's registrable domain, complete on the
- * account's username or the judge (ADR 0022) when no credential step lets it complete
+ * The time of the step that lets a top-level attempt's tab moving to `siteOrigin`, an
+ * HTTPS origin of the attempt's registrable domain, complete on the account's username or
+ * the judge (ADR 0022), on any route (owner, 2026-11-08), when no credential step lets it
+ * complete
  * (`credentialMoveFits`), as after an identifier's Next: the attempt's last effect step,
  * not one that asks for a passkey, delivered at most `SITE_MOVE_MS` ago. Once a page of
  * the site the tab moved to asked for a passkey (`passkeyPages`), only a passkey answered
  * there decides.
  */
-export function passwordMoveFits(
+export function stepMoveFits(
   rt: Runtime,
   record: LoginAttemptMetadata,
   tabId: number,
   siteOrigin: string,
 ): { at: number } | undefined {
   const effect = rt.effects.get(tabId);
-  return record.route === "password" &&
-    record.document.frameId === 0 &&
+  return record.document.frameId === 0 &&
     effect?.attemptId === record.id &&
     !credentialMoveFits(rt, record, tabId, siteOrigin) &&
     rt.passkeyPages.get(tabId)?.attemptId !== record.id &&
@@ -540,9 +550,9 @@ export function passwordMoveFits(
  * For a login in a frame whose tab showed a new top-level page (ADR 0086): the time of the
  * step the move follows, when that page is to be read for the login's result, as a
  * top-level login's move is: its last credential step (`lastCredential`), after which a
- * quiet page completes it (`credential`); or, for a `password` login, its last effect step,
- * other than a passkey's, at most `SITE_MOVE_MS` ago, or its watch while it lasts, as when
- * the person entered a code the site sent. A login with a stop never runs in a frame.
+ * quiet page completes it (`credential`); or, on any route, its last effect step, other
+ * than a passkey's, at most `SITE_MOVE_MS` ago, or its watch while it lasts, as when the
+ * person entered a code the site sent. A login with a stop never runs in a frame.
  */
 export function frameMoveFits(
   rt: Runtime,
@@ -552,7 +562,6 @@ export function frameMoveFits(
   if (record.document.frameId === 0) return undefined;
   const credential = lastCredential(rt, record, tabId);
   if (credential !== undefined) return { at: credential, credential: true };
-  if (record.route !== "password") return undefined;
   const now = Date.now();
   const effect = rt.effects.get(tabId);
   const own = effect?.attemptId === record.id && !effect.passkey ? effect : undefined;
@@ -591,7 +600,7 @@ export async function framePresent(tabId: number, frameId: number): Promise<bool
 }
 
 /**
- * The tab's page changed its URL: when a `password` login in one of its frames may end
+ * The tab's page changed its URL: when a login in one of its frames may end
  * on the page there (`frameMoveFits`) and that frame no longer shows a document, as when a
  * single-page site's route replaced the sign-in frame after the sign-in (ADR 0086), the
  * tab's top document is asked to announce again, so its page is read for that login's
