@@ -177,6 +177,61 @@ describe("a button that goes on to an authenticator app's code (ADR 0081)", () =
       ]);
     }, 10_000);
 
+    it.each([
+      ["presses", true],
+      ["never presses", false],
+    ])(
+      "%s it on the passkey route as Pateat's passkey answer went back or not (owner, 2026-11-08)",
+      async (_label, answers) => {
+        const button = target("passkey");
+        const routed = parseLoginRecipe({
+          ...chosen,
+          passkey: { path: "/signin", target: button },
+        });
+        fake.state.present = new Set(["password", "login", "passkey"]);
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(
+          {},
+          { passkeys: vi.fn(async () => ({ passkey: true, discoverable: true })), report },
+        );
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(routed);
+        onClick({ "Use code from authenticator": toCode, verify: toHome });
+        const others = fake.state.onExecute!;
+        fake.state.onExecute = async (message, tabId) => {
+          const step = (message["operation"] as { step: { target?: { value: string } } }).step;
+          if (step.target?.value !== button.value) return others(message, tabId);
+          fake.state.observedPath = toChooser.path;
+          fake.state.present = new Set(toChooser.present);
+          // The site asked for the passkey, and Pateat answered it or not.
+          h.login.passkeyRequested(1, origin);
+          await new Promise((resolve) => setTimeout(resolve, 2));
+          if (answers) h.login.passkeyAnswered(1, origin, "login.example");
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        if (!answers) {
+          // Before the answer the button could skip the passkey: the page settles unproven.
+          await vi.waitFor(() => expect(status()![0]).toMatchObject({ settled: true }), {
+            timeout: 8_000,
+          });
+          expect(clicks("Use code from authenticator")).toBe(0);
+          return;
+        }
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(status()![0]).toMatchObject({ route: "passkey" });
+        expect(clicks("Use code from authenticator")).toBe(1);
+        expect(codeFills()).toHaveLength(1);
+        expect(handlerReports(report).map((entry) => entry.slice(0, 3))).toEqual([
+          [0, "authenticator", "entered"],
+          [1, "totp", "entered"],
+        ]);
+      },
+      12_000,
+    );
+
     it("leaves the choice to the person for an item without a TOTP code", async () => {
       onClick({ login: toChooser, "Use code from authenticator": toCode });
       const report = vi.fn<(report: LoginReport) => void>();

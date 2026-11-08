@@ -802,60 +802,6 @@ describe("the start page's passkey route (ADR 0027)", () => {
       // Nothing is saved for the passkey route's login.
       expect(h.settings.settings.bindings).toEqual([savedBinding]);
     }, 10_000);
-    it.each([
-      ["presses", true],
-      ["never presses", false],
-    ])("%s an authenticator button as Pateat's passkey answer went back or not (owner, 2026-11-08)", async (_label, answers) => {
-      const app = { by: "text" as const, value: "Use code from authenticator" };
-      const appHandler = { kind: "authenticator" as const, path: "/two-factor", target: app };
-      const chosen = parseLoginRecipe({ ...learned, handlers: [appHandler, codeHandler] });
-      const toChooser = { path: "/two-factor", present: [app.value, "Text me a code"] };
-      let h!: ReturnType<typeof start>["h"];
-      const pages: Record<string, { path: string; present: string[]; extracted?: unknown }> = {
-        [app.value]: toCode,
-        verify: toHome,
-      };
-      fake.state.onExecute = async (message) => {
-        const step = (message["operation"] as { step: LoginStep }).step;
-        if (step.kind !== "click") return;
-        if (step.target.value === button.value) {
-          fake.state.observedPath = toChooser.path;
-          fake.state.present = new Set(toChooser.present);
-          // The site asked for the passkey and Pateat answered it.
-          h.login.passkeyRequested(1, origin);
-          await new Promise((resolve) => setTimeout(resolve, 2));
-          if (answers) h.login.passkeyAnswered(1, origin, "login.example");
-          return;
-        }
-        const next = pages[step.target.value];
-        if (!next) return;
-        fake.state.observedPath = next.path;
-        fake.state.present = new Set(next.present);
-        if (next.extracted) fake.state.extracted = { "signed-in": next.extracted };
-      };
-      const started = start(chosen);
-      h = started.h;
-      withTotp(h);
-      expect(await h.hello()).toEqual({ ok: true });
-      if (!answers) {
-        // Without the answer, the button might skip the passkey itself.
-        // The page that asked shows no handler to press: it settles unproven, watched.
-        await vi.waitFor(() => expect(unknownSettled()).toBe(true), { timeout: 8_000 });
-        expect(clicks(app.value)).toBe(0);
-        return;
-      }
-      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
-        timeout: 6_000,
-      });
-      expect(status()![0]).toMatchObject({ route: "passkey" });
-      expect(clicks(app.value)).toBe(1);
-      expect(clicks("Text me a code")).toBe(0);
-      expect(codeFills()).toHaveLength(1);
-      expect(handlerOutcomes(started.report)).toEqual([
-        [0, "authenticator", "entered"],
-        [1, "totp", "entered"],
-      ]);
-    }, 10_000);
     const namedFor = (field: "username" | { custom: string }) => [
       {
         ...savedBinding,
