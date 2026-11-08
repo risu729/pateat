@@ -219,7 +219,9 @@ export async function readSignInState(
   const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24);
   // Only a shown input counts as a field: another page may give a sign-in field's locator
   // to another element, as Wise's signed-in page gave its React ID to an empty div
-  // (2026-10-12). The passkey route's button is no input and counts when shown.
+  // (2026-10-12), and JetBrains Account's code page the email input's test attribute to
+  // its code input, which never counts (issue #1413). The passkey route's button is no
+  // input and counts when shown.
   const observed = await observe(
     rt,
     run,
