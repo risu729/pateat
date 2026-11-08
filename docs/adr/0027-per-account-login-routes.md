@@ -1761,8 +1761,10 @@ reading, took the same button as a wrong code. The owner asked for it to be fixe
 - **Entering handlers** now also reads: the handler whose click this document holds,
   shown again in that document before the login settled, holds the page as its button
   does under **Held click**, rather than ending the login `challenge` with
-  `shown-again`. Its result is read again in the next round; a page that stays, as
-  after a wrong code in the same document, ends `challenge` once the click's
-  two-minute hold ends, and nothing is typed again. A new document that shows the
-  handler again, a settled login, and a login at a stop (ADR 0036) still end
-  `challenge` with `shown-again` at once.
+  `shown-again`, and a `detail` handler's link is kept (ADR 0061). Its result is read
+  again in the next round; a page that stays, as after a wrong code in the same
+  document, ends `challenge` once the click's two-minute hold ends, and nothing is
+  typed again. A new document that shows the handler again, a settled login, and a
+  login at a stop (ADR 0036) still end `challenge` with `shown-again` at once. A
+  revision the judge sent that finds the held handler shown again is not taken over
+  into the handler: the judge's answer settles the page.
