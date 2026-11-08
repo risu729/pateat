@@ -1249,9 +1249,10 @@ values the page's own script sends, such as with `fetch` or `XMLHttpRequest`, wh
 relative URLs an injected `<base href>` can also redirect, nor a same-origin path that
 redirects elsewhere or serves user content. A provider password goes only into a
 password input, and a TOTP code only into a one-time-code or short numeric input, or a
-numeric text input without a `maxlength`, which the service names only as a `totp`
-handler's code field the judge named
-([ADR 0027 amendment](adr/0027-per-account-login-routes.md#amendment-2026-11-07-code-inputs-the-judge-names-without-maxlength)),
+text input without a `maxlength` whose `inputmode` is none, `text` or `numeric`, which
+the service names only as a `totp` handler's code field the judge named
+([ADR 0027 amendments](adr/0027-per-account-login-routes.md#amendment-2026-11-07-code-inputs-the-judge-names-without-maxlength)
+[of 2026-11-08](adr/0027-per-account-login-routes.md#amendment-2026-11-08-a-code-input-without-inputmode)),
 so a recipe cannot place them in a search box. A Hidden custom field goes only into a
 password or short numeric input, and a Linked custom field follows the field it reads.
 Before a fill step that writes a secret but not the username (a site that remembers the

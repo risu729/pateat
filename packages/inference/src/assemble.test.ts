@@ -1012,12 +1012,38 @@ describe("judged totp handler (ADR 0027)", () => {
   });
 
   it("refuses a field that is not a code field or not an input of the page", () => {
-    const plain = {
-      origin,
-      path: "/two-factor",
-      candidates: [candidate("otp", target("otp"), "text"), candidate("verify", verify)],
-    };
-    expect(addHandler(recipe, plain, totp())).toEqual({ ok: false, reason: "not-code-field" });
+    // A plain text input takes the judge's code only without a `maxlength` and with no
+    // `inputmode` but `text` or `numeric` (ADR 0027 amendment of 2026-11-08).
+    for (const extra of [{ maxLength: 12 }, { inputMode: "tel" as const }])
+      expect(
+        addHandler(
+          recipe,
+          {
+            origin,
+            path: "/two-factor",
+            candidates: [
+              { ...candidate("otp", target("otp"), "text"), ...extra },
+              candidate("verify", verify),
+            ],
+          },
+          totp(),
+        ),
+      ).toEqual({ ok: false, reason: "not-code-field" });
+    // Supabase's code input (issue #1409): a text input with neither.
+    expect(
+      addHandler(
+        recipe,
+        {
+          origin,
+          path: "/two-factor",
+          candidates: [
+            { ...candidate("otp", target("otp"), "text"), autocomplete: "off" as const },
+            candidate("verify", verify),
+          ],
+        },
+        totp(),
+      ),
+    ).toMatchObject({ ok: true });
     // The judge's checks hold here too: at least 6 characters, one code input per form,
     // and a button of its form.
     for (const refused of [

@@ -50,7 +50,19 @@ describe("secret input rule", () => {
     ["otp", input({ inputMode: " Numeric ", maxLength: 6 }), true],
     ["otp", number, true],
     ["otp", password, false],
-    ["otp", text, false],
+    // A text input without a maxlength, as Supabase's code input (ADR 0027 amendment of
+    // 2026-11-08).
+    ["otp", text, true],
+    ["otp", input({ autocomplete: "off" }), true],
+    ["otp", input({ inputMode: "text" }), true],
+    // An `inputmode` the page's description leaves out reads as none.
+    ["otp", input({ inputMode: "kana" }), true],
+    ["otp", input({ inputMode: "tel" }), false],
+    ["otp", input({ inputMode: "none" }), false],
+    ["otp", input({ inputMode: "email" }), false],
+    ["otp", input({ autocomplete: "email" }), false],
+    ["otp", input({ maxLength: 12 }), false],
+    ["otp", input({ type: "email" }), false],
     ["otp", longTel, false],
     // A numeric text input without a maxlength, as HCP Cloud's code input (ADR 0027
     // amendment of 2026-11-07); never a tel input without one, as a phone number's.

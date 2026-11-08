@@ -3382,14 +3382,18 @@ describe("page judgement (ADR 0027)", () => {
         decision: "challenge",
         code: { field: "code", submit: "verify", source: "authenticator-app" },
       });
-    const refused = observation("/u/mfa-otp-challenge", [plain, verify]);
+    // A phone keyboard keeps it from the code rules (ADR 0027 amendment of 2026-11-08).
+    const refused = observation("/u/mfa-otp-challenge", [
+      { ...plain, inputMode: "tel" as const },
+      verify,
+    ]);
     replies.push(reply());
     expect((await complete(device, change.recipeId, 2, refused)).body).toEqual({
       version: 1,
       status: "challenge",
     });
     const calls = sent.length;
-    // The same field, with nothing but its numeric keyboard added, is a code input now.
+    // The same field, with a numeric keyboard instead, is a code input now.
     const read = observation("/u/mfa-otp-challenge", [
       { ...plain, inputMode: "numeric" as const },
       verify,
@@ -4175,7 +4179,7 @@ describe("page judgement (ADR 0027)", () => {
       });
       // A field the TOTP fill rule refuses stores no totp handler; the passkey button lands.
       const plain = observation("/login/key", [
-        element("plain", "text", "Code"),
+        { ...element("plain", "text", "Code"), inputMode: "tel" as const },
         verify,
         element("key", "button", "Use security key"),
       ]);
