@@ -104,17 +104,19 @@ export async function waitFor(
 }
 
 /**
- * How a page that does not prove the sign-in ends the login: as itself on the `password`
- * route, and always as `challenge` on the `passkey` route, which never falls back to
- * typing the password (ADR 0027). A login that stops before its item's missing password
- * ends an unproven page as `challenge` too, watched (ADR 0036).
+ * How a page that does not prove the sign-in ends the login: as itself, on every route
+ * (owner, 2026-11-08), so an unknown page settles as unknown and is watched (ADR 0027).
+ * A rejection on the `passkey` route ends `challenge`, as nothing it typed was rejected.
+ * A login that stops before its item's missing password ends an unknown page as
+ * `challenge`, watched (ADR 0036).
  */
 export const unproven = (
   _rt: Runtime,
   run: Execution,
   result: "credential-rejected" | "challenge" | "unknown",
 ) =>
-  run.metadata.route === "passkey" || (run.metadata.stopAt !== undefined && result === "unknown")
+  (run.metadata.route === "passkey" && result === "credential-rejected") ||
+  (run.metadata.stopAt !== undefined && result === "unknown")
     ? "challenge"
     : result;
 
@@ -184,6 +186,7 @@ export async function reconcile(
     // A site that refused the passkey answer gets the password instead (ADR 0034).
     if (
       effectful(run.metadata) &&
+      run.metadata.settled !== true &&
       run.metadata.route === "passkey" &&
       passkeyAnswersRequest(run.recipe)
     ) {
@@ -302,7 +305,14 @@ export async function reconcile(
     // showing on its path means the site has not signed in: it may still be exchanging
     // the assertion in this document for a while, then the login falls back to its
     // password variant (ADR 0034).
-    if (!asksPassword && inFlight && routeClick && passkeyAnswersRequest(run.recipe)) {
+    // A settled login, watched, never falls back: it only reads its later pages.
+    if (
+      !asksPassword &&
+      inFlight &&
+      routeClick &&
+      passkeyAnswersRequest(run.recipe) &&
+      run.metadata.settled !== true
+    ) {
       let shows: boolean;
       const onList = listOf(rt, run);
       if (onList) {
@@ -339,7 +349,8 @@ export async function reconcile(
       );
       if (!clicked) return undefined;
       if (clicked.targets.some((state) => state !== "missing" && state !== "unusable")) {
-        if (run.heldClick === run.metadata.stepIndex) return "held";
+        if (run.heldClick === run.metadata.stepIndex && run.metadata.settled !== true)
+          return "held";
         if (clicked.path === inFlight.step.path) {
           await change(rt, run, {
             type: "OBSERVED",

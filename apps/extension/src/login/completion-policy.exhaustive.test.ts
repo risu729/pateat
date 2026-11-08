@@ -210,12 +210,8 @@ describe("a judged page's outcome, over every combination", () => {
     ).toEqual([]);
   });
 
-  it("never ends the passkey route or a stopped login as unknown (ADR 0027, ADR 0036)", () => {
-    expect(
-      broken(
-        (o) => o.result !== "unknown" || (o.c.route === "password" && o.c.stopAt === undefined),
-      ),
-    ).toEqual([]);
+  it("never ends a stopped login as unknown, whatever the route (ADR 0036, owner 2026-11-08)", () => {
+    expect(broken((o) => o.result !== "unknown" || o.c.stopAt === undefined)).toEqual([]);
   });
 
   it("confirms only an authenticated page", () => {

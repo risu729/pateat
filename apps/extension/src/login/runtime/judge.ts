@@ -174,7 +174,7 @@ export async function describeForJudge(
 }
 
 /**
- * Asks the top document of a `password` login, whose judged page described nothing, to say
+ * Asks the top document of a login, whose judged page described nothing, to say
  * once it shows something to describe, while the login may still be watched (ADR 0027
  * amendment of 2026-11-04): a page still loading, as Oracle's "Verify your identity" page
  * read eight seconds after the click (2026-11-04 11:26 UTC), is then read again as the
@@ -183,7 +183,7 @@ export async function describeForJudge(
  */
 export function watchDescribed(rt: Runtime, run: Execution): void {
   const { document } = run.live;
-  if (document.frameId !== 0 || run.metadata.route !== "password") return;
+  if (document.frameId !== 0) return;
   const since = run.metadata.watch?.since;
   const left = since === undefined ? WATCH_MS : WATCH_MS - (Date.now() - since);
   if (left <= 0) return;

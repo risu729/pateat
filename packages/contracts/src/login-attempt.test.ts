@@ -3249,7 +3249,7 @@ describe("a login watched after a challenge or an unknown result (ADR 0027)", ()
     expect(transitionLoginAttempt(pending, { ...revised, policyRevision: 9 })).toEqual(pending);
   });
 
-  it("watches a frame's challenge (ADR 0086) and keeps the passkey route's final", () => {
+  it("watches a frame's challenge (ADR 0086) and the passkey route's (owner, 2026-11-08)", () => {
     expect(
       transitionLoginAttempt(
         awaiting({ ...top, frameId: 2 }),
@@ -3257,9 +3257,12 @@ describe("a login watched after a challenge or an unknown result (ADR 0027)", ()
         1000,
       ),
     ).toMatchObject({ state: "watching", outcome: "challenge", watch: { since: 1000 } });
-    const passkey = transitionLoginAttempt(awaiting(top, "passkey"), observed("challenge"));
-    expect(passkey).toMatchObject({ state: "blocked", outcome: "challenge" });
-    expect(passkey).not.toHaveProperty("watch");
+    const passkey = transitionLoginAttempt(awaiting(top, "passkey"), observed("challenge"), 1000);
+    expect(passkey).toMatchObject({
+      state: "watching",
+      outcome: "challenge",
+      watch: { since: 1000 },
+    });
   });
 
   it("watches a result settled as unknown until the attempt moves on or the watch ends", () => {
@@ -4147,6 +4150,13 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
       state: "ready",
       route: "password",
     });
+    // A settled one, watched, only reads its later pages (owner, 2026-11-08).
+    const settled = transitionLoginAttempt(unstopped, {
+      type: "OBSERVED",
+      result: "unknown",
+    });
+    expect(settled).toMatchObject({ state: "reconciling", settled: true });
+    expect(transitionLoginAttempt(settled, toPassword)).toMatchObject({ route: "passkey" });
   });
 
   describe("a stop just past the plan's last step", () => {
@@ -4821,9 +4831,7 @@ describe("a login's own times for the local log (ADR 0019)", () => {
     expect(followPage(ready, 3_000)).toBe(ready);
   });
 
-  it("stops waiting for the site once an unwatched login's result settled as unknown", () => {
-    // A login on the passkey route is never watched: after its result settled, it only
-    // waits for a later page, which is neither the site's answer nor the person's time.
+  it("watches a passkey login's result settled as unknown, as a password login's", () => {
     const settled = transitionLoginAttempt(
       submitted(5_000, top, "passkey"),
       { type: "OBSERVED", result: "unknown", document: top },
@@ -4832,14 +4840,9 @@ describe("a login's own times for the local log (ADR 0019)", () => {
     expect(settled).toMatchObject({
       state: "reconciling",
       settled: true,
+      watch: { since: 10_000 },
       timing: { pageMs: 5_000 },
     });
-    expect(settled.timing.pageSince).toBeUndefined();
-    expect(settled.timing.personSince).toBeUndefined();
-    expect(followPage(settled, 20_000)).toBe(settled);
-    const restored = recoverLoginAttempt(JSON.parse(JSON.stringify(settled)));
-    expect(restored.timing.pageSince).toBeUndefined();
-    expect(attemptTimes(restored, 70_000)).toMatchObject({ pageMs: 5_000, personMs: 0 });
   });
 
   it("counts a watched login's wait as the person's, also across a worker restart", () => {

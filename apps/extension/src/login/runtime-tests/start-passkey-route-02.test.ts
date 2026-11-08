@@ -157,7 +157,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
         await restarted.h.hello({}, false);
         // Well before the 3 seconds an unexplained page would get.
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(status()![0]).toMatchObject({ state: "blocked", outcome: "challenge" });
+        expect(status()![0]).toMatchObject({ state: "watching", outcome: "challenge" });
       } finally {
         fake.browser.tabs.query = query;
       }
@@ -235,7 +235,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       expect(await h.login.loginAccount(1, origin)).toEqual({ connectionId, itemId });
       expect(await h.login.loginAccount(1, "https://other.example")).toBeUndefined();
       expect(await h.login.loginAccount(2, origin)).toBeUndefined();
-      await until(settled("blocked", "challenge"));
+      await until(settled("watching", "challenge"));
       expect(await h.login.loginAccount(1, origin)).toBeUndefined();
     });
     it("takes over a revision that adds a handler, judging both pages on the passkey route", async () => {
@@ -285,7 +285,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       service.judge.mockResolvedValueOnce({ verdict: "challenge", recipe: next });
       const { h } = start(routed, { generation: service });
       expect(await h.hello()).toEqual({ ok: true });
-      await until(settled("blocked", "challenge"), 20_000);
+      await until(settled("watching", "challenge"), 20_000);
       expect(status()![0]).toMatchObject({ route: "passkey", recipeRevision: 1, handlers: [] });
       expect(service.judge).toHaveBeenCalledTimes(1);
       expect(clicks(securityKey.value)).toBe(0);

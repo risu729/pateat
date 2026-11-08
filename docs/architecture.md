@@ -1408,14 +1408,15 @@ and TOTP field from the catalog's value-free `empty` flags (an allowed Linked fi
 reads one counts like it; when the item's `totp` field is a custom field, that field
 allowed:
 [ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-23-a-totp-code-from-a-custom-field)),
-and any usable or discoverable passkey from one item-scoped
-vault search per RP ID the origin may use. The facts never leave the extension. The
-attempt also records its route. A recipe may have a start-page `passkey` route, one
-click on the start page's passkey sign-in button; it is taken first when the item has a
-discoverable passkey, needs no binding, and a login on it that reaches no signed-in page
-ends `challenge`: it never falls back to typing the password, and after `authenticated`
-it saves only the site default. On a recipe without that button, a start page that asks
-for a passkey by itself with a `conditional` request gets the same route, whose one step
+and any usable or discoverable passkey from one item-scoped vault search per RP ID the
+origin may use. The facts never leave the extension. The attempt also records its route.
+A recipe may have a start-page `passkey` route, one click on the start page's passkey
+sign-in button; it is taken first when the item has a discoverable passkey, needs no
+binding, and a login on it that reaches no signed-in page is watched as a `password`
+login is, settling as unknown or `challenge` (a rejection is a `challenge` on this
+route): it never falls back to typing the password, and after `authenticated` it saves
+only the site default. On a recipe without that button, a start page that asks for a
+passkey by itself with a `conditional` request gets the same route, whose one step
 answers that request with the login's item; a `password` login switches to it before
 anything is submitted, and a login on a chooser's list
 ([ADR 0028](adr/0028-account-chooser-login-pages.md)) before its click there. It falls
@@ -1423,25 +1424,24 @@ back to the recorded `password` variant when no request comes, the item cannot a
 it, the recipe's rejection shows, or the sign-in form still shows 15 seconds after the
 answer, and until then a page on the start path is not judged (up to two minutes while
 it shows nothing to describe, as a loader). While the tab asks for an account (ADR 0062
-B), that request waits for the popup pick, whose login answers it the same way. So
-does it, for up to four minutes, while the popup offers the page an ordinary choice of
+B), that request waits for the popup pick, whose login answers it the same way. So does
+it, for up to four minutes, while the popup offers the page an ordinary choice of
 accounts in which an item holds a discoverable passkey, checked with one vault search
 per RP ID; it is handed on three seconds after that choice goes away
-([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A new login refused, or sent
-for repair, because the recipe lacks the `passkey` route while the item holds a
-discoverable passkey keeps a request that comes later until the repair is over, then has
-its document announce again once, so that login answers it (ADR 0034 amendment of
-2026-10-25). A recipe's `password` route has
-one to four variants, one per identifier set its start page offers (such as branch and
-account numbers, or a contract number), and the attempt records the variant it took: the
-first, in recipe order, whose binding resolves on the item and whose every bound
-password or TOTP field, built in or Linked to one, has its fact; the item's own password
-must also be present. A saved binding's entries are used as they are, and the variants
-are first tried with it as it is; when none fits, the slots it does not hold are filled
-as for an item without a saved binding (built-in slots from the item, custom slots from
-the templates below, never a built-in field the binding already reads under another
-slot) and the variants are tried again, and after `authenticated` the filled slots are
-added to the saved binding
+([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A new login refused, or sent for
+repair, because the recipe lacks the `passkey` route while the item holds a discoverable
+passkey keeps a request that comes later until the repair is over, then has its document
+announce again once, so that login answers it (ADR 0034 amendment of 2026-10-25). A
+recipe's `password` route has one to four variants, one per identifier set its start
+page offers (such as branch and account numbers, or a contract number), and the attempt
+records the variant it took: the first, in recipe order, whose binding resolves on the
+item and whose every bound password or TOTP field, built in or Linked to one, has its
+fact; the item's own password must also be present. A saved binding's entries are used
+as they are, and the variants are first tried with it as it is; when none fits, the
+slots it does not hold are filled as for an item without a saved binding (built-in slots
+from the item, custom slots from the templates below, never a built-in field the binding
+already reads under another slot) and the variants are tried again, and after
+`authenticated` the filled slots are added to the saved binding
 ([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-19-saved-bindings-that-lack-a-slot)).
 When none fits, a recipe with one variant refuses the page with that variant's reason,
 and a recipe with several refuses it `no-route`, with the first variant's reason as the
@@ -1885,15 +1885,17 @@ it stopped, not `left-origin`, so its first step showing again later in the tab 
 logout either (2026-10-13). Newer settings end it `policy-changed` only when they no
 longer allow its account on the page; otherwise the watch takes over their revision,
 since it only reads, so another site's saved account choice does not end it. The
-`passkey` route still ends `challenge` at once; a login in a frame is watched too, and
-the page that replaces its frame's page during the watch is read for its result
-([ADR 0086](adr/0086-logins-in-frames-like-top-pages.md)). Whether that frame is gone is
-asked with `login.frame.present` by its frame ID alone, which the `document_start`
-content script (`login-start`) answers in every document, and the move is kept in
-`leftFrames` until a hello of the tab's top page ends the login. The attempt store is
-`pateat.login-attempts.v5` since the login's site time (2026-10-18); a previous store is
-left unread, as one record that no longer parses would stop the whole store from
-loading.
+`passkey` route is watched as the `password` route is since 2026-11-08, its unproven
+pages settling as unknown and a rejection on it ending `challenge`, as the held click's
+limit and its button shown again do; a login in a frame is
+watched too, and the page that replaces its frame's page during the watch is read for
+its result ([ADR 0086](adr/0086-logins-in-frames-like-top-pages.md)). Whether that frame
+is gone is asked with `login.frame.present` by its frame ID alone, which the
+`document_start` content script (`login-start`) answers in every document, and the move
+is kept in `leftFrames` until a hello of the tab's top page ends the login. The attempt
+store is `pateat.login-attempts.v5` since the login's site time (2026-10-18); a previous
+store is left unread, as one record that no longer parses would stop the whole store
+from loading.
 
 Chrome use coordination is an open integration gate. Expose a scoped status
 contract for a future trusted consumer, but do not assume Chrome use already

@@ -68,10 +68,9 @@ export function lapsed(
       at,
     );
   }
-  // As a page that proved nothing ends it (`unproven`): the `passkey` route and a login
-  // with a stop never settle as unknown.
-  const result =
-    metadata.route === "passkey" || metadata.stopAt !== undefined ? "challenge" : "unknown";
+  // As a page that proved nothing ends it (`unproven`): a login with a stop never settles
+  // as unknown.
+  const result = metadata.stopAt !== undefined ? "challenge" : "unknown";
   const settled = transitionLoginAttempt(metadata, { type: "OBSERVED", result }, at);
   // A login that submitted nothing goes on at its step instead, which no running step
   // decides any more: it ends `cancelled`, which does not hold the site.

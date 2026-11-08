@@ -139,6 +139,9 @@ describe("the start page's passkey route (ADR 0027)", () => {
   const settled = (state: string, outcome?: string) => () =>
     status()?.[0]?.["state"] === state &&
     (outcome === undefined || status()?.[0]?.["outcome"] === outcome);
+  /** Settled as unknown and watched, as on the password route (owner, 2026-11-08). */
+  const unknownSettled = () =>
+    settled("reconciling", "unknown-submit")() && status()?.[0]?.["settled"] === true;
   it("clicks the passkey button for an item with a discoverable passkey and never fills", async () => {
     onClick({ [button.value]: toHome });
     const { h } = start(learned);
@@ -339,7 +342,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(clicks(button.value)).toBe(1);
     expect(fills()).toBe(0);
   });
-  it("ends challenge on the passkey route when the judge answers optional (ADR 0065)", async () => {
+  it("settles as unknown, watched, when the judge answers optional (ADR 0065)", async () => {
     vi.useFakeTimers();
     const checkup = observation("/checkup", [
       { id: "c1", role: "button", target: target("remind-later"), label: "Remind me later" },
@@ -361,8 +364,9 @@ describe("the start page's passkey route (ADR 0027)", () => {
     const service = generation(async () => ({ verdict: "optional" }));
     const { h } = start(routed, { generation: service });
     expect(await h.hello()).toEqual({ ok: true });
-    // A page the route's own checks do not prove ends the passkey route `challenge`.
-    await until(settled("blocked", "challenge"));
+    // A page the route's own checks do not prove settles as unknown, as on the password
+    // route (owner, 2026-11-08).
+    await until(unknownSettled);
     expect(service.judge).toHaveBeenCalledTimes(1);
     expect(status()![0]).toMatchObject({ route: "passkey" });
     expect(clicks(button.value)).toBe(1);
@@ -396,7 +400,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     await until(() => clicks(button.value) === 1);
     await vi.advanceTimersByTimeAsync(115_000);
     expect(status()![0]).toMatchObject({ state: "awaiting-result" });
-    await until(settled("blocked", "challenge"), 10_000);
+    await until(settled("watching", "challenge"), 10_000);
     expect(service.judge).not.toHaveBeenCalled();
     expect(clicks(button.value)).toBe(1);
     expect(fills()).toBe(0);
@@ -410,7 +414,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     await until(() => clicks(button.value) === 1);
     // The page reloads back to the start page, which shows the button and the form again.
     await h.hello({ documentId: "reloaded" }, false);
-    await until(settled("blocked", "challenge"), 5_000);
+    await until(settled("watching", "challenge"), 5_000);
     expect(service.judge).not.toHaveBeenCalled();
     expect(clicks(button.value)).toBe(1);
     expect(fills()).toBe(0);
@@ -432,7 +436,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     const service = generation(async () => ({ verdict: "rejected" }));
     const { h } = start(routed, { generation: service });
     expect(await h.hello()).toEqual({ ok: true });
-    await until(settled("blocked", "challenge"), 20_000);
+    await until(unknownSettled, 20_000);
     // Judging it would spend the start path's one judgement and could add a handler there.
     expect(service.judge).not.toHaveBeenCalled();
     expect(status()![0]).toMatchObject({ route: "passkey" });
@@ -440,19 +444,20 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(fills()).toBe(0);
     expect(h.fields).not.toHaveBeenCalled();
   });
-  it.each<[string, LoginGeneration["judge"] | undefined]>([
-    ["unclear", async () => ({ verdict: "unclear" })],
-    ["rejected", async () => ({ verdict: "rejected" })],
-    ["challenge without a handler", async () => ({ verdict: "challenge" })],
-    ["a temporary refusal", async () => ({ verdict: "retry", reason: "busy" })],
-    ["no judgement at all", undefined],
-  ])("ends as a challenge after %s, never typing the password", async (_label, judge) => {
+  it.each<[string, LoginGeneration["judge"] | undefined, "challenge" | "unknown"]>([
+    ["unclear", async () => ({ verdict: "unclear" }), "unknown"],
+    ["rejected", async () => ({ verdict: "rejected" }), "challenge"],
+    ["challenge without a handler", async () => ({ verdict: "challenge" }), "challenge"],
+    ["a temporary refusal", async () => ({ verdict: "retry", reason: "busy" }), "unknown"],
+    ["no judgement at all", undefined, "unknown"],
+  ])("is watched after %s, never typing the password", async (_label, judge, result) => {
     vi.useFakeTimers();
     onClick({ [button.value]: { path: "/elsewhere", present: [], extracted: elsewhere } });
     const service = judge ? generation(judge) : undefined;
     const { h } = start(routed, service ? { generation: service } : {});
     expect(await h.hello()).toEqual({ ok: true });
-    await until(settled("blocked", "challenge"), 20_000);
+    // A rejection on this route rejects nothing typed: it is a challenge (ADR 0027).
+    await until(result === "challenge" ? settled("watching", "challenge") : unknownSettled, 20_000);
     if (service) {
       expect(service.judge).toHaveBeenCalledTimes(1);
       // The account's slots go with the page, but the route reads no vault value for their
@@ -462,7 +467,6 @@ describe("the start page's passkey route (ADR 0027)", () => {
       expect(JSON.stringify(slots)).not.toContain("valueShape");
     }
     expect(status()![0]).toMatchObject({ route: "passkey" });
-    expect(status()![0]!["settled"]).toBeUndefined();
     expect(fills()).toBe(0);
     expect(h.fields).not.toHaveBeenCalled();
   });
@@ -513,7 +517,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       const service = generation(async () => ({ verdict: "unclear", reason: "judged-signed-in" }));
       const { h } = start(routed, { generation: service });
       expect(await h.hello()).toEqual({ ok: true });
-      await until(settled("blocked", "challenge"), 20_000);
+      await until(unknownSettled, 20_000);
     });
     it("ends as a challenge when the site asks for a passkey again after the answer", async () => {
       vi.useFakeTimers();
@@ -532,7 +536,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       const service = generation(async () => ({ verdict: "unclear", reason: "judged-signed-in" }));
       const { h, report } = start(routed, { generation: service });
       expect(await h.hello()).toEqual({ ok: true });
-      await until(settled("blocked", "challenge"), 20_000);
+      await until(settled("watching", "challenge"), 20_000);
       expect(report).toHaveBeenCalledWith(
         expect.objectContaining({ type: "state", s5: true, decision: "continuing" }),
       );
@@ -559,12 +563,12 @@ describe("the start page's passkey route (ADR 0027)", () => {
       );
     });
   });
-  it("ends as a challenge on the rejection marker", async () => {
+  it("is watched as a challenge on the rejection marker", async () => {
     onClick({ [button.value]: { path: "/signin", present: ["rejected"] } });
     const { h } = start(parseLoginRecipe({ ...learned, rejection: target("rejected") }));
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+      expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
     );
     expect(fills()).toBe(0);
   });
@@ -816,7 +820,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
         withTotp(h);
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+          expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
         );
         expect(status()![0]).toMatchObject({ route: "passkey", facts: { totp: false } });
         expect(h.fields).not.toHaveBeenCalled();
@@ -870,7 +874,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       await until(() => clicks("verify") === 1);
       fake.state.pageUrl = `${origin}/two-factor`;
       await h.hello({ documentId: "again" }, false);
-      await until(settled("blocked", "challenge"), 5_000);
+      await until(settled("watching", "challenge"), 5_000);
       expect(codeFills()).toHaveLength(1);
       expect(clicks("verify")).toBe(1);
       expect(handlerOutcomes(report)).toEqual([
@@ -908,7 +912,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       expect(clicks(button.value)).toBe(1);
       expect(status()![0]).toMatchObject({
         route: "passkey",
-        state: "blocked",
+        state: "watching",
         outcome: "challenge",
         handlers: [],
       });

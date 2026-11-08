@@ -157,11 +157,14 @@ export function judgedCompletionResult({
           stopHeld
         ? "challenge"
         : "unknown";
-  // Unproven passkey pages always challenge; a missing-password stop challenges an
-  // unknown page too (ADR 0027, ADR 0036), as elsewhere in the runtime.
+  // A rejection on the passkey route challenges, and a missing-password stop challenges
+  // an unknown page (ADR 0027, ADR 0036), as elsewhere in the runtime.
   return {
     result:
-      route === "passkey" || (stopAt !== undefined && result === "unknown") ? "challenge" : result,
+      (route === "passkey" && result === "credential-rejected") ||
+      (stopAt !== undefined && result === "unknown")
+        ? "challenge"
+        : result,
     confirmed: false,
   };
 }

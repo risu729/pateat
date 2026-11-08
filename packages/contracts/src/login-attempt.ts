@@ -110,10 +110,8 @@ export const loginAttemptStateSchema = v.picklist([
  * `challenge` or settled as unknown, in the tab's page or in a frame (ADR 0086). Later
  * pages of its tab are read for its result.
  */
-const watched = (metadata: { route: string; state: string; settled?: true | undefined }) =>
-  metadata.route === "password" &&
-  (metadata.state === "watching" ||
-    (metadata.state === "reconciling" && metadata.settled === true));
+const watched = (metadata: { state: string; settled?: true | undefined }) =>
+  metadata.state === "watching" || (metadata.state === "reconciling" && metadata.settled === true);
 /** Allowlisted metadata only. Never persist an XState snapshot or resolved field values. */
 export const attemptMetadataSchema = v.pipe(
   v.strictObject({
@@ -1178,7 +1176,6 @@ function createLoginAttemptMachine() {
       valueRejectedWatched: ({ context, event }) =>
         event.type === "VALUE_REJECTED" &&
         event.challenge === true &&
-        context.route === "password" &&
         valueRejected(context, event),
       retryAvailable: ({ context, event }) =>
         context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
@@ -1224,12 +1221,11 @@ function createLoginAttemptMachine() {
         context.operationId === undefined &&
         context.document.frameId === 0 &&
         (!event.document || sameScope(context.document, event.document)),
-      // A password login that stops at a step left to the person is watched, in a frame
-      // too (ADR 0086).
+      // A login that stops at a step left to the person is watched, on any route (owner,
+      // 2026-11-08) and in a frame too (ADR 0086).
       observedWatched: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "challenge" &&
-        context.route === "password" &&
         (!event.document || sameScope(context.document, event.document)),
       observedCredentialRejected: ({ context, event }) =>
         event.type === "OBSERVED" &&
@@ -1429,7 +1425,9 @@ function createLoginAttemptMachine() {
         context.operationKind === "click" &&
         context.submissions > 0 &&
         context.handlers.length === 0 &&
-        context.stopAt === undefined,
+        context.stopAt === undefined &&
+        // A settled login, watched, only reads its later pages (ADR 0027).
+        context.settled !== true,
       newerRevision: ({ context, event }) =>
         event.type === "REVISED" && event.recipeRevision > context.recipeRevision,
       newerPolicy: ({ context, event }) =>
@@ -1813,7 +1811,7 @@ export function personAnswered<T extends Timed>(metadata: T, now = Date.now()): 
  * for the result of a step that may have changed the page (`awaiting-result` and
  * `reconciling`), a page load or a new page included, until it reads that result. It never
  * runs while the login waits for the person or after its result settled as unknown, as a
- * watched one or a frame's or `passkey` login's that only waits for a later page.
+ * watched one that only waits for a later page.
  */
 export function followPage<T extends Timed & Parameters<typeof watched>[0]>(
   metadata: T,
