@@ -407,16 +407,19 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates[0]!.label).toBe("a".repeat(119));
   });
 
-  it("locates by test ID, or by name when the ID is missing, duplicated or unusable", () => {
+  it("locates a field by name when the ID is missing, duplicated or unusable, then by test ID", () => {
     page(
       `<form id="f"><input id="dup" name="user"><input id="dup" name="other" data-testid="t-other">
-        <input id="has space" name="pin">
+        <input id="has space" name="pin"><input id="has space" data-testid="t-code">
+        <input data-testid="t-note">
         <button id="go">Go</button></form>`,
     );
     expect(summary(observe()).map((candidate) => candidate.target)).toEqual([
       { by: "name", value: "user" },
-      { by: "test-id", value: "t-other" },
+      { by: "name", value: "other" },
       { by: "name", value: "pin" },
+      { by: "test-id", value: "t-code" },
+      { by: "test-id", value: "t-note" },
       { by: "id", value: "go" },
     ]);
   });
@@ -1138,6 +1141,37 @@ describe("extractLoginObservation", () => {
     ]);
     expect(findTargets(document, observation.candidates[2]!.target)).toEqual([
       document.querySelector("form button"),
+    ]);
+  });
+
+  it("names each field by its id before a test attribute every field shares (JetBrains, issue #1413)", () => {
+    // JetBrains Account gives every input and button the same test attribute, and swaps
+    // its views in place, so the email's `data-test` would find the code input alone later.
+    page(
+      `<form><input id="email" name="email" autocomplete="username" data-test="input__inner">
+        <input id="password" name="password" type="password" data-test="input__inner">
+        <button type="submit" data-test="button">Log in</button></form>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.target)).toEqual([
+      { by: "id", value: "email" },
+      { by: "id", value: "password" },
+      { by: "data-test", value: "button" },
+    ]);
+    page(
+      `<form><input id="code" name="code" autocomplete="one-time-code" data-test="input__inner">
+        <button type="submit" data-test="button">Continue</button></form>`,
+    );
+    expect(observe().candidates[0]!.target).toEqual({ by: "id", value: "code" });
+  });
+
+  it("names a field by its id first, and a button by its test attribute first", () => {
+    page(
+      `<form><input id="who" type="text" data-testid="who-input">
+        <button id="go" data-testid="go-button">Go</button></form>`,
+    );
+    expect(observe().candidates.map((candidate) => candidate.target)).toEqual([
+      { by: "id", value: "who" },
+      { by: "test-id", value: "go-button" },
     ]);
   });
 
@@ -2355,6 +2389,21 @@ describe("extractLoginObservation", () => {
       shadow("#host", `<input name="username"><input name="password" type="password">`);
       expect(observe().complete, beside).toBe(complete);
     }
+  });
+
+  it("names a field inside its host by a name before a counter-shaped ID, as in the page (issue #1413)", () => {
+    // Each component numbers its inner input; the hosts carry a counter ID and a name.
+    page(
+      `<div><text-field id="field-1" name="user"></text-field>
+      <text-field id="field-2" name="pass"></text-field><button id="login">Log In</button></div>`,
+    );
+    shadow("#field-1", `<input id="input-1" data-test="input">`);
+    shadow("#field-2", `<input id="input-1" data-test="input" type="password">`);
+    expect(summary(observe()).map(({ target }) => target)).toEqual([
+      { by: "data-test", value: "input", within: [{ by: "name", value: "user" }] },
+      { by: "data-test", value: "input", within: [{ by: "name", value: "pass" }] },
+      { by: "id", value: "login" },
+    ]);
   });
 
   it("names a shadow tree's field inside its host when nothing names it in the whole page (ADR 0070)", () => {

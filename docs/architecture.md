@@ -2927,11 +2927,15 @@ failure only loses the sample, logged as `recipe.sample`.
 
 The extractor names an element by the first of its attributes that names it alone, in
 the order `data-testid`, `data-test`, `id`, `name`: test attributes come first since the
-[ADR 0071
-amendment](adr/0071-data-test-locators.md#amendment-2026-10-24-test-attributes-first),
-as an `id` may be a render counter. An `id` shaped like one (lower-case words joined
-by `-` or `_`, ending in up to four digits, such as `uid_7` or `web-ui3`) gives way to a
-unique `name` and then a login `autocomplete` token, and is used when neither names the
+[ADR 0071 amendment](adr/0071-data-test-locators.md#amendment-2026-10-24-test-attributes-first),
+as an `id` may be a render counter. A field (an `<input>` other than a button, a
+`<select>` or a `<textarea>`) is named by its `id`, `name`, `data-testid`, then
+`data-test` instead, since a site may give every field the same test attribute, as
+JetBrains Account's `data-test="input__inner"`
+([ADR 0071 amendment of 2026-11-08](adr/0071-data-test-locators.md#amendment-2026-11-08-a-fields-id-and-name-first)).
+An `id` shaped like a render counter (lower-case words joined by `-` or `_`, ending in
+up to four digits, such as `uid_7` or `web-ui3`) gives way to a unique `name`, a field's
+test attributes, and then a login `autocomplete` token, and is used when none names the
 element (ADR 0071 amendment of 2026-11-02). The other locators below come after them.
 
 A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any

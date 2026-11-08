@@ -198,7 +198,8 @@ const fields = "input:not([type='hidden']), select, textarea";
 /** Every element `describe` may accept, script buttons included. */
 const observed = `input, select, textarea, button, a, ${scriptControls}`;
 /**
- * The attributes an element is named by, in order: a test attribute first, as test tools
+ * The attributes an element other than a field (`fieldLocators`) is named by, in order: a
+ * test attribute first, as test tools
  * do, since a site keeps it as a stable hook while an `id` may be a render counter
  * (Duolingo's `web-ui1`, `web-ui2`, then `web-ui3` for the same password input on its
  * remembered-account screen, 2026-10-24; ADR 0071 amendment).
@@ -209,6 +210,33 @@ const locators = [
   ["id", "id"],
   ["name", "name"],
 ] as const;
+/**
+ * The attributes a field is named by, in order: its `id` and `name` first, which name each
+ * field of a form apart, before a test attribute, which a site may give every field alike
+ * (JetBrains Account's `data-test="input__inner"`, whose code input it then names alone
+ * on the code view, 2026-11-08, issue #1413; ADR 0071 amendment). A counter-shaped `id`
+ * still gives way to every later attribute (`counterId`).
+ */
+const fieldLocators = [
+  ["id", "id"],
+  ["name", "name"],
+  ["test-id", "data-testid"],
+  ["data-test", "data-test"],
+] as const;
+/**
+ * A field a step fills or sets: an `<input>` other than a button, a `<select>` or a
+ * `<textarea>`, which `fieldLocators` names. Buttons, links and the other elements a
+ * signed-in page's markers name keep `locators`' order, as their IDs more often carry the
+ * account.
+ */
+const isField = (element: Element) =>
+  element instanceof HTMLSelectElement ||
+  element instanceof HTMLTextAreaElement ||
+  (element instanceof HTMLInputElement &&
+    !actionTypes.has(element.type) &&
+    !ignoredTypes.has(element.type));
+/** The attributes `element` is named by, in order: `fieldLocators` for a field. */
+const locatorsOf = (element: Element) => (isField(element) ? fieldLocators : locators);
 /**
  * An ID React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`, a hydrated `:R1aH1:`, also
  * inside a library's prefix such as `radix-:r1:`): its base-32 digits count the
@@ -517,7 +545,7 @@ function locate(
 ): LoginMarkerTarget | undefined {
   let demoted: LoginTarget | undefined;
   let counter: LoginTarget | undefined;
-  for (const [by, attribute] of locators) {
+  for (const [by, attribute] of locatorsOf(element)) {
     const value = element.getAttribute(attribute);
     if (value === null) continue;
     if (attribute === "id" && generatedId.test(value)) continue;
@@ -600,12 +628,15 @@ function chainedTarget(
   return undefined;
 }
 
-/** The `id`, `name`, `data-testid` and `data-test` a host may be named by in `chainedTarget`. */
+/**
+ * The `data-testid`, `data-test`, `id` and `name` a host may be named by in
+ * `chainedTarget`, in that order, a counter-shaped `id` last.
+ */
 function hostNames(
   host: Element,
   { redactAttributes, tokens }: { redactAttributes: boolean; tokens: boolean },
 ): LoginHostChain[number][] {
-  return locators.flatMap(([by, attribute]) => {
+  const names = locators.flatMap(([by, attribute]) => {
     const value = host.getAttribute(attribute);
     if (value === null) return [];
     if (attribute === "id" && (generatedId.test(value) || changingId(value))) return [];
@@ -614,9 +645,15 @@ function hostNames(
     const name = { by, value };
     return v.is(loginHostChainSchema, [name]) ? [name] : [];
   });
+  // A counter-shaped ID gives way to the host's other names, as in `locate`.
+  const counter = (name: (typeof names)[number]) => name.by === "id" && counterId(name.value);
+  return [...names.filter((name) => !counter(name)), ...names.filter(counter)];
 }
 
-/** The locators `chainedTarget` may name `element` by inside its hosts, in `locate`'s order. */
+/**
+ * The locators `chainedTarget` may name `element` by inside its hosts, in `locate`'s order:
+ * a field's `id` and `name` first, a counter-shaped `id` after a login `autocomplete` token.
+ */
 function innerTargets(
   element: Element,
   {
@@ -630,7 +667,8 @@ function innerTargets(
   },
 ): LoginTarget[] {
   const targets: LoginTarget[] = [];
-  for (const [by, attribute] of locators) {
+  let counter: LoginTarget | undefined;
+  for (const [by, attribute] of locatorsOf(element)) {
     const value = element.getAttribute(attribute);
     if (value === null) continue;
     // An ID another load may change is never looked for inside hosts: the element keeps
@@ -638,12 +676,17 @@ function innerTargets(
     if (attribute === "id" && (generatedId.test(value) || changingId(value))) continue;
     if ((redactAttributes || tokens) && tokenSegment(value)) continue;
     if (redactAttributes && observedText(value) !== value) continue;
-    targets.push({ by, value });
+    // A counter-shaped ID comes after the other attributes and a login `autocomplete`
+    // token, as in `locate`.
+    if (attribute === "id" && counterId(value)) counter = { by, value };
+    else targets.push({ by, value });
   }
-  if (!(element instanceof HTMLInputElement && fillTypes[element.type])) return targets;
+  if (!(element instanceof HTMLInputElement && fillTypes[element.type]))
+    return counter ? [...targets, counter] : targets;
   for (const value of autocompleteTokens(element))
     if ((loginAutocompleteTokens as readonly string[]).includes(value))
       targets.push({ by: "autocomplete", value } as LoginTarget);
+  if (counter) targets.push(counter);
   const name = labels ? fieldName(element) : undefined;
   if (
     name !== undefined &&

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
 import { createLocalCryptoSession } from "./local-crypto";
+import { bitwardenTotpSecret } from "./__fixtures__/totp";
 import {
   blobPrivateKey,
   blobWrappingKey,
@@ -13,6 +14,7 @@ import {
   sealedBlob,
   TEST_ORGANIZATION_ID,
   TEST_ORGANIZATION_KEY,
+  totpCiphertext,
   uriCiphertexts,
   v1Email,
   v1Kdf,
@@ -954,6 +956,14 @@ describe("strict cipher isolation and disposal", () => {
       else expect(result.error).toEqual({ code: "crypto-failed" });
     },
   );
+
+  it("decrypts the fixed TOTP key the E2E fixture stores", async () => {
+    const active = await session();
+    const original = legacyCipher();
+    const cipher = { ...original, login: { ...original.login, totp: totpCiphertext } };
+    const result = await active.decryptCipher({ connectionId, cipher });
+    expect(result.ok && result.data.login?.totp).toBe(bitwardenTotpSecret);
+  });
 
   it("decrypts a complete fixed V1 login without requesting the network", async () => {
     const fetch = vi

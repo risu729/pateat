@@ -9,6 +9,9 @@ Date: 2026-10-23
 Amended 2026-10-24: test attributes come before `id` and `name`
 ([amendment](#amendment-2026-10-24-test-attributes-first)), accepted by the owner.
 
+Amended 2026-11-08: a field's `id` and `name` come before its test attributes
+([amendment](#amendment-2026-11-08-a-fields-id-and-name-first)), accepted by the owner.
+
 ## Context
 
 A recipe step names its element with an allowlisted locator: an `id`, `name`,
@@ -139,3 +142,67 @@ Consequences:
   which is as stable for a form field.
 - Recipes generated before keep their targets. Discord's must be removed on the
   management page and generated again.
+
+## Amendment 2026-11-08: a field's id and name first
+
+Status: accepted by the owner on 2026-11-08 (15:07 UTC, decision card "A: 入力欄だけ
+id/name を先に", recommended, over B, teaching each check that a code input is no step's
+field, and C, no change).
+
+JetBrains Account ([issue #1413](https://github.com/risu729/pateat/issues/1413)) swaps
+its views in place on `/login`, and every input carries `data-test="input__inner"`:
+
+- the email view: `<input id="email" name="email" autocomplete="username"
+  data-test="input__inner">`;
+- the password view: the same email input and `<input id="password" name="password"
+  type="password" data-test="input__inner">`;
+- the two-factor view: only `<input id="code" name="code"
+  autocomplete="one-time-code" data-test="input__inner">`.
+
+On the email view the test attribute names the email input alone, so its generated
+recipe (revision 5 on 2026-11-08) names the username field `{ "by": "data-test",
+"value": "input__inner" }`. On the two-factor view the same locator names the code input
+alone, and every check that compares a page with the recipe took the code input for the
+email input: the sign-in state read the sign-in form as still shown, the service
+declined to judge the page (`not-judgeable`), the `totp` handler's field equalled a
+route step's target (`step-target`), and the extension waited for the email input to go
+before typing the code. The person typed every code.
+
+Decision 2 changes for fields only: an `<input>` other than a button, a `<select>` or a
+`<textarea>` is named by its `id`, then its `name`, then `data-testid`, then
+`data-test`, each only when it names the field alone. A counter-shaped `id` (amendment
+of 2026-11-02) gives way to all of them and then to a login `autocomplete` token, so
+Duolingo's `id="web-ui1"` still gives way to `data-test="email-input"`, and Discord's
+`id="uid_7"` to `name="email"`. Buttons, links and the other elements a signed-in page's
+markers name keep the test attributes first. A host of a shadow tree (ADR 0070) gives a
+counter-shaped `id` last too, and a field inside one is looked for in the same order.
+
+Reasons:
+
+- A field's `id` and `name` name that field apart from its neighbours, as a form
+  submits it by `name`; a test attribute names the kind of component, which a site may
+  give every field alike.
+- A button keeps its test attribute first: Duolingo's buttons have no `id`, and a
+  signed-in page's controls more often carry the account in their `id` (such as
+  `user-menu-taro`), which a marker would then send to the model.
+- A per-render `id` that the counter shape does not catch, such as `ember123` (no
+  separator) or `react-select-2-input` (a number inside), now names a field before its
+  test attribute; it gave way before. Such a recipe stops matching after the page
+  renders differently, and is repaired as any other.
+
+Consequences:
+
+- Recipes generated before keep their targets and run as before: the extension finds
+  a target by its attribute whatever the order. The service, though, compares a saved
+  target with a new page's by equality (the judge's `not-judgeable` check, the page
+  sample's, `login-page` and `step-target` when a handler is learned, a form beside the
+  sign-in form), and a new page names a field by its `id` or `name` now. Those checks
+  no longer recognise the fields of a recipe that names a field by a test attribute
+  while it also has a usable `id` or `name`, until it is generated again; the
+  extension's own check that a sign-in field still shows runs first and finds it by its
+  attribute. JetBrains' recipe must be removed on the management page and generated
+  again.
+- A signed-in page's field that has a test attribute is now named by its `id` or
+  `name`, filtered as before (`redactAttributes`); one without a test attribute already
+  was. The order is the same on every page, so a signed-in page names a login field
+  as its recipe does.

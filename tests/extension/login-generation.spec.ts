@@ -143,6 +143,8 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
     const optional = prompt.observation.candidates.some(
       ({ target }) => target.by === "id" && target.value === "remind-later",
     );
+    // The `identifier-kept` fixture's code view asks for the authenticator's code.
+    const codePage = hasId("code");
     // A page without a login form (ADR 0031): its "Login" link opens the sign-in page.
     const result =
       prompt.task === "entry"
@@ -153,16 +155,25 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
                 decision: "challenge",
                 passwordButton: byTarget("Select Password.", "accessible-name"),
               }
-            : optional
-              ? { decision: "optional" }
-              : signedIn
-                ? { decision: "signed-in", marker: byTarget("sign-out") }
-                : prompt.observation.candidates.some(
-                      ({ target }) => target.by === "text" && target.value === "My page",
-                    )
-                  ? // The `link` marker variant's account link has no id, so only its text names it.
-                    { decision: "signed-in", marker: byTarget("My page", "text") }
-                  : { decision: "rejected" }
+            : codePage
+              ? {
+                  decision: "challenge",
+                  code: {
+                    field: byTarget("code"),
+                    submit: byTarget("button", "data-test"),
+                    source: "authenticator-app",
+                  },
+                }
+              : optional
+                ? { decision: "optional" }
+                : signedIn
+                  ? { decision: "signed-in", marker: byTarget("sign-out") }
+                  : prompt.observation.candidates.some(
+                        ({ target }) => target.by === "text" && target.value === "My page",
+                      )
+                    ? // The `link` marker variant's account link has no id, so only its text names it.
+                      { decision: "signed-in", marker: byTarget("My page", "text") }
+                    : { decision: "rejected" }
           : passwordPage && abstainOnPassword
             ? { decision: "abstain", reason: "ambiguous" }
             : passwordPage
@@ -177,13 +188,11 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
                   decision: "plan",
                   pageKind: "sign-in",
                   irreversible: "no",
-                  // The `identifier-kept` fixture's email input is named by its test attribute.
+                  // The `identifier-kept` fixture's email input is `email`.
                   fields: [
                     {
                       slot: "username",
-                      candidate: hasId("account")
-                        ? byTarget("account")
-                        : byTarget("input__inner", "data-test"),
+                      candidate: hasId("account") ? byTarget("account") : byTarget("email"),
                     },
                   ],
                   // A form that shows no button is submitted after its last field (ADR 0064).
@@ -219,8 +228,9 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
 async function connect(
   browser: VaultBrowser,
   service: Awaited<ReturnType<typeof startSyncService>>,
+  variant: "uri" | "uri-totp" = "uri",
 ): Promise<Page> {
-  await setupProbe(browser.page, { action: "configure", variant: "uri" });
+  await setupProbe(browser.page, { action: "configure", variant });
   const options = await browser.context.newPage();
   await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
   const accepted = await setupRequest(options, {
@@ -584,7 +594,7 @@ for (const { name, start, query, passwordPath } of [
     }
   });
 
-test("a code page swapped in where the identifier's test attribute now names the code input is a challenge, never the sign-in form shown again (issue #1413)", async () => {
+test("a code view swapped in where every input shares one test attribute gets the item's TOTP code (issue #1413)", async () => {
   test.setTimeout(90_000);
   const fixture = await startLoginFixture(0, { password, accountName: username });
   const claude = syntheticClaude();
@@ -594,26 +604,24 @@ test("a code page swapped in where the identifier's test attribute now names the
       async (open) => {
         const browser = await open();
         await serveSite(browser.context, fixture);
-        const options = await connect(browser, service);
+        const options = await connect(browser, service, "uri-totp");
 
         const page = await browser.context.newPage();
         await page.goto(`${site}/identifier-kept?code`);
-        // The account and the password were each entered once, then the code page showed
-        // in the same document with the email input's test attribute on its code input.
-        await expect(page.locator("#code")).toBeVisible({ timeout: 60_000 });
+        // The account and the password were each entered once, then the code view showed
+        // in the same document, its code input carrying the email input's test attribute.
+        // The fields are named by their IDs, so the code input is no sign-in field: the
+        // judge names it, a `totp` handler is learned and the item's code goes in.
+        await page.waitForURL(`${site}/account`, { timeout: 60_000 });
         expect(await page.locator("#fixture-status").textContent()).toContain(
           "Identity clicks: 1; Submit clicks: 1; Identity matched: true; Password matched: true",
         );
-        // Read as a code page, not as the sign-in form still showing, so the login waits for
-        // the person at a challenge instead of settling unknown. No code handler is learned:
-        // the service declines to judge a page where the recipe's username locator names the
-        // code input, so nothing is typed into it.
+        expect(await page.evaluate(() => sessionStorage.getItem("codeMatched"))).toBe("true");
         await expect
           .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
             timeout: SETTLE_MS,
           })
-          .toMatchObject({ attempts: [{ outcome: "challenge", submissions: 2 }] });
-        await expect(page.locator("#code")).toHaveValue("");
+          .toMatchObject({ attempts: [{ outcome: "authenticated" }] });
       },
       { args: ["--ignore-certificate-errors"] },
     );
