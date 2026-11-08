@@ -635,8 +635,10 @@ export async function planFor(
     request.pageRequest === true && !chosen?.fillOnly && passkeyAnswersRequest(recipe);
   const { passkey: _button, ...buttonless } = recipe;
   const routeRecipe: LoginRecipe = request.later ? buttonless : recipe;
-  // A pick on a paused site logs in on the password route (ADR 0062).
-  if (!request.paused && passkeyPage && (recipeHasRoute(routeRecipe, "passkey") || pageRequest)) {
+  // A pick on a paused site takes the route any pick takes (ADR 0062, amended 2026-11-08):
+  // its login answers the passkey request of its own step with the picked item, as the
+  // bridge asks no chooser while a login runs.
+  if (passkeyPage && (recipeHasRoute(routeRecipe, "passkey") || pageRequest)) {
     const resolved = await resolveRoute({ route: "passkey" });
     if (resolved.ok) {
       facts = await factsOf(resolved);

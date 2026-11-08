@@ -685,6 +685,52 @@ describe("pausing automatic login of a site (ADR 0062)", () => {
       "Automatic login is paused on this site, and Synthetic item has no password, so Pateat did not log in. To sign in with its passkey, use the page's own passkey sign-in button and choose Synthetic item in Pateat's window.",
     );
   });
+  it("logs a pick of an item with only a passkey in on the passkey route (owner, 2026-11-08)", async () => {
+    // The recipe has a passkey button: the pick takes the route any pick takes, and its
+    // login answers its own step's request with the picked item.
+    const withButton = parseLoginRecipe({
+      ...recipe,
+      passkey: { path: "/signin", target: target("passkey") },
+    });
+    const { h } = paused({
+      passkeys: vi.fn(async () => ({ passkey: true, discoverable: true })),
+    });
+    h.recipes.recipe.mockResolvedValue(withButton);
+    fake.state.present = new Set(["password", "login", "passkey"]);
+    const original = h.store.handle.getMockImplementation()!;
+    h.store.handle.mockImplementation(async () => {
+      const response = await original();
+      if (response.ok)
+        for (const field of response.catalog.connections[0]!.items[0]!.fields)
+          if (field.id === "login.password") field.empty = true;
+      return response;
+    });
+    await setPause(h, true);
+    expect(await h.hello()).toEqual({ ok: false, reason: "paused" });
+    fake.state.onReconnect = () => h.hello();
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "synthetic-document",
+          connectionId,
+          itemId,
+          makeDefault: false,
+        },
+        popup,
+      ),
+    ).toEqual({ ok: true });
+    await vi.waitFor(() => expect(stored()).toMatchObject([{ route: "passkey" }]));
+    const clicked = () =>
+      executes().map(
+        (entry) =>
+          (entry as unknown as { operation: { step: { target?: { value: string } } } }).operation
+            .step.target?.value,
+      );
+    await vi.waitFor(() => expect(clicked()).toEqual(["passkey"]));
+  });
   it("reads the pause and the asking from settings the passkey runtime already read", async () => {
     const { h } = paused();
     fake.state.openTabs = [1];

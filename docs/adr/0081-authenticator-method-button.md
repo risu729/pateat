@@ -98,13 +98,14 @@ judge's answer on the choice page is not known; the reasons above follow from th
    `authenticator` handler on that path yet (`not-authenticator`, `step-target`,
    `duplicate`, `not-on-page` otherwise). It is never learned from a stop's page or
    beside the sign-in form. It is never named by its accessible name.
-5. **Entering.** A login enters it after an effect step like any handler, only on the
-   `password` route after its password was filled in this login, not fill-only, in the
-   tab's top document on the recipe's own origin, while none of the route's fill fields
-   on that path shows writable, when the item has a TOTP code the account may fill (its
-   built-in TOTP or the custom field its binding names), and when the login has not
-   typed a code yet (`code-used`). Its button must be a shown button or script button
-   whose rendered text passes the word list and none of whose text, hidden text
+5. **Entering.** A login enters it after an effect step like any handler, only after its
+   first factor in this login: on any route, its password filled or Pateat's answer to
+   its step's passkey request gone back (amended 2026-11-08, below), not fill-only, in
+   the tab's top document on the recipe's own origin, while none of the route's fill
+   fields on that path shows writable, when the item has a TOTP code the account may
+   fill (its built-in TOTP or the custom field its binding names), and when the login
+   has not typed a code yet (`code-used`). Its button must be a shown button or script
+   button whose rendered text passes the word list and none of whose text, hidden text
    included, and accessible name holds a refused word (`authenticator-choice`); the
    content script checks it again in the click's own task (`authenticatorChoice`), and a
    button that no longer passes is not pressed (`target-missing`). When several handlers
@@ -171,3 +172,15 @@ page was described with none of them and the judge could name no `authenticatorB
    signed in.
 3. The judge corpus gains `en-second-factor-chooser-alone`, the chooser described with
    only that button.
+
+## Amendment 2026-11-08: after any first factor
+
+Owner, 2026-11-08 at 02:58 UTC,
+「同様に意味もなく認証方法で分けてあるのをすべて直して」. Decision 5 let only a
+`password` login press the button, once its password was filled, "so a button that
+offers a code instead of the password never skips the password". A `passkey` login whose
+answer went back has the same first factor done, and a site may then ask how to confirm
+the sign-in as it does after a password. Now the button is pressed after either first
+factor: the password filled in this login, or Pateat's answer to the passkey request of
+its step. Before either, it is still never pressed, so it never skips the password or
+the passkey.

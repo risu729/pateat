@@ -14,7 +14,7 @@ import {
   type LoginStep,
 } from "@pateat/contracts";
 import { type Execution, type DetailWait } from "./types";
-import { observe } from "./reconcile";
+import { observe, passkeyStepAnswered } from "./reconcile";
 import { handlerOrder, codeFieldOf, markerProof, autoSubmitted } from "./steps";
 import { readSignInState, reconcileBounded } from "./sign-in";
 import { current, report, change, reportHandlerMiss } from "./attempt";
@@ -102,18 +102,19 @@ export async function enterHandler(
         entry.step.kind === "fill" &&
         entry.step.fields.some((field) => field.slot === "password"),
     );
-  // An `authenticator` handler's button goes on to the code page (ADR 0081): only a login on
-  // the `password` route that has filled its password already, does not only fill and runs
-  // on the recipe's own origin presses it, so a button that offers a code instead of the
-  // password never skips the password.
+  // An `authenticator` handler's button goes on to the code page (ADR 0081): only a login
+  // whose credential went back already, a password it filled or Pateat's answer to its
+  // step's passkey request, whatever the route (owner, 2026-11-08), that does not only fill
+  // and runs on the recipe's own origin presses it, so a button that offers a code instead
+  // of the password or passkey never skips that first factor.
   const choosesAuthenticator =
-    run.metadata.route === "password" &&
-    plan.some(
+    (plan.some(
       (entry, index) =>
         index < unrun &&
         entry.step.kind === "fill" &&
         entry.step.fields.some((field) => field.slot === "password"),
-    ) &&
+    ) ||
+      passkeyStepAnswered(rt, run)) &&
     run.metadata.fillOnly !== true &&
     run.live.document.origin === run.recipe.origin;
   // The handler whose click this document performed and holds: its button the page only
