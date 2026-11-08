@@ -92,7 +92,7 @@ import {
 } from "../page/sign-in-state";
 import { observedPath } from "../observation/path";
 import { sendMessage } from "../messaging/protocol";
-import { acceptsSecret, codeInput, maskedSecret } from "./inputs";
+import { acceptsSecret, maskedSecret } from "./inputs";
 import { chooseFor } from "../page/choice-radio";
 import { askedQuestion, type AskedQuestion } from "../page/question";
 import { cardHints } from "../page/card-hints";
@@ -606,7 +606,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // window for a sign-in input once more (`urlChanged`).
   let mayOffer = false;
   let offerUrl = pageUrl();
-  // The path where this document last submitted a form with a password or code input, and the
+  // The path where this document last submitted a sign-in form (ADR 0028, amended 2026-11-08), and the
   // next path it showed after it: that page is never offered as a list of accounts or as a
   // sign-in entry.
   let submitPath: string | undefined;
@@ -2718,8 +2718,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     waits.signal.addEventListener("abort", stop, options);
   }
   /**
-   * A form with a password or code input submitted in this document, whatever the sign-in
-   * method (owner, 2026-11-08): its next path here, and the tab's next document if it is
+   * A form with a password input, or a code input marked `autocomplete="one-time-code"`,
+   * submitted in this document, whatever the sign-in method (owner, 2026-11-08): its next path here, and the tab's next document if it is
    * of the same origin, are not offered as a list of accounts (ADR 0028), as a sign-in
    * entry (ADR 0031) or as a page asking for an identifier alone (ADR 0016). The
    * background counts a passkey Pateat answered for the tab's next document the same way.
@@ -2745,7 +2745,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         token,
       }).catch(() => undefined);
     }
-    if (!inputsOf(form, document).some((input) => input.type === "password" || codeInput(input)))
+    // A code counts only when the page marks its field so: a short numeric field alone may
+    // be a postcode or a quantity.
+    if (
+      !inputsOf(form, document).some(
+        (input) => input.type === "password" || autocompleteTokens(input).includes("one-time-code"),
+      )
+    )
       return;
     submitPath = pagePath();
     afterSubmit = undefined;

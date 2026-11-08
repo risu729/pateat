@@ -177,8 +177,8 @@ export async function repairStale(
     return;
   }
   // A page that shows the account is signed in is no stale start page, though it may hold
-  // an email input, as a profile form: the tab's next page after a submitted password
-  // form, or one where a signed-in marker one of the recipe's layouts learned shows.
+  // an email input, as a profile form: the tab's next page after a sign-in (a submitted
+  // password or `one-time-code` form, or a passkey Pateat answered), or one where a signed-in marker one of the recipe's layouts learned shows.
   if (rt.afterSignIn.get(live.document.tabId) === live.document.documentId) {
     log("skipped", "after-sign-in");
     return;

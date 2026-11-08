@@ -682,7 +682,7 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
     // that looks like a verification but is never sent, a secret answer of `type="text"`,
     // is counted at info level when a vault item matches it, as it would for a page that
     // is sent (ADR 0035).
-    // A secret answer on the tab's next document after a password submit is part of that
+    // A secret answer on the tab's next document after a sign-in is part of that
     // sign-in, so it is not counted.
     const afterSubmit = rt.afterSignIn.get(ctx.document.tabId) === ctx.document.documentId;
     const unsendable =

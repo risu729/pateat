@@ -16,6 +16,12 @@ pages share the no-input page wait was decided the same day (20:23). Amends
 wider passkey words). Preserves [ADR 0034](0034-answer-page-passkey-requests.md)'s
 delegation of passkey requests on pages without a recipe.
 
+Amended on 2026-11-08 by
+[ADR 0028](0028-account-chooser-login-pages.md#amendment-2026-11-08-the-page-after-any-sign-in)
+(owner, 02:58 UTC: no rule split by sign-in method): "the page after a submitted
+password form" below also means the page after a submitted `one-time-code` form or a
+passkey Pateat answered.
+
 Date: 2026-10-17 (proposed); accepted 2026-10-19
 
 ## Context

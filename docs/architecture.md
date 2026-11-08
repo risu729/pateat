@@ -959,8 +959,9 @@ any other takes the list
 ([ADR 0079](adr/0079-passkey-button-beside-an-account-list.md)). A list by names that
 names no matching item and shows no control for another account is sent for its button
 alone. A conditional passkey request alone sends nothing, and the page right after a
-submitted sign-in form is not sent: a form with a password or code input, or a page
-Pateat answered a passkey request for, whatever the sign-in method
+submitted sign-in form is not sent: a form with a password input or a code input marked
+`one-time-code`, or a page Pateat answered a passkey request for, whatever the sign-in
+method
 ([ADR 0028, amended 2026-11-08](adr/0028-account-chooser-login-pages.md#amendment-2026-11-08-the-page-after-any-sign-in)).
 The request also offers one slot per custom field a matching item allows (Text, Hidden,
 or Linked with an allowed source), named by field name and position, under an opaque ID

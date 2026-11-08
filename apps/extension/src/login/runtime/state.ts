@@ -378,8 +378,8 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   const hellos = new Map<string, number>();
 
   /**
-   * Per tab, the document that last signed in, by submitting a form with a password or
-   * code input or by getting Pateat's passkey answer, whatever the sign-in method (owner,
+   * Per tab, the document that last signed in, by submitting a form with a password input
+   * or a `one-time-code` input or by getting Pateat's passkey answer, whatever the sign-in method (owner,
    * 2026-11-08), and the tab's next document of that origin when it loads within a minute
    * of it:
    * the page right after a sign-in, which is never sent as a list of accounts (ADR 0028).

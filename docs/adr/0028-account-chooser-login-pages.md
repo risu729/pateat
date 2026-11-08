@@ -699,9 +699,12 @@ of accounts, a sign-in entry or a page asking for an identifier alone, and that 
 skipped (ADR 0041). A sign-in by a code or by a passkey leads to the same kind of page,
 and nothing gave a reason to treat it otherwise. Now the same skip follows any of them:
 
-- a form submitted with a code input in it, as the extension's code pages read one
-  (`autocomplete="one-time-code"` or a short numeric field), counts as a password form
-  does, for its document's next path and the tab's next document of its origin;
+- a form submitted with a code input marked `autocomplete="one-time-code"` counts as a
+  password form does: for its document's next path and the tab's next document of its
+  origin, and it also ends the document's watch for a sign-in form shown in place later
+  (ADR 0016). A short numeric field without that mark does not count here, unlike on a
+  code page: it may be a postcode, a phone number or a quantity in an ordinary form,
+  where the skip would hide the next page for no sign-in (agent's choice, after review);
 - a passkey assertion Pateat returned to a tab's top document counts as that document's
   submission, so the tab's next document of its origin within a minute is the page after
   a sign-in. A sign-in in place within that document is not seen this way, as the

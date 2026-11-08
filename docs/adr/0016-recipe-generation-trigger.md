@@ -26,6 +26,12 @@ Amended on 2026-10-18 by
 in 30 days per recipe and branch, as an exception to the Consequences' "Other pages are
 never observed".
 
+Amended on 2026-11-08 by
+[ADR 0028](0028-account-chooser-login-pages.md#amendment-2026-11-08-the-page-after-any-sign-in)
+(owner, 02:58 UTC: no rule split by sign-in method): "the page after a submitted
+password form" below also means the page after a submitted `one-time-code` form or a
+passkey Pateat answered.
+
 Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
 implemented): a page that shows a later step a login may start at is not sent; the
 existing recipe logs in there.
