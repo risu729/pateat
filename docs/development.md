@@ -1097,8 +1097,11 @@ be reviewed together. `ai` and the
 `@ai-sdk/*` packages are grouped into one PR because each pins an exact
 `@ai-sdk/provider-utils`: updated apart, `ai` and `@ai-sdk/valibot` can resolve
 different copies, and the `Schema` from one is not assignable to the other in
-`packages/inference/src/structured.ts`. Updates still have to pass the repository's
-required checks.
+`packages/inference/src/structured.ts`. `i18next` and `react-i18next` are grouped
+because each `react-i18next` major requires the matching `i18next` major as a peer
+(react-i18next 18 needs i18next 27); in separate PRs, each one's CI runs against the
+other's old version, so the pair that ships is never tested together. Updates still
+have to pass the repository's required checks.
 
 The shared preset applies a one-day release age (plus Renovate's 30-minute buffer)
 for every datasource including npm (owner decision,

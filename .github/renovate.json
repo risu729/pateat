@@ -21,6 +21,11 @@
       "groupName": "ai sdk"
     },
     {
+      "description": "react-i18next majors require the matching i18next major as a peer; updated apart, each PR tests the new package against the other's old version.",
+      "matchPackageNames": ["i18next", "react-i18next"],
+      "groupName": "i18next"
+    },
+    {
       "description": "Review compiler upgrades alongside the shared preset's peer requirements.",
       "matchPackageNames": ["typescript", "npm:typescript", "@risu729/tsconfigs", "@types/**"],
       "groupName": "typescript"
