@@ -97,7 +97,7 @@ describe("login.observe's sign-in inputs after an advance (ADR 0018)", () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(await observe({ targets: [field], require: ["writable"], signIn: true })).toMatchObject({
       targets: ["ambiguous"],
-      signIn: { password: true, identifier: true },
+      signIn: { password: true },
     });
   });
 });

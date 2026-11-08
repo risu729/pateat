@@ -235,10 +235,13 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   the continuation's own rule applies (ADR 0029). A recipe with a completion has
   already reached a signed-in page; its later pages are judged as before
   ([ADR 0027](0027-per-account-login-routes.md)).
-- **Which page.** The page qualifies once it has finished loading
-  (`document.readyState` is `complete`) and has shown, on one path for a second within
-  the advance's 10-second wait, a sign-in input for a built-in slot the recipe does not
-  fill yet that is not one of the recipe's own fields:
+- **Which page.** The page qualifies once it has finished loading (`document.readyState`
+  is `complete`) and has shown, on one path for a second within the advance's 10-second
+  wait, a sign-in input for a built-in slot the recipe does not fill yet that is not one
+  of the recipe's own fields (2026-11-08, agent fix, not an owner decision: an input the
+  recipe's fill target finds alone; a target that finds several inputs, as a test
+  attribute the identifier input shares with the password input added beside it, names
+  none of them, [issue #1413](https://github.com/risu729/pateat/issues/1413)):
   - a visible writable password input, while the recipe fills no `password`. It
     qualifies even beside the identifier field the recipe filled, still writable, as a
     form that reveals its password input below the email field on the same path;
