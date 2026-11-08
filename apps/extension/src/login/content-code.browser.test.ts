@@ -199,3 +199,38 @@ describe("a totp handler's code (ADR 0027 amendment of 2026-11-07)", () => {
     expect((document.getElementById("code") as HTMLInputElement).value).toBe("123456");
   });
 });
+
+describe("a username fill on a code input (issue #1413)", () => {
+  it("never types the account into an input marked one-time-code", async () => {
+    // JetBrains Account's code view: the email's locator now finds the code input alone.
+    await install(
+      `<form><input id="code" autocomplete="one-time-code" data-test="input__inner">${button}</form>`,
+    );
+    operations += 1;
+    const answer = await ask({
+      type: "login.execute",
+      operation: {
+        version: 1,
+        attemptId: "attempt-code",
+        operationId: `operation-${operations}`,
+        policyRevision: 1,
+        expiresAt: Date.now() + 60_000,
+        document: { origin: self.origin, tabId: 1, frameId: 0, documentId: "document-code" },
+        stepIndex: 0,
+        step: {
+          kind: "fill",
+          effect: "prepare",
+          path: observedPath(location.pathname),
+          fields: [{ slot: "username", target: { by: "data-test", value: "input__inner" } }],
+        },
+      },
+      values: [{ slot: "username", value: "pateat-probe@example.com" }],
+    });
+    expect(answer).toMatchObject({
+      ok: false,
+      reason: "structural-mismatch",
+      detail: "target-missing",
+    });
+    expect((document.getElementById("code") as HTMLInputElement).value).toBe("");
+  });
+});

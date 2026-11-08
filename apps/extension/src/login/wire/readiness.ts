@@ -45,6 +45,14 @@ export const loginReadinessSchema = v.strictObject({
    * one-time code, shares its form.
    */
   revealed: v.optional(v.literal(true)),
+  /**
+   * Those of a `fill` step's `targets` that fill the `username` or `password` slot: ready
+   * only while none matches an input marked `one-time-code` (`code-input`), so a new login
+   * on a page that swapped its sign-in form for a code form in place never types the
+   * account into the code input its identifier's locator now finds alone, as JetBrains
+   * Account's shares the email input's `data-test` (issue #1413).
+   */
+  signIn: v.optional(v.pipe(v.array(loginTargetSchema), v.minLength(1), v.maxLength(20))),
 });
 export type LoginReadiness = v.InferOutput<typeof loginReadinessSchema>;
 /** What a later step a new login may start at waits for (ADR 0049). */
@@ -58,6 +66,11 @@ export function laterReadiness(entry: {
     ...(entry.absent?.length ? { absent: entry.absent } : {}),
   };
 }
+/**
+ * Whether a fill of `slot` types the account's sign-in itself, its username or password,
+ * which never goes into an input marked `one-time-code` (issue #1413).
+ */
+export const signInSlot = (slot: string) => slot === "username" || slot === "password";
 /** What a step waits for; a `wait` or `assert`-absent step does its own waiting. */
 export function loginReadiness(step: LoginStep): LoginReadiness {
   const targets: LoginTarget[] =
@@ -69,6 +82,10 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
   const keypad =
     step.kind === "fill"
       ? step.fields.flatMap((field) => (field.keypad ? [field.target] : []))
+      : [];
+  const signIn =
+    step.kind === "fill"
+      ? step.fields.flatMap((field) => (signInSlot(field.slot) ? [field.target] : []))
       : [];
   return {
     path: step.path,
@@ -85,18 +102,21 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
             : "present",
     targets,
     ...(keypad.length ? { keypad } : {}),
+    ...(signIn.length ? { signIn } : {}),
   };
 }
 
 /**
  * Why a later step a login may start at did not (ADR 0049), in the order checked:
- * `target`, a target matches no unique usable element; `identifier`, the page shows
+ * `target`, a target matches no unique usable element; `code-input`, a username or
+ * password target matches an input marked `one-time-code` (issue #1413); `identifier`, the page shows
  * another identifier input; for a step started with its password alone, `absent`, a target
  * it drops shows writable, `form-input`, another text input shares the password's form,
  * or `new-password`, the form is marked for a new password.
  */
 export const LATER_MISSES = [
   "target",
+  "code-input",
   "identifier",
   "absent",
   "form-input",

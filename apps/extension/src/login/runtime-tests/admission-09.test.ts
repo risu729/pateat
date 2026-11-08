@@ -70,6 +70,7 @@ describe("production login document admission", () => {
     path: "/signin",
     require: "writable",
     targets: [{ by: "id", value: "password" }],
+    signIn: [{ by: "id", value: "password" }],
   };
   const branchRecipe = parseLoginRecipe({
     ...recipe,
@@ -327,6 +328,7 @@ describe("production login document admission", () => {
             path: "/verify",
             require: "writable",
             targets: [target("password")],
+            signIn: [target("password")],
           };
           expect(await h.hello({ documentId: "verify" })).toEqual({
             ok: false,

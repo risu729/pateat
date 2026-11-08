@@ -207,3 +207,27 @@ describe("a final advance click beside a password input that opens (ADR 0018 ame
     expect(await watching(token)).toEqual({ ok: false, reason: "timeout", miss: "not-clickable" });
   });
 });
+
+describe("a username or password fill's wait on a code input (issue #1413)", () => {
+  // JetBrains Account swaps its email form for a code form with the same `data-test`.
+  const codeView = `<main><form>
+    <input id="code" name="code" autocomplete="one-time-code" data-test="input__inner">
+    <button type="submit">Continue</button></form></main>`;
+  const target = { by: "data-test", value: "input__inner" };
+  const fill = (token: string, signIn: boolean) =>
+    wait(token, {
+      path: "/login",
+      require: "writable",
+      targets: [target],
+      ...(signIn ? { signIn: [target] } : {}),
+    });
+
+  it("is never ready, while another value's fill is", async () => {
+    const token = await open(codeView);
+    expect(await fill(token, true)).toEqual({ ok: false, reason: "timeout", miss: "code-input" });
+    expect(await fill(token, false)).toEqual({ ok: true });
+    // An email input the same locator finds is ready for the username.
+    document.querySelector("#code")!.removeAttribute("autocomplete");
+    expect(await fill(token, true)).toEqual({ ok: true });
+  });
+});

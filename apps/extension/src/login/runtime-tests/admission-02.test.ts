@@ -61,6 +61,7 @@ describe("production login document admission", () => {
     path: "/signin",
     require: "writable",
     targets: [{ by: "id", value: "password" }],
+    signIn: [{ by: "id", value: "password" }],
   };
   it("starts only after the document reports the first step ready", async () => {
     const h = harness();

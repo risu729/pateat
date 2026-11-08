@@ -63,6 +63,7 @@ describe("production login document admission", () => {
     path: "/signin",
     require: "writable",
     targets: [{ by: "id", value: "password" }],
+    signIn: [{ by: "id", value: "password" }],
   };
   void parseLoginRecipe({
     ...recipe,
