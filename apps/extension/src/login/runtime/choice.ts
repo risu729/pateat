@@ -371,8 +371,9 @@ export async function pickFor(
     offerChoice(rt, waiting.document, waiting.candidates, waiting.ask, waiting.paused);
     return { ok: false, reason: "origin-busy" };
   }
-  // On a paused site an item without a password is not handed on to its passkey; the
-  // page's own passkey button signs in with it through the chooser window (ADR 0062).
+  // On a paused site an item without a password that cannot take the passkey route (no
+  // learned passkey button, or no discoverable passkey) is refused; the page's own passkey
+  // button signs in with it through the chooser window (ADR 0062).
   if (
     waiting.paused &&
     live?.document.documentId === waiting.document.documentId &&

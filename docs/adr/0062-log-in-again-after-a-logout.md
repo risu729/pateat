@@ -208,10 +208,11 @@ that logs out right after a login, or two tabs of a site that allows one session
 - What the person starts still runs. A paused document is refused `paused` and offers
   every matching account, the saved default first, also a single one (`login.refused`
   `paused`); a pick logs in once on the route any pick takes (amended 2026-11-08, below:
-  before, only the password route), and an item with no password that the recipe gives
-  no passkey route is refused (`paused-no-password`), the popup pointing to the page's
-  own passkey button. A modal or Immediate UI passkey request
-  ([ADR 0007](0007-existing-passkey-assertions.md),
+  before, only the password route), and an item with no password that cannot take the
+  passkey route (no passkey button on the recipe, no discoverable passkey on the item,
+  or the site's passkey requests going to the browser) is refused
+  (`paused-no-password`), the popup pointing to the page's own passkey button. A modal
+  or Immediate UI passkey request ([ADR 0007](0007-existing-passkey-assertions.md),
   [ADR 0052](0052-immediate-ui-stored-passkeys.md)) opens the chooser with the site
   default treated as unset: every passkey that fits is listed, also a single one, none
   is preselected, "Make default" starts unticked, and the window says automatic login is
@@ -306,5 +307,6 @@ without a choice; the pick is that choice, and while its login runs the bridge s
 request of the login's own step with the picked item without a chooser (ADR 0027). Now
 the pick takes the route any pick takes, the `passkey` route when the item and the
 recipe fit it. The page's own passkey requests outside a login are still handed on or
-open the chooser as above, and an item without a password on a recipe without a passkey
-route is still refused `paused-no-password`.
+open the chooser as above, and an item without a password that cannot take the `passkey`
+route (no passkey button on the recipe, no discoverable passkey on the item, or the
+site's passkey requests going to the browser) is still refused `paused-no-password`.
