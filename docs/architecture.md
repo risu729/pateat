@@ -1886,7 +1886,8 @@ logout either (2026-10-13). Newer settings end it `policy-changed` only when the
 longer allow its account on the page; otherwise the watch takes over their revision,
 since it only reads, so another site's saved account choice does not end it. The
 `passkey` route is watched as the `password` route is since 2026-11-08, its unproven
-pages settling as unknown and only a rejection ending `challenge`; a login in a frame is
+pages settling as unknown and a rejection on it ending `challenge`, as the held click's
+limit and its button shown again do; a login in a frame is
 watched too, and the page that replaces its frame's page during the watch is read for
 its result ([ADR 0086](adr/0086-logins-in-frames-like-top-pages.md)). Whether that frame
 is gone is asked with `login.frame.present` by its frame ID alone, which the

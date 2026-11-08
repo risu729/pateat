@@ -540,10 +540,10 @@ new owner decision:
   The hold lives in the service worker's memory, so a worker restart during the hold
   treats the same document as a new one and ends `challenge`; a click whose delivery
   failed while the button still shows also ends `challenge`. Both fail closed.
-- **Settlement on the passkey route.** Every result on the route other than
-  `authenticated` ends `challenge`: the rejection marker, a final `unknown`, a judgement
-  of `rejected`, `unclear` or `challenge` without a handler, and a page that could not
-  be judged. Since 2026-10-24 (owner,
+- **Settlement on the passkey route** (amended 2026-11-08, see the last section). Every
+  result on the route other than `authenticated` ends `challenge`: the rejection marker,
+  a final `unknown`, a judgement of `rejected`, `unclear` or `challenge` without a
+  handler, and a page that could not be judged. Since 2026-10-24 (owner,
   [ADR 0029 amendment](0029-local-sign-in-state.md#amendment-the-passkey-route-reads-the-sign-in-state-2026-10-24)),
   a confirmed signed-in reading and an undecided judgement that completes a `password`
   login complete this route's login as `authenticated` too. A page after the click is
@@ -857,10 +857,10 @@ unknown, with the same result.
 The owner chose on 2026-10-12 (13:08 UTC, option 1 of the proposal, reviewed against the
 code by a subagent):
 
-- **Which logins.** A login on the `password` route in the tab's top document whose
-  result stops at `challenge`, for any reason (the judge, a handler page shown again, a
-  held click that never cleared), or settles as unknown. The `passkey` route and logins
-  in a frame keep ending at once.
+- **Which logins** (amended 2026-11-08: every route, see the last section). A login on
+  the `password` route in the tab's top document whose result stops at `challenge`, for
+  any reason (the judge, a handler page shown again, a held click that never cleared),
+  or settles as unknown. The `passkey` route and logins in a frame keep ending at once.
 - **Watching.** For 10 minutes from that moment, each new page of the same tab and
   origin is checked. A `challenge` login waits in its own state, `watching`, where pages
   are read only, never filled or clicked. A login whose result settled as unknown keeps
@@ -1733,8 +1733,11 @@ item's missing password (ADR 0036), which ends with a passkey, was already watch
   `challenge`, watched. A rejection (the rejection marker or a judgement of `rejected`)
   still ends `challenge`, since nothing this route typed was rejected; that and whether
   such a rejection should end `credential-rejected` are left to the owner. The route
-  still never falls back to typing the password, and the held click's two-minute limit
-  and a new document that shows the button again still end `challenge`, now watched.
+  still never falls back to typing the password, nor does a login that answered the
+  page's own request (ADR 0034) once it settled and is watched; the held click's
+  two-minute limit and a new document that shows the button again still end
+  `challenge`, now watched. A watched passkey login whose sign-in form shows again with
+  a failure stays watched, rather than ending `credential-rejected` or asking again.
 - `optional` still never completes this route
   ([ADR 0065](0065-optional-pages-after-a-sign-in.md) rule 3); it settles as unknown
   here, watched.

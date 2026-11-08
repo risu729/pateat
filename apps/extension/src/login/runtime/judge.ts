@@ -174,7 +174,7 @@ export async function describeForJudge(
 }
 
 /**
- * Asks the top document of a `password` login, whose judged page described nothing, to say
+ * Asks the top document of a login, whose judged page described nothing, to say
  * once it shows something to describe, while the login may still be watched (ADR 0027
  * amendment of 2026-11-04): a page still loading, as Oracle's "Verify your identity" page
  * read eight seconds after the click (2026-11-04 11:26 UTC), is then read again as the

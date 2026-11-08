@@ -186,6 +186,7 @@ export async function reconcile(
     // A site that refused the passkey answer gets the password instead (ADR 0034).
     if (
       effectful(run.metadata) &&
+      run.metadata.settled !== true &&
       run.metadata.route === "passkey" &&
       passkeyAnswersRequest(run.recipe)
     ) {
@@ -304,7 +305,14 @@ export async function reconcile(
     // showing on its path means the site has not signed in: it may still be exchanging
     // the assertion in this document for a while, then the login falls back to its
     // password variant (ADR 0034).
-    if (!asksPassword && inFlight && routeClick && passkeyAnswersRequest(run.recipe)) {
+    // A settled login, watched, never falls back: it only reads its later pages.
+    if (
+      !asksPassword &&
+      inFlight &&
+      routeClick &&
+      passkeyAnswersRequest(run.recipe) &&
+      run.metadata.settled !== true
+    ) {
       let shows: boolean;
       const onList = listOf(rt, run);
       if (onList) {
@@ -341,7 +349,8 @@ export async function reconcile(
       );
       if (!clicked) return undefined;
       if (clicked.targets.some((state) => state !== "missing" && state !== "unusable")) {
-        if (run.heldClick === run.metadata.stepIndex) return "held";
+        if (run.heldClick === run.metadata.stepIndex && run.metadata.settled !== true)
+          return "held";
         if (clicked.path === inFlight.step.path) {
           await change(rt, run, {
             type: "OBSERVED",
