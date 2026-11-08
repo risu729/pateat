@@ -183,7 +183,7 @@ export async function describeForJudge(
  */
 export function watchDescribed(rt: Runtime, run: Execution): void {
   const { document } = run.live;
-  if (document.frameId !== 0 || run.metadata.route !== "password") return;
+  if (document.frameId !== 0) return;
   const since = run.metadata.watch?.since;
   const left = since === undefined ? WATCH_MS : WATCH_MS - (Date.now() - since);
   if (left <= 0) return;

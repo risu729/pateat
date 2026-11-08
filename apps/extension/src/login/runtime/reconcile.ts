@@ -104,17 +104,19 @@ export async function waitFor(
 }
 
 /**
- * How a page that does not prove the sign-in ends the login: as itself on the `password`
- * route, and always as `challenge` on the `passkey` route, which never falls back to
- * typing the password (ADR 0027). A login that stops before its item's missing password
- * ends an unproven page as `challenge` too, watched (ADR 0036).
+ * How a page that does not prove the sign-in ends the login: as itself, on every route
+ * (owner, 2026-11-08), so an unknown page settles as unknown and is watched (ADR 0027).
+ * A rejection on the `passkey` route ends `challenge`, as nothing it typed was rejected.
+ * A login that stops before its item's missing password ends an unknown page as
+ * `challenge`, watched (ADR 0036).
  */
 export const unproven = (
   _rt: Runtime,
   run: Execution,
   result: "credential-rejected" | "challenge" | "unknown",
 ) =>
-  run.metadata.route === "passkey" || (run.metadata.stopAt !== undefined && result === "unknown")
+  (run.metadata.route === "passkey" && result === "credential-rejected") ||
+  (run.metadata.stopAt !== undefined && result === "unknown")
     ? "challenge"
     : result;
 

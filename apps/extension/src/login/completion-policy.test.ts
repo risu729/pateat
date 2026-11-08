@@ -161,7 +161,7 @@ describe("an optional page after the sign-in (ADR 0065)", () => {
   it("is not known to be signed in before the credential was sent", () => {
     expect(undecidedCandidate({ ...optional, sent: false }).completes).toBe(false);
     expect(outcome({ sent: false })).toEqual({ result: "unknown", confirmed: false });
-    expect(outcome({ sent: false, route: "passkey" }).result).toBe("challenge");
+    expect(outcome({ sent: false, route: "passkey" }).result).toBe("unknown");
   });
 
   it("holds a login that stops before its missing password, which goes on to its stop", () => {
@@ -279,7 +279,7 @@ describe("judgedCompletionResult", () => {
     [{ verdict: "retry", reading: { decision: "continuing", confirmed: true } }, "unknown"],
     [{ stopHeld: true }, "challenge"],
     [{}, "unknown"],
-    [{ route: "passkey" }, "challenge"],
+    [{ route: "passkey" }, "unknown"],
     [{ route: "passkey", verdict: "rejected" }, "challenge"],
     [{ route: "passkey", verdict: "signed-in" }, "authenticated", true],
     [{ stopAt: 0 }, "challenge"],

@@ -110,10 +110,8 @@ export const loginAttemptStateSchema = v.picklist([
  * `challenge` or settled as unknown, in the tab's page or in a frame (ADR 0086). Later
  * pages of its tab are read for its result.
  */
-const watched = (metadata: { route: string; state: string; settled?: true | undefined }) =>
-  metadata.route === "password" &&
-  (metadata.state === "watching" ||
-    (metadata.state === "reconciling" && metadata.settled === true));
+const watched = (metadata: { state: string; settled?: true | undefined }) =>
+  metadata.state === "watching" || (metadata.state === "reconciling" && metadata.settled === true);
 /** Allowlisted metadata only. Never persist an XState snapshot or resolved field values. */
 export const attemptMetadataSchema = v.pipe(
   v.strictObject({
@@ -1178,7 +1176,6 @@ function createLoginAttemptMachine() {
       valueRejectedWatched: ({ context, event }) =>
         event.type === "VALUE_REJECTED" &&
         event.challenge === true &&
-        context.route === "password" &&
         valueRejected(context, event),
       retryAvailable: ({ context, event }) =>
         context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
@@ -1229,7 +1226,6 @@ function createLoginAttemptMachine() {
       observedWatched: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "challenge" &&
-        context.route === "password" &&
         (!event.document || sameScope(context.document, event.document)),
       observedCredentialRejected: ({ context, event }) =>
         event.type === "OBSERVED" &&

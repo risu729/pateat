@@ -353,7 +353,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     expect(status()![0]).toMatchObject({ route: "passkey" });
     expect(status()![0]).not.toHaveProperty("variant");
     answerOf(request.decided()).answered(false);
-    await until(settled("blocked", "challenge"), 5_000);
+    await until(settled("watching", "challenge"), 5_000);
     expect(executed()).toEqual([]);
     expect(routeChanges(report)).toEqual([]);
   });
@@ -533,8 +533,11 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       await vi.advanceTimersByTimeAsync(14_000);
       expect(status()![0]).toMatchObject({ state: "awaiting-result", route: "passkey" });
       expect(service.judge).not.toHaveBeenCalled();
-      // Anything the passkey route does not prove ends as a challenge.
-      await until(settled("blocked", "challenge"), 10_000);
+      // An undecided page settles as unknown, watched, as on the password route.
+      await until(
+        () => settled("reconciling", "unknown-submit")() && status()?.[0]?.["settled"] === true,
+        10_000,
+      );
       expect(service.judge).toHaveBeenCalledTimes(1);
       expect(executed()).toEqual([]);
     });
@@ -571,7 +574,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       answerOf(request.decided()).answered(true);
       await vi.advanceTimersByTimeAsync(115_000);
       expect(status()![0]).toMatchObject({ state: "awaiting-result", route: "passkey" });
-      await until(settled("blocked", "challenge"), 10_000);
+      await until(settled("watching", "challenge"), 10_000);
       expect(service.judge).not.toHaveBeenCalled();
       expect(executed()).toEqual([]);
     });

@@ -1713,3 +1713,28 @@ Decision:
   type a recipe step's code there; no recipe the service plans has one.
 - The two pages' rows kept `challenge` with their inputs' digest; ADR 0029's amendment
   of 2026-11-07 judges them again.
+
+## Amendment 2026-11-08: every route is watched
+
+Owner's request on 2026-11-08 at 02:58 UTC: 「同様に意味もなく認証方法で分けてあるのを
+すべて直して」 (after one move rule for every sign-in method, ADR 0022). Nothing in this
+ADR gave a reason to watch only the `password` route, and a login that stops before its
+item's missing password (ADR 0036), which ends with a passkey, was already watched.
+
+- **Which logins** now reads: a login in the tab's top document or in a frame (ADR 0086)
+  whose result stops at `challenge`, for any reason, or settles as unknown, on any
+  route. The `passkey` route is watched as the `password` route is: later pages of its
+  tab are read for its result for 10 minutes, it completes on the same evidence and
+  judgements, saves its site default and starts the logout detection of ADR 0021 D, and
+  its first step showing again in a new page releases it as described above.
+- **Settlement on the passkey route** now reads: a page that proves nothing settles as
+  it does on the `password` route, so a final `unknown`, an `unclear` judgement, a
+  refusal and no judgement at all settle as unknown and are watched; `challenge` stays
+  `challenge`, watched. A rejection (the rejection marker or a judgement of `rejected`)
+  still ends `challenge`, since nothing this route typed was rejected; that and whether
+  such a rejection should end `credential-rejected` are left to the owner. The route
+  still never falls back to typing the password, and the held click's two-minute limit
+  and a new document that shows the button again still end `challenge`, now watched.
+- `optional` still never completes this route
+  ([ADR 0065](0065-optional-pages-after-a-sign-in.md) rule 3); it settles as unknown
+  here, watched.
