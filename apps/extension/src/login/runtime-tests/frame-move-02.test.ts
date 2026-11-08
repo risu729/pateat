@@ -139,7 +139,7 @@ describe("a login in a frame, read on its own frame and its tab's pages (ADR 008
     expect(record()).toMatchObject({ state: "authenticated", outcome: "authenticated" });
   });
 
-  it("completes on the new page the judge reads as signed in", async () => {
+  it("completes on the quiet new page after the password, without the judge", async () => {
     holdClicks();
     const service = generation(async () => ({ verdict: "signed-in" }));
     const h = await framed({ generation: service });
@@ -161,7 +161,7 @@ describe("a login in a frame, read on its own frame and its tab's pages (ADR 008
     await vi.waitFor(() =>
       expect(record()).toMatchObject({ state: "authenticated", outcome: "authenticated" }),
     );
-    expect(service.judge).toHaveBeenCalledTimes(1);
+    expect(service.judge).not.toHaveBeenCalled();
     expect(executes()).toHaveLength(2);
   });
 

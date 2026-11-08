@@ -597,7 +597,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     });
     it("ends a watched login that leaves its origin where it stopped, so its form is no logout", async () => {
       const { h } = await watched();
-      // The site's timeout goes through another origin, which shows no signed-in page.
+      // The site's timeout goes through another origin, which shows no signed-in page, past
+      // the password's 30 seconds (ADR 0022).
+      await vi.advanceTimersByTimeAsync(31_000);
       fake.state.tabUrls[1] = "https://elsewhere.example/home";
       expect(
         await h.hello({ documentId: "elsewhere", url: "https://elsewhere.example/home" }, false),

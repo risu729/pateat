@@ -586,17 +586,28 @@ describe("production login document admission", () => {
         fake.browser.tabs.query = query;
       }
     });
-    it("ends the left site's login when the next site's frame announces before its page", async () => {
+    it("leaves the move to the next site's page when its frame announces first", async () => {
       holdClicks(origin);
       const h = twoSites();
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(executes()).toHaveLength(2));
-      expect(await h.hello(secondFrame())).toEqual({ ok: true });
+      // Right after the password, only the top page can tell the move's result (ADR 0022).
+      expect(await h.hello(secondFrame())).toEqual({ ok: false, reason: "tab-busy" });
+      fake.state.signs = {
+        password: true,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
+      expect(await navigate(h, secondPage, "second-page", false)).toMatchObject({ ok: false });
       expect(at(origin)).toMatchObject({
         state: "blocked",
         outcome: "left-origin",
         submissions: 1,
       });
+      fake.state.signs = undefined;
+      expect(await h.hello(secondFrame())).toEqual({ ok: true });
       await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
       expect(await h.login.active()).toBe(false);
     });
@@ -786,10 +797,10 @@ describe("production login document admission", () => {
           }),
         );
       });
-      it("ends left-origin on a host outside the passkey's RP ID", async () => {
+      it("completes on a host outside the passkey's RP ID (owner, 2026-11-08)", async () => {
         const h = await submitted("www.login.example");
         await navigate(h, "https://account.login.example/home", "home-document", false);
-        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
       });
       it("tells of the login's and the passkey site's origin once (ADR 0007)", async () => {
         const signedIn = vi.fn<(tabId: number, origin: string) => void>();

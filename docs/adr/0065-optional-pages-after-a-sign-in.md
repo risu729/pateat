@@ -87,14 +87,11 @@ Before this ADR (read from the code on 2026-10-23):
    judge finds `optional` completes it), since the judge found the person signed in. The
    `passkey` route never completes on `optional`, even after a learned handler sent a
    second factor, as it never completes on a judged page its own checks do not prove
-   (ADR 0027). A login whose tab moved to another origin of the site (ADR 0022)
-   completes on it as on `signed-in` when the description left out no disabled field
-   and no radio button, select or text area, the attempt already submitted the item's
-   password or a TOTP code (a move within the site may follow an identifier's Next) and
-   it has no stop, after the move's own re-check: the page is still on the path it was
-   judged on and loaded, shows no password field, code input or CAPTCHA, and asked for
-   no passkey since the step the move follows. Nothing is pressed and the page is left
-   to the person.
+   (ADR 0027). A login whose tab moved to another origin never completes on `optional`
+   since 2026-11-08 (ADR 0022, "one move rule for every sign-in method"): after its
+   password, code or passkey answer a quiet page completes it without the judge, so only
+   a move after a step before them, as an identifier's Next, is judged, and the sign-in
+   may still be ahead there.
 4. **Nothing is learned, and nothing is reused.** The service keeps `optional` as the
    path's latest verdict and learns no marker and no handler from the page. Not
    confirmed by the owner, chosen as the safe and simple reading: a marker comes only

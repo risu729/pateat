@@ -113,18 +113,23 @@ describe("a login in a frame whose page is replaced (ADR 0086)", () => {
     expect(executes()).toHaveLength(2);
   });
 
-  it("ends cancelled, as before, when the new page does not show the account's username", async () => {
+  it("completes on a quiet new page right after the password, without the username", async () => {
     holdClicks();
-    const reports: LoginReport[] = [];
-    const h = await framed(reports);
+    const h = await framed();
     fake.state.signs = quiet;
     await replaced(h);
+    expect(record()).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+    expect(reads()).toHaveLength(2);
+    expect(reads()[0]).not.toHaveProperty("account");
+  });
+
+  it("ends cancelled, as before, when the new page shows a password field", async () => {
+    holdClicks();
+    const h = await framed();
+    fake.state.signs = { ...quiet, password: true };
+    await replaced(h);
     expect(record()).toMatchObject({ state: "blocked", outcome: "cancelled" });
-    // Without the username, the page goes to the judge, which needs a paired service.
-    expect(reports).toContainEqual(
-      expect.objectContaining({ type: "judge", verdict: "not-sent", reason: "no-service" }),
-    );
-  }, 10_000);
+  });
 
   it("never reads a new page whose URL the item does not match", async () => {
     holdClicks();
@@ -171,6 +176,10 @@ describe("a login in a frame whose page is replaced (ADR 0086)", () => {
     const h = await framed();
     await vi.waitFor(() => expect(record()).toMatchObject({ watch: {} }), { timeout: 8_000 });
     fake.state.signs = quiet;
+    // Past the password's 30 seconds, the watch reads the page for the username alone.
+    const now = Date.now.bind(Date);
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + 60_000);
+    onTestFinished(() => clock.mockRestore());
     await replaced(h);
     expect(record()).toMatchObject({ state: "blocked", outcome: "unknown-submit" });
   }, 15_000);

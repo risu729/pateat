@@ -338,6 +338,11 @@ the login `authenticated` there too, where it ended `left-origin`. A second page
 other site's origin that asks again after the first held the login is not read for its
 request, as for a page of the login's own site.
 
+Since 2026-11-08 (owner, ADR 0022 "one move rule for every sign-in method"), a page of
+any site that asks for a passkey holds every top-level login, not only one with a stop,
+and after the passkey answer the tab's next quiet page of any site completes it,
+whatever the RP ID.
+
 ## Consequences
 
 - A passkey-only account on a site that asks for the identifier first, such as OpenAI
