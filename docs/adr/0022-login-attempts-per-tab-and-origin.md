@@ -551,9 +551,10 @@ a password or a CAPTCHA still ends `left-origin`.
 
 Third change, the same day, under the same request: a move without a credential step,
 and a frame login's watch, were only read for a `password` login, and the service judged
-a page of another origin only on that route. The passkey route's own step always asks
-for a passkey, so in practice this reaches its watch and the later steps of a handler.
-The route no longer decides either check: the extension sends the moved page on the
-login's route (the `passkey` route only on a recipe with its button, as for a page of
-its own origin), and the service accepts it on any route the stored recipe has, still
-only over HTTPS on the site or another site.
+a page of another origin only on that route. The route no longer decides either check;
+only a step that asks for a passkey itself (the passkey route's own step or a `passkey`
+handler's click) is left out, as its answer is the credential step above. On the passkey
+route this reaches its watch and the later steps of a handler. The extension sends the
+moved page on the login's route (the `passkey` route only on a recipe with its button,
+as for a page of its own origin), and the service accepts it on any route the stored
+recipe has, still only over HTTPS on the site or another site.

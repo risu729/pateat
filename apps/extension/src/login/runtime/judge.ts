@@ -312,8 +312,9 @@ export function sampleSignedIn(
  * step submitted, after a route step that typed the password or a second factor's
  * handler (a handler missing from the recipe does not count). The page after an
  * identifier's Next, or after a `password` or `authenticator` handler's button (ADR 0048,
- * ADR 0081), is no page after the sign-in. A passkey step's answer is counted apart
- * (`passkeyStepAnswered`), as only the bridge knows it went back.
+ * ADR 0081), is no page after the sign-in. A passkey step, the route's own or a `passkey`
+ * handler's click, counts only once Pateat's answer went back (`passkeyStepAnswered`), as
+ * only the bridge knows it did.
  */
 export function credentialSent(_rt: Runtime, run: Execution): boolean {
   const { metadata, recipe } = run;
@@ -324,7 +325,7 @@ export function credentialSent(_rt: Runtime, run: Execution): boolean {
     .some((entry) =>
       entry.handler === undefined
         ? entry.step.kind === "fill" && entry.step.fields.some((field) => field.slot === "password")
-        : ![undefined, "password", "authenticator"].includes(
+        : ![undefined, "password", "authenticator", "passkey"].includes(
             recipe.handlers?.[entry.handler]?.kind,
           ),
     );

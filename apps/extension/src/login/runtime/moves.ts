@@ -522,9 +522,9 @@ export function holdForPasskey(rt: Runtime, tabId: number): void {
  * The time of the step that lets a top-level attempt's tab moving to `siteOrigin`, an
  * HTTPS origin of the attempt's registrable domain, complete on the account's username or
  * the judge (ADR 0022), on any route (owner, 2026-11-08), when no credential step lets it
- * complete
- * (`credentialMoveFits`), as after an identifier's Next: the attempt's last effect step,
- * not one that asks for a passkey, delivered at most `SITE_MOVE_MS` ago. Once a page of
+ * complete (`credentialMoveFits`), as after an identifier's Next: the attempt's last effect
+ * step, not one that asks for a passkey itself (`request`: a later handler step on the
+ * `passkey` route counts), delivered at most `SITE_MOVE_MS` ago. Once a page of
  * the site the tab moved to asked for a passkey (`passkeyPages`), only a passkey answered
  * there decides.
  */
@@ -539,7 +539,7 @@ export function stepMoveFits(
     effect?.attemptId === record.id &&
     !credentialMoveFits(rt, record, tabId, siteOrigin) &&
     rt.passkeyPages.get(tabId)?.attemptId !== record.id &&
-    !effect.passkey &&
+    !effect.request &&
     Date.now() - effect.at <= SITE_MOVE_MS &&
     loginMoveFits(record.document.origin, siteOrigin, false)
     ? effect
@@ -551,7 +551,7 @@ export function stepMoveFits(
  * step the move follows, when that page is to be read for the login's result, as a
  * top-level login's move is: its last credential step (`lastCredential`), after which a
  * quiet page completes it (`credential`); or, on any route, its last effect step, other
- * than a passkey's, at most `SITE_MOVE_MS` ago, or its watch while it lasts, as when the
+ * than one that asks for a passkey itself, at most `SITE_MOVE_MS` ago, or its watch while it lasts, as when the
  * person entered a code the site sent. A login with a stop never runs in a frame.
  */
 export function frameMoveFits(
@@ -564,7 +564,7 @@ export function frameMoveFits(
   if (credential !== undefined) return { at: credential, credential: true };
   const now = Date.now();
   const effect = rt.effects.get(tabId);
-  const own = effect?.attemptId === record.id && !effect.passkey ? effect : undefined;
+  const own = effect?.attemptId === record.id && !effect.request ? effect : undefined;
   const at = own?.at;
   if (at !== undefined && now >= at && now - at <= SITE_MOVE_MS) return { at };
   if (record.watch !== undefined && !watchOver(record, now))

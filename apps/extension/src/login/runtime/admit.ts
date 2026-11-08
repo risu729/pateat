@@ -616,7 +616,7 @@ export async function admit(
     // resubmitting and keeps its record, and this page or its frame may start its own.
     // A frame stands for the tab's page, which left the attempt's origin. A move to a
     // quiet page of any site right after a credential step, or to another origin of the
-    // site right after a `password` login's other step, to a page that shows the account's
+    // site right after a login's other step, to a page that shows the account's
     // username, completes the attempt instead (`signedInByMove`), which only the top page
     // can tell: a frame of the new page waits for that check, or leaves the move to the
     // top page when one may follow.

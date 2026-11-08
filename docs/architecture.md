@@ -773,16 +773,15 @@ flight (such as `policy-changed`) does not. A tab keeps one attempt record per o
 and runs one attempt at a time; a page resumes only its own origin's record, except that
 a new page releases one Pateat itself stopped with nothing in flight before any
 submission and logs in as a new tab would, and a top-level attempt that may have
-submitted ends `left-origin` when the tab moves to another origin, or `authenticated`
-when that origin belongs to a passkey Pateat has just answered and its page shows no
-sign-in, or when a `password` login's tab moves, within 30 seconds of the login's last
-step that may have submitted (a fill or click), to another HTTPS origin of the same
-registrable domain, or within 30 seconds of a second factor (a TOTP code it submitted,
-or a passkey Pateat answered after the item's password) to an HTTPS origin of any site
-(for a login on an `http:` origin, an HTTP origin counts too; [ADR
-0050](adr/0050-http-pages-for-http-items.md)), whose page shows the account's username
-and no sign-in or, when it shows no username, a signed-in marker learned on that origin
-or the judge, asked once. An ended record of a site the tab left, including a frame's
+submitted ends `left-origin` when the tab moves to another origin, or `authenticated`,
+on any route (ADR 0022 amended 2026-11-08), when the tab moves within 30 seconds of the
+login's last credential step (a password it submitted, a TOTP code, or a passkey Pateat
+answered) to an HTTPS origin of any site (for a login on an `http:` origin, an HTTP
+origin counts too; [ADR 0050](adr/0050-http-pages-for-http-items.md)) whose page reads
+quiet, or within 30 seconds of its other last step (as an identifier's Next) to another
+HTTPS origin of the same registrable domain whose page shows the account's username and
+no sign-in or, when it shows no username, a signed-in marker learned on that origin or
+the judge, asked once. An ended record of a site the tab left, including a frame's
 login on that site's page, never holds the new site's page or its frames ([ADR
 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session domains need
 explicit coordination before broader support, not a guessed relationship between
@@ -2832,14 +2831,14 @@ sign-in page's URL named), or when the tab moves on to the site of a passkey Pat
 just answered, or, right after a password submission, to another origin of the site (or,
 right after a TOTP code or a passkey answered after the password, of any site) whose
 page shows the username or a marker learned there, or that the judge answers `signed-in`
-for, or `optional` once the password or a TOTP code was submitted and without a stop
-(ADR 0022, [ADR 0065](adr/0065-optional-pages-after-a-sign-in.md)).
-A login that stops before its item's missing password never counts the
-username ([ADR 0036](adr/0036-passkey-after-the-identifier.md)). Otherwise a submission
-ends `credential-rejected`, moves to a later step, or stays unknown (`unknown-submit`),
-so no account choice is saved. An unknown attempt stays in `reconciling` until its tab
-closes or, for a top-level attempt, until the tab shows a page of another origin that
-Pateat may run on (`left-origin`, ADR 0022): meanwhile it holds the origin. A top-level
+for, or `optional` once the password or a TOTP code was submitted or a passkey answered,
+and without a stop (ADR 0022, [ADR 0065](adr/0065-optional-pages-after-a-sign-in.md)). A
+login that stops before its item's missing password never counts the username
+([ADR 0036](adr/0036-passkey-after-the-identifier.md)). Otherwise a submission ends
+`credential-rejected`, moves to a later step, or stays unknown (`unknown-submit`), so no
+account choice is saved. An unknown attempt stays in `reconciling` until its tab closes
+or, for a top-level attempt, until the tab shows a page of another origin that Pateat
+may run on (`left-origin`, ADR 0022): meanwhile it holds the origin. A top-level
 `password` attempt ends sooner, after its 10-minute watch or when its first step shows
 again in a new page
 ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)). The

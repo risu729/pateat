@@ -208,7 +208,7 @@ export async function signedInAfterFrame(
 }
 
 /**
- * Reads `live`, the page a `password` login's tab moved to after the step at `since`, for
+ * Reads `live`, the page a login's tab moved to after the step at `since`, for
  * the login's result (ADR 0022): quiet and showing the account's username, or else judged
  * `signed-in` once (`judgeMove`). A login that stops before its item's missing password
  * skips the username (ADR 0036).

@@ -7,13 +7,24 @@ import {
 } from "@pateat/contracts";
 import type { UriCandidates } from "../../crypto/wire";
 import type { LoginReport } from "../runtime/report";
+import type { LoginGeneration } from "../runtime/deps";
 import type { ConditionalDecision, PasskeyItem } from "../../passkeys/runtime";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createRuntimeTestHarness } = await import("./harness");
-const { origin, connectionId, itemId, target, recipe, otherItemId, uriMatch, harness, realTime } =
-  createRuntimeTestHarness(fake);
+const {
+  origin,
+  connectionId,
+  itemId,
+  target,
+  recipe,
+  otherItemId,
+  uriMatch,
+  harness,
+  realTime,
+  savedBinding,
+} = createRuntimeTestHarness(fake);
 
 describe("the start page's own passkey request (ADR 0034)", () => {
   beforeEach(realTime);
@@ -240,6 +251,79 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     expect(fills()).toBe(1);
     expect(clicks("login")).toBe(1);
     expect(routeChanges(report)).toEqual(["sign-in-rejected"]);
+  });
+  it("never counts the refused passkey answer as the password route's credential (owner, 2026-11-08)", async () => {
+    // After the fall-back, the password route types the identifier and only advances.
+    vi.useFakeTimers();
+    const identifier = parseLoginRecipe({
+      ...recipe,
+      slots: ["username"],
+      rejection: target("rejected"),
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin",
+          fields: [{ slot: "username", target: target("password") }],
+        },
+        { kind: "click", path: "/signin", target: target("login"), purpose: "advance" },
+      ],
+    });
+    const judge = vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "optional" }));
+    const { h, report } = start(
+      identifier,
+      {
+        username: true,
+        generation: {
+          available: vi.fn<LoginGeneration["available"]>(async () => true),
+          generate: vi.fn<LoginGeneration["generate"]>(),
+          generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+          judge,
+          slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+        },
+      },
+      { bindings: [{ ...savedBinding, slots: [{ slot: "username", field: "username" }] }] },
+    );
+    const request = ask(h);
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    const answer = answerOf(await request.decision);
+    fake.state.present = new Set(["password", "login", "rejected"]);
+    // The click moves on to a quiet page that offers a choice, judged `optional`.
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind !== "click" || step.target.value !== "login") return;
+      fake.state.observedPath = "/options";
+      fake.state.present = new Set();
+      fake.state.signs = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
+      fake.state.extracted = {
+        "signed-in": {
+          ok: true,
+          observation: {
+            version: 1,
+            origin,
+            path: "/options",
+            language: "en",
+            complete: true,
+            candidates: [{ id: "c1", role: "button", target: target("later"), label: "Not now" }],
+          },
+        },
+      };
+    };
+    // The bridge reports the answer it returned, as in the browser.
+    h.login.passkeyAnswered(1, origin, "login.example");
+    answer.answered(true);
+    await until(() => judge.mock.calls.length === 1, 30_000);
+    expect(routeChanges(report)).toEqual(["sign-in-rejected"]);
+    expect(clicks("login")).toBe(1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    // Only the identifier went in on the password route: not known to be signed in.
+    expect(status()![0]).toMatchObject({ route: "password", outcome: "unknown-submit" });
   });
   it("does not take a rejection still showing from the passkey answer as the password's", async () => {
     const rejecting = parseLoginRecipe({ ...recipe, rejection: target("rejected") });
