@@ -106,16 +106,16 @@ export async function waitFor(
 /**
  * How a page that does not prove the sign-in ends the login: as itself, on every route
  * (owner, 2026-11-08), so an unknown page settles as unknown and is watched (ADR 0027).
- * A rejection on the `passkey` route ends `challenge`, as nothing it typed was rejected.
- * A login that stops before its item's missing password ends an unknown page as
- * `challenge`, watched (ADR 0036).
+ * A rejection on the `passkey` route ends `challenge` unless it shows in a new document
+ * after Pateat's answer (`failureRejects`). A login that stops before its item's missing
+ * password ends an unknown page as `challenge`, watched (ADR 0036).
  */
 export const unproven = (
-  _rt: Runtime,
+  rt: Runtime,
   run: Execution,
   result: "credential-rejected" | "challenge" | "unknown",
 ) =>
-  (run.metadata.route === "passkey" && result === "credential-rejected") ||
+  (result === "credential-rejected" && !failureRejects(rt, run)) ||
   (run.metadata.stopAt !== undefined && result === "unknown")
     ? "challenge"
     : result;
@@ -442,11 +442,11 @@ export async function reconcile(
   if (!current(rt, run) || terminal(run.metadata)) return undefined;
   // Evidence of a sign-in completes the login without a model call, on the passkey route
   // too (owner, 2026-10-24), and a failure shown next to the sign-in fields rejects it
-  // (ADR 0029); the passkey route rejects no credential, and goes on as before.
+  // (ADR 0029); on the passkey route only in a new document after Pateat's answer, and
+  // otherwise it goes on as before.
   if (
     state?.confirmed &&
-    (state.decision === "signed-in" ||
-      (state.decision === "rejected" && run.metadata.route !== "passkey"))
+    (state.decision === "signed-in" || (state.decision === "rejected" && failureRejects(rt, run)))
   ) {
     await change(rt, run, {
       type: "OBSERVED",
@@ -584,12 +584,37 @@ export async function askAgain(rt: Runtime, run: Execution): Promise<void> {
  * handler's steps ran after it (ADR 0029 amendment of 2026-10-24).
  */
 export function passkeyStepAnswered(rt: Runtime, run: Execution): boolean {
+  return stepAnswers(rt, run).length > 0;
+}
+
+/** Pateat's answers to the passkey request of this attempt's latest step that asked for one. */
+function stepAnswers(rt: Runtime, run: Execution) {
   const { tabId, origin: pageOrigin } = run.live.document;
   const effect = rt.effects.get(tabId);
   const requestAt = effect?.attemptId === run.metadata.id ? effect.requestAt : undefined;
-  if (requestAt === undefined) return false;
-  return [pageOrigin, run.recipe.origin].some(
-    (from) => (rt.passkeyAnswers.get(`${tabId} ${from}`)?.at ?? -1) >= requestAt,
+  if (requestAt === undefined) return [];
+  return [pageOrigin, run.recipe.origin].flatMap((from) => {
+    const answer = rt.passkeyAnswers.get(`${tabId} ${from}`);
+    return answer && answer.at >= requestAt ? [answer] : [];
+  });
+}
+
+/**
+ * Whether a failure the page shows rejects the login's credential. On the `passkey` route
+ * only a new document after Pateat's answer to its step's passkey request shows one, as
+ * after a submitted password (owner, 2026-11-08 06:39 UTC): neither the document the
+ * answer went to nor the one the step ran in, whose failure beside a password field may
+ * be older than the answer. A recipe that answers the page's own request beside its
+ * password form keeps its fallback to the password (ADR 0034), so a failure there rejects
+ * nothing as before. Every other route rejects one as before.
+ */
+export function failureRejects(rt: Runtime, run: Execution): boolean {
+  if (run.metadata.route !== "passkey") return true;
+  if (passkeyAnswersRequest(run.recipe)) return false;
+  const { documentId } = run.live.document;
+  if (rt.effects.get(run.live.document.tabId)?.document.documentId === documentId) return false;
+  return stepAnswers(rt, run).some(
+    (answer) => answer.documentId !== undefined && answer.documentId !== documentId,
   );
 }
 

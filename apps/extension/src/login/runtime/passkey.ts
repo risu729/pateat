@@ -94,6 +94,7 @@ export function passkeyAnswered(
   rt.passkeyAnswers.set(`${tabId} ${siteOrigin}`, {
     at: Date.now(),
     rpId,
+    ...(facts?.documentId !== undefined ? { documentId: facts.documentId } : {}),
     ...(item ? { item: { connectionId: item.connectionId, itemId: item.itemId } } : {}),
     ...(outside && facts?.documentId !== undefined ? { signedIn: facts.documentId } : {}),
   });

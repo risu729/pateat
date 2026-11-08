@@ -26,7 +26,7 @@ import { branchOf, pairedQuestions } from "./steps";
 import { type LoginReport } from "./report";
 import { pauseOf } from "./pause";
 import { effectful, terminal } from "./attempt-state";
-import { observe, passkeyStepAnswered, toStop } from "./reconcile";
+import { failureRejects, observe, passkeyStepAnswered, toStop } from "./reconcile";
 import { passkeyButton, readSignInState } from "./sign-in";
 import { takeOver } from "./continuation";
 import { DESCRIBED_WATCHES, WATCH_MS } from "./constants";
@@ -572,6 +572,7 @@ export async function learn(
     route: run.metadata.route,
     stopAt: run.metadata.stopAt,
     sent,
+    afterAnswer: failureRejects(rt, run),
   });
   // The page after the final advance before a stop just past the plan's last step, not
   // found signed in or rejected and with no handler taken over, takes the login to its

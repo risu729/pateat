@@ -291,4 +291,34 @@ describe("the start page's passkey route (ADR 0027)", () => {
       expect(clicks(securityKey.value)).toBe(0);
     });
   });
+  describe("a failure after Pateat's answer (owner, 2026-11-08)", () => {
+    const rejecting = parseLoginRecipe({ ...routed, rejection: target("rejected") });
+    it.each<[string, boolean, string]>([
+      ["rejects the passkey in a new document", true, "credential-rejected"],
+      ["is watched as a challenge in the document the answer went to", false, "challenge"],
+    ])("%s", async (_label, moves, outcome) => {
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind !== "click" || step.target.value !== button.value) return;
+        h.login.passkeyAnswered(1, origin, "login.example", undefined, {
+          incognito: false,
+          documentId: "synthetic-document",
+        });
+        fake.state.present = new Set(["password", "login", "rejected"]);
+        if (!moves) return;
+        // The site answers with its form and an error in a new document.
+        fake.state.gone.add("synthetic-document");
+        setTimeout(() => void h.hello({ documentId: "document-failed" }, false), 0);
+      };
+      const { h } = start(rejecting);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ outcome }]), { timeout: 6_000 });
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        document: { documentId: moves ? "document-failed" : "synthetic-document" },
+      });
+      expect(clicks(button.value)).toBe(1);
+      expect(fills()).toBe(0);
+    });
+  });
 });

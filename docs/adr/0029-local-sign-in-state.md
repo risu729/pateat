@@ -324,7 +324,8 @@ hidden, as the completion check counts it: a sign-in form that hides itself agai
 a failure on that path is not a sign-in.
 
 The other rows act since 2026-10-12, on the `password` route, and on the `passkey` route
-since 2026-10-24 (amendment below), except that a failure there rejects no credential.
+since 2026-10-24 (amendment below), except that a failure there rejects no credential
+but in a new document after Pateat's answer (amendment of 2026-11-08 below).
 Every decision but S1 alone is acted on only once a reading a second later agrees in the
 fully loaded document, read again while it loads as for evidence; otherwise the page is
 judged and settles as before. S1 with F1 or F2 ends the login `credential-rejected`
@@ -678,7 +679,8 @@ reviewed by a subagent against the code and the ADRs):
   code) carry no request, so a request after them counts as on the `password` route, and
   the undecided completion then still needs the answer to the route's own step.
 - The agent's choices, not part of the card: a confirmed failure next to the sign-in
-  fields (`rejected`) still rejects no credential on this route and goes on as before;
+  fields (`rejected`) still rejects no credential on this route and goes on as before
+  (changed 2026-11-08, below);
   an `optional` page (ADR 0065) still never completes it, as no password or code was
   sent.
 
@@ -880,8 +882,9 @@ a page that still reads `unknown` after it closed waits too: the person may have
 the challenge, or the site may want its button pressed again, and the person's press is
 read as after Pateat's own step, as for a held click. A failure next to the sign-in form
 (`rejected`) and a sign-in (`signed-in`) decide in the round that reads them in the
-loaded document, with or without a CAPTCHA; on the `passkey` route, which rejects no
-credential, such a failure waits as `unknown` does. A page that moved on otherwise, as
+loaded document, with or without a CAPTCHA; on the `passkey` route such a failure waits
+as `unknown` does, but in a new document after Pateat's answer (amendment of 2026-11-08
+below). A page that moved on otherwise, as
 to a code page, gets the step's usual budget again for its answer, and a reading that
 fails changes nothing about a running wait. Each wait lasts at most two minutes
 (`HELD_CLICK_WAIT_MS`, as for a held click) from when it began or changed between the
@@ -937,3 +940,33 @@ once this attempt's credential went back, meaning a password or TOTP code it sub
 path the judge found signed in before (`judged-signed-in`) needs none, as at a stop (ADR
 0036), since the site may sign the person in after the identifier alone. Before the
 credential, such a page settles as `unknown-submit`, as an undecided passkey page did.
+
+## Amendment: a failure after Pateat's passkey answer rejects it (2026-11-08)
+
+The owner was asked on a decision card at 03:45 UTC
+"パスキーのログインでサイトが「失敗」を示したとき、パスワードの拒否と同じ扱いにしますか"
+and chose at 06:39 UTC 「同じ扱いにする」, whose stated consequence was "Pateat
+がパスキーを返した後の新しいページで失敗が出たら
+credential-rejected。自動ログインを止め、次はアカウントを聞きます。". The only reason
+the `passkey` route rejected no credential was that a failure beside the sign-in form
+may be older than the passkey answer; that does not hold for a document that came after
+it.
+
+On the `passkey` route, a failure now ends the login `credential-rejected`, as on the
+`password` route, when it shows in a document other than the one Pateat's answer to the
+step's passkey request went to and the one the step ran in, once that answer went back
+in this attempt. This covers a confirmed `rejected` reading (F1 or F2 with S1), the
+recipe's rejection element, a judge answer `rejected` and the CAPTCHA wait's decision.
+A failure in the document the answer went to, before any answer, or after an answer
+whose document the bridge did not report, still ends `challenge` and is watched as
+before. A passkey answered by the browser or a phone is not Pateat's answer and changes
+nothing.
+
+The agent's choices, from a review of the change: a recipe that answers the page's own
+request beside its password form (ADR 0034) rejects nothing on this route as before, so
+its fallback to the password is never lost to a failure on another path. A watched
+login's sign-in form shown again (`reshown`) is read only after a password submission,
+never after a step that asked for a passkey, so a watched `passkey` login still goes on
+watching such a page. "Another document" is not checked to be newer than the answer: a
+document the browser restores from its back-forward cache keeps its id, and a failure
+that showed in it before the answer would now reject.
