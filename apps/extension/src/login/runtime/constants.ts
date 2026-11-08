@@ -29,7 +29,7 @@ export const MAX_HINT_USERNAMES = 8;
 
 export const EXTRACT_RETRY_MS = 1000;
 
-/** How soon after a password submission the tab's next page counts as right after it (ADR 0028). */
+/** How soon after a sign-in (a password, code or passkey) the tab's next page counts as right after it (ADR 0028). */
 export const AFTER_SIGN_IN_MS = 60_000;
 
 /**

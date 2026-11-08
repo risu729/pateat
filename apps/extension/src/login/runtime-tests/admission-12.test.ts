@@ -634,7 +634,7 @@ describe("production login document admission", () => {
           sender({ documentId: "next-page" }),
         );
         expect(generations()).toHaveLength(1);
-        // The tab's next document after a submitted password form says so.
+        // The tab's next document after a submitted sign-in form says so.
         await h.login.handle(
           { version: 1, type: "login.document.submitted", token: "synthetic-token" },
           sender({ documentId: "next-page" }),
@@ -647,6 +647,30 @@ describe("production login document admission", () => {
         });
         // A reason outside the list is refused by the message schema.
         expect(await unoffered("other", { documentId: "next-page" })).toBeUndefined();
+      });
+      it("treats the tab's next document after a passkey Pateat answered as after a sign-in (owner, 2026-11-08)", async () => {
+        const { h, generations } = setup();
+        expect(await h.hello({}, false)).toMatchObject({ generate: true });
+        // The bridge returned an assertion to the top document: its sign-in, as a submitted
+        // password or code form would be.
+        h.login.passkeyAnswered(1, origin, "login.example", undefined, {
+          incognito: false,
+          documentId: "synthetic-document",
+        });
+        expect(await h.hello({ documentId: "after" }, false)).toMatchObject({ generate: true });
+        await h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            unoffered: { path: "/signin", why: "no-list" },
+          },
+          sender({ documentId: "after" }),
+        );
+        expect(generations().at(-1)).toMatchObject({
+          reason: "nothing-offered",
+          detail: "after-sign-in",
+        });
       });
       it("logs why a shown control for another account did not count", async () => {
         const { h, generations } = setup();

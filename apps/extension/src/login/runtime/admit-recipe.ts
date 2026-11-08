@@ -678,11 +678,11 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
     }
     // A page offered for generation that showed nothing to send by the end of the step
     // wait is logged with why; mostly ordinary browsing, so at debug level (ADR 0019).
-    // The tab's next document after a submitted password form is known only here. A page
+    // The tab's next document after a submitted sign-in form is known only here. A page
     // that looks like a verification but is never sent, a secret answer of `type="text"`,
     // is counted at info level when a vault item matches it, as it would for a page that
     // is sent (ADR 0035).
-    // A secret answer on the tab's next document after a password submit is part of that
+    // A secret answer on the tab's next document after a sign-in is part of that
     // sign-in, so it is not counted.
     const afterSubmit = rt.afterSignIn.get(ctx.document.tabId) === ctx.document.documentId;
     const unsendable =

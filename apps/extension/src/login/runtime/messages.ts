@@ -280,7 +280,7 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
         ? rt.documents.get(frameKey({ tabId: document.tabId, frameId: 0 }))?.document
         : document;
     if (page)
-      rt.passwordSubmits.set(page.tabId, {
+      rt.signInSubmits.set(page.tabId, {
         origin: page.origin,
         documentId: page.documentId,
         at: Date.now(),
@@ -542,7 +542,7 @@ export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
   const visit = rt.confirmVisits.get(tabId);
   if (visit) leaveConfirm(rt, visit);
   dropReprompt(rt, tabId);
-  rt.passwordSubmits.delete(tabId);
+  rt.signInSubmits.delete(tabId);
   rt.passwordFills.delete(tabId);
   rt.afterSignIn.delete(tabId);
   rt.leftFrames.delete(tabId);

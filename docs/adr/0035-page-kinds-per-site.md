@@ -17,6 +17,12 @@ revision are implemented ahead of delivery 1, and every row is kept one year; an
 ([below](#amendment-2026-10-18-login-results-on-the-service)): the first login result of
 each revision reaches the service.
 
+Amended on 2026-11-08 by
+[ADR 0028](0028-account-chooser-login-pages.md#amendment-2026-11-08-the-page-after-any-sign-in)
+(owner, 02:58 UTC: no rule split by sign-in method): "the page after a submitted
+password form" below also means the page after a submitted `one-time-code` form or a
+passkey Pateat answered.
+
 Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (owner,
 implemented): `excludedSites` pauses automatic login until the rule is removed. It still
 stops observation, generation and filling by Pateat itself, but a popup pick logs in and

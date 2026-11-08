@@ -6,8 +6,8 @@ import { loginReadinessSchema, shownLaterSchema, startMissSchema } from "./readi
 /**
  * Why a page offered for generation sent nothing by the end of the step wait: it showed no
  * list of accounts, sign-in entry or identifier input when its offer wait ended (ADR 0057)
- * and no sign-in input since (`no-list`), it is the page right after a submitted password
- * form (`after-sign-in`), a sign-in input showed only at the end of the wait
+ * and no sign-in input since (`no-list`), it is the page right after a sign-in: a submitted
+ * password or `one-time-code` form, or a passkey Pateat answered (`after-sign-in`), a sign-in input showed only at the end of the wait
  * (`sign-in-shown`), or it shows a `type="text"` input named as a secret answer, which
  * looks like a verification but is never sent (`text-answer`, ADR 0035).
  */
@@ -105,8 +105,8 @@ export const helloSchema = v.strictObject({
   unoffered: v.optional(v.strictObject({ path, why: v.picklist(unofferedReasons) })),
 });
 /**
- * A form with a password input was submitted in this document by anyone, Pateat or the
- * person: the tab's next page of the origin is never sent as a list of accounts (ADR 0028)
+ * A form with a password input or a `one-time-code` input was submitted in this document
+ * by anyone, Pateat or the person: the tab's next page of the origin is never sent as a list of accounts (ADR 0028)
  * or as a sign-in entry (ADR 0031).
  */
 export const submittedSchema = v.strictObject({

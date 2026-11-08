@@ -606,7 +606,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // window for a sign-in input once more (`urlChanged`).
   let mayOffer = false;
   let offerUrl = pageUrl();
-  // The path where this document last submitted a form with a password input, and the
+  // The path where this document last submitted a sign-in form (ADR 0028, amended 2026-11-08), and the
   // next path it showed after it: that page is never offered as a list of accounts or as a
   // sign-in entry.
   let submitPath: string | undefined;
@@ -717,7 +717,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     // A page that shows no sign-in input by now may list accounts (ADR 0028) or, when
     // its URL names another path of its site, hold the site's sign-in entry (ADR
     // 0031), ask for an account identifier alone (ADR 0016) or show a passkey button (ADR
-    // 0053). The page right after a submitted password form offers none of them.
+    // 0053). The page right after a submitted sign-in form offers none of them.
     // A frame that does not show yet offers nothing (ADR 0086).
     const bare =
       !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted() && inTab.shown();
@@ -1088,7 +1088,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       });
     return [...new Set(forms)];
   }
-  /** Whether this path is the one this document showed next after a submitted password form. */
+  /** Whether this path is the one this document showed next after a submitted sign-in form. */
   function afterSubmitted(): boolean {
     const path = pagePath();
     if (submitPath !== undefined && path !== submitPath) afterSubmit ??= path;
@@ -2718,11 +2718,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     waits.signal.addEventListener("abort", stop, options);
   }
   /**
-   * A form with a password input submitted in this document: its next path here, and the
-   * tab's next document if it is of the same origin, are not offered as a list of accounts
-   * (ADR 0028), as a sign-in entry (ADR 0031) or as a page asking for an identifier alone
-   * (ADR 0016). Nothing about the form or its values is
-   * sent. Pateat's own submissions count too; their pages belong to a login anyway.
+   * A form with a password input, or a code input marked `autocomplete="one-time-code"`,
+   * submitted in this document, whatever the sign-in method (owner, 2026-11-08): its next path here, and the tab's next document if it is
+   * of the same origin, are not offered as a list of accounts (ADR 0028), as a sign-in
+   * entry (ADR 0031) or as a page asking for an identifier alone (ADR 0016). The
+   * background counts a passkey Pateat answered for the tab's next document the same way.
+   * Nothing about the form or its values is sent. Pateat's own submissions count too;
+   * their pages belong to a login anyway.
    */
   const onSubmit = (event: Event) => {
     const form = event.target;
@@ -2743,7 +2745,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         token,
       }).catch(() => undefined);
     }
-    if (!inputsOf(form, document).some((input) => input.type === "password")) return;
+    // A code counts only when the page marks its field so: a short numeric field alone may
+    // be a postcode or a quantity.
+    if (
+      !inputsOf(form, document).some(
+        (input) => input.type === "password" || autocompleteTokens(input).includes("one-time-code"),
+      )
+    )
+      return;
     submitPath = pagePath();
     afterSubmit = undefined;
     void sendMessage("login", { version: 1, type: "login.document.submitted", token }).catch(
@@ -2778,7 +2787,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const look = () => {
       pending = false;
       if (stopped) return;
-      // A submitted password form signed the page in: its later forms, as a re-entry of
+      // A submitted sign-in form signed the page in: its later forms, as a re-entry of
       // the password on a settings page, are not sent.
       if (cancelled || !mayOffer || !offered || submitPath !== undefined) return stop();
       lookedAt = Date.now();

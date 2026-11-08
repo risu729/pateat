@@ -89,12 +89,12 @@ export async function admit(
 
   const key = frameKey(document);
 
-  // The tab's next page of the origin after a submitted password form (ADR 0028).
-  const submitted = rt.passwordSubmits.get(document.tabId);
+  // The tab's next page of the origin after a submitted sign-in form (ADR 0028).
+  const submitted = rt.signInSubmits.get(document.tabId);
 
   if (submitted && document.frameId === 0 && submitted.documentId !== document.documentId) {
     // Only the tab's next page counts: one of another origin ends the skip.
-    rt.passwordSubmits.delete(document.tabId);
+    rt.signInSubmits.delete(document.tabId);
     // A clock that went back keeps the skip: sending the page is the less safe outcome.
     if (submitted.origin === document.origin && Date.now() - submitted.at < AFTER_SIGN_IN_MS)
       rt.afterSignIn.set(document.tabId, document.documentId);
