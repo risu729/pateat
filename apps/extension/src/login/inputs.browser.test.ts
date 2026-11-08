@@ -19,7 +19,12 @@ describe("secret input rule on Chromium inputs", () => {
     ["otp", '<input autocomplete="one-time-code">', true],
     ["otp", '<input inputmode="text" autocomplete="off one-time-code">', true],
     ["otp", '<input autocomplete="ONE-TIME-CODE">', true],
-    ["otp", '<input autocomplete="off">', false],
+    // A text input without a maxlength, as Supabase's code input (ADR 0027 amendment of
+    // 2026-11-08); never one marked as a sign-in field or limited past a code.
+    ["otp", '<input autocomplete="off">', true],
+    ["otp", '<input autocomplete="USERNAME">', false],
+    ["otp", '<input maxlength="12">', false],
+    ["otp", '<input type="email">', false],
     ["password", '<input autocomplete="current-password">', true],
     ["password", '<input autocomplete="username current-password">', true],
     ["password", '<input autocomplete="new-password current-password">', true],

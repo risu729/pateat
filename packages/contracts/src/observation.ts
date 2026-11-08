@@ -122,6 +122,17 @@ export const personalDataAutocompleteTokens = [
   "tel-local-suffix",
   "tel-extension",
 ] as const;
+/** The `inputmode` values an observation carries; it leaves out any other. */
+export const observedInputModes = [
+  "none",
+  "text",
+  "decimal",
+  "numeric",
+  "tel",
+  "search",
+  "email",
+  "url",
+] as const;
 /** The autofill field names an observation carries, besides `off`. */
 export const observedAutocompleteTokens = [
   "username",
@@ -155,9 +166,7 @@ export const observedCandidateSchema = v.pipe(
     // evaluating a page-supplied expression locally could hang the caller.
     maxLength: v.optional(textLength),
     minLength: v.optional(textLength),
-    inputMode: v.optional(
-      v.picklist(["none", "text", "decimal", "numeric", "tel", "search", "email", "url"]),
-    ),
+    inputMode: v.optional(v.picklist(observedInputModes)),
     // A read-only fill-role field that takes its characters from the page's software
     // keyboard, located by its container (ADR 0067). The keys and their labels
     // are never described.
@@ -506,16 +515,19 @@ function unmarkedDigit(candidate: ObservedCandidate): boolean {
 }
 
 /**
- * A text input with `inputmode="numeric"` that declares no `maxlength` and whose
- * `autocomplete` names nothing or only `off` (ADR 0027 amendment of 2026-11-07), as HCP
- * Cloud's "Enter your one-time code" is: a `totp` handler's code field when the judge
- * names it, though {@link isCodeField} does not count it as a code input anywhere else.
- * The extension's TOTP fill rule takes it the same way (`acceptsSecret`).
+ * A text input with no `inputmode` or one of `text` or `numeric`, that declares no
+ * `maxlength` and whose `autocomplete` names nothing or only `off` (ADR 0027 amendments of
+ * 2026-11-07 and 2026-11-08), as HCP Cloud's "Enter your one-time code" and Supabase's
+ * "Authentication code" are: a `totp` handler's code field when the judge names it, though
+ * {@link isCodeField} does not count it as a code input anywhere else. The extension's
+ * TOTP fill rule takes it the same way (`acceptsSecret`).
  */
 export function judgedCodeInput(candidate: ObservedCandidate): boolean {
   return (
     candidate.role === "text" &&
-    candidate.inputMode === "numeric" &&
+    (candidate.inputMode === undefined ||
+      candidate.inputMode === "text" ||
+      candidate.inputMode === "numeric") &&
     candidate.maxLength === undefined &&
     (candidate.autocomplete === undefined || candidate.autocomplete === "off")
   );

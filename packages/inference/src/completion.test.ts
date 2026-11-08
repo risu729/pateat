@@ -721,7 +721,7 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
     ]);
   });
 
-  describe("a numeric input without a maxlength (ADR 0027 amendment of 2026-11-07)", () => {
+  describe("a text input without a maxlength (ADR 0027 amendments of 2026-11-07 and 2026-11-08)", () => {
     // HCP Cloud's /u/mfa-otp-challenge (2026-11-07 16:29 UTC): one text input `#code`,
     // `inputmode="numeric"`, `autocomplete="off"`, no `maxlength`, "Enter your one-time code".
     const hcp = field({ maxLength: undefined, autocomplete: "off" });
@@ -743,13 +743,76 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
         "not-code-field",
       ],
       [
-        "a text input without inputmode",
-        field({ inputMode: undefined, maxLength: undefined }),
+        "a text input with inputmode tel",
+        field({ inputMode: "tel", maxLength: undefined }),
+        "not-code-field",
+      ],
+      [
+        "a text input with inputmode none",
+        field({ inputMode: "none", maxLength: undefined }),
+        "not-code-field",
+      ],
+      [
+        "an email input",
+        field({ role: "email", inputMode: undefined, maxLength: undefined }),
+        "not-code-field",
+      ],
+      [
+        "a text input marked as a username",
+        field({ inputMode: undefined, maxLength: undefined, autocomplete: "username" }),
         "not-code-field",
       ],
     ])("drops %s without a maxlength", async (_label, candidate, why) => {
       expect(await judged([candidate, submit()], answer())).toMatchObject({
         value: { totpDropped: why },
+      });
+    });
+
+    it("keeps the code in a text input without inputmode when the judge names it", async () => {
+      // Supabase's /dashboard/sign-in-mfa (2026-11-08 03:28 UTC, issue #1409): one text
+      // input `#code`, `autocomplete="off"`, placeholder "XXXXXX", no `inputmode` or
+      // `maxlength`, under "Enter the authentication code from your two-factor
+      // authentication app" (ADR 0027 amendment of 2026-11-08).
+      const supabase = field({
+        inputMode: undefined,
+        maxLength: undefined,
+        autocomplete: "off",
+        placeholder: "XXXXXX",
+      });
+      expect(await judged([supabase, submit()], answer())).toMatchObject({
+        status: "ok",
+        value: { decision: "challenge", totp: kept },
+      });
+      expect(
+        await judged([field({ inputMode: "text", maxLength: undefined }), submit()], answer()),
+      ).toMatchObject({ value: { totp: kept } });
+    });
+
+    it("drops a text input without inputmode beside another text input of its form", async () => {
+      const code = field({ inputMode: undefined, maxLength: undefined });
+      const other = field({
+        id: "other",
+        target: { by: "id", value: "name" },
+        inputMode: undefined,
+        maxLength: undefined,
+      });
+      expect(await judged([code, other, submit()], answer())).toMatchObject({
+        value: { totpDropped: "several-code-fields" },
+      });
+    });
+
+    it("drops a code input outside any form beside a plain text input outside any form", async () => {
+      // Inputs outside any form count as one form (ADR 0027 amendment of 2026-11-08).
+      const code = field({ maxLength: undefined, group: undefined });
+      const search = field({
+        id: "q",
+        target: { by: "id", value: "q" },
+        inputMode: undefined,
+        maxLength: undefined,
+        group: undefined,
+      });
+      expect(await judged([code, search, submit({ group: undefined })], answer())).toMatchObject({
+        value: { totpDropped: "several-code-fields" },
       });
     });
 

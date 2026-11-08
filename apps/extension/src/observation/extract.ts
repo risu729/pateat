@@ -10,6 +10,7 @@ import {
   loginTargetSchema,
   namesPasswordControl,
   observedAutocompleteTokens,
+  observedInputModes,
   type LoginObservation,
   type LoginKeypadTarget,
   type LoginMarkerTarget,
@@ -183,7 +184,6 @@ const rawLimit = maxText * 4;
 /** How much of a signed-in page's header and navigation the judge sees (ADR 0029). */
 export const maxHeaderText = 1000;
 const labelDepth = 3;
-const inputModes = ["none", "text", "decimal", "numeric", "tel", "search", "email", "url"] as const;
 const fillTypes: Record<string, ObservedCandidate["role"]> = {
   text: "text",
   email: "email",
@@ -1309,7 +1309,7 @@ function constraints(input: HTMLInputElement, role: ObservedCandidate["role"]) {
           ...(inRange(min) && !(inRange(max) && min > max) ? { minLength: min } : {}),
         };
   const mode = input.getAttribute("inputmode")?.trim().toLowerCase();
-  const inputMode = inputModes.find((entry) => entry === mode);
+  const inputMode = observedInputModes.find((entry) => entry === mode);
   return { ...lengths, ...(inputMode ? { inputMode } : {}) };
 }
 

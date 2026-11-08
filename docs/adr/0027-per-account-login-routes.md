@@ -137,6 +137,10 @@ Amended on 2026-11-08 (owner, 04:53 UTC; implemented): a handler whose click the
 document still holds and that shows again there holds the page as its button does
 ([A held handler shown again](#amendment-2026-11-08-a-held-handler-shown-again)).
 
+Amended on 2026-11-08 (agent, for the owner's issue #1409; implemented): the judge's
+code field may also be a text input with no `inputmode` or `inputmode="text"`
+([A code input without inputmode](#amendment-2026-11-08-a-code-input-without-inputmode)).
+
 Date: 2026-10-11
 
 ## Context
@@ -1768,3 +1772,47 @@ reading, took the same button as a wrong code. The owner asked for it to be fixe
   login at a stop (ADR 0036) still end `challenge` with `shown-again` at once. A
   revision the judge sent that finds the held handler shown again is not taken over
   into the handler: the judge's answer settles the page.
+
+## Amendment 2026-11-08: a code input without inputmode
+
+Chosen by an agent, not asked, for the owner's report of 2026-11-08 ([issue
+#1409](https://github.com/risu729/pateat/issues/1409)) that the authenticator code was
+not filled on Supabase. On `supabase.com/dashboard/sign-in-mfa` (2026-11-08 03:28 UTC,
+build `6515d9d2`, request `01a1b932-dd2e-734c-992d-9b5ebb2cf450`), under the headings
+"Two-factor authentication" and "Enter the authentication code from your two-factor
+authentication app", the page shows one `<input type="text" id="code"
+autocomplete="off" placeholder="XXXXXX">` with no `inputmode` and no `maxlength`, and
+the buttons Cancel and Verify in its form. The judge named it as the code field with
+Verify and source `authenticator-app`; the service dropped the code
+(`totpDropped: "not-code-field"`), since `judgedCodeInput` of the amendment of
+2026-11-07 asked for `inputmode="numeric"`. The person typed the code.
+
+Decision:
+
+- `judgedCodeInput` (`packages/contracts/src/observation.ts`) also takes a text input
+  whose description shows no `inputmode` or `text`, under the same other rules: no
+  `maxlength` shown, no `autocomplete` but `off`. `inputmode` values that name another
+  kind of value (`tel`, `email`, `url`, `search`, `decimal`) or no keyboard (`none`)
+  still refuse it. The extension's TOTP fill rule (`acceptsSecret` for `otp`, its
+  `unlimitedTextInput`) takes the same input, reading `inputmode` as the description
+  does: a value it does not describe counts as none.
+- Nothing else of the amendment of 2026-11-07 changes: such an input is a code field
+  only when the judge names it on a page it judges `challenge`, and `isCodeField` is
+  unchanged, so it makes no page a code page and the service plans no recipe step's code
+  into it. The extension's fill rule still cannot tell which step a code comes from, so
+  it would also type a recipe step's code there; no recipe the service plans has one.
+- Another text input of its form that the rule takes refuses it
+  (`several-code-fields`), so a form that also asks for a name or a username in an
+  unmarked text input without a `maxlength` never gets the code; an input marked with an
+  `autocomplete` token or a `maxlength` does not count, and the judge must still name
+  the code field. Inputs outside any form count as one form here, so a code input
+  outside any form beside an unmarked search box outside any form is refused too, and
+  the person types the code, which also holds for the `inputmode="numeric"` input of the
+  amendment of 2026-11-07 now.
+- The `inputmode="numeric"` of the amendment of 2026-11-07 was the only sign of a code
+  that the description shows on such an input; the judge reads the page's headings and
+  labels, as for a personal detail (ADR 0061), which already goes into a plain text
+  input the judge names, and a TOTP code is no more secret than those.
+- Changing `judgedCodeInput` changes the digest of a judged page's inputs
+  (ADR 0029 amendment of 2026-11-07) for every page with such an input, so its row kept
+  `challenge` is judged again once; Supabase's row is one.
