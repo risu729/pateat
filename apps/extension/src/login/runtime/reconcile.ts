@@ -361,7 +361,11 @@ export async function reconcile(
         }
       }
     }
-    if (!asksPassword && (await enterHandler(rt, run, observed.path))) return undefined;
+    if (!asksPassword) {
+      const handled = await enterHandler(rt, run, observed.path);
+      if (handled === "held") return current(rt, run) ? "held" : undefined;
+      if (handled) return undefined;
+    }
     // The page after the final advance before a stop just past the plan's last step that
     // asks for a passkey takes the login to that stop at once (ADR 0036).
     if (advancingToStop(run.metadata) && asksPasskey(rt, run) && (await toStop(rt, run)))

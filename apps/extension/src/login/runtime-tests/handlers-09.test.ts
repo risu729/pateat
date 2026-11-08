@@ -366,6 +366,40 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ]);
         expect(fake.state.session[refusedKey]).toEqual([]);
       }, 10_000);
+      it("keeps the link when its page is drawn again on the way to the signed-in page", async () => {
+        // As on VRChat's code page (2026-11-08): the click's own check reads the button
+        // gone, the handler's check right after it reads the page drawn again, and the
+        // site then signs in. The value was not refused.
+        onClick({ login: toConfirm });
+        const asks = (targets: string[]) => (entry: (typeof fake.state.messages)[number]) =>
+          entry.type === "login.observe" &&
+          JSON.stringify(entry.targets) === JSON.stringify(targets.map((value) => target(value)));
+        let redrawn: number | undefined;
+        Object.defineProperty(fake.state, "present", {
+          configurable: true,
+          get: () => {
+            if (clicks("confirm") === 0) return new Set(["birth", "phone", "confirm"]);
+            const at = fake.state.messages.length - 1;
+            const last = fake.state.messages[at];
+            if (redrawn === undefined && last && asks(["birth", "phone", "confirm"])(last))
+              redrawn = at;
+            if (redrawn === at) return new Set(["birth", "phone", "confirm"]);
+            return redrawn === undefined ? new Set(["birth", "phone"]) : new Set(["logout"]);
+          },
+          set: () => {},
+        });
+        onTestFinished(() => {
+          Reflect.deleteProperty(fake.state, "present");
+        });
+        const { h, report } = start([birthLink, phoneLink]);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(redrawn).toBeDefined();
+        expect(savedLinks(h)).toEqual([birthLink, phoneLink]);
+        expect(handlerReports(report)).toEqual([[0, "detail", "entered", 2]]);
+      }, 10_000);
       it("removes the filled link when the handler's page shows again", async () => {
         vi.useFakeTimers();
         onClick({ login: toConfirm, confirm: toConfirm });

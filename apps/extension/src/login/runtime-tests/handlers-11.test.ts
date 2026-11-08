@@ -57,6 +57,15 @@ describe("a page handler not entered (ADR 0066 amendment of 2026-11-07)", () => 
   ]);
   const status = () =>
     fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
+  const clicks = (value: string) =>
+    fake.state.messages.filter(
+      (entry) =>
+        entry.type === "login.execute" &&
+        (entry as unknown as { operation: { step: { kind: string; target?: { value: string } } } })
+          .operation.step.kind === "click" &&
+        (entry as unknown as { operation: { step: { target?: { value: string } } } }).operation.step
+          .target?.value === value,
+    ).length;
   const onClick = (
     pages: Record<string, { path: string; present: string[]; extracted?: unknown }>,
   ) => {
@@ -276,4 +285,67 @@ describe("a page handler not entered (ADR 0066 amendment of 2026-11-07)", () => 
     },
     10_000,
   );
+  it("holds a code page drawn again after its Verify, as on VRChat's way to the signed-in page", async () => {
+    // 2026-11-08 04:48 UTC: after Pateat's Verify the button read "Verifying...", showed
+    // "Verify" again for a moment as the code page was drawn again, and the site then
+    // signed in. That moment was taken as a wrong code (`shown-again`) and sent to the
+    // service as a problem.
+    onClick({ login: toCode });
+    const reading = (targets: string[]) => (entry: (typeof fake.state.messages)[number]) =>
+      entry.type === "login.observe" &&
+      JSON.stringify(entry.targets) === JSON.stringify(targets.map((value) => target(value)));
+    // What the page shows once Verify was pressed, by the reading that asks: the click's
+    // own check finds "Verifying...", the handler's check right after it finds the page
+    // drawn again, and every reading after that the signed-in page.
+    let redrawn: number | undefined;
+    Object.defineProperty(fake.state, "present", {
+      configurable: true,
+      get: () => {
+        if (clicks("verify") === 0) return new Set(["app-code", "verify"]);
+        const at = fake.state.messages.length - 1;
+        const last = fake.state.messages[at];
+        if (redrawn === undefined && last && reading(["app-code", "verify"])(last)) redrawn = at;
+        if (redrawn === at) return new Set(["app-code", "verify"]);
+        return redrawn === undefined ? new Set(["app-code"]) : new Set(["logout"]);
+      },
+      set: () => {},
+    });
+    onTestFinished(() => {
+      Reflect.deleteProperty(fake.state, "present");
+    });
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { passkeys: noPasskey, report });
+    withTotp(h);
+    codes(h);
+    h.recipes.recipe.mockResolvedValue(coded);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+      timeout: 6_000,
+    });
+    expect(redrawn).toBeDefined();
+    expect(codeFills()).toHaveLength(1);
+    expect(notShown(report)).toEqual([[0, "entered", undefined]]);
+  }, 10_000);
+  it("leaves a code page that stays after its Verify to the person once the click's hold ends", async () => {
+    // A wrong code shown in the same document: the button stays, the click is held as any
+    // held click whose button still shows, and the login then ends `challenge` without
+    // typing another code.
+    vi.useFakeTimers();
+    onClick({ login: toCode, verify: toCode });
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { passkeys: noPasskey, report });
+    withTotp(h);
+    codes(h);
+    h.recipes.recipe.mockResolvedValue(coded);
+    expect(await h.hello()).toEqual({ ok: true });
+    for (let spent = 0; status()?.[0]?.["outcome"] !== "challenge"; spent += 1000) {
+      if (spent > 200_000) throw new Error("Condition not reached in fake time");
+      // eslint-disable-next-line no-await-in-loop
+      await vi.advanceTimersByTimeAsync(1000);
+    }
+    expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]);
+    expect(codeFills()).toHaveLength(1);
+    expect(clicks("verify")).toBe(1);
+    expect(notShown(report)).toEqual([[0, "entered", undefined]]);
+  });
 });

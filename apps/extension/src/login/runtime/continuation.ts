@@ -62,7 +62,8 @@ export async function takeOver(
   run.recipe = next;
   if (!isLoginRouteRecipe(answered)) run.chooser = answered;
   await change(rt, run, event);
-  return current(rt, run) && (await enterHandler(rt, run, path, stop));
+  // A held handler shown again is not taken over: the judge's answer settles the page.
+  return current(rt, run) && (await enterHandler(rt, run, path, stop)) === true;
 }
 
 /**

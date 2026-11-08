@@ -1575,7 +1575,10 @@ Its steps follow the effect step and grow the attempt's step and submission budg
 most 4 handlers, 40 steps and 12 submissions). A `totp` handler whose button is also a
 route step's on that path is entered only while none of the route's fill fields there
 shows. A handler that already ran counts as shown again when its elements are present at
-all, hidden or disabled. The `passkey` handler clicks a button such as "Use security
+all, hidden or disabled; the one whose click the document still holds, shown again
+there before the login settled, holds the page as its button does instead, so a code
+page drawn again on the way to the signed-in page ends nothing (ADR 0027 amendment of
+2026-11-08). The `passkey` handler clicks a button such as "Use security
 key" only for an item with a usable passkey. The `totp` handler fills a code from the
 item's built-in TOTP field into its code field under the TOTP fill rule and clicks its
 button once; it needs the TOTP fact and that field allowed for the account. When the
