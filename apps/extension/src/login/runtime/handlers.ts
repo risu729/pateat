@@ -39,13 +39,16 @@ import type { Runtime } from "./state";
  * An `authenticator` handler, which goes on to the code page, comes after a `totp` one,
  * needs what a `totp` handler needs, and is pressed only in the tab's top document on the
  * recipe's own origin by a login that does not only fill (ADR 0081).
+ * `held` when the handler whose click this document holds shows again here, before the
+ * login settled: the page is held as while its button still shows (ADR 0027), since the
+ * button may show again for a moment before the site moves on.
  */
 export async function enterHandler(
   rt: Runtime,
   run: Execution,
   path: string,
   stop?: { end: () => Promise<void> },
-): Promise<boolean> {
+): Promise<boolean | "held"> {
   // A fresh handler's elements must be usable: its code field a shown writable input and
   // its button shown, enabled or not, as a Verify button disabled until the code is typed
   // is; so a hidden code input rendered with the sign-in form never stands for a code
@@ -353,6 +356,16 @@ export async function enterHandler(
       ? undefined
       : shown.find((entry) => refusal(entry) === undefined);
   if (!fresh) {
+    // The handler this document clicked, shown again while the click is held: read as the
+    // hold reads its button, so a code page drawn again on the way to the signed-in page
+    // (VRChat, 2026-11-08 04:48 UTC) neither ends the login nor logs `shown-again`.
+    if (
+      !stop &&
+      held !== undefined &&
+      run.metadata.settled !== true &&
+      shown.some((entry) => entry.index === held)
+    )
+      return "held";
     const refused = refusal(shown[0]!)!;
     reportHandler(shown[0]!, refused);
     // The popup proposes the vault fields that could give the details (ADR 0061), and a

@@ -133,6 +133,10 @@ a final failure. Earlier references below to a watched line being warn are histo
 Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (owner,
 13:06 UTC; implemented): a `password` login in a frame is watched too.
 
+Amended on 2026-11-08 (owner, 04:53 UTC; implemented): a handler whose click the
+document still holds and that shows again there holds the page as its button does
+([A held handler shown again](#amendment-2026-11-08-a-held-handler-shown-again)).
+
 Date: 2026-10-11
 
 ## Context
@@ -1741,3 +1745,24 @@ item's missing password (ADR 0036), which ends with a passkey, was already watch
 - `optional` still never completes this route
   ([ADR 0065](0065-optional-pages-after-a-sign-in.md) rule 3); it settles as unknown
   here, watched.
+
+## Amendment 2026-11-08: a held handler shown again
+
+On VRChat (2026-11-08 04:48 UTC, Real Chrome on 936f8d36) Pateat typed the code and
+pressed Verify, and the site signed in 0.65 s after a `login.handler` line with outcome
+`shown-again`, which went to the service as a problem line (ADR 0066). The click's own
+check read the button as gone, since it said "Verifying...", and the handler's check
+right after it read the code page drawn again with "Verify" on the way to the signed-in
+page. The [Held click](#implementation-choices) rule holds the page while that button
+still shows in the document that clicked it, but the handler's check, a separate
+reading, took the same button as a wrong code. The owner asked for it to be fixed
+(2026-11-08 04:53 UTC).
+
+- **Entering handlers** now also reads: the handler whose click this document holds,
+  shown again in that document before the login settled, holds the page as its button
+  does under **Held click**, rather than ending the login `challenge` with
+  `shown-again`. Its result is read again in the next round; a page that stays, as
+  after a wrong code in the same document, ends `challenge` once the click's
+  two-minute hold ends, and nothing is typed again. A new document that shows the
+  handler again, a settled login, and a login at a stop (ADR 0036) still end
+  `challenge` with `shown-again` at once.

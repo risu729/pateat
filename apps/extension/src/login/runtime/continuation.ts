@@ -62,7 +62,8 @@ export async function takeOver(
   run.recipe = next;
   if (!isLoginRouteRecipe(answered)) run.chooser = answered;
   await change(rt, run, event);
-  return current(rt, run) && (await enterHandler(rt, run, path, stop));
+  // A held handler shown again counts as handled: the result is still read.
+  return current(rt, run) && (await enterHandler(rt, run, path, stop)) !== false;
 }
 
 /**
