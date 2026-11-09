@@ -168,7 +168,7 @@ which on Linux needs Landlock and seccomp in the kernel. Where either is missing
 jailed script fails before it starts, and aube 2.9.0 reports any jail setup error as
 `failed to spawn script postinstall: Invalid argument (os error 22)`, whatever the
 kernel returned ([#1155](https://github.com/risu729/pateat/issues/1155)). On 2026-11-04
-the jail worked in a Claude Code cloud session (Linux 6.18, Landlock ABI 7), and
+the jail worked in a cloud agent session (Linux 6.18, Landlock ABI 7), and
 making the Landlock or seccomp call fail there with `strace -f -e
 inject=landlock_create_ruleset:error=ENOSYS` (or `EOPNOTSUPP`, or `EINVAL`, or the same
 on `seccomp`) gave exactly that message. To check a machine,
@@ -437,7 +437,7 @@ deployment is implemented; bootstrap and a verified hosted release are pending, 
 per-PR previews await a separate credential/trust decision. The privacy policy's contact
 is `pateat@takuk.me` (owner, 12:37 UTC). The owner kept the Limited Use statement's
 approach: while each service serves only its owner, the request log is the owner reading
-their own data, and the developer reads no one else's (2026-10-23). Claude's defaults,
+their own data, and the developer reads no one else's (2026-10-23). An agent's defaults,
 pending the owner's confirmation (2026-10-15): the site lives in `apps/docs` as a
 workspace package, and its tasks run VitePress with the mise-pinned Node like the other
 projects, where biwa runs it with Bun. The installation page assumes a release is a ZIP

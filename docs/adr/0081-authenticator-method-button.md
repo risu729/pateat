@@ -2,14 +2,14 @@
 
 Status: accepted by the owner on 2026-11-02 at 06:58 UTC, on a decision card that chose
 option A, 「A 覚えて押す」 (learn the button and press it), over B (the person chooses
-and Pateat fills the code during the watch) and C (keep it as is). Claude proposed it
+and Pateat fills the code during the watch) and C (keep it as is). An agent proposed it
 for [#1152](https://github.com/risu729/pateat/issues/1152) after the owner said on
 2026-11-02 at 04:53 UTC to resume and handle what can be done on open issues, and built
 it on assumed decisions, as the owner allowed on 2026-10-23 at 05:28 UTC; another AI
 reviewed the proposal (`designs/authenticator-method-button-proposal-ja.md` in the
 project files) against the code before the owner was asked. The details under Decision
-are Claude's and were not confirmed one by one. Implemented with local tests only (unit
-and runtime); not checked on a real site. Amends
+are an agent's and were not confirmed one by one. Implemented with local tests only
+(unit and runtime); not checked on a real site. Amends
 [ADR 0027](0027-per-account-login-routes.md) (a fifth handler kind and what the judge
 may name) and follows [ADR 0048](0048-password-method-button.md), whose `password`
 handler it mirrors.
@@ -138,7 +138,7 @@ judge's answer on the choice page is not known; the reasons above follow from th
 
 ## Amendment: a role button that chooses the authenticator app
 
-Made by Claude on 2026-11-03 to fix what the owner's Chrome showed, under the decision
+Made by an agent on 2026-11-03 to fix what the owner's Chrome showed, under the decision
 above; not put to the owner separately.
 
 ### What Real Chrome showed

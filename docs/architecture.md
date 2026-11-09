@@ -2620,7 +2620,7 @@ log.
 
 ### Recipe use on the service
 
-Status: Claude's choice for
+Status: an agent's choice for
 [ADR 0058](adr/0058-automatic-recipe-removal.md#b-a-recipe-not-used-for-90-days), not
 confirmed by the owner; implemented and tested locally, not deployed. When a login
 starts on a service recipe revision (its `login.start` report), the worker
@@ -3738,7 +3738,7 @@ Implementation module ownership is described in the
 Status: implemented, except the recipe byte cap below, which the owner chose on
 2026-10-14 (07:56 UTC) and [#550](https://github.com/risu729/pateat/issues/550) builds.
 The owner asked on 2026-10-11 for common-sense per-owner limits sized for their own use;
-Claude chose the other amounts. Revisit them before the service is offered to other
+an agent chose the other amounts. Revisit them before the service is offered to other
 people.
 
 - Requests. The `OWNER_LIMITER` rate-limit binding allows 120 requests a minute per

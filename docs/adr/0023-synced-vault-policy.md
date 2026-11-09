@@ -220,7 +220,7 @@ that it lands later as a small change.
 
 ## Implementation notes (2026-10-15)
 
-Status: proposed by Claude and approved by the owner on 2026-10-23 (12:43 UTC), who
+Status: proposed by an agent and approved by the owner on 2026-10-23 (12:43 UTC), who
 found them technical or settled by the service being the source of truth. These fill in
 details the decision above leaves open.
 

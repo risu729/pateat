@@ -1,7 +1,7 @@
 # ADR 0061: Personal details asked during a login, filled from a linked vault item
 
 Status: accepted by the owner on 2026-10-23 ([decided](#decided-by-the-owner) 6 to 12).
-Claude built it ahead of those decisions on best guesses, as the owner asked at 05:28
+An agent built it ahead of those decisions on best guesses, as the owner asked at 05:28
 UTC. The design was reviewed against the code by another AI before it was built.
 Deliveries 1 to 9, all of them, are implemented ([Delivery](#delivery)).
 Implements the
@@ -13,8 +13,8 @@ item to the items that hold its details) and
 [ADR 0036](0036-passkey-after-the-identifier.md) (a second kind of page judged while it
 still shows the sign-in form).
 
-Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (recipe layouts, accepted
-by the owner at 11:41 UTC; merged with this ADR by Claude, local tests only): a `detail`
+Amended on 2026-10-23 by [ADR 0060](0060-recipe-layouts.md) (recipe layouts, accepted by
+the owner at 11:41 UTC; merged with this ADR by an agent, local tests only): a `detail`
 handler is learned into the layout the login ran, or that chooser layout's branch, like
 any other handler. "The path has no `detail` handler yet" and "judged once per recipe
 revision, origin and path" hold per layout (and branch), a page beside the sign-in form
@@ -154,7 +154,7 @@ the link keeps the one-field shape and both fields must be allowed. A `pin` is r
 a Text or Hidden custom field whose name, after NFKC and without case, holds `pin` as a
 word of its own (not "shipping"), `暗証` or `passcode`; no other detail but an answer
 named after its question reads such a field, so a PIN never fills a member ID's, birth
-date's or phone number's input. Claude chose to read a PIN only from the login item
+date's or phone number's input. An agent chose to read a PIN only from the login item
 itself or a card item, never an identity or another login item: a PIN is a credential
 of one account or card, and another item's PIN belongs to another account. A card
 number and a PIN fill under their own input rule (`card-number`, `pin`), so they may go
@@ -268,11 +268,11 @@ Security notes:
 
 ### Secret-question answers and member IDs
 
-Claude added both on the recipe-schema plan's §2.6 (its option b); decided 6 and 8 keep
-them. Bitwarden keeps neither in a fixed field, so both are read only from custom fields
-of the login item itself, never another item, and only after the owner confirmed the
-field in the popup once (as every link). A Hidden field may fill a visible input here
-too, an exception to [ADR 0013](0013-service-held-recipes-and-settings.md)'s
+An agent added both on the recipe-schema plan's §2.6 (its option b); decided 6 and 8
+keep them. Bitwarden keeps neither in a fixed field, so both are read only from custom
+fields of the login item itself, never another item, and only after the owner confirmed
+the field in the popup once (as every link). A Hidden field may fill a visible input
+here too, an exception to [ADR 0013](0013-service-held-recipes-and-settings.md)'s
 Hidden-field rule like the birth date's.
 
 - `member-id`: a field whose name, after NFKC and without case, holds `id`, `number`,
@@ -308,7 +308,7 @@ Hidden-field rule like the birth date's.
   between the read and the fill gets no answer. Nothing is fuzzy.
 - The popup offers, for an answer input, the login item's field named as the page's
   question, or the field the judge paired with it.
-- AI pairing, Claude's design under decided 7: since the judge gets the slots, it may
+- AI pairing, an agent's design under decided 7: since the judge gets the slots, it may
   pair a question with a field, and the owner confirms the pairing once in the popup,
   as every link. The judge's `details` entry for `secret-answer` may
   name a `slot` (an index into the sent slots) and `shown`, the whole question sentence

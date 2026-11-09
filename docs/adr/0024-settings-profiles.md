@@ -20,9 +20,9 @@ unless the owner agrees that it stays on the device. `serviceReports` (ADR 0055)
 `passkeyPolicy` (ADR 0007) are profile parts. Settings that do not sync today stay as
 they are until the owner decides each one; they are listed in
 [architecture](../architecture.md#settings-that-stay-on-the-device). On 2026-11-02 at
-10:14 UTC the owner agreed (「そうして」) to Claude's proposal to sync the vault timeout
-and its action (`vaultTimeout`, ADR 0075), the language (`language`, ADR 0043), the
-theme (`theme`) and the spend limits of a device's own Anthropic API key
+10:14 UTC the owner agreed (「そうして」) to an agent's proposal to sync the vault
+timeout and its action (`vaultTimeout`, ADR 0075), the language (`language`, ADR 0043),
+the theme (`theme`) and the spend limits of a device's own Anthropic API key
 (`modelSpendLimits`, ADR 0040), and to keep the key itself, debug logging, the Bitwarden
 connections and the demo vaults on each device. Each new part is absent at its default.
 

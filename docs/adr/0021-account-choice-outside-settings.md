@@ -13,10 +13,10 @@ asks (implemented, see the end of D). Amended on 2026-10-13 by the owner's
 [site count badge](#site-count-badge) decision (part B, implemented on 2026-10-23).
 Amended on 2026-10-16 by the owner: in D, a click on a control that logs out also makes
 the tab ask (implemented, see [logout clicks](#logout-clicks)). Amended on 2026-10-24 by
-Claude as a fix, with the owner's choices of 2026-10-23 and 2026-10-24: in D, a resumed
-login its recipe no longer runs ends as a stopped one (implemented, see the end of the
-2026-10-12 stopped-login amendment). Amended on 2026-11-04 by the owner's request: a
-default chosen in the popup logs that tab in at once (implemented, see
+an agent as a fix, with the owner's choices of 2026-10-23 and 2026-10-24: in D, a
+resumed login its recipe no longer runs ends as a stopped one (implemented, see the end
+of the 2026-10-12 stopped-login amendment). Amended on 2026-11-04 by the owner's
+request: a default chosen in the popup logs that tab in at once (implemented, see
 [the amendment](#amendment-a-default-chosen-in-the-popup-logs-in-at-once-2026-11-04)).
 
 Amended on 2026-10-25 by
@@ -231,7 +231,7 @@ when the wait ends with the window still open, Pateat closes it and the request 
 with `NotAllowedError`, as Chrome's own prompt does when it times out. The browser and
 Bitwarden are not asked instead, so no second prompt appears by itself.
 
-Changed on 2026-10-11 by Claude as a fix, after the same check found a settings sync
+Changed on 2026-10-11 by an agent as a fix, after the same check found a settings sync
 from the service closing the window: a settings change no longer cancels a request
 once its window has opened. It still cancels requests that never opened one. After a
 choice, the chosen passkey is looked up again under the settings current then, since
@@ -298,13 +298,13 @@ the page shows another account, the fill ends and the tab asks. The log shows su
 login as `login.attempt` with reason `fill-only`, then the asking as `login.refused`
 `logged-out` with the tab that logged out.
 
-Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md), Claude's default
+Amended on 2026-10-23 by [ADR 0067](0067-software-keyboard-entry.md), an agent's default
 safety tightening after an independent review, not confirmed by the owner: a fill on a
 page's software keyboard counts as a step with an effect here, since a key press may
 submit, as a PIN pad does at its last digit. The fill-only login ends before it and the
 contract refuses it, so after a logout a keypad login is left to the person.
 
-Amended on 2026-11-04 by Claude as a fix (agent-written), found by the walk over every
+Amended on 2026-11-04 by an agent as a fix, found by the walk over every
 order of a login's events: a TOTP code is no leading field either, since its input may
 submit at its last digit as a PIN pad does
 ([ADR 0027](0027-per-account-login-routes.md)). A fill-only login whose page asks for
@@ -354,7 +354,7 @@ A record stopped before any submission is released as ADR 0022 describes; one st
 watching page as `login.refused` `not-started` with `stopped-login` and the asking as
 `logged-out` with `stopped-login`.
 
-Amended on 2026-10-24 by Claude as a fix (agent-written): a record still running or
+Amended on 2026-10-24 by an agent as a fix: a record still running or
 `reconciling` whose recipe no longer runs it was refused `recipe-not-found` on each
 later page and never ended, so the tab was stuck as on APA Hotel above, and vault syncs
 waited for it as for a running login. That is a cached revision that replaced the
@@ -368,7 +368,7 @@ resume. The owner chose on 2026-10-24 (21:58 UTC) to keep ADR 0022's 5-minute ho
 such a stop when a fill or click may have reached the site, as for every other stopped
 login; after it, the tab's sign-in page fills once and presses nothing (ADR 0062).
 
-Amended on 2026-10-25 by Claude as a fix (agent-written): after that hold, a stopped
+Amended on 2026-10-25 by an agent as a fix: after that hold, a stopped
 record whose recipe the cache no longer holds waited for a first step that
 never shows again, so every later page of the tab was answered `login-stopped` and never
 sent for generation (Duolingo, 2026-10-25: both recipes revoked on the dashboard; a new

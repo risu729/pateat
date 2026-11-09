@@ -272,8 +272,8 @@ release-plz (owner, 2026-11-03 03:19 UTC:
    version, which installs accept.
 2. Merging the release PR is the release. On that push the same job tags `v<version>`
    at the merge commit and creates a draft GitHub Release with the changelog section.
-   Only the owner merges a release PR, or Claude on the owner's word; the rule that
-   Claude merges its own green PRs does not cover it.
+   Only the owner merges a release PR, or an agent on the owner's word; the rule that
+   an agent merges its own green PRs does not cover it.
 3. The `Pack` job (read-only token) checks out that commit, installs the locked tools
    and dependencies, runs `mise run check:sdk-source` and
    `mise run //apps/extension:zip` with `PATEAT_RELEASE=true`, the release build

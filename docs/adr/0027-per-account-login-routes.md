@@ -59,7 +59,7 @@ account at once (implemented).
 Amended on 2026-10-13 by the owner (05:39 UTC) through ADR 0036 rule 6: at the stop of a
 login of an item without a password but with a passkey, a "sign in with a passkey"
 button beside the route's password field is pressed when the item has a passkey
-(implemented). How it is done is Claude's extension, not confirmed by the owner
+(implemented). How it is done is an agent's extension, not confirmed by the owner
 separately: the stop's page may be judged once with `stop: true`, the service keeps
 only a `passkey` handler from it, and a `password` login never enters a `passkey`
 handler on a path where its plan still has a route step to run that fills the password
@@ -943,8 +943,8 @@ and fills without pressing anything, as after a login that stopped after a submi
 may show the challenge again. `login.logout` and its `watched` mark are no longer
 logged for a watch.
 
-Claude extended the owner's answer on the same grounds (the login never signed in), and
-the owner has not confirmed these points separately:
+An agent extended the owner's answer on the same grounds (the login never signed in),
+and the owner has not confirmed these points separately:
 
 - A login whose result settled as unknown is treated like one stopped at `challenge`
   and ends `watch-abandoned`.
@@ -1227,7 +1227,7 @@ built-in slots only), at 22:48 UTC on 2026-10-19 ("yeah sounds good. go ahead"):
   [local log](../architecture.md#local-log)), such as the plan's
   `binding-slots-mismatch` or `field-missing`.
 
-Claude's details, not confirmed by the owner:
+An agent's details, not confirmed by the owner:
 
 - A built-in field the saved binding already names directly under another slot (as
   `{ "slot": "Web password", "field": "password" }`) never fills a missing built-in
@@ -1302,7 +1302,7 @@ still uses only the registration words.
 
 ## Amendment 2026-10-23: a TOTP code from a custom field
 
-Claude proposed this on 2026-10-17 in
+An agent proposed this on 2026-10-17 in
 [PR #653](https://github.com/risu729/pateat/pull/653) and asked the owner four questions
 there. The owner decided on 2026-10-23 (option A of the open-PR triage). Q1 (Text and
 Hidden fields) and Q2 (every `totp` slot asks for a code) are accepted as implemented.
@@ -1465,7 +1465,7 @@ that document announced again to a restarted worker (00:58:02 UTC), with no new
 document, and the login stayed `reconciling` with `unknown-submit`. A full form on the
 same site ended `authenticated`, as its marker showed while the click's result was read.
 
-**Decision** (Claude's reading of "each new page of the same tab and origin is
+**Decision** (an agent's reading of "each new page of the same tab and origin is
 checked" above; the owner has not confirmed it separately). A route of the watch's own
 document to another path in place (`history.pushState` or `replaceState`, or a back or
 forward move) counts as the tab's next page:
@@ -1510,8 +1510,8 @@ watched login never read it again; the tab sat until 11:34:06, when the person m
 the judge read the same page filled in, answered `challenge` with a passkey handler,
 and the sign-in completed.
 
-**Decision** (Claude, 2026-11-04, extending the amendment of 2026-10-25 above; built as
-the owner allowed on 2026-10-23 05:28 UTC, under the owner's rule of ADR 0082 that a
+**Decision** (an agent, 2026-11-04, extending the amendment of 2026-10-25 above; built
+as the owner allowed on 2026-10-23 05:28 UTC, under the owner's rule of ADR 0082 that a
 wait waits on a signal):
 
 - When a judged page of a top-level `password` login describes nothing
@@ -1556,8 +1556,8 @@ fill rule, so the page read as one code input, the handler's field. The whole co
 typed into it, the page kept one character per input and moved the focus on, only the
 first two inputs ended up holding a digit, and the fill ended `fill-rejected`.
 
-**Decision** (Claude, 2026-11-04, extending the owner's decision of 2026-10-12 19:21 UTC
-on split code inputs; built as the owner allowed on 2026-10-23 05:28 UTC):
+**Decision** (an agent, 2026-11-04, extending the owner's decision of 2026-10-12 19:21
+UTC on split code inputs; built as the owner allowed on 2026-10-23 05:28 UTC):
 
 - A split code is also the inputs of one form (or of no form) that take typed text,
   every shown, writable one of them, when there are as many as the code has characters,

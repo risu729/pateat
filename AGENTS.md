@@ -5,6 +5,11 @@
   repository prose too. The exception is a Japanese translation of a user-facing page,
   such as [README.ja.md](README.ja.md) or a page under `apps/docs/src/ja/`: a PR that
   changes the English page changes its translation too.
+- Rules, docs and issues say "an agent" and never name the agent product that does a
+  piece of work, because the tools in use change (owner, 2026-11-09 20:34 UTC). Name
+  a product only where it is the subject: Claude as the recipe-generation provider
+  ([ADR 0014](docs/adr/0014-claude-generation-provider.md)), the browser agents
+  Pateat logs in ([plan](docs/plan.md)), or a tool a research note evaluates.
 - Read [docs/README.md](docs/README.md) and the relevant design before editing.
 - Keep current behavior, proposed work, and dated evidence distinct. Update the
   owning document in the same PR; record material decisions in an ADR.
@@ -56,9 +61,8 @@
   the configured account, origin, tab, frame, and document.
 - Preserve the roadmap's phase boundaries and independently granted provider
   capabilities; adding an adapter or interface must not expand permissions.
-- Separate implementation, test and independent PR review roles. In Codex, use Sol
-  High subagents (`gpt-6.1-sol` with high reasoning); other agents use subagents
-  with the same separation.
+- Separate implementation, test and independent PR review roles into their own
+  subagents.
 - Have an independent subagent review every PR that changes implementation or
   tests; documentation-only PRs need passing checks. State what was actually
   tested. Once review findings are resolved and applicable checks pass, merge

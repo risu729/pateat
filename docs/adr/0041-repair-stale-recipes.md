@@ -12,7 +12,7 @@ makes repair automatic, once a UTC day, within the $5 a day. The owner's answers
 section 5 is per missing route for 3 days (12:53 and 12:54 UTC), the stale steps are not
 sent to the model (12:54 UTC, option A) and chooser and sign-in entry recipes are
 repaired too (13:03 UTC, [section 6](#6-chooser-and-sign-in-entry-recipes)). The rest is
-Claude's design, marked where it applies. Implemented on main through
+an agent's design, marked where it applies. Implemented on main through
 [#911](https://github.com/risu729/pateat/pull/911) (2026-10-23), local tests only.
 Replaces the overwriting repair first proposed in
 [#617](https://github.com/risu729/pateat/pull/617). Amends
@@ -76,7 +76,7 @@ unless:
   (`handler`), as a second-factor page on the sign-in form's own URL that shows the
   account's email above its "Verify" button: a later page of the recipe's own login,
   which must not replace the recipe. A form beside such a button is still sent, since it
-  only adds a layout (Claude's rule, 2026-11-04,
+  only adds a layout (an agent's rule, 2026-11-04,
   [#1248](https://github.com/risu729/pateat/issues/1248));
 - the recipe is not generated (`gen-` IDs), the page is a frame, or a later step of the
   recipe shows there (ADR 0049).
@@ -106,7 +106,7 @@ The device holds the recipe until the next UTC day after any answer but a new re
 `busy`, or a request left free to send again, so a page that keeps missing does not send
 on every load; the current revision answered back, as when nothing was written, holds it
 too. The day is reserved before the model is called, so a provider error or timeout
-after that still spends it, as the ADR 0016 retry window does (Claude's choice).
+after that still spends it, as the ADR 0016 retry window does (an agent's choice).
 
 ### 3. What the answer writes
 
@@ -117,10 +117,10 @@ after that still spends it, as the ADR 0016 retry window does (Claude's choice).
   into that layout. The model may name the start page's elements by other locators, so a
   layout whose start page does the same (step kinds, paths, slots and purposes) also
   takes the button when the page still shows every element that layout names, and keeps
-  its own locators (Claude's rule).
+  its own locators (an agent's rule).
 - An answer whose page kind is not `sign-in` (ADR 0035), as a maintenance page answered
   200 that kept an input, writes nothing: no login would ever choose such a layout, and
-  it would hold one of the three places (Claude's rule).
+  it would hold one of the three places (an agent's rule).
 - With three layouts already, the least recently used one is replaced.
 - An abstention writes nothing; the day is spent.
 
@@ -206,7 +206,7 @@ the kind the page is now, as the next revision of the same ID.
   outside 2xx (`status`) or it is the tab's next page after a submitted password form
   (`after-sign-in`); as for a start page, only a generated chooser's top-frame page with
   no login of it running is sent, and a failed lookup of the chooser's layouts sends
-  nothing (Claude's rule, 2026-11-04, #1248: a second-factor page that showed only the
+  nothing (an agent's rule, 2026-11-04, #1248: a second-factor page that showed only the
   account's email above "Verify" was stored as such a chooser, replacing the login
   recipe that had signed in, and the sign-in form on the same path then never started a
   login). Before 2026-11-04 a kind change replaced the recipe, which lost every layout

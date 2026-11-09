@@ -49,7 +49,7 @@ When a login is about to start and the chosen item can take none of the recipe's
 routes, but would take a route a recipe for this page can have, the device revokes the
 recipe and requests generation for the page in the same visit.
 
-Claude's choices beyond the owner's answer, not confirmed by the owner:
+An agent's choices beyond the owner's answer, not confirmed by the owner:
 
 - The trigger is read from the item's facts and the recipe's routes only, never from the
   site ([ADR 0033](0033-no-site-specific-features.md)). A new login's plan refuses for
@@ -102,7 +102,7 @@ The service revokes an active recipe that has not been used for 90 days.
   owner opens the recipe list on `/manage`, since routine releases do not apply cron
   triggers. A recipe used again between the check and the write is not revoked.
 
-Claude's choices beyond the owner's answer, not confirmed by the owner:
+An agent's choices beyond the owner's answer, not confirmed by the owner:
 
 - Any ended login counts as use, not only a signed-in one, so a recipe that keeps
   failing is left to repair ([#617](https://github.com/risu729/pateat/pull/617)) rather

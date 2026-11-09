@@ -534,11 +534,11 @@ than in this repository.
   handled as before (owner, 2026-10-19 22:44 UTC). Beside an ADR 0028 list, the page is
   sent as a list whose chooser layout holds the button, and each item takes the button
   or the list (ADR 0079, owner 2026-10-25).
-- The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
-  finds on its own. The local log's `warn` and `error` lines, and its `info` lines that
-  say why Pateat did nothing on a page, go to the service's `problem_log` automatically
-  (owner, 2026-10-23 12:28 and 13:00 UTC), kept a year, shown on `/manage/problems` and
-  read by Claude through read-only D1 without a report
+- The owner uses Pateat on many sites and reports bugs; an agent may also fix problems
+  it finds on its own. The local log's `warn` and `error` lines, and its `info` lines
+  that say why Pateat did nothing on a page, go to the service's `problem_log`
+  automatically (owner, 2026-10-23 12:28 and 13:00 UTC), kept a year, shown on
+  `/manage/problems` and read by an agent through read-only D1 without a report
   ([ADR 0066](adr/0066-problem-lines-sent-to-the-service.md)); deployed: production
   `problem_log` holds lines from the owner's devices (read 2026-11-06). The rest of the
   log stays local ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)). The service also
@@ -547,18 +547,18 @@ than in this repository.
   [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation))
   and every ended login's result and times in `login_timings`
   ([ADR 0055](adr/0055-login-records-sent-to-the-service.md)).
-- Moved from phase 1 (owner, 2026-10-12 20:35 UTC): the daily-use sites not tested
-  yet, about 50 in the project's list. They are no longer tested in batches; the
-  owner uses them, and Claude fixes what fails, from the owner's reports, the local log
-  and the service's D1 records. The Japanese government sites and Santander, which the
-  owner wants to work although they look hard, are among them. So is Instagram: its
+- Moved from phase 1 (owner, 2026-10-12 20:35 UTC): the daily-use sites not tested yet,
+  about 50 in the project's list. They are no longer tested in batches; the owner uses
+  them, and an agent fixes what fails, from the owner's reports, the local log and the
+  service's D1 records. The Japanese government sites and Santander, which the owner
+  wants to work although they look hard, are among them. So is Instagram: its
   saved-profile list shows a handle while the item's username is an email, which
   [ADR 0028](adr/0028-account-chooser-login-pages.md) does not match. The owner chose on
   2026-10-23 (11:23 UTC) to add no rule for it: Pateat keeps logging in through "Use
   another profile" and never picks a saved profile there. An item's username is the ID
   typed on the sign-in page; matching a list's handle against another field (such as a
-  custom field) is considered only once lists like this are found to make logins fail
-  or take needless time, such as re-verification requests (owner, 11:24 UTC).
+  custom field) is considered only once lists like this are found to make logins fail or
+  take needless time, such as re-verification requests (owner, 11:24 UTC).
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
   - A plain HTTP site whose item is saved with an `http://` URI logs in, submit
@@ -799,7 +799,7 @@ than in this repository.
   the choice badge clears the badge. Since 2026-10-23 an exclusion rule pauses instead
   ([ADR 0062](adr/0062-log-in-again-after-a-logout.md)): the choice stays, offered as a
   paused page's, and ends once the rule is removed.
-- Claude also watches the service's D1 records, such as the inference request log
+- An agent also watches the service's D1 records, such as the inference request log
   ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
   the device (owner, 2026-10-11 18:45 UTC). The owner later allowed reading logs and the
   like freely (2026-10-18 04:35 UTC: 「ログなどはすべて自由に読んでください」, "read
@@ -826,7 +826,7 @@ than in this repository.
   enabled by hand. The logins the Bot needs are listed below. ChatGPT Dots is paused:
   the owner does not plan to resume ChatGPT Pro for a while (owner, 2026-10-19 23:09
   UTC), and no Pro purchase reached the owner's mail between 2026-10-12 and then. To
-  resume once the owner has Pro again, Claude opens Dots on the web in the owner's own
+  resume once the owner has Pro again, an agent opens Dots on the web in the owner's own
   Chrome and tells the owner exactly what to do there (owner, 2026-10-12 06:14 UTC), in
   the two stages used on the Grok Bot computer: stage A checks during a takeover whether
   `chrome://extensions` or the Web Store opens and an unpacked build loads
@@ -908,7 +908,7 @@ than in this repository.
   session for members, and a public API for messaging a Bot, are not documented;
   users report SSH over Tailscale anyway. A routine started by a webhook call, by
   email to the Bot's address, or on a schedule that reads a Notion page can take
-  requests from Claude without the owner pasting them
+  requests from an agent without the owner pasting them
   ([Grok Bot remote access](research/2026-10-12-grok-bot-remote-access.md)). The
   owner's Bot already runs a routine that reads a Notion request page (owner,
   2026-10-12 18:16 UTC: 「もう作ってある」), and the owner then set remote access aside
@@ -1003,23 +1003,23 @@ than in this repository.
     connection client, stays: the options page tests render the page that way.
 - Personal details asked for during a login, filled from another Bitwarden item linked
   to the login. Moved from phase 4 (owner, 2026-10-22 04:23 UTC); a design proposal for
-  the owner comes before any code. Built by Claude on 2026-10-23 on best guesses, at the
-  owner's request to go ahead and decide later, and accepted by the owner that day as
-  [ADR 0061](adr/0061-personal-details-during-a-login.md); its delivery 1, the `detail`
-  handler that the judge learns, delivery 2, judging a page that asks for a detail
-  beside the sign-in form (`beside`), delivery 3, links to the items that hold the
-  values, proposed in the popup, delivery 4, secret-question answers and member IDs,
-  delivery 5, whole card numbers, expiry dates and PINs, delivery 6, the judge's
-  account slots and secret-question pairing, delivery 7, the card guess from the last
-  digits and brand a page shows, and delivery 8, values split over several inputs and
-  selects, are implemented. エポスNet asks for the card's security code after the
-  password (owner, 2026-10-12 04:18 UTC: it can wait), and other sites ask for a birth
-  date or similar details as extra verification. The owner sees these as one need
-  (2026-10-12 05:29 UTC): the value is in a card or
-  identity item, not in the login item, so the login has to be linked to that item. The
-  owner chose how to link them (05:27 UTC): Pateat guesses the item from the site being
-  logged into and what its pages show (such as a card name, brand or masked last
-  digits), proposes it, and records the choice for the site once the owner confirms it.
+  the owner comes before any code. Built by an agent on 2026-10-23 on best guesses, at
+  the owner's request to go ahead and decide later, and accepted by the owner that day
+  as [ADR 0061](adr/0061-personal-details-during-a-login.md); its delivery 1, the
+  `detail` handler that the judge learns, delivery 2, judging a page that asks for a
+  detail beside the sign-in form (`beside`), delivery 3, links to the items that hold
+  the values, proposed in the popup, delivery 4, secret-question answers and member IDs,
+  delivery 5, whole card numbers, expiry dates and PINs, delivery 6, the judge's account
+  slots and secret-question pairing, delivery 7, the card guess from the last digits and
+  brand a page shows, and delivery 8, values split over several inputs and selects, are
+  implemented. エポスNet asks for the card's security code after the password (owner,
+  2026-10-12 04:18 UTC: it can wait), and other sites ask for a birth date or similar
+  details as extra verification. The owner sees these as one need (2026-10-12 05:29
+  UTC): the value is in a card or identity item, not in the login item, so the login has
+  to be linked to that item. The owner chose how to link them (05:27 UTC): Pateat
+  guesses the item from the site being logged into and what its pages show (such as a
+  card name, brand or masked last digits), proposes it, and records the choice for the
+  site once the owner confirms it.
   - The [feasibility note](research/2026-10-12-card-security-code.md) found that the
     Worker already decrypts card and identity items. Filling one of their fields needs
     a handler for the page that fills a field the binding names (ADR 0027's deferred
@@ -1323,11 +1323,10 @@ separately (owner, 2026-10-14 07:24 UTC), and the adopted
 [#555](https://github.com/risu729/pateat/issues/555) to
 [#563](https://github.com/risu729/pateat/issues/563), one per feature, each of which can
 be started from the issue alone (owner, 2026-10-14 08:40 UTC). Since 2026-11-06 (owner,
-10:26 UTC: 「issueにいろいろタスクを作ってください。codexにPRを作らせます」) tasks an
-agent can do without the owner are filed as issues too, each written with enough context
-for another agent, such as Codex, to open a pull request from the issue alone; the owner
-had this plan's docs brought up to date before they were filed. The list below names
-items the owner mentioned and gates still open on 2026-10-11.
+10:26 UTC) tasks an agent can do without the owner are filed as issues too, each written
+with enough context for another agent to open a pull request from the issue alone; the
+owner had this plan's docs brought up to date before they were filed. The list below
+names items the owner mentioned and gates still open on 2026-10-11.
 
 - From the [external review](research/2026-10-13-external-review.md): a scheduled purge
   of the inference log, which since 2026-10-18 keeps every row one year (a trigger is a

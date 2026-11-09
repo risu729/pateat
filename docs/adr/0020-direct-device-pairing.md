@@ -1,7 +1,7 @@
 # ADR 0020: Direct device pairing from the extension
 
 Status: the decisions under "Owner decisions" were approved by the owner on 2026-10-11.
-The implementation choices further down are Claude's; they are not owner decisions and
+The implementation choices further down are an agent's; they are not owner decisions and
 may change in their PRs. The manifest `key`, `POST /pair` and the extension switch are
 implemented, and the typed-code flow is removed. Pairing installed Chrome with the
 deployed service is not yet recorded; the [plan](../plan.md) tracks it.
@@ -88,7 +88,7 @@ Access Bypass application ("pateat bypass").
 - **Protect `/v1` with Access as well.** Background sync cannot depend on an
   interactive login.
 
-## Implementation choices (Claude, not owner-approved decisions)
+## Implementation choices (an agent's, not owner-approved decisions)
 
 - **Route.** `POST /pair` sits outside `/v1` and `/manage/api`, and the host-wide
   Access application covers it; it is not in the Bypass application. The body is JSON

@@ -1,6 +1,6 @@
 # ADR 0060: A recipe holds up to three layouts of its sign-in pages
 
-Status: proposed by Claude on 2026-10-23 and accepted by the owner on 2026-10-23 at
+Status: proposed by an agent on 2026-10-23 and accepted by the owner on 2026-10-23 at
 11:41 UTC, who approved recipe layouts as proposed (the recommended option, case B, of
 the recipe-schema proposal), including keeping the layouts in the recipe document and
 discarding existing recipes. Chooser layouts are part of the decision. The owner's

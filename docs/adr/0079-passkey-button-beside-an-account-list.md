@@ -59,7 +59,7 @@ implementation chose between them for all items:
    `passkey`. A list repair of a chooser whose list's buttons a layout already has adds
    or replaces only that layout's `passkey`.
 
-Claude's choices beyond the owner's answer, not confirmed by the owner:
+An agent's choices beyond the owner's answer, not confirmed by the owner:
 
 - After a logout ([ADR 0021](0021-account-choice-outside-settings.md) D) the list page
   showing again asks for an account and presses nothing, as for any passkey route.

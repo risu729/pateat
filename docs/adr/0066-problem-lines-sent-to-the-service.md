@@ -11,12 +11,13 @@ Pateat did nothing are sent too (option B), and the service keeps the lines a ye
 its other logs (option A). Earlier that day the owner had asked for work to go ahead on
 the most likely answer and be judged later
 (「フェーズは一旦無視して、ある程度決め打ちで進め、後から判断」). Which `info` events
-count as doing nothing, the limits and the redaction are Claude's choices, not confirmed
-by the owner. Implemented and deployed: production `problem_log` holds lines from the
-owner's devices (read 2026-11-06). Amends [ADR 0019](0019-local-diagnostics-and-logs.md)
-(logs are not synced) and [ADR 0055](0055-login-records-sent-to-the-service.md) (what a
-device sends). Amended on 2026-11-02: the profile setting described in ADR 0055's
-amendment of that day turns the sending off; it is on by default.
+count as doing nothing, the limits and the redaction are an agent's choices, not
+confirmed by the owner. Implemented and deployed: production `problem_log` holds lines
+from the owner's devices (read 2026-11-06). Amends
+[ADR 0019](0019-local-diagnostics-and-logs.md) (logs are not synced) and
+[ADR 0055](0055-login-records-sent-to-the-service.md) (what a device sends). Amended on
+2026-11-02: the profile setting described in ADR 0055's amendment of that day turns the
+sending off; it is on by default.
 
 Amended on 2026-11-07 for [issue 1317](https://github.com/risu729/pateat/issues/1317):
 send only the final watched failure, as
@@ -31,11 +32,11 @@ Date: 2026-10-23
 
 ## Context
 
-The owner uses Pateat on many sites and wants Claude to find and fix failures without a
-report for each ([plan](../plan.md#phase-2-use-it-and-fix-what-comes-up)). The local log
-([ADR 0019](0019-local-diagnostics-and-logs.md)) records why each login stopped, but it
-stays on the device for 14 days and reaches Claude only when the owner copies the bug
-report or downloads the log. The service already receives value-free records: each
+The owner uses Pateat on many sites and wants an agent to find and fix failures without
+a report for each ([plan](../plan.md#phase-2-use-it-and-fix-what-comes-up)). The local
+log ([ADR 0019](0019-local-diagnostics-and-logs.md)) records why each login stopped, but
+it stays on the device for 14 days and reaches an agent only when the owner copies the
+bug report or downloads the log. The service already receives value-free records: each
 recipe revision's first login result (`login_outcomes`), every ended login's result and
 times (`login_timings`, ADR 0055), recipe use (ADR 0058), and the generation and
 judgement requests it serves (ADR 0012). It does not receive:
@@ -152,7 +153,7 @@ condition that no value leaves.
   document), so a day's lines fit with room for a backlog after an outage; past the cap
   the device keeps its lines and sends them later. Rows are kept a year, like the
   request log, purged with it, counted and deleted by the Request log page's Delete all,
-  and listed (newest 200) on a new `/manage/problems` page. Claude sessions read them
+  and listed (newest 200) on a new `/manage/problems` page. Agent sessions read them
   through the read-only D1 query tool.
 - A synced profile setting turns off both this and the login records of ADR 0055 (added
   2026-11-02, on by default; lines logged while it is off are never sent). Before Pateat
@@ -171,7 +172,7 @@ condition that no value leaves.
   addresses. A plain username can still reach it in the path of a configured site's
   page before a submit, which an observation would refuse; the redaction does not catch
   it because the log cannot read the vault.
-- Claude can query the failures and the pages where nothing happened, of every device,
+- An agent can query the failures and the pages where nothing happened, of every device,
   for a year without the owner's report, and join them with `login_timings`,
   `login_outcomes` and the request log by recipe and revision.
 - Each run costs at most 4 requests against the owner's request limit; an outage costs
