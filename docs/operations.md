@@ -63,15 +63,24 @@ separately: service revocation cannot erase offline secrets.
 The Worker's failures show in the Cloudflare dashboard as
 [Workers Issues](https://developers.cloudflare.com/workers/observability/issues/) of
 `pateat-api` (an open beta). Cloudflare records an occurrence for an uncaught
-exception, a 5xx response and a `console.error` line, and groups related occurrences
-into one issue. `console.warn` lines are not occurrences; they stay in Workers Logs.
-In this service that means:
+exception, a failed invocation (such as an exceeded CPU limit), a 5xx response and a
+`console.error` line or any log line that holds an `Error` object or a stack, and
+groups related occurrences into one issue. The service's `console.warn` lines pass no
+`Error`, so they are not occurrences; they stay in Workers Logs. In this service that
+means:
 
 | What the Worker does | What the issue shows |
 | --- | --- |
-| A route throws | The app's error handler answers 500 and logs `Unhandled API error` with only the error's name, such as `TypeError`: no message and no stack |
-| Access or the OIDC issuer is not configured or its keys cannot be read | A 503 response (`access_unavailable`, `access_keys_unavailable`, `pairing_unavailable`, `issuer_unavailable`) |
-| A value-free `console.error` line | That line, such as `Inference log purge failed` or `Stored recipe document no longer validates` |
+| A route throws | The app's error handler answers 500 and logs `Unhandled API error` with only the error's name, such as `TypeError`: no message and no stack. A model call's promise kept running after the response does not report the failure again |
+| The web UI's built files cannot be read | A 500 page, with no log line |
+| Access is not configured or its signing keys cannot be fetched | A 503: `access_unavailable` or `access_keys_unavailable`, or an `Unavailable` page on `/manage` and `/pair` |
+| `PAIRING_EXTENSION_IDS` is invalid | A 503 `pairing_unavailable` and the line `Pairing extension IDs misconfigured` |
+| `OIDC_ISSUER` or `OIDC_SIGNING_KEYS` is missing or invalid | A 503 `issuer_unavailable` |
+| Another value-free `console.error` line | That line, such as `Inference log purge failed` or `Stored recipe document no longer validates` |
+
+Error messages are never logged: a D1 query error from drizzle-orm quotes the query's
+parameters (`Failed query: <sql>` then `params: <values>`), and an issue stays listed
+after its occurrences expire.
 
 Occurrence details are kept for seven days; the issue stays listed after them. An
 issue is never resolved automatically, and a resolved issue becomes active again on
