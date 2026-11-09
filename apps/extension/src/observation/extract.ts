@@ -1295,10 +1295,12 @@ function adjacentText(element: Element, keys?: ReadonlySet<Element>): string | u
 }
 
 /**
- * A field's label. The keys of a page's software keyboards (`keys`, ADR 0067), with their
- * labels and order, are never part of it; the rest of a label around them is.
+ * A field's label: its `aria-labelledby` text, `aria-label`, `<label>` text, the nearby
+ * text that labels it by layout, or its `title`, in that order. The keys of a page's
+ * software keyboards (`keys`, ADR 0067), with their labels and order, are never part of
+ * it; the rest of a label around them is.
  */
-function fieldLabel(
+export function fieldLabel(
   input: HTMLInputElement | HTMLSelectElement,
   keys?: ReadonlySet<Element>,
 ): string | undefined {

@@ -1,4 +1,5 @@
 import { observedAutocompleteTokens } from "@pateat/contracts";
+import { fieldLabel } from "../observation/extract";
 import { visible } from "./code-submission";
 import { autocompleteTokens } from "./targets";
 import { closestAcross, formOf, inputsOf, queryAll } from "./shadow";
@@ -6,7 +7,9 @@ import { closestAcross, formOf, inputsOf, queryAll } from "./shadow";
 /**
  * Words that name an account identifier (ADR 0016), matched as whole words of an input's
  * name, id, placeholder, `aria-label` or label: `e-mail` and `loginId` split into words
- * first. Japanese words match anywhere, as in `ログインID`.
+ * first. Japanese words match anywhere, as in `ログインID`. `number` and `番号` name the
+ * customer, member or contract number a bank or shop asks for first (#1435), as
+ * `お客さま番号`; the excluded words below keep a postal, order or tracking number out.
  */
 const identifierWords = new Set([
   "email",
@@ -18,8 +21,9 @@ const identifierWords = new Set([
   "loginid",
   "account",
   "id",
+  "number",
 ]);
-const identifierParts = ["メール", "ユーザー", "ログイン", "アカウント"];
+const identifierParts = ["メール", "ユーザー", "ログイン", "アカウント", "番号"];
 /** Words of a field that is not a sign-in identifier, such as a search or newsletter box. */
 const otherWords = new Set([
   "search",
@@ -78,7 +82,12 @@ function words(text: string): string[] {
     .filter(Boolean);
 }
 
-/** The texts that describe an input: its name, id, placeholder, `aria-label` and labels. */
+/**
+ * The texts that describe an input: its name, id, placeholder, `aria-label`, labels and
+ * the label the page's observation gives it (`fieldLabel`), which falls back to the text
+ * that labels it by layout, as the heading `お客さま番号` right above an input with no
+ * `<label>` does (#1435).
+ */
 function descriptions(input: HTMLInputElement): string[] {
   return [
     input.name,
@@ -86,6 +95,7 @@ function descriptions(input: HTMLInputElement): string[] {
     input.placeholder,
     input.getAttribute("aria-label") ?? "",
     ...[...(input.labels ?? [])].map((label) => label.textContent ?? ""),
+    fieldLabel(input) ?? "",
   ];
 }
 

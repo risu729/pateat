@@ -81,6 +81,9 @@ Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (ow
 13:06 UTC; delivery 3, implemented): a frame's page is sent too when the item matches
 both the frame's and the tab's URL and the frame is shown in the page.
 
+Amended on 2026-11-09 (proposed, awaiting the owner's decision):
+[an identifier input's label by layout, and customer numbers](#amendment-2026-11-09-an-identifier-inputs-label-by-layout-and-customer-numbers).
+
 Date: 2026-10-11
 
 ## Context
@@ -422,3 +425,39 @@ the document submitted a form with a password input, the watch stops, so a passw
 asked again later on the signed-in page, as before a settings change, is not sent. A
 default chosen in the popup still announces the page as new (amendment above), which
 offers its form once more (implemented).
+
+## Amendment 2026-11-09: an identifier input's label by layout, and customer numbers
+
+Status: proposed on 2026-11-09, awaiting the owner's decision
+([#1435](https://github.com/risu729/pateat/issues/1435)).
+
+Real Chrome on 2026-11-09: Mizuho Direct's first page asks for the customer number alone
+and was never sent, so its first step was never generated; the password page after it,
+on another origin, was sent and filled. The page's only input is
+
+```html
+<h2>お客さま番号</h2>
+<div class="text-wrap">
+  <input type="text" name="txbCustNo" id="txbCustNo" autocomplete="off" inputmode="numeric">
+</div>
+<button type="button" disabled>次へ</button>
+```
+
+Its name and id split into `txb`, `cust` and `no`, none of them an identifier word, it
+has no `<label>`, `aria-label` or placeholder, and its heading says "customer number",
+which the lists above do not name. The page's observation already labels the input
+`お客さま番号` from that heading.
+
+Decision: the texts the rule reads also include the label the page's observation gives
+the input: its `aria-labelledby` text, `aria-label`, `<label>` text, else the nearest
+preceding text that labels it by layout (at most three levels up, never across another
+control or out of its form), else its `title`. The identifier words gain `number`, as a
+whole word, and `番号`, anywhere in the text, so `お客さま番号`, `会員番号`,
+`契約者番号` and "Customer number" name an identifier. The excluded words are read on
+the same texts, so `郵便番号`, `注文番号` and "Order number" stay out. Conditions 1, 2
+and 4, and the input being the page's only text-like one of type `text`, still apply.
+
+Known costs: on a site with a matching item, a page whose only text input is labelled
+with another number, such as `暗証番号`, `認証番号`, a card number or a phone number, is
+sent too, and the AI abstains or labels it. A nearby heading such as `ログイン` above an
+unlabelled lone input now makes it an identifier input.

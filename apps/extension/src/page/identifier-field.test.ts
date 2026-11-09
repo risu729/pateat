@@ -31,6 +31,22 @@ describe("identifierInput", () => {
     expect(asks('<input id="account" autocomplete="off">')).toBe("sole");
   });
 
+  it("reads the text that labels the input by layout, and a customer or member number", () => {
+    // Mizuho Direct's first page (#1435): the heading above names the input, which has no
+    // `<label>` and an id with no identifier word.
+    expect(
+      asks(
+        '<form><h2>お客さま番号</h2><div><input type="text" id="txbCustNo" autocomplete="off" inputmode="numeric"></div><button type="button" disabled>次へ</button></form>',
+      ),
+    ).toBe("sole");
+    expect(asks('<label>会員番号<input name="no"></label>')).toBe("sole");
+    expect(asks('<input aria-label="Customer number">')).toBe("sole");
+    // A heading with no identifier word, and a postal or order number, stay out.
+    expect(asks('<h2>お名前</h2><div><input id="txbName"></div>')).toBeUndefined();
+    expect(asks('<h2>郵便番号</h2><div><input id="zip1"></div>')).toBeUndefined();
+    expect(asks('<input placeholder="Order number">')).toBeUndefined();
+  });
+
   it("leaves out search, newsletter and other fields", () => {
     expect(asks('<input type="search" name="email">')).toBeUndefined();
     expect(asks('<form role="search"><input name="user"></form>')).toBeUndefined();
