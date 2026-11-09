@@ -20,7 +20,7 @@ export function unhandledError(error: unknown): Error {
  * path, which can hold IDs. Middleware and catch-all routes register as `ALL` and match
  * after a handler, such as the 405 route `/v1/recipes/:recipeId` after
  * `POST /v1/recipes/generate`, so the last other route is the handler's; a request no
- * handler matched names its last middleware pattern, such as `/v1/*`.
+ * handler matched names the last route that did, such as `/v1/*`.
  */
 export function handlerRoute(c: Context) {
   const routes = matchedRoutes(c);
@@ -52,5 +52,5 @@ function stackFrames(error: Error) {
     .slice(header.length)
     .split("\n")
     .filter((line) => /^\s+at \S.*:\d+:\d+\)?$/.test(line))
-    .map((line) => line.replace(/ \[as [^\]]*\]/g, ""));
+    .map((line) => line.replace(/ \[as .*\](?= \(|$)/, ""));
 }

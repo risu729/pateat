@@ -86,7 +86,7 @@ class name and the stack's `at` lines that end in a source position, without V8'
 `<name>: <message>` header off as a whole because a message can hold line breaks, and
 drops every frame of a stack that does not start with that header. The route is the
 pattern the request's handler was registered with, or for a path no handler matched
-the last middleware pattern (such as `/v1/*`), never the request path, which can hold
+the last route that did (such as `/v1/*`), never the request path, which can hold
 IDs. Hono passes only `Error` values to the handler; anything else thrown reaches the
 runtime as an uncaught exception. Frames point into the built bundle, which is not
 minified; no source map is uploaded. The owner chose this on 2026-11-09 (22:13

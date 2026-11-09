@@ -54,13 +54,14 @@ describe("unhandledError", () => {
     const thrown = new Error("value");
     thrown.stack = [
       "Error: value",
-      "    at Object.handle [as secret-key] (index.js:10:5)",
+      "    at Object.handle [as secret]key] (index.js:10:5)",
+      "    at Object.run [as secret-key] (index.js:11:5)",
       "    at async Promise.all (index 0)",
       "    at index.js:20:7",
       "    not a frame",
     ].join("\n");
     expect(unhandledError(thrown).stack).toBe(
-      "Error: Unhandled API error\n    at Object.handle (index.js:10:5)\n    at index.js:20:7",
+      "Error: Unhandled API error\n    at Object.handle (index.js:10:5)\n    at Object.run (index.js:11:5)\n    at index.js:20:7",
     );
   });
 
@@ -73,7 +74,10 @@ describe("handlerRoute", () => {
   const routeOf = async (method: string, path: string) => {
     let route: string | undefined;
     const app = new Hono()
-      .use("/v1/*", async (_, next) => next())
+      .use("/v1/*", async (c, next) => {
+        if (c.req.path === "/v1/unknown") throw new Error("value");
+        await next();
+      })
       .post("/v1/recipes/generate", () => {
         throw new Error("value");
       })
@@ -95,5 +99,9 @@ describe("handlerRoute", () => {
     expect(await routeOf("POST", "/v1/recipes/generate")).toBe("/v1/recipes/generate");
     expect(await routeOf("PUT", "/v1/recipes/recipe-1")).toBe("/v1/recipes/:recipeId");
     expect(await routeOf("DELETE", "/v1/recipes/recipe-1")).toBe("/v1/recipes/:recipeId");
+  });
+
+  it("names the last matched route when no handler matched", async () => {
+    expect(await routeOf("GET", "/v1/unknown")).toBe("/v1/*");
   });
 });
