@@ -490,7 +490,10 @@ fix them now; the SSO policy itself is recorded separately.
   another page while its first step filled the email address ended `left-origin` with no
   submission, and a new tab's login was refused `origin-busy` for 5 minutes. Only a
   submission (a click, or a fill whose step submits) counts; a filled username or
-  password whose button was never pressed sent nothing to the site. The outcome stays
+  password whose button was never pressed sent nothing to the site. A fill the page may
+  submit by itself (a software keyboard's keys before its submit, or a TOTP code, ADR
+  0067 and ADR 0027) still holds when the tab leaves while it runs, since a PIN pad may
+  have submitted at its last key. The outcome stays
   `left-origin`.
 - **Start a new attempt for every new page of another origin, even one the tab already
   tried.** Rejected: an identity provider that sends the tab back to the site with an

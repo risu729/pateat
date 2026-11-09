@@ -520,10 +520,16 @@ function broken(
   // An operation the runtime reports undelivered went nowhere, and a fill-only login never
   // submits (checked above), so neither holds.
   // A field filled without submitting (`prepare`) sent nothing, so a login whose tab
-  // left the origin after it holds nothing (owner, 2026-11-09).
+  // left the origin after it holds nothing (owner, 2026-11-09); one the page may submit
+  // by itself, as a PIN pad does, may have.
   const delivered =
     from.mutationIntent === true &&
-    !(to.outcome === "left-origin" && to.submissions === 0) &&
+    !(
+      to.outcome === "left-origin" &&
+      from.operationKind === "fill" &&
+      from.operationEffect === "prepare" &&
+      from.operationPresses !== true
+    ) &&
     ["awaiting-result", "reconciling"].includes(from.state) &&
     from.fillOnly !== true &&
     // As the machine takes it back: only the operation in flight, before the page took it.

@@ -296,6 +296,11 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       operationId: operation.operationId,
       kind: operation.step.kind,
       effect: loginStepEffect(operation.step),
+      // A fill the page may submit by itself (ADR 0067, ADR 0027) keeps holding the origin
+      // when the tab leaves it in flight (ADR 0022).
+      ...(selfSubmitStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
+        ? { presses: true as const }
+        : {}),
     });
     if (operation.step.kind === "click")
       await change(rt, run, { type: "SUBMIT_INTENT", operationId: operation.operationId });
