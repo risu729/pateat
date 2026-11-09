@@ -2,7 +2,6 @@ import { devicePairRequestSchema } from "@pateat/contracts";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
-import { routePath } from "hono/route";
 import { timing } from "hono/timing";
 import {
   requireAccess,
@@ -12,7 +11,7 @@ import {
   requireSameOrigin,
 } from "./access";
 import { requireDevice, type ApiEnv } from "./auth";
-import { unhandledError } from "./error-log";
+import { handlerRoute, unhandledError } from "./error-log";
 import { API_HEADERS, apiError } from "./http";
 import { limitIdentity, limitOwner } from "./limits";
 import { message } from "./pages";
@@ -185,8 +184,7 @@ export const app = new Hono<ApiEnv>()
       return ownerPage
         ? message(c, 400, "Invalid request", "The request was malformed.")
         : apiError(c, 400, { error: "bad_request" });
-    // The route as registered (`/v1/recipes/:recipeId`), never the path with its IDs.
-    console.error(unhandledError(error), { method: c.req.method, route: routePath(c, -1) });
+    console.error(unhandledError(error), { method: c.req.method, route: handlerRoute(c) });
     return ownerPage
       ? message(c, 500, "Something went wrong", "Try again later.")
       : apiError(c, 500, { error: "internal_error" });
