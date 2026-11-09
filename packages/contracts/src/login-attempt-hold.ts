@@ -25,6 +25,13 @@ export const stoppedByPateat = (metadata: LoginAttemptMetadata) =>
   metadata.settled !== true &&
   !(metadata.operationKind === "click" && metadata.operationId !== undefined);
 
+/** A fill the page may submit by itself was in flight with its keys allowed. */
+const pressing = (entry: LoginAttemptMetadata) =>
+  entry.operationPresses === true &&
+  entry.operationKind === "fill" &&
+  entry.operationId !== undefined &&
+  entry.mutationIntent === true;
+
 /**
  * Whether a record, by what it holds and not by how long ago it changed, holds its origin
  * against other tabs (ADR 0022). The runtime adds the time limit.
@@ -33,8 +40,16 @@ export const holdsOrigin = (entry: LoginAttemptMetadata) =>
   entry.state !== "authenticated" &&
   // A fill-only login never submits (ADR 0021 D).
   !entry.fillOnly &&
-  // A login interrupted before anything was submitted never submits.
-  !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions) &&
+  // A login interrupted, or whose tab left the origin, before anything was submitted
+  // never submits: a filled username or password alone sent nothing (owner, 2026-11-09).
+  // A fill the page may have submitted by itself, as a PIN pad does at its last key, is
+  // no such fill while it was in flight.
+  !(
+    entry.state === "blocked" &&
+    (entry.outcome === "interrupted" || entry.outcome === "left-origin") &&
+    !entry.submissions &&
+    !pressing(entry)
+  ) &&
   !stoppedByPateat(entry);
 
 /**

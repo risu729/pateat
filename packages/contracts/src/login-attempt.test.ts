@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { holdsOrigin } from "./login-attempt-hold";
 import {
   addAttemptTime,
   attemptTimes,
@@ -1106,6 +1107,47 @@ describe("submission and failure reconciliation", () => {
       outcome: "unknown-submit",
       settled: true,
     });
+  });
+
+  // Owner, 2026-11-09: a tab that left during a fill that submits nothing holds nothing;
+  // one whose fill the page may submit by itself, as a PIN pad does, still holds.
+  it("holds the origin after leaving it during a fill only when the page may submit it", () => {
+    const top: LoginDocument = { ...document, frameId: 0 };
+    const away: LoginDocument = {
+      origin: "https://other.example",
+      tabId: top.tabId,
+      frameId: 0,
+      documentId: "document-away",
+    };
+    const left = (presses: boolean) => {
+      let filling = transitionLoginAttempt(
+        createAttemptMetadata({
+          timing: noTimeBefore,
+          id: "attempt-top",
+          recipe,
+          policyRevision: 3,
+          account: { origin: top.origin, connectionId: "demo-personal", itemId: "primary" },
+          choice: { route: "password", variant: 0 },
+          facts,
+          document: top,
+        }),
+        { type: "RESOLVE" },
+      );
+      filling = transitionLoginAttempt(filling, {
+        type: "PREPARE",
+        operationId: "fill-one",
+        kind: "fill",
+        ...(presses ? { presses: true as const } : {}),
+      });
+      filling = transitionLoginAttempt(filling, {
+        type: "MUTATION_INTENT",
+        operationId: "fill-one",
+      });
+      return transitionLoginAttempt(filling, { type: "NAVIGATED", document: away });
+    };
+    expect(left(false)).toMatchObject({ state: "blocked", outcome: "left-origin", submissions: 0 });
+    expect(holdsOrigin(left(false))).toBe(false);
+    expect(holdsOrigin(left(true))).toBe(true);
   });
 
   it("treats a fill that confirmed it changed nothing as no possible submission (ADR 0022)", () => {

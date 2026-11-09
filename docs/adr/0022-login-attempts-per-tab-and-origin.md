@@ -387,7 +387,8 @@ fix them now; the SSO policy itself is recorded separately.
   changed for 5 minutes (`changedAt`, written when the login's progress changes: a new
   page of its tab or a page sent to be judged does not count, nor does a restarted
   worker finding it; a record without it does not hold), unless it is `authenticated`,
-  ended `interrupted` without any submission, or ended `blocked` because Pateat itself
+  ended `interrupted` or `left-origin` without any submission (`left-origin` since
+  2026-11-09, below), or ended `blocked` because Pateat itself
   stopped it with nothing in flight: `policy-changed`, `value-mismatch`,
   `wrong-account`, `account-switched`, `retry-limit` (its retries spent on failures that
   changed nothing on the page; owner, 2026-10-12), or `cancelled` before any submission
@@ -411,7 +412,8 @@ fix them now; the SSO policy itself is recorded separately.
   tab shows, until its retries are spent), still reconciling, settled as unknown,
   watched after a `challenge` (`watching`, ADR 0027), ended `interrupted` after a
   submission, stopped by Pateat while a fill or click may have reached the page, or
-  ended `credential-rejected`, `challenge`, `submission-limit` or `left-origin`. A
+  ended `credential-rejected`, `challenge`, `submission-limit` or `left-origin` after a
+  submission. A
   watched login, settled or `watching`, stops holding once its first step shows in
   another tab's page first seen after the watch began (ADR 0027). A top-level password
   login whose page shows its sign-in form again right after the submission, or that ends
@@ -479,10 +481,20 @@ fix them now; the SSO policy itself is recorded separately.
   `challenge` ([ADR 0027](0027-per-account-login-routes.md)), and complete on evidence
   or the judge. The card noted that it could also complete after a second factor on the
   new page, and that it was the largest change. The owner chose 「AI判定」 instead.
-- **Release the origin hold on `left-origin`.** Rejected: moving to another origin is
-  not proof of success (an identity provider can forward to a second factor on another
-  origin, or to an error page). Another tab could then submit the same password again,
-  adding second-factor prompts or locking the account.
+- **Release the origin hold on `left-origin`.** Rejected after a submission: moving to
+  another origin is not proof of success (an identity provider can forward to a second
+  factor on another origin, or to an error page). Another tab could then submit the same
+  password again, adding second-factor prompts or locking the account. Accepted when
+  nothing was submitted (owner, 2026-11-09 11:08 UTC, 「すぐ開放していい」): on
+  2026-11-06 at 21:40 UTC in the owner's Chrome, a Resend login whose tab was sent to
+  another page while its first step filled the email address ended `left-origin` with no
+  submission, and a new tab's login was refused `origin-busy` for 5 minutes. Only a
+  submission (a click, or a fill whose step submits) counts; a filled username or
+  password whose button was never pressed sent nothing to the site. A fill the page may
+  submit by itself (a software keyboard's keys before its submit, or a TOTP code, ADR
+  0067 and ADR 0027) still holds when the tab leaves while it runs, since a PIN pad may
+  have submitted at its last key. The outcome stays
+  `left-origin`.
 - **Start a new attempt for every new page of another origin, even one the tab already
   tried.** Rejected: an identity provider that sends the tab back to the site with an
   error would make both origins submit again in turn.

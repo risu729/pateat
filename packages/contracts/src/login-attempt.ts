@@ -183,6 +183,11 @@ export const attemptMetadataSchema = v.pipe(
     operationId: v.optional(identifier),
     operationKind: v.optional(v.picklist(["fill", "click", "wait", "assert"])),
     operationEffect: v.optional(v.picklist(["prepare", "advance", "submit"])),
+    /**
+     * The fill of the operation in flight may make the page submit by itself, as a PIN
+     * pad at its last key; read only while `operationId` is set.
+     */
+    operationPresses: v.optional(v.literal(true)),
     mutationIntent: v.optional(v.literal(true)),
     outcome: v.optional(loginOutcomeSchema),
     /** The login ended on an undecided page without a confirmed sign-in (ADR 0029). */
@@ -388,6 +393,11 @@ export const loginAttemptEventSchema = v.variant("type", [
     operationId: identifier,
     kind: v.picklist(["fill", "click", "wait", "assert"]),
     effect: v.optional(v.picklist(["prepare", "advance", "submit"])),
+    /**
+     * The step's fill may make the page submit by itself, as a PIN pad at its last key or
+     * a code input at its last digit (the extension's `selfSubmitStep`).
+     */
+    presses: v.optional(v.literal(true)),
   }),
   v.strictObject({ type: v.literal("MUTATION_INTENT"), operationId: identifier }),
   v.strictObject({ type: v.literal("OPERATION_OK"), operationId: identifier }),
@@ -744,6 +754,7 @@ function record(
         operationEffect:
           event.effect ??
           (event.kind === "fill" ? "prepare" : event.kind === "click" ? "submit" : undefined),
+        operationPresses: event.presses,
         mutationIntent: undefined,
         usedOperationIds: [...context.usedOperationIds, event.operationId],
         outcome: undefined,

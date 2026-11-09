@@ -84,6 +84,7 @@ describe("record holds", () => {
     ["timeout", true],
     ["cancelled", true],
     ["interrupted", true],
+    ["left-origin", true],
   ] as const)("treats blocked %s according to what may still be in flight", (outcome, expected) => {
     expect(heldElsewhere([record({ state: "blocked", outcome })], new Map(), 1, origin, now)).toBe(
       expected,
@@ -94,12 +95,39 @@ describe("record holds", () => {
     { state: "executing", fillOnly: true },
     { state: "blocked", outcome: "interrupted", submissions: 0 },
     { state: "blocked", outcome: "cancelled", submissions: 0 },
+    // A tab that left the origin after only filling a field (owner, 2026-11-09).
+    {
+      state: "blocked",
+      outcome: "left-origin",
+      submissions: 0,
+      mutationIntent: true,
+      operationKind: "fill",
+      operationEffect: "prepare",
+    },
   ] satisfies Partial<LoginAttemptMetadata>[])(
     "releases a non-submitting record: %j",
     (overrides) => {
       expect(heldElsewhere([record(overrides)], new Map(), 1, origin, now)).toBe(false);
     },
   );
+
+  // A PIN pad or code input may submit at its last key while its fill runs (ADR 0067).
+  it("keeps holding for a tab that left during a fill the page may submit by itself", () => {
+    const entry = record({
+      state: "blocked",
+      outcome: "left-origin",
+      submissions: 0,
+      mutationIntent: true,
+      operationId: "fill-keypad",
+      operationKind: "fill",
+      operationEffect: "prepare",
+      operationPresses: true,
+    });
+    expect(heldElsewhere([entry], new Map(), 1, origin, now)).toBe(true);
+    // Once that fill is done, nothing of it is in flight any more.
+    const done = { ...entry, operationId: undefined, operationKind: undefined };
+    expect(heldElsewhere([done], new Map(), 1, origin, now)).toBe(false);
+  });
 
   it.each([
     { mutationIntent: true },

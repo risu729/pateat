@@ -768,33 +768,33 @@ logout control the page names in plain words, or the model, and then logs in wit
 picked item. Cookies may be shared across tabs even during initial login. Another tab's
 login of the origin that is running or ended without success holds the origin until that
 tab closes or its record has not changed for 5 minutes; an `authenticated` one, one that
-ended `interrupted` without submitting, or one Pateat itself stopped with nothing in
-flight (such as `policy-changed`) does not. A tab keeps one attempt record per origin
-and runs one attempt at a time; a page resumes only its own origin's record, except that
-a new page releases one Pateat itself stopped with nothing in flight before any
-submission and logs in as a new tab would, and a top-level attempt that may have
-submitted ends `left-origin` when the tab moves to another origin, or `authenticated`,
-on any route (ADR 0022 amended 2026-11-08), when the tab moves within 30 seconds of the
-login's last credential step (a password it submitted, a TOTP code, or a passkey Pateat
-answered) to an HTTPS origin of any site (for a login on an `http:` origin, an HTTP
-origin counts too; [ADR 0050](adr/0050-http-pages-for-http-items.md)) whose page reads
-quiet, or within 30 seconds of its other last step (as an identifier's Next) to another
-HTTPS origin of the same registrable domain whose page shows the account's username and
-no sign-in or, when it shows no username, a signed-in marker learned on that origin or
-the judge, asked once. An ended record of a site the tab left, including a frame's
-login on that site's page, never holds the new site's page or its frames ([ADR
-0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session domains need
-explicit coordination before broader support, not a guessed relationship between
-origins. A passkey assertion Pateat returned to a tab's page while no login of the tab's
-origin ran, as for a page's own `required` request, is that page's sign-in: for 15
-seconds, the wait after which ADR 0034 rule 6 reads a form still showing as the site's
-refusal, no login starts by itself on that page or its frames, also at a later step
-(`passkey-signed-in`), and also when the answer came while the login's start was being
-checked. A pick in the popup or an account switch still logs in, and the page announces
-again when the 15 seconds end, so a form still showing then logs in. The answer's time
-is kept in the service worker's memory only, so after a worker restart the page logs in
-at once. An answer that comes after such a login was registered is answered only with
-that login's item, or handed on, and does not stop it.
+ended `interrupted` or `left-origin` without submitting, or one Pateat itself stopped
+with nothing in flight (such as `policy-changed`) does not. A tab keeps one attempt
+record per origin and runs one attempt at a time; a page resumes only its own origin's
+record, except that a new page releases one Pateat itself stopped with nothing in flight
+before any submission and logs in as a new tab would, and a top-level attempt that may
+have submitted ends `left-origin` when the tab moves to another origin, or
+`authenticated`, on any route (ADR 0022 amended 2026-11-08), when the tab moves within
+30 seconds of the login's last credential step (a password it submitted, a TOTP code, or
+a passkey Pateat answered) to an HTTPS origin of any site (for a login on an `http:`
+origin, an HTTP origin counts too; [ADR 0050](adr/0050-http-pages-for-http-items.md))
+whose page reads quiet, or within 30 seconds of its other last step (as an identifier's
+Next) to another HTTPS origin of the same registrable domain whose page shows the
+account's username and no sign-in or, when it shows no username, a signed-in marker
+learned on that origin or the judge, asked once. An ended record of a site the tab left,
+including a frame's login on that site's page, never holds the new site's page or its
+frames ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session
+domains need explicit coordination before broader support, not a guessed relationship
+between origins. A passkey assertion Pateat returned to a tab's page while no login of
+the tab's origin ran, as for a page's own `required` request, is that page's sign-in:
+for 15 seconds, the wait after which ADR 0034 rule 6 reads a form still showing as the
+site's refusal, no login starts by itself on that page or its frames, also at a later
+step (`passkey-signed-in`), and also when the answer came while the login's start was
+being checked. A pick in the popup or an account switch still logs in, and the page
+announces again when the 15 seconds end, so a form still showing then logs in. The
+answer's time is kept in the service worker's memory only, so after a worker restart the
+page logs in at once. An answer that comes after such a login was registered is answered
+only with that login's item, or handed on, and does not stop it.
 
 Credential eligibility does not grant arbitrary post-login actions. Later
 transactions/approvals require separate site/action grants and deterministic
