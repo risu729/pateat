@@ -456,15 +456,18 @@ the `<form>` is not read), else its `title`. That label counts only when it hold
 excluded word, so `郵便番号` stays out; the excluded words and the secret-answer rule
 still read only the input's own texts, so a heading such as "Sign in to see your order
 history" does not exclude the email input under it. A number an account is known by also
-names an identifier, in any of these texts: the whole word `number`, or `番号` anywhere,
-as in `お客さま番号`, `会員番号`, `契約者番号` or "Customer number", unless the same
-text names a phone, card, PIN or verification number (the words phone, telephone, tel,
-mobile, cell, card, pin, code, verification or security, or anywhere 電話, 携帯, カード,
-暗証, 認証 or 確認). Conditions 1, 2 and 4, and the input being the page's only
-text-like one of type `text`, still apply.
+names an identifier: the whole word `number`, or `番号` anywhere, as in `お客さま番号`,
+`会員番号`, `契約者番号` or "Customer number", unless it is a phone, card, PIN or
+verification number: phone, telephone, tel, mobile, cell, card, pin, code, verification
+or security right before `number`, or 電話, 携帯, カード, 暗証, 認証 or 確認 right
+before `番号`, in any of the texts, or such a word anywhere in the input's name or id
+(`name="tel"`). Only the word right before counts, since a label read by layout can be a
+whole sentence, such as `通帳に記載のお客さま番号を確認のうえ入力してください`.
+Conditions 1, 2 and 4, and the input being the page's only text-like one of type `text`,
+still apply.
 
 Known costs: on a site with a matching item, a lone input labelled with another number,
-such as a contract or reservation number, is sent too, and the AI abstains or labels it;
+such as a reservation number, is sent too, and the AI abstains or labels it;
 a nearby heading such as `ログイン` above an unlabelled lone input now makes it an
 identifier input. A site whose number page and password page are on two origins, as
 Mizuho Direct's `web.ib` and `web2.ib` are, logs in as two attempts: the first ends

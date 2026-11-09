@@ -51,6 +51,15 @@ describe("identifierInput", () => {
     for (const label of ["Phone number", "Card number", "PIN number", "Verification code number"])
       expect(asks(`<input aria-label="${label}">`)).toBeUndefined();
     expect(asks('<input name="cardNumber">')).toBeUndefined();
+    expect(asks('<label for="t">番号</label><input id="t" name="tel">')).toBeUndefined();
+    // Only the word right before the number qualifies it, so a sentence-long label still
+    // names a customer number.
+    expect(
+      asks(
+        '<p>通帳に記載のお客さま番号を確認のうえ入力してください</p><div><input id="txb1"></div>',
+      ),
+    ).toBe("sole");
+    expect(asks('<input aria-label="Enter your customer number to verify">')).toBe("sole");
     // A phone number beside a login word is still the identifier it names.
     expect(asks('<label>ログインIDまたは電話番号<input id="f"></label>')).toBe("sole");
   });

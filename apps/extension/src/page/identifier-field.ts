@@ -23,8 +23,11 @@ const identifierWords = new Set([
 const identifierParts = ["メール", "ユーザー", "ログイン", "アカウント"];
 /**
  * A number an account is known by (#1435): the whole word `number`, or `番号` anywhere,
- * as in `お客さま番号`, `会員番号` or "Customer number", unless a word of `numberOthers`
- * or a part of `numberOtherParts` makes it a phone, card, PIN or verification number.
+ * as in `お客さま番号`, `会員番号` or "Customer number", unless it is a phone, card, PIN or
+ * verification number: a word of `numberOthers` right before `number`, or a part of
+ * `numberOtherParts` right before `番号`, in any of the input's texts, or such a word or
+ * part anywhere in its name or id, as `name="tel"`. Only the word right before counts in
+ * the texts, which can be a whole sentence, such as `お客さま番号を確認のうえ入力`.
  */
 const numberOthers: ReadonlySet<string> = new Set([
   "phone",
@@ -39,6 +42,7 @@ const numberOthers: ReadonlySet<string> = new Set([
   "security",
 ]);
 const numberOtherParts = ["電話", "携帯", "カード", "暗証", "認証", "確認"];
+const numberOtherPhrase = new RegExp(`(?:${numberOtherParts.join("|")})番号`, "u");
 /** Words of a field that is not a sign-in identifier, such as a search or newsletter box. */
 const otherWords = new Set([
   "search",
@@ -119,15 +123,22 @@ function names(input: HTMLInputElement, whole: ReadonlySet<string>, parts: reado
 }
 
 /**
- * Whether `text` names an account identifier: a word of `identifierWords` or
- * `identifierParts`, or a number an account is known by.
+ * Whether `texts` name a number an account is known by (see `numberOthers`): one names a
+ * number and none names a phone, card, PIN or verification number.
  */
-function namesIdentifier(text: string): boolean {
-  if (holds(text, identifierWords, identifierParts)) return true;
-  return (
-    (words(text).includes("number") || text.normalize("NFKC").includes("番号")) &&
-    !holds(text, numberOthers, numberOtherParts)
-  );
+function namesNumber(texts: readonly string[]): boolean {
+  let number = false;
+  for (const text of texts) {
+    const found = words(text);
+    const folded = text.normalize("NFKC");
+    if (
+      numberOtherPhrase.test(folded) ||
+      found.some((word, at) => word === "number" && numberOthers.has(found[at - 1] ?? ""))
+    )
+      return false;
+    if (found.includes("number") || folded.includes("番号")) number = true;
+  }
+  return number;
 }
 
 /**
@@ -138,9 +149,13 @@ function namesIdentifier(text: string): boolean {
  * another kind of field, as `郵便番号` does.
  */
 function identifierNamed(input: HTMLInputElement): boolean {
-  if (descriptions(input).some(namesIdentifier)) return true;
+  const own = descriptions(input);
+  if (own.some((text) => holds(text, identifierWords, identifierParts))) return true;
+  const other = [input.name, input.id].some((text) => holds(text, numberOthers, numberOtherParts));
+  if (!other && namesNumber(own)) return true;
   const label = fieldLabel(input);
-  return label !== undefined && namesIdentifier(label) && !holds(label, otherWords, otherParts);
+  if (label === undefined || holds(label, otherWords, otherParts)) return false;
+  return holds(label, identifierWords, identifierParts) || (!other && namesNumber([...own, label]));
 }
 
 /**
