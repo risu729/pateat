@@ -27,7 +27,10 @@ export async function callClaude<T>(
   // A client that disconnects mid-call must not end the Worker before the call is charged
   // (ADR 0014): nothing is reserved before it.
   const running = runCall(env, ownerId, call, trace.startedAt);
-  trace.waitUntil?.(running);
+  // A failure reaches the app's error handler through the await below. The kept copy must
+  // not reject too: the runtime would report it with the error's message, which can quote
+  // a query's parameters (docs/operations.md#server-errors).
+  trace.waitUntil?.(running.catch(() => undefined));
   const result = await running;
   trace.call = result;
   if (result.status === "called" && result.logId !== undefined) trace.logId = result.logId;

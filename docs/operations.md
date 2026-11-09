@@ -58,6 +58,36 @@ unavailable. Use it for deliberate removal, not as an initial troubleshooting st
 server logout. Revoke a lost service device and secure the browser/profile
 separately: service revocation cannot erase offline secrets.
 
+## Server errors
+
+The Worker's failures show in the Cloudflare dashboard as
+[Workers Issues](https://developers.cloudflare.com/workers/observability/issues/) of
+`pateat-api` (an open beta). Cloudflare records an occurrence for an uncaught
+exception, a failed invocation (such as an exceeded CPU limit), a 5xx response and a
+`console.error` line or any log line that holds an `Error` object or a stack, and
+groups related occurrences into one issue. The service's `console.warn` lines pass no
+`Error`, so they are not occurrences; they stay in Workers Logs. In this service that
+means:
+
+| What the Worker does | What the issue shows |
+| --- | --- |
+| A route throws | The app's error handler answers 500 and logs `Unhandled API error` with only the error's name, such as `TypeError`: no message and no stack. A failed model call is reported once, not again after the response |
+| The web UI's built files cannot be read | A 500 page, with no log line |
+| Access is not configured or its signing keys cannot be fetched | A 503: `access_unavailable` or `access_keys_unavailable`, or an `Unavailable` page on `/manage` and the `signed-in` tabs |
+| `PAIRING_EXTENSION_IDS` is invalid | A 503 `pairing_unavailable` and the line `Pairing extension IDs misconfigured` |
+| `OIDC_ISSUER` or `OIDC_SIGNING_KEYS` is missing or invalid | A 503 `issuer_unavailable` |
+| Another value-free `console.error` line | That line, such as `Inference log purge failed` or `Stored recipe document no longer validates` |
+
+The service never logs an error's message: a D1 query error from drizzle-orm quotes the
+query's parameters (`Failed query: <sql>` then `params: <values>`), and an issue stays
+listed after its occurrences expire.
+
+Occurrence details are kept for seven days; the issue stays listed after them. An
+issue is never resolved automatically, and a resolved issue becomes active again on
+its next occurrence. No automation (alert, webhook or coding agent) is set up.
+`observability.issues` in `services/api/cloudflare.config.ts` turns Issues on: the
+next release undoes a change made only in the dashboard.
+
 ## Moving the owner to another sign-in email
 
 The service finds the owner by the Access token's issuer and `sub`
