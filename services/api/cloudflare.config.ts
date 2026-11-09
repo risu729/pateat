@@ -45,6 +45,13 @@ export default defineConfig({
     domains: ["pateat.takuk.me"],
     workersDev: false,
     previewUrls: false,
-    observability: { enabled: true, headSamplingRate: 1, redactQueryString: true },
+    observability: {
+      enabled: true,
+      headSamplingRate: 1,
+      redactQueryString: true,
+      // Groups thrown errors, 5xx responses and console.error lines into the dashboard's
+      // Workers Issues (docs/operations.md#server-errors). A deploy without this turns it off.
+      issues: { enabled: true },
+    },
   },
 });

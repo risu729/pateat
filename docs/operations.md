@@ -58,6 +58,27 @@ unavailable. Use it for deliberate removal, not as an initial troubleshooting st
 server logout. Revoke a lost service device and secure the browser/profile
 separately: service revocation cannot erase offline secrets.
 
+## Server errors
+
+The Worker's failures show in the Cloudflare dashboard as
+[Workers Issues](https://developers.cloudflare.com/workers/observability/issues/) of
+`pateat-api` (an open beta). Cloudflare records an occurrence for an uncaught
+exception, a 5xx response and a `console.error` line, and groups related occurrences
+into one issue. `console.warn` lines are not occurrences; they stay in Workers Logs.
+In this service that means:
+
+| What the Worker does | What the issue shows |
+| --- | --- |
+| A route throws | The app's error handler answers 500 and logs `Unhandled API error` with only the error's name, such as `TypeError`: no message and no stack |
+| Access or the OIDC issuer is not configured or its keys cannot be read | A 503 response (`access_unavailable`, `access_keys_unavailable`, `pairing_unavailable`, `issuer_unavailable`) |
+| A value-free `console.error` line | That line, such as `Inference log purge failed` or `Stored recipe document no longer validates` |
+
+Occurrence details are kept for seven days; the issue stays listed after them. An
+issue is never resolved automatically, and a resolved issue becomes active again on
+its next occurrence. No automation (alert, webhook or coding agent) is set up.
+`observability.issues` in `services/api/cloudflare.config.ts` turns Issues on: the
+next release undoes a change made only in the dashboard.
+
 ## Moving the owner to another sign-in email
 
 The service finds the owner by the Access token's issuer and `sub`
