@@ -7,9 +7,12 @@
   changes the English page changes its translation too.
 - Rules, docs and issues say "an agent" and never name the agent product that does a
   piece of work, because the tools in use change (owner, 2026-11-09 20:34 UTC). Name
-  a product only where it is the subject: Claude as the recipe-generation provider
-  ([ADR 0014](docs/adr/0014-claude-generation-provider.md)), the browser agents
-  Pateat logs in ([plan](docs/plan.md)), or a tool a research note evaluates.
+  a product only where it is the subject: Claude as the inference provider
+  ([ADR 0014](docs/adr/0014-claude-generation-provider.md),
+  [0015](docs/adr/0015-per-owner-claude-credentials.md),
+  [0083](docs/adr/0083-clef-first-for-sign-in-forms.md)), a site Pateat logs in to, a
+  browser agent whose Chrome Pateat runs in (Claude in Chrome, ChatGPT's agent, Grok
+  Bot; [plan](docs/plan.md)), or a tool a research note evaluates.
 - Read [docs/README.md](docs/README.md) and the relevant design before editing.
 - Keep current behavior, proposed work, and dated evidence distinct. Update the
   owning document in the same PR; record material decisions in an ADR.
