@@ -11,6 +11,7 @@ import {
   requireSameOrigin,
 } from "./access";
 import { requireDevice, type ApiEnv } from "./auth";
+import { handlerRoute, unhandledError } from "./error-log";
 import { API_HEADERS, apiError } from "./http";
 import { limitIdentity, limitOwner } from "./limits";
 import { message } from "./pages";
@@ -183,7 +184,7 @@ export const app = new Hono<ApiEnv>()
       return ownerPage
         ? message(c, 400, "Invalid request", "The request was malformed.")
         : apiError(c, 400, { error: "bad_request" });
-    console.error("Unhandled API error", error instanceof Error ? error.name : "unknown");
+    console.error(unhandledError(error), { method: c.req.method, route: handlerRoute(c) });
     return ownerPage
       ? message(c, 500, "Something went wrong", "Try again later.")
       : apiError(c, 500, { error: "internal_error" });

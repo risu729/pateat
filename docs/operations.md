@@ -71,7 +71,7 @@ means:
 
 | What the Worker does | What the issue shows |
 | --- | --- |
-| A route throws | The app's error handler answers 500 and logs `Unhandled API error` with only the error's name, such as `TypeError`: no message and no stack. A failed model call is reported once, not again after the response |
+| A route throws | The app's error handler answers 500 and logs an `Error` named after the thrown error's class (such as `TypeError`) with the message `Unhandled API error`, the thrown error's stack frames, and the request's method and registered route, such as `{ method: "POST", route: "/v1/recipes/generate" }`. A failed model call is reported once, not again after the response |
 | The web UI's built files cannot be read | A 500 page, with no log line |
 | Access is not configured or its signing keys cannot be fetched | A 503: `access_unavailable` or `access_keys_unavailable`, or an `Unavailable` page on `/manage` and the `signed-in` tabs |
 | `PAIRING_EXTENSION_IDS` is invalid | A 503 `pairing_unavailable` and the line `Pairing extension IDs misconfigured` |
@@ -80,11 +80,24 @@ means:
 
 The service never logs an error's message: a D1 query error from drizzle-orm quotes the
 query's parameters (`Failed query: <sql>` then `params: <values>`), and an issue stays
-listed after its occurrences expire.
+listed after its occurrences expire. `services/api/src/error-log.ts` keeps only the
+class name and the stack's `at` lines that end in a source position, without V8's
+`[as <key>]` (the property a function was called through). It cuts the
+`<name>: <message>` header off as a whole because a message can hold line breaks, and
+drops every frame of a stack that does not start with that header. The route is the
+pattern the request's handler was registered with, or for a path no handler matched
+the last route that did (such as `/v1/*`), never the request path, which can hold
+IDs. Hono passes only `Error` values to the handler; anything else thrown reaches the
+runtime as an uncaught exception. Frames point into the built bundle, which is not
+minified; no source map is uploaded. The owner chose this on 2026-11-09 (22:13
+UTC), applying the extension's rule ([ADR 0019](adr/0019-local-diagnostics-and-logs.md):
+name and stack positions, no message) to the service.
 
 Occurrence details are kept for seven days; the issue stays listed after them. An
 issue is never resolved automatically, and a resolved issue becomes active again on
-its next occurrence. No automation (alert, webhook or coding agent) is set up.
+its next occurrence. No automation (alert, webhook or coding agent) is set up: the
+owner chose on 2026-11-09 (22:13 UTC) to have the project's agent check the issues
+regularly instead.
 `observability.issues` in `services/api/cloudflare.config.ts` turns Issues on: the
 next release undoes a change made only in the dashboard.
 

@@ -1,7 +1,7 @@
 import { devicePairResultSchema, manageDevicesSchema } from "@pateat/contracts";
 import { env } from "cloudflare:workers";
 import * as v from "valibot";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { app } from "../src/app";
 import { hashDeviceToken } from "../src/auth";
 import {
@@ -156,13 +156,26 @@ describe("direct pairing", () => {
         ?.count ?? 0;
     const before = await owners();
     let failed: Response;
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let logged: unknown[][];
     try {
       failed = await pair(by, { body: JSON.stringify({ version: 1, label }) });
     } finally {
+      logged = [...spy.mock.calls];
+      spy.mockRestore();
       await env.DB.exec("DROP TRIGGER fail_device_insert");
     }
     expect(failed.status).toBe(500);
     expect(await failed.json()).toEqual({ error: "internal_error" });
+    // The class and where it failed, never the query's parameters (docs/operations.md).
+    const [[error, fields]] = logged as [[Error, unknown]];
+    expect(fields).toEqual({ method: "POST", route: "/pair" });
+    expect(error.name).toBe("Error");
+    expect(error.message).toBe("Unhandled API error");
+    expect(error.stack).toMatch(/^Error: Unhandled API error\n\s+at /u);
+    expect(JSON.stringify([error.stack, fields])).not.toMatch(
+      /synthetic device insert failure|Failing device/u,
+    );
     expect(await ownerIdFor(by.subject)).toBeNull();
     expect(await owners()).toBe(before);
 
