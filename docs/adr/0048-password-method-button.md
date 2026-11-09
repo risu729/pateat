@@ -86,7 +86,7 @@ The owner chose option B. Its points, as the proposal put them:
 
 ### How it is built
 
-These follow from the decision and the existing handler rules; Claude chose them, and
+These follow from the decision and the existing handler rules; an agent chose them, and
 the owner has not confirmed them separately.
 
 - **Shape.** A `password` handler is `{ kind: "password", path, target }`, a button
@@ -308,9 +308,9 @@ Since the two could not be told apart, the wrong one could not have been pressed
    sends it, as for ADR 0037: CI deploys the service when the change is merged, before
    the owner installs the new extension build.
 
-Claude chose the locator's name, that the extractor gives it only on the judged page,
+An agent chose the locator's name, that the extractor gives it only on the judged page,
 and that a fragment link located some other way stays a link; the owner has not
-confirmed them separately. After an independent review of the change, Claude also
+confirmed them separately. After an independent review of the change, the agent also
 chose, likewise unconfirmed:
 
 - that the text check of item 4 fails closed: it reads hidden and `aria-hidden` text
@@ -352,7 +352,7 @@ chose, likewise unconfirmed:
 
 Accepted by the owner on 2026-10-23 at 11:52 UTC, on a decision card that chose option
 A, 「採用 (#882 をマージ)」, over B (a new locator for the form's submit button) and C
-(keep it as is). Claude proposed it after the owner said on 2026-10-23 at 05:28 UTC to
+(keep it as is). An agent proposed it after the owner said on 2026-10-23 at 05:28 UTC to
 go ahead with such fixes on an assumed decision and judge them afterwards; another AI
 reviewed the design and the code before the owner was asked. Implemented (local tests
 and a live extraction of the page; not yet a real sign-in).

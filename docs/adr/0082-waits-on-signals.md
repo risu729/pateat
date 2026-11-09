@@ -3,11 +3,11 @@
 Status: accepted by the owner on 2026-11-03 at 03:31 UTC, who wrote
 「固定の待ちは基本的に 禁止します。」 (fixed waits are basically forbidden) after asking
 at 03:20 UTC why logins are so slow. The rule is the owner's. Which signal replaces each
-wait, and the order in which the waits are replaced, are Claude's and were not confirmed
-one by one. The first replacements (below) are checked with local and CI tests only, not
-yet on a real site. Amends [ADR 0067](0067-software-keyboard-entry.md) (the keypad's 25
-ms reads) and [ADR 0070](0070-shadow-roots-as-page-content.md) (the half-second count of
-undefined custom elements).
+wait, and the order in which the waits are replaced, are an agent's and were not
+confirmed one by one. The first replacements (below) are checked with local and CI tests
+only, not yet on a real site. Amends [ADR 0067](0067-software-keyboard-entry.md) (the
+keypad's 25 ms reads) and [ADR 0070](0070-shadow-roots-as-page-content.md) (the
+half-second count of undefined custom elements).
 
 Date: 2026-11-03
 

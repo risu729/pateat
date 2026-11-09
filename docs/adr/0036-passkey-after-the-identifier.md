@@ -9,9 +9,9 @@ against the code by a subagent three times before it was put to the owner). Amen
 [ADR 0022](0022-login-attempts-per-tab-and-origin.md) (moves) and
 [ADR 0021](0021-account-choice-outside-settings.md) D (fill only). Amended on 2026-10-13
 by the owner (05:39 UTC): at the stop, a passkey button beside the password field is
-pressed when the item has a passkey (rule 6; implemented, with extensions by Claude that
-the owner has not confirmed separately). Since the owner's decision of 2026-10-13 06:32
-UTC ([account lists](#account-lists), below), it also amends
+pressed when the item has a passkey (rule 6; implemented, with extensions by an agent
+that the owner has not confirmed separately). Since the owner's decision of 2026-10-13
+06:32 UTC ([account lists](#account-lists), below), it also amends
 [ADR 0028](0028-account-chooser-login-pages.md) (a login on a list of accounts). Amended
 on 2026-11-04 by [ADR 0084](0084-passkeys-of-related-origins.md): an RP ID the origin
 may use in rule 1 includes one of another site whose `/.well-known/webauthn` lists the
@@ -178,7 +178,7 @@ password is never filled, as before. How it does so:
 4. With no button learned (the judge abstains, names none, or the service refuses or is
    busy), the login ends as before: `challenge`, watched, `password-empty`.
 
-Claude extended the owner's answer as follows to implement it, and the owner has not
+An agent extended the owner's answer as follows to implement it, and the owner has not
 confirmed these points separately:
 
 - The button is looked for only once the stop's 3-second wait for the page's own passkey
@@ -256,27 +256,27 @@ As implemented (local tests only):
    Continue does above (a passkey request takes the login to the stop; otherwise the
    page is continued as the branch's first page, a paid ADR 0018 call, offering the
    `password` slot, and the stop moves into the continued branch).
-   *Claude's reading, not confirmed by the owner separately:* the owner's option says
+   *An agent's reading, not confirmed by the owner separately:* the owner's option says
    「有料、サイトごとに 1 回」 (paid, once per site). In fact each branch
    (`afterAccount` and `afterOther`) is generated once, so a site can take up to two
    such calls, and an identifier-only branch takes one more for the page after its own
    Continue: one login through `other` with no stored branch can make two paid calls
    (ADR 0018's once per final advance).
-3. **A branch that cannot take a stop.** *Claude's extension, not confirmed by the owner
-   separately:* a stored branch that cannot take the stop, as one that first fills a
-   code the item lacks, is never run. When the list leads to it (the account's row or
-   its `continue` button for the account branch, `other` for the other branch), the
-   login is refused `no-route` with the `password-empty:<why>` detail, as a recipe
-   without a list is, and nothing on the list is pressed. When the list shows no account
-   that fits and has no `other` button, the login ends `account-not-listed` as any
-   chooser login does. A generated branch that cannot take the stop is not taken over;
-   the login ends at its stop past the click, `challenge`, watched, and the
-   `login.attempt` entry then names why as `password-empty:<why>` (such as
-   `password-empty:fills-lacking`) instead of the bare `password-empty`. That log detail
-   applies to every continuation that a stop past the plan cannot be moved into, with or
-   without a list. It is kept in memory only, in the document that asked for the
-   continuation: a later document of the login, or the same one after a worker restart,
-   names `password-empty`.
+3. **A branch that cannot take a stop.**
+   *An agent's extension, not confirmed by the owner separately:* a stored branch that
+   cannot take the stop, as one that first fills a code the item lacks, is never run.
+   When the list leads to it (the account's row or its `continue` button for the account
+   branch, `other` for the other branch), the login is refused `no-route` with the
+   `password-empty:<why>` detail, as a recipe without a list is, and nothing on the list
+   is pressed. When the list shows no account that fits and has no `other` button, the
+   login ends `account-not-listed` as any chooser login does. A generated branch that
+   cannot take the stop is not taken over; the login ends at its stop past the click,
+   `challenge`, watched, and the `login.attempt` entry then names why as
+   `password-empty:<why>` (such as `password-empty:fills-lacking`) instead of the bare
+   `password-empty`. That log detail applies to every continuation that a stop past the
+   plan cannot be moved into, with or without a list. It is kept in memory only, in the
+   document that asked for the continuation: a later document of the login, or the same
+   one after a worker restart, names `password-empty`.
 4. **Submissions and restarts.** A chooser's route has the branch's submissions plus one
    for the click, which the click spends as on any chooser login; a stop just past the
    plan keeps its one more submission for the answer, as above. The attempt records the
@@ -294,9 +294,9 @@ As implemented (local tests only):
    a `passkey` handler that the branch already holds, such as one learned when the
    branch's page was judged after an earlier step, and that shows on the page at the
    stop is entered before the stop and pressed, and the request that follows is answered
-   with the item. *Claude's extension, not confirmed by the owner separately:* the page
-   at a chooser login's stop is not sent to be judged for such a button, because the
-   service built for 05:39 judges no stop's page of a chooser (`not-judgeable`); the
+   with the item. *An agent's extension, not confirmed by the owner separately:* the
+   page at a chooser login's stop is not sent to be judged for such a button, because
+   the service built for 05:39 judges no stop's page of a chooser (`not-judgeable`); the
    extension logs `not-sent` with `chooser` instead of asking. Judging it per branch
    would need a service change and its deployment, and is not proposed here.
 
@@ -310,8 +310,8 @@ there; a page of that origin is handled as any page of that origin, so ADR 0034 
 answer its request. Since the owner's 「完了扱い」 (13:54 UTC, amending ADR 0022), a
 page of another origin of the site that asks for a passkey keeps the login, and a
 passkey answered there with the login's item lets the tab's next quiet page, back on the
-login's origin too, complete it. Until then this limit was Claude's decision: the login
-ended `left-origin` on that page.
+login's origin too, complete it. Until then this limit was an agent's decision: the
+login ended `left-origin` on that page.
 
 **A page of another site that asks for a passkey** (owner's choice 「成功と記録する」 on
 2026-11-04 at 11:20 UTC). In the owner's Chrome at 11:04 UTC that day, a login of the
@@ -326,17 +326,17 @@ page is read as a moved page is, within 30 seconds of the login's last step, and
 passkey request there holds the login. A passkey answered there with the login's item
 lets the tab's next quiet page complete it, on a host of the passkey's RP ID or,
 whatever that RP ID, back on the login's own origin; any other answer, or none, ends it
-`left-origin` as before. *Claude's reading, not confirmed by the owner separately:* the
-login's own origin counts after such an answer also when the page that asked was of its
-own site; a page of another site that asks for nothing ends the login `left-origin` once
-it reads quiet, at most 5 readings a second apart, instead of at once; a frame of that
-page leaves the move to the top page meanwhile; and a login without a stop still ends
-`left-origin` there at once. As for every move after a passkey answer, Pateat cannot
-tell an assertion the site rejected: a site that rejects it and sends the tab back to a
-quiet page of the login's origin, such as a landing page that is not signed in, now ends
-the login `authenticated` there too, where it ended `left-origin`. A second page of the
-other site's origin that asks again after the first held the login is not read for its
-request, as for a page of the login's own site.
+`left-origin` as before. *An agent's reading, not confirmed by the owner separately:*
+the login's own origin counts after such an answer also when the page that asked was of
+its own site; a page of another site that asks for nothing ends the login `left-origin`
+once it reads quiet, at most 5 readings a second apart, instead of at once; a frame of
+that page leaves the move to the top page meanwhile; and a login without a stop still
+ends `left-origin` there at once. As for every move after a passkey answer, Pateat
+cannot tell an assertion the site rejected: a site that rejects it and sends the tab
+back to a quiet page of the login's origin, such as a landing page that is not signed
+in, now ends the login `authenticated` there too, where it ended `left-origin`. A second
+page of the other site's origin that asks again after the first held the login is not
+read for its request, as for a page of the login's own site.
 
 Since 2026-11-08 (owner, ADR 0022 "one move rule for every sign-in method"), a page of
 any site that asks for a passkey holds every top-level login, not only one with a stop,

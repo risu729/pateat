@@ -178,7 +178,7 @@ original space or hyphen, must remain in order. The held value, including the
 insertions, must fit `maxlength`. Other inserted characters, including `/`, `.` and `(`,
 get no exception.
 
-Claude's implementation choices (2026-11-07, after review): an insertion must sit
+An agent's implementation choices (2026-11-07, after review): an insertion must sit
 between two typed characters, because a separator before the first or after the last
 groups nothing and a leading hyphen can change the value; and a number input takes no
 insertion, since a hyphen there only changes the number (`1e5` to `1e-5`). The rule
@@ -225,7 +225,7 @@ full-width and half-width, or was replaced by a mask symbol. Any other substitut
 or reordering, such as `1234` into `1235` or `1243`, refuses the value. Until then any
 same-length value was kept when no key was cancelled.
 
-Claude's implementation choices (2026-11-08): each held character is width-folded as
+An agent's implementation choices (2026-11-08): each held character is width-folded as
 above and then compared with the folded typed character in lower case, so a page may
 change both, as `a` into `Ａ`; letters that only share an upper-case form, as `ı` and
 `i`, stay different. The mask symbols are `*`, `＊`, `∗`, `•`, `●`, `○`, `◦`, `·`, `∙`,

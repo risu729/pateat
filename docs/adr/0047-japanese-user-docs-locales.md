@@ -45,7 +45,7 @@ people from the other version
   pages, which are English only, keep their English names. Links to developer docs say
   that they are in English.
 - The Japanese privacy policy says that it translates the English one, which prevails
-  where they differ (Claude's choice, not confirmed by the owner).
+  where they differ (an agent's choice, not confirmed by the owner).
 - A PR that changes an English page changes its Japanese page too
   ([AGENTS.md](../../AGENTS.md)).
 

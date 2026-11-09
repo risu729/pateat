@@ -286,7 +286,7 @@ fix them now; the SSO policy itself is recorded separately.
     item is kept in memory with the answer only, as the answer is, and so is the
     waiting: after a worker restart, the tab's next page on the attempt's own origin
     resumes it as the page after its last step (ADR 0029), and one on another origin
-    ends it `left-origin` (Claude's reading, not confirmed by the owner separately). A
+    ends it `left-origin` (an agent's reading, not confirmed by the owner separately). A
     page whose request comes only after its readings ended is not held. This and every
     other move that does not complete the attempt is logged with why (`login.move`). The
     completion saves an automatic account choice and releases the origin like any other
@@ -553,7 +553,7 @@ the page of any site that asks for a passkey:
   that request as a stop's was. A frame of such a page that announces before the top
   page decided is refused `tab-busy` as before, and is now asked to announce again once
   the top page ended the attempt, so a sign-in form of the new site in a frame starts
-  its own login (Claude's addition, after review).
+  its own login (an agent's addition, after review).
 
 Accepted risk, as for the return to the attempt's own origin in ADR 0036: a site that
 rejects the credential and sends the tab to a quiet page of any site within 30 seconds

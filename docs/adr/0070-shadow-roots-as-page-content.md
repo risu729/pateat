@@ -163,8 +163,8 @@ draws its indicator, its "Stop Claude" button, its cursor and its glow in one cl
 shadow root on a `<div>` it strips of every attribute and keeps as the body's last child
 (the `<html>` element's when there is no body).
 
-**Decision** (Claude, 2026-11-04, built as the owner allowed on 2026-10-23 05:28 UTC; it
-replaces the rule above that no root is skipped, on its merits; the owner agreed at
+**Decision** (an agent, 2026-11-04, built as the owner allowed on 2026-10-23 05:28 UTC;
+it replaces the rule above that no root is skipped, on its merits; the owner agreed at
 12:27 UTC to read no `chrome-extension://` URL):
 
 - A closed shadow root is no part of the page when its host sits right under the

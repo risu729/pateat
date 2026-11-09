@@ -705,7 +705,7 @@ reports at once may pass it by up to one report's lines. Rows are kept a year, l
 request log (deleted with its expired rows, also on each report), and go with the
 request log's Delete all.
 
-A Claude session reads them through the read-only D1 query tool, for example:
+An agent session reads them through the read-only D1 query tool, for example:
 
 ```sql
 SELECT datetime(logged_at / 1000, 'unixepoch') AS at, event, level,

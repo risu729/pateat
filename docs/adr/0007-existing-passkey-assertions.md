@@ -357,7 +357,7 @@ when checked, `activation` when not) and "Tell sites that you were verified"
 policy is the profile setting `passkeyPolicy`, synced with the profile
 ([ADR 0024](0024-settings-profiles.md); owner, 09:48 UTC: settings sync by default),
 such as `{ "presence": "activation", "verification": "never" }`, and absent while both
-are `always`. One policy covers every site rather than one per site (Claude's choice).
+are `always`. One policy covers every site rather than one per site (an agent's choice).
 The worker reads it for each request, so a change applies to the next one. Settings that
 cannot be read give `activation` and `never`. While either is off, page-load and
 executor-triggered requests or UV-required requests go to the browser, so Pateat's own

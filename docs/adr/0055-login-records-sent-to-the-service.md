@@ -12,7 +12,7 @@ user, so it is fine). Implemented (local tests only; not deployed). Amends
 [ADR 0012](0012-inference-request-log.md) (what the service keeps beside the request
 log). Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md): a device
 also tells the service when a login starts on a recipe revision, recipe ID and revision
-only (Claude's choice, not confirmed by the owner). Amended on 2026-10-23 by
+only (an agent's choice, not confirmed by the owner). Amended on 2026-10-23 by
 [ADR 0066](0066-problem-lines-sent-to-the-service.md): a device also sends its local
 log's `warn` and `error` lines and why Pateat did nothing. A setting to turn off both
 kinds of sending was on the

@@ -6,7 +6,7 @@ inference, deployment, or real-account login. The subsequent foundation work
 built a synthetic extension shell and health-only Worker locally; the narrower
 implementation evidence below does not establish product compatibility.
 
-The 2026-10-10 sections were written by Codex before the project moved to Claude Code
+The 2026-10-10 sections were written by an earlier agent
 ([#21](https://github.com/risu729/pateat/pull/21)). In them, "Codex's Chrome extension"
 is OpenAI's extension through which the Codex app drove the owner's Chrome, not Claude
 in Chrome. Later documents use "Chrome use" for any AI agent that drives the owner's
@@ -458,7 +458,7 @@ recorded here. The locked-vault fallback was not checked in the installed Chrome
 ## Real-account refresh and host-access revocation, 2026-10-11
 
 The owner ran the production build of `main` at `6c2eda9` in Chrome 156.0.8078.16 on
-Windows 11, with the same real Cloud US account as above. A local Claude Code session
+Windows 11, with the same real Cloud US account as above. A local agent session
 read the diagnostics page and the settings page; the owner pressed the buttons. The
 build predates [PR #188](https://github.com/risu729/pateat/pull/188).
 

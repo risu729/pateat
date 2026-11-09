@@ -13,7 +13,7 @@ after each press stays), and option B for keypads without a unique `id` or
 `data-testid`: they may be named by a class or by their position when that names them
 alone at run time, letters-only keyboards count, and date pickers, pagination and
 `A`-`Z` index bars are kept out by general structural guards. The other choices below
-are Claude's defaults. Amends [ADR 0010](0010-inference-field-hints.md) (a read-only
+are an agent's defaults. Amends [ADR 0010](0010-inference-field-hints.md) (a read-only
 field beside a keypad is described), [ADR 0016](0016-recipe-generation-trigger.md) (such
 a password field is a sign-in input) and [ADR 0029](0029-local-sign-in-state.md) (such a
 field counts in the signs of a failure and S2),
