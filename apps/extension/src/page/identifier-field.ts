@@ -7,9 +7,7 @@ import { closestAcross, formOf, inputsOf, queryAll } from "./shadow";
 /**
  * Words that name an account identifier (ADR 0016), matched as whole words of an input's
  * name, id, placeholder, `aria-label` or label: `e-mail` and `loginId` split into words
- * first. Japanese words match anywhere, as in `ログインID`. `number` and `番号` name the
- * customer, member or contract number a bank or shop asks for first (#1435), as
- * `お客さま番号`; the excluded words below keep a postal, order or tracking number out.
+ * first. Japanese words match anywhere, as in `ログインID`.
  */
 const identifierWords = new Set([
   "email",
@@ -21,9 +19,26 @@ const identifierWords = new Set([
   "loginid",
   "account",
   "id",
-  "number",
 ]);
-const identifierParts = ["メール", "ユーザー", "ログイン", "アカウント", "番号"];
+const identifierParts = ["メール", "ユーザー", "ログイン", "アカウント"];
+/**
+ * A number an account is known by (#1435): the whole word `number`, or `番号` anywhere,
+ * as in `お客さま番号`, `会員番号` or "Customer number", unless a word of `numberOthers`
+ * or a part of `numberOtherParts` makes it a phone, card, PIN or verification number.
+ */
+const numberOthers: ReadonlySet<string> = new Set([
+  "phone",
+  "telephone",
+  "tel",
+  "mobile",
+  "cell",
+  "card",
+  "pin",
+  "code",
+  "verification",
+  "security",
+]);
+const numberOtherParts = ["電話", "携帯", "カード", "暗証", "認証", "確認"];
 /** Words of a field that is not a sign-in identifier, such as a search or newsletter box. */
 const otherWords = new Set([
   "search",
@@ -82,12 +97,7 @@ function words(text: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * The texts that describe an input: its name, id, placeholder, `aria-label`, labels and
- * the label the page's observation gives it (`fieldLabel`), which falls back to the text
- * that labels it by layout, as the heading `お客さま番号` right above an input with no
- * `<label>` does (#1435).
- */
+/** The texts that describe an input: its name, id, placeholder, `aria-label` and labels. */
 function descriptions(input: HTMLInputElement): string[] {
   return [
     input.name,
@@ -95,17 +105,42 @@ function descriptions(input: HTMLInputElement): string[] {
     input.placeholder,
     input.getAttribute("aria-label") ?? "",
     ...[...(input.labels ?? [])].map((label) => label.textContent ?? ""),
-    fieldLabel(input) ?? "",
   ];
 }
 
+/** Whether `text` holds a whole word of `whole` or, anywhere, a part of `parts`. */
+function holds(text: string, whole: ReadonlySet<string>, parts: readonly string[]): boolean {
+  const folded = text.normalize("NFKC");
+  return words(text).some((word) => whole.has(word)) || parts.some((part) => folded.includes(part));
+}
+
 function names(input: HTMLInputElement, whole: ReadonlySet<string>, parts: readonly string[]) {
-  return descriptions(input).some((text) => {
-    const folded = text.normalize("NFKC");
-    return (
-      words(text).some((word) => whole.has(word)) || parts.some((part) => folded.includes(part))
-    );
-  });
+  return descriptions(input).some((text) => holds(text, whole, parts));
+}
+
+/**
+ * Whether `text` names an account identifier: a word of `identifierWords` or
+ * `identifierParts`, or a number an account is known by.
+ */
+function namesIdentifier(text: string): boolean {
+  if (holds(text, identifierWords, identifierParts)) return true;
+  return (
+    (words(text).includes("number") || text.normalize("NFKC").includes("番号")) &&
+    !holds(text, numberOthers, numberOtherParts)
+  );
+}
+
+/**
+ * Whether the page's only text input names an identifier: by its own texts
+ * (`descriptions`), or else by the label the page's observation gives it (`fieldLabel`),
+ * which falls back to the text that labels it by layout, as the heading `お客さま番号`
+ * right above an input with no `<label>` does (#1435). That label must hold no word of
+ * another kind of field, as `郵便番号` does.
+ */
+function identifierNamed(input: HTMLInputElement): boolean {
+  if (descriptions(input).some(namesIdentifier)) return true;
+  const label = fieldLabel(input);
+  return label !== undefined && namesIdentifier(label) && !holds(label, otherWords, otherParts);
 }
 
 /**
@@ -165,7 +200,8 @@ function signUpForm(input: HTMLInputElement): boolean {
  * either an email input by its type or `autocomplete`, or the page's only text-like
  * input with no autofill field name among its `autocomplete` tokens (so `off`, or a
  * value Chrome ignores such as `chrome-off`, still counts) and a word of its name, id,
- * placeholder, `aria-label` or label that names an identifier. A search box, or an
+ * placeholder, `aria-label` or label, or else of the text that labels it by layout, that
+ * names an identifier or a number an account is known by. A search box, or an
  * input with a word of a coupon, order, tracking, postal or newsletter field, neither
  * counts nor is counted beside one, and an input in a sign-up form never counts. Only
  * the page's own markup is read, never a value.
@@ -182,10 +218,7 @@ export function identifierInput(document: Document): "sole" | "email" | undefine
   if (inputs.length !== 1) return undefined;
   const [input] = inputs as [HTMLInputElement];
   const unmarked = !autocompleteTokens(input).some((token) => fieldNames.has(token));
-  return input.type === "text" &&
-    unmarked &&
-    !signUpForm(input) &&
-    names(input, identifierWords, identifierParts)
+  return input.type === "text" && unmarked && !signUpForm(input) && identifierNamed(input)
     ? "sole"
     : undefined;
 }

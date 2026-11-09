@@ -448,16 +448,26 @@ has no `<label>`, `aria-label` or placeholder, and its heading says "customer nu
 which the lists above do not name. The page's observation already labels the input
 `お客さま番号` from that heading.
 
-Decision: the texts the rule reads also include the label the page's observation gives
-the input: its `aria-labelledby` text, `aria-label`, `<label>` text, else the nearest
-preceding text that labels it by layout (at most three levels up, never across another
-control or out of its form), else its `title`. The identifier words gain `number`, as a
-whole word, and `番号`, anywhere in the text, so `お客さま番号`, `会員番号`,
-`契約者番号` and "Customer number" name an identifier. The excluded words are read on
-the same texts, so `郵便番号`, `注文番号` and "Order number" stay out. Conditions 1, 2
-and 4, and the input being the page's only text-like one of type `text`, still apply.
+Decision: when none of the input's own texts names an identifier, the rule also reads
+the label the page's observation gives it: its `aria-labelledby` text, `aria-label`,
+`<label>` text, else the nearest preceding text that labels it by layout (at most three
+levels up, never across another control and never outside its form, so a heading outside
+the `<form>` is not read), else its `title`. That label counts only when it holds no
+excluded word, so `郵便番号` stays out; the excluded words and the secret-answer rule
+still read only the input's own texts, so a heading such as "Sign in to see your order
+history" does not exclude the email input under it. A number an account is known by also
+names an identifier, in any of these texts: the whole word `number`, or `番号` anywhere,
+as in `お客さま番号`, `会員番号`, `契約者番号` or "Customer number", unless the same
+text names a phone, card, PIN or verification number (the words phone, telephone, tel,
+mobile, cell, card, pin, code, verification or security, or anywhere 電話, 携帯, カード,
+暗証, 認証 or 確認). Conditions 1, 2 and 4, and the input being the page's only
+text-like one of type `text`, still apply.
 
-Known costs: on a site with a matching item, a page whose only text input is labelled
-with another number, such as `暗証番号`, `認証番号`, a card number or a phone number, is
-sent too, and the AI abstains or labels it. A nearby heading such as `ログイン` above an
-unlabelled lone input now makes it an identifier input.
+Known costs: on a site with a matching item, a lone input labelled with another number,
+such as a contract or reservation number, is sent too, and the AI abstains or labels it;
+a nearby heading such as `ログイン` above an unlabelled lone input now makes it an
+identifier input. A site whose number page and password page are on two origins, as
+Mizuho Direct's `web.ib` and `web2.ib` are, logs in as two attempts: the first ends
+`left-origin` after its `advance` click (ADR 0018), which shows the unknown badge, and
+the second starts on the password page; with several matching items and no default,
+the account is asked for on each origin.
