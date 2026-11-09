@@ -526,6 +526,7 @@ function broken(
     from.mutationIntent === true &&
     !(
       to.outcome === "left-origin" &&
+      to.submissions === 0 &&
       from.operationKind === "fill" &&
       from.operationEffect === "prepare" &&
       from.operationPresses !== true
