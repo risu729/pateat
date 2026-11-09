@@ -33,8 +33,13 @@ export const holdsOrigin = (entry: LoginAttemptMetadata) =>
   entry.state !== "authenticated" &&
   // A fill-only login never submits (ADR 0021 D).
   !entry.fillOnly &&
-  // A login interrupted before anything was submitted never submits.
-  !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions) &&
+  // A login interrupted, or whose tab left the origin, before anything was submitted
+  // never submits: a filled username or password alone sent nothing (owner, 2026-11-09).
+  !(
+    entry.state === "blocked" &&
+    (entry.outcome === "interrupted" || entry.outcome === "left-origin") &&
+    !entry.submissions
+  ) &&
   !stoppedByPateat(entry);
 
 /**

@@ -648,12 +648,12 @@ its own [extension ID](#extension-id) and storage, separate from a production in
    The extension must fill and advance through the password page itself. Verify
    the fixture's authenticated result, matched-field flags and one click per step.
    Do not fill the fields through the test controller to manufacture success.
-5. Close the owner tab before each new attempt. Another tab's login that is running
-   or ended without success keeps a new tab from starting until it closes; an
-   `authenticated` one, one that ended `interrupted` without submitting, or one Pateat
-   itself stopped with nothing in flight lets another tab log in.
-   Test `/single`, `/rejection`, `/unknown` and `/ambiguous`; the latter cases
-   must stop or abstain without trying another account or repeating submission.
+5. Close the owner tab before each new attempt. Another tab's login that is running or
+   ended without success keeps a new tab from starting until it closes; an
+   `authenticated` one, one that ended `interrupted` or `left-origin` without
+   submitting, or one Pateat itself stopped with nothing in flight lets another tab log
+   in. Test `/single`, `/rejection`, `/unknown` and `/ambiguous`; the latter cases must
+   stop or abstain without trying another account or repeating submission.
 6. Verify site/field exclusion, policy changes, navigation and concurrent Chrome
    use separately. Keep actual observations and unresolved limits in the run's
    evidence. An isolated Playwright pass does not establish these Chrome results.

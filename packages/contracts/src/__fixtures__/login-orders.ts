@@ -519,8 +519,11 @@ function broken(
   // answer, keeps holding its origin, so another tab does not log in over it (ADR 0022).
   // An operation the runtime reports undelivered went nowhere, and a fill-only login never
   // submits (checked above), so neither holds.
+  // A field filled without submitting (`prepare`) sent nothing, so a login whose tab
+  // left the origin after it holds nothing (owner, 2026-11-09).
   const delivered =
     from.mutationIntent === true &&
+    !(to.outcome === "left-origin" && to.submissions === 0) &&
     ["awaiting-result", "reconciling"].includes(from.state) &&
     from.fillOnly !== true &&
     // As the machine takes it back: only the operation in flight, before the page took it.
@@ -544,6 +547,7 @@ function broken(
     "account-not-listed",
     "cancelled",
     "interrupted",
+    "left-origin",
   ].includes(to.outcome ?? "");
   if (((unsent && pateatStop) || to.fillOnly === true) && holdsOrigin(to))
     names.push("held an origin for a login that sent nothing");

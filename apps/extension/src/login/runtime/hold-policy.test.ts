@@ -84,6 +84,7 @@ describe("record holds", () => {
     ["timeout", true],
     ["cancelled", true],
     ["interrupted", true],
+    ["left-origin", true],
   ] as const)("treats blocked %s according to what may still be in flight", (outcome, expected) => {
     expect(heldElsewhere([record({ state: "blocked", outcome })], new Map(), 1, origin, now)).toBe(
       expected,
@@ -94,6 +95,15 @@ describe("record holds", () => {
     { state: "executing", fillOnly: true },
     { state: "blocked", outcome: "interrupted", submissions: 0 },
     { state: "blocked", outcome: "cancelled", submissions: 0 },
+    // A tab that left the origin after only filling a field (owner, 2026-11-09).
+    {
+      state: "blocked",
+      outcome: "left-origin",
+      submissions: 0,
+      mutationIntent: true,
+      operationKind: "fill",
+      operationEffect: "prepare",
+    },
   ] satisfies Partial<LoginAttemptMetadata>[])(
     "releases a non-submitting record: %j",
     (overrides) => {
