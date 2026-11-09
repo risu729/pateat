@@ -622,3 +622,8 @@ even a docs-only token changes the delivery trust model. This implementation has
 privileged `pull_request_target` path, no fork previews and no automatic upload of PR
 code. After an owner decision, a separate preview workflow can use isolated docs-only
 credentials and preview hosting without changing the production routes.
+
+## Hostname maintenance
+
+See [hostname maintenance](hostname-maintenance.md) for the separate manual plan/apply
+workflow and its current permission limits.
