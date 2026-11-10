@@ -81,7 +81,8 @@ Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (ow
 13:06 UTC; delivery 3, implemented): a frame's page is sent too when the item matches
 both the frame's and the tab's URL and the frame is shown in the page.
 
-Amended on 2026-11-09 (proposed, awaiting the owner's decision):
+Amended on 2026-11-10 (owner, 02:29 UTC, decision card "A: 見出しと「番号」を読む",
+implemented):
 [an identifier input's label by layout, and customer numbers](#amendment-2026-11-09-an-identifier-inputs-label-by-layout-and-customer-numbers).
 
 Date: 2026-10-11
@@ -428,7 +429,9 @@ offers its form once more (implemented).
 
 ## Amendment 2026-11-09: an identifier input's label by layout, and customer numbers
 
-Status: proposed on 2026-11-09, awaiting the owner's decision
+Status: accepted by the owner on 2026-11-10 (02:29 UTC, decision card "A:
+見出しと「番号」を読む", over listing number phrases one by one or reading no words at
+all; implemented)
 ([#1435](https://github.com/risu729/pateat/issues/1435)).
 
 Real Chrome on 2026-11-09: Mizuho Direct's first page asks for the customer number alone
