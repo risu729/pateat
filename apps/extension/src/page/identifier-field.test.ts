@@ -31,6 +31,48 @@ describe("identifierInput", () => {
     expect(asks('<input id="account" autocomplete="off">')).toBe("sole");
   });
 
+  it("reads the text that labels the input by layout, and a customer or member number", () => {
+    // Mizuho Direct's first page (#1435): the heading above names the input, which has no
+    // `<label>` and an id with no identifier word.
+    expect(
+      asks(
+        '<form><h2>お客さま番号</h2><div><input type="text" id="txbCustNo" autocomplete="off" inputmode="numeric"></div><button type="button" disabled>次へ</button></form>',
+      ),
+    ).toBe("sole");
+    expect(asks('<label>会員番号<input name="no"></label>')).toBe("sole");
+    expect(asks('<input aria-label="Customer number">')).toBe("sole");
+    // A heading with no identifier word, and a postal or order number, stay out.
+    expect(asks('<h2>お名前</h2><div><input id="txbName"></div>')).toBeUndefined();
+    expect(asks('<h2>郵便番号</h2><div><input id="txb1"></div>')).toBeUndefined();
+    expect(asks('<input placeholder="Order number">')).toBeUndefined();
+    // So do a phone, card, PIN or verification number.
+    for (const label of ["電話番号", "携帯番号", "カード番号", "暗証番号", "認証番号", "確認番号"])
+      expect(asks(`<h2>${label}</h2><div><input id="txb1"></div>`)).toBeUndefined();
+    for (const label of ["Phone number", "Card number", "PIN number", "Verification code number"])
+      expect(asks(`<input aria-label="${label}">`)).toBeUndefined();
+    expect(asks('<input name="cardNumber">')).toBeUndefined();
+    expect(asks('<label for="t">番号</label><input id="t" name="tel">')).toBeUndefined();
+    // Only the word right before the number qualifies it, so a sentence-long label still
+    // names a customer number.
+    expect(
+      asks(
+        '<p>通帳に記載のお客さま番号を確認のうえ入力してください</p><div><input id="txb1"></div>',
+      ),
+    ).toBe("sole");
+    expect(asks('<input aria-label="Enter your customer number to verify">')).toBe("sole");
+    // A phone number beside a login word is still the identifier it names.
+    expect(asks('<label>ログインIDまたは電話番号<input id="f"></label>')).toBe("sole");
+  });
+
+  it("reads the layout text only for the identifier, not for the excluded words", () => {
+    // The heading's "order" does not exclude the email input it heads.
+    expect(
+      asks(
+        '<form><h2>Sign in to see your order history</h2><div><input type="email" name="email"></div></form>',
+      ),
+    ).toBe("sole");
+  });
+
   it("leaves out search, newsletter and other fields", () => {
     expect(asks('<input type="search" name="email">')).toBeUndefined();
     expect(asks('<form role="search"><input name="user"></form>')).toBeUndefined();
