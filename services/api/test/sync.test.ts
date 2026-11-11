@@ -445,52 +445,140 @@ describe("settings sync", () => {
       revision: 2,
       settings: { excludedSites: written.excludedSites, detailLinks: [answerLink()] },
     });
-  });
 
-  it("keeps the stored detail links when a write leaves the key out", async () => {
-    const device = await enrollOwner();
-    const linked = { ...settings(), detailLinks: [detailLink()] };
-    expect(
-      (await put(device, "/v1/settings", { version: 1, expectedRevision: 0, settings: linked }))
-        .status,
-    ).toBe(200);
-    // A write without the key, as from a client that does not know it, changes the rest.
-    const omitted = await put(device, "/v1/settings", {
-      version: 1,
-      expectedRevision: 1,
-      settings: settings("other.example"),
-    });
-    expect(omitted.status).toBe(200);
-    const expected = { ...settings("other.example"), detailLinks: [detailLink()] };
-    expect(await omitted.json()).toMatchObject({ revision: 2, settings: expected });
-    expect(await (await api(device, "/v1/settings")).json()).toEqual({
-      version: 1,
-      profileId: expect.any(String),
-      revision: 2,
-      settings: expected,
-    });
-    // An empty list is a removal.
-    const cleared = await put(device, "/v1/settings", {
+    // Omitting owner links replaces them for every profile, while each profile keeps its
+    // own site policy. A stale writer on another profile cannot bring the links back.
+    const clearingWriteId = crypto.randomUUID();
+    const cleared = await put(agent, "/v1/settings", {
       version: 1,
       expectedRevision: 2,
-      settings: { ...settings("other.example"), detailLinks: [] },
+      writeId: clearingWriteId,
+      settings: settings("agent.example"),
     });
     expect(cleared.status).toBe(200);
-    expect(await (await api(device, "/v1/settings")).json()).toMatchObject({
+    expect(await cleared.json()).toMatchObject({ revision: 3, written: clearingWriteId });
+    const laptopState = {
+      version: 1,
+      profileId: laptop.ownerId,
       revision: 3,
-      settings: { detailLinks: [] },
-    });
-    // A stale write without the key still loses its compare-and-swap.
-    const stale = await put(device, "/v1/settings", {
+      settings: settings(),
+    };
+    expect(await (await api(laptop, "/v1/settings")).json()).toEqual(laptopState);
+    const stale = await put(laptop, "/v1/settings", {
       version: 1,
       expectedRevision: 2,
-      settings: settings(),
+      writeId: crypto.randomUUID(),
+      settings: { ...settings("stale.example"), detailLinks: written.detailLinks },
     });
     expect(stale.status).toBe(409);
-    expect(await (await api(device, "/v1/settings")).json()).toMatchObject({
+    expect(await stale.json()).toEqual({ error: "settings_conflict", current: laptopState });
+    expect(await (await api(agent, "/v1/settings")).json()).toEqual({
+      version: 1,
+      profileId: agentProfile,
       revision: 3,
-      settings: { excludedSites: settings("other.example").excludedSites, detailLinks: [] },
+      settings: settings("agent.example"),
+      written: clearingWriteId,
     });
+  });
+
+  it.each(["omitted", "empty", "retained"] as const)(
+    "replaces detail links with the submitted document when they are %s",
+    async (mode) => {
+      const device = await enrollOwner();
+      const links = [detailLink(), answerLink()];
+      const initialWriteId = crypto.randomUUID();
+      const replacementWriteId = crypto.randomUUID();
+      expect(
+        (
+          await put(device, "/v1/settings", {
+            version: 1,
+            expectedRevision: 0,
+            writeId: initialWriteId,
+            settings: { ...settings(), detailLinks: links },
+          })
+        ).status,
+      ).toBe(200);
+      const replacement = {
+        ...settings("replacement.example"),
+        ...(mode === "omitted" ? {} : { detailLinks: mode === "empty" ? [] : links }),
+      };
+      const saved = await put(device, "/v1/settings", {
+        version: 1,
+        expectedRevision: 1,
+        writeId: replacementWriteId,
+        settings: replacement,
+      });
+      expect(saved.status).toBe(200);
+      const expected = {
+        version: 1,
+        profileId: device.ownerId,
+        revision: 2,
+        settings: replacement,
+        written: replacementWriteId,
+      };
+      expect(await saved.json()).toEqual(expected);
+      expect(await (await api(device, "/v1/settings")).json()).toEqual(expected);
+
+      // A stale replacement must change neither profile policy nor owner links or the
+      // acknowledgement of the write that actually committed.
+      const stale = await put(device, "/v1/settings", {
+        version: 1,
+        expectedRevision: 1,
+        writeId: crypto.randomUUID(),
+        settings: {
+          ...settings("stale.example"),
+          detailLinks: [detailLink("https://stale.example")],
+        },
+      });
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toEqual({ error: "settings_conflict", current: expected });
+      expect(await (await api(device, "/v1/settings")).json()).toEqual(expected);
+    },
+  );
+
+  it("stores only the validated replacement without adding omitted links past its byte limit", async () => {
+    const device = await enrollOwner();
+    const detailLinks = Array.from({ length: 250 }, (_, index) =>
+      detailLink(`https://site-${index}.example`, `${"F".repeat(160)}${index}`),
+    );
+    const original = { ...settings(), detailLinks };
+    expect(new TextEncoder().encode(JSON.stringify(original)).byteLength).toBeLessThanOrEqual(
+      MAX_SETTINGS_DOCUMENT_BYTES,
+    );
+    expect(
+      (
+        await put(device, "/v1/settings", {
+          version: 1,
+          expectedRevision: 0,
+          settings: original,
+        })
+      ).status,
+    ).toBe(200);
+
+    const replacement = {
+      ...settings(),
+      excludedSites: Array.from({ length: 500 }, (_, index) => ({
+        hostname: `${"x".repeat(40)}${index}.example`,
+        includeSubdomains: true,
+      })),
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(replacement)).byteLength;
+    expect(bytes).toBeLessThanOrEqual(MAX_SETTINGS_DOCUMENT_BYTES);
+    expect(
+      new TextEncoder().encode(JSON.stringify({ ...replacement, detailLinks })).byteLength,
+    ).toBeGreaterThan(MAX_SETTINGS_DOCUMENT_BYTES);
+    const saved = await put(device, "/v1/settings", {
+      version: 1,
+      expectedRevision: 1,
+      settings: replacement,
+    });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ revision: 2, settings: replacement });
+    const current = (await (await api(device, "/v1/settings")).json()) as {
+      settings: LocalSettings;
+    };
+    expect(current.settings).toEqual(replacement);
+    expect(new TextEncoder().encode(JSON.stringify(current.settings)).byteLength).toBe(bytes);
   });
 
   it("refuses detail links that push the document over its limit", async () => {
