@@ -16,6 +16,8 @@ import {
   itemKey,
 } from "./schema-primitives";
 
+import { pagePermissionDefaultsSchema, sitePagePermissionRulesSchema } from "./page-permissions";
+
 export const localSettingsSchema = v.pipe(
   v.strictObject({
     connections: v.pipe(
@@ -52,6 +54,10 @@ export const localSettingsSchema = v.pipe(
       ),
     ),
     excludedSites: siteRulesSchema,
+    /** Per-kind profile defaults (ADR 0035), absent at the decided defaults. */
+    pagePermissionDefaults: v.optional(pagePermissionDefaultsSchema),
+    /** Partial per-host overrides, absent while empty; not a grant of site access. */
+    sitePagePermissions: v.optional(sitePagePermissionRulesSchema),
     /**
      * Sites where Pateat honours Bitwarden's master password re-prompt: it asks for the
      * master password before it fills or signs with an item that has it (owner, 2026-10-23
