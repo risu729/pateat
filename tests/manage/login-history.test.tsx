@@ -68,10 +68,10 @@ test("shows only metadata, recorded durations and network time within service ti
   await mount(client);
   await expect
     .element(page.getByRole("list", { name: "Login records" }))
-    .toHaveTextContent("https://bank.example");
+    .toMatchTextContent("https://bank.example");
   await expect
     .element(page.getByRole("list", { name: "Login records" }))
-    .toHaveTextContent("Signed in");
+    .toMatchTextContent("Signed in");
   await expect.element(page.getByText("2026-11-10 12:00:00 UTC", { exact: true })).toBeVisible();
   await page.getByText("Details", { exact: true }).click();
   await expect.element(page.getByText("gen-synthetic, revision 2", { exact: true })).toBeVisible();
@@ -98,7 +98,7 @@ test("validates origin before applying filters and resets the cursor on apply an
     .toHaveAttribute("aria-invalid", "true");
   expect(client.loginHistory).toHaveBeenCalledTimes(count);
   await page.getByLabelText("Site", { exact: true }).fill(" https://bank.example ");
-  await page.getByLabelText("Result", { exact: true }).selectOptions("Timed out");
+  await page.getByRole("combobox", { name: "Result", exact: true }).selectOptions("timeout");
   await page.getByRole("button", { name: "Apply filters" }).click();
   await expect
     .poll(() => client.loginHistory.mock.calls.at(-1)?.[0])
@@ -109,7 +109,7 @@ test("validates origin before applying filters and resets the cursor on apply an
     .toEqual({ origin: "https://bank.example", outcome: "timeout", beforeAt: AT, beforeId: ID });
   await page.getByRole("button", { name: "Clear filters" }).click();
   await expect.element(page.getByLabelText("Site", { exact: true })).toHaveValue("");
-  await expect.element(page.getByLabelText("Result", { exact: true })).toHaveValue("");
+  await expect.element(page.getByRole("combobox", { name: "Result", exact: true })).toHaveValue("");
   await expect.poll(() => client.loginHistory.mock.calls.at(-1)?.[0]).toEqual({});
 });
 
@@ -157,12 +157,14 @@ test("preserves dirty inputs across refetch and invalidates login history after 
   const queries = await mount(client, true);
   await expect.element(page.getByRole("list", { name: "Login records" })).toBeVisible();
   await page.getByLabelText("Site", { exact: true }).fill("https://draft.example");
-  await page.getByLabelText("Result", { exact: true }).selectOptions("Timed out");
+  await page.getByRole("combobox", { name: "Result", exact: true }).selectOptions("timeout");
   await queries.invalidateQueries({ queryKey: LOGIN_HISTORY_QUERY_KEY });
   await expect
     .element(page.getByLabelText("Site", { exact: true }))
     .toHaveValue("https://draft.example");
-  await expect.element(page.getByLabelText("Result", { exact: true })).toHaveValue("timeout");
+  await expect
+    .element(page.getByRole("combobox", { name: "Result", exact: true }))
+    .toHaveValue("timeout");
   expect(client.loginHistory.mock.calls.at(-1)?.[0]).toEqual({});
   client.loginHistory.mockResolvedValue(empty);
   await page.getByRole("button", { name: "Delete all", exact: true }).click();
