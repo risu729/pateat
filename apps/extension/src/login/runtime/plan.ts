@@ -1,5 +1,7 @@
 import {
   resolvePagePermission,
+  fillOnlyStep,
+  routeSteps,
   bindingGaps,
   chooseLoginRoute,
   defaultLoginBinding,
@@ -542,7 +544,19 @@ export async function planFor(
    * rather than having it filled (ADR 0027, amended 2026-10-19).
    */
   const resolveRoute = async (route: LoginRouteChoice, fillGaps = true) => {
-    const slots = routeSlots(recipe, route);
+    // Passive execution never delivers the code, effectful-fill or keypad fields.
+    // Their omitted bindings must not prevent the ordinary fields from being filled.
+    const slots =
+      signInFill && route.route === "password"
+        ? [
+            ...new Set(
+              routeSteps(recipe, route).flatMap((step) => {
+                const fill = fillOnlyStep(step);
+                return fill?.kind === "fill" ? fill.fields.map((field) => field.slot) : [];
+              }),
+            ),
+          ]
+        : routeSlots(recipe, route);
     let policy = snapshot.snapshot;
     let binding: LoginAccountBinding;
     let choice: UnsavedChoice | undefined;

@@ -190,12 +190,12 @@ async function fillContinuation(rt: Runtime, run: Execution): Promise<boolean> {
     recipe.alternatives
   )
     return false;
-  const fills = routeFillTargets(recipe, "password").slice(0, 24);
+  const fills = routeFillTargets(recipe, "password").slice(0, 23);
   const observed = await observe(
     rt,
     run,
-    fills,
-    fills.map(() => "writable"),
+    [...fills, step.target],
+    [...fills.map(() => "writable" as const), "shown"],
     { signIn: true },
   );
   if (!observed?.signIn?.loaded) return false;
@@ -208,7 +208,7 @@ async function fillContinuation(rt: Runtime, run: Execution): Promise<boolean> {
   const byIdentifier =
     observed.signIn.identifier === true &&
     !slots.has("username") &&
-    !observed.targets.some((entry) => entry === "unique");
+    !observed.targets.slice(0, fills.length).some((entry) => entry === "unique");
   const baseline = metadata.fillBaseline;
   if (
     !(byPassword || byIdentifier) ||
@@ -227,8 +227,17 @@ async function fillContinuation(rt: Runtime, run: Execution): Promise<boolean> {
     return false;
   }
   if (Date.now() - run.qualified.since < CONTINUATION_STABLE_MS) return false;
-  const key = { before: metadata.stepIndex };
-  const options = { replacesLast: true };
+  const recorded = metadata.continuation;
+  const replacesLast =
+    recorded && "before" in recorded
+      ? true
+      : recorded && "after" in recorded
+        ? false
+        : observed.path === step.path && observed.targets[fills.length] === "unique";
+  const key: { before: number } | { after: number } = replacesLast
+    ? { before: metadata.stepIndex }
+    : { after: metadata.stepIndex };
+  const options = { replacesLast };
   if (recordedContinuation(run, key)) {
     const cached = await cachedRoute(rt, run, observed.path).catch(() => undefined);
     return Boolean(cached && (await continueWith(rt, run, cached, undefined, undefined, options)));
@@ -256,7 +265,13 @@ async function fillContinuation(rt: Runtime, run: Execution): Promise<boolean> {
   if (!current(rt, run) || answer.outcome !== "recipe") {
     reportGeneration();
     if (current(rt, run) && "retry" in answer && answer.retry)
-      await change(rt, run, { type: "UNCONTINUED", ...key });
+      await change(
+        rt,
+        run,
+        "after" in key
+          ? { type: "FILL_UNCONTINUED", after: key.after }
+          : { type: "UNCONTINUED", ...key },
+      );
     return false;
   }
   let reported = false;

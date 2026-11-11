@@ -234,6 +234,8 @@ export const attemptMetadataSchema = v.pipe(
       v.union([
         v.strictObject({ operationId: identifier }),
         v.strictObject({ before: integer(MAX_ATTEMPT_STEPS) }),
+        // The person/page advanced a passive attempt; no Pateat operation submitted.
+        v.strictObject({ after: integer(MAX_ATTEMPT_STEPS) }),
       ]),
     ),
     /** This attempt follows an account switch in its tab; it never clicks another one. */
@@ -404,6 +406,8 @@ export const parseAttemptMetadata = (value: unknown): LoginAttemptMetadata =>
 export const loginAttemptEventSchema = v.variant("type", [
   v.strictObject({ type: v.literal("RESOLVE") }),
   v.strictObject({ type: v.literal("FILL_EXPIRED") }),
+  v.strictObject({ type: v.literal("FILL_CONTINUING"), after: integer(MAX_ATTEMPT_STEPS) }),
+  v.strictObject({ type: v.literal("FILL_UNCONTINUED"), after: integer(MAX_ATTEMPT_STEPS) }),
   v.strictObject({ type: v.literal("FILL_PROGRESS"), stepIndex: integer(MAX_ATTEMPT_STEPS) }),
   v.strictObject({
     type: v.literal("FILL_BASELINE"),
@@ -2051,6 +2055,43 @@ export function transitionLoginAttempt(
       metadata.continuation.before === event.before
     )
       return parseAttemptMetadata({ ...metadata, continuation: undefined });
+    if (
+      event.type === "FILL_CONTINUING" &&
+      metadata.state === "ready" &&
+      replaceable(metadata) &&
+      event.after === metadata.stepIndex &&
+      !metadata.continuation
+    )
+      return parseAttemptMetadata({ ...metadata, continuation: { after: event.after } });
+    if (
+      event.type === "FILL_UNCONTINUED" &&
+      metadata.continuation &&
+      "after" in metadata.continuation &&
+      metadata.continuation.after === event.after
+    )
+      return parseAttemptMetadata({ ...metadata, continuation: undefined });
+    if (
+      event.type === "CONTINUED" &&
+      event.replacesLast !== true &&
+      metadata.state === "ready" &&
+      replaceable(metadata) &&
+      metadata.continuation &&
+      "after" in metadata.continuation &&
+      metadata.continuation.after === metadata.stepIndex &&
+      event.recipeRevision > metadata.recipeRevision &&
+      metadata.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
+      metadata.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
+      sameLoginDocument(metadata.document, event.document)
+    )
+      return parseAttemptMetadata({
+        ...metadata,
+        ...clear,
+        recipeRevision: event.recipeRevision,
+        stepIndex: metadata.stepIndex + 1,
+        stepCount: metadata.stepCount + event.steps,
+        maxSubmissions: metadata.maxSubmissions + event.effects,
+        continuation: undefined,
+      });
     // These paths are for automatic execution, never for passive autofill.
     if (
       ["OBSERVED", "JUDGING", "STOP_JUDGING", "AUTO_SUBMITTED", "ROUTE", "STOP_ANSWERED"].includes(
@@ -2062,7 +2103,9 @@ export function transitionLoginAttempt(
   if (
     event.type === "FILL_PROGRESS" ||
     event.type === "FILL_BASELINE" ||
-    event.type === "FILL_EXPIRED"
+    event.type === "FILL_EXPIRED" ||
+    event.type === "FILL_CONTINUING" ||
+    event.type === "FILL_UNCONTINUED"
   )
     return metadata;
   const snapshot = loginAttemptMachine.resolveState({ value: metadata.state, context: metadata });
