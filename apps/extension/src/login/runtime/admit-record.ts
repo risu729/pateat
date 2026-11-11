@@ -29,25 +29,28 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
   // Read no recipe before a stale caller is rejected. Only `off` needs an early
   // confirmation lookup; the default `fill` keeps the existing latched record phases.
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-  const permissionSnapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
-  if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-  if (!permissionSnapshot.ok) return ctx.refuse("settings-unavailable");
-  const permission = resolvePagePermission(
-    permissionSnapshot.snapshot.settings,
-    ctx.live.url,
-    "confirm",
-  );
-  if (permission?.permission !== "fill") {
-    const permissionRecipe = await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
+  // Fresh admissions check this in admitRecipe after recipe and page readiness.
+  if (ctx.recorded) {
+    const permissionSnapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-    if (permissionRecipe)
-      return pageOff(
-        rt,
-        ctx.live,
-        permissionRecipe,
-        permission?.source ?? "default",
-        ctx.shown?.amount,
-      );
+    if (!permissionSnapshot.ok) return ctx.refuse("settings-unavailable");
+    const permission = resolvePagePermission(
+      permissionSnapshot.snapshot.settings,
+      ctx.live.url,
+      "confirm",
+    );
+    if (permission?.permission !== "fill") {
+      const permissionRecipe = await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      if (permissionRecipe)
+        return pageOff(
+          rt,
+          ctx.live,
+          permissionRecipe,
+          permission?.source ?? "default",
+          ctx.shown?.amount,
+        );
+    }
   }
 
   // Autofill follows its own account and step ledger; it performs no logout detection.
