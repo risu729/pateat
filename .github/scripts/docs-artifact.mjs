@@ -45,8 +45,8 @@ export async function verifyDocsBuild(directory) {
   assert.deepEqual(
     (worker.triggers ?? []).map(({ pattern, zone }) => ({ pattern, zone })),
     [
-      { pattern: "pateat.takuk.me/docs", zone: "takuk.me" },
-      { pattern: "pateat.takuk.me/docs/*", zone: "takuk.me" },
+      { pattern: "pateat.takuk.me/docs", zone: "e5f785a1c55a37a4b7c65ee832002237" },
+      { pattern: "pateat.takuk.me/docs/*", zone: "e5f785a1c55a37a4b7c65ee832002237" },
     ],
     "The docs routes are exactly /docs and /docs/*",
   );

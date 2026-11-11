@@ -48,8 +48,8 @@ test("docs output refuses executable Workers, bundled modules, bindings, wrong r
       workersDev: false,
       previewUrls: false,
       triggers: [
-        { pattern: "pateat.takuk.me/docs", zone: "takuk.me" },
-        { pattern: "pateat.takuk.me/docs/*", zone: "takuk.me" },
+        { pattern: "pateat.takuk.me/docs", zone: "e5f785a1c55a37a4b7c65ee832002237" },
+        { pattern: "pateat.takuk.me/docs/*", zone: "e5f785a1c55a37a4b7c65ee832002237" },
       ],
     };
     const put = (value) =>
@@ -62,7 +62,20 @@ test("docs output refuses executable Workers, bundled modules, bindings, wrong r
       [{ main: "index.js" }, /only assets/u],
       [{ mainModule: "index.js" }, /only assets/u],
       [{ env: { API: { type: "service" } } }, /no bindings/u],
-      [{ triggers: [{ pattern: "pateat.takuk.me/*", zone: "takuk.me" }] }, /docs routes/u],
+      [
+        {
+          triggers: [{ pattern: "pateat.takuk.me/*", zone: "e5f785a1c55a37a4b7c65ee832002237" }],
+        },
+        /docs routes/u,
+      ],
+      [
+        { triggers: worker.triggers.map((trigger) => ({ ...trigger, zone: "takuk.me" })) },
+        /docs routes/u,
+      ],
+      [
+        { triggers: worker.triggers.map((trigger) => ({ ...trigger, zone: "a".repeat(32) })) },
+        /docs routes/u,
+      ],
       [{ assets: { basePath: "/docs", notFoundHandling: "404-page" } }, /base path/u],
       [{ assets: { notFoundHandling: "single-page-application" } }, /404 page/u],
       [{ assets: { notFoundHandling: "404-page", runWorkerFirst: true } }, /runs first/u],
