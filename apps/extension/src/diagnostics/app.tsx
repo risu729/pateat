@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { isoMinute } from "../time";
+import { ALL_LOG_ENTRIES, logExportCounts, type LogExportScope } from "./log-export";
+import { LogScopeControls } from "./log-scope-controls";
 import { Logo } from "../logo";
 import { Button } from "../options/button";
 import {
@@ -39,7 +41,10 @@ export type DiagnosticsClient = {
   load(): Promise<DiagnosticsResponse>;
   browser(): Promise<BrowserInfo>;
   copy(text: string): Promise<void>;
-  exportLogs(includeSites: boolean): Promise<LogsResponse<"diagnostics.logs.export">>;
+  exportLogs(
+    includeSites: boolean,
+    scope?: LogExportScope,
+  ): Promise<LogsResponse<"diagnostics.logs.export">>;
   clearLogs(): Promise<LogsResponse<"diagnostics.logs.clear">>;
   /** Turns debug logging on for 24 hours, or until turned off before publishing, or off at once. */
   setDebugLogs(enabled: boolean): Promise<LogsResponse<"diagnostics.logs.debug">>;
@@ -338,21 +343,30 @@ function Logs({
 }) {
   const { t } = useTranslation(undefined, { i18n });
   // The text and the choice it was exported with, so the checkbox never disagrees with it.
-  const [preview, setPreview] = useState<{ text: string; includeSites: boolean }>();
+  const [preview, setPreview] = useState<{
+    text: string;
+    includeSites: boolean;
+    scope: LogExportScope;
+  }>();
   // The choice being exported; Save waits for it.
-  const [pending, setPending] = useState<boolean>();
+  const [pending, setPending] = useState<{ includeSites: boolean; scope: LogExportScope }>();
   const latest = useRef(0);
   const [confirmClear, setConfirmClear] = useState(false);
   const { logs } = status;
-  async function open(includeSites: boolean) {
+  async function open(includeSites: boolean, scope = ALL_LOG_ENTRIES) {
     const request = (latest.current += 1);
-    setPending(includeSites);
-    const response = await client.exportLogs(includeSites).catch(() => undefined);
+    setPending({ includeSites, scope });
+    setMessage("");
+    const response = await (
+      scope.range === "all" && scope.severity === "all"
+        ? client.exportLogs(includeSites)
+        : client.exportLogs(includeSites, scope)
+    ).catch(() => undefined);
     // Only the newest export is shown; an earlier, slower one is ignored.
     if (request !== latest.current) return;
     setPending(undefined);
     if (response?.ok) {
-      setPreview({ text: response.text, includeSites });
+      setPreview({ text: response.text, includeSites, scope });
       setMessage("");
     } else {
       setPreview(undefined);
@@ -376,6 +390,8 @@ function Logs({
     );
   }
   const debugOff = logs?.debugUntil === undefined;
+  const choice = pending ?? preview;
+  const counts = preview ? logExportCounts(preview.text) : undefined;
   return (
     <section aria-labelledby="logs-heading" className={PANEL}>
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -522,17 +538,38 @@ function Logs({
           <p className={NOTE}>
             {t("This exact text is saved or copied. Check it before attaching it to a bug report.")}
           </p>
+          <LogScopeControls
+            scope={choice?.scope ?? ALL_LOG_ENTRIES}
+            onChange={(scope) => void open(choice?.includeSites ?? true, scope)}
+          />
+          {pending === undefined && counts && (
+            <p className={NOTE}>
+              {t("Showing {{selected}} of {{retained}} retained entries.", counts)}
+              {counts.selected === 0 && <> {t("No entries match these filters.")}</>}
+            </p>
+          )}
+          {(preview.scope.range !== "all" || preview.scope.severity !== "all") && (
+            <p className={NOTE}>
+              {t("A filtered export can leave out earlier steps and related events.")}
+            </p>
+          )}
           <label className="m-0 flex items-start gap-2">
             <input
               id="hide-sites"
               type="checkbox"
-              checked={!(pending ?? preview.includeSites)}
-              onChange={(event) => void open(!event.target.checked)}
+              checked={!(choice?.includeSites ?? true)}
+              onChange={(event) =>
+                void open(!event.target.checked, choice?.scope ?? ALL_LOG_ENTRIES)
+              }
             />
             {t("Hide site addresses and recipe IDs")}
           </label>
-          <pre id="logs-preview" className={`${PREVIEW} max-h-96`}>
-            {preview.text}
+          <pre
+            id="logs-preview"
+            aria-busy={pending !== undefined}
+            className={`${PREVIEW} max-h-96`}
+          >
+            {pending === undefined ? preview.text : t("Updating preview…")}
           </pre>
           <div className="flex flex-wrap gap-2">
             <Button

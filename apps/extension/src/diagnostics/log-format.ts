@@ -20,6 +20,7 @@ import {
 } from "./log-events";
 import { KIND_SCHEMAS, PARAMETER_NAME, STORED_SCHEMAS, type LogEntry } from "./log-fields";
 import type { LogEventName } from "./log-events";
+import { selectLogEntries, type LogExportScope } from "./log-export";
 
 type Substitute = (kind: "origin" | "rpId" | "recipe", value: string) => string;
 
@@ -309,10 +310,17 @@ export function problemLine(entry: LogEntry): ProblemLine | undefined {
  */
 export function formatLogExport(
   entries: readonly LogEntry[],
-  context: { version: string; revision: string; exportedAt: number; includeSites: boolean },
+  context: {
+    version: string;
+    revision: string;
+    exportedAt: number;
+    includeSites: boolean;
+    scope?: LogExportScope;
+  },
 ): string {
   const substitute = context.includeSites ? undefined : siteSubstitution();
-  const lines = entries.map((entry) =>
+  const selection = selectLogEntries(entries, context.scope, context.exportedAt);
+  const lines = selection.entries.map((entry) =>
     JSON.stringify({
       time: isoTime(entry.time),
       level: entry.level,
@@ -325,7 +333,18 @@ export function formatLogExport(
     revision: context.revision,
     exportedAt: isoTime(context.exportedAt),
     sites: context.includeSites ? "included" : "replaced",
-    entries: entries.length,
+    entries: selection.entries.length,
+    ...(context.scope && (context.scope.range !== "all" || context.scope.severity !== "all")
+      ? {
+          retainedEntries: entries.length,
+          scope: {
+            ...context.scope,
+            ...(selection.since === undefined
+              ? {}
+              : { since: isoTime(selection.since), through: isoTime(selection.through!) }),
+          },
+        }
+      : {}),
   });
   return [header, ...lines].join("\n") + "\n";
 }

@@ -39,13 +39,14 @@ createRoot(root).render(
             getSelf: () => browser.management.getSelf(),
           }),
         copy: (text) => navigator.clipboard.writeText(text),
-        exportLogs: async (includeSites) =>
+        exportLogs: async (includeSites, scope) =>
           parseLogsResponse(
             "diagnostics.logs.export",
             await sendMessage("diagnostics", {
               version: 1,
               type: "diagnostics.logs.export",
               includeSites,
+              ...(scope ? { scope } : {}),
             }),
           ),
         clearLogs: async () =>

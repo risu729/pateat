@@ -2443,7 +2443,20 @@ the clipboard in full, without selecting the scrolled preview by hand, and repor
 many entries it copied. The export shows sites and recipe IDs as logged. When
 **Hide site addresses and recipe IDs** is checked, every origin, pseudonymized origin
 and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that export.
-**Clear logs** deletes every entry and replaces the pseudonym key.
+The preview can limit the export to the last 15 minutes, hour or 24 hours, and to
+warnings and errors. The default keeps all retained entries at every level, including
+entries ahead of the clock. A time window includes both endpoints, from its duration
+before the export time through the export time, which is captured after reading the
+entries. The preview shows selected and retained counts from that exact export. A
+filtered JSON Lines header retains `entries` as its selected count and adds
+`retainedEntries` and `scope` (the range, severity and, for a time window, `since` and
+`through`). Site and recipe substitution applies after selection; the header names no
+site, recipe or field value. The all-entries, all-levels header keeps its original
+shape. Changing a filter or the privacy checkbox reads a new export; only its newest
+answer may replace the preview. While it is pending, the old text and counts are hidden
+behind an updating message, and Save file and Copy all wait for it. Filters affect
+neither retention nor debug logging, and a filtered export can omit earlier steps and
+related events. **Clear logs** deletes every entry and replaces the pseudonym key.
 
 ### Request and login timing
 

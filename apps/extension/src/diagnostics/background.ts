@@ -435,15 +435,19 @@ export function createDiagnosticsLog(options: {
     ): Promise<LogsResponse<LogsRequestType>> {
       try {
         switch (message.type) {
-          case "diagnostics.logs.export":
+          case "diagnostics.logs.export": {
+            const entries = await logger.entries();
+            const exportedAt = Date.now();
             return {
               ok: true,
-              text: formatLogExport(await logger.entries(), {
+              text: formatLogExport(entries, {
                 ...options.build,
-                exportedAt: Date.now(),
+                exportedAt,
+                ...(message.scope ? { scope: message.scope } : {}),
                 includeSites: message.includeSites,
               }),
             };
+          }
           case "diagnostics.logs.clear":
             await logger.clear();
             return { ok: true };

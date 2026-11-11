@@ -212,4 +212,18 @@ export const diagnosticsEn = {
   "diagnostics.count.error_other": "{{count}} errors",
   "diagnostics.count.warning_one": "{{count}} warning",
   "diagnostics.count.warning_other": "{{count}} warnings",
+  "Updating preview…": "Updating preview…",
+  "Time range": "Time range",
+  "All retained entries": "All retained entries",
+  "Last 15 minutes": "Last 15 minutes",
+  "Last hour": "Last hour",
+  "Last 24 hours": "Last 24 hours",
+  Severity: "Severity",
+  "All levels": "All levels",
+  "Warnings and errors": "Warnings and errors",
+  "Showing {{selected}} of {{retained}} retained entries.":
+    "Showing {{selected}} of {{retained}} retained entries.",
+  "No entries match these filters.": "No entries match these filters.",
+  "A filtered export can leave out earlier steps and related events.":
+    "A filtered export can leave out earlier steps and related events.",
 } as const;
