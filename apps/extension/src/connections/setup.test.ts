@@ -986,7 +986,7 @@ describe("failed refresh does not destroy a previously usable cache", () => {
     const result = await h.caller.status();
     if (!result.ok || result.kind !== "status") throw new Error("Synthetic status failed");
     expect(result.connections[0]).toMatchObject({ state: "ready", unusableItemCount: 101 });
-    // The revision date stays in the log; the page needs the ID and check.
+    // The page needs only the ID and check, not the revision date.
     expect(result.connections[0]?.unusableItems).toEqual(
       unusableItems.slice(0, 100).map(({ itemId, check }) => ({ itemId, check })),
     );

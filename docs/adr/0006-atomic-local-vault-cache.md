@@ -104,7 +104,10 @@ for items that strict decryption refuses:
   snapshot (after a sync, a browser restart or an unlock). An item it refuses with a
   decryption check (`BITWARDEN_DECRYPT_CHECKS`, or an item type it cannot read) is
   removed from that session and answered as unusable with its ID, check and server
-  revision date. Any other failure, such as a locked session, still fails the open.
+  revision date. Any other failure, such as a locked session, still fails the open. A
+  fault in the SDK partway through reads like every later item failing, so once an item
+  is refused an item that verified must still decrypt, and a snapshot none of whose
+  items verify fails whole; either keeps the open vault.
 - The vault manager accepts the snapshot when the verified items and the unusable ones
   add up to the received items, each unusable ID is one of them and none repeats.
   Otherwise the open fails with `cipher-count`, as before.

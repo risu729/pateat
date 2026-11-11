@@ -524,6 +524,11 @@ describe("crypto Worker login usernames (ADR 0080)", () => {
 });
 
 describe("crypto Worker snapshot verification failures", () => {
+  const ordinary = mocks.decrypt.getMockImplementation()!;
+  afterEach(() => {
+    mocks.decrypt.mockImplementation(ordinary);
+  });
+
   it("leaves out an item strict decryption refuses, named by check, ID and revision date", async () => {
     await openWorker(savedUris, 0, false, (login, index) =>
       index === 2 ? { ...login, revisionDate: "2026-11-09T20:35:17.000Z" } : login,
@@ -571,6 +576,30 @@ describe("crypto Worker snapshot verification failures", () => {
       ok: true,
       data: { unusableItems: [{ itemId: itemId(1), check: "item-type" }] },
     });
+  });
+
+  it("refuses a vault none of whose items verify, keeping the open one", async () => {
+    await openWorker(savedUris);
+    mocks.decrypt.mockResolvedValue({
+      ok: false,
+      error: { code: "crypto-failed", check: "sdk-decrypt" },
+    } as never);
+    expect(await command({ kind: "verify-received-ciphers", session })).toEqual(
+      failed("crypto-failed"),
+    );
+  });
+
+  it("refuses the snapshot when a verified item no longer decrypts after a refusal", async () => {
+    await openWorker(savedUris);
+    // A fault partway through: every item after the first, and the first again, fails.
+    mocks.decrypt.mockImplementationOnce(async ({ cipher }) => ({ ok: true, data: cipher }));
+    mocks.decrypt.mockResolvedValue({
+      ok: false,
+      error: { code: "crypto-failed", check: "sdk-decrypt" },
+    } as never);
+    expect(await command({ kind: "verify-received-ciphers", session })).toEqual(
+      failed("crypto-failed"),
+    );
   });
 
   it("names a command that threw", async () => {

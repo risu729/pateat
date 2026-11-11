@@ -1593,7 +1593,6 @@ const iconButtonClass =
 const menuItemClass =
   "flex min-h-9 cursor-default items-center gap-2 rounded-md px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent-tint data-[highlighted]:outline-solid data-[highlighted]:outline-2 data-[highlighted]:-outline-offset-2 data-[highlighted]:outline-focus";
 
-/** Where a connection's vault lives, as the Server choice names it. */
 /** The web vault of a connection's server, where an item can be opened by its ID. */
 function webVault(environment: BitwardenProfile["environment"]): string {
   if (environment.kind === "self-hosted") return environment.baseUrl;
@@ -1619,8 +1618,8 @@ function UnusableItems({ connection }: { connection: Connection }) {
             tone: "warn",
             icon: TriangleAlert,
             text: t(
-              "{{items}} could not be decrypted and are not used. Open each in Bitwarden to fix or delete it.",
-              { items: t("{{count}} item", { count }) },
+              "{{count}} items could not be decrypted and are not used. Open each in Bitwarden to fix or delete it.",
+              { count },
             ),
           },
         ]}
@@ -1645,6 +1644,7 @@ function UnusableItems({ connection }: { connection: Connection }) {
   );
 }
 
+/** Where a connection's vault lives, as the Server choice names it. */
 function serverName(environment: BitwardenProfile["environment"], t: TFunction): string {
   if (environment.kind === "self-hosted") return new URL(environment.baseUrl).host;
   return environment.region === "eu" ? t("Bitwarden Cloud EU") : t("Bitwarden Cloud US");

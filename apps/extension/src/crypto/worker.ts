@@ -277,6 +277,22 @@ async function execute(command: HostCommand) {
       items,
     });
     if (!catalog.success) return fail("resource-limit");
+    // A fault in the SDK partway through, such as running out of memory, reads like every
+    // later item failing. So once an item is refused, one that verified must still decrypt,
+    // and a vault none of whose items verify is refused whole: either keeps the open vault
+    // instead of replacing it with a nearly empty one.
+    if (unusableItems.length) {
+      const refused = new Set(unusableItems.map((item) => item.itemId));
+      const verifiedId = [...owned.ciphers.keys()].find((id) => !refused.has(id));
+      const again =
+        verifiedId === undefined
+          ? undefined
+          : await owned.session.decryptCipher({
+              connectionId: command.connectionId,
+              cipher: owned.ciphers.get(verifiedId),
+            });
+      if (!again?.ok) return fail("crypto-failed");
+    }
     // An unusable item is gone from this session, so no later request decrypts it and a
     // site's settings that name it find no field instead of locking the session.
     for (const item of unusableItems) owned.ciphers.delete(item.itemId);
