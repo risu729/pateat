@@ -51,6 +51,21 @@ export const bitwardenJa = {
     "{{count}} 件のアイテムを読めなかったため、使用していません。Bitwarden で開いて、修正または削除してください。",
   "{{count}} items could not be read and are not used. Open each in Bitwarden to fix or delete it._other":
     "{{count}} 件のアイテムを読めなかったため、使用していません。Bitwarden で各アイテムを開いて、修正または削除してください。",
+  "{{count}} items are used without the fields that could not be read. Open each in Bitwarden to fix those fields._one":
+    "{{count}} 件のアイテムは、読めなかったフィールドを除いて使用しています。Bitwarden で開いて、そのフィールドを修正してください。",
+  "{{count}} items are used without the fields that could not be read. Open each in Bitwarden to fix those fields._other":
+    "{{count}} 件のアイテムは、読めなかったフィールドを除いて使用しています。Bitwarden で各アイテムを開いて、そのフィールドを修正してください。",
+  "Item {{itemId}} (not read: {{fields}})": "アイテム {{itemId}}（読めなかった項目：{{fields}}）",
+  Notes: "メモ",
+  Username: "ユーザー名",
+  Password: "パスワード",
+  "Password history": "パスワード履歴",
+  Attachments: "添付ファイル",
+  "Custom field {{number}} name": "カスタムフィールド {{number}} の名前",
+  "Custom field {{number}} value": "カスタムフィールド {{number}} の値",
+  "URI {{number}}": "URI {{number}}",
+  "{{count}} more_one": "ほか {{count}} 件",
+  "{{count}} more_other": "ほか {{count}} 件",
   "Item {{itemId}} (check: {{check}})": "アイテム {{itemId}}（確認項目：{{check}}）",
   "Item {{itemId}}": "アイテム {{itemId}}",
   "Vault synced {{time}}": "保管庫の同期日時：{{time}}",

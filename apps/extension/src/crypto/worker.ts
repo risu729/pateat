@@ -29,6 +29,7 @@ import {
   type HostCommand,
   type HostSessionRef,
   type LoginUsernames,
+  type PartialItem,
   type UnusableItem,
   type UriCandidates,
 } from "./wire";
@@ -66,6 +67,8 @@ let owned:
        * matching accounts without decrypting them again (ADR 0080). Nothing else is kept.
        */
       loginUsernames: Map<string, string>;
+      /** Per partly readable item, the field IDs that did not decrypt and are not offered. */
+      unreadableFields: Map<string, Set<string>>;
     }
   | undefined;
 let busy = false;
@@ -87,6 +90,40 @@ const fail = (
  * and its server revision date; all three are secret-free. It is left out of the session
  * instead of failing the snapshot (ADR 0006).
  */
+/** The field IDs of the snapshot that a repaired item's unreadable paths stand for. */
+function unreadableFieldIds(paths: readonly string[], snapshotId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const path of paths) {
+    const [group, name, part] = path.split(".");
+    if (path === "notes") ids.add("notes");
+    else if (path === "login.totp") ids.add("login.totp-code");
+    else if (group === "fields" && part) ids.add(`custom.${snapshotId}.${name}`);
+    else if (group === "login" && (name === "username" || name === "password")) ids.add(path);
+    else if (group === "card") ids.add(path);
+    else if (group === "identity") {
+      ids.add(path);
+      // The full name is made from these parts.
+      if (["title", "firstName", "middleName", "lastName"].includes(name ?? ""))
+        ids.add("identity.fullName");
+    }
+  }
+  return ids;
+}
+/** The snapshot's fields, without those of a partly readable item that did not decrypt
+ * and the linked custom fields that would fill one of them. */
+function offered<T extends { ref: { fieldId: string }; linkedFieldId?: string }>(
+  fields: readonly T[],
+  itemId: string,
+): readonly T[] {
+  const unreadable = owned?.unreadableFields.get(itemId.toLowerCase());
+  return unreadable
+    ? fields.filter(
+        (field) =>
+          !unreadable.has(field.ref.fieldId) &&
+          !(field.linkedFieldId && unreadable.has(field.linkedFieldId)),
+      )
+    : fields;
+}
 function unusable(itemId: string, cipher: unknown, check: string | undefined): UnusableItem {
   const raw = cipher && typeof cipher === "object" ? (cipher as Record<string, unknown>) : {};
   const revised = typeof raw["revisionDate"] === "string" ? Date.parse(raw["revisionDate"]) : NaN;
@@ -183,6 +220,7 @@ async function execute(command: HostCommand) {
       ...(uriContext ? { uriContext } : {}),
       loginUris: new Map(),
       loginUsernames: new Map(),
+      unreadableFields: new Map(),
     };
     return { ok: true as const, data: { session: ref, metadata: session.data.metadata } };
   }
@@ -195,6 +233,8 @@ async function execute(command: HostCommand) {
     delete owned.catalog;
     owned.loginUris.clear();
     owned.loginUsernames.clear();
+    owned.unreadableFields.clear();
+    const partialItems: PartialItem[] = [];
     const loginUris = new Map<string, { uri: string | null; match: number | null }[]>();
     const loginUsernames = new Map<string, string>();
     const groups = await owned.session.decryptCatalogGroups(owned.metadataContext);
@@ -203,12 +243,43 @@ async function execute(command: HostCommand) {
     const unusableItems: UnusableItem[] = [];
     // Validate every received supported item, without building a plaintext field
     // cache or forwarding bulk CipherViews across the extension Port.
-    for (const [receivedId, cipher] of owned.ciphers) {
+    for (const [receivedId, received] of owned.ciphers) {
+      let cipher = received;
       // eslint-disable-next-line no-await-in-loop
-      const checked = await owned.session.decryptCipher({
+      let checked = await owned.session.decryptCipher({
         connectionId: command.connectionId,
         cipher,
       });
+      // An item some of whose fields do not decrypt is used without them (ADR 0006).
+      if (
+        !checked.ok &&
+        (checked.error.check === "sdk-decrypt" || checked.error.check === "attachment")
+      ) {
+        // eslint-disable-next-line no-await-in-loop
+        const repaired = await owned.session.repairCipher({
+          connectionId: command.connectionId,
+          cipher,
+        });
+        if (!repaired.ok && repaired.error.code !== "crypto-failed") return repaired;
+        if (repaired.ok) {
+          cipher = repaired.data.cipher;
+          // eslint-disable-next-line no-await-in-loop
+          checked = await owned.session.decryptCipher({
+            connectionId: command.connectionId,
+            cipher,
+          });
+          if (checked.ok) {
+            owned.ciphers.set(receivedId, cipher);
+            owned.unreadableFields.set(
+              receivedId,
+              unreadableFieldIds(repaired.data.unreadable, owned.ref.snapshotId),
+            );
+            // Values only another item type's object held are not shown, so not reported.
+            if (repaired.data.unreadable.length)
+              partialItems.push({ itemId: receivedId, fields: repaired.data.unreadable });
+          }
+        }
+      }
       // One item strict decryption refuses is not used; the rest of the vault is (ADR 0006).
       // Any other failure, such as a locked session, still ends the verification.
       if (!checked.ok && checked.error.code !== "crypto-failed") return checked;
@@ -255,7 +326,7 @@ async function execute(command: HostCommand) {
           ],
           // Bitwarden's master password re-prompt; a site's settings decide whether it is asked.
           ...(checked.data.reprompt === 1 ? { reprompt: true as const } : {}),
-          fields: snapshot.data.list().map((field) => ({
+          fields: offered(snapshot.data.list(), receivedId).map((field) => ({
             id: field.ref.fieldId,
             label: vaultDisplayLabel(field.label, field.ref.fieldId),
             name: vaultFieldName(field.name),
@@ -280,15 +351,20 @@ async function execute(command: HostCommand) {
     // A fault in the SDK partway through, such as running out of memory, reads like every
     // later item failing. So once an item is refused, one that verified must still decrypt,
     // and a vault none of whose items verify is refused whole: either keeps the open vault
-    // instead of replacing it with a nearly empty one. An item refused for its organization
-    // was refused before any SDK call, so it cannot be such a fault.
+    // instead of replacing it with a nearly empty one. A repaired item also starts this
+    // check, since such a fault may refuse only an item's larger values; the item checked
+    // again is one that verified whole when there is one. An item refused for its
+    // organization was refused before any SDK call, so it cannot be such a fault.
     if (
+      owned.unreadableFields.size > 0 ||
       unusableItems.some(
         (item) => item.check !== "organization-key" && item.check !== "unknown-organization",
       )
     ) {
       const refused = new Set(unusableItems.map((item) => item.itemId));
-      const verifiedId = [...owned.ciphers.keys()].find((id) => !refused.has(id));
+      const repairedIds = owned.unreadableFields;
+      const usable = [...owned.ciphers.keys()].filter((id) => !refused.has(id));
+      const verifiedId = usable.find((id) => !repairedIds.has(id)) ?? usable[0];
       const again =
         verifiedId === undefined
           ? undefined
@@ -300,14 +376,23 @@ async function execute(command: HostCommand) {
     }
     // An unusable item is gone from this session, so no later request decrypts it and a
     // site's settings that name it find no field instead of locking the session.
-    for (const item of unusableItems) owned.ciphers.delete(item.itemId);
+    for (const item of unusableItems) {
+      owned.ciphers.delete(item.itemId);
+      owned.unreadableFields.delete(item.itemId);
+    }
     owned.catalog = catalog.output;
     owned.loginUris = loginUris;
     owned.loginUsernames = loginUsernames;
     owned.verified = true;
     return {
       ok: true as const,
-      data: { verifiedCipherCount: owned.ciphers.size, unusableItems },
+      data: {
+        verifiedCipherCount: owned.ciphers.size,
+        unusableItems,
+        partialItems: partialItems.filter(
+          (item) => !unusableItems.some((refused) => refused.itemId === item.itemId),
+        ),
+      },
     };
   }
   if (op.kind === "export-unlock") {
@@ -399,7 +484,9 @@ async function execute(command: HostCommand) {
     for (const itemId of op.itemIds) {
       const cipher = owned.ciphers.get(itemId.toLowerCase());
       digests[itemId] = null;
-      if (!cipher) continue;
+      // A custom field that did not decrypt is not known to be unchanged.
+      const unreadable = owned.unreadableFields.get(itemId.toLowerCase());
+      if (!cipher || [...(unreadable ?? [])].some((id) => id.startsWith("custom."))) continue;
       try {
         // eslint-disable-next-line no-await-in-loop
         const decrypted = await owned.session.decryptCipher({
@@ -452,7 +539,16 @@ async function execute(command: HostCommand) {
   });
   if (!snapshot.ok) return snapshot;
   try {
-    if (op.kind !== "resolve") return { ok: true as const, data: snapshot.data.list() };
+    if (op.kind !== "resolve")
+      return { ok: true as const, data: offered(snapshot.data.list(), itemId) };
+    // A field that did not decrypt is not offered, so it is missing rather than empty.
+    // So is a linked custom field that would fill one.
+    const unreadable = owned.unreadableFields.get(itemId);
+    const linked = unreadable
+      ? snapshot.data.list().find((field) => field.ref.fieldId === op.ref.fieldId)?.linkedFieldId
+      : undefined;
+    if (unreadable?.has(op.ref.fieldId) || (linked && unreadable?.has(linked)))
+      return fail("field-missing");
     return snapshot.data.resolve(op.ref, {
       allowedFieldIds: op.allowedFieldIds,
       ...(op.nowMs === undefined ? {} : { nowMs: () => op.nowMs! }),

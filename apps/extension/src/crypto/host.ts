@@ -28,6 +28,7 @@ import {
   type UriCandidates,
   type HostSessionRef,
   type HostUnlock,
+  type PartialItem,
   type UnusableItem,
 } from "./wire";
 import type { PasskeyMatches, PasskeySignRequest, PasskeySignature } from "./passkey";
@@ -642,11 +643,11 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       return request<unknown>(session.connectionId, { kind: "decrypt", session, itemId }, signal);
     },
     verifyReceivedCiphers(session: HostSessionRef, signal?: AbortSignal) {
-      return request<{ verifiedCipherCount: number; unusableItems: UnusableItem[] }>(
-        session.connectionId,
-        { kind: "verify-received-ciphers", session },
-        signal,
-      );
+      return request<{
+        verifiedCipherCount: number;
+        unusableItems: UnusableItem[];
+        partialItems: PartialItem[];
+      }>(session.connectionId, { kind: "verify-received-ciphers", session }, signal);
     },
     exportUnlockMaterial(session: HostSessionRef, signal?: AbortSignal) {
       return request<{ userKey: string; metadata: LocalCryptoSession["metadata"] }>(

@@ -120,8 +120,8 @@ for items that strict decryption refuses:
   each linking to the item in the web vault (`/#/vault?itemId=…`), since their names
   cannot be read.
 
-Using the readable fields of a partly readable item is later work in the same
-direction.
+A partly readable item is used without the fields that do not decrypt; see
+[Partly readable items](#partly-readable-items-2026-11-11).
 
 ### Items the account mapper cannot admit (2026-11-11)
 
@@ -156,6 +156,44 @@ two cannot be told apart without its public key), and when an organization key o
 but the SDK then refuses it. The crypto Worker does not count these refusals as a
 possible SDK fault, since they are made before any SDK call, so a vault whose only
 items are such an organization's opens empty with them listed.
+
+### Partly readable items (2026-11-11)
+
+When strict decryption refuses an item with `sdk-decrypt` or `attachment`, the crypto
+Worker asks the session to repair it before calling it unusable. Each encrypted value is
+decrypted alone with strict SDK decryption, as the name of an otherwise empty secure
+note that carries the item's own `key` and `organizationId`, so the item key never
+leaves the SDK and each value is checked under exactly the keys the whole item would
+use. Bitwarden ciphertexts are not bound to their field, so this accepts nothing that
+decrypting the whole item would refuse.
+
+- A value that does not decrypt is left empty: the notes, a login's username,
+  password or TOTP key, a card's or identity's values, a custom field's name or value.
+  A URI is left out whole when its address or its checksum does not decrypt (strict
+  SDK decryption refuses the whole item then), and so is a password-history entry and
+  an attachment whose file name or key does not decrypt; Pateat does not use
+  attachments. A value of another item type's object, which Vaultwarden may keep from
+  an earlier edit, is left out without being reported, since the item does not show
+  it. Passkeys stay: only passkey operations decrypt them, and each refuses an item
+  with an unreadable one, as before.
+- The item is not repaired, and stays unusable, when its name does not decrypt (no
+  other value may stand in for it), when it is a sealed blob (one ciphertext), when
+  nothing was left out, when it holds more than 500 encrypted values, or when the rest
+  still does not decrypt. An item key that does not decrypt makes every value fail, so
+  such an item stays unusable too. The limit bounds the decryptions one item costs and
+  the paths reported for it, so one item cannot fail the open.
+- The session then uses the repaired copy in memory; the stored record is unchanged
+  and the repair is made again on each open. A field left empty is not offered: it is
+  missing from the item's fields and from a fill, never read as an empty value, and so
+  is a linked custom field that would fill it. An item with an unreadable custom field
+  never compares as unchanged in a review.
+- A repaired item starts the same check for an SDK fault partway through as an
+  unusable one, since such a fault may refuse only an item's larger values: an item
+  that verified must still decrypt, one that verified whole when there is one.
+- The settings page lists up to 100 such items by ID, each with up to 20 of the values
+  that were not read, named as Bitwarden shows them (such as "Password" or "Custom
+  field 3 value", or a card's or identity's property name) with how many more there
+  are, linking to the item in the web vault.
 
 ## Sources
 

@@ -269,11 +269,17 @@ export function createLocalVaultManager(options: {
     const unusable = checked.ok
       ? checked.data.unusableItems.map((item) => item.itemId.toLowerCase())
       : [];
+    // A partly readable item is a verified one, named once and never also unusable.
+    const partial = checked.ok
+      ? checked.data.partialItems.map((item) => item.itemId.toLowerCase())
+      : [];
     if (
       !checked.ok ||
       checked.data.verifiedCipherCount + unusable.length !== prepared.ciphers.length ||
       new Set(unusable).size !== unusable.length ||
       !unusable.every((itemId) => received.has(itemId)) ||
+      new Set(partial).size !== partial.length ||
+      !partial.every((itemId) => received.has(itemId) && !unusable.includes(itemId)) ||
       !current(captured, signal)
     ) {
       if (staged === opened.data) staged = undefined;
@@ -300,6 +306,7 @@ export function createLocalVaultManager(options: {
       ),
       ...checked.data.unusableItems,
     ];
+    opened.data.partialItems = checked.data.partialItems;
     return opened;
   }
   /**
@@ -1198,6 +1205,7 @@ export function createLocalVaultManager(options: {
               handle: structuredClone(live.handle),
               summary: structuredClone(live.summary),
               unusableItems: structuredClone(live.opened.unusableItems ?? []),
+              partialItems: structuredClone(live.opened.partialItems ?? []),
             }
           : {}),
       };

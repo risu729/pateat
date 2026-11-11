@@ -183,6 +183,33 @@ const replySchema = v.union([
           unusableItemCount: v.optional(
             v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(10_000)),
           ),
+          partialItems: v.optional(
+            v.pipe(
+              v.array(
+                v.strictObject({
+                  itemId: v.pipe(v.string(), v.uuid()),
+                  fields: v.pipe(
+                    v.array(
+                      v.pipe(
+                        v.string(),
+                        v.maxLength(60),
+                        v.regex(/^[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*$/u),
+                      ),
+                    ),
+                    v.minLength(1),
+                    v.maxLength(20),
+                  ),
+                  moreFieldCount: v.optional(
+                    v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(1000)),
+                  ),
+                }),
+              ),
+              v.maxLength(100),
+            ),
+          ),
+          partialItemCount: v.optional(
+            v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(10_000)),
+          ),
           syncFailure: v.optional(
             v.strictObject({
               at: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),

@@ -945,6 +945,7 @@ export function BitwardenSetup({
                   </RowSub>
                   <StatusLines lines={statusLines(connection, t, formatLocale())} />
                   <UnusableItems connection={connection} />
+                  <PartialItems connection={connection} />
                 </>
               }
               actions={
@@ -1642,6 +1643,77 @@ function UnusableItems({ connection }: { connection: Connection }) {
       </ul>
     </div>
   );
+}
+
+/**
+ * The items used without the fields that did not decrypt (ADR 0006), each named by its ID
+ * with those fields' paths and opening in the web vault, where the owner can fix them.
+ */
+function PartialItems({ connection }: { connection: Connection }) {
+  const { t } = useTranslation(undefined, { i18n });
+  const items = connection.partialItems;
+  if (!items?.length) return null;
+  const count = Math.max(connection.partialItemCount ?? 0, items.length);
+  const origin = webVault(connection.environment);
+  return (
+    <div className="flex flex-col gap-1">
+      <StatusLines
+        lines={[
+          {
+            tone: "warn",
+            icon: TriangleAlert,
+            text: t(
+              "{{count}} items are used without the fields that could not be read. Open each in Bitwarden to fix those fields.",
+              { count },
+            ),
+          },
+        ]}
+      />
+      <ul className="m-0 flex list-none flex-col gap-1 p-0 ps-6 text-[0.8125rem]">
+        {items.map(({ itemId, fields, moreFieldCount }) => (
+          <li key={itemId}>
+            <a
+              href={`${origin}/#/vault?itemId=${encodeURIComponent(itemId)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline wrap-anywhere"
+            >
+              {t("Item {{itemId}} (not read: {{fields}})", {
+                itemId,
+                fields: new Intl.ListFormat(i18n.language, {
+                  style: "narrow",
+                  type: "conjunction",
+                }).format([
+                  ...fields.map((path) => unreadableFieldLabel(path, t)),
+                  ...(moreFieldCount ? [t("{{count}} more", { count: moreFieldCount })] : []),
+                ]),
+              })}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * A name the owner finds in Bitwarden for a path of an item's field that could not be read.
+ * Card and identity values keep their property names, as the item's field list shows them.
+ */
+function unreadableFieldLabel(path: string, t: TFunction): string {
+  const [group, index, part] = path.split(".");
+  const number = Number(index) + 1;
+  if (path === "notes") return t("Notes");
+  if (path === "login.username") return t("Username");
+  if (path === "login.password") return t("Password");
+  if (path === "login.totp") return t("Verification code");
+  if (path === "passwordHistory") return t("Password history");
+  if (path === "attachments") return t("Attachments");
+  if (group === "fields" && part === "name") return t("Custom field {{number}} name", { number });
+  if (group === "fields" && part === "value") return t("Custom field {{number}} value", { number });
+  if (group === "login" && index === "uris" && part)
+    return t("URI {{number}}", { number: Number(part) + 1 });
+  return path;
 }
 
 /** Where a connection's vault lives, as the Server choice names it. */

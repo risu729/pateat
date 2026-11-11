@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
     ok: true as const,
     data: cipher as unknown,
   })),
+  // Unless a test answers, no refused item has fields to leave out.
+  repair: vi.fn(async (_input: unknown) => ({
+    ok: false as const,
+    error: { code: "crypto-failed" as const, check: "sdk-decrypt" as const },
+  })),
   snapshots: new Map<string, CapturedSnapshot[]>(),
   verify: vi.fn((_input: unknown) => ({ ok: true as const, data: { matches: true } })),
   // Unless a test answers, every Regex URI stays unevaluated, as when no Worker can start.
@@ -27,6 +32,7 @@ vi.mock("@pateat/bitwarden", async (importOriginal) => {
       data: {
         metadata: { accountVersion: 1 },
         decryptCipher: mocks.decrypt,
+        repairCipher: mocks.repair,
         decryptCatalogGroups: async () => ({ ok: true, data: [] }),
         verifyMasterPassword: mocks.verify,
       },
@@ -550,6 +556,7 @@ describe("crypto Worker snapshot verification failures", () => {
             revised: Date.parse("2026-11-09T20:35:17.000Z"),
           },
         ],
+        partialItems: [],
       },
     });
     // The rest of the vault is used; the refused item is gone from the session, so a
@@ -567,6 +574,77 @@ describe("crypto Worker snapshot verification failures", () => {
     expect(await command({ kind: "list", session, itemId: itemId(1) })).toMatchObject({
       ok: true,
     });
+  });
+
+  it("uses an item without the fields that did not decrypt (ADR 0006)", async () => {
+    await openWorker(savedUris);
+    mocks.decrypt.mockImplementationOnce(async ({ cipher }) => ({ ok: true, data: cipher }));
+    mocks.decrypt.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "crypto-failed", check: "sdk-decrypt" },
+    } as never);
+    mocks.repair.mockImplementationOnce((async ({
+      cipher,
+    }: {
+      cipher: Record<string, unknown>;
+    }) => ({
+      ok: true,
+      data: {
+        cipher: {
+          ...cipher,
+          login: { ...(cipher["login"] as Record<string, unknown>), password: null },
+          // A linked custom field that would fill the password.
+          fields: [{ name: "Linked", value: null, type: 3, linkedId: 101 }],
+        },
+        unreadable: ["login.password"],
+      },
+    })) as never);
+    const verified = await command({ kind: "verify-received-ciphers", session });
+    expect(verified).toMatchObject({
+      ok: true,
+      data: {
+        unusableItems: [],
+        partialItems: [{ itemId: itemId(2), fields: ["login.password"] }],
+      },
+    });
+    // The unreadable password is not offered, so it is missing rather than empty.
+    const fields = (await list(2)) as { ok: true; data: { ref: { fieldId: string } }[] };
+    expect(fields.data.map((field) => field.ref.fieldId)).toContain("login.username");
+    expect(fields.data.map((field) => field.ref.fieldId)).not.toContain("login.password");
+    expect(fields.data.map((field) => field.ref.fieldId)).not.toContain(`custom.${snapshotId}.0`);
+    expect(await resolve(2)).toEqual(failed("field-missing"));
+    const linked = `custom.${snapshotId}.0`;
+    expect(await resolve(2, { fieldId: linked, allowedFieldIds: [linked] })).toEqual(
+      failed("field-missing"),
+    );
+    const catalog = (await command({ kind: "catalog", session })) as {
+      data: { items: { id: string; fields: { id: string }[] }[] };
+    };
+    const item = catalog.data.items.find((entry) => entry.id === itemId(2));
+    expect(item?.fields.map((field) => field.id)).not.toContain("login.password");
+  });
+
+  it("refuses the snapshot when a repaired item may hide an SDK fault (ADR 0006)", async () => {
+    await openWorker(savedUris);
+    // The second item is repaired; then the first, checked again, no longer decrypts.
+    let calls = 0;
+    let checkedAgain = false;
+    mocks.decrypt.mockImplementation(async ({ cipher }) => {
+      calls += 1;
+      const again = calls > 2 && (cipher as { id?: string }).id === itemId(1);
+      checkedAgain ||= again;
+      return calls === 2 || again
+        ? ({ ok: false, error: { code: "crypto-failed", check: "sdk-decrypt" } } as never)
+        : { ok: true, data: cipher };
+    });
+    mocks.repair.mockImplementationOnce((async ({ cipher }: { cipher: unknown }) => ({
+      ok: true,
+      data: { cipher, unreadable: ["notes"] },
+    })) as never);
+    expect(await command({ kind: "verify-received-ciphers", session })).toEqual(
+      failed("crypto-failed"),
+    );
+    expect(checkedAgain).toBe(true);
   });
 
   it("leaves out an item of a type it cannot read", async () => {
