@@ -2015,7 +2015,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             !containsAcross(form, button))
         )
           return fail("structural-mismatch", "target-missing");
-        if (!form.noValidate && !button?.formNoValidate && !form.checkValidity())
+        // Named controls shadow a form's own properties, including these native methods.
+        if (
+          !Element.prototype.hasAttribute.call(form, "novalidate") &&
+          !button?.formNoValidate &&
+          !HTMLFormElement.prototype.checkValidity.call(form)
+        )
           return fail("fill-rejected", "form-invalid");
         const refused = await destinationRefusal(() =>
           button ? clickDestinations(button) : formDestinations(field, "fill"),
@@ -2053,7 +2058,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (showsCaptcha(document) && !passedCaptcha(document)) return fail("captcha");
         mutated = true;
         if (button) button.click();
-        else form.requestSubmit();
+        else HTMLFormElement.prototype.requestSubmit.call(form);
         return { ok: true, mutation: "possible" } as const;
       };
       if (step.kind === "fill") {
