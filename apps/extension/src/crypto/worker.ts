@@ -29,6 +29,7 @@ import {
   type HostCommand,
   type HostSessionRef,
   type LoginUsernames,
+  type UnusableItem,
   type UriCandidates,
 } from "./wire";
 import { newId } from "@pateat/contracts/ids";
@@ -82,20 +83,17 @@ const fail = (
     | "uri-context-unavailable",
 ) => ({ ok: false as const, error: { code } });
 /**
- * A received item that failed strict decryption, named for the diagnostic log by its ID and
- * server revision date; the check and both values are secret-free.
+ * A received item that failed strict decryption, named by its ID, the check that refused it
+ * and its server revision date; all three are secret-free. It is left out of the session
+ * instead of failing the snapshot (ADR 0006).
  */
-function refused(cipher: unknown, check: string | undefined) {
+function unusable(itemId: string, cipher: unknown, check: string | undefined): UnusableItem {
   const raw = cipher && typeof cipher === "object" ? (cipher as Record<string, unknown>) : {};
   const revised = typeof raw["revisionDate"] === "string" ? Date.parse(raw["revisionDate"]) : NaN;
   return {
-    ok: false as const,
-    error: {
-      code: "crypto-failed" as const,
-      ...(check ? { check } : {}),
-      ...(typeof raw["id"] === "string" ? { item: raw["id"] } : {}),
-      ...(Number.isSafeInteger(revised) && revised >= 0 ? { revised } : {}),
-    },
+    itemId,
+    ...(check ? { check: check as UnusableItem["check"] } : {}),
+    ...(Number.isSafeInteger(revised) && revised >= 0 ? { revised } : {}),
   };
 }
 function exactSession(ref: HostSessionRef) {
@@ -202,19 +200,24 @@ async function execute(command: HostCommand) {
     const groups = await owned.session.decryptCatalogGroups(owned.metadataContext);
     if (!groups.ok) return groups;
     const items: LocalVaultMetadata["items"] = [];
+    const unusableItems: UnusableItem[] = [];
     // Validate every received supported item, without building a plaintext field
     // cache or forwarding bulk CipherViews across the extension Port.
-    for (const cipher of owned.ciphers.values()) {
+    for (const [receivedId, cipher] of owned.ciphers) {
       // eslint-disable-next-line no-await-in-loop
       const checked = await owned.session.decryptCipher({
         connectionId: command.connectionId,
         cipher,
       });
-      if (!checked.ok)
-        return checked.error.code === "crypto-failed"
-          ? refused(cipher, checked.error.check)
-          : checked;
-      if (![1, 2, 3, 4].includes(checked.data.type)) return refused(cipher, "item-type");
+      // One item strict decryption refuses is not used; the rest of the vault is (ADR 0006).
+      // Any other failure, such as a locked session, still ends the verification.
+      if (!checked.ok && checked.error.code !== "crypto-failed") return checked;
+      if (!checked.ok || ![1, 2, 3, 4].includes(checked.data.type)) {
+        unusableItems.push(
+          unusable(receivedId, cipher, checked.ok ? "item-type" : checked.error.check),
+        );
+        continue;
+      }
       // Pinned clients exclude deleted and archived items from URL matching.
       if (checked.data.type === 1 && !checked.data.deletedDate && !checked.data.archivedDate) {
         // Same identifier form as the catalog item, so settings eligibility applies.
@@ -274,11 +277,33 @@ async function execute(command: HostCommand) {
       items,
     });
     if (!catalog.success) return fail("resource-limit");
+    // A fault in the SDK partway through, such as running out of memory, reads like every
+    // later item failing. So once an item is refused, one that verified must still decrypt,
+    // and a vault none of whose items verify is refused whole: either keeps the open vault
+    // instead of replacing it with a nearly empty one.
+    if (unusableItems.length) {
+      const refused = new Set(unusableItems.map((item) => item.itemId));
+      const verifiedId = [...owned.ciphers.keys()].find((id) => !refused.has(id));
+      const again =
+        verifiedId === undefined
+          ? undefined
+          : await owned.session.decryptCipher({
+              connectionId: command.connectionId,
+              cipher: owned.ciphers.get(verifiedId),
+            });
+      if (!again?.ok) return fail("crypto-failed");
+    }
+    // An unusable item is gone from this session, so no later request decrypts it and a
+    // site's settings that name it find no field instead of locking the session.
+    for (const item of unusableItems) owned.ciphers.delete(item.itemId);
     owned.catalog = catalog.output;
     owned.loginUris = loginUris;
     owned.loginUsernames = loginUsernames;
     owned.verified = true;
-    return { ok: true as const, data: { verifiedCipherCount: owned.ciphers.size } };
+    return {
+      ok: true as const,
+      data: { verifiedCipherCount: owned.ciphers.size, unusableItems },
+    };
   }
   if (op.kind === "export-unlock") {
     if (!owned.verified) return fail("invalid-request");

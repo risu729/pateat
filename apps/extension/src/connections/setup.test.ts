@@ -975,6 +975,30 @@ describe("failed refresh does not destroy a previously usable cache", () => {
     h.advance(120_000);
     expect(await synced()).toBe(acceptedAt + 60_000);
   });
+  it("status lists the open vault's unusable items, at most 100, with their count", async () => {
+    const h = harness({ existing: true });
+    const unusableItems = Array.from({ length: 101 }, (_, index) => ({
+      itemId: `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`,
+      check: "sdk-decrypt",
+      revised: 1_762_720_517_000,
+    }));
+    h.manager.status.mockReturnValue({ ready: true, unusableItems } as never);
+    const result = await h.caller.status();
+    if (!result.ok || result.kind !== "status") throw new Error("Synthetic status failed");
+    expect(result.connections[0]).toMatchObject({ state: "ready", unusableItemCount: 101 });
+    // The page needs only the ID and check, not the revision date.
+    expect(result.connections[0]?.unusableItems).toEqual(
+      unusableItems.slice(0, 100).map(({ itemId, check }) => ({ itemId, check })),
+    );
+    expect(parseSetupReply(result)).toEqual(result);
+    h.manager.status.mockReturnValue({ ready: true, unusableItems: [] } as never);
+    const none = await h.caller.status();
+    expect(none).toMatchObject({ connections: [{ state: "ready" }] });
+    if (none.ok && none.kind === "status") {
+      expect(none.connections[0]).not.toHaveProperty("unusableItems");
+      expect(none.connections[0]).not.toHaveProperty("unusableItemCount");
+    }
+  });
   it("status reports the last automatic check's failure until a sync applies", async () => {
     const h = harness({ existing: true });
     const failure = async () => {

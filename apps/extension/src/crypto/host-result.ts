@@ -8,13 +8,17 @@ import {
   passkeyMatchesSchema,
   passkeySignatureSchema,
   sessionSchema,
+  unusableItemSchema,
   type HostOperation,
   type HostSessionRef,
+  type UnusableItem,
 } from "./wire";
 import { fromBase64Url } from "../passkeys/encoding";
 
 export type OpenedHostSession = {
   session: HostSessionRef;
+  /** The received items strict decryption refused, once the session verified them. */
+  unusableItems?: UnusableItem[];
   metadata: {
     connectionId: string;
     userId: string;
@@ -74,6 +78,7 @@ export function validHostResult(
     const checked = v.safeParse(
       v.strictObject({
         verifiedCipherCount: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(10_000)),
+        unusableItems: v.pipe(v.array(unusableItemSchema), v.maxLength(10_000)),
       }),
       data,
     );

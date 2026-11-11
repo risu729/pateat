@@ -588,11 +588,13 @@ Implementation module ownership is described in the
 These cases of the crypto host and the vault manager are known and not handled; each
 fails as stated rather than retrying:
 
-- Every supported received item must decrypt before a vault opens or a sync is
-  accepted ([ADR 0006](adr/0006-atomic-local-vault-cache.md)), so one item the SDK
-  cannot read stops the whole vault, not only that item. One known shape is an item
-  with its own key whose saved URI has no valid checksum: the SDK drops that URI, and
-  the library refuses the item because its URI count changed.
+- A received item that strict decryption refuses is left out of the vault, not used
+  even in part, and listed on the settings page by its ID and check
+  ([ADR 0006](adr/0006-atomic-local-vault-cache.md#amendment-one-unreadable-item-does-not-fail-the-vault)).
+  One known shape is an item with its own key whose saved URI has no valid checksum:
+  the SDK drops that URI, and the library refuses the item because its URI count
+  changed. An item whose organization key is missing, or a malformed one, still fails
+  the whole sync.
 - A crypto job has 30 seconds. A vault whose open, or whose check of every received
   item, takes longer (a very large vault on a slow device) cannot be opened or synced.
 - The host measures that budget on the wall clock. A job still running when the

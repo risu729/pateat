@@ -502,6 +502,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       const locked =
         // eslint-disable-next-line no-await-in-loop
         known?.state === "locked" && !(await vault.manager.keyFor(known));
+      const opened = vault.manager.status();
       const state = !record.ok
         ? "unavailable"
         : known?.state === "disabled"
@@ -510,7 +511,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             ? "locked"
             : quarantine.length
               ? "review-required"
-              : vault.manager.status().ready
+              : opened.ready
                 ? "ready"
                 : "configured";
       connections.push({
@@ -526,6 +527,15 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               ? "disabled"
               : "unknown",
         providerSession,
+        // Items strict decryption refused are left out of the open vault (ADR 0006).
+        ...(opened.unusableItems?.length && (state === "ready" || state === "review-required")
+          ? {
+              unusableItemCount: opened.unusableItems.length,
+              unusableItems: opened.unusableItems
+                .slice(0, 100)
+                .map(({ itemId, check }) => ({ itemId, ...(check ? { check } : {}) })),
+            }
+          : {}),
         ...lastCheckFailure(checks?.connections[configuration.profile.connectionId]),
         ...(known?.accepted
           ? {

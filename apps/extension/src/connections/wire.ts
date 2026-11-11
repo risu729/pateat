@@ -169,6 +169,20 @@ const replySchema = v.union([
           syncedAt: v.optional(
             v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
           ),
+          unusableItems: v.optional(
+            v.pipe(
+              v.array(
+                v.strictObject({
+                  itemId: v.pipe(v.string(), v.uuid()),
+                  check: v.optional(v.pipe(v.string(), v.maxLength(40), v.regex(/^[a-z-]+$/))),
+                }),
+              ),
+              v.maxLength(100),
+            ),
+          ),
+          unusableItemCount: v.optional(
+            v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(10_000)),
+          ),
           syncFailure: v.optional(
             v.strictObject({
               at: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),

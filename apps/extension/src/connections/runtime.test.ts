@@ -215,7 +215,7 @@ describe("current vault catalog", () => {
       }),
       verifyReceivedCiphers: vi.fn<CryptoHost["verifyReceivedCiphers"]>(async () => ({
         ok: true,
-        data: { verifiedCipherCount: entry.accepted.prepared.ciphers.length },
+        data: { verifiedCipherCount: entry.accepted.prepared.ciphers.length, unusableItems: [] },
       })),
       catalog: vi.fn<CryptoHost["catalog"]>(async (session) =>
         sessions.has(session.sessionId)
@@ -299,7 +299,10 @@ describe("vault timeout and lock (ADR 0075)", () => {
       }),
       verifyReceivedCiphers: vi.fn<CryptoHost["verifyReceivedCiphers"]>(async () => ({
         ok: true,
-        data: { verifiedCipherCount: activeEntry().accepted.prepared.ciphers.length },
+        data: {
+          verifiedCipherCount: activeEntry().accepted.prepared.ciphers.length,
+          unusableItems: [],
+        },
       })),
       exportUnlockMaterial: vi.fn<CryptoHost["exportUnlockMaterial"]>(async (session) => ({
         ok: true,

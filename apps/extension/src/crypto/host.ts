@@ -28,6 +28,7 @@ import {
   type UriCandidates,
   type HostSessionRef,
   type HostUnlock,
+  type UnusableItem,
 } from "./wire";
 import type { PasskeyMatches, PasskeySignRequest, PasskeySignature } from "./passkey";
 import { newId } from "@pateat/contracts/ids";
@@ -641,7 +642,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       return request<unknown>(session.connectionId, { kind: "decrypt", session, itemId }, signal);
     },
     verifyReceivedCiphers(session: HostSessionRef, signal?: AbortSignal) {
-      return request<{ verifiedCipherCount: number }>(
+      return request<{ verifiedCipherCount: number; unusableItems: UnusableItem[] }>(
         session.connectionId,
         { kind: "verify-received-ciphers", session },
         signal,

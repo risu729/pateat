@@ -2705,6 +2705,61 @@ test("a connection whose checks did not fail shows no automatic sync line", asyn
   expect(document.body.textContent).not.toContain("Last automatic sync failed");
 });
 
+test("items strict decryption refused are listed by ID with a link to the web vault", async () => {
+  const client = mockClient();
+  const open = { ...lockedVault, state: "ready" as const, autoUnlock: "enabled" as const };
+  const itemId = "00000000-0000-4000-8000-000000000002";
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [
+      {
+        ...open,
+        environment: { kind: "cloud" as const, region: "eu" as const },
+        unusableItems: [{ itemId, check: "sdk-decrypt" }],
+        unusableItemCount: 3,
+      },
+    ],
+  });
+  await mount(client);
+  await expect
+    .element(
+      page.getByText(
+        "3 items could not be decrypted and are not used. Open each in Bitwarden to fix or delete it.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  const link = page.getByRole("link", { name: `Item ${itemId} (check: sdk-decrypt)` });
+  await expect
+    .element(link)
+    .toHaveAttribute("href", `https://vault.bitwarden.eu/#/vault?itemId=${itemId}`);
+  await expect.element(link).toHaveAttribute("target", "_blank");
+});
+
+test("one unusable item is named in the singular", async () => {
+  const client = mockClient();
+  const open = { ...lockedVault, state: "ready" as const, autoUnlock: "enabled" as const };
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [{ ...open, unusableItems: [{ itemId: "00000000-0000-4000-8000-000000000002" }] }],
+  });
+  await mount(client);
+  await expect
+    .element(
+      page.getByText(
+        "1 item could not be decrypted and is not used. Open it in Bitwarden to fix or delete it.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("link", { name: "Item 00000000-0000-4000-8000-000000000002" }))
+    .toHaveAttribute(
+      "href",
+      "https://vault.bitwarden.com/#/vault?itemId=00000000-0000-4000-8000-000000000002",
+    );
+});
+
 test("an unlock that fails otherwise says the vault could not be unlocked", async () => {
   const client = mockClient();
   client.list.mockResolvedValue({ ...status(), connections: [lockedVault] });
