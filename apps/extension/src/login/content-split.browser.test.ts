@@ -233,7 +233,8 @@ describe("a split detail's popup fill", () => {
     ).join("");
     await install(
       `<form><select id="by"><option value="">--</option>${eraYears}</select>
-        <select id="bm">${options(1, 12)}</select><select id="bd">${options(1, 31)}</select></form>`,
+        <select id="bm">${options(1, 12)}</select><select id="bd">${options(1, 31)}</select>
+        <button id="confirm" type="button">Confirm</button></form>`,
     );
     expect(await fill(birthDate())).toEqual({ ok: false });
     expect(value("by")).toBe("");
@@ -242,7 +243,8 @@ describe("a split detail's popup fill", () => {
   it("chooses a card expiry year a select writes with two digits", async () => {
     await install(
       `<form><select id="em"><option value="">MM</option>${options(1, 12)}</select>
-        <select id="ey"><option value="">YY</option>${options(26, 36)}</select></form>`,
+        <select id="ey"><option value="">YY</option>${options(26, 36)}</select>
+        <button id="confirm" type="button">Confirm</button></form>`,
     );
     expect(
       await fill([
@@ -264,7 +266,8 @@ describe("a split detail's popup fill", () => {
   it("fills no parts that are in different forms", async () => {
     await install(
       `<form><select id="by">${options(1940, 2010)}</select></form>
-       <form><select id="bm">${options(1, 12)}</select><select id="bd">${options(1, 31)}</select></form>`,
+       <form><select id="bm">${options(1, 12)}</select><select id="bd">${options(1, 31)}</select>
+        <button id="confirm" type="button">Confirm</button></form>`,
     );
     const before = [value("by"), value("bm"), value("bd")];
     expect(await fill(birthDate())).toEqual({ ok: false });
