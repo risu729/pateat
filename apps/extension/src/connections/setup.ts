@@ -22,11 +22,23 @@ const error = (code: Extract<SetupReply, { ok: false }>["error"]["code"]): Setup
   error: { code },
 });
 /** The single reply boundary: a failure carries only its code, never a provider status or
- * value. An account mismatch also names the failed check so a real-account report is actionable. */
+ * value. An account mismatch also names the failed check, and a decryption failure the
+ * strict check and the item's ID and revision date, so a real-account report is actionable. */
 const replyOf = (result: SetupReply): SetupReply => {
   if (result.ok) return result;
-  const { code, check } = result.error;
-  return code === "account-mismatch" && check ? { ok: false, error: { code, check } } : error(code);
+  const { code, check, item, revised } = result.error;
+  if (code === "account-mismatch" && check) return { ok: false, error: { code, check } };
+  if (code === "crypto-failed" && check)
+    return {
+      ok: false,
+      error: {
+        code,
+        check,
+        ...(item === undefined ? {} : { item }),
+        ...(revised === undefined ? {} : { revised }),
+      },
+    };
+  return error(code);
 };
 type Authenticated = Extract<PasswordTokenOutcome, { kind: "authenticated" }>;
 /** Results only an automatic check produces; they never reach the settings page. */
@@ -52,13 +64,27 @@ type Flow = {
   retire?: () => Promise<void>;
   retirement?: Promise<void>;
 };
-/** Carry codes and HTTP status only, never provider values or error messages. */
-function syncFailure(failure: { code: string; status?: number }): VaultSyncResult {
+/** Carry codes, HTTP status and a decryption failure's detail only, never provider values or
+ * error messages. */
+function syncFailure(failure: {
+  code: string;
+  status?: number;
+  check?: string;
+  item?: string;
+  revised?: number;
+}): VaultSyncResult {
   return {
     outcome: "failed",
     cause: failure.code,
     ...(failure.code === "http-error" && failure.status !== undefined
       ? { status: failure.status }
+      : {}),
+    ...(failure.code === "crypto-failed" && failure.check
+      ? {
+          check: failure.check,
+          ...(failure.item === undefined ? {} : { item: failure.item }),
+          ...(failure.revised === undefined ? {} : { revised: failure.revised }),
+        }
       : {}),
   };
 }
@@ -584,7 +610,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       );
       if (reply.ok)
         return reply.kind === "unchanged" || reply.kind === "deferred" ? reply.kind : "synced";
-      const failure = reply.error as { code: string; status?: number };
+      const failure = reply.error as Parameters<typeof syncFailure>[0];
       if (failure.code === "account-deleted") return "account-deleted";
       // Stopped by a sign-in, forget, removal or permission loss.
       if (failure.code === "cancelled") return "skipped";

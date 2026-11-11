@@ -2,7 +2,7 @@ import type * as Sdk from "@bitwarden/sdk-internal";
 import * as v from "valibot";
 
 import { decodeBase64 } from "./base64";
-import { failure, type BitwardenResult } from "./errors";
+import { decryptFailure, failure, type BitwardenResult } from "./errors";
 import { verifiedSecurityStateVersion } from "./security-state";
 import {
   admitLocalCryptoCipher,
@@ -330,7 +330,7 @@ export async function createLocalCryptoSession(
           ? { ...admittedCipher, login: { ...admittedCipher.login, fido2Credentials: null } }
           : admittedCipher;
       if (cipher.organizationId && !knownOrganizations.has(cipher.organizationId))
-        return failure("crypto-failed");
+        return decryptFailure("unknown-organization");
       const admitted = admitLocalCryptoCipher(admittedCipher);
       if (!admitted.ok) return admitted;
       pendingCalls += 1;
@@ -339,7 +339,7 @@ export async function createLocalCryptoSession(
         if (locked) return failure("crypto-locked");
         // Admission refuses server-restricted ciphers; a partial view withholds its secrets.
         if (view.partial) return failure("unsupported-crypto");
-        if (view.attachmentDecryptionFailures?.length) return failure("crypto-failed");
+        if (view.attachmentDecryptionFailures?.length) return decryptFailure("attachment");
         // The SDK may remove invalid URI checksums; this boundary rejects partial results.
         const rawLogin = cipher["login"];
         if (
@@ -349,7 +349,7 @@ export async function createLocalCryptoSession(
           Array.isArray(rawLogin.uris) &&
           rawLogin.uris.length !== (view.login?.uris?.length ?? 0)
         )
-          return failure("crypto-failed");
+          return decryptFailure("uri-dropped");
         // Strict decryption fails on any unreadable passkey; never accept a view that dropped one.
         if (
           rawLogin &&
@@ -358,12 +358,12 @@ export async function createLocalCryptoSession(
           Array.isArray(rawLogin.fido2Credentials) &&
           rawLogin.fido2Credentials.length !== (view.login?.fido2Credentials?.length ?? 0)
         )
-          return failure("crypto-failed");
+          return decryptFailure("passkey-dropped");
         // Pinned SDK login.rs hashes the exact UTF-8 URI with SHA-256. Legacy keyless V1 skips
         // checksum enforcement; reject any PROVIDED wrong checksum while preserving absent legacy ones.
         for (const uri of view.login?.uris ?? []) {
           if (uri.uriChecksum == null) continue;
-          if (uri.uri == null) return failure("crypto-failed");
+          if (uri.uri == null) return decryptFailure("uri-checksum-without-uri");
           // Keep at most one digest pending; a large vault entry must not fan out native work.
           // eslint-disable-next-line no-await-in-loop
           const digest = await globalThis.crypto.subtle.digest(
@@ -371,12 +371,12 @@ export async function createLocalCryptoSession(
             new TextEncoder().encode(uri.uri),
           );
           const hash = new Uint8Array(digest);
-          if (hash.toBase64() !== uri.uriChecksum) return failure("crypto-failed");
+          if (hash.toBase64() !== uri.uriChecksum) return decryptFailure("uri-checksum");
         }
         if (locked) return failure("crypto-locked");
         return { ok: true, data: view };
       } catch {
-        return failure(locked ? "crypto-locked" : "crypto-failed");
+        return locked ? failure("crypto-locked") : decryptFailure("sdk-decrypt");
       } finally {
         pendingCalls -= 1;
         if (locked && pendingCalls === 0) releaseHandles();
@@ -499,7 +499,10 @@ export async function createLocalCryptoSession(
                       : {}),
                   },
                 });
-                if (!authenticated.ok) return authenticated;
+                if (!authenticated.ok)
+                  return authenticated.error.code === "crypto-failed"
+                    ? decryptFailure(kind)
+                    : authenticated;
                 const view =
                   kind === "folder"
                     ? folders.decrypt(group as unknown as Sdk.Folder)
@@ -509,7 +512,7 @@ export async function createLocalCryptoSession(
             }
             return locked ? failure("crypto-locked") : { ok: true as const, data: output };
           } catch {
-            return failure(locked ? "crypto-locked" : "crypto-failed");
+            return locked ? failure("crypto-locked") : decryptFailure("catalog");
           } finally {
             folders.free();
             collections.free();
@@ -545,6 +548,6 @@ export async function createLocalCryptoSession(
     };
   } catch {
     dispose();
-    return failure("crypto-failed");
+    return decryptFailure("session-open");
   }
 }

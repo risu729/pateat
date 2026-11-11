@@ -1,12 +1,12 @@
 import type { VaultSyncRecords } from "./auto-sync";
 import type {
-  BitwardenMismatchCheck,
   BitwardenProfile,
   BitwardenResult,
   BitwardenTransport,
   LocalVaultMetadata,
 } from "@pateat/bitwarden";
 import type { CryptoHost } from "../crypto/host";
+import type { VaultFailureDetail } from "../vault/record";
 import type { LocalVaultManager, LocalVaultHandle } from "../vault/manager";
 import type { DurableVaultStore } from "../vault/storage";
 import type { ProviderSessions, ProviderSessionState } from "./sessions";
@@ -120,8 +120,15 @@ export type SetupReply =
           | "authentication-rejected"
           | "setup-reauthentication-required"
           | "revision-conflict";
-        /** Only on account-mismatch: which consistency check failed, never a value. */
-        check?: BitwardenMismatchCheck;
+        /**
+         * On account-mismatch, which consistency check failed; on crypto-failed, which strict
+         * decryption check refused an item. Never a value.
+         */
+        check?: VaultFailureDetail["check"];
+        /** On crypto-failed for a received item: its ID, for the diagnostic log. */
+        item?: string;
+        /** With `item`: the item's server revision date in milliseconds. */
+        revised?: number;
       };
     };
 export interface ConnectionPolicy {

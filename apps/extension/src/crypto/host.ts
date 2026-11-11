@@ -1,17 +1,18 @@
 import * as v from "valibot";
-import type {
-  BitwardenResult,
-  LocalFieldMetadata,
-  LocalFieldReference,
-  LocalFieldValue,
-  LocalCryptoSession,
-  PreparedBitwardenAccount,
-  LocalVaultMetadata,
+import {
+  type BitwardenResult,
+  type LocalFieldMetadata,
+  type LocalFieldReference,
+  type LocalFieldValue,
+  type LocalCryptoSession,
+  type PreparedBitwardenAccount,
+  type LocalVaultMetadata,
 } from "@pateat/bitwarden";
 import {
   ARGON2ID_JOB_BUDGET_MS,
   boundedMessage,
   commandSchema,
+  CRYPTO_FAILURE_CHECKS,
   CRYPTO_PORT,
   derivesArgon2id,
   JOB_BUDGET_MS,
@@ -19,6 +20,7 @@ import {
   progressSchema,
   replySchema,
   sessionSchema,
+  type CryptoFailureCheck,
   type CustomDigests,
   type LoginUsernames,
   type HostOperation,
@@ -78,6 +80,29 @@ const fail = (
     | "timeout"
     | "resource-limit",
 ): BitwardenResult<never> => ({ ok: false, error: { code } });
+
+const detailSchemas = {
+  check: v.picklist(CRYPTO_FAILURE_CHECKS),
+  item: v.pipe(v.string(), v.uuid()),
+  revised: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+} as const;
+/**
+ * Which check refused which received item, kept for the diagnostic log. Each of a check
+ * code, an item ID and a revision date passes only in its own valid shape; anything else is
+ * dropped.
+ */
+function decryptDetail(error: object): {
+  check?: CryptoFailureCheck;
+  item?: string;
+  revised?: number;
+} {
+  const detail: Record<string, unknown> = {};
+  for (const [key, schema] of Object.entries(detailSchemas)) {
+    const value = (error as Record<string, unknown>)[key];
+    if (value !== undefined && v.is(schema, value)) detail[key] = value;
+  }
+  return detail;
+}
 
 /** A connection's live session plus the candidate a sync opens before retiring it. */
 const MAX_SESSIONS_PER_CONNECTION = 2;
@@ -268,7 +293,10 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         }
         finish(parsed.output.requestId, {
           ok: false,
-          error: { code: result.error.code },
+          error: {
+            code: result.error.code,
+            ...(result.error.code === "crypto-failed" ? decryptDetail(result.error) : {}),
+          },
         } as BitwardenResult<never>);
         return;
       }

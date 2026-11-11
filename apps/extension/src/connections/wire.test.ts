@@ -89,7 +89,21 @@ describe("vault lock and unlock replies (ADR 0075)", () => {
     const reply = { ok: true, kind: "status", connections: [connection] } as const;
     expect(parseSetupReply(reply)).toEqual(reply);
   });
+  it("parses a decryption failure with its check, item and revision date", () => {
+    const reply = {
+      ok: false,
+      error: {
+        code: "crypto-failed",
+        check: "uri-checksum",
+        item: "00000000-0000-4000-8000-000000000002",
+        revised: 1_762_720_517_000,
+      },
+    } as const;
+    expect(parseSetupReply(reply)).toEqual(reply);
+  });
   it.each([
+    { ok: false, error: { code: "crypto-failed", item: "Synthetic item name" } },
+    { ok: false, error: { code: "crypto-failed", revised: -1 } },
     { ok: true, kind: "locked" },
     { ok: true, kind: "unlocked", connectionId: "" },
     { ok: true, kind: "unlocked", connectionId: "synthetic", handle: {} },

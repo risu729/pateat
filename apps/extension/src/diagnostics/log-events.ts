@@ -97,14 +97,33 @@ export const LOG_EVENTS = {
       synced: "flag",
     },
   },
+  // On crypto-failed, `check` names the strict decryption check that refused an item,
+  // `item` its pseudonym and `revised` its server revision date.
   "vault.sync": {
     level: "info",
-    fields: { connection: "connection", outcome: "code", check: "code" },
+    fields: {
+      connection: "connection",
+      outcome: "code",
+      check: "code",
+      item: "item",
+      revised: "time",
+    },
   },
-  "vault.sign-in": { level: "info", fields: { step: "code", outcome: "code" } },
+  "vault.sign-in": {
+    level: "info",
+    fields: { step: "code", outcome: "code", check: "code", item: "item", revised: "time" },
+  },
   "vault.check": {
     level: "info",
-    fields: { connection: "connection", outcome: "code", cause: "code", status: "count" },
+    fields: {
+      connection: "connection",
+      outcome: "code",
+      cause: "code",
+      status: "count",
+      check: "code",
+      item: "item",
+      revised: "time",
+    },
   },
   // The vault timeout locked or logged out the vaults (ADR 0075).
   "vault.timeout": { level: "info", fields: { trigger: "code", action: "code", outcome: "code" } },

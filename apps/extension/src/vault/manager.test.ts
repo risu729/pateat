@@ -317,14 +317,21 @@ describe("acceptance verification and publication", () => {
     "rejects %s full-cipher verification without export or storage",
     async (mode) => {
       const h = harness();
+      // A refused item's check, ID and revision date pass through for the diagnostic log.
+      const refused = {
+        code: "crypto-failed" as const,
+        check: "uri-checksum" as const,
+        item: "00000000-0000-4000-8000-000000000002",
+        revised: 1_762_720_517_000,
+      };
       h.host.verifyReceivedCiphers.mockResolvedValue(
         mode === "rejected"
-          ? { ok: false, error: { code: "crypto-failed" } }
+          ? { ok: false, error: refused }
           : { ok: true, data: { verifiedCipherCount: 0 } },
       );
       expect(await h.manager.accept(candidate())).toEqual({
         ok: false,
-        error: { code: "crypto-failed" },
+        error: mode === "rejected" ? refused : { code: "crypto-failed", check: "cipher-count" },
       });
       expect(h.host.exportUnlockMaterial).not.toHaveBeenCalled();
       expect(h.store.compareAndSwap).not.toHaveBeenCalled();
@@ -1478,7 +1485,10 @@ describe("vault lock and key retention (ADR 0075)", () => {
         ok: true,
         data: { verifiedCipherCount: 0 },
       });
-      expect(await h.manager.unlock(v1Password)).toEqual(vaultFailure("crypto-failed"));
+      expect(await h.manager.unlock(v1Password)).toEqual({
+        ok: false,
+        error: { code: "crypto-failed", check: "cipher-count" },
+      });
       expect(h.sessionKey.write).not.toHaveBeenCalled();
       expect(h.opened.size).toBe(0);
     });

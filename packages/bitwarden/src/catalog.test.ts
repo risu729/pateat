@@ -103,7 +103,7 @@ describe("actual SDK metadata group verification", () => {
         folders: [folder(groupId, corrupt(legacyName))],
         collections: [],
       }),
-    ).toEqual({ ok: false, error: { code: "crypto-failed" } });
+    ).toEqual({ ok: false, error: { code: "crypto-failed", check: "folder" } });
   });
   it("rejects duplicate case-normalized group identities", async () => {
     const active = await session();
@@ -117,7 +117,7 @@ describe("actual SDK metadata group verification", () => {
   it("requires an initialized organization key before projecting that collection", async () => {
     const active = await session();
     expect(await active.decryptCatalogGroups({ folders: [], collections: [collection()] })).toEqual(
-      { ok: false, error: { code: "crypto-failed" } },
+      { ok: false, error: { code: "crypto-failed", check: "collection" } },
     );
   });
   it("fails closed for a non-cloneable group request without throwing a raw error", async () => {

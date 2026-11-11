@@ -1463,7 +1463,17 @@ describe("unhandled errors", () => {
       error: { code: "account-mismatch", check: "token-email" },
     });
     log.vaultSync("connection-secret-id", { ok: false, error: { code: "cancelled" } });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
+    const itemId = "00000000-0000-4000-8000-000000000002";
+    log.vaultSync("connection-secret-id", {
+      ok: false,
+      error: {
+        code: "crypto-failed",
+        check: "uri-checksum",
+        item: itemId,
+        revised: 1_762_720_517_000,
+      },
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(4));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       [
@@ -1485,8 +1495,25 @@ describe("unhandled errors", () => {
         "info",
         { connection: entries[0]?.fields["connection"], outcome: "cancelled" },
       ],
+      [
+        "vault.sync",
+        "warn",
+        {
+          connection: entries[0]?.fields["connection"],
+          outcome: "crypto-failed",
+          check: "uri-checksum",
+          item: expect.stringMatching(/^item:[0-9a-f]{8}$/u),
+          revised: 1_762_720_517_000,
+        },
+      ],
     ]);
     expect(JSON.stringify(entries)).not.toContain("connection-secret-id");
+    expect(JSON.stringify(entries)).not.toContain(itemId);
+    // The service gets the check, never the item's pseudonym or its revision date.
+    expect(problemLine(entries[3]!)?.fields).toEqual({
+      outcome: "crypto-failed",
+      check: "uri-checksum",
+    });
     vi.restoreAllMocks();
   });
 
@@ -1528,7 +1555,12 @@ describe("unhandled errors", () => {
     });
     log.vaultSignIn("keep-alive", { ok: false, error: { code: "setup-expired" } });
     log.vaultSignIn("continue", { ok: false, error: { code: "authentication-rejected" } });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(6));
+    const itemId = "00000000-0000-4000-8000-000000000002";
+    log.vaultSignIn("begin", {
+      ok: false,
+      error: { code: "crypto-failed", check: "sdk-decrypt", item: itemId, revised: 1 },
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(7));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       ["vault.sign-in", "info", { step: "begin", outcome: "mfa-required" }],
@@ -1537,8 +1569,25 @@ describe("unhandled errors", () => {
       ["vault.sign-in", "info", { step: "continue", outcome: "code-refused" }],
       ["vault.sign-in", "info", { step: "keep-alive", outcome: "setup-expired" }],
       ["vault.sign-in", "warn", { step: "continue", outcome: "authentication-rejected" }],
+      [
+        "vault.sign-in",
+        "warn",
+        {
+          step: "begin",
+          outcome: "crypto-failed",
+          check: "sdk-decrypt",
+          item: expect.stringMatching(/^item:[0-9a-f]{8}$/u),
+          revised: 1,
+        },
+      ],
     ]);
     expect(JSON.stringify(entries)).not.toContain(flowId);
+    expect(JSON.stringify(entries)).not.toContain(itemId);
+    expect(problemLine(entries[6]!)?.fields).toEqual({
+      step: "begin",
+      outcome: "crypto-failed",
+      check: "sdk-decrypt",
+    });
     vi.restoreAllMocks();
   });
 
@@ -2791,9 +2840,28 @@ describe("unhandled errors", () => {
       previous: "failed",
       previousFailure: { cause: "http-error", status: 503 },
     });
+    // A decryption failure warns again when another check refused the item.
+    const itemId = "00000000-0000-4000-8000-000000000002";
+    const otherItem = "00000000-0000-4000-8000-000000000003";
+    for (const [check, previous, previousItem] of [
+      ["uri-checksum", undefined, undefined],
+      ["uri-checksum", "uri-checksum", itemId],
+      ["uri-checksum", "uri-checksum", otherItem],
+      ["sdk-decrypt", "uri-checksum", itemId],
+    ] as const)
+      log.vaultCheck({
+        connectionId,
+        outcome: "failed",
+        cause: "crypto-failed",
+        check,
+        item: itemId,
+        revised: 1_762_720_517_000,
+        previous: "failed",
+        previousFailure: { cause: "crypto-failed", check: previous, item: previousItem },
+      });
     log.vaultRefresh({ connectionId, outcome: "not-sent", cause: "no-refresh-token" });
     log.recipeSync("busy", { scope: "full", added: 0, updated: 0, removed: 0 });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(13));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(17));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(
       entries.map((entry) => [
@@ -2813,19 +2881,36 @@ describe("unhandled errors", () => {
       ["vault.check", "debug", "failed", "network"],
       ["vault.check", "warn", "failed", "http-error"],
       ["vault.check", "warn", "failed", "http-error"],
+      ["vault.check", "warn", "failed", "crypto-failed"],
+      ["vault.check", "debug", "failed", "crypto-failed"],
+      ["vault.check", "warn", "failed", "crypto-failed"],
+      ["vault.check", "warn", "failed", "crypto-failed"],
       ["vault.refresh", "info", "not-sent", "no-refresh-token"],
       ["service.sync", "info", "busy", undefined],
     ]);
     expect(JSON.stringify(entries)).not.toContain(connectionId);
+    expect(JSON.stringify(entries)).not.toContain(itemId);
     const failures = entries.filter(
       (entry) => entry.event === "vault.check" && entry.fields["outcome"] === "failed",
     );
-    expect(failures.at(-1)?.fields["status"]).toBe(429);
+    expect(failures[3]?.fields["status"]).toBe(429);
+    expect(failures.at(-1)?.fields).toEqual({
+      connection: expect.stringMatching(/^bitwarden:[0-9a-f]{6}$/u),
+      outcome: "failed",
+      cause: "crypto-failed",
+      check: "sdk-decrypt",
+      item: expect.stringMatching(/^item:[0-9a-f]{8}$/u),
+      revised: 1_762_720_517_000,
+    });
     expect(failures.map(problemLine).map((line) => line?.fields)).toEqual([
       { outcome: "failed", cause: "network" },
       undefined,
       { outcome: "failed", cause: "http-error", status: 503 },
       { outcome: "failed", cause: "http-error", status: 429 },
+      { outcome: "failed", cause: "crypto-failed", check: "uri-checksum" },
+      undefined,
+      { outcome: "failed", cause: "crypto-failed", check: "uri-checksum" },
+      { outcome: "failed", cause: "crypto-failed", check: "sdk-decrypt" },
     ]);
     vi.restoreAllMocks();
   });

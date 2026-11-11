@@ -271,9 +271,10 @@ export function createLocalVaultManager(options: {
     ) {
       if (staged === opened.data) staged = undefined;
       await retire(opened.data);
-      return !checked.ok
-        ? checked
-        : vaultFailure(current(captured, signal) ? "crypto-failed" : "cancelled");
+      if (!checked.ok) return checked;
+      return current(captured, signal)
+        ? { ok: false, error: { code: "crypto-failed", check: "cipher-count" } }
+        : vaultFailure("cancelled");
     }
     if (
       opened.data.metadata.userId !== prepared.binding.userId ||

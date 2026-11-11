@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  BITWARDEN_DECRYPT_CHECKS,
   derivesAuthenticationWithArgon2id,
   maxTargetUrlLength,
   type BitwardenResult,
@@ -8,6 +9,12 @@ import {
 } from "@pateat/bitwarden";
 
 export const CRYPTO_PORT = "pateat.crypto-host.v1";
+/**
+ * The checks a `crypto-failed` reply may name: the library's strict decryption checks, and
+ * `worker-exception` for a command that threw in the crypto Worker.
+ */
+export const CRYPTO_FAILURE_CHECKS = [...BITWARDEN_DECRYPT_CHECKS, "worker-exception"] as const;
+export type CryptoFailureCheck = (typeof CRYPTO_FAILURE_CHECKS)[number];
 export const OFFSCREEN_PATH = "/crypto-offscreen.html";
 export const MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
 /** How long a job may run in its Worker. */

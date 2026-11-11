@@ -183,7 +183,10 @@ bound to the options-page sender, its URL compared without the fragment. Passwor
 and manual codes never enter the metadata query cache. Closing that Port cancels its
 flow and withholds late
 results. Every setup failure crosses that Port as an error code only; provider
-HTTP statuses and other failure details stay in the background. Only
+HTTP statuses and other failure details stay in the background. The exceptions are an
+account mismatch, which names the failed consistency check, and `crypto-failed`, which
+names the check that refused a received item, that item's ID and its server revision
+date, for the diagnostic log. Only
 value-free connection, group, item and field metadata returns to
 the settings catalog; vault field resolution remains an internal background API. The
 field metadata holds flags, never values: `empty` on a built-in username, password or
@@ -2325,9 +2328,9 @@ as before; changing the provisional log level does not change it (ADR 0038).
 | `runtime.started` | debug | build revision |
 | `runtime.updated` | info | previous and new build revision, version |
 | `vault.state` | warn for `unavailable`, `review-required` or `reauthentication-required`, even at a worker's first sight; else debug at the first sight, then info | connection pseudonym, state, previous state, sync sign-in, `synced` when a new snapshot was accepted |
-| `vault.sync` | info for a result, including `unchanged` since the person pressed Sync, and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
-| `vault.sign-in` | info, except warn for an error other than `cancelled` and `setup-expired` and for an email code that was not sent | the settings-page sign-in step (`begin` for the password, `continue` for the code, `send-email-code`, or `keep-alive` only when the heartbeat found the sign-in gone) and its result kind, `code-refused` when the server refused the code and the sign-in still waits, email send result or error code. No connection: a new connection's challenge shows before its ID is listed |
-| `vault.check` | debug for `unchanged`, `skipped` and the same outcome as the connection's last stored check other than `synced`, a `failed` one only with the same `cause` and `status`, also after the worker restarted (such as a sign-in that still needs the password, where no request is sent); otherwise info for `synced` and `deferred` (the replacement waits for a login or passkey request), else warn | connection pseudonym and the automatic check's outcome (ADR 0025): `unchanged`, `synced`, `deferred`, `rate-limited`, `failed`, `reauthentication-required`, `account-deleted` or `skipped`; every `failed` check includes a `cause` code (`exception` for a thrown error), and `status` for an HTTP error. A failure with a new cause or status warns again, so an outage of a self-hosted server sends one warning, not one per check; the schedule stores the last failure's cause and status only for this comparison and never reads them |
+| `vault.sync` | info for a result, including `unchanged` since the person pressed Sync, and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one; on `crypto-failed`, the `check` that failed (the strict decryption checks `BITWARDEN_DECRYPT_CHECKS` in `packages/bitwarden/src/errors.ts`, `session-open` among them, `worker-exception` for a crypto Worker command that threw, `apps/extension/src/crypto/wire.ts`, and `cipher-count` when the Worker verified another number of items than were received), the refused item's pseudonym (`item`) and its server revision date (`revised`, local only), so the owner can find the item in Bitwarden. A `crypto-failed` without a check comes from the crypto host itself: a Worker that crashed or could not start a job, a refused open, a closed port or a malformed reply |
+| `vault.sign-in` | info, except warn for an error other than `cancelled` and `setup-expired` and for an email code that was not sent | the settings-page sign-in step (`begin` for the password, `continue` for the code, `send-email-code`, or `keep-alive` only when the heartbeat found the sign-in gone) and its result kind, `code-refused` when the server refused the code and the sign-in still waits, email send result or error code. The account mismatch check, and on `crypto-failed` the same `check`, `item` and `revised` as `vault.sync`. No connection: a new connection's challenge shows before its ID is listed |
+| `vault.check` | debug for `unchanged`, `skipped` and the same outcome as the connection's last stored check other than `synced`, a `failed` one only with the same `cause`, `status`, `check` and `item`, also after the worker restarted (such as a sign-in that still needs the password, where no request is sent); otherwise info for `synced` and `deferred` (the replacement waits for a login or passkey request), else warn | connection pseudonym and the automatic check's outcome (ADR 0025): `unchanged`, `synced`, `deferred`, `rate-limited`, `failed`, `reauthentication-required`, `account-deleted` or `skipped`; every `failed` check includes a `cause` code (`exception` for a thrown error), and `status` for an HTTP error; a `crypto-failed` one also the `check`, `item` and `revised` that `vault.sync` records. A failure with a new cause, status, check or refused item warns again, so an outage of a self-hosted server sends one warning, not one per check; the schedule stores the last failure's cause, status, check and item ID only for this comparison and never reads them |
 | `vault.refresh` | debug for `refreshed`, info for `not-sent`, else warn | connection pseudonym; `not-sent` when no usable session was refreshed and no refresh was sent, with why: `no-session`, `no-refresh-token`, `claimed` (another refresh in this worker holds it), `provider-permission-required`, `cancelled` or the store's error code; `refreshed`, `restored` (the session was put back after a network failure, timeout, 429 or 5xx), `rejected`, `account-mismatch` or `failed` (a non-retryable error drops the claim's refresh token so the sync sign-in needs the password; a store error leaves the claim to resume; a conflict means forget or a password sign-in replaced it); the transport or store error code and HTTP status when there is one |
 | `service.sync` | warn when a change was left out as `unreadable`; debug for `synced`, `incomplete`, `not-connected` unless a recipe was added, updated or removed, then info; info for `unreachable`, since a device offline for a while would otherwise fill the warnings, and `busy` (a settings write that waits for a login, a sync superseded by a later one, or attempts that ran out); else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache; `unreadable`, active changes left out because this build cannot read their recipe ([minimal service](#minimal-service)); how long the run's requests took, added up ([timing](#request-and-login-timing)): `roundTripMs`, and `serverMs` and `networkMs` when every answer named the service's time |
 | `service.outcome` | info for `kept` and `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`), the chooser branch, and the result of one [first login result](#first-login-results-on-the-service) request: `kept`, `refused`, `rejected` or `failed:<code>` |
@@ -2595,28 +2598,28 @@ most 50 lines and 32 KiB a request and 4 requests a run, each request with one b
 lines and the log's random ID. Each line is the event, level, device time and the fields
 `problemLine` lets leave: those a log download carries with sites shown that the
 contract's `PROBLEM_EVENT_FIELDS` lists for the event (the log's allowlist less the item
-and connection pseudonyms and `fillOnly`; a test holds the two equal), with a page URL
-as its path alone, token-like and email-like segments as `[id]`; no other page's path,
-such as `previousUrl`, leaves. A path leaves only on `pathAllowed`'s allowlist of event
-and state, outcome or reason known to come before a login's submit (a login's start, a
-login blocked at a step it neither filled nor clicked and an exception, both only while
-`unsubmitted`: nothing submitted yet, in the document the login began in; an entry press
-refused before the press, a recipe's first step missing on a new login's page, a page
-sent for generation and not read as signed in, a recipe revoked at a new login's first
-page; ADR 0066 lists them); every other line, and anything added to the log later, sends
-none. A line identical to the last one sent less than an hour before it is left out. A
-cursor in the diagnostics database's `meta` store, per service and device, holds the
-last key sent or passed over, the failures in a row, when the next run may send and the
-last line sent; pairing starts it after the newest entry. A failed request, a 404 or 405
-included, keeps the lines and holds off runs from 1 minute, doubling to an hour, or as
-long as a 429's `Retry-After` asks (at most an hour), across worker restarts; another
-refused batch is skipped. Each request logs `service.problems` at `debug` or `info`,
-never `warn`. The service checks each line on its own, each field against the event's
-kinds, leaves out a line that does not pass and keeps the others, so a newer extension
-loses only the lines an older service does not know; it keeps one `problem_log` row per
-line, keyed by device, log ID and `seq`, for a year (at most 2,000 new lines per owner
-in 24 hours), lists the newest on `/manage/problems` and deletes them with the request
-log.
+and connection pseudonyms, `fillOnly` and `LOCAL_ONLY_FIELDS`; a test holds the two
+equal), with a page URL as its path alone, token-like and email-like segments as `[id]`;
+no other page's path, such as `previousUrl`, leaves. A path leaves only on
+`pathAllowed`'s allowlist of event and state, outcome or reason known to come before a
+login's submit (a login's start, a login blocked at a step it neither filled nor clicked
+and an exception, both only while `unsubmitted`: nothing submitted yet, in the document
+the login began in; an entry press refused before the press, a recipe's first step
+missing on a new login's page, a page sent for generation and not read as signed in, a
+recipe revoked at a new login's first page; ADR 0066 lists them); every other line, and
+anything added to the log later, sends none. A line identical to the last one sent less
+than an hour before it is left out. A cursor in the diagnostics database's `meta` store,
+per service and device, holds the last key sent or passed over, the failures in a row,
+when the next run may send and the last line sent; pairing starts it after the newest
+entry. A failed request, a 404 or 405 included, keeps the lines and holds off runs from
+1 minute, doubling to an hour, or as long as a 429's `Retry-After` asks (at most an
+hour), across worker restarts; another refused batch is skipped. Each request logs
+`service.problems` at `debug` or `info`, never `warn`. The service checks each line on
+its own, each field against the event's kinds, leaves out a line that does not pass and
+keeps the others, so a newer extension loses only the lines an older service does not
+know; it keeps one `problem_log` row per line, keyed by device, log ID and `seq`, for a
+year (at most 2,000 new lines per owner in 24 hours), lists the newest on
+`/manage/problems` and deletes them with the request log.
 
 ### Recipe use on the service
 

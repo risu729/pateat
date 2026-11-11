@@ -1342,6 +1342,37 @@ describe("durable provider sessions", () => {
     });
     expect(held.released()).toBe(true);
   });
+  it("a decryption failure reports which check refused which item, on both syncs", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const detail = {
+      code: "crypto-failed" as const,
+      check: "uri-checksum" as const,
+      item: "00000000-0000-4000-8000-000000000002",
+      revised: 1_762_720_517_000,
+    };
+    h.manager.accept.mockResolvedValueOnce({ ok: false, error: detail });
+    expect(await h.caller.sync(accountProfile.connectionId)).toEqual({ ok: false, error: detail });
+    const restarted = h.restart();
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    h.manager.accept.mockResolvedValueOnce({ ok: false, error: detail });
+    expect(await restarted.service.autoSync(accountProfile.connectionId, hold())).toEqual({
+      outcome: "failed",
+      cause: "crypto-failed",
+      check: "uri-checksum",
+      item: detail.item,
+      revised: detail.revised,
+    });
+    // Another code never carries the detail.
+    h.manager.accept.mockResolvedValueOnce({
+      ok: false,
+      error: { ...detail, code: "storage-uncertain" },
+    } as never);
+    expect(await restarted.caller.sync(accountProfile.connectionId)).toEqual({
+      ok: false,
+      error: { code: "storage-uncertain" },
+    });
+  });
   it.each(["registry", "policy"] as const)(
     "a thrown %s error reports only exception",
     async (stage) => {

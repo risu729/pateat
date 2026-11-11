@@ -185,6 +185,34 @@ describe("vault check schedule", () => {
     });
     expect(JSON.stringify(h.report.mock.calls)).not.toContain("synthetic");
   });
+  it("stores a decryption failure's check and item, and reports them", async () => {
+    const h = harness();
+    const failure = {
+      outcome: "failed" as const,
+      cause: "crypto-failed",
+      check: "uri-checksum",
+      item: "00000000-0000-4000-8000-000000000002",
+      revised: 1_762_720_517_000,
+    };
+    h.run.mockResolvedValue(failure);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report).toHaveBeenCalledWith({ connectionId: "a", ...failure, previous: undefined });
+    expect(h.stored()?.connections["a"]).toEqual({
+      checkedAt: h.now(),
+      outcome: "failed",
+      failure: { cause: "crypto-failed", check: "uri-checksum", item: failure.item },
+    });
+    h.advance(VAULT_CHECK_INTERVAL_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report).toHaveBeenLastCalledWith({
+      connectionId: "a",
+      ...failure,
+      previous: "failed",
+      previousFailure: { cause: "crypto-failed", check: "uri-checksum", item: failure.item },
+    });
+  });
   it("reports a failure code and HTTP status, and the stored one of the check before", async () => {
     const h = harness();
     h.run.mockResolvedValue({ outcome: "failed", cause: "http-error", status: 503 });

@@ -40,11 +40,57 @@ export type BitwardenMismatchCheck =
   | "user-key"
   | "token-unlock";
 
+/**
+ * Names which strict decryption check refused an item, on `crypto-failed` only. It never
+ * carries a decrypted or encrypted value.
+ * - `unknown-organization`: the item names an organization whose key the account lacks.
+ *   The account mapper refuses such a sync first, so this guard is defensive.
+ * - `sdk-decrypt`: the SDK threw while decrypting the item: a field, URI or checksum that
+ *   does not decrypt or authenticate, or an item shape or value this SDK does not read.
+ * - `attachment`: an attachment's metadata failed to decrypt.
+ * - `uri-dropped`: the SDK left out a URI. Strict decryption does this for an item with its
+ *   own key, or on an account whose security state is version 2 or later, when the URI's
+ *   checksum is missing, does not match or is not base64, or the URI is missing.
+ * - `passkey-dropped`: the SDK left out a passkey; only passkey operations decrypt them.
+ * - `uri-checksum-without-uri`: a URI has a checksum but no URI.
+ * - `uri-checksum`: a URI's checksum is not the SHA-256 of the URI. The SDK does not check
+ *   this for a legacy item without its own key on a version 1 account; this boundary does.
+ * - `item-type`: the decrypted item type is not one Pateat reads. Admission already
+ *   requires a readable type, so this guard is defensive.
+ * - `folder`, `collection`: a folder or collection name failed to decrypt.
+ * - `catalog`: the SDK threw while reading the folders and collections.
+ * - `session-open`: opening the account failed before any item was read: its keys,
+ *   security state or organization keys did not initialize, or the password was wrong.
+ */
+export const BITWARDEN_DECRYPT_CHECKS = [
+  "unknown-organization",
+  "sdk-decrypt",
+  "attachment",
+  "uri-dropped",
+  "passkey-dropped",
+  "uri-checksum-without-uri",
+  "uri-checksum",
+  "item-type",
+  "folder",
+  "collection",
+  "catalog",
+  "session-open",
+] as const;
+export type BitwardenDecryptCheck = (typeof BITWARDEN_DECRYPT_CHECKS)[number];
+
 export type BitwardenResult<T> =
   | { ok: true; data: T }
   | {
       ok: false;
-      error: { code: BitwardenErrorCode; status?: number; check?: BitwardenMismatchCheck };
+      error: {
+        code: BitwardenErrorCode;
+        status?: number;
+        check?: BitwardenMismatchCheck | BitwardenDecryptCheck;
+        /** On `crypto-failed` for a received item: its ID, never its name. */
+        item?: string;
+        /** With `item`: the item's server revision date in milliseconds. */
+        revised?: number;
+      };
     };
 
 export function failure(code: BitwardenErrorCode, status?: number): BitwardenResult<never> {
@@ -53,4 +99,8 @@ export function failure(code: BitwardenErrorCode, status?: number): BitwardenRes
 
 export function mismatch(check: BitwardenMismatchCheck): BitwardenResult<never> {
   return { ok: false, error: { code: "account-mismatch", check } };
+}
+
+export function decryptFailure(check: BitwardenDecryptCheck): BitwardenResult<never> {
+  return { ok: false, error: { code: "crypto-failed", check } };
 }

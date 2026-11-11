@@ -33,15 +33,30 @@ export type VaultSyncOutcome =
 /**
  * Failure details are diagnostic only; the schedule reads the outcome alone. `cause` is a
  * fixed error code (Bitwarden's, the setup's or `exception`), never a message, and
- * `status` an HTTP status.
+ * `status` an HTTP status. On `crypto-failed`, `check` names the strict decryption check
+ * that refused an item, `item` its ID and `revised` its server revision date.
  */
-export type VaultSyncFailure = { outcome: "failed"; cause: string; status?: number };
+export type VaultSyncFailure = {
+  outcome: "failed";
+  cause: string;
+  status?: number;
+  check?: string;
+  item?: string;
+  revised?: number;
+};
 export type VaultSyncResult = Exclude<VaultSyncOutcome, "failed"> | VaultSyncFailure;
 export type VaultSyncReport = {
   connectionId: string;
   previous?: VaultSyncOutcome | undefined;
   /** The stored cause of the check before, when it failed too. */
-  previousFailure?: { cause: string; status?: number | undefined } | undefined;
+  previousFailure?:
+    | {
+        cause: string;
+        status?: number | undefined;
+        check?: string | undefined;
+        item?: string | undefined;
+      }
+    | undefined;
 } & ({ outcome: Exclude<VaultSyncOutcome, "failed"> } | VaultSyncFailure);
 
 const time = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER));
@@ -70,12 +85,14 @@ const entrySchema = v.strictObject({
   deferredSince: v.optional(time),
   /** Local time before which no check is sent, after a 429. */
   retryAt: v.optional(time),
-  /** The last check's failure code and HTTP status, so the log tells a new cause from the
-   * same failure repeated; the schedule never reads it. */
+  /** The last check's failure code, HTTP status, decryption check and refused item, so the
+   * log tells a new cause from the same failure repeated; the schedule never reads it. */
   failure: v.optional(
     v.strictObject({
       cause: v.pipe(v.string(), v.minLength(1), v.maxLength(64)),
       status: v.optional(time),
+      check: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(64))),
+      item: v.optional(v.pipe(v.string(), v.uuid())),
     }),
   ),
 });
@@ -271,6 +288,8 @@ export function createVaultAutoSync(deps: {
                 failure: {
                   cause: result.cause,
                   ...(result.status === undefined ? {} : { status: result.status }),
+                  ...(result.check === undefined ? {} : { check: result.check }),
+                  ...(result.item === undefined ? {} : { item: result.item }),
                 },
               }),
           // Only this check's own answer confirms the snapshot; a record cleared meanwhile

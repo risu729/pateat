@@ -12,7 +12,13 @@ export {
   type BitwardenAccountBinding,
   type PreparedBitwardenAccount,
 } from "./account";
-export type { BitwardenErrorCode, BitwardenMismatchCheck, BitwardenResult } from "./errors";
+export {
+  BITWARDEN_DECRYPT_CHECKS,
+  type BitwardenDecryptCheck,
+  type BitwardenErrorCode,
+  type BitwardenMismatchCheck,
+  type BitwardenResult,
+} from "./errors";
 export {
   createLocalFieldSnapshot,
   type LocalFieldSnapshot,
