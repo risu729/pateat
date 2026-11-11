@@ -5,7 +5,7 @@ import { same, uuid } from "./account-response";
 import type { PreparedBitwardenAccount } from "./account-types";
 import { bitwardenEmail as email } from "./email";
 import { normalizeBitwardenProfile } from "./environment";
-import { failure, type BitwardenResult } from "./errors";
+import { BITWARDEN_UNAVAILABLE_ITEM_REASONS, failure, type BitwardenResult } from "./errors";
 import {
   admitLocalCryptoCipher,
   localCryptoAccountContextSchema,
@@ -41,7 +41,12 @@ export function admitPreparedBitwardenAccount(
         ...localCryptoAccountContextSchema.entries,
         ciphers: v.pipe(v.array(v.unknown()), v.maxLength(10_000)),
         unavailableItems: v.pipe(
-          v.array(v.strictObject({ itemId: uuid, reason: v.literal("unsupported-cipher-type") })),
+          v.array(
+            v.strictObject({
+              itemId: uuid,
+              reason: v.picklist(BITWARDEN_UNAVAILABLE_ITEM_REASONS),
+            }),
+          ),
           v.maxLength(10_000),
         ),
         coverage: v.literal("received-envelope"),

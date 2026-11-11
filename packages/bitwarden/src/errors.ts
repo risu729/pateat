@@ -44,7 +44,10 @@ export type BitwardenMismatchCheck =
  * Names which strict decryption check refused an item, on `crypto-failed` only. It never
  * carries a decrypted or encrypted value.
  * - `unknown-organization`: the item names an organization whose key the account lacks.
- *   The account mapper refuses such a sync first, so this guard is defensive.
+ *   The account mapper leaves such an item out first, so this guard is defensive.
+ * - `malformed-item`: the server sent the item in a shape Pateat does not admit.
+ * - `unsupported-item`: the server withheld part of the item or sent a form this SDK
+ *   does not read.
  * - `sdk-decrypt`: the SDK threw while decrypting the item: a field, URI or checksum that
  *   does not decrypt or authenticate, or an item shape or value this SDK does not read.
  * - `attachment`: an attachment's metadata failed to decrypt.
@@ -59,6 +62,8 @@ export type BitwardenMismatchCheck =
  */
 export const BITWARDEN_DECRYPT_CHECKS = [
   "unknown-organization",
+  "malformed-item",
+  "unsupported-item",
   "sdk-decrypt",
   "attachment",
   "passkey-dropped",
@@ -70,6 +75,16 @@ export const BITWARDEN_DECRYPT_CHECKS = [
   "session-open",
 ] as const;
 export type BitwardenDecryptCheck = (typeof BITWARDEN_DECRYPT_CHECKS)[number];
+
+/** Why the account mapper left a received item out before decryption. Every reason but
+ * `unsupported-cipher-type` is also a decrypt check, shown beside the item. */
+export const BITWARDEN_UNAVAILABLE_ITEM_REASONS = [
+  "unsupported-cipher-type",
+  "unknown-organization",
+  "malformed-item",
+  "unsupported-item",
+] as const;
+export type BitwardenUnavailableItemReason = (typeof BITWARDEN_UNAVAILABLE_ITEM_REASONS)[number];
 
 export type BitwardenResult<T> =
   | { ok: true; data: T }

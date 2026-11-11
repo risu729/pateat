@@ -47,10 +47,10 @@ export const bitwardenJa = {
     "前回の自動同期に失敗しました（{{time}}）。{{reason}}",
   "Last automatic sync failed ({{time}}, {{code}}). Press Sync to try again now.":
     "前回の自動同期に失敗しました（{{time}}、{{code}}）。「同期」を押すと今すぐ再試行します。",
-  "{{count}} items could not be decrypted and are not used. Open each in Bitwarden to fix or delete it._one":
-    "{{count}} 件のアイテムを復号できなかったため、使用していません。Bitwarden で開いて、修正または削除してください。",
-  "{{count}} items could not be decrypted and are not used. Open each in Bitwarden to fix or delete it._other":
-    "{{count}} 件のアイテムを復号できなかったため、使用していません。Bitwarden で各アイテムを開いて、修正または削除してください。",
+  "{{count}} items could not be read and are not used. Open each in Bitwarden to fix or delete it._one":
+    "{{count}} 件のアイテムを読めなかったため、使用していません。Bitwarden で開いて、修正または削除してください。",
+  "{{count}} items could not be read and are not used. Open each in Bitwarden to fix or delete it._other":
+    "{{count}} 件のアイテムを読めなかったため、使用していません。Bitwarden で各アイテムを開いて、修正または削除してください。",
   "Item {{itemId}} (check: {{check}})": "アイテム {{itemId}}（確認項目：{{check}}）",
   "Item {{itemId}}": "アイテム {{itemId}}",
   "Vault synced {{time}}": "保管庫の同期日時：{{time}}",

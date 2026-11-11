@@ -527,7 +527,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               ? "disabled"
               : "unknown",
         providerSession,
-        // Items strict decryption refused are left out of the open vault (ADR 0006).
+        // Items the account mapper or strict decryption refused are left out (ADR 0006).
         ...(opened.unusableItems?.length && (state === "ready" || state === "review-required")
           ? {
               unusableItemCount: opened.unusableItems.length,

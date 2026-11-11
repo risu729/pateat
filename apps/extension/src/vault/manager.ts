@@ -292,7 +292,14 @@ export function createLocalVaultManager(options: {
       await retire(opened.data);
       return vaultFailure("security-downgrade");
     }
-    opened.data.unusableItems = checked.data.unusableItems;
+    // Items the mapper left out before decryption are listed with the ones decryption
+    // refused; an item type Pateat does not read is not something to fix in Bitwarden.
+    opened.data.unusableItems = [
+      ...prepared.unavailableItems.flatMap(({ itemId, reason }) =>
+        reason === "unsupported-cipher-type" ? [] : [{ itemId, check: reason }],
+      ),
+      ...checked.data.unusableItems,
+    ];
     return opened;
   }
   /**

@@ -1,7 +1,7 @@
 import type * as Sdk from "@bitwarden/sdk-internal";
 import type * as v from "valibot";
 import type { BitwardenProfile } from "./environment";
-import type { BitwardenResult } from "./errors";
+import type { BitwardenResult, BitwardenUnavailableItemReason } from "./errors";
 import type { encryptedCatalogContextSchema } from "./local-crypto";
 import type { BitwardenUriMatchContext } from "./uri";
 
@@ -29,7 +29,9 @@ export type PreparedBitwardenAccount = {
   masterPasswordUnlock: Sdk.MasterPasswordUnlockData;
   organizationKeys: { organizationId: string; key: string }[];
   ciphers: Sdk.Cipher[];
-  unavailableItems: { itemId: string; reason: "unsupported-cipher-type" }[];
+  /** Received items left out before decryption: a type Pateat does not read, an organization
+   * without a key, a shape that does not admit, or content the server withheld (ADR 0006). */
+  unavailableItems: { itemId: string; reason: BitwardenUnavailableItemReason }[];
   minimumSecurityVersion: 1 | 2;
   coverage: "received-envelope";
   encryptedMetadata: v.InferOutput<typeof encryptedCatalogContextSchema>;

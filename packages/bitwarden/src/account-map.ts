@@ -237,23 +237,40 @@ export function createBitwardenAccountMapper(
           const itemIds = new Set<string>();
           for (const raw of list(sync.ciphers)) {
             const item = record(raw);
+            // Items are told apart only by ID, so a missing or repeated one fails the sync.
             const id = identifier(read(item, "id"));
             if (itemIds.has(id)) reject();
             itemIds.add(id);
-            const type = integer(read(item, "type"));
-            if (type > 4) {
-              for (const name of ["organizationId", "folderId"])
-                if (read(item, name) != null) identifier(read(item, name));
-              unavailableItems.push({ itemId: id, reason: "unsupported-cipher-type" });
-              continue;
+            // Anything else wrong with one item leaves out only that item (ADR 0006).
+            try {
+              const type = integer(read(item, "type"));
+              if (type > 4) {
+                for (const name of ["organizationId", "folderId"])
+                  if (read(item, name) != null) identifier(read(item, name));
+                unavailableItems.push({ itemId: id, reason: "unsupported-cipher-type" });
+                continue;
+              }
+              const cipher = cipherDto(item, type, id);
+              if (
+                cipher.organizationId &&
+                !organizations.has(cipher.organizationId as unknown as string)
+              ) {
+                unavailableItems.push({ itemId: id, reason: "unknown-organization" });
+                continue;
+              }
+              ciphers.push(cipher);
+            } catch (error) {
+              if (error instanceof AdmissionFailure && !error.check)
+                unavailableItems.push({
+                  itemId: id,
+                  reason:
+                    error.code === "unsupported-crypto" ? "unsupported-item" : "malformed-item",
+                });
+              // A stored Data copy that is not JSON is one malformed item too.
+              else if (error instanceof SyntaxError)
+                unavailableItems.push({ itemId: id, reason: "malformed-item" });
+              else throw error;
             }
-            const cipher = cipherDto(item, type, id);
-            if (
-              cipher.organizationId &&
-              !organizations.has(cipher.organizationId as unknown as string)
-            )
-              reject();
-            ciphers.push(cipher);
           }
           const encryptedMetadata = v.safeParse(encryptedCatalogContextSchema, {
             folders: list(sync.folders).map((folderInput) => {
@@ -267,7 +284,8 @@ export function createBitwardenAccountMapper(
             collections: list(sync.collections).map((collectionInput) => {
               const collection = record(collectionInput);
               const organizationId = identifier(read(collection, "organizationId"));
-              if (!organizations.has(organizationId)) reject();
+              // A collection must still name a membership, even one without a key.
+              if (!organizationIds.has(organizationId)) reject();
               return {
                 id: identifier(read(collection, "id")),
                 organizationId,
@@ -301,6 +319,11 @@ export function createBitwardenAccountMapper(
               encryptedMetadata.output.folders.length + encryptedMetadata.output.collections.length
           )
             reject();
+          // A collection of an organization without a key is left out with its items
+          // (ADR 0006), after it was checked like the others.
+          encryptedMetadata.output.collections = encryptedMetadata.output.collections.filter(
+            (collection) => organizations.has(collection.organizationId),
+          );
           return {
             ok: true,
             data: {

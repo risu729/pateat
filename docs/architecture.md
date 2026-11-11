@@ -240,8 +240,10 @@ fall back to legacy state. Previously verified account format and signed
 security-version floors must survive subsequent syncs.
 
 The initial mapper admits login, secure-note, card and identity items. Other
-types have explicit unavailable results containing only IDs and an unsupported
-reason. Validate uniqueness across both sets. No secrets from unavailable records
+types, and items it cannot admit (no organization key, a malformed or partly sent
+item), have explicit unavailable results containing only IDs and a reason
+([ADR 0006](adr/0006-atomic-local-vault-cache.md#items-the-account-mapper-cannot-admit-2026-11-11)).
+Validate uniqueness across both sets. No secrets from unavailable records
 may be released. Mapping success is preparation only; native cryptographic
 verification and later cache acceptance remain separate gates.
 
@@ -588,14 +590,15 @@ Implementation module ownership is described in the
 These cases of the crypto host and the vault manager are known and not handled; each
 fails as stated rather than retrying:
 
-- A received item that strict decryption refuses is left out of the vault, not used
+- A received item that strict decryption refuses, or that the account mapper cannot
+  admit (no organization key, a malformed item), is left out of the vault, not used
   even in part, and listed on the settings page by its ID and check
   ([ADR 0006](adr/0006-atomic-local-vault-cache.md#amendment-one-unreadable-item-does-not-fail-the-vault)).
   A URI the SDK leaves out for its checksum does not make an item unusable: the item is
   used without it, as in the official clients
   ([ADR 0005](adr/0005-bitwarden-local-crypto.md#amendment-uri-checksums-as-the-official-clients-2026-11-11)).
-  An item whose organization key is missing, or a malformed one, still fails the whole
-  sync.
+  An item without a valid or unique ID, or an organization key that is received but
+  does not open, still fails the whole sync.
 - A crypto job has 30 seconds. A vault whose open, or whose check of every received
   item, takes longer (a very large vault on a slow device) cannot be opened or synced.
 - The host measures that budget on the wall clock. A job still running when the

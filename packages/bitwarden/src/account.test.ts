@@ -84,6 +84,17 @@ function mapRaw(raw: Raw, binding: unknown = bootstrap) {
   });
 }
 
+/** One item the mapper cannot admit leaves out only that item, named with why (ADR 0006). */
+function expectLeftOut(raw: Raw, reason: string, index = 0) {
+  const itemId = String((raw.sync.ciphers[index] as Record<string, unknown>)["id"]).toLowerCase();
+  const result = mapRaw(raw);
+  expect(result.ok).toBe(true);
+  if (!result.ok) return result;
+  expect(result.data.ciphers.map((cipher) => String(cipher.id))).not.toContain(itemId);
+  expect(result.data.unavailableItems).toContainEqual({ itemId, reason });
+  return result;
+}
+
 async function initializePrepared(prepared: PreparedBitwardenAccount) {
   const result = await createLocalCryptoSession(
     {
@@ -170,6 +181,23 @@ afterEach(() => {
   sessions.splice(0).forEach((session) => session.dispose());
   vi.restoreAllMocks();
 });
+
+function rawWithCollection(fields: Record<string, unknown>) {
+  const raw = rawOrganizationAccount();
+  (raw.sync.collections as unknown[]).push({
+    id: "2bc9ac1e-f5aa-45f2-94bf-b181009709b8",
+    organizationId: "1bc9ac1e-f5aa-45f2-94bf-b181009709b8",
+    name: rawLoginCipher().login.username,
+    externalId: null,
+    readOnly: false,
+    hidePasswords: false,
+    manage: false,
+    type: 0,
+    object: "collectionDetails",
+    ...fields,
+  });
+  return raw;
+}
 
 describe("raw provider account through native local crypto", () => {
   it("maps ordinary full legacy Data and password-unlocks the independent V1 login", async () => {
@@ -378,14 +406,14 @@ describe("raw provider account through native local crypto", () => {
     },
   );
 
-  it("still rejects stored Data that contradicts the response model", () => {
+  it("leaves out an item whose stored Data contradicts the response model", () => {
     const raw = serverStoredLogin(null);
     const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
     cipher["data"] = JSON.stringify({
       ...JSON.parse(cipher["data"] as string),
       Username: v1WrappedUserKey,
     });
-    expect(mapRaw(raw)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
+    expectLeftOut(raw, "malformed-item");
   });
 
   it("maps an identity whose stored Data spells SSN in capitals", async () => {
@@ -420,23 +448,6 @@ describe("raw provider account through native local crypto", () => {
     });
     expect(mapRaw(raw).ok).toBe(true);
   });
-
-  function rawWithCollection(fields: Record<string, unknown>) {
-    const raw = rawOrganizationAccount();
-    (raw.sync.collections as unknown[]).push({
-      id: "2bc9ac1e-f5aa-45f2-94bf-b181009709b8",
-      organizationId: "1bc9ac1e-f5aa-45f2-94bf-b181009709b8",
-      name: rawLoginCipher().login.username,
-      externalId: null,
-      readOnly: false,
-      hidePasswords: false,
-      manage: false,
-      type: 0,
-      object: "collectionDetails",
-      ...fields,
-    });
-    return raw;
-  }
 
   // The web admin console saves a blank External ID input as "". Pateat never
   // reads either field, so an empty value is the same as an absent one.
@@ -503,7 +514,7 @@ describe("raw provider account through native local crypto", () => {
     });
   });
 
-  it("accepts attachments carrying the response model type tag", () => {
+  it("accepts attachments carrying the response model type tag, and no other", () => {
     const raw = rawModernV1Account();
     const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
     cipher["attachments"] = [
@@ -519,7 +530,7 @@ describe("raw provider account through native local crypto", () => {
     ];
     expect(mapRaw(raw).ok).toBe(true);
     (cipher["attachments"] as Record<string, unknown>[])[0]!["object"] = "cipher";
-    expect(mapRaw(raw).ok).toBe(false);
+    expectLeftOut(raw, "malformed-item");
   });
 
   it("ignores unsigned advertised securityVersion when determining verified local state", async () => {
@@ -919,7 +930,7 @@ describe("received-envelope item mapping", () => {
       const raw = rawV1Account();
       const cipher = raw.sync.ciphers[0]!;
       cipher.data = JSON.stringify({ ...JSON.parse(cipher.data), [key]: "synthetic" });
-      expect(mapRaw(raw).ok).toBe(false);
+      expectLeftOut(raw, "unsupported-item");
     },
   );
 
@@ -927,12 +938,12 @@ describe("received-envelope item mapping", () => {
     ["login", []],
     ["login", ["synthetic"]],
     ["fields", [[]]],
-  ])("refuses an array where %s holds an object", (name, value) => {
+  ])("leaves out an item with an array where %s holds an object", (name, value) => {
     const raw = rawV1Account();
     const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
     delete cipher["data"];
     cipher[name] = value;
-    expect(mapRaw(raw).ok).toBe(false);
+    expectLeftOut(raw, "malformed-item");
   });
 
   it("ignores legacy flat Data keys outside the item's type", async () => {
@@ -943,14 +954,14 @@ describe("received-envelope item mapping", () => {
     expect(JSON.stringify(prepared.ciphers)).not.toContain("futureField");
   });
 
-  it("rejects conflicting legacy flat Data and typed login fields", () => {
+  it("leaves out an item whose legacy flat Data conflicts with its typed login fields", () => {
     const raw = rawV1Account();
     raw.sync.ciphers[0]!.data = JSON.stringify({
       name: raw.sync.ciphers[0]!.name,
       username: "2.conflicting-username",
       password: raw.sync.ciphers[0]!.login.password,
     });
-    expect(mapRaw(raw)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
+    expectLeftOut(raw, "malformed-item");
   });
 
   it("does not reinterpret an unknown claimed sealed format as legacy fields", () => {
@@ -960,19 +971,67 @@ describe("received-envelope item mapping", () => {
       wrapped_cek: "synthetic",
       envelope: "synthetic",
     });
-    expect(mapRaw(raw).ok).toBe(false);
+    expectLeftOut(raw, "malformed-item");
   });
 
-  it("rejects a partial cipher even when it carries plausible login fields", () => {
+  it("leaves out a partial cipher even when it carries plausible login fields", () => {
     const raw = rawV1Account();
     setAt(raw, ["sync", "ciphers", 0, "partialData"], { name: raw.sync.ciphers[0]!.name });
-    expect(mapRaw(raw).ok).toBe(false);
+    expectLeftOut(raw, "unsupported-item");
   });
 
-  it("rejects an organization item with no received organization key", () => {
+  it("leaves out an organization item with no received organization key", () => {
     const raw = rawOrganizationAccount();
     raw.sync.profile.organizations = [];
-    expect(mapRaw(raw).ok).toBe(false);
+    expectLeftOut(raw, "unknown-organization");
+  });
+
+  it("leaves out only the item that does not admit, and readmits the record", async () => {
+    const raw = rawV1Account();
+    const good = structuredClone(raw.sync.ciphers[0]!);
+    const broken = raw.sync.ciphers[0]! as Record<string, unknown>;
+    broken["id"] = "3bc9ac1e-f5aa-45f2-94bf-b181009709b8";
+    broken["data"] = "{not json";
+    raw.sync.ciphers.push(good);
+    const result = expectLeftOut(raw, "malformed-item");
+    if (!result.ok) return;
+    expect(result.data.ciphers).toHaveLength(1);
+    const admitted = admitPreparedBitwardenAccount(structuredClone(result.data), accountProfile);
+    expect(admitted.ok && admitted.data.unavailableItems).toEqual([
+      { itemId: "3bc9ac1e-f5aa-45f2-94bf-b181009709b8", reason: "malformed-item" },
+    ]);
+    const { prepared, session } = await received(raw);
+    expect(
+      (
+        await session.decryptCipher({
+          connectionId: accountProfile.connectionId,
+          cipher: prepared.ciphers[0],
+        })
+      ).ok,
+    ).toBe(true);
+  });
+
+  it("leaves out an organization's collections and items when its key is not received", () => {
+    const raw = rawWithCollection({});
+    setAt(raw, ["sync", "profile", "organizations", 0, "key"], null);
+    const result = expectLeftOut(raw, "unknown-organization");
+    expect(result.ok && result.data.encryptedMetadata.collections).toEqual([]);
+    // Such a collection is still checked, and one outside every membership still fails.
+    const malformed = rawWithCollection({ readOnly: "yes" });
+    setAt(malformed, ["sync", "profile", "organizations", 0, "key"], null);
+    expect(mapRaw(malformed)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
+    const outside = rawWithCollection({});
+    outside.sync.profile.organizations = [];
+    expect(mapRaw(outside)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
+  });
+
+  it.each([
+    ["a missing", undefined],
+    ["an invalid", "not-a-uuid"],
+  ])("still fails the sync for an item with %s ID", (_name, id) => {
+    const raw = rawV1Account();
+    setAt(raw, ["sync", "ciphers", 0, "id"], id);
+    expect(mapRaw(raw)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
   });
 
   it("does not mutate caller-owned DTOs during mapping", () => {
@@ -983,7 +1042,7 @@ describe("received-envelope item mapping", () => {
   });
 
   it.each(["login", "fields", "data"])(
-    "rejects an own __proto__ member in %s without prototype pollution",
+    "leaves out an item with an own __proto__ member in %s without prototype pollution",
     (target) => {
       const raw = rawV1Account();
       const cipher = raw.sync.ciphers[0]!;
@@ -1011,8 +1070,7 @@ describe("received-envelope item mapping", () => {
       } else {
         cipher.data = cipher.data.replace(/\}$/u, ',"__proto__":{"polluted":"synthetic-secret"}}');
       }
-      const result = mapRaw(raw);
-      expect(result.ok).toBe(false);
+      const result = expectLeftOut(raw, "malformed-item");
       expect(JSON.stringify(result)).not.toContain("synthetic-secret");
       expect("polluted" in {}).toBe(false);
     },

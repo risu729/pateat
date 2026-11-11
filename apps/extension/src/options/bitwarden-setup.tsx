@@ -1600,8 +1600,8 @@ function webVault(environment: BitwardenProfile["environment"]): string {
 }
 
 /**
- * The items of the open vault that strict decryption refused, which Pateat leaves out
- * (ADR 0006). Their names cannot be read, so each is named by its ID and opens in the web
+ * The received items that the account mapper or strict decryption refused, which Pateat
+ * leaves out (ADR 0006). Their names cannot be read, so each is named by its ID and opens in the web
  * vault, where the owner can fix or delete it.
  */
 function UnusableItems({ connection }: { connection: Connection }) {
@@ -1618,7 +1618,7 @@ function UnusableItems({ connection }: { connection: Connection }) {
             tone: "warn",
             icon: TriangleAlert,
             text: t(
-              "{{count}} items could not be decrypted and are not used. Open each in Bitwarden to fix or delete it.",
+              "{{count}} items could not be read and are not used. Open each in Bitwarden to fix or delete it.",
               { count },
             ),
           },

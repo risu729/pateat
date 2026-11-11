@@ -70,10 +70,10 @@ export type SetupReply =
         /** The last automatic check, when it failed: when it was sent, its error code and
          * the decryption check that refused the data, if one did. */
         syncFailure?: { at: number; code: string; check?: string };
-        /** Up to 100 items of the open vault that strict decryption refused, which are not
-         * used: their IDs and the check that refused each (ADR 0006). */
+        /** Up to 100 received items that the account mapper or strict decryption refused,
+         * which are not used: their IDs and the check that refused each (ADR 0006). */
         unusableItems?: { itemId: string; check?: string }[];
-        /** How many items strict decryption refused, which may be more than are listed. */
+        /** How many received items were refused, which may be more than are listed. */
         unusableItemCount?: number;
       }[];
     }

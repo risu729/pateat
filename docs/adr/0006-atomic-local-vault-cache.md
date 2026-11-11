@@ -120,9 +120,31 @@ for items that strict decryption refuses:
   each linking to the item in the web vault (`/#/vault?itemId=…`), since their names
   cannot be read.
 
-Using the readable fields of a partly readable item, and items the account mapper
-refuses before decryption (a missing organization key, a malformed item), are later
-work in the same direction; until then those still fail the sync.
+Using the readable fields of a partly readable item is later work in the same
+direction.
+
+### Items the account mapper cannot admit (2026-11-11)
+
+The account mapper also leaves out one item instead of failing the sync, recording it
+in the stored record's `unavailableItems` with a reason, beside the item types Pateat
+does not read:
+
+- `unknown-organization`: the item names an organization whose key the sync did not
+  send (no membership, a disabled organization or no key). That organization's
+  collections are still checked like any other, then left out with it, as the official
+  clients list only organizations whose key they hold.
+- `malformed-item`: the item's shape does not admit, for example a field of the wrong
+  type, a stored Data copy that is not JSON or contradicts the response, or an
+  attachment of another object type.
+- `unsupported-item`: the server withheld part of the item (`partialData`), or sent a
+  form Pateat does not read: a claimed sealed form, flat legacy Data without a name or
+  with a sealed form's key, or a ciphertext type that is not authenticated.
+
+Items are told apart only by ID, so an item without a valid ID, or two with the same
+ID, still fails the sync, as does anything wrong outside the items. The vault manager
+lists these items with the ones decryption refused, the reason as the check; an item
+type Pateat does not read is not listed, since nothing in Bitwarden fixes it. An
+organization key that is received but does not open still fails the open.
 
 ## Sources
 
