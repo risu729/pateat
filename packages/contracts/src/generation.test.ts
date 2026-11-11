@@ -953,3 +953,27 @@ describe("logout requests and answers (ADR 0063)", () => {
     ).toBe(false);
   });
 });
+
+describe("explicit first-page generation intent", () => {
+  it("accepts manual first pages but refuses manual continuations and repairs", () => {
+    const first = { version: 1, observation, slots, signedIn: false, manual: true };
+    expect(v.safeParse(recipeGenerationRequestSchema, first).success).toBe(true);
+    expect(
+      v.safeParse(recipeGenerationRequestSchema, {
+        ...first,
+        signedIn: undefined,
+        base: { recipeId: "gen-1", revision: 1 },
+        branch: "1000",
+      }).success,
+    ).toBe(false);
+    expect(
+      v.safeParse(recipeGenerationRequestSchema, {
+        ...first,
+        repair: { recipeId: "gen-1", revision: 1 },
+      }).success,
+    ).toBe(false);
+    expect(v.safeParse(recipeGenerationRequestSchema, { ...first, manual: false }).success).toBe(
+      false,
+    );
+  });
+});
