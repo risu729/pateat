@@ -54,12 +54,13 @@ import { continueBefore, replaceableClick } from "./continue-before";
 import { detailFill, reportDetail } from "./detail-fill";
 import { pause } from "./session-store";
 import type { Runtime } from "./state";
+import { manualExecutionConflict } from "./hold";
 
 import { fillBaseline, fillBoundary, isFillAction } from "./sign-in-fill";
 
 /* eslint-disable no-await-in-loop */
 export async function drive(rt: Runtime, run: Execution): Promise<void> {
-  if (run.running) return;
+  if (run.running || manualExecutionConflict(rt, run)) return;
   run.running = true;
   try {
     // A failure that changed nothing on the page is tried again from the same step, up

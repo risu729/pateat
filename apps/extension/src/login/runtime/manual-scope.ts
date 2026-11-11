@@ -20,6 +20,21 @@ export type ManualStart = {
   timer?: ReturnType<typeof setTimeout>;
 };
 
+export type ManualAuthorization = { request: ManualStart; pick: PickedAccount };
+
+/** Planning cannot retain permission after its original request or account pick ends. */
+export function manualAuthorizationCurrent(
+  rt: Runtime,
+  live: LiveDocument,
+  authorization: ManualAuthorization,
+): boolean {
+  return (
+    rt.documents.get(frameKey(live.document)) === live &&
+    authorization.request.pick === authorization.pick &&
+    manualPending(rt, live) === authorization.request
+  );
+}
+
 export function manualPending(rt: Runtime, live: LiveDocument): ManualStart | undefined {
   const request = rt.manualStarts.get(live.document.tabId);
   if (!request || !request.pick || request.pick.attemptId !== undefined) return undefined;
@@ -63,6 +78,16 @@ export function endManual(
   if (!request || (expected && request !== expected)) return;
   clearTimeout(request.timer);
   const pick = request.pick;
+  const promptKey = `${tabId} ${request.document.documentId}`;
+  if (rt.passwordAsks.get(promptKey)?.manualRequestId === request.status.requestId) {
+    rt.repromptAsking.get(promptKey)?.abort();
+    rt.repromptAsking.delete(promptKey);
+    rt.passwordAsks.delete(promptKey);
+  }
+  if (rt.repromptWaiting.get(tabId)?.pick?.manualRequestId === request.status.requestId)
+    rt.repromptWaiting.delete(tabId);
+  if (rt.repromptGrants.get(promptKey)?.manualRequestId === request.status.requestId)
+    rt.repromptGrants.delete(promptKey);
   if (pick && pick.attemptId === undefined && rt.picked.get(tabId) === pick)
     rt.picked.delete(tabId);
   delete request.pick;

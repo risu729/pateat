@@ -1,8 +1,8 @@
 import { type LoginAttemptMetadata } from "@pateat/contracts";
 import { recordKey, siteOf } from "./steps";
-import { terminal, watchOver } from "./attempt-state";
+import { terminal, watchOver, idle } from "./attempt-state";
 import { manualPending } from "./manual-scope";
-import type { LiveDocument } from "./types";
+import type { LiveDocument, Execution } from "./types";
 import {
   heldElsewhere as recordsHeldElsewhere,
   sharesCookies as tabsShareCookies,
@@ -102,6 +102,16 @@ export function tabAttempt(rt: Runtime, tabId: number): LoginAttemptMetadata | u
 /** An explicit retry ignores ended-record cooldowns, while live work and account switches still win. */
 export function manualHeldElsewhere(rt: Runtime, tabId: number, origin: string): boolean {
   if (switchingElsewhere(rt, tabId, siteOf(origin))) return true;
+  if (
+    [...rt.attempts.values()].some(
+      (run) =>
+        run.running &&
+        run.metadata.document.tabId !== tabId &&
+        run.metadata.account.origin === origin &&
+        sharesCookies(rt, tabId, run.metadata.document.tabId),
+    )
+  )
+    return true;
   const records = new Map([...rt.persisted.values()].map((record) => [record.id, record]));
   for (const run of rt.attempts.values()) records.set(run.metadata.id, run.metadata);
   return [...records.values()].some(
@@ -125,4 +135,23 @@ export function heldForLogin(rt: Runtime, live: LiveDocument): boolean {
   return manual
     ? manualHeldElsewhere(rt, live.document.tabId, live.document.origin)
     : heldElsewhere(rt, live.document.tabId, live.document.origin);
+}
+
+/** Retained settled observers may wake, but must not execute beside a conflicting manual login. */
+export function manualExecutionConflict(rt: Runtime, run: Execution): boolean {
+  const manual = (entry: Execution) => {
+    const pick = rt.picked.get(entry.metadata.document.tabId);
+    return pick?.manual && pick.attemptId === entry.metadata.id && !terminal(entry.metadata);
+  };
+  return [...rt.attempts.values()].some(
+    (other) =>
+      other !== run &&
+      other.metadata.account.origin === run.metadata.account.origin &&
+      sharesCookies(rt, run.metadata.document.tabId, other.metadata.document.tabId) &&
+      (manual(run) || manual(other)) &&
+      !terminal(other.metadata) &&
+      (other.running ||
+        !idle(other.metadata) ||
+        (other.metadata.state === "watching" && !watchOver(other.metadata, Date.now()))),
+  );
 }

@@ -3,12 +3,14 @@ import { type Execution, type Authorized } from "./types";
 import { current, change } from "./attempt";
 import { planFor } from "./plan";
 import type { Runtime } from "./state";
+import { manualExecutionConflict } from "./hold";
 
 /** Resolve against a fresh live catalog; returns the authorizing metadata and binding. */
 export async function allowed(rt: Runtime, run: Execution): Promise<Authorized | undefined> {
-  if (!current(rt, run) || !rt.vars.storageHealthy) return undefined;
+  if (!current(rt, run) || !rt.vars.storageHealthy || manualExecutionConflict(rt, run))
+    return undefined;
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
-  if (!current(rt, run)) return undefined;
+  if (!current(rt, run) || manualExecutionConflict(rt, run)) return undefined;
   // A watched login only reads, so newer settings stop it only when they no longer plan
   // its account on this page, as another site's saved account choice does not (ADR 0027).
   const revised =
@@ -45,6 +47,7 @@ export async function allowed(rt: Runtime, run: Execution): Promise<Authorized |
     route: attemptRouteChoice(run.metadata),
     handlerSlots: handlerSlots(run.recipe, run.metadata),
   });
+  if (manualExecutionConflict(rt, run)) return undefined;
   if (
     !plan.ok ||
     plan.account.connectionId !== run.metadata.account.connectionId ||
@@ -63,6 +66,7 @@ export async function allowed(rt: Runtime, run: Execution): Promise<Authorized |
     if (!current(rt, run) || run.metadata.policyRevision !== snapshot.snapshot.revision)
       return undefined;
   }
+  if (manualExecutionConflict(rt, run)) return undefined;
   return {
     connection: plan.connection,
     binding: plan.binding,

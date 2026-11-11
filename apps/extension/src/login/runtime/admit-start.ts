@@ -36,7 +36,7 @@ import { type Readiness, type Execution } from "./types";
 import { listClick, showsNow } from "./markers";
 import { note, recipeInUse, retryAfterSync, choicesSaved } from "./generation";
 import { tabAttempt, recordFor, heldForLogin, showHeld } from "./hold";
-import { endManual } from "./manual-scope";
+import { endManual, manualAuthorizationCurrent } from "./manual-scope";
 import { terminal, holdsSite } from "./attempt-state";
 import { askMasterPassword, holdPassword } from "./master-password";
 import { type PolicyChange } from "./report";
@@ -53,12 +53,17 @@ import type { AdmitStartContext } from "./admit-context";
 
 export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<Readiness> {
   const savedBefore = rt.vars.remembered;
+  const manual = ctx.manual;
+  const manualCurrent = () => !manual || manualAuthorizationCurrent(rt, ctx.live, manual);
+  if (!manualCurrent()) return ctx.refuse("manual-request-ended");
+  if (manual && ctx.previous) return ctx.refuse("tab-busy");
 
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
 
   if (!snapshot.ok) return ctx.refuse(snapshot.error.code);
 
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+  if (!manualCurrent()) return ctx.refuse("manual-request-ended");
 
   // A close/navigation can happen while settings storage was awaited.
   try {
@@ -146,6 +151,15 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       ...(from && !from.button ? { later: true } : {}),
     });
     if (rt.documents.get(ctx.key) !== ctx.live) return undefined;
+    if (
+      !manualCurrent() ||
+      (planned.ok &&
+        "chosen" in planned &&
+        planned.chosen?.source === "pick" &&
+        planned.chosen.pick?.manual &&
+        planned.chosen.pick !== manual?.pick)
+    )
+      return undefined;
     if (planned.ok && "fillOnly" in planned && planned.route.route !== "password") {
       planned = await planFor(rt, snapshot, ctx.live, route, {
         ...(asking ? { asking } : {}),
@@ -153,6 +167,14 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
         ...(from && !from.button ? { later: true } : {}),
       });
       if (rt.documents.get(ctx.key) !== ctx.live) return undefined;
+      if (
+        !manualCurrent() ||
+        (planned.ok &&
+          "chosen" in planned &&
+          planned.chosen?.pick?.manual &&
+          planned.chosen.pick !== manual?.pick)
+      )
+        return undefined;
     }
     return planned;
   };
@@ -440,6 +462,9 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   // The vault account whose master password this new login was started with, if any.
   let typedFor: string | undefined;
 
+  if (manual && (!("chosen" in plan) || plan.chosen?.pick !== manual.pick))
+    return ctx.refuse("manual-request-ended");
+
   if (!ctx.previous) {
     // The lookup answered from the cache while the sync it started may be revoking the
     // recipe, as one removed on the dashboard minutes ago: that sync ends first, and a
@@ -481,6 +506,8 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       if (
         grant?.connectionId === plan.account.connectionId &&
         grant.itemId === plan.account.itemId &&
+        (grant.manualRequestId === undefined ||
+          grant.manualRequestId === manual?.request.status.requestId) &&
         Date.now() - grant.at <= REPROMPT_GRANT_MS
       ) {
         rt.repromptGrants.delete(grantKey);
@@ -499,10 +526,10 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
             : {}),
         };
         if (ctx.document.frameId === 0) rt.repromptWaiting.set(ctx.document.tabId, awaiting);
-        const manual = rt.manualStarts.get(ctx.document.tabId);
-        if (manual?.pick && manual.pick === rt.picked.get(ctx.document.tabId))
-          manual.status = {
-            requestId: manual.status.requestId,
+        const promptManual = rt.manualStarts.get(ctx.document.tabId);
+        if (promptManual?.pick && promptManual.pick === rt.picked.get(ctx.document.tabId))
+          promptManual.status = {
+            requestId: promptManual.status.requestId,
             state: "evaluating",
             reason: "master-password-reprompt",
           };
@@ -525,6 +552,16 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   }
 
   if (!ctx.previous && rt.persisted.size >= 100) return ctx.refuse("attempt-limit");
+
+  if (manual) {
+    const tab = await browser.tabs.get(ctx.document.tabId).catch(() => undefined);
+    if (!tab || tab.url !== manual.request.topUrl) {
+      endManual(rt, ctx.document.tabId, "page-changed", manual.request);
+      return ctx.refuse("stale-document");
+    }
+    if (!manualCurrent()) return ctx.refuse("manual-request-ended");
+    if (heldForLogin(rt, ctx.live)) return ctx.refuse("origin-busy");
+  }
 
   // Another document of the tab, such as a frame, may have started an attempt while this
   // one was checked, and the tab runs one attempt at a time. Nothing below awaits until
@@ -721,6 +758,15 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   )
     run.siblingsInPlace = before.siblingsInPlace;
 
+  if (!manualCurrent()) {
+    rt.begunIn.delete(metadata.id);
+    rt.repromptTyped.delete(metadata.id);
+    return ctx.refuse("manual-request-ended");
+  }
+  if (manual) {
+    manual.pick.attemptId = metadata.id;
+    endManual(rt, ctx.document.tabId, undefined, manual.request);
+  }
   rt.attempts.set(ctx.document.tabId, run);
 
   reviewRequests(rt);
@@ -783,7 +829,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
 
   // The choice, pick and ask markers form one session update. Snapshot only once they
   // all name the started login, rather than relying on a deferred save callback.
-  let sessionChanged = false;
+  let sessionChanged = manual !== undefined;
   const bindingReviewAttached = attachBindingReview(
     rt,
     run,

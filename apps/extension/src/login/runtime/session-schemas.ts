@@ -158,6 +158,8 @@ export const pickedAccountSchema = v.strictObject({
   makeDefault: v.boolean(),
   /** Explicit one-shot login: keeps no session account and never resumes a pause. */
   manual: v.optional(v.literal(true)),
+  /** Identifies the pending permission that owns an unstarted manual pick and its prompt. */
+  manualRequestId: v.optional(v.string()),
   /** How long the popup offered the choice before the pick: the person's time (ADR 0019). */
   waitedMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
   /**
