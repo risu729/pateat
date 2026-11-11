@@ -106,6 +106,28 @@ describe("vault lock and unlock replies (ADR 0075)", () => {
       }),
     ).toThrow();
   });
+  it("parses a connection with partly readable items, never a field's value", () => {
+    const partialItems = [
+      { itemId: "00000000-0000-4000-8000-000000000002", fields: ["login.password"] },
+    ];
+    const reply = {
+      ok: true,
+      kind: "status",
+      connections: [{ ...connection, partialItems, partialItemCount: 1 }],
+    };
+    expect(parseSetupReply(reply)).toEqual(reply);
+    expect(() =>
+      parseSetupReply({
+        ...reply,
+        connections: [
+          {
+            ...connection,
+            partialItems: [{ ...partialItems[0], fields: ["synthetic secret value"] }],
+          },
+        ],
+      }),
+    ).toThrow();
+  });
   it("parses a connection whose last automatic check failed", () => {
     const syncFailure = { at: 1_762_720_517_000, code: "crypto-failed", check: "sdk-decrypt" };
     const reply = { ok: true, kind: "status", connections: [{ ...connection, syncFailure }] };

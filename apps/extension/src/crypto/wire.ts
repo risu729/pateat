@@ -36,6 +36,19 @@ export const unusableItemSchema = v.strictObject({
   revised: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(0))),
 });
 export type UnusableItem = v.InferOutput<typeof unusableItemSchema>;
+/**
+ * A received item used without the fields that did not decrypt (ADR 0006): its ID and
+ * those fields' paths, such as `login.password` or `fields.2.value`, none of them secret.
+ */
+export const partialItemSchema = v.strictObject({
+  itemId: uuid,
+  fields: v.pipe(
+    v.array(v.pipe(v.string(), v.maxLength(60), v.regex(/^[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*$/u))),
+    v.minLength(1),
+    v.maxLength(1_000),
+  ),
+});
+export type PartialItem = v.InferOutput<typeof partialItemSchema>;
 const base64Url = (minimum: number, maximum: number) =>
   v.pipe(v.string(), v.minLength(minimum), v.maxLength(maximum), v.regex(/^[A-Za-z0-9_-]+$/u));
 const rpId = v.pipe(v.string(), v.minLength(1), v.maxLength(253));

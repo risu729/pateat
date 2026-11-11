@@ -2736,6 +2736,36 @@ test("items strict decryption refused are listed by ID with a link to the web va
   await expect.element(link).toHaveAttribute("target", "_blank");
 });
 
+test("items used without some fields are listed with the fields not read", async () => {
+  const client = mockClient();
+  const open = { ...lockedVault, state: "ready" as const, autoUnlock: "enabled" as const };
+  const itemId = "00000000-0000-4000-8000-000000000003";
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [
+      {
+        ...open,
+        partialItems: [{ itemId, fields: ["login.password", "fields.2.value"] }],
+        partialItemCount: 2,
+      },
+    ],
+  });
+  await mount(client);
+  await expect
+    .element(
+      page.getByText(
+        "2 items are used without the fields that could not be read. Open each in Bitwarden to fix those fields.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  await expect
+    .element(
+      page.getByRole("link", { name: `Item ${itemId} (not read: login.password, fields.2.value)` }),
+    )
+    .toHaveAttribute("href", `https://vault.bitwarden.com/#/vault?itemId=${itemId}`);
+});
+
 test("one unusable item is named in the singular", async () => {
   const client = mockClient();
   const open = { ...lockedVault, state: "ready" as const, autoUnlock: "enabled" as const };

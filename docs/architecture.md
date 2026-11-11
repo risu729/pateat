@@ -591,8 +591,9 @@ These cases of the crypto host and the vault manager are known and not handled; 
 fails as stated rather than retrying:
 
 - A received item that strict decryption refuses, or that the account mapper cannot
-  admit (no organization key, a malformed item), is left out of the vault, not used
-  even in part, and listed on the settings page by its ID and check
+  admit (no organization key, a malformed item), is left out of the vault and listed
+  on the settings page by its ID and check. An item only some of whose values do not
+  decrypt is used without them instead, and listed with those values' paths
   ([ADR 0006](adr/0006-atomic-local-vault-cache.md#amendment-one-unreadable-item-does-not-fail-the-vault)).
   A URI the SDK leaves out for its checksum does not make an item unusable: the item is
   used without it, as in the official clients

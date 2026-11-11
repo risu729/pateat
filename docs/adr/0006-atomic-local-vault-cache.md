@@ -120,8 +120,8 @@ for items that strict decryption refuses:
   each linking to the item in the web vault (`/#/vault?itemId=…`), since their names
   cannot be read.
 
-Using the readable fields of a partly readable item is later work in the same
-direction.
+A partly readable item is used without the fields that do not decrypt; see
+[Partly readable items](#partly-readable-items-2026-11-11).
 
 ### Items the account mapper cannot admit (2026-11-11)
 
@@ -156,6 +156,34 @@ two cannot be told apart without its public key), and when an organization key o
 but the SDK then refuses it. The crypto Worker does not count these refusals as a
 possible SDK fault, since they are made before any SDK call, so a vault whose only
 items are such an organization's opens empty with them listed.
+
+### Partly readable items (2026-11-11)
+
+When strict decryption refuses an item with `sdk-decrypt` or `attachment`, the crypto
+Worker asks the session to repair it before calling it unusable. Each encrypted value is decrypted
+alone with strict SDK decryption, as the name of an otherwise empty secure note that
+carries the item's own `key` and `organizationId`, so the item key never leaves the
+SDK and each value is checked under exactly the keys the whole item would use.
+Bitwarden ciphertexts are not bound to their field, so this accepts nothing that
+decrypting the whole item would refuse.
+
+- A value that does not decrypt is left empty: the notes, a login's username,
+  password or TOTP key, a card's or identity's values, a custom field's name or value.
+  A URI is left out whole when it or its checksum does not decrypt, as the SDK does,
+  and so is a password-history entry. Attachments, which Pateat does not use, are left
+  out together. Passkeys stay: only passkey operations decrypt them, and each refuses
+  an item with an unreadable one, as before.
+- The item is not repaired, and stays unusable, when its name does not decrypt (no
+  other value may stand in for it), when it is a sealed blob (one ciphertext), when
+  nothing was left out, or when the rest still does not decrypt. An item key that does
+  not decrypt makes every value fail, so such an item stays unusable too.
+- The session then uses the repaired copy in memory; the stored record is unchanged
+  and the repair is made again on each open. A field left empty is not offered: it is
+  missing from the item's fields and from a fill, never read as an empty value, and an
+  item with an unreadable custom field never compares as unchanged in a review.
+- The settings page lists up to 100 such items by ID, each with the paths of the
+  values that were not read (such as `login.password` or `fields.2.value`), linking to
+  the item in the web vault.
 
 ## Sources
 

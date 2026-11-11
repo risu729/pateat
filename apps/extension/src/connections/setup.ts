@@ -536,6 +536,15 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
                 .map(({ itemId, check }) => ({ itemId, ...(check ? { check } : {}) })),
             }
           : {}),
+        // Items used without the fields that did not decrypt (ADR 0006).
+        ...(opened.partialItems?.length && (state === "ready" || state === "review-required")
+          ? {
+              partialItemCount: opened.partialItems.length,
+              partialItems: opened.partialItems
+                .slice(0, 100)
+                .map(({ itemId, fields }) => ({ itemId, fields: fields.slice(0, 20) })),
+            }
+          : {}),
         ...lastCheckFailure(checks?.connections[configuration.profile.connectionId]),
         ...(known?.accepted
           ? {

@@ -29,6 +29,7 @@ import {
   type HostCommand,
   type HostSessionRef,
   type LoginUsernames,
+  type PartialItem,
   type UnusableItem,
   type UriCandidates,
 } from "./wire";
@@ -66,6 +67,8 @@ let owned:
        * matching accounts without decrypting them again (ADR 0080). Nothing else is kept.
        */
       loginUsernames: Map<string, string>;
+      /** Per partly readable item, the field IDs that did not decrypt and are not offered. */
+      unreadableFields: Map<string, Set<string>>;
     }
   | undefined;
 let busy = false;
@@ -87,6 +90,33 @@ const fail = (
  * and its server revision date; all three are secret-free. It is left out of the session
  * instead of failing the snapshot (ADR 0006).
  */
+/** The field IDs of the snapshot that a repaired item's unreadable paths stand for. */
+function unreadableFieldIds(paths: readonly string[], snapshotId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const path of paths) {
+    const [group, name, part] = path.split(".");
+    if (path === "notes") ids.add("notes");
+    else if (path === "login.totp") ids.add("login.totp-code");
+    else if (group === "fields" && part) ids.add(`custom.${snapshotId}.${name}`);
+    else if (group === "login" && (name === "username" || name === "password")) ids.add(path);
+    else if (group === "card") ids.add(path);
+    else if (group === "identity") {
+      ids.add(path);
+      // The full name is made from these parts.
+      if (["title", "firstName", "middleName", "lastName"].includes(name ?? ""))
+        ids.add("identity.fullName");
+    }
+  }
+  return ids;
+}
+/** The snapshot's fields, without those of a partly readable item that did not decrypt. */
+function offered<T extends { ref: { fieldId: string } }>(
+  fields: readonly T[],
+  itemId: string,
+): readonly T[] {
+  const unreadable = owned?.unreadableFields.get(itemId.toLowerCase());
+  return unreadable ? fields.filter((field) => !unreadable.has(field.ref.fieldId)) : fields;
+}
 function unusable(itemId: string, cipher: unknown, check: string | undefined): UnusableItem {
   const raw = cipher && typeof cipher === "object" ? (cipher as Record<string, unknown>) : {};
   const revised = typeof raw["revisionDate"] === "string" ? Date.parse(raw["revisionDate"]) : NaN;
@@ -183,6 +213,7 @@ async function execute(command: HostCommand) {
       ...(uriContext ? { uriContext } : {}),
       loginUris: new Map(),
       loginUsernames: new Map(),
+      unreadableFields: new Map(),
     };
     return { ok: true as const, data: { session: ref, metadata: session.data.metadata } };
   }
@@ -195,6 +226,8 @@ async function execute(command: HostCommand) {
     delete owned.catalog;
     owned.loginUris.clear();
     owned.loginUsernames.clear();
+    owned.unreadableFields.clear();
+    const partialItems: PartialItem[] = [];
     const loginUris = new Map<string, { uri: string | null; match: number | null }[]>();
     const loginUsernames = new Map<string, string>();
     const groups = await owned.session.decryptCatalogGroups(owned.metadataContext);
@@ -203,12 +236,41 @@ async function execute(command: HostCommand) {
     const unusableItems: UnusableItem[] = [];
     // Validate every received supported item, without building a plaintext field
     // cache or forwarding bulk CipherViews across the extension Port.
-    for (const [receivedId, cipher] of owned.ciphers) {
+    for (const [receivedId, received] of owned.ciphers) {
+      let cipher = received;
       // eslint-disable-next-line no-await-in-loop
-      const checked = await owned.session.decryptCipher({
+      let checked = await owned.session.decryptCipher({
         connectionId: command.connectionId,
         cipher,
       });
+      // An item some of whose fields do not decrypt is used without them (ADR 0006).
+      if (
+        !checked.ok &&
+        (checked.error.check === "sdk-decrypt" || checked.error.check === "attachment")
+      ) {
+        // eslint-disable-next-line no-await-in-loop
+        const repaired = await owned.session.repairCipher({
+          connectionId: command.connectionId,
+          cipher,
+        });
+        if (!repaired.ok && repaired.error.code !== "crypto-failed") return repaired;
+        if (repaired.ok) {
+          cipher = repaired.data.cipher;
+          // eslint-disable-next-line no-await-in-loop
+          checked = await owned.session.decryptCipher({
+            connectionId: command.connectionId,
+            cipher,
+          });
+          if (checked.ok) {
+            owned.ciphers.set(receivedId, cipher);
+            owned.unreadableFields.set(
+              receivedId,
+              unreadableFieldIds(repaired.data.unreadable, owned.ref.snapshotId),
+            );
+            partialItems.push({ itemId: receivedId, fields: repaired.data.unreadable });
+          }
+        }
+      }
       // One item strict decryption refuses is not used; the rest of the vault is (ADR 0006).
       // Any other failure, such as a locked session, still ends the verification.
       if (!checked.ok && checked.error.code !== "crypto-failed") return checked;
@@ -255,7 +317,7 @@ async function execute(command: HostCommand) {
           ],
           // Bitwarden's master password re-prompt; a site's settings decide whether it is asked.
           ...(checked.data.reprompt === 1 ? { reprompt: true as const } : {}),
-          fields: snapshot.data.list().map((field) => ({
+          fields: offered(snapshot.data.list(), receivedId).map((field) => ({
             id: field.ref.fieldId,
             label: vaultDisplayLabel(field.label, field.ref.fieldId),
             name: vaultFieldName(field.name),
@@ -300,14 +362,23 @@ async function execute(command: HostCommand) {
     }
     // An unusable item is gone from this session, so no later request decrypts it and a
     // site's settings that name it find no field instead of locking the session.
-    for (const item of unusableItems) owned.ciphers.delete(item.itemId);
+    for (const item of unusableItems) {
+      owned.ciphers.delete(item.itemId);
+      owned.unreadableFields.delete(item.itemId);
+    }
     owned.catalog = catalog.output;
     owned.loginUris = loginUris;
     owned.loginUsernames = loginUsernames;
     owned.verified = true;
     return {
       ok: true as const,
-      data: { verifiedCipherCount: owned.ciphers.size, unusableItems },
+      data: {
+        verifiedCipherCount: owned.ciphers.size,
+        unusableItems,
+        partialItems: partialItems.filter(
+          (item) => !unusableItems.some((refused) => refused.itemId === item.itemId),
+        ),
+      },
     };
   }
   if (op.kind === "export-unlock") {
@@ -399,7 +470,9 @@ async function execute(command: HostCommand) {
     for (const itemId of op.itemIds) {
       const cipher = owned.ciphers.get(itemId.toLowerCase());
       digests[itemId] = null;
-      if (!cipher) continue;
+      // A custom field that did not decrypt is not known to be unchanged.
+      const unreadable = owned.unreadableFields.get(itemId.toLowerCase());
+      if (!cipher || [...(unreadable ?? [])].some((id) => id.startsWith("custom."))) continue;
       try {
         // eslint-disable-next-line no-await-in-loop
         const decrypted = await owned.session.decryptCipher({
@@ -452,7 +525,10 @@ async function execute(command: HostCommand) {
   });
   if (!snapshot.ok) return snapshot;
   try {
-    if (op.kind !== "resolve") return { ok: true as const, data: snapshot.data.list() };
+    if (op.kind !== "resolve")
+      return { ok: true as const, data: offered(snapshot.data.list(), itemId) };
+    // A field that did not decrypt is not offered, so it is missing rather than empty.
+    if (owned.unreadableFields.get(itemId)?.has(op.ref.fieldId)) return fail("field-missing");
     return snapshot.data.resolve(op.ref, {
       allowedFieldIds: op.allowedFieldIds,
       ...(op.nowMs === undefined ? {} : { nowMs: () => op.nowMs! }),

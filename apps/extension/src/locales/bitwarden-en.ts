@@ -48,6 +48,11 @@ export const bitwardenEn = {
     "{{count}} item could not be read and is not used. Open it in Bitwarden to fix or delete it.",
   "{{count}} items could not be read and are not used. Open each in Bitwarden to fix or delete it._other":
     "{{count}} items could not be read and are not used. Open each in Bitwarden to fix or delete it.",
+  "{{count}} items are used without the fields that could not be read. Open each in Bitwarden to fix those fields._one":
+    "{{count}} item is used without the fields that could not be read. Open it in Bitwarden to fix those fields.",
+  "{{count}} items are used without the fields that could not be read. Open each in Bitwarden to fix those fields._other":
+    "{{count}} items are used without the fields that could not be read. Open each in Bitwarden to fix those fields.",
+  "Item {{itemId}} (not read: {{fields}})": "Item {{itemId}} (not read: {{fields}})",
   "Item {{itemId}} (check: {{check}})": "Item {{itemId}} (check: {{check}})",
   "Item {{itemId}}": "Item {{itemId}}",
   "Vault synced {{time}}": "Vault synced {{time}}",

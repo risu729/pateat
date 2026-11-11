@@ -328,6 +328,8 @@ describe("strict account initialization and metadata", () => {
         "dispose",
         "exportUnlockMaterial",
         "metadata",
+        // Returns an encrypted copy and field paths, never a decrypted value.
+        "repairCipher",
         // Answers only whether a password matches; it exports nothing.
         "verifyMasterPassword",
       ].sort(),
@@ -1304,5 +1306,97 @@ describe("strict cipher isolation and disposal", () => {
       cipher: { ...legacyCipher(), data },
     });
     expect(result).toEqual({ ok: false, error: { code: "unsupported-crypto" } });
+  });
+});
+
+describe("repairing a partly readable item (ADR 0006)", () => {
+  it("leaves out only the fields that do not decrypt and keeps the rest", async () => {
+    const active = await session();
+    const original = legacyCipher();
+    const cipher = {
+      ...original,
+      notes: corrupt(original.name),
+      login: {
+        ...original.login,
+        password: corrupt(original.login.password),
+        uris: [
+          { uri: uriCiphertexts.uri, match: null, uriChecksum: uriCiphertexts.checksum },
+          { uri: corrupt(uriCiphertexts.uri), match: null, uriChecksum: null },
+        ],
+      },
+      fields: [
+        { name: original.name, value: corrupt(original.login.username), type: 0, linkedId: null },
+      ],
+    };
+    expect(await active.decryptCipher({ connectionId, cipher })).toEqual({
+      ok: false,
+      error: { code: "crypto-failed", check: "sdk-decrypt" },
+    });
+    const repaired = await active.repairCipher({ connectionId, cipher });
+    expect(repaired.ok && repaired.data.unreadable).toEqual([
+      "notes",
+      "login.password",
+      "fields.0.value",
+      "login.uris.1",
+    ]);
+    if (!repaired.ok) return;
+    const view = await active.decryptCipher({ connectionId, cipher: repaired.data.cipher });
+    expect(view.ok).toBe(true);
+    if (!view.ok) return;
+    expect(view.data.name).toBe("My test login");
+    expect(view.data.login?.username).toBeTruthy();
+    expect(view.data.login?.password ?? null).toBeNull();
+    expect(view.data.login?.uris).toHaveLength(1);
+    expect(view.data.fields?.[0]?.name).toBe("My test login");
+    expect(view.data.fields?.[0]?.value ?? null).toBeNull();
+  });
+
+  it("leaves out the attachments, which Pateat does not use, when one does not decrypt", async () => {
+    const active = await session();
+    const original = legacyCipher();
+    const cipher = {
+      ...original,
+      attachments: [
+        {
+          id: "a1b2c3",
+          url: null,
+          fileName: corrupt(original.name),
+          key: null,
+          size: "10",
+          sizeName: "10 Bytes",
+        },
+      ],
+    };
+    const refused = await active.decryptCipher({ connectionId, cipher });
+    expect(refused).toMatchObject({ ok: false, error: { code: "crypto-failed" } });
+    const repaired = await active.repairCipher({ connectionId, cipher });
+    expect(repaired.ok && repaired.data.unreadable).toEqual(["attachments"]);
+  });
+
+  it("does not repair an item whose name does not decrypt", async () => {
+    const active = await session();
+    const original = legacyCipher();
+    expect(
+      await active.repairCipher({
+        connectionId,
+        cipher: { ...original, name: corrupt(original.name) },
+      }),
+    ).toEqual({ ok: false, error: { code: "crypto-failed", check: "sdk-decrypt" } });
+  });
+
+  it("does not repair an item with nothing to leave out", async () => {
+    const active = await session();
+    expect(await active.repairCipher({ connectionId, cipher: legacyCipher() })).toEqual({
+      ok: false,
+      error: { code: "crypto-failed", check: "sdk-decrypt" },
+    });
+  });
+
+  it("does not repair a sealed blob, which is one ciphertext", async () => {
+    const active = await session();
+    const original = legacyCipher();
+    expect(
+      await active.repairCipher({ connectionId, cipher: { ...original, data: "synthetic" } }),
+    ).toMatchObject({ ok: false });
   });
 });

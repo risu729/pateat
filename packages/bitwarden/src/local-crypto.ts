@@ -61,6 +61,16 @@ export interface LocalCryptoSession {
    */
   verifyMasterPassword(input: unknown): BitwardenResult<{ matches: boolean }>;
   decryptCipher(input: unknown): Promise<BitwardenResult<LocalCipherView>>;
+  /**
+   * For an item strict decryption refuses: the same item with each field that does not
+   * decrypt left empty, and those fields' paths (ADR 0006). Each field is checked with
+   * strict decryption under the item's own keys; the item key never leaves the SDK. It
+   * fails when the name does not decrypt, when nothing was left out, or when the rest
+   * still does not decrypt.
+   */
+  repairCipher(
+    input: unknown,
+  ): Promise<BitwardenResult<{ cipher: Sdk.Cipher; unreadable: string[] }>>;
   decryptCatalogGroups(
     input: unknown,
   ): Promise<BitwardenResult<{ id: string; label: string; kind: "folder" | "collection" }[]>>;
@@ -164,6 +174,63 @@ function masterPasswordOpens(
 }
 
 /** Local-only account initialization. Authentication, migrations and persisted unlock are separate gates. */
+/** Encrypted values of each item type that the SDK reads as plain strings (ADR 0006). */
+const repairableFields: Record<"login" | "card" | "identity", readonly string[]> = {
+  login: ["username", "password", "totp"],
+  card: ["cardholderName", "brand", "number", "expMonth", "expYear", "code"],
+  identity: [
+    "title",
+    "firstName",
+    "middleName",
+    "lastName",
+    "address1",
+    "address2",
+    "address3",
+    "city",
+    "state",
+    "postalCode",
+    "country",
+    "company",
+    "email",
+    "phone",
+    "ssn",
+    "username",
+    "passportNumber",
+    "licenseNumber",
+  ],
+};
+type RepairableCipher = Record<string, unknown> & {
+  id: unknown;
+  key?: string | null;
+  organizationId?: string | null;
+  name: unknown;
+  data?: unknown;
+  login?:
+    | (Record<string, unknown> & { uris?: unknown[] | null; fido2Credentials?: unknown[] | null })
+    | null;
+  card?: Record<string, unknown> | null;
+  identity?: Record<string, unknown> | null;
+  fields?: Record<string, unknown>[] | null;
+  passwordHistory?: unknown[] | null;
+  attachments?: unknown[] | null;
+};
+/** An empty secure note whose only encrypted value is its name. */
+function noteTemplate(id: string) {
+  return {
+    id,
+    type: 2,
+    collectionIds: [],
+    favorite: false,
+    reprompt: 0,
+    organizationUseTotp: false,
+    edit: false,
+    viewPassword: false,
+    creationDate: "1970-01-01T00:00:00Z",
+    revisionDate: "1970-01-01T00:00:00Z",
+    secureNote: { type: 0 },
+  };
+}
+
 export async function createLocalCryptoSession(
   input: unknown,
   sdk: LocalCryptoSdk,
@@ -496,6 +563,111 @@ export async function createLocalCryptoSession(
             },
           };
         },
+        repairCipher: async (request: unknown) => {
+          if (locked) return failure("crypto-locked");
+          const checked = parsed(decryptSchema, request);
+          if (!checked) return failure("invalid-crypto-input");
+          if (checked.connectionId !== connectionId) return failure("connection-mismatch");
+          const original = checked.cipher as unknown as RepairableCipher;
+          // A sealed blob is one ciphertext: nothing in it can be read alone.
+          if (original.data != null) return decryptFailure("sdk-decrypt");
+          // The value alone, as the name of an otherwise empty note under the item's keys.
+          const readable = async (value: unknown): Promise<BitwardenResult<boolean>> => {
+            if (typeof value !== "string") return { ok: true, data: true };
+            const result = await decrypt(
+              {
+                connectionId,
+                cipher: {
+                  ...noteTemplate(String(original.id)),
+                  ...(original.key ? { key: original.key } : {}),
+                  ...(original.organizationId ? { organizationId: original.organizationId } : {}),
+                  name: value,
+                },
+              },
+              "omit",
+            );
+            if (result.ok) return { ok: true, data: true };
+            return result.error.code === "crypto-failed" ? { ok: true, data: false } : result;
+          };
+          const name = await readable(original.name);
+          if (!name.ok) return name;
+          if (!name.data) return decryptFailure("sdk-decrypt");
+          const repaired = structuredClone(original);
+          const unreadable: string[] = [];
+          const clear = async (
+            owner: Record<string, unknown> | null | undefined,
+            key: string,
+            path: string,
+          ): Promise<BitwardenResult<true>> => {
+            if (!owner) return { ok: true, data: true };
+            const result = await readable(owner[key]);
+            if (!result.ok) return result;
+            if (!result.data) {
+              owner[key] = null;
+              unreadable.push(path);
+            }
+            return { ok: true, data: true };
+          };
+          const steps: [Record<string, unknown> | null | undefined, string, string][] = [
+            [repaired, "notes", "notes"],
+          ];
+          for (const [kind, names] of Object.entries(repairableFields))
+            for (const field of names)
+              steps.push([
+                repaired[kind as "login" | "card" | "identity"],
+                field,
+                `${kind}.${field}`,
+              ]);
+          for (const [index, field] of (repaired.fields ?? []).entries()) {
+            steps.push([field, "name", `fields.${index}.name`]);
+            steps.push([field, "value", `fields.${index}.value`]);
+          }
+          for (const [owner, key, path] of steps) {
+            // eslint-disable-next-line no-await-in-loop
+            const result = await clear(owner, key, path);
+            if (!result.ok) return result;
+          }
+          // A URI is left out whole when it or its checksum does not decrypt, as the SDK does.
+          const login = repaired.login;
+          if (login?.uris) {
+            const kept: unknown[] = [];
+            for (const [index, entry] of login.uris.entries()) {
+              const uri = entry as Record<string, unknown>;
+              // eslint-disable-next-line no-await-in-loop
+              const value = await readable(uri["uri"]);
+              if (!value.ok) return value;
+              // eslint-disable-next-line no-await-in-loop
+              const checksum = await readable(uri["uriChecksum"]);
+              if (!checksum.ok) return checksum;
+              if (value.data && checksum.data) kept.push(entry);
+              else unreadable.push(`login.uris.${index}`);
+            }
+            login.uris = kept;
+          }
+          if (repaired.passwordHistory) {
+            const kept: unknown[] = [];
+            for (const entry of repaired.passwordHistory) {
+              // eslint-disable-next-line no-await-in-loop
+              const value = await readable((entry as Record<string, unknown>)["password"]);
+              if (!value.ok) return value;
+              if (value.data) kept.push(entry);
+            }
+            if (kept.length !== repaired.passwordHistory.length) unreadable.push("passwordHistory");
+            repaired.passwordHistory = kept;
+          }
+          // Pateat does not use attachments; an unreadable one leaves out only them. Passkeys
+          // stay: only passkey operations decrypt them, and each refuses an unreadable one.
+          if (repaired.attachments?.length) {
+            repaired.attachments = null;
+            unreadable.push("attachments");
+          }
+          if (unreadable.length === 0) return decryptFailure("sdk-decrypt");
+          const admitted = admitLocalCryptoCipher(repaired);
+          if (!admitted.ok) return decryptFailure("sdk-decrypt");
+          const rest = await decrypt({ connectionId, cipher: admitted.data });
+          if (!rest.ok) return rest;
+          return { ok: true as const, data: { cipher: admitted.data, unreadable } };
+        },
         decryptCatalogGroups: async (contextInput: unknown) => {
           if (locked) return failure("crypto-locked");
           let checked: v.SafeParseResult<typeof encryptedCatalogContextSchema>;
@@ -532,18 +704,8 @@ export async function createLocalCryptoSession(
                 const authenticated = await decrypt({
                   connectionId,
                   cipher: {
-                    id,
-                    type: 2,
+                    ...noteTemplate(id),
                     name: group.name,
-                    collectionIds: [],
-                    favorite: false,
-                    reprompt: 0,
-                    organizationUseTotp: false,
-                    edit: false,
-                    viewPassword: false,
-                    creationDate: "1970-01-01T00:00:00Z",
-                    revisionDate: "1970-01-01T00:00:00Z",
-                    secureNote: { type: 0 },
                     ...(kind === "collection" && "organizationId" in group
                       ? { organizationId: group.organizationId }
                       : {}),

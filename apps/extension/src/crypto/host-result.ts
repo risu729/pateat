@@ -8,9 +8,11 @@ import {
   passkeyMatchesSchema,
   passkeySignatureSchema,
   sessionSchema,
+  partialItemSchema,
   unusableItemSchema,
   type HostOperation,
   type HostSessionRef,
+  type PartialItem,
   type UnusableItem,
 } from "./wire";
 import { fromBase64Url } from "../passkeys/encoding";
@@ -19,6 +21,8 @@ export type OpenedHostSession = {
   session: HostSessionRef;
   /** The received items strict decryption refused, once the session verified them. */
   unusableItems?: UnusableItem[];
+  /** The received items used without the fields that did not decrypt. */
+  partialItems?: PartialItem[];
   metadata: {
     connectionId: string;
     userId: string;
@@ -79,6 +83,7 @@ export function validHostResult(
       v.strictObject({
         verifiedCipherCount: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(10_000)),
         unusableItems: v.pipe(v.array(unusableItemSchema), v.maxLength(10_000)),
+        partialItems: v.pipe(v.array(partialItemSchema), v.maxLength(10_000)),
       }),
       data,
     );

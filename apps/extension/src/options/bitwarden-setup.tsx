@@ -945,6 +945,7 @@ export function BitwardenSetup({
                   </RowSub>
                   <StatusLines lines={statusLines(connection, t, formatLocale())} />
                   <UnusableItems connection={connection} />
+                  <PartialItems connection={connection} />
                 </>
               }
               actions={
@@ -1636,6 +1637,48 @@ function UnusableItems({ connection }: { connection: Connection }) {
               {check
                 ? t("Item {{itemId}} (check: {{check}})", { itemId, check })
                 : t("Item {{itemId}}", { itemId })}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * The items used without the fields that did not decrypt (ADR 0006), each named by its ID
+ * with those fields' paths and opening in the web vault, where the owner can fix them.
+ */
+function PartialItems({ connection }: { connection: Connection }) {
+  const { t } = useTranslation(undefined, { i18n });
+  const items = connection.partialItems;
+  if (!items?.length) return null;
+  const count = Math.max(connection.partialItemCount ?? 0, items.length);
+  const origin = webVault(connection.environment);
+  return (
+    <div className="flex flex-col gap-1">
+      <StatusLines
+        lines={[
+          {
+            tone: "warn",
+            icon: TriangleAlert,
+            text: t(
+              "{{count}} items are used without the fields that could not be read. Open each in Bitwarden to fix those fields.",
+              { count },
+            ),
+          },
+        ]}
+      />
+      <ul className="m-0 flex list-none flex-col gap-1 p-0 ps-6 text-[0.8125rem]">
+        {items.map(({ itemId, fields }) => (
+          <li key={itemId}>
+            <a
+              href={`${origin}/#/vault?itemId=${encodeURIComponent(itemId)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline wrap-anywhere"
+            >
+              {t("Item {{itemId}} (not read: {{fields}})", { itemId, fields: fields.join(", ") })}
             </a>
           </li>
         ))}

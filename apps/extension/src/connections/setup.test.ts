@@ -999,6 +999,19 @@ describe("failed refresh does not destroy a previously usable cache", () => {
       expect(none.connections[0]).not.toHaveProperty("unusableItemCount");
     }
   });
+  it("status lists the items used without some fields, at most 100", async () => {
+    const h = harness({ existing: true });
+    const partialItems = Array.from({ length: 101 }, (_, index) => ({
+      itemId: `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`,
+      fields: ["login.password", "fields.2.value"],
+    }));
+    h.manager.status.mockReturnValue({ ready: true, partialItems } as never);
+    const result = await h.caller.status();
+    if (!result.ok || result.kind !== "status") throw new Error("Synthetic status failed");
+    expect(result.connections[0]).toMatchObject({ state: "ready", partialItemCount: 101 });
+    expect(result.connections[0]?.partialItems).toEqual(partialItems.slice(0, 100));
+    expect(parseSetupReply(result)).toEqual(result);
+  });
   it("status reports the last automatic check's failure until a sync applies", async () => {
     const h = harness({ existing: true });
     const failure = async () => {

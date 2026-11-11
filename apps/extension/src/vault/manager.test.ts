@@ -97,6 +97,7 @@ function harness(
         data: {
           verifiedCipherCount: opened.get(session.sessionId)!.prepared.ciphers.length,
           unusableItems: [],
+          partialItems: [],
         },
       };
     }),
@@ -323,12 +324,49 @@ describe("acceptance verification and publication", () => {
     const unusable = { itemId: refusedId.toUpperCase(), check: "sdk-decrypt" as const };
     h.host.verifyReceivedCiphers.mockResolvedValue({
       ok: true,
-      data: { verifiedCipherCount: prepared.ciphers.length - 1, unusableItems: [unusable] },
+      data: {
+        verifiedCipherCount: prepared.ciphers.length - 1,
+        unusableItems: [unusable],
+        partialItems: [],
+      },
     });
     const result = await h.manager.accept(candidate());
     expect(result.ok).toBe(true);
     expect(h.store.compareAndSwap).toHaveBeenCalled();
-    expect(h.manager.status()).toMatchObject({ ready: true, unusableItems: [unusable] });
+    expect(h.manager.status()).toMatchObject({
+      ready: true,
+      unusableItems: [unusable],
+      partialItems: [],
+    });
+  });
+  it("lists the items used without some fields, and refuses one also named unusable", async () => {
+    const h = harness();
+    const prepared = preparedVault();
+    const partialId = String(prepared.ciphers[0]!.id);
+    const partial = { itemId: partialId, fields: ["login.password"] };
+    h.host.verifyReceivedCiphers.mockResolvedValue({
+      ok: true,
+      data: {
+        verifiedCipherCount: prepared.ciphers.length,
+        unusableItems: [],
+        partialItems: [partial],
+      },
+    });
+    expect((await h.manager.accept(candidate())).ok).toBe(true);
+    expect(h.manager.status()).toMatchObject({ ready: true, partialItems: [partial] });
+    const other = harness();
+    other.host.verifyReceivedCiphers.mockResolvedValue({
+      ok: true,
+      data: {
+        verifiedCipherCount: prepared.ciphers.length - 1,
+        unusableItems: [{ itemId: partialId, check: "sdk-decrypt" }],
+        partialItems: [partial],
+      },
+    });
+    expect(await other.manager.accept(candidate())).toEqual({
+      ok: false,
+      error: { code: "crypto-failed", check: "cipher-count" },
+    });
   });
   it("lists the items the account mapper left out beside those decryption refused", async () => {
     const h = harness();
@@ -346,7 +384,11 @@ describe("acceptance verification and publication", () => {
     };
     h.host.verifyReceivedCiphers.mockResolvedValue({
       ok: true,
-      data: { verifiedCipherCount: input.prepared.ciphers.length - 1, unusableItems: [refused] },
+      data: {
+        verifiedCipherCount: input.prepared.ciphers.length - 1,
+        unusableItems: [refused],
+        partialItems: [],
+      },
     });
     expect((await h.manager.accept(input)).ok).toBe(true);
     // An item type Pateat does not read is not listed as something to fix in Bitwarden.
@@ -369,6 +411,7 @@ describe("acceptance verification and publication", () => {
       data: {
         verifiedCipherCount: Math.max(0, prepared.ciphers.length - unusableItems.length),
         unusableItems,
+        partialItems: [],
       },
     });
     expect(await h.manager.accept(candidate())).toEqual({
@@ -391,7 +434,7 @@ describe("acceptance verification and publication", () => {
       h.host.verifyReceivedCiphers.mockResolvedValue(
         mode === "rejected"
           ? { ok: false, error: refused }
-          : { ok: true, data: { verifiedCipherCount: 0, unusableItems: [] } },
+          : { ok: true, data: { verifiedCipherCount: 0, unusableItems: [], partialItems: [] } },
       );
       expect(await h.manager.accept(candidate())).toEqual({
         ok: false,
@@ -1547,7 +1590,7 @@ describe("vault lock and key retention (ADR 0075)", () => {
       const h = harness({ initial: lockedEntry(), retention: "session" });
       h.host.verifyReceivedCiphers.mockResolvedValueOnce({
         ok: true,
-        data: { verifiedCipherCount: 0, unusableItems: [] },
+        data: { verifiedCipherCount: 0, unusableItems: [], partialItems: [] },
       });
       expect(await h.manager.unlock(v1Password)).toEqual({
         ok: false,

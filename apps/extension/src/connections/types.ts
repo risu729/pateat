@@ -75,6 +75,11 @@ export type SetupReply =
         unusableItems?: { itemId: string; check?: string }[];
         /** How many received items were refused, which may be more than are listed. */
         unusableItemCount?: number;
+        /** Up to 100 items used without the fields that did not decrypt, with up to 20 of
+         * those fields' paths each (ADR 0006). */
+        partialItems?: { itemId: string; fields: string[] }[];
+        /** How many items are used without some fields, which may be more than are listed. */
+        partialItemCount?: number;
       }[];
     }
   | {
