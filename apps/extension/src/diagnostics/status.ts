@@ -101,6 +101,7 @@ const cipherSchema = v.looseObject({
     ),
   ),
 });
+const unsupportedSchema = v.looseObject({ reason: v.literal("unsupported-cipher-type") });
 const preparedSchema = v.looseObject({
   ciphers: v.array(v.unknown()),
   unavailableItems: v.optional(v.array(v.unknown())),
@@ -134,7 +135,9 @@ function itemCounts(prepared: unknown): DiagnosticsConnection["items"] {
     if (cipher.output.login?.fido2Credentials?.length) items.passkey += 1;
   }
   // Unsupported items are not among the ciphers; they are counted beside the total.
-  items.unsupported = parsed.output.unavailableItems?.length ?? 0;
+  items.unsupported =
+    parsed.output.unavailableItems?.filter((item) => v.safeParse(unsupportedSchema, item).success)
+      .length ?? 0;
   return items;
 }
 

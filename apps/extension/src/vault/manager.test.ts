@@ -330,6 +330,32 @@ describe("acceptance verification and publication", () => {
     expect(h.store.compareAndSwap).toHaveBeenCalled();
     expect(h.manager.status()).toMatchObject({ ready: true, unusableItems: [unusable] });
   });
+  it("lists the items the account mapper left out beside those decryption refused", async () => {
+    const h = harness();
+    const input = candidate();
+    const missingKey = "00000000-0000-4000-8000-0000000000a1";
+    const malformed = "00000000-0000-4000-8000-0000000000a2";
+    input.prepared.unavailableItems.push(
+      { itemId: missingKey, reason: "unknown-organization" },
+      { itemId: "00000000-0000-4000-8000-0000000000a3", reason: "unsupported-cipher-type" },
+      { itemId: malformed, reason: "malformed-item" },
+    );
+    const refused = {
+      itemId: String(input.prepared.ciphers[0]!.id),
+      check: "sdk-decrypt" as const,
+    };
+    h.host.verifyReceivedCiphers.mockResolvedValue({
+      ok: true,
+      data: { verifiedCipherCount: input.prepared.ciphers.length - 1, unusableItems: [refused] },
+    });
+    expect((await h.manager.accept(input)).ok).toBe(true);
+    // An item type Pateat does not read is not listed as something to fix in Bitwarden.
+    expect(h.manager.status().unusableItems).toEqual([
+      { itemId: missingKey, check: "unknown-organization" },
+      { itemId: malformed, check: "malformed-item" },
+      refused,
+    ]);
+  });
   it.each([
     ["one more than received", (id: string) => [id, "00000000-0000-4000-8000-0000000000ff"]],
     ["named twice", (id: string) => [id, id.toUpperCase()]],

@@ -1618,7 +1618,7 @@ function UnusableItems({ connection }: { connection: Connection }) {
             tone: "warn",
             icon: TriangleAlert,
             text: t(
-              "{{count}} items could not be decrypted and are not used. Open each in Bitwarden to fix or delete it.",
+              "{{count}} items could not be read and are not used. Open each in Bitwarden to fix or delete it.",
               { count },
             ),
           },

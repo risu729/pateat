@@ -64,7 +64,11 @@ function record(): VaultResult<VaultEntry | null> {
         coverage: "received-envelope",
         prepared: {
           kdf: { pBKDF2: { iterations: 600_000 } },
-          unavailableItems: [{ itemId: "x", reason: "unsupported-cipher-type" }],
+          unavailableItems: [
+            { itemId: "x", reason: "unsupported-cipher-type" },
+            // Items left out for another reason are listed on the settings page, not counted here.
+            { itemId: "y", reason: "malformed-item" },
+          ],
           ciphers: [
             { type: 1, name: "2.secret-name", login: { totp: "2.secret-totp" } },
             { type: 1, login: { fido2Credentials: [{ credentialId: "2.secret" }] } },

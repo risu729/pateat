@@ -2724,7 +2724,7 @@ test("items strict decryption refused are listed by ID with a link to the web va
   await expect
     .element(
       page.getByText(
-        "3 items could not be decrypted and are not used. Open each in Bitwarden to fix or delete it.",
+        "3 items could not be read and are not used. Open each in Bitwarden to fix or delete it.",
         { exact: true },
       ),
     )
@@ -2747,7 +2747,7 @@ test("one unusable item is named in the singular", async () => {
   await expect
     .element(
       page.getByText(
-        "1 item could not be decrypted and is not used. Open it in Bitwarden to fix or delete it.",
+        "1 item could not be read and is not used. Open it in Bitwarden to fix or delete it.",
         { exact: true },
       ),
     )
