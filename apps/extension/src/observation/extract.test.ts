@@ -3291,6 +3291,40 @@ describe("extractSignedInObservation", () => {
       }
     });
 
+    // EPOS Net's image puzzle after the sign-in (2026-11-11 12:53 UTC): the sentence that
+    // asks for it holds a `<br>`, and the description carried no text near its button.
+    it("reads a sentence whose child elements are only inline text whole", () => {
+      const puzzle = (text: string) =>
+        page(
+          `<div><h1>エポスNet マイページログイン</h1><form action="/login" method="post"><div>
+            <p class="text">${text}</p><div class="puzzle"></div>
+            <p class="btn"><input type="submit" value="ログイン"></p></div></form></div>`,
+        );
+      puzzle(
+        "セキュリティ強化のため、画像認証を実施中です。<br>ピースを動かして画像を完成させてください。",
+      );
+      expect(signedIn().nearButtons).toEqual([
+        "セキュリティ強化のため、画像認証を実施中です。 ピースを動かして画像を完成させてください。",
+      ]);
+      // Emphasis, a `span` and an icon inside it read the same, and once.
+      puzzle(
+        'ピースを<strong>動かして</strong><span class="note">画像を完成</span>させてください。<img alt="" src="data:,">',
+      );
+      expect(signedIn().nearButtons).toEqual(["ピースを動かして画像を完成させてください。"]);
+      // A sentence that holds a link is no text block: its inline parts are read alone.
+      puzzle('<span>ピースを動かしてください。</span><a href="/help">ヘルプ</a>');
+      expect(signedIn().nearButtons).toEqual(["ピースを動かしてください。"]);
+      // Nor is a region with more elements than a sentence holds.
+      puzzle(`<span>ピースを動かしてください。</span>${"<span>ああ</span>".repeat(20)}`);
+      expect(signedIn().nearButtons).toEqual(["ピースを動かしてください。", "ああ"]);
+    });
+
+    it("never reads a text block that looks like a key whole", () => {
+      page(`<main><p>Your key <b>ABCD-EFGH-IJKL</b><br>Keep it safe.</p>
+        <button id="verify" type="button">Verify</button></main>`);
+      expect(signedIn()).not.toHaveProperty("nearButtons");
+    });
+
     it("reads only the open modal dialog that holds a button", () => {
       const behind = `<main aria-hidden="true"><div><p>Your dashboard overview</p>
         <button id="refresh" type="button">Refresh</button></div></main>`;

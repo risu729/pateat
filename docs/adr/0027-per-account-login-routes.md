@@ -681,7 +681,8 @@ new owner decision:
   three or more words in a row of four or five capitals and digits of which two or more
   hold a letter. An element with child elements gives no
   text of its own, so a sentence with an inline element inside, such as `<strong>`,
-  `<br>` or an icon, gives only that element's words or nothing. The judge's
+  `<br>` or an icon, gives only that element's words or nothing (until the amendment of
+  2026-11-11, which reads such a sentence whole). The judge's
   instructions name `nearCode` as untrusted page text. Login pages, lists of accounts
   and sign-in entry pages never carry it, so recipe generation never sees it. A misread
   or deceptive text can at worst store a `totp` handler that fills the current TOTP code
@@ -1848,3 +1849,34 @@ Decision:
   whose `autocomplete` marks a sign-in or code field. A page may mark a PIN input
   `one-time-code`, and refusing every other value there would stop such a recipe
   without any sign that it should be generated again.
+
+## Amendment 2026-11-11: a sentence with inline elements is read whole
+
+On EPOS Net on 2026-11-11 at 12:53 UTC, in the owner's Chrome, the page after the
+password was an image puzzle (`/memberservice/pc/login/login_dispatch.do`, request
+`01a1caab-83a7-7145-b029-559c1e297ce4`). Its sentence
+「セキュリティ強化のため、画像認証を実施中です。ピースを動かして…」 is, as on the site's
+public login page, a `<p>` with a `<br>` inside, so it had a child element and gave no
+text near the page's one button. The judge saw only the title, the heading and a
+ログイン button, gave no answer, and the login completed unconfirmed.
+
+An element whose child elements are all inline text now gives its whole rendered text,
+near a code field and near the buttons alike, and its inline elements give none of
+their own (`textBlock` in `apps/extension/src/observation/extract.ts`). Inline text is
+`br`, `wbr`, `b`, `strong`, `i`, `em`, `u`, `s`, `small`, `span`, `font`, `mark`, `sub`,
+`sup`, `abbr`, `bdi`, `bdo`, `cite`, `del`, `ins`, `dfn`, `q`, `ruby` and its `rb`, `rt`
+and `rp`, and an `img`; the element holds at most 20 of them and no shadow host. A line
+break reads as a space. The text is kept, redacted, cut and dropped as any other near
+text: the key check reads the whole sentence, so a sentence that shows a key in a `<b>`
+is left out whole, never its other words alone.
+
+- An element that also holds a link, a button, a control, `code`, `kbd` or any other
+  element is no text block and reads as before: only its inline parts without child
+  elements give text, so a link's label never joins the sentence.
+- More text may now leave the device per page: whole sentences instead of their
+  fragments, still at most three texts of 120 characters (360 in all), under the terms
+  above.
+- Not chosen: reading every element's text with its descendants (a region's whole text
+  would crowd out the sentence nearest the field and could carry a link's or control's
+  label), and a list of sentence elements such as `p` (sites draw sentences in `div` and
+  `span` as often).
