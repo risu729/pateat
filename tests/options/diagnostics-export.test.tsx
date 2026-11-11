@@ -203,8 +203,11 @@ test("a header-only result is visible as empty while Save and Copy retain its ex
   value.exportLogs.mockResolvedValueOnce({ ok: true, text });
   await severity().selectOptions("problems");
   await expect.poll(preview).toBe(text);
-  await expect.element(page.getByText("Showing 0 of 1 retained entries.")).toBeVisible();
-  await expect.element(page.getByText("No entries match these filters.")).toBeVisible();
+  await expect
+    .element(
+      page.getByText(/^Showing 0 of 1 retained entries\. No entries match these filters\.$/u),
+    )
+    .toBeVisible();
   await page.getByRole("button", { name: "Save file" }).click();
   expect(value.download).toHaveBeenCalledExactlyOnceWith(text, expect.any(String));
   await page.getByRole("button", { name: "Copy all" }).click();
