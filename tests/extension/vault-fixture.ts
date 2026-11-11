@@ -81,6 +81,7 @@ export type VaultStatus = {
   checkpoint: "before-write" | "after-write" | null;
   reached: boolean;
   host: { generation: string; sessions: number; ready: boolean };
+  unusableItems?: { itemId: string; check?: string; revised?: number }[];
 };
 export type VaultInspection = {
   exists: boolean;

@@ -94,7 +94,10 @@ function harness(
       events.push("verify-all");
       return {
         ok: true as const,
-        data: { verifiedCipherCount: opened.get(session.sessionId)!.prepared.ciphers.length },
+        data: {
+          verifiedCipherCount: opened.get(session.sessionId)!.prepared.ciphers.length,
+          unusableItems: [],
+        },
       };
     }),
     exportUnlockMaterial: vi.fn<VaultCryptoHost["exportUnlockMaterial"]>(async (session) => {
@@ -313,6 +316,41 @@ describe("acceptance verification and publication", () => {
     expect(serialized).not.toContain("managerGeneration");
     expect(serialized).not.toContain("allowedFieldIds");
   });
+  it("accepts a snapshot without the items strict decryption refused, and lists them", async () => {
+    const h = harness();
+    const prepared = preparedVault();
+    const refusedId = String(prepared.ciphers[0]!.id);
+    const unusable = { itemId: refusedId.toUpperCase(), check: "sdk-decrypt" as const };
+    h.host.verifyReceivedCiphers.mockResolvedValue({
+      ok: true,
+      data: { verifiedCipherCount: prepared.ciphers.length - 1, unusableItems: [unusable] },
+    });
+    const result = await h.manager.accept(candidate());
+    expect(result.ok).toBe(true);
+    expect(h.store.compareAndSwap).toHaveBeenCalled();
+    expect(h.manager.status()).toMatchObject({ ready: true, unusableItems: [unusable] });
+  });
+  it.each([
+    ["one more than received", (id: string) => [id, "00000000-0000-4000-8000-0000000000ff"]],
+    ["named twice", (id: string) => [id, id.toUpperCase()]],
+    ["not received", () => ["00000000-0000-4000-8000-0000000000ff"]],
+  ])("refuses unusable items %s", async (_label, ids) => {
+    const h = harness();
+    const prepared = preparedVault();
+    const unusableItems = ids(String(prepared.ciphers[0]!.id)).map((id) => ({ itemId: id }));
+    h.host.verifyReceivedCiphers.mockResolvedValue({
+      ok: true,
+      data: {
+        verifiedCipherCount: Math.max(0, prepared.ciphers.length - unusableItems.length),
+        unusableItems,
+      },
+    });
+    expect(await h.manager.accept(candidate())).toEqual({
+      ok: false,
+      error: { code: "crypto-failed", check: "cipher-count" },
+    });
+    expect(h.store.compareAndSwap).not.toHaveBeenCalled();
+  });
   it.each(["rejected", "short-count"])(
     "rejects %s full-cipher verification without export or storage",
     async (mode) => {
@@ -327,7 +365,7 @@ describe("acceptance verification and publication", () => {
       h.host.verifyReceivedCiphers.mockResolvedValue(
         mode === "rejected"
           ? { ok: false, error: refused }
-          : { ok: true, data: { verifiedCipherCount: 0 } },
+          : { ok: true, data: { verifiedCipherCount: 0, unusableItems: [] } },
       );
       expect(await h.manager.accept(candidate())).toEqual({
         ok: false,
@@ -1483,7 +1521,7 @@ describe("vault lock and key retention (ADR 0075)", () => {
       const h = harness({ initial: lockedEntry(), retention: "session" });
       h.host.verifyReceivedCiphers.mockResolvedValueOnce({
         ok: true,
-        data: { verifiedCipherCount: 0 },
+        data: { verifiedCipherCount: 0, unusableItems: [] },
       });
       expect(await h.manager.unlock(v1Password)).toEqual({
         ok: false,

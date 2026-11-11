@@ -44,6 +44,10 @@ export const bitwardenEn = {
     "Last automatic sync failed ({{time}}). {{reason}}",
   "Last automatic sync failed ({{time}}, {{code}}). Press Sync to try again now.":
     "Last automatic sync failed ({{time}}, {{code}}). Press Sync to try again now.",
+  "{{items}} could not be decrypted and are not used. Open each in Bitwarden to fix or delete it.":
+    "{{items}} could not be decrypted and are not used. Open each in Bitwarden to fix or delete it.",
+  "Item {{itemId}} (check: {{check}})": "Item {{itemId}} (check: {{check}})",
+  "Item {{itemId}}": "Item {{itemId}}",
   "Vault synced {{time}}": "Vault synced {{time}}",
   "at an unknown time": "at an unknown time",
   "Automatic unlock on": "Automatic unlock on",

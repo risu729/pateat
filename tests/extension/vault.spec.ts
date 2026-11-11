@@ -207,30 +207,30 @@ test("keeps durable disabled state across profile restart and requires explicit 
   });
 });
 
-test("rejects a corrupted last received cipher before export or replacement of last good record", async () => {
+test("leaves out a corrupted received cipher and uses the rest of the snapshot", async () => {
   await withVaultProfile(async (open, externalRequests) => {
     const browser = await open();
     await vaultData(browser.page, { action: "accept", kind: "v1" });
     const before = await vaultData<VaultInspection>(browser.page, { action: "inspect" });
-    // The refused item is named by its ID and revision date for the diagnostic log only.
-    expect(await invokeVault(browser.page, { action: "accept", kind: "corrupt-last" })).toEqual({
-      ok: false,
-      error: {
-        code: "crypto-failed",
+    // One item strict decryption refuses does not fail the snapshot (ADR 0006).
+    expect(
+      await invokeVault(browser.page, { action: "accept", kind: "corrupt-last" }),
+    ).toMatchObject({ ok: true });
+    expect(await vaultData(browser.page, { action: "inspect" })).not.toEqual(before);
+    expect(await vaultData(browser.page, { action: "resolve" })).toEqual({ matches: true });
+    const status = await vaultData<VaultStatus>(browser.page, { action: "status" });
+    // The refused item is named by its ID, check and revision date only.
+    expect(status.unusableItems).toEqual([
+      {
+        itemId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
         check: "sdk-decrypt",
-        item: expect.stringMatching(/^[0-9a-f-]{36}$/u),
         revised: Date.parse("2024-01-30T17:55:36.150Z"),
       },
-    });
-    expect(await vaultData(browser.page, { action: "inspect" })).toEqual(before);
-    expect(await vaultData(browser.page, { action: "resolve" })).toEqual({ matches: true });
-    expect((await vaultData<VaultStatus>(browser.page, { action: "status" })).host.sessions).toBe(
-      1,
-    );
+    ]);
+    expect(status.host.sessions).toBe(1);
     expect(externalRequests).toEqual([]);
   });
 });
-
 test("denies private Worker key export until all received ciphers are verified", async () => {
   await withVaultProfile(async (open, externalRequests) => {
     const browser = await open();

@@ -264,9 +264,16 @@ export function createLocalVaultManager(options: {
     }
     staged = opened.data;
     const checked = await options.host.verifyReceivedCiphers(opened.data.session, signal);
+    // Every received item is either verified or named unusable, once (ADR 0006).
+    const received = new Set(prepared.ciphers.map((cipher) => String(cipher.id).toLowerCase()));
+    const unusable = checked.ok
+      ? checked.data.unusableItems.map((item) => item.itemId.toLowerCase())
+      : [];
     if (
       !checked.ok ||
-      checked.data.verifiedCipherCount !== prepared.ciphers.length ||
+      checked.data.verifiedCipherCount + unusable.length !== prepared.ciphers.length ||
+      new Set(unusable).size !== unusable.length ||
+      !unusable.every((itemId) => received.has(itemId)) ||
       !current(captured, signal)
     ) {
       if (staged === opened.data) staged = undefined;
@@ -285,6 +292,7 @@ export function createLocalVaultManager(options: {
       await retire(opened.data);
       return vaultFailure("security-downgrade");
     }
+    opened.data.unusableItems = checked.data.unusableItems;
     return opened;
   }
   /**
@@ -1179,7 +1187,11 @@ export function createLocalVaultManager(options: {
         ready: !!live && !uncertain,
         storageUncertain: uncertain,
         ...(live
-          ? { handle: structuredClone(live.handle), summary: structuredClone(live.summary) }
+          ? {
+              handle: structuredClone(live.handle),
+              summary: structuredClone(live.summary),
+              unusableItems: structuredClone(live.opened.unusableItems ?? []),
+            }
           : {}),
       };
     },

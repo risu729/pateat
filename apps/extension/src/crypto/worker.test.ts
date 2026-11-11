@@ -507,7 +507,7 @@ describe("crypto Worker login usernames (ADR 0080)", () => {
 
   it("forgets the usernames when the snapshot is verified again and fails", async () => {
     expect(await command({ kind: "verify-received-ciphers", session })).toMatchObject({ ok: true });
-    mocks.decrypt.mockResolvedValueOnce({ ok: false, error: { code: "crypto-failed" } } as never);
+    mocks.decrypt.mockResolvedValueOnce({ ok: false, error: { code: "crypto-locked" } } as never);
     expect(await command({ kind: "verify-received-ciphers", session })).toMatchObject({
       ok: false,
     });
@@ -524,7 +524,7 @@ describe("crypto Worker login usernames (ADR 0080)", () => {
 });
 
 describe("crypto Worker snapshot verification failures", () => {
-  it("names the refused item's check, ID and revision date, and nothing else", async () => {
+  it("leaves out an item strict decryption refuses, named by check, ID and revision date", async () => {
     await openWorker(savedUris, 0, false, (login, index) =>
       index === 2 ? { ...login, revisionDate: "2026-11-09T20:35:17.000Z" } : login,
     );
@@ -533,23 +533,43 @@ describe("crypto Worker snapshot verification failures", () => {
       ok: false,
       error: { code: "crypto-failed", check: "uri-checksum" },
     } as never);
-    expect(await command({ kind: "verify-received-ciphers", session })).toEqual({
-      ok: false,
-      error: {
-        code: "crypto-failed",
-        check: "uri-checksum",
-        item: itemId(2),
-        revised: Date.parse("2026-11-09T20:35:17.000Z"),
+    const verified = await command({ kind: "verify-received-ciphers", session });
+    expect(verified).toEqual({
+      ok: true,
+      data: {
+        verifiedCipherCount: expect.any(Number),
+        unusableItems: [
+          {
+            itemId: itemId(2),
+            check: "uri-checksum",
+            revised: Date.parse("2026-11-09T20:35:17.000Z"),
+          },
+        ],
       },
+    });
+    // The rest of the vault is used; the refused item is gone from the session, so a
+    // request for it finds nothing instead of locking the session.
+    const catalog = (await command({ kind: "catalog", session })) as {
+      data: { items: { id: string }[] };
+    };
+    expect(catalog.data.items.map((item) => item.id)).not.toContain(itemId(2));
+    expect(catalog.data.items).toHaveLength(
+      (verified as { data: { verifiedCipherCount: number } }).data.verifiedCipherCount,
+    );
+    expect(await command({ kind: "decrypt", session, itemId: itemId(2) })).toEqual(
+      failed("field-missing"),
+    );
+    expect(await command({ kind: "list", session, itemId: itemId(1) })).toMatchObject({
+      ok: true,
     });
   });
 
-  it("names an item of a type it cannot read", async () => {
+  it("leaves out an item of a type it cannot read", async () => {
     await openWorker(savedUris);
     mocks.decrypt.mockResolvedValueOnce({ ok: true, data: { type: 9 } } as never);
-    expect(await command({ kind: "verify-received-ciphers", session })).toEqual({
-      ok: false,
-      error: { code: "crypto-failed", check: "item-type", item: itemId(1) },
+    expect(await command({ kind: "verify-received-ciphers", session })).toMatchObject({
+      ok: true,
+      data: { unusableItems: [{ itemId: itemId(1), check: "item-type" }] },
     });
   });
 

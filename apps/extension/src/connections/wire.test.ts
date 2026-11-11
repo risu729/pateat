@@ -89,6 +89,23 @@ describe("vault lock and unlock replies (ADR 0075)", () => {
     const reply = { ok: true, kind: "status", connections: [connection] } as const;
     expect(parseSetupReply(reply)).toEqual(reply);
   });
+  it("parses a connection with unusable items", () => {
+    const unusableItems = [
+      { itemId: "00000000-0000-4000-8000-000000000002", check: "sdk-decrypt" },
+    ];
+    const reply = {
+      ok: true,
+      kind: "status",
+      connections: [{ ...connection, unusableItems, unusableItemCount: 1 }],
+    };
+    expect(parseSetupReply(reply)).toEqual(reply);
+    expect(() =>
+      parseSetupReply({
+        ...reply,
+        connections: [{ ...connection, unusableItems: [{ itemId: "Synthetic item name" }] }],
+      }),
+    ).toThrow();
+  });
   it("parses a connection whose last automatic check failed", () => {
     const syncFailure = { at: 1_762_720_517_000, code: "crypto-failed", check: "sdk-decrypt" };
     const reply = { ok: true, kind: "status", connections: [{ ...connection, syncFailure }] };

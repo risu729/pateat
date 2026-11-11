@@ -26,6 +26,16 @@ export const JOB_BUDGET_MS = 30_000;
 export const ARGON2ID_JOB_BUDGET_MS = 60_000;
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
 const uuid = v.pipe(v.string(), v.uuid());
+/**
+ * A received item strict decryption refused, which the session leaves out (ADR 0006): its
+ * ID, the check that refused it and its server revision date, none of them secret.
+ */
+export const unusableItemSchema = v.strictObject({
+  itemId: uuid,
+  check: v.optional(v.picklist(BITWARDEN_DECRYPT_CHECKS)),
+  revised: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(0))),
+});
+export type UnusableItem = v.InferOutput<typeof unusableItemSchema>;
 const base64Url = (minimum: number, maximum: number) =>
   v.pipe(v.string(), v.minLength(minimum), v.maxLength(maximum), v.regex(/^[A-Za-z0-9_-]+$/u));
 const rpId = v.pipe(v.string(), v.minLength(1), v.maxLength(253));

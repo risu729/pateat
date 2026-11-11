@@ -944,6 +944,7 @@ export function BitwardenSetup({
                     })}
                   </RowSub>
                   <StatusLines lines={statusLines(connection, t, formatLocale())} />
+                  <UnusableItems connection={connection} />
                 </>
               }
               actions={
@@ -1593,6 +1594,57 @@ const menuItemClass =
   "flex min-h-9 cursor-default items-center gap-2 rounded-md px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent-tint data-[highlighted]:outline-solid data-[highlighted]:outline-2 data-[highlighted]:-outline-offset-2 data-[highlighted]:outline-focus";
 
 /** Where a connection's vault lives, as the Server choice names it. */
+/** The web vault of a connection's server, where an item can be opened by its ID. */
+function webVault(environment: BitwardenProfile["environment"]): string {
+  if (environment.kind === "self-hosted") return environment.baseUrl;
+  return environment.region === "eu" ? "https://vault.bitwarden.eu" : "https://vault.bitwarden.com";
+}
+
+/**
+ * The items of the open vault that strict decryption refused, which Pateat leaves out
+ * (ADR 0006). Their names cannot be read, so each is named by its ID and opens in the web
+ * vault, where the owner can fix or delete it.
+ */
+function UnusableItems({ connection }: { connection: Connection }) {
+  const { t } = useTranslation(undefined, { i18n });
+  const items = connection.unusableItems;
+  if (!items?.length) return null;
+  const count = Math.max(connection.unusableItemCount ?? 0, items.length);
+  const origin = webVault(connection.environment);
+  return (
+    <div className="flex flex-col gap-1">
+      <StatusLines
+        lines={[
+          {
+            tone: "warn",
+            icon: TriangleAlert,
+            text: t(
+              "{{items}} could not be decrypted and are not used. Open each in Bitwarden to fix or delete it.",
+              { items: t("{{count}} item", { count }) },
+            ),
+          },
+        ]}
+      />
+      <ul className="m-0 flex list-none flex-col gap-1 p-0 ps-6 text-[0.8125rem]">
+        {items.map(({ itemId, check }) => (
+          <li key={itemId}>
+            <a
+              href={`${origin}/#/vault?itemId=${encodeURIComponent(itemId)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline wrap-anywhere"
+            >
+              {check
+                ? t("Item {{itemId}} (check: {{check}})", { itemId, check })
+                : t("Item {{itemId}}", { itemId })}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function serverName(environment: BitwardenProfile["environment"], t: TFunction): string {
   if (environment.kind === "self-hosted") return new URL(environment.baseUrl).host;
   return environment.region === "eu" ? t("Bitwarden Cloud EU") : t("Bitwarden Cloud US");

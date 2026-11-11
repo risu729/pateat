@@ -92,8 +92,39 @@ context offline with the master password. "Disabling automatic unlock" is now
 **Log out**, with the same effect, and a password sign-in always retains the key as the
 timeout says; "explicit enable intent" above is that sign-in.
 
+## Amendment: one unreadable item does not fail the vault
+
+On 2026-11-11 the owner decided that an item Pateat cannot read must not stop the rest
+of the vault, after a vault stopped syncing for two days because an item failed strict
+decryption: make only that item unusable, and broadly use whatever can be used, even
+when only some fields can be read. This replaces "Accept only complete supported data"
+for items that strict decryption refuses:
+
+- The crypto Worker still decrypts every received item strictly when it opens a
+  snapshot (after a sync, a browser restart or an unlock). An item it refuses with a
+  decryption check (`BITWARDEN_DECRYPT_CHECKS`, or an item type it cannot read) is
+  removed from that session and answered as unusable with its ID, check and server
+  revision date. Any other failure, such as a locked session, still fails the open.
+- The vault manager accepts the snapshot when the verified items and the unusable ones
+  add up to the received items, each unusable ID is one of them and none repeats.
+  Otherwise the open fails with `cipher-count`, as before.
+- The stored record is unchanged: the unusable items are found again on each open, so
+  an item fixed in Bitwarden is used after the next sync, and no older copy of an
+  unusable item is ever used.
+- Logins, passkeys and field reviews do not see an unusable item; a site's settings
+  that name it find no field, which does not lock the session.
+- The settings page lists up to 100 of them under their connection by ID and check,
+  each linking to the item in the web vault (`/#/vault?itemId=…`), since their names
+  cannot be read.
+
+Using the readable fields of a partly readable item, and items the account mapper
+refuses before decryption (a missing organization key, a malformed item), are later
+work in the same direction; until then those still fail the sync.
+
 ## Sources
 
 - [IndexedDB transaction scheduling](https://w3c.github.io/IndexedDB/#transaction-scheduling).
 - [IndexedDB transaction lifecycle and atomic commit](https://w3c.github.io/IndexedDB/#transaction-lifecycle).
 - [SDK boundary and local key handling](0005-bitwarden-local-crypto.md).
+- The web vault opens an item from its `itemId` query parameter
+  ([vault.component.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/web/src/app/vault/individual-vault/vault.component.ts#L1762-L1764)).
