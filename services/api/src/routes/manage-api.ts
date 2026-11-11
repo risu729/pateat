@@ -1,5 +1,6 @@
 import {
   MANAGE_PROBLEMS_LIMIT,
+  manageLoginHistoryQuerySchema,
   deviceIdSchema,
   manageDashboardRangeSchema,
   manageModelsWriteSchema,
@@ -37,6 +38,7 @@ import {
   recipeUnitSources,
 } from "../db/schema";
 import { apiError } from "../http";
+import { readLoginHistory } from "../login-history";
 import { findOwner } from "../owners";
 import {
   readChange,
@@ -186,6 +188,10 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       return c.body(null, 204);
     },
   )
+  .get("/logins", validate("query", manageLoginHistoryQuerySchema), async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    return c.json(await readLoginHistory(c.env.DB, ownerId, c.req.valid("query"), Date.now()));
+  })
   // Speed, counts and failures over the range, aggregated from the owner's rows only.
   .get("/dashboard", validate("query", dashboardQuerySchema), async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));

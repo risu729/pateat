@@ -101,7 +101,12 @@ the [privacy policy](./privacy.md#your-pateat-service) lists them. It never rece
 vault values or keys. Its pages are **Dashboard**, **Sites**, **Profiles**,
 **Devices**, **Claude** (its Claude credentials and which models to use), **Problems**
 (the warnings, errors and reasons for doing nothing that devices reported) and
-**Request log**.
+**Request log**. On **Request log**, **Login history** lists the login records already
+held by your service. Filter by **Site** (such as `https://example.com`, without a path)
+and **Result**, then choose **Apply filters**. **Older** shows earlier records and
+**Newest** returns to the latest ones. Open a record's **Details** for its recipe,
+result code and recorded times. Network time is part of the service time.
+**Delete all** deletes the stored request logs, login records and problem reports.
 
 Today each service is run by its owner for themselves: the service at `pateat.takuk.me`
 belongs to Pateat's developer and is not open to other people. A service accepts
