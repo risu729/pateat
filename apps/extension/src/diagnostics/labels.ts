@@ -152,6 +152,10 @@ export function generationLabel(
             "recipe generation off, no Claude credentials on the service (credentials-not-configured)",
           )
         : "recipe generation off, no Claude credentials on the service (credentials-not-configured)";
+    case "credentials-unavailable":
+      return t
+        ? t("recipe generation unavailable, credentials cannot be read (credentials-unavailable)")
+        : "recipe generation unavailable, credentials cannot be read (credentials-unavailable)";
     case "issuer-unavailable":
       return t
         ? t(

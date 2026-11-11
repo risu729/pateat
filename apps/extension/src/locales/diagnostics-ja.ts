@@ -131,6 +131,8 @@ export const diagnosticsJa = {
   "Vaultwarden, compatible with Bitwarden {{version}}": "Vaultwarden（Bitwarden {{version}} 互換）",
   "third-party server, compatible with Bitwarden {{version}}":
     "第三者のサーバー（Bitwarden {{version}} 互換）",
+  "recipe generation unavailable, credentials cannot be read (credentials-unavailable)":
+    "認証情報を読み込めないためレシピ生成は利用できません（credentials-unavailable）",
   "recipe generation available (ok)": "レシピ生成を利用可能（ok）",
   "recipe generation off, no Claude credentials on the service (credentials-not-configured)":
     "サービスに Claude の認証情報がないためレシピ生成は無効（credentials-not-configured）",
