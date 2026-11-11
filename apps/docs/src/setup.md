@@ -87,9 +87,9 @@ These limits apply to Pateat only and do not change anything in Bitwarden.
    these choices.
    Choosing an existing profile replaces this device's own lists with the profile's.
    Pateat asks first (**Pair and replace**) when this device has paused sites, allowed
-   sites or default accounts, has **Log in automatically only on allowed sites** on,
-   or has changed page behavior defaults or site rules. Sites that ask for the master
-   password alone do not trigger this warning.
+   sites, sites that ask for the master password or default accounts, has **Log in
+   automatically only on allowed sites** on, or has changed page behavior defaults or
+   site rules.
 
 When pairing succeeds, the page says **This device is paired.** Pateat then syncs its
 profile's settings and the recipes from the service and keeps a copy on this device.
