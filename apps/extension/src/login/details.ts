@@ -464,9 +464,9 @@ export type DetailCandidate = {
  * reads as a birth date, a phone, a PIN or a member ID; an answer or member ID only from
  * `loginItemId`, the login item, and a PIN only from it or a card item. An identity item's
  * fields, the person's own details, come first (owner, 2026-11-11 12:46 UTC); then, among
- * the rest, an item whose name shares a run of three or more ASCII letters or digits with
- * the page's host name, or appears whole in its title; otherwise the catalog's order is
- * kept.
+ * identity items and among the rest, an item whose name shares a run of three or more
+ * ASCII letters or digits with the page's host name, or appears whole in its title;
+ * otherwise the catalog's order is kept.
  */
 export function detailCandidates(
   settings: LocalSettings,

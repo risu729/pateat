@@ -521,10 +521,11 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    link reads only such a field, so a link edited elsewhere never types another custom
    field, such as a PIN into a member ID's input, into the page. An identity item's
    fields come first, since an identity holds the person's own details (owner,
-   2026-11-11 12:46 UTC). Among the rest, an item whose name
-   holds a run of three or more ASCII letters or digits found in the page's host name,
-   or which appears whole in the page's title, comes first; for a card detail, what the
-   page shows about its card ranks before that ([The card guess](#the-card-guess)).
+   2026-11-11 12:46 UTC). Then, among identity items and among the rest, an item whose
+   name holds a run of three or more ASCII letters or digits found in the page's host
+   name, or which appears whole in the page's title, comes first; for a card detail,
+   what the page shows about its card ranks before that
+   ([The card guess](#the-card-guess)).
 3. The popup's "This page" section shows what the page asks for and the candidates, the
    first one selected unless the guess is a tie, for example "This page asks for your
    birth year and month." and "本人 › 生年月日", with **Fill**.
