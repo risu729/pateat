@@ -160,11 +160,11 @@ items are such an organization's opens empty with them listed.
 ### Partly readable items (2026-11-11)
 
 When strict decryption refuses an item with `sdk-decrypt` or `attachment`, the crypto
-Worker asks the session to repair it before calling it unusable. Each encrypted value is decrypted
-alone with strict SDK decryption, as the name of an otherwise empty secure note that
-carries the item's own `key` and `organizationId`, so the item key never leaves the
-SDK and each value is checked under exactly the keys the whole item would use.
-Bitwarden ciphertexts are not bound to their field, so this accepts nothing that
+Worker asks the session to repair it before calling it unusable. Each encrypted value is
+decrypted alone with strict SDK decryption, as the name of an otherwise empty secure
+note that carries the item's own `key` and `organizationId`, so the item key never
+leaves the SDK and each value is checked under exactly the keys the whole item would
+use. Bitwarden ciphertexts are not bound to their field, so this accepts nothing that
 decrypting the whole item would refuse.
 
 - A value that does not decrypt is left empty: the notes, a login's username,
