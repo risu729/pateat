@@ -38,6 +38,7 @@ export {
   modelSpendLimitsSchema,
   siteDefaultSchema,
   siteRuleSchema,
+  siteRuleCovers,
   connectionSettingsSchema,
   excludedFieldSchema,
   accountPolicySchema,

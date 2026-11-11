@@ -111,6 +111,20 @@ compromised destination page.
 Implementation module ownership is described in the
 [development workflow](development.md#workspace-and-tasks).
 
+Page-permission contracts and transport for
+[ADR 0035 delivery 2](adr/0035-page-kinds-per-site.md#delivery) are implemented:
+`pagePermissionDefaults` and `sitePagePermissions` belong to the settings profile,
+including profile copying, adoption, three-way sync and file transfer. An absent
+`pagePermissionDefaults` means `sign-in: auto`, `confirm: fill` and
+`personal-details: fill`; when present it holds all three keys. An absent or empty
+`sitePagePermissions` means no overrides. A row names a canonical hostname, whether
+it includes subdomains and at least one kind's permission; at most 1,000 distinct
+hostnames are accepted. The longest covering hostname decides each kind separately.
+Canonical synced documents omit the default object and empty override list; concurrent
+default changes merge per kind and site rows merge per hostname, with the service
+winning concurrent changes to the same entry. These contracts alone do not implement
+fill-only sign-in execution, confirmation filling or personal-data autofill.
+
 Distinguish a provider type from a connection and model multiple simultaneous
 vault connections from the start. Scope item and field IDs by connection.
 Adapters are developer-written and bundled with extension releases; no remotely
