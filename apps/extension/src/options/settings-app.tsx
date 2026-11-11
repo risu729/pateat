@@ -1,3 +1,5 @@
+import { PagePermissions } from "./page-permissions";
+import { PAGE_PERMISSIONS_SECTION } from "./page-permission-controls";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import {
@@ -545,6 +547,7 @@ export function SettingsApp({
       : { id: "demo-vaults", label: t("Demo vaults"), icon: Vault },
     ...(vaultTimeout ? [{ id: "vault-timeout", label: t("Vault timeout"), icon: Timer }] : []),
     { id: "sites", label: t("Sites"), icon: Globe },
+    { id: PAGE_PERMISSIONS_SECTION, label: t("Page behavior"), icon: Globe },
     { id: "allowed-sites", label: t("Allowed sites"), icon: ListChecks },
     { id: PRIVATE_WINDOWS_SECTION, label: t("Private windows"), icon: EyeOff },
     { id: PASSKEYS_SECTION, label: t("Passkeys"), icon: Fingerprint },
@@ -741,6 +744,7 @@ export function SettingsApp({
                 <ul id="allowed-site-list" className="hidden" />
               </Panel>
             )}
+            {accepted && <PagePermissions draft={draft} edit={edit} />}
             {accepted && <PrivateWindows draft={draft} edit={edit} />}
             {accepted && <PasskeyPolicyPanel draft={draft} edit={edit} />}
             {accepted && <ServiceReports draft={draft} edit={edit} />}
