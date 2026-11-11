@@ -67,7 +67,7 @@ describe("permanent site pause policy", () => {
         rule("child.login.auth.example.co.uk", true),
         rule("mail.example.co.uk"),
         rule("other.example"),
-      ].map(Object.freeze),
+      ].map((entry) => Object.freeze(entry)),
     );
     const before = structuredClone(latest);
     expect(policy.rules).toEqual([]);
