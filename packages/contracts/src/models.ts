@@ -1,6 +1,6 @@
 import * as v from "valibot";
 
-// The owner's model configuration for each Claude role (ADR 0014, owner 2026-10-23 11:31
+// The owner's model configuration for each inference role (ADR 0014, owner 2026-10-23 11:31
 // UTC): an ordered list of choices per role, edited only in the web UI. Devices never read
 // or write it, so a stolen device token cannot raise the cost per call.
 
@@ -10,26 +10,43 @@ export const modelRoles = ["generate", "judge"] as const;
 /** Choices per role: the first, then fallbacks asked after a refusal. */
 export const MAX_MODEL_CHOICES = 3;
 
-const modelIdSchema = v.pipe(
+const claudeModelIdSchema = v.pipe(
   v.string(),
   v.maxLength(64),
   v.regex(/^claude-[a-z0-9]+(?:-[a-z0-9]+)*$/),
 );
 
-/** One model to ask: `provider` leaves room for others, such as OpenAI, later. */
-export const modelChoiceSchema = v.strictObject({
-  provider: v.literal("anthropic"),
-  model: modelIdSchema,
-  effort: v.picklist(modelEfforts),
-  speed: v.picklist(modelSpeeds),
-});
+export const modelProviders = ["anthropic", "openai"] as const;
+export const openAIModelIds = [
+  "gpt-6-astra",
+  "gpt-6.1-sol",
+  "gpt-6.1-terra",
+  "gpt-6-luna",
+] as const;
+const openAIModelIdSchema = v.pipe(
+  v.string(),
+  v.check((id) => openAIModelIds.some((model) => model === id), "Unsupported OpenAI model"),
+);
+const choiceSettings = { effort: v.picklist(modelEfforts), speed: v.picklist(modelSpeeds) };
+
+/** A provider and a model it supports; provider identity never comes from the model alone. */
+export const modelChoiceSchema = v.variant("provider", [
+  v.strictObject({
+    provider: v.literal("anthropic"),
+    model: claudeModelIdSchema,
+    ...choiceSettings,
+  }),
+  v.strictObject({ provider: v.literal("openai"), model: openAIModelIdSchema, ...choiceSettings }),
+]);
 
 const roleChoicesSchema = v.pipe(
   v.array(modelChoiceSchema),
   v.minLength(1),
   v.maxLength(MAX_MODEL_CHOICES),
   v.check(
-    (choices) => new Set(choices.map((choice) => choice.model)).size === choices.length,
+    (choices) =>
+      new Set(choices.map((choice) => `${choice.provider}:${choice.model}`)).size ===
+      choices.length,
     "Each model appears once per role",
   ),
 );
@@ -51,12 +68,22 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   ],
 };
 
+/** A device choosing OpenAI uses only OpenAI defaults; Anthropic defaults remain unchanged. */
+export const DEFAULT_OPENAI_MODEL_CONFIG: ModelConfig = {
+  generate: [
+    { provider: "openai", model: "gpt-6.1-sol", effort: "low", speed: "standard" },
+    { provider: "openai", model: "gpt-6.1-terra", effort: "low", speed: "standard" },
+  ],
+  judge: [
+    { provider: "openai", model: "gpt-6.1-sol", effort: "low", speed: "standard" },
+    { provider: "openai", model: "gpt-6.1-terra", effort: "low", speed: "standard" },
+  ],
+};
+
 const ratesSchema = v.strictObject({ input: v.number(), output: v.number() });
 
 /** A model the web UI offers, with what the owner may choose for it. */
-export const manageModelOptionSchema = v.strictObject({
-  provider: v.literal("anthropic"),
-  id: modelIdSchema,
+const modelOptionSettings = {
   displayName: v.pipe(v.string(), v.maxLength(128)),
   /** The efforts the model accepts. */
   efforts: v.array(v.picklist(modelEfforts)),
@@ -69,7 +96,19 @@ export const manageModelOptionSchema = v.strictObject({
    */
   fast: v.picklist(["none", "available", "failing"]),
   fastRates: v.optional(ratesSchema),
-});
+};
+export const manageModelOptionSchema = v.variant("provider", [
+  v.strictObject({
+    provider: v.literal("anthropic"),
+    id: claudeModelIdSchema,
+    ...modelOptionSettings,
+  }),
+  v.strictObject({
+    provider: v.literal("openai"),
+    id: openAIModelIdSchema,
+    ...modelOptionSettings,
+  }),
+]);
 
 export const manageModelsSchema = v.strictObject({
   version: v.literal(1),
@@ -90,6 +129,8 @@ export const manageModelsWriteSchema = v.strictObject({
   config: modelConfigSchema,
 });
 
+export type ModelProvider = (typeof modelProviders)[number];
+export type OpenAIModelId = (typeof openAIModelIds)[number];
 export type ModelEffort = (typeof modelEfforts)[number];
 export type ModelSpeed = (typeof modelSpeeds)[number];
 export type ModelRole = (typeof modelRoles)[number];

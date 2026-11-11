@@ -181,7 +181,11 @@ export async function fastFailingModels(
   source: "service" | "device" = "service",
 ) {
   const rows = await drizzle(db)
-    .select({ modelId: inferenceLog.modelId, outcome: inferenceLog.outcome })
+    .select({
+      provider: inferenceLog.provider,
+      modelId: inferenceLog.modelId,
+      outcome: inferenceLog.outcome,
+    })
     .from(inferenceLog)
     .where(
       and(
@@ -194,10 +198,11 @@ export async function fastFailingModels(
     .orderBy(desc(inferenceLog.createdAt))
     .limit(500);
   const recent = new Map<string, string[]>();
-  for (const { modelId, outcome } of rows) {
+  for (const { provider, modelId, outcome } of rows) {
     if (modelId === null) continue;
-    const outcomes = recent.get(modelId) ?? [];
-    if (outcomes.length < FAST_FAILURE_RUN) recent.set(modelId, [...outcomes, outcome]);
+    const identity = `${provider}:${modelId}`;
+    const outcomes = recent.get(identity) ?? [];
+    if (outcomes.length < FAST_FAILURE_RUN) recent.set(identity, [...outcomes, outcome]);
   }
   return new Set(
     [...recent]
@@ -231,7 +236,12 @@ function option(
     displayName: model.displayName,
     efforts: [...model.efforts],
     rates: rates === undefined ? null : { input: rates.input, output: rates.output },
-    fast: fastRates === undefined ? "none" : fastFailing.has(model.id) ? "failing" : "available",
+    fast:
+      fastRates === undefined
+        ? "none"
+        : fastFailing.has(`anthropic:${model.id}`)
+          ? "failing"
+          : "available",
     ...(fastRates === undefined
       ? {}
       : { fastRates: { input: fastRates.input, output: fastRates.output } }),

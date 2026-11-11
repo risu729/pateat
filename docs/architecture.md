@@ -3395,6 +3395,36 @@ eligible sanitized semantic references and cannot relax policy. Future AI accoun
 selection uses the same constrained operations as human selection; it does not
 change the initial saved-default behavior.
 
+The shared generation foundation also supports OpenAI through the pinned
+`@ai-sdk/openai` Responses adapter. It takes an explicit API key and always targets
+`https://api.openai.com/v1/responses`; environment keys and base URLs cannot redirect
+it. Calls contain text only, use no tools or streaming, set `store: false`, suppress
+reasoning summaries, and explicitly select the standard (`default`) or `fast`
+service tier. The SDK requests encrypted reasoning content for stateless responses;
+Pateat does not replay or persist it. The current Valibot schemas contain optional
+fields, so OpenAI receives `json_schema` with `strict: false`; every answer must still
+pass the existing local structural and semantic validation. This foundation does not
+by itself enable server or device credentials.
+
+OpenAI's static catalogue offers GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra and GPT-6
+Luna with the existing five effort levels. Choosing OpenAI on a device uses Sol at
+low effort and standard speed, then Terra after refusal; the Anthropic defaults stay
+unchanged. Model identity and fast-mode retry match both provider and model. Prices
+are a dated snapshot of the official model pages:
+[Astra](https://developers.openai.com/api/docs/models/gpt-6-astra),
+[Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol),
+[Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra) and
+[Luna](https://developers.openai.com/api/docs/models/gpt-6-luna), checked 2026-11-11.
+The current 64 KiB input bound stays below the 272,000-token long-context threshold.
+Accounting includes output reasoning tokens and disjoint cached reads, 30-minute
+writes and 12-hour writes within the reported input total, following
+[OpenAI's cache accounting](https://developers.openai.com/api/docs/guides/prompt-caching).
+Incomplete or inconsistent cache details use the highest write price for all input
+tokens, so missing fields never imply zero cost. Unknown input or output totals stay
+unknown and use the caller's existing worst-case charge. Worst-case rates include the
+highest cache-write price, long-context multipliers when applicable, and the selected
+speed. No live API, account access or billed-output verification is claimed.
+
 For finite choices, include an explicit unknown/none candidate and validate
 returned identifiers, score/probability shapes and joint mapping consistency.
 Abstain on insufficient evidence; model confidence never grants permission.

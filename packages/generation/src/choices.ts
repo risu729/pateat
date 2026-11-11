@@ -4,7 +4,7 @@ import {
   type ModelConfig,
   type ModelRole,
 } from "@pateat/contracts";
-import { claudeModelRates, type ClaudeModelChoice, type InferenceOutcome } from "@pateat/inference";
+import { modelRates, type ModelRates, type InferenceOutcome } from "@pateat/inference";
 import type { ServedModel } from "./backend";
 
 // Which models a role asks, in order (ADR 0014, owner 2026-10-23 11:31 UTC), wherever the
@@ -12,7 +12,13 @@ import type { ServedModel } from "./backend";
 // (ADR 0040).
 
 /** A configured model to call, with the rates its speed is charged at. */
-export type RoleChoice = ClaudeModelChoice & { speed: "standard" | "fast" };
+export type RoleChoice = {
+  provider: ModelChoice["provider"];
+  modelId: string;
+  effort: ModelChoice["effort"];
+  rates: ModelRates;
+  speed: ModelChoice["speed"];
+};
 
 /**
  * The role's choices in order, each with its published rates. Fast mode on a model in
@@ -24,26 +30,36 @@ export function roleChoices(
   config: ModelConfig,
   role: ModelRole,
   fastFailing: ReadonlySet<string> = new Set(),
+  defaults: ModelConfig = DEFAULT_MODEL_CONFIG,
 ): RoleChoice[] {
   const priced = (choices: readonly ModelChoice[]) =>
     choices.flatMap((saved) => {
       const choice =
-        saved.speed === "fast" && fastFailing.has(saved.model)
+        saved.speed === "fast" && fastFailing.has(`${saved.provider}:${saved.model}`)
           ? { ...saved, speed: "standard" as const }
           : saved;
-      const rates = claudeModelRates(choice.model, choice.speed);
+      const rates = modelRates(choice.provider, choice.model, choice.speed);
       if (rates === undefined) {
-        console.warn("Configured Claude model has no price", {
+        console.warn("Configured model has no price", {
           role,
+          provider: choice.provider,
           model: choice.model,
           speed: choice.speed,
         });
         return [];
       }
-      return [{ modelId: choice.model, effort: choice.effort, rates, speed: choice.speed }];
+      return [
+        {
+          provider: choice.provider,
+          modelId: choice.model,
+          effort: choice.effort,
+          rates,
+          speed: choice.speed,
+        },
+      ];
     });
   const choices = priced(config[role]);
-  return choices.length > 0 ? choices : priced(DEFAULT_MODEL_CONFIG[role]);
+  return choices.length > 0 ? choices : priced(defaults[role]);
 }
 
 /** The failures after which fast mode asks the same model at the standard speed. */
@@ -52,12 +68,12 @@ const FAST_RETRY = new Set(["rate-limited", "provider-error", "timeout"]);
 /** A choice's calls in order: fast mode is followed by the same model at the standard speed. */
 export function choiceAttempts(choice: RoleChoice): RoleChoice[] {
   if (choice.speed !== "fast") return [choice];
-  const rates = claudeModelRates(choice.modelId);
+  const rates = modelRates(choice.provider, choice.modelId);
   return rates === undefined ? [choice] : [choice, { ...choice, rates, speed: "standard" }];
 }
 
 export const servedModel = (choice: RoleChoice): ServedModel => ({
-  provider: "anthropic",
+  provider: choice.provider,
   model: choice.modelId,
   effort: choice.effort,
   speed: choice.speed,
@@ -75,7 +91,7 @@ export function nextAttempt(
 ): "ask" | "skip" | "stop" {
   const { outcome, served } = last;
   if (outcome.status !== "failed") return "stop";
-  const sameModel = attempt.modelId === served.model;
+  const sameModel = attempt.provider === served.provider && attempt.modelId === served.model;
   if (outcome.error === "refused" && sameModel) return "skip";
   return outcome.error === "refused" ||
     (served.speed === "fast" && sameModel && FAST_RETRY.has(outcome.error))
