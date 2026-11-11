@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
   createLocalVaultManager,
   type KeyRetention,
   type LocalVaultManager,
+  type LocalVaultHandle,
   type VaultCheckpoint,
   type VaultCryptoHost,
 } from "./manager";
@@ -294,6 +295,358 @@ async function accepted(h: ReturnType<typeof harness>) {
 afterEach(async () => {
   await Promise.all(managers.splice(0).map((manager) => manager.dispose()));
   vi.restoreAllMocks();
+});
+
+describe("live vault operations preserve their authority across asynchronous work", () => {
+  type Harness = ReturnType<typeof harness>;
+  type OperationName =
+    | "listFields"
+    | "catalog"
+    | "matchUris"
+    | "loginUsernames"
+    | "findPasskeys"
+    | "passkeyRpIds"
+    | "signPasskey"
+    | "verifyMasterPassword";
+  type Operation = {
+    name: OperationName;
+    args: () => unknown[];
+    invoke: (h: Harness, handle: LocalVaultHandle, signal?: AbortSignal) => Promise<unknown>;
+    hold: (h: Harness, held: ReturnType<typeof gate>) => void;
+  };
+  function holdReply<Args extends unknown[], Result>(
+    host: Mock<(...args: Args) => Promise<Result>>,
+    held: ReturnType<typeof gate>,
+  ) {
+    const invoke = host.getMockImplementation()!;
+    host.mockImplementationOnce(async (...args) => {
+      // The host already made a successful result; only its delivery is delayed.
+      const result = await invoke(...args);
+      await held.promise;
+      return result;
+    });
+  }
+  const signingInput = () => ({
+    itemId,
+    credentialId: "AQID",
+    rpId: "example.com",
+    authenticatorData: "AQID",
+    clientDataHash: "BAUG",
+  });
+  const operations: Operation[] = [
+    {
+      name: "listFields",
+      args: () => [itemId],
+      invoke: (h, handle, signal) => h.manager.listFields(handle, itemId, signal),
+      hold: (h, held) => holdReply(h.host.listFields, held),
+    },
+    {
+      name: "catalog",
+      args: () => [],
+      invoke: (h, handle, signal) => h.manager.catalog(handle, signal),
+      hold: (h, held) => holdReply(h.host.catalog, held),
+    },
+    {
+      name: "matchUris",
+      args: () => ["https://example.com/login"],
+      invoke: (h, handle, signal) =>
+        h.manager.matchUris(handle, "https://example.com/login", signal),
+      hold: (h, held) => holdReply(h.host.matchUris, held),
+    },
+    {
+      name: "loginUsernames",
+      args: () => [[itemId]],
+      invoke: (h, handle, signal) => h.manager.loginUsernames(handle, [itemId], signal),
+      hold: (h, held) => holdReply(h.host.loginUsernames, held),
+    },
+    {
+      name: "findPasskeys",
+      args: () => ["example.com"],
+      invoke: (h, handle, signal) => h.manager.findPasskeys(handle, "example.com", signal),
+      hold: (h, held) => holdReply(h.host.findPasskeys, held),
+    },
+    {
+      name: "passkeyRpIds",
+      args: () => [itemId],
+      invoke: (h, handle, signal) => h.manager.passkeyRpIds(handle, itemId, signal),
+      hold: (h, held) => holdReply(h.host.passkeyRpIds, held),
+    },
+    {
+      name: "signPasskey",
+      args: () => [signingInput()],
+      invoke: (h, handle, signal) => h.manager.signPasskey(handle, signingInput(), signal),
+      hold: (h, held) => holdReply(h.host.signPasskey, held),
+    },
+    {
+      name: "verifyMasterPassword",
+      args: () => ["synthetic-master-password"],
+      invoke: (h, handle, signal) =>
+        h.manager.verifyMasterPassword(handle, "synthetic-master-password", signal),
+      hold: (h, held) => holdReply(h.host.verifyMasterPassword, held),
+    },
+  ];
+
+  describe.each(operations)("$name", (operation) => {
+    it("returns the exact host result from the captured session and forwards its signal", async () => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      const signal = new AbortController().signal;
+      h.store.read.mockClear();
+      const result = await operation.invoke(h, handle, signal);
+      const host = h.host[operation.name];
+      const reply = await host.mock.results[0]!.value;
+      expect(reply).toMatchObject({ ok: true });
+      expect(result).toBe(reply);
+      const opened = await h.host.open.mock.results[0]!.value;
+      if (!opened.ok) throw new Error("Synthetic host did not open");
+      expect(host).toHaveBeenCalledExactlyOnceWith(
+        opened.data.session,
+        ...operation.args(),
+        signal,
+      );
+      expect(h.store.read).toHaveBeenCalledTimes(2);
+      expect(h.manager.status().ready).toBe(true);
+    });
+
+    it("rejects a changed handle before storage or host access", async () => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      h.store.read.mockClear();
+      expect(await operation.invoke(h, { ...handle, handleId: crypto.randomUUID() })).toEqual(
+        vaultFailure("stale-vault-handle"),
+      );
+      expect(h.store.read).not.toHaveBeenCalled();
+      expect(h.host[operation.name]).not.toHaveBeenCalled();
+    });
+
+    it("rejects an uncloneable handle before storage or host access", async () => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      h.store.read.mockClear();
+      expect(await operation.invoke(h, { ...handle, extra: () => {} } as LocalVaultHandle)).toEqual(
+        vaultFailure("invalid-request"),
+      );
+      expect(h.store.read).not.toHaveBeenCalled();
+      expect(h.host[operation.name]).not.toHaveBeenCalled();
+    });
+
+    it("fences an unreadable durable record before host access", async () => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      h.store.read.mockResolvedValueOnce(vaultFailure("storage-failed"));
+      expect(await operation.invoke(h, handle)).toEqual(vaultFailure("storage-uncertain"));
+      expect(h.host[operation.name]).not.toHaveBeenCalled();
+      expect(h.manager.status().ready).toBe(false);
+      expect(h.opened.size).toBe(0);
+    });
+
+    it("denies an externally disabled durable record before host access", async () => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      h.setEntry(disabledEntry());
+      expect(await operation.invoke(h, handle)).toEqual(vaultFailure("stale-vault-handle"));
+      expect(h.host[operation.name]).not.toHaveBeenCalled();
+      expect(h.manager.status().ready).toBe(false);
+      expect(h.opened.size).toBe(0);
+    });
+
+    it("withholds host access when a lock overtakes the durable preflight", async () => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      const held = gate();
+      const entered = gate();
+      const durable = h.entry();
+      h.store.read.mockImplementationOnce(async () => {
+        entered.release();
+        await held.promise;
+        return { ok: true, data: durable };
+      });
+      const pending = operation.invoke(h, handle);
+      try {
+        await entered.promise;
+        await h.manager.lock();
+      } finally {
+        held.release();
+      }
+      expect(await pending).toEqual(vaultFailure("stale-vault-handle"));
+      expect(h.host[operation.name]).not.toHaveBeenCalled();
+      expect(h.opened.size).toBe(0);
+    });
+
+    it("detaches the handle before a slow durable preflight", async () => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      const supplied = { ...handle };
+      const durable = h.entry();
+      const held = gate();
+      const entered = gate();
+      h.store.read.mockImplementationOnce(async () => {
+        entered.release();
+        await held.promise;
+        return { ok: true, data: durable };
+      });
+      const pending = operation.invoke(h, supplied);
+      try {
+        await entered.promise;
+        supplied.handleId = crypto.randomUUID();
+        supplied.snapshotId = crypto.randomUUID();
+      } finally {
+        held.release();
+      }
+      expect(await pending).toMatchObject({ ok: true });
+      expect(h.host[operation.name].mock.calls[0]?.[0].snapshotId).toBe(handle.snapshotId);
+      expect(h.manager.status().ready).toBe(true);
+    });
+
+    it("withholds a successful late host reply after lock", async () => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      const held = gate();
+      operation.hold(h, held);
+      const pending = operation.invoke(h, handle);
+      try {
+        await vi.waitFor(() => expect(h.host[operation.name]).toHaveBeenCalledOnce());
+        await h.manager.lock();
+      } finally {
+        held.release();
+      }
+      expect(await pending).toEqual(vaultFailure("stale-vault-handle"));
+      expect(h.manager.status().ready).toBe(false);
+      expect(h.opened.size).toBe(0);
+    });
+
+    it("withholds the old owner's reply after replacement and keeps the new owner usable", async () => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      const held = gate();
+      operation.hold(h, held);
+      const pending = operation.invoke(h, handle);
+      let next: Awaited<ReturnType<typeof accepted>> | undefined;
+      try {
+        await vi.waitFor(() => expect(h.host[operation.name]).toHaveBeenCalledOnce());
+        next = await accepted(h);
+      } finally {
+        held.release();
+      }
+      expect(await pending).toEqual(vaultFailure("stale-vault-handle"));
+      if (!next) throw new Error("Synthetic replacement failed");
+      expect(await operation.invoke(h, next.handle)).toMatchObject({ ok: true });
+      expect(h.manager.status().ready).toBe(true);
+      expect(h.opened.size).toBe(1);
+    });
+
+    it.each(["reported", "thrown"])(
+      "gives a %s durable postflight failure precedence over the host's error",
+      async (kind) => {
+        const h = harness();
+        const { handle } = await accepted(h);
+        h.host[operation.name].mockResolvedValueOnce({
+          ok: false,
+          error: { code: "field-missing" },
+        });
+        h.store.read.mockResolvedValueOnce({ ok: true, data: h.entry() });
+        if (kind === "reported") h.store.read.mockResolvedValueOnce(vaultFailure("storage-failed"));
+        else h.store.read.mockRejectedValueOnce(new Error("Synthetic durable read failed"));
+        expect(await operation.invoke(h, handle)).toEqual(vaultFailure("storage-uncertain"));
+        expect(h.host[operation.name]).toHaveBeenCalledOnce();
+        expect(h.manager.status().ready).toBe(false);
+        expect(h.opened.size).toBe(0);
+      },
+    );
+
+    it("propagates a thrown host exception without turning it into a durable failure", async () => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      const fault = new Error("Synthetic host exception");
+      h.host[operation.name].mockRejectedValueOnce(fault);
+      h.store.read.mockClear();
+      await expect(operation.invoke(h, handle)).rejects.toBe(fault);
+      expect(h.store.read).toHaveBeenCalledOnce();
+      expect(h.manager.status().ready).toBe(true);
+      expect(h.opened.size).toBe(1);
+    });
+  });
+
+  it.each(["loginUsernames", "signPasskey"] as const)(
+    "%s detaches its mutable arguments before a slow durable preflight",
+    async (name) => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      const ids = [itemId];
+      const input = signingInput();
+      const durable = h.entry();
+      const held = gate();
+      const entered = gate();
+      h.store.read.mockImplementationOnce(async () => {
+        entered.release();
+        await held.promise;
+        return { ok: true, data: durable };
+      });
+      const pending =
+        name === "loginUsernames"
+          ? h.manager.loginUsernames(handle, ids)
+          : h.manager.signPasskey(handle, input);
+      try {
+        await entered.promise;
+        ids[0] = crypto.randomUUID();
+        input.itemId = crypto.randomUUID();
+        input.credentialId = "changed-credential";
+        input.rpId = "changed.example";
+      } finally {
+        held.release();
+      }
+      expect(await pending).toMatchObject({ ok: true });
+      expect(h.host[name].mock.calls[0]?.[1]).toEqual(
+        name === "loginUsernames" ? [itemId] : signingInput(),
+      );
+      expect(h.host[name].mock.calls[0]?.[1]).not.toBe(name === "loginUsernames" ? ids : input);
+    },
+  );
+
+  const invalid: {
+    name: OperationName;
+    code: "invalid-request" | "invalid-uri-input";
+    invoke: Operation["invoke"];
+  }[] = [
+    {
+      name: "matchUris",
+      code: "invalid-uri-input",
+      invoke: (h, handle) => h.manager.matchUris(handle, 1 as never),
+    },
+    {
+      name: "findPasskeys",
+      code: "invalid-request",
+      invoke: (h, handle) => h.manager.findPasskeys(handle, null as never),
+    },
+    {
+      name: "loginUsernames",
+      code: "invalid-request",
+      invoke: (h, handle) => h.manager.loginUsernames(handle, [() => {}] as never),
+    },
+    {
+      name: "signPasskey",
+      code: "invalid-request",
+      invoke: (h, handle) =>
+        h.manager.signPasskey(handle, { ...signingInput(), extra: () => {} } as never),
+    },
+    {
+      name: "verifyMasterPassword",
+      code: "invalid-request",
+      invoke: (h, handle) => h.manager.verifyMasterPassword(handle, ""),
+    },
+  ];
+  it.each(invalid)(
+    "$name validates its own input before durable or host access",
+    async (operation) => {
+      const h = harness();
+      const { handle } = await accepted(h);
+      h.store.read.mockClear();
+      expect(await operation.invoke(h, handle)).toEqual(vaultFailure(operation.code));
+      expect(h.store.read).not.toHaveBeenCalled();
+      expect(h.host[operation.name]).not.toHaveBeenCalled();
+      expect(h.manager.status().ready).toBe(true);
+    },
+  );
 });
 
 describe("acceptance verification and publication", () => {
