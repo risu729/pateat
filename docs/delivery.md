@@ -678,3 +678,13 @@ previous action did not expose enough detail to classify the HTTP failure. Effec
 trigger permissions remain unverified. Completion requires an authorized production run
 to reconcile API triggers, read back the deployment, and pass the hosted API checks;
 record those results with the release evidence.
+
+The subsequent [main run](https://github.com/risu729/pateat/actions/runs/43053205193)
+classified that request as HTTP 403 / Cloudflare error 10084. Before migrations or
+upload, the server job now makes one read-only account-token verification request
+with the same production secret. The request refuses redirects, times out after
+10 seconds and limits the response to 16 KiB. It logs only HTTP status, numeric
+Cloudflare error codes and a validated token ID/status; a failed verification or
+non-active token stops the release. No response body, message, header or credential
+is logged. This identifies the credential actually held by GitHub before deciding
+which policy needs a change; it does not prove trigger permissions or grant access.

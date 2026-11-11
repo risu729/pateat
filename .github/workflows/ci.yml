@@ -230,6 +230,12 @@ jobs:
         if: ${{ steps.source.outputs.release == 'true' }}
         id: restore
         run: mise exec -- node .github/scripts/server-artifact.mjs restore
+      - name: Verify the production token identity before mutations
+        if: ${{ steps.source.outputs.release == 'true' }}
+        timeout-minutes: 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: mise exec --no-deps -- node .github/scripts/verify-production-token.mjs
       # A failed migration stops the release before activation.
       - name: Apply the released migrations to the recorded database
         if: ${{ steps.source.outputs.release == 'true' }}
