@@ -647,11 +647,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         verifiedCipherCount: number;
         unusableItems: UnusableItem[];
         partialItems: PartialItem[];
-      }>(
-        session.connectionId,
-        { kind: "verify-received-ciphers", session },
-        signal,
-      );
+      }>(session.connectionId, { kind: "verify-received-ciphers", session }, signal);
     },
     exportUnlockMaterial(session: HostSessionRef, signal?: AbortSignal) {
       return request<{ userKey: string; metadata: LocalCryptoSession["metadata"] }>(

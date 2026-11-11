@@ -215,7 +215,11 @@ describe("current vault catalog", () => {
       }),
       verifyReceivedCiphers: vi.fn<CryptoHost["verifyReceivedCiphers"]>(async () => ({
         ok: true,
-        data: { verifiedCipherCount: entry.accepted.prepared.ciphers.length, unusableItems: [], partialItems: [] },
+        data: {
+          verifiedCipherCount: entry.accepted.prepared.ciphers.length,
+          unusableItems: [],
+          partialItems: [],
+        },
       })),
       catalog: vi.fn<CryptoHost["catalog"]>(async (session) =>
         sessions.has(session.sessionId)
