@@ -30,9 +30,10 @@ which is unnecessary for one requested login.
   embedded document, its current top page. Eligibility is checked again on execution;
   the popup's list is not authority to use a removed or no-longer-matching item.
 - This action overrides automatic pause, private-window and allowed-site suppression,
-  repeated-login asks, and safely ended or settled attempt records for this one login.
-  It does not alter another tab's record. Active operations, challenge watches and
-  account switches remain protected from concurrent logins.
+  repeated-login asks, and safely ended or settled attempt records for this one login. A
+  settled record may still have a passive result watch; that watch does not block this
+  explicit retry. It does not alter another tab's record. Active operations, challenge
+  watches and account switches remain protected from concurrent logins.
 - A missing recipe or an earlier non-login judgement is evaluated through the normal
   generation or start-page repair path. A `confirm` or `unclear` recipe is never made
   executable by relabelling it. A first-page generation request may carry `manual: true`
