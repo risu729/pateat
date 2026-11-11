@@ -186,8 +186,11 @@ token, so it does not depend on one person's login, and its scope is as narrow a
 Cloudflare allows (owner decision, 2026-10-11). The token created on 2026-10-11 is
 "pateat-github-actions-production" with Individual Workers Editor on `pateat-api` only
 and D1 Write for the whole account, because the dashboard offers no per-database D1
-scope. The release limits itself to the recorded database ID, and routine releases do
-not touch the Custom Domain, so the token needs no zone permission. The `production`
+scope. The release limits itself to the recorded database ID. Since the owner
+approved routine trigger reconciliation on 2026-11-11, its credential must also
+authorize the pinned CLI's configured Custom Domain operations; the original code-only
+grant description is not proof of that capability. See
+[routine trigger delivery](#routine-trigger-delivery). The `production`
 environment accepts deployments only from `main` (Deployment branches and tags: selected
 branch rule `main`, set by the owner on 2026-10-11), so a workflow on another branch
 cannot read the token. This repository does not supply or provision them.
@@ -247,9 +250,9 @@ compares applied migrations by name only, so an applied migration file is never 
 `cf d1 migrations` is a preview command of the pinned beta cf; recheck this step when cf
 is updated. Only the activation is retried automatically, once; otherwise the next
 successful main CI run releases its revision if that is ahead of the live one, or re-run
-the failed main run's jobs. Routine
-releases never change the Custom Domain or other triggers; the bootstrap applies them
-once. The complete service release gates below remain planned, including automatic
+the failed main run's jobs. Routine releases now reconcile declared triggers from
+the same tested output as the Worker version, including the API Custom Domain.
+The complete service release gates below remain planned, including automatic
 promotion/failure acknowledgement.
 
 ## Extension releases
@@ -466,7 +469,8 @@ for the typed-config/test-harness compatibility gate.
    of it; concurrency does not guarantee source-revision ordering. Once mutation starts,
    finish/reconcile the release instead of cancelling it for a newer run. Provision the
    Worker/D1/routing and scoped credentials in a distinct initial bootstrap operation.
-   Keep bootstrap permissions separate from routine code releases; resource names,
+   Keep resource-creation permissions separate from routine releases; routine trigger
+   reconciliation needs the permissions for its declared attachments. Resource names,
    account IDs and pairing are M6 inputs. The D1 database was bootstrapped early, on
    2026-10-11, and its ID is in the config. The initial service bootstrap includes
    Access identity configuration and a verified device pairing/revocation flow. Do
@@ -481,8 +485,9 @@ for the typed-config/test-harness compatibility gate.
    ([compatibility before release](development.md#compatibility-before-release)).
 4. Use the owner's deployment action, pinned to a reviewed full commit SHA, with
    prebuilt output, matching production build/mode, exact Worker/account identity,
-   and the normal versions strategy. Routine releases do not update routing or
-   triggers implicitly. The action already supports cf; no action PR is planned.
+   and the normal versions strategy. Set `deploy-triggers: true` explicitly so the
+   same tested build also reconciles its declared routing and other triggers. Review
+   the complete trigger configuration whenever it changes.
 5. Require the action's exact deployment-ID readback plus hosted smoke tests:
    expected source revision, invalid-identity/device rejection, revoked-device
    rejection, tenant separation, D1 access, synthetic settings/recipe round trip,
@@ -611,8 +616,10 @@ Only then, in the owner's Chrome:
    `production` environment's `CLOUDFLARE_ACCOUNT_ID`. The same secret name in the
    separate environment does not reuse the service's production token.
 
-Later main pushes deploy through CI. Routine versions preserve the bootstrap
-routes with `deploy-triggers: false`. No token is created or read by a cloud agent.
+Later main pushes deploy through CI with `deploy-triggers: true`, reconciling the
+exact `/docs` and `/docs/*` routes from the tested build. Keep the docs credential
+separate from the API credential. The first authorized release verifies its
+effective route permissions through the actual production credential.
 
 ### Docs previews
 
@@ -623,7 +630,43 @@ privileged `pull_request_target` path, no fork previews and no automatic upload 
 code. After an owner decision, a separate preview workflow can use isolated docs-only
 credentials and preview hosting without changing the production routes.
 
-## Hostname maintenance
+## Routine trigger delivery
 
-See [hostname maintenance](hostname-maintenance.md) for the separate manual plan/apply
-workflow and its current permission limits.
+On 2026-11-11 the owner chose routine `deploy-triggers: true` for both API and
+docs releases instead of the separate manually dispatched hostname workflow from
+[PR #1439](https://github.com/risu729/pateat/pull/1439). That workflow, its scripts
+and its offline tests are removed. Both the first activation and its retry use the
+same trigger setting. The version upload, tested artifact, production locks,
+revision ordering, deployment readback and public checks retain their existing
+roles.
+
+The pinned CLI reconciles the complete trigger configuration, not only hostname
+attachments. The API declares the Custom Domain `pateat.takuk.me`; docs declares
+only the exact `/docs` and `/docs/*` routes, which retain precedence over the API
+without capturing `/docs-other`. The docs routes pin the existing `takuk.me` zone
+by ID, so reconciliation does not require a zone-name lookup. Both configurations
+disable workers.dev and
+preview URLs. Neither declares schedules, Queue consumers or Workflows. Any later
+addition to those trigger kinds is a release-affecting configuration change and
+needs review with the credential scope that authorizes it.
+
+The API and docs production credentials remain separate. The public Custom Domain
+PUT documents Workers Scripts Write, whereas the pinned CLI uses legacy
+script-scoped domain endpoints; neither the existing Individual Workers Editor
+grant nor a successful code deployment proves their effective authorization.
+Zone route writes require Workers Routes Write on `takuk.me`, already declared
+for the named docs token. A token name does not prove which credential GitHub holds;
+verify the actual authorized production deployment before claiming effective
+read/write access. If it fails for a missing permission, record the exact denied
+operation and make the necessary reviewed infrastructure policy change within the
+owner-approved scope. This workflow never expands permissions automatically. No DNS
+grant is inferred merely from the presence of a route.
+
+The four production action calls pin the reviewed domain-changeset safeguards from
+[deployment action PR #287](https://github.com/risu729/wrangler-deploy-action/pull/287).
+Merge that dependency with passing checks before this application change.
+
+Preparing this workflow change does not establish live trigger permissions or a
+successful production reconciliation. Completion requires the authorized production
+run to reconcile triggers successfully, read back the deployment, and pass the hosted
+API and docs checks; record those results with the release evidence.
