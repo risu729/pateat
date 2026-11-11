@@ -174,9 +174,9 @@ export function d1Backend(
             ],
             set: { judgedAt: now, verdict: null, inputs },
             // `is not` holds for a row kept without inputs too.
-            setWhere: sql`${inArray(pageJudgements.verdict, ["partial", "optional"])} or (${eq(
+            setWhere: sql`${inArray(pageJudgements.verdict, ["partial", "optional"])} or (${inArray(
               pageJudgements.verdict,
-              "challenge",
+              ["challenge", "unclear"],
             )} and ${pageJudgements.inputs} is not ${inputs})`,
           }),
         db
@@ -193,8 +193,8 @@ export function d1Backend(
             ),
           ),
       ]);
-      // An insert, or a retaken `partial` or `optional` row or `challenge` one of other
-      // inputs; none while another request's row is there.
+      // An insert, or a retaken `partial` or `optional` row or a `challenge` or `unclear`
+      // one of other inputs; none while another request's row is there.
       return taken.meta.changes === 1;
     },
     keepVerdict: async (key, verdict, inputs) => {

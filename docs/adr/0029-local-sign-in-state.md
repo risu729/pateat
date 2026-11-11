@@ -979,3 +979,34 @@ never after a step that asked for a passkey, so a watched `passkey` login still 
 watching such a page. "Another document" is not checked to be newer than the answer: a
 document the browser restores from its back-forward cache keeps its id, and a failure
 that showed in it before the answer would now reject.
+
+## Amendment: an undecided page is judged again for other inputs (2026-11-11)
+
+On EPOS Net (`www.eposcard.co.jp`) on 2026-11-11, in the owner's Chrome, two different
+pages showed on one path after the sign-in, `/memberservice/pc/login/login_dispatch.do`:
+at 11:59 UTC a page asking for the card's security code in a password input
+(`#input_pass`, `maxlength` 3; request `01a1ca79-e6f7-7550-ab15-77d1d15dced2`), and at
+12:53 UTC, after the browser's cookies for the site were cleared, an image puzzle the
+person drags into place (request `01a1caab-83a7-7145-b029-559c1e297ce4`). The puzzle's
+description held no input and none of its text, so the model gave no answer and the
+path's row of recipe `gen-6a05a91fa6e5134fb54971cee509bcab` revision 2 kept `unclear`. A
+kept `unclear` answers every later description of the path `already-judged`, which
+completes the login unconfirmed (amendment of 2026-10-14), so the security code page,
+once it showed again in that revision, would have completed the login unconfirmed with
+no model call and no `detail` handler, as the code page on Resend did under a kept
+`challenge` (amendment of 2026-11-06).
+
+A row kept `unclear` now answers `already-judged` only to a description with the same
+inputs, as a `challenge` row does: a description with other inputs, or any description
+when the row has no digest, is judged again, takes the day's slot, and keeps its own
+verdict and digest. A request judging it again that fails or is refused puts `unclear`
+back with the earlier digest; an undecided model keeps `unclear` for the new inputs.
+
+- A signed-in page whose inputs change from one login to the next, as one whose search
+  box's locator changes on each load, is judged on each such login, within the recipe's
+  20 judgements a day; one judged `signed-in` keeps its marker and is not judged again.
+- Every `unclear` row kept before 2026-11-06 holds no digest, so each such path is
+  judged again once.
+- Not chosen: judging every `unclear` row again (a model call on each login of an
+  undecided signed-in page) and comparing the whole description (any changing text
+  would do the same).
