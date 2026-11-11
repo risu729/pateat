@@ -4,21 +4,38 @@ import {
   type ModelConfig,
   type ModelRole,
 } from "@pateat/contracts";
-import { modelRates, type ModelRates, type InferenceOutcome } from "@pateat/inference";
+import {
+  claudeModelRates,
+  openAIModelRates,
+  type ClaudeRates,
+  type OpenAIRates,
+  type InferenceOutcome,
+} from "@pateat/inference";
 import type { ServedModel } from "./backend";
 
 // Which models a role asks, in order (ADR 0014, owner 2026-10-23 11:31 UTC), wherever the
 // call is made: the owner's choices on the service, the defaults on a device without one
 // (ADR 0040).
 
-/** A configured model to call, with the rates its speed is charged at. */
-export type RoleChoice = {
-  provider: ModelChoice["provider"];
+/** A configured model to call, with rates belonging to that provider. */
+type Choice = {
   modelId: string;
   effort: ModelChoice["effort"];
-  rates: ModelRates;
   speed: ModelChoice["speed"];
 };
+export type RoleChoice = Choice &
+  ({ provider: "anthropic"; rates: ClaudeRates } | { provider: "openai"; rates: OpenAIRates });
+
+function pricedChoice(
+  choice: Choice & { provider: ModelChoice["provider"] },
+): RoleChoice | undefined {
+  if (choice.provider === "openai") {
+    const rates = openAIModelRates(choice.modelId, choice.speed);
+    return rates === undefined ? undefined : { ...choice, provider: "openai", rates };
+  }
+  const rates = claudeModelRates(choice.modelId, choice.speed);
+  return rates === undefined ? undefined : { ...choice, provider: "anthropic", rates };
+}
 
 /**
  * The role's choices in order, each with its published rates. Fast mode on a model in
@@ -38,8 +55,13 @@ export function roleChoices(
         saved.speed === "fast" && fastFailing.has(`${saved.provider}:${saved.model}`)
           ? { ...saved, speed: "standard" as const }
           : saved;
-      const rates = modelRates(choice.provider, choice.model, choice.speed);
-      if (rates === undefined) {
+      const result = pricedChoice({
+        provider: choice.provider,
+        modelId: choice.model,
+        effort: choice.effort,
+        speed: choice.speed,
+      });
+      if (result === undefined) {
         console.warn("Configured model has no price", {
           role,
           provider: choice.provider,
@@ -48,15 +70,7 @@ export function roleChoices(
         });
         return [];
       }
-      return [
-        {
-          provider: choice.provider,
-          modelId: choice.model,
-          effort: choice.effort,
-          rates,
-          speed: choice.speed,
-        },
-      ];
+      return [result];
     });
   const choices = priced(config[role]);
   return choices.length > 0 ? choices : priced(defaults[role]);
@@ -68,8 +82,8 @@ const FAST_RETRY = new Set(["rate-limited", "provider-error", "timeout"]);
 /** A choice's calls in order: fast mode is followed by the same model at the standard speed. */
 export function choiceAttempts(choice: RoleChoice): RoleChoice[] {
   if (choice.speed !== "fast") return [choice];
-  const rates = modelRates(choice.provider, choice.modelId);
-  return rates === undefined ? [choice] : [choice, { ...choice, rates, speed: "standard" }];
+  const standard = pricedChoice({ ...choice, speed: "standard" });
+  return standard === undefined ? [choice] : [choice, standard];
 }
 
 export const servedModel = (choice: RoleChoice): ServedModel => ({
