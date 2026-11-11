@@ -1,5 +1,6 @@
 import {
   DEVICE_MODEL_URL,
+  OPENAI_DEVICE_MODEL_URL,
   isLoginRecipeDocument,
   type LoginObservation,
   type RecipeGenerationRequest,
@@ -26,6 +27,7 @@ import { createDeviceRecipes } from "./device-recipes";
 const KEY = "sk-ant-synthetic-0000-abcd";
 const SETTING: DeviceModelSetting = {
   version: 1,
+  provider: "anthropic",
   apiKey: KEY,
 };
 const page: LoginObservation = {
@@ -128,6 +130,7 @@ function setup(
   } = {},
 ) {
   const replies = [...(options.replies ?? [])];
+  const wire: Request[] = [];
   const sent: { apiKey: string | null; authorization: string | null; model: string }[] = [];
   const clefSent: { authorization: string | null }[] = [];
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -141,7 +144,10 @@ function setup(
       };
       return Response.json(clefAnswer(body.questions, options.clef.confidence ?? 0.9));
     }
-    if (outbound.url !== DEVICE_MODEL_URL) throw new Error("Unexpected request");
+    const openai = options.setting?.provider === "openai";
+    if (outbound.url !== (openai ? OPENAI_DEVICE_MODEL_URL : DEVICE_MODEL_URL))
+      throw new Error("Unexpected request");
+    wire.push(outbound.clone());
     const body = (await outbound.json()) as { model: string };
     sent.push({
       apiKey: outbound.headers.get("x-api-key"),
@@ -156,6 +162,32 @@ function setup(
         { type: "error", error: { type: "api_error", message: "synthetic" } },
         { status: reply },
       );
+    if (openai)
+      return Response.json({
+        id: "resp_synthetic",
+        model: body.model,
+        output: [
+          {
+            type: "message",
+            id: "msg_synthetic",
+            role: "assistant",
+            content:
+              typeof reply === "object"
+                ? [{ type: "refusal", refusal: "Synthetic refusal" }]
+                : [{ type: "output_text", text: reply, annotations: [] }],
+          },
+        ],
+        usage: {
+          input_tokens: 12_000,
+          output_tokens: 100,
+          input_tokens_details: {
+            cached_tokens: 4_000,
+            cache_write_tokens: 7_000,
+            cache_write_tokens_details: { ttl_30m_tokens: 3_000, ttl_12h_tokens: 4_000 },
+          },
+          output_tokens_details: { reasoning_tokens: 80 },
+        },
+      });
     return Response.json({
       id: "msg_synthetic",
       type: "message",
@@ -225,11 +257,89 @@ function setup(
     generation,
     recipes,
     sent,
+    wire,
     clefSent,
     spend: () => spend as DeviceModelSpend | undefined,
     record: () => record,
   };
 }
+
+describe("OpenAI generation on a device without a pairing", () => {
+  const setting: DeviceModelSetting = {
+    version: 1,
+    provider: "openai",
+    apiKey: "synthetic-openai-local-key",
+  };
+
+  it("generates locally through the actual Responses SDK with the provider's own defaults", async () => {
+    const { generation, recipes, sent, wire, record, spend } = setup({ setting, replies: [plan] });
+    const result = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    expect(result).toMatchObject({ kind: "result", result: { status: "recipe" } });
+    expect(sent).toEqual([
+      { apiKey: null, authorization: `Bearer ${setting.apiKey}`, model: "gpt-6.1-sol" },
+    ]);
+    expect(wire).toHaveLength(1);
+    expect(wire[0]!.url).toBe(OPENAI_DEVICE_MODEL_URL);
+    const body = await wire[0]!.json();
+    expect(body).toMatchObject({
+      model: "gpt-6.1-sol",
+      store: false,
+      service_tier: "default",
+      reasoning: { effort: "low" },
+    });
+    expect(body.reasoning).not.toHaveProperty("summary");
+    expect(body).not.toHaveProperty("tools");
+    expect(spend()?.dayMicroUsd).toBe(30_900);
+    expect(JSON.stringify([result, await recipes.list(), record(), spend()])).not.toContain(
+      setting.apiKey,
+    );
+    expect(await recipes.list()).toHaveLength(1);
+  });
+
+  it("falls back from Sol to Terra after refusal with the same OpenAI credential", async () => {
+    const { generation, sent } = setup({ setting, replies: [{ refusal: "synthetic" }, plan] });
+    expect(await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request)).toMatchObject({
+      kind: "result",
+      result: { status: "recipe" },
+    });
+    expect(sent.map((entry) => [entry.model, entry.authorization, entry.apiKey])).toEqual([
+      ["gpt-6.1-sol", `Bearer ${setting.apiKey}`, null],
+      ["gpt-6.1-terra", `Bearer ${setting.apiKey}`, null],
+    ]);
+  });
+
+  it("returns a provider failure without trying Anthropic or writing a recipe", async () => {
+    const { generation, recipes, sent } = setup({ setting, replies: [429] });
+    expect(await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request)).toMatchObject({
+      kind: "result",
+      result: { status: "failed", error: "rate-limited" },
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.model).toBe("gpt-6.1-sol");
+    expect(await recipes.list()).toEqual([]);
+  });
+
+  it.each([0.9, 0.6])(
+    "preserves independent Clef first choice at confidence %s",
+    async (confidence) => {
+      const { generation, sent, clefSent } = setup({
+        setting,
+        replies: [plan],
+        clef: { setting: CLEF, confidence },
+      });
+      expect(await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request)).toMatchObject({
+        kind: "result",
+        result: { status: "recipe" },
+      });
+      expect(clefSent).toHaveLength(2);
+      expect(clefSent.every((entry) => entry.authorization === `Bearer ${CLEF.apiToken}`)).toBe(
+        true,
+      );
+      expect(sent).toHaveLength(confidence === 0.9 ? 0 : 1);
+      if (sent.length) expect(sent[0]?.model).toBe("gpt-6.1-sol");
+    },
+  );
+});
 
 describe("generation on a device without a pairing (ADR 0040)", () => {
   it("generates a recipe with this device's key and keeps it here", async () => {
