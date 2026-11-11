@@ -452,37 +452,15 @@ const fillSettleMs = 500;
 const offerQuietMs = 1000;
 const offerWaitMs = 5000;
 /**
- * What the page watch observes, in the document and in each shadow tree: only attributes
- * that can change whether a target matches, shows or accepts input.
+ * What the page watch observes, in the document and in each shadow tree: every node,
+ * text and attribute change. Any attribute can affect a target's name or visibility,
+ * including through the page's CSS selectors; checks keep their existing throttle.
  */
 const pageWatch: MutationObserverInit = {
   subtree: true,
   childList: true,
-  // Button text locators also depend on text, `value`, `alt` and hidden subtrees.
   characterData: true,
   attributes: true,
-  attributeFilter: [
-    "id",
-    "name",
-    "data-testid",
-    "data-test",
-    "type",
-    "autocomplete",
-    "hidden",
-    "style",
-    "class",
-    "open",
-    "disabled",
-    "readonly",
-    "value",
-    "alt",
-    "aria-hidden",
-    "aria-disabled",
-    "inert",
-    "role",
-    "onclick",
-    "href",
-  ],
 };
 /**
  * A fill compared with the account the page shows, while the page shows no identifier
