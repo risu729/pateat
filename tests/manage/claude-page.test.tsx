@@ -48,6 +48,11 @@ function stateOf(
 function mockClient(initial: ManageClaude = stateOf(null)) {
   let state = initial;
   return {
+    loginHistory: vi.fn<ManageClient["loginHistory"]>(async () => ({
+      version: 1,
+      entries: [],
+      next: null,
+    })),
     dashboard: vi.fn<ManageClient["dashboard"]>(),
     devices: vi.fn<ManageClient["devices"]>(async () => ({ version: 1, devices: [] })),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),

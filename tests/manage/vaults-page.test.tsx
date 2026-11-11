@@ -33,6 +33,11 @@ const PROFILE = "00000000-0000-4000-8000-000000000001";
 
 function mockClient(state: SyncSettingsState) {
   return {
+    loginHistory: vi.fn<ManageClient["loginHistory"]>(async () => ({
+      version: 1,
+      entries: [],
+      next: null,
+    })),
     dashboard: vi.fn<ManageClient["dashboard"]>(),
     profileId: PROFILE,
     selectProfile: vi.fn<ManageClient["selectProfile"]>(),

@@ -12,6 +12,11 @@ const NOW = Date.UTC(2026, 9, 18, 12);
 
 function mockClient() {
   return {
+    loginHistory: vi.fn<ManageClient["loginHistory"]>(async () => ({
+      version: 1,
+      entries: [],
+      next: null,
+    })),
     dashboard: vi.fn<ManageClient["dashboard"]>(async (range) => ({
       ...syntheticDashboard(NOW),
       range,
