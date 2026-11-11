@@ -309,6 +309,8 @@ export function SettingsApp({
     form.setFieldValue("allowedSites", value.allowedSites);
     form.setFieldValue("allowedSitesEnabled", value.allowedSitesEnabled);
     form.setFieldValue("siteDefaults", value.siteDefaults);
+    form.setFieldValue("pagePermissionDefaults", value.pagePermissionDefaults);
+    form.setFieldValue("sitePagePermissions", value.sitePagePermissions);
     form.setFieldValue("bindings", value.bindings);
     form.setFieldValue("detailLinks", value.detailLinks);
     form.setFieldValue("loginInPrivateWindows", value.loginInPrivateWindows);
@@ -399,6 +401,8 @@ export function SettingsApp({
     form.setFieldValue("allowedSites", next.allowedSites);
     form.setFieldValue("allowedSitesEnabled", next.allowedSitesEnabled);
     form.setFieldValue("siteDefaults", next.siteDefaults);
+    form.setFieldValue("pagePermissionDefaults", next.pagePermissionDefaults);
+    form.setFieldValue("sitePagePermissions", next.sitePagePermissions);
     form.setFieldValue("bindings", next.bindings);
     form.setFieldValue("detailLinks", next.detailLinks);
     form.setFieldValue("loginInPrivateWindows", next.loginInPrivateWindows);
