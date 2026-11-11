@@ -14,7 +14,7 @@ about this policy can be sent to [pateat@takuk.me](mailto:pateat@takuk.me).
 Pateat has no analytics, advertising or tracking, and the developer receives no data
 from the extension. Data leaves your device only to reach the services below: your
 Bitwarden server, the Pateat service you pair with, which runs on Cloudflare and uses
-Anthropic's Claude, Anthropic directly if you save your own Anthropic API key, and the
+Anthropic or OpenAI, the selected provider directly if you save an AI key, and the
 websites you log in to.
 
 ## On your device
@@ -33,11 +33,12 @@ read it, and removing the extension deletes it.
   master password. Your master password and verification codes are never stored. When
   you unlock a vault, or enter the master password for an item marked with re-prompt,
   Pateat checks it on your device and sends it nowhere.
-- **Your Anthropic API key**, if you save one, with what it spent today and this month.
-  It is stored without encryption and sent only to Anthropic.
+- **Your AI provider's API key**, if you save one, with what it spent today and this
+  month. It is stored without encryption and sent only to its selected provider,
+  Anthropic or OpenAI.
 - **Recipes written on this device** while no service is paired, and, for its own
-  requests to Claude, which pages it asked about and when, so that it keeps to the same
-  retry and judgement limits as the service.
+  requests to the selected provider, which pages it asked about and when, so that it
+  keeps to the same retry and judgement limits as the service.
 - **Each connection's details**: its name, the Bitwarden server, your email address and
   the device identifier Pateat uses with Bitwarden.
 - **Settings and recipes** synced with your Pateat service, among them the item and
@@ -50,7 +51,7 @@ read it, and removing the extension deletes it.
 - **Export files**, only when you export: Pateat saves the file where Chrome saves
   downloads. It holds what your Pateat service would keep of the settings, with the
   names of vault accounts and items, and the recipes, never vault keys or values, the
-  service's sign-in or your Anthropic API key. Pateat sends it nowhere; an imported file
+  service's sign-in or your AI key. Pateat sends it nowhere; an imported file
   is read on the device it is imported on.
 - **A diagnostics log** of what Pateat did, for bug reports. It records sites, page
   addresses with their parameter names but not their values, and tab IDs, and never
@@ -177,12 +178,12 @@ while they are off is sent later.
 The service stores the recipes it writes, with which model wrote each part, when, and
 from which device's request, until that part is removed. It removes a recipe, or one of
 its alternative layouts, that has not been used for 90 days, and keeps a record that a
-removed recipe existed. It keeps the page descriptions it receives, with Claude's answer
-when Claude was asked, the login records and the problem reports, to show you on its
-dashboard, to evaluate and improve recipe writing, and to find and fix Pateat's
+removed recipe existed. It keeps the page descriptions it receives, with the model's
+answer when a model was asked, the login records and the problem reports, to show you on
+its dashboard, to evaluate and improve recipe writing, and to find and fix Pateat's
 failures. These are kept for one year. There is no scheduled removal: older entries are
 removed when a later page description, login record, problem report or recipe sync
-reaches the service. It also keeps, for each page Claude judged, the site, the page's
+reaches the service. It also keeps, for each page a model judged, the site, the page's
 path, when and with what result, until the site's recipe changes; and, for ten minutes,
 the site and path of each recipe it was asked to write, to avoid writing the same one
 twice.
@@ -205,12 +206,12 @@ keeps the service's request logs, with the query part of each address removed.
 
 ## Anthropic
 
-To write a recipe or judge a login, your Pateat service sends the page description and
-what the login needs from your vault, as above, to Claude, Anthropic's AI model, using
-the Claude credentials its owner set up, under the terms of that owner's Anthropic
-account. The owner chooses the Claude model on the
-service's **Claude** page; without a choice the service uses Claude Opus 5.5, and asks
-Claude Sonnet 5.5 once when Opus 5.5 declines a request.
+When Anthropic is selected, to write a recipe or judge a login, your Pateat service
+sends the page description and what the login needs from your vault, as above, to
+Claude, Anthropic's AI model, using the Claude credentials its owner set up, under the
+terms of that owner's Anthropic account. The owner chooses the model on the service's
+**Claude** or **OpenAI** page; without a choice the service uses Claude Opus 5.5, and
+asks Claude Sonnet 5.5 once when Opus 5.5 declines a request.
 
 If you saved an Anthropic API key on your device, the service instead hands the request
 it wrote back to the extension, which sends it to Anthropic with your key, and sends
@@ -224,6 +225,28 @@ to Anthropic with your key, using Claude Opus 5.5 and, when it declines, Claude 
 
 Pateat never sends Anthropic vault values, login records, problem reports or the
 signed-in pages sent once every 30 days.
+
+## OpenAI
+
+When OpenAI is selected, the service sends the same sanitized page description and
+vault field requirements to OpenAI using the key saved for your account on the
+service. That key is encrypted in the service's database. Management pages show
+whether it is configured, never its value; **Remove key** on the **OpenAI** page
+removes it. The service operator controls the encryption key and can access the key.
+
+With an OpenAI key saved on your device, a paired service instead gives the extension
+the request to send directly to OpenAI. Only the response returns to the service; the
+key never does. Without pairing, the extension writes the request itself and keeps
+the recipe here. The device defaults are GPT-6.1 Sol and, when it declines, GPT-6.1
+Terra, with low reasoning effort and standard speed.
+
+Pateat does not send OpenAI vault values, login records, problem reports or the
+signed-in pages sent once every 30 days. It disables response storage, but that does
+not mean OpenAI retains no data. OpenAI's
+[data controls](https://developers.openai.com/api/docs/guides/your-data)
+describe abuse-monitoring retention, normally up to 30 days, exceptions and account
+controls, and prompt-cache retention. API data is not used for training unless you
+opt in. These requests follow the terms of the account that owns the key.
 
 ## The websites you log in to
 
@@ -259,12 +282,12 @@ there.
   from syncing but keeps its record. These have no delete control: personal-detail
   links, device records, deleted profiles' names, the records of judged pages and recipe
   repairs, the record of which model wrote each recipe part, and the record of spending
-  on Claude. The service's owner can delete them from its database.
-- **Your Anthropic API key**: **Remove key** on the settings page deletes the key from
-  your device; its spend count stays until you remove the extension.
+  on inference. The service's owner can delete them from its database.
+- **Your AI provider's API key**: **Remove key** on the settings page deletes the key
+  from your device; its spend count stays until you remove the extension.
 - **On a lost device**: revoking it on the service stops it from reaching the service,
   but cannot erase the vault copy, unlock key and recipes already on it.
-- **At Bitwarden, Cloudflare and Anthropic**: under their own policies.
+- **At Bitwarden, Cloudflare, Anthropic and OpenAI**: under their own policies.
 
 ## Chrome Web Store Limited Use
 
@@ -282,9 +305,9 @@ requirements. In particular:
   personal details, other vault fields and passkey signatures to the site you log in
   to; settings, page descriptions, login records and problem reports to the Pateat
   service you paired with, which runs on Cloudflare; and page descriptions, with the
-  names of custom fields and the shape of usernames and text fields, to Anthropic,
-  through that service or, with your own Anthropic API key, directly from your
-  device.
+  names of custom fields and the shape of usernames and text fields, to the selected
+  provider, Anthropic or OpenAI, through that service or, with your own API key,
+  directly from your device.
 - It does not sell user data, does not use or transfer it for advertising, and does not
   use or transfer it to determine creditworthiness or for lending.
 - The developer receives and reads no data from other people's use of Pateat. A Pateat

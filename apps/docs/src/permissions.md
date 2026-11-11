@@ -5,8 +5,8 @@ its manifest and what Pateat does with it.
 
 | Permission | What Pateat uses it for |
 | --- | --- |
-| Access to all sites (`https://*/*` and `http://*/*`) | Finding and completing login pages, answering passkey requests, and reaching your Bitwarden server, Pateat service and, with your own key, Anthropic's API |
-| `storage` | Keeping its settings, recipe copy, vault connection records, service pairing and Anthropic API key in Chrome |
+| Access to all sites (`https://*/*` and `http://*/*`) | Finding and completing login pages, answering passkey requests, and reaching your Bitwarden server, Pateat service and, with your own key, Anthropic's or OpenAI's API |
+| `storage` | Keeping its settings, recipe copy, vault connection records, service pairing and selected AI provider's API key in Chrome |
 | `offscreen` | Running the Bitwarden SDK in a hidden extension page, where it decrypts the vault and signs passkey requests |
 | `alarms` | Checking every 5 minutes, even while its service worker sleeps, whether the vault is due to sync again, and ending a vault timeout |
 | `idle` | Locking the vaults, or logging out, when the computer goes idle or is locked, if you chose that [vault timeout](./setup.md#vault-timeout); Chrome shows no warning for it |
@@ -53,8 +53,9 @@ compares the tab's address with your vault on your device. That needs no recipe,
 nothing, and also happens on sites you paused.
 
 The same access lets Pateat reach your Bitwarden server, your Pateat service and, when
-you saved an [AI key](./setup.md#ai-key), Anthropic's API
-(`https://api.anthropic.com/v1/messages`). Pateat calls only the fixed endpoints it
+you saved an [AI key](./setup.md#ai-key), the selected provider's API:
+Anthropic (`https://api.anthropic.com/v1/messages`) or OpenAI
+(`https://api.openai.com/v1/responses`). Pateat calls only the fixed endpoints it
 needs there: on Bitwarden, those of the server you chose.
 
 ## Plain HTTP pages

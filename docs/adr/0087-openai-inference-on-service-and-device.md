@@ -4,10 +4,11 @@ Status: accepted by the owner on 2026-11-11, recorded at 12:03 UTC. The owner as
 「openai
 apiにサーバー側でもクライアント側でも対応するPR作って。必要なら分割してstackして。実APIに向けた検証は今はやらなくてよくて、issueにやることって書いておいて」.
 OpenAI support and splitting the work into dependent PRs are authorized; the
-implementation details below were chosen by an agent. Shared inference support is
-implemented first; service and extension integration are dependent changes. Actual API
-verification is deferred to
-[the verification issue](https://github.com/risu729/pateat/issues/1465). Amends
+implementation details below were chosen by an agent. Shared inference, service
+credentials and relay, and extension integration are implemented in dependent changes.
+Validation uses synthetic credentials and mocked HTTP; actual API verification is
+deferred to [the verification issue](https://github.com/risu729/pateat/issues/1465).
+Amends
 [ADR 0014](0014-claude-generation-provider.md),
 [ADR 0015](0015-per-owner-claude-credentials.md),
 [ADR 0040](0040-running-without-the-service.md) and

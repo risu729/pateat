@@ -104,12 +104,12 @@ already on it.
 The service is a small Cloudflare Worker. Its pairing and management pages are behind
 Cloudflare Access; the extension reaches it with its device credential. It stores your
 settings profiles, which vault field fills which part of each site's login, and recipes,
-and writes a recipe with Claude for a login page that has none. It also keeps, for one
+and writes a recipe with Anthropic or OpenAI for a login page that has none. It also keeps, for one
 year, the page descriptions it receives, a record of each login that followed a recipe
 and the problems the extension reports; the
 [privacy policy](./privacy.md#your-pateat-service) lists them. It never receives vault
 values or keys. Its pages are **Dashboard**, **Sites**, **Profiles**, **Devices**,
-**Claude** (its Claude credentials and which models to use), **Problems** (the warnings,
+**Claude** (Claude credentials), **OpenAI** (an OpenAI API key), **Problems** (the warnings,
 errors and reasons for doing nothing that devices reported) and **Request log**. On
 **Request log**, **Login history** lists the login records already held by your service.
 Filter by **Site** (such as `https://example.com`; a path is ignored) and **Result**,
@@ -118,13 +118,19 @@ then choose **Apply filters**; the count above the list names the filters it fol
 record's **Details** for its recipe, result code and recorded times. Network time is
 part of the service time. **Delete all** deletes the stored request logs, login records
 and problem reports.
+The Claude and OpenAI pages also let you choose the models. An OpenAI
+key saved on the service is encrypted and belongs to your signed-in account; you can
+replace or remove it on its **OpenAI** page. The service operator must first configure
+its encryption key, as described in the
+[service guide](https://github.com/risu729/pateat/blob/main/services/api/README.md#openai-credentials).
 
 Today each service is run by its owner for themselves: the service at `pateat.takuk.me`
 belongs to Pateat's developer and is not open to other people. A service accepts
 pairing only from the extension IDs its operator lists, so running your own means
 listing Pateat's ID, or the ID of your own build if you sign it with your own key. The
 [development guide](https://github.com/risu729/pateat/blob/main/docs/development.md#extension-id)
-describes both. Writing recipes on a device that is not paired is planned.
+describes both. A device can also write recipes without pairing when you save an
+[AI key](#ai-key) on it.
 
 ## More settings
 
@@ -177,15 +183,20 @@ account you pick there still logs in. The choice is part of the settings profile
 
 ### AI key
 
-Under **AI key**, you can save an **Anthropic API key** from the Claude Console. While
-this device is paired, it asks Claude with this key instead of the service's
-credentials: the service writes each request, and the extension sends it to Anthropic
-itself. The key stays on this device and is sent to Anthropic only, never to the
-service. While no service is paired, the extension writes recipes with this key itself,
-with Claude's default models, and keeps them on this device. **Daily limit (USD)** and
-**Monthly limit (USD)**, $5 and $100 unless you change them, stop requests at either
-limit. The limits are synced with your other settings, so they apply on all your
-devices, and each device counts its own key's spend. **Remove key** deletes the key.
+Under **AI key**, choose **Anthropic** or **OpenAI** and save that provider's API key.
+While this device is paired, the service writes each request and the extension sends
+it to the selected provider with this key. The key stays on this device and is sent
+only to that provider, never to the service. Choosing a different provider does not
+reuse the saved key: save a key for the new provider first.
+
+Without a paired service, the extension writes recipes itself and keeps them here.
+Anthropic uses Claude Opus 5.5 with Claude Sonnet 5.5 as its fallback; OpenAI uses
+GPT-6.1 Sol with GPT-6.1 Terra as its fallback, at low reasoning effort and standard
+speed. A paired service's model choices apply only within the saved key's provider.
+**Daily limit (USD)** and **Monthly limit (USD)**, $5 and $100 unless you change them,
+stop requests at either limit. The limits sync with your settings; each device counts
+its own estimated spending. Replacing a key or changing providers keeps that total.
+**Remove key** deletes the key.
 
 ### Export and import
 
@@ -206,10 +217,10 @@ holds. Save or reload the settings page before you import.
 
 Once both steps are done, open the login page of a site that has an item in your vault.
 Pateat logs in when the site has a recipe for that page. When it has none, Pateat sends
-a sanitized description of the page to the service, and a recipe is written with
-Claude. That needs an [AI key](#ai-key) on this device or Claude credentials set up on
-the service, as the
-[service guide](https://github.com/risu729/pateat/blob/main/services/api/README.md#claude-credentials)
+a sanitized description of the page to the service, and a recipe is written with the
+selected provider. That needs an [AI key](#ai-key) on this device or credentials for
+that provider on the service, as the
+[service guide](https://github.com/risu729/pateat/blob/main/services/api/README.md)
 describes; without either, the service still keeps the description it received.
 
 The toolbar popup shows what Pateat did on the current page, unless you uncheck
