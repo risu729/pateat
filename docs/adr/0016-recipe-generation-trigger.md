@@ -470,10 +470,15 @@ Conditions 1, 2 and 4, and the input being the page's only text-like one of type
 still apply.
 
 Known costs: on a site with a matching item, a lone input labelled with another number,
-such as a reservation number, is sent too, and the AI abstains or labels it;
-a nearby heading such as `ログイン` above an unlabelled lone input now makes it an
-identifier input. A site whose number page and password page are on two origins, as
-Mizuho Direct's `web.ib` and `web2.ib` are, logs in as two attempts: the first ends
+such as a reservation number, is sent too, and the AI abstains or labels it; a nearby
+heading such as `ログイン` above an unlabelled lone input now makes it an identifier
+input. A site whose number page and password page are on two origins, as Mizuho Direct's
+`web.ib` and `web2.ib` or `web4.ib` are, logs in as two attempts: the first ends
 `left-origin` after its `advance` click (ADR 0018), which shows the unknown badge, and
-the second starts on the password page; with several matching items and no default,
-the account is asked for on each origin.
+the second starts on the password page; with several matching items and no default, the
+account is asked for on each origin.
+
+Verified in the owner's Chrome on 2026-11-11 (build `84c64dd5`): Mizuho Direct's
+customer number was filled and 次へ pressed on `web.ib`, the password page opened on
+`web4.ib`, its password was filled and the login ended `authenticated` (11:15:17 UTC,
+`personMs` 0).
