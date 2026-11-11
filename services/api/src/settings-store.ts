@@ -143,13 +143,7 @@ export async function writeSettings(
   /** `current` is missing when the profile was deleted meanwhile. */
   | { ok: false; current: SyncSettingsState | undefined }
 > {
-  // A write without `detailLinks` keeps the stored ones: the key is optional, so a client
-  // that predates it (or leaves it out) must not delete every device's links. They are
-  // read at the expected revision; any later write changes the revision, so the batch
-  // below then loses its compare-and-swap and stores nothing.
-  const settings = write.settings.detailLinks
-    ? write.settings
-    : await withStoredDetailLinks(db, ownerId, write.expectedRevision, write.settings);
+  const settings = write.settings;
   // Both statements use the exact same compare-and-swap predicate. The profile write
   // runs first; changes() gates the revision write so losing writers update neither, and
   // the revision write's changes() gates the writing device's record of it (`written`).
@@ -213,21 +207,4 @@ export async function writeSettings(
       ...(writer === null || write.writeId === undefined ? {} : { written: write.writeId }),
     },
   };
-}
-
-/** `settings` with the owner's stored detail links at `revision`, when it has any. */
-async function withStoredDetailLinks(
-  db: D1Database,
-  ownerId: string,
-  revision: number,
-  settings: LocalSettings,
-): Promise<LocalSettings> {
-  const row = await db
-    .prepare("SELECT document FROM settings WHERE owner_id = ? AND revision = ?")
-    .bind(ownerId, revision)
-    .first<{ document: string }>();
-  const stored: Partial<ReturnType<typeof ownerDocument>> | undefined = row
-    ? JSON.parse(row.document)
-    : undefined;
-  return stored?.detailLinks ? { ...settings, detailLinks: stored.detailLinks } : settings;
 }
