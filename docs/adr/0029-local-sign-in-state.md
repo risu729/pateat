@@ -1000,7 +1000,9 @@ A row kept `unclear` now answers `already-judged` only to a description with the
 inputs, as a `challenge` row does: a description with other inputs, or any description
 when the row has no digest, is judged again, takes the day's slot, and keeps its own
 verdict and digest. A request judging it again that fails or is refused puts `unclear`
-back with the earlier digest; an undecided model keeps `unclear` for the new inputs.
+back with the earlier digest, and so does a request that throws, as when a database
+write during the call fails; an undecided model keeps `unclear` for the new inputs, or
+`partial` on a description that left out a disabled field.
 
 - A signed-in page whose inputs change from one login to the next, as one whose search
   box's locator changes on each load, is judged on each such login, within the recipe's

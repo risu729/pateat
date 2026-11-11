@@ -3508,13 +3508,28 @@ describe("page judgement (ADR 0027)", () => {
       error: "provider-error",
     });
     expect(await kept()).toEqual([{ verdict: "unclear", inputs: await judgedInputs(puzzle) }]);
-    replies.push(judgeReply({ decision: "challenge" }));
+    // The model is undecided again: the row stays `unclear`, now for these inputs.
+    replies.push({ text: JSON.stringify({ result: { decision: "unclear" } }) });
     expect((await complete(device, change.recipeId, 2, code)).body).toEqual({
+      version: 1,
+      status: "unclear",
+    });
+    expect(await kept()).toEqual([{ verdict: "unclear", inputs: await judgedInputs(code) }]);
+    const judged = sent.length;
+    expect((await complete(device, change.recipeId, 2, code)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "already-judged",
+    });
+    expect(sent).toHaveLength(judged);
+    // The puzzle shows again and is judged a challenge this time.
+    replies.push(judgeReply({ decision: "challenge" }));
+    expect((await complete(device, change.recipeId, 2, puzzle)).body).toEqual({
       version: 1,
       status: "challenge",
     });
-    expect(sent).toHaveLength(calls + 2);
-    expect(await kept()).toEqual([{ verdict: "challenge", inputs: await judgedInputs(code) }]);
+    expect(sent).toHaveLength(judged + 1);
+    expect(await kept()).toEqual([{ verdict: "challenge", inputs: await judgedInputs(puzzle) }]);
   });
 
   describe("a page of another origin of the site (ADR 0022)", () => {

@@ -285,13 +285,28 @@ export async function judgeCompletion(
   /**
    * The verdict of a row this request took for other inputs, `challenge` or `unclear`:
    * until the new verdict is written the row has none, so a request that ends without one
-   * puts it back with its earlier inputs, and an undecided one keeps `challenge`. The
-   * page was a step the person takes, and a row left without a verdict, or `unclear`,
-   * would never be judged again for the revision.
+   * puts it back with its earlier inputs. An undecided answer on a retaken `challenge`
+   * keeps `challenge`: the page was a step the person takes, and a row left without a
+   * verdict, or `unclear`, would never be judged again for the revision.
    */
   let retaken: "challenge" | "unclear" | undefined;
   let kept: KeptJudgement | undefined;
-  const call = await backend.call({
+  // The verdict goes on the path's row, which tells a later login of the revision what
+  // the page was (ADR 0029). A row left without one never completes a login, so a failed
+  // write only costs that.
+  const keepVerdict = async (verdict: PageJudgementVerdict, keptInputs?: string | null) => {
+    try {
+      await backend.keepVerdict(judgedPage, verdict, keptInputs);
+    } catch {
+      console.warn("Page judgement verdict not kept", { recipeId, verdict });
+    }
+  };
+  // A retaken `challenge` or `unclear` row whose request failed keeps its verdict and its
+  // earlier inputs, so a later login of the new ones judges the page again.
+  const keepRetaken = async () => {
+    if (retaken) await keepVerdict(retaken, kept?.inputs ?? null);
+  };
+  const judging = backend.call({
     ...logged(loginPaths),
     device: request.deviceModel,
     // Each revision, origin and path is judged once per judge prompt version, and a recipe
@@ -341,21 +356,12 @@ export async function judgeCompletion(
       }),
     logValue: (judgement) => judgement,
   });
-  // The verdict goes on the path's row, which tells a later login of the revision what
-  // the page was (ADR 0029). A row left without one never completes a login, so a failed
-  // write only costs that.
-  const keepVerdict = async (verdict: PageJudgementVerdict, keptInputs?: string | null) => {
-    try {
-      await backend.keepVerdict(judgedPage, verdict, keptInputs);
-    } catch {
-      console.warn("Page judgement verdict not kept", { recipeId, verdict });
-    }
-  };
-  // A retaken `challenge` or `unclear` row whose request failed keeps its verdict and its
-  // earlier inputs, so a later login of the new ones judges the page again.
-  const keepRetaken = async () => {
-    if (retaken) await keepVerdict(retaken, kept?.inputs ?? null);
-  };
+  // A request that throws, as when a database write during the call fails, leaves no
+  // retaken row unanswered for good.
+  const call = await judging.catch(async (error: unknown) => {
+    await keepRetaken();
+    throw error;
+  });
   if (call.status === "unavailable") {
     await keepRetaken();
     return unsent(unavailable(call.reason), loginPaths);
