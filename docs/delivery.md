@@ -662,11 +662,19 @@ operation and make the necessary reviewed infrastructure policy change within th
 owner-approved scope. This workflow never expands permissions automatically. No DNS
 grant is inferred merely from the presence of a route.
 
-The four production action calls pin the reviewed domain-changeset safeguards from
-[deployment action PR #287](https://github.com/risu729/wrangler-deploy-action/pull/287).
-Merge that dependency with passing checks before this application change.
+The four production action calls retain the reviewed domain-changeset safeguards from
+[deployment action PR #287](https://github.com/risu729/wrangler-deploy-action/pull/287)
+and pin v3.0.2 with the bounded diagnostics from
+[deployment action PR #290](https://github.com/risu729/wrangler-deploy-action/pull/290).
+A failed changeset request reports only numeric HTTP status and Cloudflare error
+codes, without response bodies or credentials. The guard and permission policy are
+unchanged; diagnostics classify the failure before any permission change is proposed.
 
-Preparing this workflow change does not establish live trigger permissions or a
-successful production reconciliation. Completion requires the authorized production
-run to reconcile triggers successfully, read back the deployment, and pass the hosted
-API and docs checks; record those results with the release evidence.
+The first
+[main run after PR #1484](https://github.com/risu729/pateat/actions/runs/43042666497)
+passed every test job and deployed the docs successfully. The API release stopped before
+version upload at the Custom Domain guard with `domain_guard_response_failed`; the
+previous action did not expose enough detail to classify the HTTP failure. Effective API
+trigger permissions remain unverified. Completion requires an authorized production run
+to reconcile API triggers, read back the deployment, and pass the hosted API checks;
+record those results with the release evidence.

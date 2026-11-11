@@ -262,7 +262,7 @@ jobs:
         if: ${{ steps.source.outputs.release == 'true' }}
         id: deploy
         continue-on-error: true
-        uses: risu729/wrangler-deploy-action@1ba26ce11cbfadc9ef193b5b2187e8dcb18cdd2d # v3.0.1
+        uses: risu729/wrangler-deploy-action@6bb27960f8e904e4961616a5b02e529df3a5a702 # v3.0.2
         with:
           mode: production
           working-directory: services/api
@@ -275,7 +275,7 @@ jobs:
       - name: Activate the exact prebuilt server again after a failed activation
         if: ${{ steps.source.outputs.release == 'true' && steps.deploy.outcome == 'failure' }}
         id: deploy-retry
-        uses: risu729/wrangler-deploy-action@1ba26ce11cbfadc9ef193b5b2187e8dcb18cdd2d # v3.0.1
+        uses: risu729/wrangler-deploy-action@6bb27960f8e904e4961616a5b02e529df3a5a702 # v3.0.2
         # The same inputs as the first activation.
         with:
           mode: production
@@ -356,7 +356,7 @@ jobs:
         if: ${{ steps.source.outputs.release == 'true' }}
         id: deploy
         continue-on-error: true
-        uses: risu729/wrangler-deploy-action@1ba26ce11cbfadc9ef193b5b2187e8dcb18cdd2d # v3.0.1
+        uses: risu729/wrangler-deploy-action@6bb27960f8e904e4961616a5b02e529df3a5a702 # v3.0.2
         with:
           mode: production
           working-directory: apps/docs
@@ -369,7 +369,7 @@ jobs:
       - name: Activate the exact prebuilt docs again after a failed activation
         if: ${{ steps.source.outputs.release == 'true' && steps.deploy.outcome == 'failure' }}
         id: deploy-retry
-        uses: risu729/wrangler-deploy-action@1ba26ce11cbfadc9ef193b5b2187e8dcb18cdd2d # v3.0.1
+        uses: risu729/wrangler-deploy-action@6bb27960f8e904e4961616a5b02e529df3a5a702 # v3.0.2
         # The same inputs as the first activation.
         with:
           mode: production
