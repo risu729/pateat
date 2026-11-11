@@ -236,7 +236,7 @@ test("switching providers clears only the draft and never reinterprets the saved
     spentMonthUsd: 2,
   });
   await mount(client);
-  const selector = page.getByLabelText("Text model provider", { exact: true });
+  const selector = page.getByRole("combobox", { name: "Text model provider", exact: true });
   await expect
     .element(page.getByLabelText("Replace the Anthropic API key", { exact: true }))
     .toHaveAttribute("placeholder", "••••wxyz");
