@@ -124,6 +124,31 @@ function memoryBridge() {
   return { bridge: methods as unknown as Sdk.WasmStateBridge, values };
 }
 
+/** Whether the master password unwraps the account's user key; a wrong one fails authentication. */
+function masterPasswordOpens(
+  sdk: LocalCryptoSdk,
+  unlock: {
+    password: string;
+    masterPasswordUnlock: {
+      masterKeyWrappedUserKey: string;
+      salt: string;
+      kdf: Parameters<LocalCryptoSdk["PureCrypto"]["decrypt_user_key_with_master_password"]>[3];
+    };
+  },
+): boolean {
+  try {
+    sdk.PureCrypto.decrypt_user_key_with_master_password(
+      unlock.masterPasswordUnlock.masterKeyWrappedUserKey,
+      unlock.password,
+      unlock.masterPasswordUnlock.salt,
+      unlock.masterPasswordUnlock.kdf,
+    ).fill(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Local-only account initialization. Authentication, migrations and persisted unlock are separate gates. */
 export async function createLocalCryptoSession(
   input: unknown,
@@ -240,24 +265,34 @@ export async function createLocalCryptoSession(
     bridge.register_bridge_impl(memory.bridge);
     const crypto = client.crypto();
     handles.push(crypto);
-    await crypto.initialize_user_crypto({
-      userId: options.userId as unknown as Sdk.UserId,
-      email: options.email,
-      kdfParams: options.kdf,
-      accountCryptographicState:
-        options.accountCryptographicState as Sdk.WrappedAccountCryptographicState,
-      method:
-        options.unlock.kind === "password"
-          ? {
-              masterPasswordUnlock: {
-                password: options.unlock.password,
-                master_password_unlock: options.unlock
-                  .masterPasswordUnlock as Sdk.MasterPasswordUnlockData,
-              },
-            }
-          : { decryptedKey: { decrypted_user_key: options.unlock.userKey } },
-      // Never pass upgradeToken: it can change V1 account cryptography.
-    });
+    try {
+      await crypto.initialize_user_crypto({
+        userId: options.userId as unknown as Sdk.UserId,
+        email: options.email,
+        kdfParams: options.kdf,
+        accountCryptographicState:
+          options.accountCryptographicState as Sdk.WrappedAccountCryptographicState,
+        method:
+          options.unlock.kind === "password"
+            ? {
+                masterPasswordUnlock: {
+                  password: options.unlock.password,
+                  master_password_unlock: options.unlock
+                    .masterPasswordUnlock as Sdk.MasterPasswordUnlockData,
+                },
+              }
+            : { decryptedKey: { decrypted_user_key: options.unlock.userKey } },
+        // Never pass upgradeToken: it can change V1 account cryptography.
+      });
+    } catch (error) {
+      // Only on this failure path, unwrap the user key alone: when that fails too, the
+      // password is wrong; otherwise the account's own state did not initialize.
+      if (options.unlock.kind === "password" && !masterPasswordOpens(sdk, options.unlock)) {
+        dispose();
+        return decryptFailure("master-password");
+      }
+      throw error;
+    }
     let securityVersion: 1 | 2 = 1;
     if (accountVersion === "v1" || organizationKeys.size > 0) {
       // Upstream V1 initialization tolerates an invalid private key. Our session does not.

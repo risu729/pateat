@@ -113,6 +113,17 @@ function errorMessage(code: string, check?: string): Message {
         "Bitwarden's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.",
         { check: check ? translate(" (check: {{check}})", { check }) : "" },
       );
+  if (code === "crypto-failed") {
+    if (check === "master-password") return "Invalid master password.";
+    // Which check refused the data is what a report needs; refreshing would fail the same way.
+    return check
+      ? (translate) =>
+          translate(
+            "Pateat could not decrypt this vault's data (check: {{check}}). Report this check name.",
+            { check },
+          )
+      : "Pateat could not decrypt this vault's data.";
+  }
   const messages: Record<string, string> = {
     "provider-permission-required":
       "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.",
@@ -771,12 +782,27 @@ export function BitwardenSetup({
       start(async (epoch) => {
         try {
           const result = await client.unlock(connection.connectionId, masterPassword);
-          if (!result.ok && result.error.code === "crypto-failed") {
+          // Only a password that does not open the user key is wrong; any other refusal
+          // is said with the check that made it.
+          if (
+            !result.ok &&
+            result.error.code === "crypto-failed" &&
+            result.error.check === "master-password"
+          ) {
             answer = { ok: false, error: "wrong-password" };
             if (epoch === generation.current) say("Invalid master password.");
             return;
           }
           if (result.ok) answer = { ok: true };
+          else if (result.error.code === "crypto-failed") {
+            // The form says why too, instead of asking to refresh into the same refusal.
+            const text = errorMessage(result.error.code, result.error.check);
+            answer = {
+              ok: false,
+              error: "unavailable",
+              message: typeof text === "string" ? (translate) => translate(text) : text,
+            };
+          }
           await receive(result, epoch);
         } finally {
           resolve(answer);

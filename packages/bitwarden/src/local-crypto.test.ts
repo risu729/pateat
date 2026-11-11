@@ -229,7 +229,7 @@ describe("strict account initialization and metadata", () => {
     input.unlock.password = "synthetic-wrong-password";
     expect(await createLocalCryptoSession(input, sdk)).toEqual({
       ok: false,
-      error: { code: "crypto-failed", check: "session-open" },
+      error: { code: "crypto-failed", check: "master-password" },
     });
   });
 
@@ -389,6 +389,10 @@ describe("strict account initialization and metadata", () => {
       const initializeUser = vi
         .spyOn(sdk.CryptoClient.prototype, "initialize_user_crypto")
         .mockRejectedValue(new Error("Stop after resource admission"));
+      // The password is right; only the stopped initialization fails.
+      vi.spyOn(sdk.PureCrypto, "decrypt_user_key_with_master_password").mockReturnValue(
+        new Uint8Array(64),
+      );
       expect(await createLocalCryptoSession(input, { ...sdk, init_sdk: initializeSdk })).toEqual({
         ok: false,
         error: { code: "crypto-failed", check: "session-open" },

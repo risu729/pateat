@@ -3,9 +3,14 @@ import { i18n } from "../i18n";
 import { LockOpen, TriangleAlert } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "./button";
-import { controlClass, fieldClass, StatusLines } from "./ui";
+import { controlClass, fieldClass, StatusLines, type LocalizedMessage } from "./ui";
 
-export type UnlockResult = { ok: true } | { ok: false; error: "wrong-password" | "unavailable" };
+/** An unlock's answer; `message` says why an unavailable vault did not unlock, if known. */
+export type UnlockResult =
+  | { ok: true }
+  | { ok: false; error: "wrong-password" }
+  | { ok: false; error: "unavailable"; message?: LocalizedMessage };
+type UnlockFailure = Exclude<UnlockResult, { ok: true }>;
 
 /**
  * The master password form of a locked vault (ADR 0075). It only shows the field and the
@@ -31,7 +36,7 @@ export function UnlockForm({
   const input = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState<"wrong-password" | "unavailable">();
+  const [failed, setFailed] = useState<UnlockFailure>();
   // Once the field is enabled again, a finished try leaves the cursor in it for the next.
   const refocus = useRef(false);
   useEffect(() => {
@@ -48,9 +53,9 @@ export function UnlockForm({
     setFailed(undefined);
     try {
       const result = await onSubmit(value);
-      if (!result.ok) setFailed(result.error);
+      if (!result.ok) setFailed(result);
     } catch {
-      setFailed("unavailable");
+      setFailed({ ok: false, error: "unavailable" });
     } finally {
       refocus.current = true;
       setPending(false);
@@ -77,7 +82,7 @@ export function UnlockForm({
           // oxlint-disable-next-line jsx-a11y/no-autofocus
           autoFocus={autoFocus}
           disabled={disabled || pending}
-          aria-invalid={failed === "wrong-password" || undefined}
+          aria-invalid={failed?.error === "wrong-password" || undefined}
           aria-describedby={failed ? `${id}-error` : undefined}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
@@ -91,9 +96,11 @@ export function UnlockForm({
               tone: "err",
               icon: TriangleAlert,
               text:
-                failed === "wrong-password"
+                failed.error === "wrong-password"
                   ? t("Invalid master password.")
-                  : t("The vault could not be unlocked. Refresh and try again."),
+                  : failed.message
+                    ? failed.message(t)
+                    : t("The vault could not be unlocked. Refresh and try again."),
             },
           ]}
         />
