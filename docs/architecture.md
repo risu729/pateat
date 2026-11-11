@@ -3568,7 +3568,11 @@ The record carries that settled mark, so the rule holds the same after a worker 
 and a stored record that neither ends, settles nor resumes keeps scoping its tab and
 origin to the same item until the tab closes. When that item holds no single signable
 match, or its search is incomplete, the request is delegated, so Pateat never signs in
-as another account.
+as another account. Looking up that running login, including waiting for its records to
+load after a worker restart, stays inside the passkey request's lookup deadline. A page
+cancellation or a settings change also ends that wait and releases the request's vault
+hold; a lookup that finishes later cannot continue to signing. The separate lookup for
+the value-free request report does not delay or change the answer.
 
 ### Passkey requests Pateat hands on or answers differently
 
