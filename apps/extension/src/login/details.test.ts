@@ -492,6 +492,27 @@ describe("the fields the popup proposes for a detail (ADR 0061)", () => {
     ]);
   });
 
+  it("puts an identity item's fields before every other item's, a name that points at the page included", () => {
+    // The owner wants the identity's details first (2026-11-11 12:46 UTC).
+    const shop = item("shop", "Shop", [custom(0, "電話番号")]);
+    const people = item("people", "Synthetic people", [custom(0, "生年月日")]);
+    const personal = item("personal", "Personal", [
+      builtin("identity.phone", "Phone"),
+      custom(0, "Phone (work)"),
+      custom(1, "生年月日"),
+    ]);
+    const { catalog, connection } = vault([login, shop, people, personal]);
+    expect(ids(detailCandidates(policy(), catalog, connection, "phone-last-4", page))).toEqual([
+      "personal identity.phone",
+      `personal custom.${snapshot}.0`,
+      `shop custom.${snapshot}.0`,
+    ]);
+    expect(ids(detailCandidates(policy(), catalog, connection, "birth-date", page))).toEqual([
+      `personal custom.${snapshot}.1`,
+      `people custom.${snapshot}.0`,
+    ]);
+  });
+
   it("puts first an item whose name shares a word of three or more letters with the host", () => {
     const plain = item("plain", "Synthetic card", card.fields);
     const named = item("named", "SHOP カード", card.fields);

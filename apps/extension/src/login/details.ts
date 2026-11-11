@@ -80,6 +80,9 @@ export const ownItemDetails: readonly LoginDetail[] = ["secret-answer", "member-
 /** Whether an item is a card: it has a card's built-in fields. */
 const isCard = (item: Pick<VaultItemMetadata, "fields">) =>
   item.fields.some((field) => field.id.startsWith("card."));
+/** Whether an item is a Bitwarden identity, the person's own details. */
+const isIdentity = (item: Pick<VaultItemMetadata, "fields">) =>
+  item.fields.some((field) => field.id.startsWith("identity."));
 
 /**
  * Whether `detail` may be read from `item` for the login item `loginItemId` (ADR 0061): an
@@ -459,9 +462,11 @@ export type DetailCandidate = {
  * `limit`, under the rules of `linkedField`: identity phone numbers, card numbers, codes
  * and expiry months (with their card's year), and Text or Hidden custom fields whose name
  * reads as a birth date, a phone, a PIN or a member ID; an answer or member ID only from
- * `loginItemId`, the login item, and a PIN only from it or a card item. An item whose name
- * shares a run of three or more ASCII letters or digits with the page's host name, or
- * appears whole in its title, comes first; otherwise the catalog's order is kept.
+ * `loginItemId`, the login item, and a PIN only from it or a card item. An identity item's
+ * fields, the person's own details, come first (owner, 2026-11-11 12:46 UTC); then, among
+ * the rest, an item whose name shares a run of three or more ASCII letters or digits with
+ * the page's host name, or appears whole in its title; otherwise the catalog's order is
+ * kept.
  */
 export function detailCandidates(
   settings: LocalSettings,
@@ -471,7 +476,7 @@ export function detailCandidates(
   page: { host: string; title?: string | undefined; loginItemId: string },
   limit = MAX_DETAIL_CANDIDATES,
 ): DetailCandidate[] {
-  const found: (DetailCandidate & { near: boolean })[] = [];
+  const found: (DetailCandidate & { identity: boolean; near: boolean })[] = [];
   for (const item of connection.items) {
     if (item.inactive || connection.quarantinedItemIds?.includes(item.id)) continue;
     if (!readsFrom(detail, item, page.loginItemId)) continue;
@@ -486,6 +491,7 @@ export function detailCandidates(
         fieldId: field.id,
         itemLabel: item.label,
         fieldLabel: detailFieldLabel(detail, field.id, item),
+        identity: isIdentity(item),
         near: nearPage(item.label, page),
       });
     }
@@ -494,10 +500,12 @@ export function detailCandidates(
     .map((entry, index) => ({ entry, index }))
     .sort(
       (left, right) =>
-        Number(right.entry.near) - Number(left.entry.near) || left.index - right.index,
+        Number(right.entry.identity) - Number(left.entry.identity) ||
+        Number(right.entry.near) - Number(left.entry.near) ||
+        left.index - right.index,
     )
     .slice(0, limit)
-    .map(({ entry: { near: _near, ...candidate } }) => candidate);
+    .map(({ entry: { identity: _identity, near: _near, ...candidate } }) => candidate);
 }
 
 /** How the popup names the fields a detail reads: their labels, the month's and year's for an expiry. */

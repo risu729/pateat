@@ -30,6 +30,10 @@ Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (ow
 13:06 UTC; delivery 3): a page beside the sign-in form is sent to the judge from a login
 in a frame of the tab's page too, on the recipe's own origin.
 
+Amended on 2026-11-11 by the owner (12:46 UTC, on My Digital Connect's phone number
+page): the popup proposes an identity item's fields before any other item's
+([Guess, propose, confirm](#guess-propose-confirm)).
+
 Date: 2026-10-23
 
 ## Context
@@ -515,7 +519,9 @@ When a `detail` handler shows and no link has a value for any of its inputs:
    and those whose expiry month and year are both allowed for `card-expiry`; Text or
    Hidden custom fields named as a PIN, of the login item or a card item, for `pin`. A
    link reads only such a field, so a link edited elsewhere never types another custom
-   field, such as a PIN into a member ID's input, into the page. An item whose name
+   field, such as a PIN into a member ID's input, into the page. An identity item's
+   fields come first, since an identity holds the person's own details (owner,
+   2026-11-11 12:46 UTC). Among the rest, an item whose name
    holds a run of three or more ASCII letters or digits found in the page's host name,
    or which appears whole in the page's title, comes first; for a card detail, what the
    page shows about its card ranks before that ([The card guess](#the-card-guess)).
