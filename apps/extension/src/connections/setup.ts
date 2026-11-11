@@ -455,6 +455,19 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       ? Math.max(acceptedAt, unchangedAt)
       : acceptedAt;
   }
+  /** The last automatic check's failure, for the settings page. A full sync that applied
+   * since dropped it; a manual Sync's own failure is answered to the page directly. */
+  function lastCheckFailure(check: VaultSyncEntry | undefined) {
+    const failure = check?.outcome === "failed" ? check.failure : undefined;
+    if (failure?.at === undefined) return {};
+    return {
+      syncFailure: {
+        at: failure.at,
+        code: failure.cause,
+        ...(failure.check === undefined ? {} : { check: failure.check }),
+      },
+    };
+  }
   async function status(): Promise<SetupReply> {
     const configurations = await deps.registry.list();
     const connections: Extract<SetupReply, { kind: "status" }>["connections"] = [];
@@ -506,6 +519,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               ? "disabled"
               : "unknown",
         providerSession,
+        ...lastCheckFailure(checks?.connections[configuration.profile.connectionId]),
         ...(known?.accepted
           ? {
               snapshotId: known.accepted.snapshotId,

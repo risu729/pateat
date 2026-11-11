@@ -2651,6 +2651,33 @@ test("a sync the vault data refuses says which check, not to refresh", async () 
   expect(document.body.textContent).not.toContain("Refresh, then try again");
 });
 
+test("the last automatic check's failure is a status line of its connection", async () => {
+  const client = mockClient();
+  const open = { ...lockedVault, state: "ready" as const, autoUnlock: "enabled" as const };
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [
+      {
+        ...open,
+        syncedAt: Date.UTC(2026, 10, 9, 20, 0),
+        syncFailure: {
+          at: Date.UTC(2026, 10, 11, 9, 0),
+          code: "crypto-failed",
+          check: "sdk-decrypt",
+        },
+      },
+    ],
+  });
+  await mount(client);
+  await expect
+    .element(
+      page.getByText(
+        /^Last automatic sync failed \(.+\)\. Pateat could not decrypt this vault's data \(check: sdk-decrypt\)\. Report this check name\.$/,
+      ),
+    )
+    .toBeVisible();
+});
+
 test("an unlock that fails otherwise says the vault could not be unlocked", async () => {
   const client = mockClient();
   client.list.mockResolvedValue({ ...status(), connections: [lockedVault] });

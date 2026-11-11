@@ -169,6 +169,13 @@ const replySchema = v.union([
           syncedAt: v.optional(
             v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
           ),
+          syncFailure: v.optional(
+            v.strictObject({
+              at: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+              code: errorCode,
+              check: v.optional(v.pipe(v.string(), v.maxLength(40), v.regex(/^[a-z-]+$/))),
+            }),
+          ),
         }),
       ),
       v.maxLength(100),

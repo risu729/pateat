@@ -86,9 +86,11 @@ const entrySchema = v.strictObject({
   /** Local time before which no check is sent, after a 429. */
   retryAt: v.optional(time),
   /** The last check's failure code, HTTP status, decryption check and refused item, so the
-   * log tells a new cause from the same failure repeated; the schedule never reads it. */
+   * log tells a new cause from the same failure repeated, and when that check was sent, so
+   * the settings page says it; the schedule never reads it. */
   failure: v.optional(
     v.strictObject({
+      at: v.optional(time),
       cause: v.pipe(v.string(), v.minLength(1), v.maxLength(64)),
       status: v.optional(time),
       check: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(64))),
@@ -101,6 +103,10 @@ const recordSchema = v.strictObject({
   connections: v.record(v.pipe(v.string(), v.minLength(1), v.maxLength(200)), entrySchema),
 });
 export type VaultSyncEntry = v.InferOutput<typeof entrySchema>;
+/** A stored failure as the log compares it: when its check ran is not part of its cause. */
+function withoutTime({ at: _at, ...failure }: NonNullable<VaultSyncEntry["failure"]>) {
+  return failure;
+}
 export type VaultSyncRecord = v.InferOutput<typeof recordSchema>;
 export type VaultSyncStorage = {
   read(): Promise<unknown>;
@@ -286,6 +292,7 @@ export function createVaultAutoSync(deps: {
             ? {}
             : {
                 failure: {
+                  at,
                   cause: result.cause,
                   ...(result.status === undefined ? {} : { status: result.status }),
                   ...(result.check === undefined ? {} : { check: result.check }),
@@ -314,7 +321,7 @@ export function createVaultAutoSync(deps: {
           ...(typeof result === "string" ? { outcome: result } : result),
           previous: entry?.outcome,
           ...(entry?.outcome === "failed" && entry.failure
-            ? { previousFailure: entry.failure }
+            ? { previousFailure: withoutTime(entry.failure) }
             : {}),
         });
       } catch {

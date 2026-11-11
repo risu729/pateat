@@ -220,6 +220,19 @@ function statusLines(connection: Connection, t: TFunction, language: string): Li
       }),
     });
   }
+  // An automatic check runs unseen, so its failure stays here until a sync applies.
+  if (connection.syncFailure) {
+    const formatted = localSyncTime(connection.syncFailure.at, language);
+    const reason = errorMessage(connection.syncFailure.code, connection.syncFailure.check);
+    lines.push({
+      tone: "warn",
+      icon: TriangleAlert,
+      text: t("Last automatic sync failed ({{time}}). {{reason}}", {
+        time: formatted === "at an unknown time" ? t("at an unknown time") : formatted,
+        reason: typeof reason === "string" ? t(reason) : reason(t),
+      }),
+    });
+  }
   // A locked or logged-out vault has no unlock to describe.
   if (connection.state === "locked" || connection.state === "disabled") return lines;
   if (connection.autoUnlock === "enabled")

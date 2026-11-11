@@ -201,7 +201,7 @@ describe("vault check schedule", () => {
     expect(h.stored()?.connections["a"]).toEqual({
       checkedAt: h.now(),
       outcome: "failed",
-      failure: { cause: "crypto-failed", check: "uri-checksum", item: failure.item },
+      failure: { at: h.now(), cause: "crypto-failed", check: "uri-checksum", item: failure.item },
     });
     h.advance(VAULT_CHECK_INTERVAL_MS);
     h.auto.refreshIfStale();
@@ -228,7 +228,7 @@ describe("vault check schedule", () => {
     expect(h.stored()?.connections["a"]).toEqual({
       checkedAt: h.now(),
       outcome: "failed",
-      failure: { cause: "http-error", status: 503 },
+      failure: { at: h.now(), cause: "http-error", status: 503 },
     });
     h.advance(VAULT_CHECK_INTERVAL_MS);
     h.auto.refreshIfStale();

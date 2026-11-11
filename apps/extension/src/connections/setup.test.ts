@@ -975,6 +975,40 @@ describe("failed refresh does not destroy a previously usable cache", () => {
     h.advance(120_000);
     expect(await synced()).toBe(acceptedAt + 60_000);
   });
+  it("status reports the last automatic check's failure until a sync applies", async () => {
+    const h = harness({ existing: true });
+    const failure = async () => {
+      const result = await h.caller.status();
+      if (!result.ok || result.kind !== "status") throw new Error("Synthetic status failed");
+      return result.connections[0]?.syncFailure;
+    };
+    expect(await failure()).toBeUndefined();
+    const item = "7f0c5a3e-2b1d-4c8e-9a6f-3d2e1b0c9a8f";
+    await h.revisions.update(accountProfile.connectionId, () => ({
+      checkedAt: 1_792_152_000_000,
+      outcome: "failed",
+      failure: { at: 1_792_152_000_000, cause: "crypto-failed", check: "sdk-decrypt", item },
+    }));
+    // The refused item stays in the log; the page needs only the code and check.
+    expect(await failure()).toEqual({
+      at: 1_792_152_000_000,
+      code: "crypto-failed",
+      check: "sdk-decrypt",
+    });
+    // A failure stored before its time was kept says nothing it cannot date.
+    await h.revisions.update(accountProfile.connectionId, (entry) => ({
+      ...entry,
+      failure: { cause: "http-error", status: 503 },
+    }));
+    expect(await failure()).toBeUndefined();
+    await h.revisions.update(accountProfile.connectionId, (entry) => ({
+      ...entry,
+      failure: { at: 1_792_152_000_000, cause: "http-error", status: 503 },
+    }));
+    expect(await failure()).toEqual({ at: 1_792_152_000_000, code: "http-error" });
+    await h.revisions.setRevision(accountProfile.connectionId, 1_792_152_060_000);
+    expect(await failure()).toBeUndefined();
+  });
   it("sync refreshes expired authorization, uses its new bearer, and keeps the rotated refresh out of the vault record", async () => {
     const h = harness({ existing: true });
     expect(

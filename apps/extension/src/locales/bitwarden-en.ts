@@ -40,6 +40,8 @@ export const bitwardenEn = {
   "Sign in again to sync": "Sign in again to sync",
   "Not signed in for sync": "Not signed in for sync",
   "Sync sign-in unavailable": "Sync sign-in unavailable",
+  "Last automatic sync failed ({{time}}). {{reason}}":
+    "Last automatic sync failed ({{time}}). {{reason}}",
   "Vault synced {{time}}": "Vault synced {{time}}",
   "at an unknown time": "at an unknown time",
   "Automatic unlock on": "Automatic unlock on",

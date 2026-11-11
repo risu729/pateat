@@ -67,6 +67,9 @@ export type SetupReply =
         /** Local `Date.now()` the vault was last known to match Bitwarden: the open
          * snapshot's acceptance, or a later automatic check that found no change. */
         syncedAt?: number;
+        /** The last automatic check, when it failed: when it was sent, its error code and
+         * the decryption check that refused the data, if one did. */
+        syncFailure?: { at: number; code: string; check?: string };
       }[];
     }
   | {
