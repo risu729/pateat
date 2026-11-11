@@ -1,5 +1,7 @@
 import {
   getItemEligibility,
+  sameDetailOwner,
+  type DetailOwner,
   isSsoFieldName,
   itemAsksForMasterPassword,
   resolveDetailSourceField,
@@ -24,8 +26,7 @@ import type { LoginSecretKind } from "./wire";
 // `card-number` input, and a value split over several inputs reaches it only as its
 // parts: a date's year, month and day, or a card number's or PIN's digit groups.
 
-/** The login item a link belongs to: its site and its vault account and item. */
-export type DetailOwner = Pick<DetailLink, "origin" | "provider" | "server" | "userId" | "itemId">;
+export type { DetailOwner } from "@pateat/contracts";
 
 /** The built-in fields each detail may be read from; custom fields are checked by kind. */
 const builtinSources: Readonly<Record<LoginDetail, readonly string[]>> = {
@@ -373,13 +374,7 @@ export function savedDetailLinks(
   detail: LoginDetail,
 ): DetailLink[] {
   return (settings.detailLinks ?? []).filter(
-    (link) =>
-      link.origin === owner.origin &&
-      link.provider === owner.provider &&
-      link.server === owner.server &&
-      link.userId === owner.userId &&
-      link.itemId === owner.itemId &&
-      link.detail === detail,
+    (link) => sameDetailOwner(link, owner) && link.detail === detail,
   );
 }
 
@@ -390,13 +385,7 @@ export function savedDetailLink(
   detail: LoginDetail,
 ): DetailLink | undefined {
   return settings.detailLinks?.find(
-    (link) =>
-      link.origin === owner.origin &&
-      link.provider === owner.provider &&
-      link.server === owner.server &&
-      link.userId === owner.userId &&
-      link.itemId === owner.itemId &&
-      link.detail === detail,
+    (link) => sameDetailOwner(link, owner) && link.detail === detail,
   );
 }
 

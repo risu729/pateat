@@ -1,6 +1,10 @@
 import * as v from "valibot";
 import {
   attemptPlan,
+  detailKey,
+  detailQuestionKey,
+  detailSourceFieldKey,
+  sameDetailOwner,
   handlerSteps,
   manualDetails,
   sameLoginTarget,
@@ -38,7 +42,6 @@ import {
   type Authorized,
   type LiveDocument,
 } from "./types";
-import { sourceFieldKey } from "./steps";
 import { type LoginReport } from "./report";
 import { report, current, send, saveSession, loginElsewhere } from "./attempt";
 import { allowed } from "./plan-2";
@@ -53,15 +56,7 @@ export const refusalKey = (
   owner: DetailOwner,
   detail: LoginDetail,
   field?: DetailSourceField,
-) =>
-  JSON.stringify([
-    owner.origin,
-    owner.provider,
-    owner.userId,
-    owner.itemId,
-    detail,
-    detail === "secret-answer" && field !== undefined ? sourceFieldKey(field) : null,
-  ]);
+) => detailKey(owner, detail, field);
 
 /** The login item a run's links belong to, or none while its vault account is unknown. */
 export function detailOwner(
@@ -429,20 +424,17 @@ export const sameLink = (
   detail: LoginDetail,
   field?: DetailSourceField,
 ) =>
-  link.origin === owner.origin &&
-  link.provider === owner.provider &&
-  link.userId === owner.userId &&
-  link.itemId === owner.itemId &&
+  sameDetailOwner(link, owner) &&
   link.detail === detail &&
   (detail !== "secret-answer" ||
     field === undefined ||
-    sourceFieldKey(link.source.field) === sourceFieldKey(field));
+    detailSourceFieldKey(link.source.field) === detailSourceFieldKey(field));
 
 /** Whether two of a login item's answer links hold the same confirmed question. */
-export const sameQuestion = (rt: Runtime, link: DetailLink, other: DetailLink) =>
-  link.question !== undefined &&
-  link.question === other.question &&
-  sameLink(rt, link, other, "secret-answer");
+export const sameQuestion = (_rt: Runtime, link: DetailLink, other: DetailLink) => {
+  const key = detailQuestionKey(link);
+  return key !== undefined && key === detailQuestionKey(other);
+};
 
 /**
  * Removes the links whose values a login filled once the site refused them, as when the

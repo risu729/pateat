@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  detailSourceFieldKey,
   getItemEligibility,
   isSiteAllowed,
   isSiteExcluded,
@@ -41,7 +42,7 @@ import {
   type DetailResponse,
 } from "../detail-wire";
 import { type DetailOffer } from "./session-schemas";
-import { frameKey, sourceFieldKey, sameInputs } from "./steps";
+import { frameKey, sameInputs } from "./steps";
 import { tabAttempt, recordFor } from "./hold";
 import { type LiveDocument } from "./types";
 import {
@@ -126,7 +127,7 @@ export async function answerCandidate<T extends { itemId: string; fieldId: strin
     paired &&
     named.find((entry) => {
       const reference = customFieldReference(item.fields, entry.candidate.fieldId);
-      return reference && sourceFieldKey(reference) === sourceFieldKey(paired.field);
+      return reference && detailSourceFieldKey(reference) === detailSourceFieldKey(paired.field);
     });
   if (!paired || !pairing) return undefined;
   // Nothing fuzzy: the question the judge copied must be one whole question beside the

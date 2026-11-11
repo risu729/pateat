@@ -1672,7 +1672,12 @@ judge learns from a page that asks for a personal detail, such as a birth date o
 last four digits of a phone number, with each input's detail and the button that submits
 them. The owner's settings link the login item, per site and detail, to the identity or
 card item's field that holds the value (`detailLinks`, synced as the owner's like the
-bindings). A login fills the first input with a usable link that is writable, checking
+bindings). Every link, confirmed question and refused detail is scoped to the site's
+origin, provider, server, vault user and login item. Accounts copied to another server
+keep independent links: syncing, replacing or removing one server's link leaves the
+other's intact. The shared contract identities govern validation, sync and runtime
+matching; secret-question links additionally name their source field. A login fills the
+first input with a usable link that is writable, checking
 the radio button that chooses it first, and clicks the button; the value is made in the
 service worker from the vault read (the date or card expiry date in the input's format,
 the last four digits, a card code, a whole card number or a PIN, read only from the
