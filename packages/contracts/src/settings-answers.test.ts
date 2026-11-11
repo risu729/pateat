@@ -24,6 +24,48 @@ const valid = (detailLinks: DetailLink[]) =>
   v.safeParse(localSettingsSchema, { ...createDefaultSettings(), detailLinks }).success;
 
 describe("detail links for answers and member IDs", () => {
+  it("keeps copied login IDs and confirmed questions independent across provider servers", () => {
+    const answer = { ...link("secret-answer", "First pet"), question: "name of your first pet" };
+    const member = link("member-id", "Member ID");
+    expect(
+      valid([answer, { ...answer, server: "cloud-eu" }, member, { ...member, server: "cloud-eu" }]),
+    ).toBe(true);
+    expect(
+      valid([
+        answer,
+        { ...answer, source: { ...answer.source, field: { custom: "Other answer" } } },
+      ]),
+    ).toBe(false);
+  });
+
+  it("rejects a duplicate answer field even when its reference properties arrived in another order", () => {
+    const answer = link("secret-answer", "Answer");
+    expect(
+      valid([
+        {
+          ...answer,
+          source: { ...answer.source, field: { custom: "Answer", position: 1, count: 2 } },
+        },
+        {
+          ...answer,
+          source: { ...answer.source, field: { count: 2, position: 1, custom: "Answer" } },
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      valid([
+        {
+          ...answer,
+          source: { ...answer.source, field: { custom: "Answer", position: 1, count: 2 } },
+        },
+        {
+          ...answer,
+          source: { ...answer.source, field: { count: 2, position: 2, custom: "Answer" } },
+        },
+      ]),
+    ).toBe(true);
+  });
+
   it("keeps an answer link per question field, and one member ID link", () => {
     expect(valid([link("secret-answer", "First pet?"), link("secret-answer", "Birth city?")])).toBe(
       true,

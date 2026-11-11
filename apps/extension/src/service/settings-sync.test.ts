@@ -1709,6 +1709,51 @@ describe("personal-detail links (ADR 0061)", () => {
     field: "card.code",
   });
 
+  it.each(["birth-date", "secret-answer"] as const)(
+    "syncs the same login IDs' %s links from different servers without losing either",
+    async (detail) => {
+      const serviceLink = link(
+        "https://bank.example",
+        detail,
+        { itemId: "item-1", field: { custom: "Answer" } },
+        detail === "secret-answer" ? "name of your first pet" : undefined,
+      );
+      const localLink = { ...serviceLink, server: "cloud-eu" };
+      const h = setup({
+        local: settingsOf({ detailLinks: [localLink] }),
+        service: state(5, settingsOf({ detailLinks: [serviceLink] })),
+        base: baseOf(4, settingsOf()),
+      });
+      expect(await h.sync.run(CONNECTION, never)).toBe("synced");
+      expect(h.local()?.settings.detailLinks).toEqual([serviceLink, localLink]);
+      expect(h.service().settings?.detailLinks).toEqual([serviceLink, localLink]);
+    },
+  );
+
+  it("reconciles one answer field whose reference properties have different orders with the service winning", async () => {
+    const answer = link("https://bank.example", "secret-answer", {
+      itemId: "item-1",
+      field: { custom: "Answer" },
+    });
+    const localLink = {
+      ...answer,
+      source: { ...answer.source, field: { custom: "Answer", position: 1, count: 2 } },
+    };
+    const serviceLink = {
+      ...answer,
+      source: { ...answer.source, field: { count: 2, position: 1, custom: "Answer" } },
+      question: "name of your first pet",
+    };
+    const h = setup({
+      local: settingsOf({ detailLinks: [localLink] }),
+      service: state(5, settingsOf({ detailLinks: [serviceLink] })),
+      base: baseOf(4, settingsOf()),
+    });
+    expect(await h.sync.run(CONNECTION, never)).toBe("synced");
+    expect(h.local()?.settings.detailLinks).toEqual([serviceLink]);
+    expect(h.service().settings?.detailLinks).toEqual([serviceLink]);
+  });
+
   it("uploads this device's links to the owner's settings", async () => {
     const local = settingsOf({ connections: [localConnection], detailLinks: [birthDate] });
     const { sync, service, base } = setup({ local });
