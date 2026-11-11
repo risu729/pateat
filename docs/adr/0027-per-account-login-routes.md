@@ -1855,24 +1855,31 @@ Decision:
 On EPOS Net on 2026-11-11 at 12:53 UTC, in the owner's Chrome, the page after the
 password was an image puzzle (`/memberservice/pc/login/login_dispatch.do`, request
 `01a1caab-83a7-7145-b029-559c1e297ce4`). Its sentence
-「セキュリティ強化のため、画像認証を実施中です。ピースを動かして…」 is, as on the site's
-public login page, a `<p>` with a `<br>` inside, so it had a child element and gave no
-text near the page's one button. The judge saw only the title, the heading and a
-ログイン button, gave no answer, and the login completed unconfirmed.
+「セキュリティ強化のため、画像認証を実施中です。ピースを動かして…」 gave no text near
+the page's one button. The site's public login page writes its notes as a `<p>` with a
+`<br>` inside, and such an element has a child element; a reproduction of that shape
+gave no text, and the same sentence without the `<br>` gave it (the puzzle page itself
+is not public, so its markup is not confirmed). The judge saw only the title, the
+heading and a ログイン button, gave no answer, and the login completed unconfirmed.
 
 An element whose child elements are all inline text now gives its whole rendered text,
-near a code field and near the buttons alike, and its inline elements give none of
-their own (`textBlock` in `apps/extension/src/observation/extract.ts`). Inline text is
-`br`, `wbr`, `b`, `strong`, `i`, `em`, `u`, `s`, `small`, `span`, `font`, `mark`, `sub`,
-`sup`, `abbr`, `bdi`, `bdo`, `cite`, `del`, `ins`, `dfn`, `q`, `ruby` and its `rb`, `rt`
-and `rp`, and an `img`; the element holds at most 20 of them and no shadow host. A line
-break reads as a space. The text is kept, redacted, cut and dropped as any other near
-text: the key check reads the whole sentence, so a sentence that shows a key in a `<b>`
-is left out whole, never its other words alone.
+near a code field and near the buttons alike (`textBlock` in
+`apps/extension/src/observation/extract.ts`). Inline text is `br`, `wbr`, `b`, `strong`,
+`i`, `em`, `u`, `s`, `small`, `span`, `font`, `mark`, `sub`, `sup`, `abbr`, `bdi`,
+`bdo`, `cite`, `del`, `ins`, `dfn`, `q`, `ruby` and its `rb`, `rt` and `rp`, and an
+`img`; the element holds at most 20 of them. A child element with a `role`, a live
+region (`aria-live`), editable text, a shadow root, or one that is or holds the field's
+error message keeps its parent from being such a sentence. A line break reads as a
+space, and hidden parts are left out. Once the sentence is sent, or left out as a key,
+its inline parts give no text of their own; a sentence not shown, or whose text is
+dropped (as one that repeats a heading), leaves its parts to be read alone as before.
+The text is kept, redacted, cut and dropped as any other near text: the key check reads
+the whole sentence, so a sentence that shows a key in a `<b>` is left out whole.
 
-- An element that also holds a link, a button, a control, `code`, `kbd` or any other
-  element is no text block and reads as before: only its inline parts without child
-  elements give text, so a link's label never joins the sentence.
+- An element that also holds a link, a button, a control, `code`, `kbd`, a live region,
+  an element with a role or any element not listed is no such sentence and reads as
+  before: only its parts without child elements give text, so a link's or a control's
+  label, or a live region's text, never joins the sentence.
 - More text may now leave the device per page: whole sentences instead of their
   fragments, still at most three texts of 120 characters (360 in all), under the terms
   above.
