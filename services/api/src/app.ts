@@ -21,7 +21,7 @@ import { manageApiRoutes } from "./routes/manage-api";
 import { manageClaudeRoutes } from "./routes/manage-claude";
 import { oidcRoutes } from "./routes/oidc";
 import { createPairedDevice, pairLimit } from "./routes/pair";
-import { profileEditorRoutes } from "./routes/profile-editor";
+import { createProfileEditorRoutes } from "./routes/profile-editor";
 import { recipeRoutes } from "./routes/recipes";
 import { settingsRoutes } from "./routes/settings";
 import { jsonBody, requireJsonBody } from "./validation";
@@ -115,7 +115,7 @@ export const app = new Hono<ApiEnv>()
       onError: (c) => apiError(c, 413, { error: "payload_too_large" }),
     }),
   )
-  .route("/extension/profiles", profileEditorRoutes)
+  .route("/extension/profiles", createProfileEditorRoutes("not_found"))
   .all("/extension/profiles", methodNotAllowed("GET"))
   .all("/extension/profiles/:profileId/settings", methodNotAllowed("GET, PUT"))
   // The tab the profile editor opens to sign in: Access signs the browser in on the way.
