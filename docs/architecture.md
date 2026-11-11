@@ -642,9 +642,13 @@ store ([ADR 0021](adr/0021-account-choice-outside-settings.md),
 "Pateat on this site" switch, pauses automatic login of the tab's registrable site for
 10 minutes or an hour on this device, or "Until turned back on", which adds the
 exclusion rule `{hostname: <registrable site>, includeSubdomains: true}`; Resume ends a
-timed pause or removes the site's own covering rules. When a rule for a parent of the
-site covers it, the row links each such rule to the settings page, and in a private
-window while automatic login is off there it links that setting. While the allowed sites
+timed pause or removes the site's own covering rules. The popup and owner web UI use
+one pure pause-rule policy (`sitePauseRules` in `packages/contracts/src/site.ts`): it
+identifies those rules and broader shared rules, and transforms the latest exclusion
+list when an edit is applied, so changes made while an edit waits are kept. When a rule
+for a parent of the site covers it, the row links each such rule to the settings page,
+and in a private window while automatic login is off there it links that setting. While
+the allowed sites
 are on ([ADR 0077](adr/0077-allowed-sites.md)) and leave the tab's site out, the site is
 paused as by a rule: the popup lists its accounts, and its pause row says "Paused, as
 this is not an allowed site" and offers "Allow <registrable site>", which adds the allow

@@ -7,6 +7,7 @@ import {
   parseSiteUrl,
   popupPageSectionShown,
   siteDefaultConnection,
+  siteRuleCovers,
   type LocalSettings,
   type LoginDetail,
   type SettingsResponse,
@@ -109,11 +110,7 @@ export function popupOrigin(url: string | undefined): string | undefined {
 
 /** Which rules of a site list cover a hostname, and how the popup changes its own. */
 function hostRules(rules: ExcludedSite[], hostname: string) {
-  const covering = rules.filter(
-    (site) =>
-      hostname === site.hostname ||
-      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
-  );
+  const covering = rules.filter((site) => siteRuleCovers(site, hostname));
   const own = (site: ExcludedSite) => site.hostname === hostname && !site.includeSubdomains;
   return {
     listed: covering.length > 0,

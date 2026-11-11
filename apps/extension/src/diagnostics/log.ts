@@ -3,6 +3,7 @@
 // fields by kind; identifiers become pseudonyms and unknown origins never appear in full.
 import type { IDBPObjectStore } from "idb";
 import * as v from "valibot";
+import { siteRuleCovers } from "@pateat/contracts";
 import {
   DIAGNOSTICS_DATABASE_NAME,
   ENTRIES_STORE,
@@ -142,11 +143,7 @@ const logIdSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{32}$/u));
 const PROBLEM_SCAN_LIMIT = 2_000;
 
 function hostMatches(hostname: string, sites: KnownSites): boolean {
-  return sites.hosts.some(
-    (site) =>
-      site.hostname === hostname ||
-      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
-  );
+  return sites.hosts.some((site) => siteRuleCovers(site, hostname));
 }
 
 /** Script positions inside this extension, without its ID; anything else is left out. */

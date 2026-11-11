@@ -7,7 +7,7 @@ import {
   siteRuleCovers,
   type LocalSettings,
 } from "@pateat/contracts";
-import { registrableSite } from "@pateat/contracts/site";
+import { sitePauseRules } from "@pateat/contracts/site";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as v from "valibot";
 import { ManageApiError, type ManageClient } from "./api";
@@ -79,29 +79,26 @@ export function notAllowed(settings: LocalSettings | null, hostname: string): bo
  * public suffix, covers other sites too, so only the Sites list changes it.
  */
 export function siteRules(settings: LocalSettings | null, origin: string) {
-  const hostname = siteHostname(origin);
-  const site = registrableSite(origin) ?? hostname;
-  type Rule = LocalSettings["excludedSites"][number];
-  const within = (rule: Rule) => rule.hostname === site || rule.hostname.endsWith(`.${site}`);
-  const covers = (rule: Rule) =>
-    hostname === rule.hostname ||
-    (rule.includeSubdomains && hostname.endsWith(`.${rule.hostname}`));
-  const rules = exclusionsCovering(settings, hostname);
+  const policy = sitePauseRules(settings?.excludedSites ?? [], origin);
   return {
-    site,
-    /** The rules that cover the origin's hostname. */
-    rules,
-    /** The covering rules that also cover other sites. */
-    shared: rules.filter((rule) => !within(rule)),
+    site: policy.site,
+    rules: policy.rules,
+    shared: policy.shared,
     /** Pauses the site with its subdomains until turned back on. */
-    pause: excludeSite(site, true),
+    pause: {
+      apply: (value: LocalSettings) => ({
+        ...value,
+        excludedSites: policy.pause(value.excludedSites),
+      }),
+      done: `${policy.site} paused`,
+    } satisfies SettingsEdit,
     /** Removes the site's own covering rules. */
     resume: {
       apply: (value: LocalSettings) => ({
         ...value,
-        excludedSites: value.excludedSites.filter((rule) => !(covers(rule) && within(rule))),
+        excludedSites: policy.resume(value.excludedSites),
       }),
-      done: `${site} resumed`,
+      done: `${policy.site} resumed`,
     } satisfies SettingsEdit,
   };
 }

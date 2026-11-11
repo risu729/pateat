@@ -1,11 +1,11 @@
 import type { LocalSettings } from "@pateat/contracts";
+import { sitePauseRules } from "@pateat/contracts/site";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { Pause, Play } from "lucide-react";
 import { i18n } from "../i18n";
 import { Button } from "../options/button";
 import type { PauseLength, StatusResponse } from "../login/choice-wire";
-import { pauseSite } from "../login/pause";
 import { localClock } from "../time";
 
 type Status = Extract<StatusResponse, { ok: true }>;
@@ -58,28 +58,17 @@ export function pauseShown(status: Status | undefined, matched: boolean, ruled =
  * changes it.
  */
 export function siteRules(settings: Pick<LocalSettings, "excludedSites">, origin: string) {
-  const url = new URL(origin);
-  const hostname = url.hostname.replace(/\.$/u, "");
-  const site = pauseSite(url) ?? hostname;
-  const covers = (rule: ExcludedSite) =>
-    hostname === rule.hostname ||
-    (rule.includeSubdomains && hostname.endsWith(`.${rule.hostname}`));
-  const within = (rule: ExcludedSite) =>
-    rule.hostname === site || rule.hostname.endsWith(`.${site}`);
-  const rules = settings.excludedSites.filter(covers);
+  const policy = sitePauseRules(settings.excludedSites, origin);
   return {
-    /** The rules that cover the tab's hostname. */
-    rules,
-    /** The covering rules that also cover other sites; each includes subdomains. */
-    shared: rules.filter((rule) => !within(rule)),
+    rules: policy.rules,
+    shared: policy.shared,
     /** Pauses the site until turned back on, in a copy of the settings. */
     pause(value: LocalSettings) {
-      value.excludedSites = value.excludedSites.filter((rule) => rule.hostname !== site);
-      value.excludedSites.push({ hostname: site, includeSubdomains: true });
+      value.excludedSites = policy.pause(value.excludedSites);
     },
     /** Removes the site's own covering rules, in a copy of the settings. */
     resume(value: LocalSettings) {
-      value.excludedSites = value.excludedSites.filter((rule) => !(covers(rule) && within(rule)));
+      value.excludedSites = policy.resume(value.excludedSites);
     },
   };
 }
