@@ -977,8 +977,17 @@ without slots, only when its URL names another path of its site in a query value
 asks no secret answer ([ADR 0035](adr/0035-page-kinds-per-site.md)), and a cached entry
 recipe on a page's path is pressed: one click on a same-site link in the top document,
 then the tab's next page is checked ([ADR 0031](adr/0031-sign-in-entry-pages.md); see
-[Declarative recipes and AI](#declarative-recipes-and-ai)). A page that shows no input
-but an enabled button naming a passkey or security key, not a registration, is decided
+[Declarative recipes and AI](#declarative-recipes-and-ai)).
+
+The page watch observes every node, text and attribute change in the document and its
+shadow trees, since any attribute can affect a locator's name or visibility through
+CSS. Its first-step checks stay limited to one per 100 ms. Even unrelated attribute
+changes restart the pending one-second quiet wait; on a page that keeps changing, the
+same five-second cap decides it. This uses one DOM-change rule rather than a separate
+list of attributes to maintain.
+
+A page that shows no input but an enabled button naming a passkey or security key, not
+a registration, is decided
 in the same wait (ADR 0057) and sent with `passkeyOnly: true` and no slots, only when
 one of the URI-matching items holds a discoverable, usable passkey for the page's RP ID;
 its recipe has only the `passkey` route, so a password-only item never presses the
