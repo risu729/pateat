@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
-import { createLocalCryptoSession } from "./local-crypto";
+import { createLocalCryptoSession, type LocalCryptoSession } from "./local-crypto";
 import { bitwardenTotpSecret } from "./__fixtures__/totp";
 import {
   blobPrivateKey,
@@ -101,6 +101,38 @@ function organizationInput() {
     },
     organizationKeys: [{ organizationId: TEST_ORGANIZATION_ID, key: TEST_ORGANIZATION_KEY }],
   };
+}
+
+/** The organization's items are refused by name and its collections are left out. */
+async function expectOrganizationLeftOut(active: LocalCryptoSession, connection: string) {
+  try {
+    expect(
+      await active.decryptCipher({
+        connectionId: connection,
+        cipher: { ...legacyCipher(), organizationId: TEST_ORGANIZATION_ID },
+      }),
+    ).toEqual({ ok: false, error: { code: "crypto-failed", check: "organization-key" } });
+    expect(
+      await active.decryptCatalogGroups({
+        folders: [],
+        collections: [
+          {
+            id: "6abcdef0-0000-4000-8000-000000000001",
+            organizationId: TEST_ORGANIZATION_ID,
+            name: legacyCipher().name,
+            externalId: null,
+            hidePasswords: false,
+            readOnly: false,
+            manage: true,
+            defaultUserCollectionEmail: null,
+            type: 0,
+          },
+        ],
+      }),
+    ).toEqual({ ok: true, data: [] });
+  } finally {
+    active.dispose();
+  }
 }
 
 function corrupt(value: string) {
@@ -557,16 +589,15 @@ describe("strict account initialization and metadata", () => {
   });
 
   it.each(["7.AA==", "7.gA==", "7.hA=="])(
-    "rejects malformed organization COSE ciphertext %s before async organization initialization",
+    "leaves out an organization whose COSE key %s does not parse, before async initialization",
     async (key) => {
       const input = organizationInput();
       input.organizationKeys[0]!.key = key;
       const initializeUser = vi.spyOn(sdk.CryptoClient.prototype, "initialize_user_crypto");
       const initializeOrganization = vi.spyOn(sdk.CryptoClient.prototype, "initialize_org_crypto");
-      expect(await createLocalCryptoSession(input, sdk)).toEqual({
-        ok: false,
-        error: { code: "crypto-failed", check: "session-open" },
-      });
+      const opened = await createLocalCryptoSession(input, sdk);
+      expect(opened.ok).toBe(true);
+      if (opened.ok) await expectOrganizationLeftOut(opened.data, input.connectionId);
       expect(initializeUser).toHaveBeenCalledTimes(1);
       expect(initializeOrganization).not.toHaveBeenCalled();
     },
@@ -920,13 +951,12 @@ describe("strict cipher isolation and disposal", () => {
     });
   });
 
-  it("rejects a corrupted organization key without producing a partial account", async () => {
+  it("leaves out only the organization whose key does not open (ADR 0006)", async () => {
     const input = organizationInput();
     input.organizationKeys[0]!.key = corrupt(TEST_ORGANIZATION_KEY);
-    expect(await createLocalCryptoSession(input, sdk)).toEqual({
-      ok: false,
-      error: { code: "crypto-failed", check: "session-open" },
-    });
+    const opened = await createLocalCryptoSession(input, sdk);
+    expect(opened.ok).toBe(true);
+    if (opened.ok) await expectOrganizationLeftOut(opened.data, input.connectionId);
   });
 
   it("preserves custom-field types, duplicate names, linked references and leading zeros", async () => {
