@@ -768,13 +768,14 @@ describe("strict cipher isolation and disposal", () => {
     ],
     [
       "a URI checksum without its URI",
-      (view: sdk.CipherView) => ({
-        ...view,
-        login: {
-          ...view.login!,
-          uris: (view.login?.uris ?? []).map((uri) => ({ ...uri, uri: undefined })),
-        },
-      }),
+      (view: sdk.CipherView) =>
+        ({
+          ...view,
+          login: {
+            ...view.login!,
+            uris: (view.login?.uris ?? []).map((uri) => ({ ...uri, uri: undefined })),
+          },
+        }) as unknown as sdk.CipherView,
       { code: "crypto-failed", check: "uri-checksum-without-uri" },
     ],
   ] as const)("rejects %s from the SDK", async (_name, transform, error) => {
