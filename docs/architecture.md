@@ -597,8 +597,9 @@ fails as stated rather than retrying:
   A URI the SDK leaves out for its checksum does not make an item unusable: the item is
   used without it, as in the official clients
   ([ADR 0005](adr/0005-bitwarden-local-crypto.md#amendment-uri-checksums-as-the-official-clients-2026-11-11)).
-  So does an organization key that does not open: its items are listed with the check
-  `organization-key`. An item without a valid or unique ID still fails the whole sync.
+  An organization key that does not open leaves out that organization's items and
+  collections; its items are listed with the check `organization-key`. An item without
+  a valid or unique ID still fails the whole sync.
 - A crypto job has 30 seconds. A vault whose open, or whose check of every received
   item, takes longer (a very large vault on a slow device) cannot be opened or synced.
 - The host measures that budget on the wall clock. A job still running when the

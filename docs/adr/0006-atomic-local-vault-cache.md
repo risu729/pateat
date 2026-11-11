@@ -149,8 +149,13 @@ An organization key that is received but does not open with the account's privat
 is treated the same way when the crypto Worker opens the account: that organization's
 collections are left out and strict decryption refuses each of its items with the
 check `organization-key`, so they are listed as unusable. Pateat never opens such an
-item with another key. The account's own keys, and an organization key that opens but
-that the SDK then refuses, still fail the open (`session-open`).
+item with another key. The open still fails (`session-open`) when the account's own
+keys do not open, when its private key is not an RSA key, when no received
+organization key opens (the account's private key is then the likelier fault, and the
+two cannot be told apart without its public key), and when an organization key opens
+but the SDK then refuses it. The crypto Worker does not count these refusals as a
+possible SDK fault, since they are made before any SDK call, so a vault whose only
+items are such an organization's opens empty with them listed.
 
 ## Sources
 

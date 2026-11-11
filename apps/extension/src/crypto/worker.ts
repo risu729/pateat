@@ -280,8 +280,13 @@ async function execute(command: HostCommand) {
     // A fault in the SDK partway through, such as running out of memory, reads like every
     // later item failing. So once an item is refused, one that verified must still decrypt,
     // and a vault none of whose items verify is refused whole: either keeps the open vault
-    // instead of replacing it with a nearly empty one.
-    if (unusableItems.length) {
+    // instead of replacing it with a nearly empty one. An item refused for its organization
+    // was refused before any SDK call, so it cannot be such a fault.
+    if (
+      unusableItems.some(
+        (item) => item.check !== "organization-key" && item.check !== "unknown-organization",
+      )
+    ) {
       const refused = new Set(unusableItems.map((item) => item.itemId));
       const verifiedId = [...owned.ciphers.keys()].find((id) => !refused.has(id));
       const again =
