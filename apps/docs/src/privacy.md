@@ -231,7 +231,7 @@ signed-in pages sent once every 30 days.
 When OpenAI is selected, the service sends the same sanitized page description and
 vault field requirements to OpenAI using the key saved for your account on the
 service. That key is encrypted in the service's database. Management pages show
-whether it is configured, never its value; **Remove key** on the **OpenAI** page
+whether it is configured, never its value; **Remove saved key** on the **OpenAI** page
 removes it. The service operator controls the encryption key and can access the key.
 
 With an OpenAI key saved on your device, a paired service instead gives the extension
