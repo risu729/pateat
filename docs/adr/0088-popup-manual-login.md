@@ -60,6 +60,27 @@ which is unnecessary for one requested login.
   choice or resume a timed pause. The original account-choice and account-switch
   controls keep their existing setting changes.
 
+## Interaction with page permissions
+
+Delivery 2 of ADR 0035 adds a passive sign-in attempt. **Log in now** may take over
+that attempt only while it is parked on its read-only page-change wait, with no input,
+acknowledgement, generation or passkey request in flight. A restored passive record
+with no running operation can also yield. Planning, active field reads, mutation intents,
+challenge watches and account switches keep their existing refusal rules.
+
+The final authorization checks and removal of the old run occur without an intervening
+await. Existing run identity, operation and document checks then fence its late wait
+response or acknowledgement before storage yields; a new manual attempt gets its own
+identity and the selected pick's authority. Another tab's idle passive wait does not
+block the request, but a wake of that old wait cannot act beside the manual login.
+This changes no site/profile setting and grants no account remembering or default save.
+
+A valid request may also reach normal start-page repair when a cached `confirm` or
+`unclear` page is set to `off`. It does not execute the cached recipe or change its kind
+locally. A page still classified as a verification is left untouched; normal repair,
+inference, spending, scope and output-validation limits apply. These are integration
+details of the existing explicit action, not a new permission to submit confirmations.
+
 ## Consequences
 
 The person can retry a stopped login without changing future automatic behavior.

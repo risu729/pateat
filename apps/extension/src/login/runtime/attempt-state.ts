@@ -21,6 +21,19 @@ export const holdsOthers = (entry: LoginAttemptMetadata, now: number) =>
 export const terminal = (metadata: LoginAttemptMetadata) =>
   ["authenticated", "blocked"].includes(metadata.state);
 
+/** A passive run may yield only at its explicit read-only wait, never during planning or filling. */
+export const passiveFillWaiting = (
+  metadata: LoginAttemptMetadata,
+  run?: Pick<Execution, "metadata" | "fillWaiting">,
+): boolean =>
+  metadata.signInFill === true &&
+  metadata.state === "ready" &&
+  metadata.operationId === undefined &&
+  metadata.mutationIntent !== true &&
+  metadata.submissions === 0 &&
+  metadata.watch === undefined &&
+  (!run || (run.metadata.id === metadata.id && run.fillWaiting === true));
+
 /**
  * A login with no step left to run: its result settled as unknown, or it is watched after a
  * `challenge` (ADR 0027). Its later pages are checked, but it is not a login in progress.

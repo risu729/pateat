@@ -10,15 +10,23 @@ import { frameKey, recordKey, logCode, siteOf } from "./steps";
 import { siteCandidates } from "./choice-save";
 import { clearChoice } from "./choice";
 import { manualHeldElsewhere, tabAttempt, recordFor } from "./hold";
-import { terminal } from "./attempt-state";
+import { terminal, passiveFillWaiting } from "./attempt-state";
 import { forget } from "./session-store";
 import { MANUAL_START_MS, endManual, type ManualStart } from "./manual-scope";
 import type { LiveDocument } from "./types";
 import type { Runtime } from "./state";
 
 const preparing = (request: ManualStart | undefined) => request?.pick !== undefined;
-const retryable = (record: LoginAttemptMetadata) =>
-  terminal(record) || (record.state === "reconciling" && record.settled === true);
+const passiveRetryable = (rt: Runtime, live: LiveDocument, record: LoginAttemptMetadata) =>
+  sameLoginDocument(record.document, live.document) &&
+  passiveFillWaiting(record, rt.attempts.get(live.document.tabId)) &&
+  !rt.continuations.has(record.id) &&
+  rt.passkeyPages.get(live.document.tabId)?.attemptId !== record.id &&
+  !rt.options.passkeyActive?.(live.document.documentId);
+const retryable = (rt: Runtime, live: LiveDocument, record: LoginAttemptMetadata) =>
+  terminal(record) ||
+  (record.state === "reconciling" && record.settled === true) ||
+  passiveRetryable(rt, live, record);
 
 /** A fingerprint carries no URL, and makes a same-document navigation invalidate an offer. */
 async function fingerprint(rt: Runtime, live: LiveDocument): Promise<string> {
@@ -58,7 +66,12 @@ async function pageRefusal(rt: Runtime, live: LiveDocument): Promise<string | un
 }
 
 function attemptRefusal(rt: Runtime, live: LiveDocument): string | undefined {
-  if (rt.attempts.get(live.document.tabId)?.running) return "login-running";
+  const running = rt.attempts.get(live.document.tabId);
+  if (
+    rt.options.passkeyActive?.(live.document.documentId) ||
+    (running?.running && !passiveRetryable(rt, live, running.metadata))
+  )
+    return "login-running";
   if (
     rt.switchesRunning.has(live.document.tabId) ||
     rt.accountPicks.switchingHere(live.document.tabId, siteOf(live.document.origin), live.incognito)
@@ -68,11 +81,11 @@ function attemptRefusal(rt: Runtime, live: LiveDocument): string | undefined {
   if (
     record &&
     !terminal(record) &&
-    (record.account.origin !== live.document.origin || !retryable(record))
+    (record.account.origin !== live.document.origin || !retryable(rt, live, record))
   )
     return "login-running";
   const own = recordFor(rt, live.document.tabId, live.document.origin);
-  if (own && !retryable(own))
+  if (own && !retryable(rt, live, own))
     return own.state === "authenticated" ? "already-signed-in" : "login-running";
   return manualHeldElsewhere(rt, live.document.tabId, live.document.origin)
     ? "origin-busy"
@@ -206,7 +219,7 @@ export async function manualStart(
   try {
     const recorded = recordFor(rt, tabId, live.document.origin);
     if (recorded) {
-      if (!retryable(recorded)) {
+      if (!retryable(rt, live, recorded)) {
         endManual(rt, tabId, "login-running", pending);
         return refuse("login-running");
       }
@@ -218,6 +231,7 @@ export async function manualStart(
       // Remove only the idle run before the storage write yields; an observer must not wake it meanwhile.
       if (rt.attempts.get(tabId)?.metadata.id === recorded.id) rt.attempts.delete(tabId);
       if (rt.effects.get(tabId)?.attemptId === recorded.id) rt.effects.delete(tabId);
+      rt.continuations.delete(recorded.id);
       await forget(rt, recordKey(tabId, live.document.origin));
     }
     const stale = await pageRefusal(rt, live);
