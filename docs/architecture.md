@@ -4474,7 +4474,10 @@ after ten minutes. Local attempt lines carry `fillOnly` and `sign-in-fill`.
 The next step must actually become usable on a new document/path, or change from not
 ready to ready in the same document. A DOM mutation or elapsed time is not progression.
 The final advance may be continued by normal recipe generation when the missing input
-appears, with the existing per-step request and recipe budgets. Already learned detail
+appears, with the existing per-step request and recipe budgets. When the person/page
+has advanced, a persistent step key records the append request without a synthetic click
+or submission. When the same advance button still shows beside a revealed password,
+the established same-button replacement checks apply instead. Already learned detail
 handlers fill ordinary writable inputs without selecting their radio buttons. Software
 keyboards, fields marked as advancing/submitting and TOTP/code fields remain empty:
 the current recipe cannot prove that entering their last digit will not submit, even

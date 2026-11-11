@@ -26,14 +26,21 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
 
   ctx.askKey = recordKey(ctx.document.tabId, ctx.document.origin);
 
-  const permissionRecipe = await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
+  // Read no recipe before a stale caller is rejected. Only `off` needs an early
+  // confirmation lookup; the default `fill` keeps the existing latched record phases.
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-  if (permissionRecipe) {
-    const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
+  const permissionSnapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
+  if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+  if (!permissionSnapshot.ok) return ctx.refuse("settings-unavailable");
+  const permission = resolvePagePermission(
+    permissionSnapshot.snapshot.settings,
+    ctx.live.url,
+    "confirm",
+  );
+  if (permission?.permission !== "fill") {
+    const permissionRecipe = await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-    if (!snapshot.ok) return ctx.refuse("settings-unavailable");
-    const permission = resolvePagePermission(snapshot.snapshot.settings, ctx.live.url, "confirm");
-    if (permission?.permission !== "fill")
+    if (permissionRecipe)
       return pageOff(
         rt,
         ctx.live,
