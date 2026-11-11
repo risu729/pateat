@@ -96,6 +96,14 @@ function mockClient(initial: ManageClaude = stateOf(null)) {
     renameProfile: vi.fn<ManageClient["renameProfile"]>(),
     deleteProfile: vi.fn<ManageClient["deleteProfile"]>(),
     assignProfile: vi.fn<ManageClient["assignProfile"]>(),
+    openai: vi.fn<ManageClient["openai"]>(async () => ({
+      version: 1,
+      configured: false,
+      storage: "ready",
+      storedInvalid: false,
+    })),
+    saveOpenAI: vi.fn<ManageClient["saveOpenAI"]>(),
+    deleteOpenAI: vi.fn<ManageClient["deleteOpenAI"]>(),
     problems: vi.fn<ManageClient["problems"]>(),
     replace(next: ManageClaude) {
       state = next;

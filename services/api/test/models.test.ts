@@ -7,6 +7,7 @@ import { env } from "cloudflare:workers";
 import * as v from "valibot";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveWifCredential } from "../src/claude/credentials";
+import { openAIPricedModels } from "@pateat/inference";
 import { roleChoices } from "@pateat/generation";
 import { fastFailingModels } from "../src/claude/models";
 import {
@@ -147,6 +148,7 @@ describe("owner model configuration", () => {
       "claude-opus-5-5",
       "claude-sonnet-5-5",
       "claude-haiku-5-5",
+      ...openAIPricedModels().map((entry) => entry.modelId),
     ]);
     expect(view.models[0]).toEqual({
       provider: "anthropic",
@@ -180,6 +182,10 @@ describe("owner model configuration", () => {
       ["claude-opus-5-5", { input: 4, output: 20 }],
       // Configured, so listed though the API no longer names it: nothing to choose.
       ["claude-sonnet-5-5", { input: 2, output: 10 }],
+      ...openAIPricedModels().map((entry) => [
+        entry.modelId,
+        { input: entry.rates.input, output: entry.rates.output },
+      ]),
     ]);
     expect(view.models[2]?.efforts).toEqual([]);
     expect(warn).toHaveBeenCalledWith("Claude model has no price", { model: "claude-opus-9" });
