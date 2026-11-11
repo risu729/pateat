@@ -59,8 +59,9 @@ export type BitwardenMismatchCheck =
  *   requires a readable type, so this guard is defensive.
  * - `folder`, `collection`: a folder or collection name failed to decrypt.
  * - `catalog`: the SDK threw while reading the folders and collections.
+ * - `master-password`: the master password did not unwrap the account's user key.
  * - `session-open`: opening the account failed before any item was read: its keys,
- *   security state or organization keys did not initialize, or the password was wrong.
+ *   security state or organization keys did not initialize.
  */
 export const BITWARDEN_DECRYPT_CHECKS = [
   "unknown-organization",
@@ -74,6 +75,7 @@ export const BITWARDEN_DECRYPT_CHECKS = [
   "folder",
   "collection",
   "catalog",
+  "master-password",
   "session-open",
 ] as const;
 export type BitwardenDecryptCheck = (typeof BITWARDEN_DECRYPT_CHECKS)[number];

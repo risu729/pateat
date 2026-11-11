@@ -2,6 +2,8 @@ export const bitwardenEn = {
   "Bitwarden's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.":
     "Bitwarden's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.",
   " (check: {{check}})": " (check: {{check}})",
+  "Pateat could not decrypt this vault's data (check: {{check}}). Report this check name.":
+    "Pateat could not decrypt this vault's data (check: {{check}}). Report this check name.",
   "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.":
     "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.",
   "Sign in again to sync. The saved local vault can still unlock independently.":

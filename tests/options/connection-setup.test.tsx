@@ -2569,7 +2569,10 @@ test("Unlock sends the master password to the worker and re-reads the vaults", a
 test("a wrong master password keeps the unlock form open and says so", async () => {
   const client = mockClient();
   client.list.mockResolvedValue({ ...status(), connections: [lockedVault] });
-  client.unlock.mockResolvedValueOnce({ ok: false, error: { code: "crypto-failed" } });
+  client.unlock.mockResolvedValueOnce({
+    ok: false,
+    error: { code: "crypto-failed", check: "master-password" },
+  });
   await mount(client);
   await unlockRow().click();
   await unlockField().fill("synthetic-wrong-password");
@@ -2586,6 +2589,66 @@ test("a wrong master password keeps the unlock form open and says so", async () 
   await submitUnlock().click();
   await vi.waitFor(() => expect(client.unlock).toHaveBeenCalledTimes(2));
   await expect.element(page.getByText("Vault unlocked.", { exact: true })).toBeVisible();
+});
+
+test("an unlock the vault data refuses names the check instead of a wrong password", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({ ...status(), connections: [lockedVault] });
+  client.unlock.mockResolvedValueOnce({
+    ok: false,
+    error: { code: "crypto-failed", check: "sdk-decrypt" },
+  });
+  await mount(client);
+  await unlockRow().click();
+  await unlockField().fill(password);
+  await submitUnlock().click();
+  const text =
+    "Pateat could not decrypt this vault's data (check: sdk-decrypt). Report this check name.";
+  // Said in the form and in the page status.
+  await vi.waitFor(() =>
+    expect(page.getByText(text, { exact: true }).elements().length).toBeGreaterThanOrEqual(2),
+  );
+  expect(document.body.textContent).not.toContain("Invalid master password.");
+  expect(document.body.textContent).not.toContain("Refresh and try again");
+  await expect.element(unlockField()).not.toHaveAttribute("aria-invalid");
+});
+
+test("an unlock the crypto host itself fails asks to refresh, not for a check name", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({ ...status(), connections: [lockedVault] });
+  client.unlock.mockResolvedValueOnce({ ok: false, error: { code: "crypto-failed" } });
+  await mount(client);
+  await unlockRow().click();
+  await unlockField().fill(password);
+  await submitUnlock().click();
+  await expect
+    .element(
+      page.getByText("The vault could not be unlocked. Refresh and try again.", { exact: true }),
+    )
+    .toBeVisible();
+  expect(document.body.textContent).not.toContain("Invalid master password.");
+  expect(document.body.textContent).not.toContain("could not decrypt");
+});
+
+test("a sync the vault data refuses says which check, not to refresh", async () => {
+  const client = mockClient();
+  const open = { ...lockedVault, state: "ready" as const, autoUnlock: "enabled" as const };
+  client.list.mockResolvedValue({ ...status(), connections: [open] });
+  client.sync.mockResolvedValueOnce({
+    ok: false,
+    error: { code: "crypto-failed", check: "uri-checksum" },
+  });
+  await mount(client);
+  await page.getByRole("button", { name: "Locked vault: Sync", exact: true }).click();
+  await expect
+    .element(
+      page.getByText(
+        "Pateat could not decrypt this vault's data (check: uri-checksum). Report this check name.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  expect(document.body.textContent).not.toContain("Refresh, then try again");
 });
 
 test("an unlock that fails otherwise says the vault could not be unlocked", async () => {

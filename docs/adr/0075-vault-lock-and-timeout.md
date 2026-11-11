@@ -62,8 +62,9 @@ unlocked (agent's choice: a sync needs the key to verify what it downloads).
 encrypted context with the stored KDF parameters through the same SDK master-password
 unlock a sign-in uses, without the server, checks that the opened account is the
 accepted one, and keeps the key where the timeout setting keeps it. A wrong password
-says "Invalid master password." and changes nothing; the crypto host answers every
-failed open the same way, so a rare crypto failure reads as a wrong password too. A
+says "Invalid master password." and changes nothing. Any other refusal of the saved
+data names the check that refused it
+([amendment](#amendment-a-wrong-password-is-told-from-unreadable-data-2026-11-11)). A
 logged-out vault cannot be
 unlocked; it needs **Sign in again**.
 
@@ -162,3 +163,22 @@ Official code at
   ([vault-timeout.service.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/key-management/vault-timeout/services/vault-timeout.service.ts#L84-L126)).
 - [`chrome.storage.session`](https://developer.chrome.com/docs/extensions/reference/api/storage#property-session)
   and [`chrome.idle`](https://developer.chrome.com/docs/extensions/reference/api/idle).
+
+## Amendment: a wrong password is told from unreadable data (2026-11-11)
+
+Before, every failed open of the saved context answered `crypto-failed`, and the
+settings page said "Invalid master password." for all of them, so data that strict
+decryption refused looked like a mistyped password and the person could only try again.
+Now, when the SDK cannot initialize the account, the crypto Worker asks whether the
+password unwraps the stored user key at all (the SDK's
+`decrypt_user_key_with_master_password`, the same check as a re-prompt). Only a password
+that does not is the `master-password` check, which keeps "Invalid master password.";
+the key it opens is zeroed at once. KDF settings below the SDK's minimums, which it
+refuses for any password, are not called a wrong password. A wrong password derives the
+key twice, once in the failed initialization and once in this check; a right one still
+derives it once. Any other `crypto-failed` with a check, on unlock or sync, says
+"Pateat could not decrypt this vault's data (check: …). Report this check name." in the
+page status and the unlock form, and no longer asks to refresh, which would meet the
+same refusal. A `crypto-failed` without a check comes from the crypto host itself, such
+as a Worker that stopped, and still asks to refresh (an agent's choice, from the owner's
+report on 2026-11-11 of a sync that said to refresh).
