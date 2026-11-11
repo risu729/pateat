@@ -344,6 +344,8 @@ test("abort rejects with the caller's reason and a slow bridge delegates", async
         { challenge: challengeHex() },
       );
       await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+      // Exercise cancellation during signing, after the asynchronous permission checks.
+      await expect.poll(probe.delayed).toBe(1);
       await page.evaluate(() => {
         const scope = window as unknown as { controller: AbortController; abortReason: unknown };
         scope.abortReason = { synthetic: "abort" };
