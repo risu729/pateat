@@ -461,13 +461,13 @@ export function createDeviceGenerationBackend(options: {
       let taken = false;
       await change((record) => {
         const held = record.judgements.find(sameJudgement(judged));
-        // A `partial` or `optional` verdict, or `challenge` for other inputs, takes today's
-        // slot again; any other stays.
+        // A `partial` or `optional` verdict, or `challenge` or `unclear` for other inputs,
+        // takes today's slot again; any other stays.
         taken =
           !held ||
           held.verdict === "partial" ||
           held.verdict === "optional" ||
-          (held.verdict === "challenge" && held.inputs !== inputs);
+          ((held.verdict === "challenge" || held.verdict === "unclear") && held.inputs !== inputs);
         const judgements = taken
           ? [
               ...record.judgements.filter((entry) => !sameJudgement(judged)(entry)),

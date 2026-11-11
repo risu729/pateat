@@ -3471,6 +3471,67 @@ describe("page judgement (ADR 0027)", () => {
     expect(sent).toHaveLength(calls + 1);
   });
 
+  // EPOS Net, 2026-11-11 12:53 UTC: an image puzzle on the path after the sign-in was
+  // judged `unclear`, and its card security code page, on the same path, would have been
+  // answered `already-judged` and completed unconfirmed (ADR 0029 amendment of
+  // 2026-11-11).
+  it("judges an undecided page again once it shows other inputs", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const puzzle = observation("/login/dispatch", [element("login", "button", "Log in")]);
+    const kept = () =>
+      rows(
+        "SELECT verdict, inputs FROM page_judgements WHERE owner_id = ? AND path = '/login/dispatch'",
+        device.ownerId,
+      );
+    replies.push({ text: JSON.stringify({ result: { decision: "unclear" } }) });
+    expect((await complete(device, change.recipeId, 2, puzzle)).body).toEqual({
+      version: 1,
+      status: "unclear",
+    });
+    // The same inputs keep the kept answer.
+    const calls = sent.length;
+    expect((await complete(device, change.recipeId, 2, puzzle)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "already-judged",
+    });
+    expect(sent).toHaveLength(calls);
+    const code = observation("/login/dispatch", [
+      { ...element("input_pass", "password", "Security code"), maxLength: 3 },
+      element("next", "button", "Next"),
+    ]);
+    // The request judging it again fails: the row keeps `unclear` and its earlier inputs.
+    expect((await complete(device, change.recipeId, 2, code)).body).toEqual({
+      version: 1,
+      status: "failed",
+      error: "provider-error",
+    });
+    expect(await kept()).toEqual([{ verdict: "unclear", inputs: await judgedInputs(puzzle) }]);
+    // The model is undecided again: the row stays `unclear`, now for these inputs.
+    replies.push({ text: JSON.stringify({ result: { decision: "unclear" } }) });
+    expect((await complete(device, change.recipeId, 2, code)).body).toEqual({
+      version: 1,
+      status: "unclear",
+    });
+    expect(await kept()).toEqual([{ verdict: "unclear", inputs: await judgedInputs(code) }]);
+    const judged = sent.length;
+    expect((await complete(device, change.recipeId, 2, code)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "already-judged",
+    });
+    expect(sent).toHaveLength(judged);
+    // The puzzle shows again and is judged a challenge this time.
+    replies.push(judgeReply({ decision: "challenge" }));
+    expect((await complete(device, change.recipeId, 2, puzzle)).body).toEqual({
+      version: 1,
+      status: "challenge",
+    });
+    expect(sent).toHaveLength(judged + 1);
+    expect(await kept()).toEqual([{ verdict: "challenge", inputs: await judgedInputs(puzzle) }]);
+  });
+
   describe("a page of another origin of the site (ADR 0022)", () => {
     const moved = (path: string, candidates: ObservedCandidate[]) =>
       observation(path, candidates, "https://www.example.test");

@@ -296,8 +296,8 @@ export interface GenerationBackend {
   /**
    * Records a page's judgement at `now`, unanswered, with the digest of the inputs its
    * description shows: a new row, one whose verdict was `partial` or `optional`, or one
-   * kept `challenge` for a description with other inputs (or none recorded), which takes
-   * today's slot again. With it, forgets the recipe's rows judged before `expired` whose
+   * kept `challenge` or `unclear` for a description with other inputs (or none recorded),
+   * which takes today's slot again. With it, forgets the recipe's rows judged before `expired` whose
    * revision is below `revision` or whose prompt version is none of `versions`. Both
    * happen in one write; a row with any other verdict, or an unanswered one, is left as
    * it is. Returns whether this request took the row: false when another request's row

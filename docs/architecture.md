@@ -1771,10 +1771,11 @@ is left out too: the request says so (`partial`), the page then completes only o
 path is judged again when a page of it is described in full (ADR 0029). A path kept
 `challenge` is judged again once its page is described with other inputs, as a code
 field that was not yet drawn when it was first judged (ADR 0029 amendment of
-2026-11-06). A page where a route's sign-in field shows (S1), on any path, is not sent;
-only an input of a kind Pateat fills counts as that field, never another element its
-locator names on another page nor an input marked `one-time-code`, as the code input
-JetBrains Account swaps in with the email input's test attribute
+2026-11-06), and so is one kept `unclear`, as another page of the path that asks for a
+step (amendment of 2026-11-11). A page where a route's sign-in field shows (S1), on any
+path, is not sent; only an input of a kind Pateat fills counts as that field, never
+another element its locator names on another page nor an input marked `one-time-code`,
+as the code input JetBrains Account swaps in with the email input's test attribute
 ([issue #1413](https://github.com/risu729/pateat/issues/1413)), while the passkey
 route's button counts as shown. A handler's click is a new effect step. A `challenge`
 verdict that added a handler hands back the newer revision: the attempt takes it over
@@ -1799,32 +1800,31 @@ settings or an offer to add a passkey, while the person could already reach the 
 confirmed, watched or not, and presses nothing: the page stays as it is. It does so only
 once the attempt's credential went back (the item's password or a second factor's
 handler it submitted, or Pateat's answer to its step's passkey request, on any route;
-ADR 0065 amended 2026-11-08), when the
-page confirmed no sign and no evidence before the request and the loaded document still
-shows none after the answer on the same path, the description left out no disabled
-field, the page shows no radio button, select or text area, or an ARIA widget for one,
-outside a site search (`inputLeftOut`; disabled and styled ones count, a page footer's
-select does not), and the login has no stop before a missing password; otherwise it ends
-`challenge`, or before the credential settles as an undecided page without completing.
-A moved login (ADR 0022) completes on it after the move's own re-check, on the path it
-was judged on, once the attempt sent the password, a TOTP code or a passkey answer,
-without a stop and with nothing left out. The judge's own answer fails closed
-too: `optional` on a page with any input other than a search box counts as `challenge`.
-The service learns nothing from it, no marker and no handler, since the page's elements
-may never show on the usual signed-in page, and does not reuse it: a later login that
-reaches the path is judged again. An `unclear` answer completes it, as a warning marked
-`completed`, only when the page confirmed no sign and no evidence (S1 to S5, E1 to E3)
-before the request and still shows none in the loaded document after the answer, the
-login is not watched, the description left out no disabled field, the attempt's
-credential went back as for `optional` above, on either route (ADR 0029 amended
-2026-11-08; a path judged signed in before needs none), and the model abstained or
-the service answered `already-judged`, `judged-signed-in`, `judgement-limit`,
-`daily-limit` or `monthly-limit`. Only the `signed-in` verdict or `unclear` with
-`judged-signed-in` is confirmed (and `optional`, above); other undecided completions
-carry `unconfirmed: true`, save no pending account choice and note no sign-in for
-passkey registration refusal. They show the yellow unsettled badge and the popup says
-the login could not be confirmed. Automation still stops, the site is released to other
-tabs and later logout detection is unchanged
+ADR 0065 amended 2026-11-08), when the page confirmed no sign and no evidence before the
+request and the loaded document still shows none after the answer on the same path, the
+description left out no disabled field, the page shows no radio button, select or text
+area, or an ARIA widget for one, outside a site search (`inputLeftOut`; disabled and
+styled ones count, a page footer's select does not), and the login has no stop before a
+missing password; otherwise it ends `challenge`, or before the credential settles as an
+undecided page without completing. A moved login (ADR 0022) completes on it after the
+move's own re-check, on the path it was judged on, once the attempt sent the password, a
+TOTP code or a passkey answer, without a stop and with nothing left out. The judge's own
+answer fails closed too: `optional` on a page with any input other than a search box
+counts as `challenge`. The service learns nothing from it, no marker and no handler,
+since the page's elements may never show on the usual signed-in page, and does not reuse
+it: a later login that reaches the path is judged again. An `unclear` answer completes
+it, as a warning marked `completed`, only when the page confirmed no sign and no
+evidence (S1 to S5, E1 to E3) before the request and still shows none in the loaded
+document after the answer, the login is not watched, the description left out no
+disabled field, the attempt's credential went back as for `optional` above, on either
+route (ADR 0029 amended 2026-11-08; a path judged signed in before needs none), and the
+model abstained or the service answered `already-judged`, `judged-signed-in`,
+`judgement-limit`, `daily-limit` or `monthly-limit`. Only the `signed-in` verdict or
+`unclear` with `judged-signed-in` is confirmed (and `optional`, above); other undecided
+completions carry `unconfirmed: true`, save no pending account choice and note no
+sign-in for passkey registration refusal. They show the yellow unsettled badge and the
+popup says the login could not be confirmed. Automation still stops, the site is
+released to other tabs and later logout detection is unchanged
 ([ADR 0029 amendment](adr/0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14)).
 An `unclear` answer on a page with a confirmed sign of another sign-in step (S2 to S5),
 or the service's `judged-challenge` for a path judged `challenge` before in the

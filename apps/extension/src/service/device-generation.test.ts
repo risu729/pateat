@@ -386,6 +386,12 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
     expect(await backend.judgement(key)).toEqual({ verdict: "challenge", inputs });
     expect(await backend.recordJudgement(key, 3_500, stale, "b2")).toBe(true);
     expect(await backend.judgement(key)).toEqual({ verdict: null, inputs: "b2" });
+    // So does `unclear` (ADR 0029 amendment of 2026-11-11).
+    await backend.keepVerdict(key, "unclear");
+    expect(await backend.recordJudgement(key, 3_600, stale, "b2")).toBe(false);
+    expect(await backend.judgement(key)).toEqual({ verdict: "unclear", inputs: "b2" });
+    expect(await backend.recordJudgement(key, 3_600, stale, inputs)).toBe(true);
+    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs });
   });
 
   it("keeps attempts and repairs within their windows", async () => {
