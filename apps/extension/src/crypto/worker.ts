@@ -109,13 +109,20 @@ function unreadableFieldIds(paths: readonly string[], snapshotId: string): Set<s
   }
   return ids;
 }
-/** The snapshot's fields, without those of a partly readable item that did not decrypt. */
-function offered<T extends { ref: { fieldId: string } }>(
+/** The snapshot's fields, without those of a partly readable item that did not decrypt
+ * and the linked custom fields that would fill one of them. */
+function offered<T extends { ref: { fieldId: string }; linkedFieldId?: string }>(
   fields: readonly T[],
   itemId: string,
 ): readonly T[] {
   const unreadable = owned?.unreadableFields.get(itemId.toLowerCase());
-  return unreadable ? fields.filter((field) => !unreadable.has(field.ref.fieldId)) : fields;
+  return unreadable
+    ? fields.filter(
+        (field) =>
+          !unreadable.has(field.ref.fieldId) &&
+          !(field.linkedFieldId && unreadable.has(field.linkedFieldId)),
+      )
+    : fields;
 }
 function unusable(itemId: string, cipher: unknown, check: string | undefined): UnusableItem {
   const raw = cipher && typeof cipher === "object" ? (cipher as Record<string, unknown>) : {};
@@ -535,7 +542,13 @@ async function execute(command: HostCommand) {
     if (op.kind !== "resolve")
       return { ok: true as const, data: offered(snapshot.data.list(), itemId) };
     // A field that did not decrypt is not offered, so it is missing rather than empty.
-    if (owned.unreadableFields.get(itemId)?.has(op.ref.fieldId)) return fail("field-missing");
+    // So is a linked custom field that would fill one.
+    const unreadable = owned.unreadableFields.get(itemId);
+    const linked = unreadable
+      ? snapshot.data.list().find((field) => field.ref.fieldId === op.ref.fieldId)?.linkedFieldId
+      : undefined;
+    if (unreadable?.has(op.ref.fieldId) || (linked && unreadable?.has(linked)))
+      return fail("field-missing");
     return snapshot.data.resolve(op.ref, {
       allowedFieldIds: op.allowedFieldIds,
       ...(op.nowMs === undefined ? {} : { nowMs: () => op.nowMs! }),

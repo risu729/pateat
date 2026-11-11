@@ -184,8 +184,9 @@ decrypting the whole item would refuse.
   the paths reported for it, so one item cannot fail the open.
 - The session then uses the repaired copy in memory; the stored record is unchanged
   and the repair is made again on each open. A field left empty is not offered: it is
-  missing from the item's fields and from a fill, never read as an empty value, and an
-  item with an unreadable custom field never compares as unchanged in a review.
+  missing from the item's fields and from a fill, never read as an empty value, and so
+  is a linked custom field that would fill it. An item with an unreadable custom field
+  never compares as unchanged in a review.
 - A repaired item starts the same check for an SDK fault partway through as an
   unusable one, since such a fault may refuse only an item's larger values: an item
   that verified must still decrypt, one that verified whole when there is one.

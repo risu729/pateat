@@ -593,6 +593,8 @@ describe("crypto Worker snapshot verification failures", () => {
         cipher: {
           ...cipher,
           login: { ...(cipher["login"] as Record<string, unknown>), password: null },
+          // A linked custom field that would fill the password.
+          fields: [{ name: "Linked", value: null, type: 3, linkedId: 101 }],
         },
         unreadable: ["login.password"],
       },
@@ -609,7 +611,12 @@ describe("crypto Worker snapshot verification failures", () => {
     const fields = (await list(2)) as { ok: true; data: { ref: { fieldId: string } }[] };
     expect(fields.data.map((field) => field.ref.fieldId)).toContain("login.username");
     expect(fields.data.map((field) => field.ref.fieldId)).not.toContain("login.password");
+    expect(fields.data.map((field) => field.ref.fieldId)).not.toContain(`custom.${snapshotId}.0`);
     expect(await resolve(2)).toEqual(failed("field-missing"));
+    const linked = `custom.${snapshotId}.0`;
+    expect(await resolve(2, { fieldId: linked, allowedFieldIds: [linked] })).toEqual(
+      failed("field-missing"),
+    );
     const catalog = (await command({ kind: "catalog", session })) as {
       data: { items: { id: string; fields: { id: string }[] }[] };
     };
