@@ -652,7 +652,13 @@ describe("production login document admission", () => {
       expect(
         await navigate(h, "https://elsewhere.example/login", "elsewhere-document", false),
       ).toEqual({ ok: false, reason: "recipe-not-found", starts: [], generate: true });
-      expect(available).toHaveBeenCalledWith("https://elsewhere.example", "/login");
+      expect(available).toHaveBeenCalledWith(
+        "https://elsewhere.example",
+        "/login",
+        undefined,
+        undefined,
+        false,
+      );
     });
     it("ends a submitted attempt when the next origin has no recipe", async () => {
       holdClicks(origin);

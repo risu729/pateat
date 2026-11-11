@@ -2319,22 +2319,20 @@ test("hiding This page keeps the one-time login available and its pending status
   };
   let requestId = "";
   const manual = {
-    get: vi
-      .fn<ManualClient["get"]>()
-      .mockImplementation(async () =>
-        requestId
-          ? { ok: true, targets: [], status: { requestId, state: "generating" } }
-          : {
-              ok: true,
-              targets: [
-                {
-                  document,
-                  scope: "scope",
-                  candidates: [{ connectionId: "demo-personal", itemId: "primary" }],
-                },
-              ],
-            },
-      ),
+    get: vi.fn<ManualClient["get"]>().mockImplementation(async () =>
+      requestId
+        ? { ok: true, targets: [], status: { requestId, state: "generating" } }
+        : {
+            ok: true,
+            targets: [
+              {
+                document,
+                scope: "scope",
+                candidates: [{ connectionId: "demo-personal", itemId: "primary" }],
+              },
+            ],
+          },
+    ),
     start: vi.fn<ManualClient["start"]>().mockImplementation(async (request) => {
       requestId = request.requestId;
       return { ok: true, state: "generating" };
