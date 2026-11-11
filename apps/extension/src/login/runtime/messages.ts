@@ -1,4 +1,7 @@
 import * as v from "valibot";
+import { manualOfferRequestSchema, manualStartRequestSchema } from "../manual-wire";
+import { manualOffer, manualStart } from "./manual";
+import { endManual } from "./manual-scope";
 import {
   keypadStep,
   sameLoginDocument,
@@ -196,6 +199,10 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     return undefined;
   }
   if (fromPopup(rt, sender)) {
+    const manualGet = v.safeParse(manualOfferRequestSchema, message);
+    if (manualGet.success) return manualOffer(rt, manualGet.output.tabId);
+    const manualRun = v.safeParse(manualStartRequestSchema, message);
+    if (manualRun.success) return manualStart(rt, manualRun.output);
     const ask = v.safeParse(choiceRequestSchema, message);
     if (ask.success) return popupChoice(rt, ask.output.tabId);
     const pausing = v.safeParse(pauseRequestSchema, message);
@@ -582,6 +589,8 @@ export async function incognitoClosed(rt: Runtime): Promise<void> {
  */
 export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
   clearBindingReview(rt, tabId);
+  endManual(rt, tabId, "page-changed");
+  rt.manualStarts.delete(tabId);
   rt.switchStates.delete(tabId);
   void rt.accountPicks.endSwitch(tabId);
   const visit = rt.confirmVisits.get(tabId);

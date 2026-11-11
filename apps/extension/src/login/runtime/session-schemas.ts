@@ -156,6 +156,8 @@ export const pickedAccountSchema = v.strictObject({
   connectionId: v.string(),
   itemId: v.string(),
   makeDefault: v.boolean(),
+  /** Explicit one-shot login: keeps no session account and never resumes a pause. */
+  manual: v.optional(v.literal(true)),
   /** How long the popup offered the choice before the pick: the person's time (ADR 0019). */
   waitedMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
   /**

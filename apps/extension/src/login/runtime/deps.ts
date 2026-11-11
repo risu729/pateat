@@ -147,6 +147,8 @@ export interface LoginGeneration {
     path: string,
     base?: RecipeGenerationRequest["base"],
     branch?: string,
+    /** Explicit first-page retry; an in-flight request still holds the page. */
+    manual?: boolean,
   ): Promise<true | GenerationHold>;
   /**
    * Sends one page: a recipe's first page, or with `base` the page after the final

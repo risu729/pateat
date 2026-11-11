@@ -1,6 +1,8 @@
 import { type LoginAttemptMetadata } from "@pateat/contracts";
 import { recordKey, siteOf } from "./steps";
-import { terminal } from "./attempt-state";
+import { terminal, watchOver } from "./attempt-state";
+import { manualPending } from "./manual-scope";
+import type { LiveDocument } from "./types";
 import {
   heldElsewhere as recordsHeldElsewhere,
   sharesCookies as tabsShareCookies,
@@ -95,4 +97,32 @@ export function tabAttempt(rt: Runtime, tabId: number): LoginAttemptMetadata | u
   if (run) return run.metadata;
   const records = [...rt.persisted.values()].filter((entry) => entry.document.tabId === tabId);
   return records.find((entry) => !terminal(entry)) ?? records.at(-1);
+}
+
+/** An explicit retry ignores ended-record cooldowns, while live work and account switches still win. */
+export function manualHeldElsewhere(rt: Runtime, tabId: number, origin: string): boolean {
+  if (switchingElsewhere(rt, tabId, siteOf(origin))) return true;
+  const records = new Map([...rt.persisted.values()].map((record) => [record.id, record]));
+  for (const run of rt.attempts.values()) records.set(run.metadata.id, run.metadata);
+  return [...records.values()].some(
+    (record) =>
+      record.document.tabId !== tabId &&
+      record.account.origin === origin &&
+      sharesCookies(rt, tabId, record.document.tabId) &&
+      ((!terminal(record) && !record.settled) ||
+        (record.state === "watching" && !watchOver(record, Date.now()))),
+  );
+}
+
+/** Ordinary logins retain the automatic hold; only an explicit request uses the narrower one. */
+export function heldForLogin(rt: Runtime, live: LiveDocument): boolean {
+  const pick = rt.picked.get(live.document.tabId);
+  const manual =
+    manualPending(rt, live) ||
+    (pick?.manual &&
+      pick.attemptId !== undefined &&
+      recordFor(rt, live.document.tabId, live.document.origin)?.id === pick.attemptId);
+  return manual
+    ? manualHeldElsewhere(rt, live.document.tabId, live.document.origin)
+    : heldElsewhere(rt, live.document.tabId, live.document.origin);
 }

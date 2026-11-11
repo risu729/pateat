@@ -1,3 +1,4 @@
+import { manualPending, endManual } from "./manual-scope";
 import {
   type LoginAccount,
   type LoginDocument,
@@ -123,8 +124,12 @@ async function askLoginPassword(
   item: VaultItemMetadata,
 ): Promise<RepromptResponse> {
   const { document, account: login } = asking;
+  const manualRequest = asking.pick?.manual ? rt.manualStarts.get(document.tabId) : undefined;
   const key = `${document.tabId} ${document.documentId}`;
-  if (!rt.options.askMasterPassword) return { ok: false, reason: "unavailable" };
+  if (!rt.options.askMasterPassword) {
+    if (manualRequest) endManual(rt, document.tabId, "unavailable", manualRequest);
+    return { ok: false, reason: "unavailable" };
+  }
   const open = rt.passwordAsks.get(key);
   if (open?.kind === "login") return { ok: true };
   // A window that asks before a detail's read is answered first; its password counts
@@ -142,20 +147,32 @@ async function askLoginPassword(
   // Checked for another vault account, whatever its answer: once it ends, this login
   // asks for its own, while the document still waits for it.
   const other = asked.connectionId !== connection.id;
-  if (answer !== "verified" && !other) return { ok: false, reason: answer };
+  if (answer !== "verified" && !other) {
+    if (manualRequest) endManual(rt, document.tabId, answer, manualRequest);
+    return { ok: false, reason: answer };
+  }
   const live = rt.documents.get(frameKey(document));
-  if (live?.document.documentId !== document.documentId || aborted)
+  if (live?.document.documentId !== document.documentId || aborted) {
+    if (manualRequest) endManual(rt, document.tabId, "page-changed", manualRequest);
     return { ok: false, reason: "document-gone" };
+  }
   // The document may have started another login meanwhile, as after a pick in the popup.
-  if (live.reason !== "master-password-reprompt") return { ok: false, reason: "not-waiting" };
+  if (live.reason !== "master-password-reprompt") {
+    if (manualRequest) endManual(rt, document.tabId, "not-waiting", manualRequest);
+    return { ok: false, reason: "not-waiting" };
+  }
   if (other) return askLoginPassword(rt, asking, connection, item);
+  if (asking.pick?.manual && manualPending(rt, live) !== manualRequest)
+    return { ok: false, reason: "not-waiting" };
+  if (!asking.pick?.manual && manualPending(rt, live)) return { ok: false, reason: "not-waiting" };
   rt.repromptGrants.set(key, {
     connectionId: login.connectionId,
     itemId: login.itemId,
     at: Date.now(),
   });
   if (asking.pick) {
-    rt.picked.set(document.tabId, { ...asking.pick });
+    const pending = asking.pick.manual ? manualPending(rt, live) : undefined;
+    rt.picked.set(document.tabId, pending?.pick ?? { ...asking.pick });
     await quietly(rt, () => saveSession(rt));
   }
   try {

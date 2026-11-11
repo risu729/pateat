@@ -4,6 +4,7 @@ import { diagnosticsEn } from "./diagnostics-en";
 import { serviceEn } from "./service-en";
 import { settingsEn } from "./settings-en";
 export const en = {
+  ...manualEn,
   ...bitwardenEn,
   ...bindingReviewEn,
   ...settingsEn,
@@ -511,3 +512,4 @@ export const en = {
   "Autofill stopped: {{why}}. Nothing was pressed.":
     "Autofill stopped: {{why}}. Nothing was pressed.",
 } as const;
+import { manualEn } from "./manual-en";

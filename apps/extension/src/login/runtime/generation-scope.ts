@@ -1,3 +1,4 @@
+import { manualPending } from "./manual-scope";
 import {
   connectionEnabled,
   getItemEligibility,
@@ -91,7 +92,15 @@ export async function offersGeneration(
     routes.some((recipe) => !runsLogin(recipe) && recipe.steps[0]?.path === live.path)
   )
     return undefined;
-  return rt.generation.available(live.document.origin, live.path).catch(() => undefined);
+  return rt.generation
+    .available(
+      live.document.origin,
+      live.path,
+      undefined,
+      undefined,
+      manualPending(rt, live) !== undefined,
+    )
+    .catch(() => undefined);
 }
 
 /**
@@ -423,7 +432,7 @@ export async function pausedMeanwhile(
   live: LiveDocument,
   page?: "entry" | "other",
 ): Promise<boolean> {
-  if ((await pauseOf(rt, live)) === undefined) return false;
+  if (manualPending(rt, live) || (await pauseOf(rt, live)) === undefined) return false;
   skipGeneration(rt, live, "paused", page);
   void browser.tabs
     .sendMessage(
