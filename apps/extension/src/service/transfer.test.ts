@@ -457,3 +457,88 @@ describe("export and import", () => {
     expect(await transfer.handle({ version: 1, type: "settings.get" })).toBeUndefined();
   });
 });
+
+describe("page permissions in transfer files", () => {
+  const permissions = { "sign-in": "fill", confirm: "off", "personal-details": "fill" } as const;
+  const rules = [
+    { hostname: "bank.example", includeSubdomains: true, permissions: { confirm: "off" as const } },
+  ];
+
+  it("exports, previews and imports profile permissions while keeping device-local settings", async () => {
+    const file = await exported(
+      setup({
+        settings: settingsOf({ pagePermissionDefaults: permissions, sitePagePermissions: rules }),
+      }),
+    );
+    expect(file.settings).toMatchObject({
+      pagePermissionDefaults: permissions,
+      sitePagePermissions: rules,
+    });
+    const device = setup({
+      settings: settingsOf({ connections: [{ connectionId: "local-only", enabled: true }] }),
+    });
+    const before = structuredClone(device.snapshot());
+    expect(await device.transfer.handle(importRequest(file, false))).toMatchObject({
+      type: "settings.import-preview",
+      policies: 0,
+      others: 2,
+      recipes: 0,
+    });
+    expect(device.snapshot()).toEqual(before);
+    expect(device.imported).not.toHaveBeenCalled();
+    expect(await device.transfer.handle(importRequest(file))).toMatchObject({
+      ok: true,
+      type: "settings.import",
+    });
+    expect(device.snapshot()?.settings).toMatchObject({
+      pagePermissionDefaults: permissions,
+      sitePagePermissions: rules,
+      connections: [{ connectionId: "local-only", enabled: true }],
+    });
+    expect(await device.transfer.handle(importRequest(file, false))).toMatchObject({ others: 0 });
+  });
+
+  it("counts one changed hostname once and merges disjoint hostname rows", async () => {
+    const file = await exported(setup({ settings: settingsOf({ sitePagePermissions: rules }) }));
+    const device = setup({
+      settings: settingsOf({
+        sitePagePermissions: [
+          { ...rules[0]!, permissions: { confirm: "fill" } },
+          {
+            hostname: "local.example",
+            includeSubdomains: false,
+            permissions: { "sign-in": "fill" },
+          },
+        ],
+      }),
+    });
+    expect(await device.transfer.handle(importRequest(file, false))).toMatchObject({ others: 1 });
+    expect(await device.transfer.handle(importRequest(file))).toMatchObject({ ok: true });
+    expect(device.snapshot()?.settings.sitePagePermissions).toEqual([
+      ...rules,
+      { hostname: "local.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
+    ]);
+  });
+
+  it("rejects partial defaults and invalid permissions before writing anything", async () => {
+    const file = await exported(setup());
+    const device = setup({ settings: settingsOf() });
+    const before = structuredClone(device.snapshot());
+    const responses = await Promise.all(
+      [
+        { pagePermissionDefaults: { "sign-in": "fill" } },
+        { sitePagePermissions: [{ ...rules[0], permissions: { confirm: "auto" } }] },
+      ].map((invalid) =>
+        device.transfer.handle(
+          importRequest({ ...file, settings: { ...file.settings, ...invalid } }),
+        ),
+      ),
+    );
+    expect(responses).toEqual([
+      { version: 1, ok: false, error: "invalid-file" },
+      { version: 1, ok: false, error: "invalid-file" },
+    ]);
+    expect(device.snapshot()).toEqual(before);
+    expect(device.imported).not.toHaveBeenCalled();
+  });
+});
