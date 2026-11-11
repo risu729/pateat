@@ -1,4 +1,5 @@
 import {
+  resolvePagePermission,
   bindingGaps,
   chooseLoginRoute,
   defaultLoginBinding,
@@ -490,15 +491,26 @@ export async function planFor(
     const top = await topScope(rt, snapshot, live, rt.vars.account, catalog);
     if (top) return { ok: false as const, reason: top.reason };
   } else {
-    const found = await choose(
-      rt,
-      snapshot,
-      live,
-      request.asking,
-      request.paused === true,
-      request.fill === true,
-      accountTargetsOn(recipe, live.path),
-    );
+    const recorded =
+      rt.attempts.get(live.document.tabId)?.metadata ??
+      rt.persisted.get(`${live.document.tabId} ${live.document.origin}`);
+    const found =
+      request.route && recorded?.signInFill && recorded.account.origin === live.document.origin
+        ? {
+            connectionId: recorded.account.connectionId,
+            itemId: recorded.account.itemId,
+            source: "match" as const,
+            saved: false,
+          }
+        : await choose(
+            rt,
+            snapshot,
+            live,
+            request.asking,
+            request.paused === true,
+            request.fill === true,
+            accountTargetsOn(recipe, live.path),
+          );
     if ("reason" in found)
       return {
         ok: false as const,
@@ -516,6 +528,10 @@ export async function planFor(
     if (top) return { ok: false as const, reason: top.reason };
     catalog = scope.catalog;
   }
+  const signInFill =
+    resolvePagePermission(snapshot.snapshot.settings, live.url, "sign-in")?.permission !== "auto" &&
+    chosen?.source !== "pick" &&
+    chosen?.source !== "switch";
   // The generated slot map is read at most once per plan.
   let generated: Promise<LoginBindingTemplate | undefined> | undefined;
   const slotMap = () =>
@@ -644,7 +660,10 @@ export async function planFor(
         : {}),
       ...(choice ? { choice } : {}),
       ...(stored ? { stored } : {}),
-      ...(chosen?.fillOnly ? { fillOnly: true as const, asked: chosen.asked ?? [] } : {}),
+      ...(chosen?.fillOnly && !signInFill
+        ? { fillOnly: true as const, asked: chosen.asked ?? [] }
+        : {}),
+      ...(signInFill ? { signInFill: true as const } : {}),
     };
   };
   // A running or resumed login checks its recorded route alone.
@@ -688,7 +707,7 @@ export async function planFor(
   // A pick on a paused site takes the route any pick takes (ADR 0062, amended 2026-11-08):
   // its login answers the passkey request of its own step with the picked item, as the
   // bridge asks no chooser while a login runs.
-  if (passkeyPage && (recipeHasRoute(routeRecipe, "passkey") || pageRequest)) {
+  if (!signInFill && passkeyPage && (recipeHasRoute(routeRecipe, "passkey") || pageRequest)) {
     const resolved = await resolveRoute({ route: "passkey" });
     if (resolved.ok) {
       facts = await factsOf(resolved);
@@ -713,7 +732,7 @@ export async function planFor(
   const password = await passwordPlan();
   // A paused site never hands a login on to the browser's passkey sign-in: an item
   // without a password stops before anything, pressing nothing (ADR 0062).
-  if (request.paused && password.ok && "stopAt" in password)
+  if ((request.paused || signInFill) && password.ok && "stopAt" in password)
     return { ok: false as const, reason: "no-route" as const, detail: "password-empty:paused" };
   return password;
   /**

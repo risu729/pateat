@@ -6,7 +6,7 @@ import { needsRelatedOrigins } from "./related-origins";
 import { type PasskeyCandidate } from "./select";
 import { RUNTIME_TIMEOUT_MS, runtimeMessageSchema, type RuntimeResult } from "./wire";
 
-import { createPasskeyAnswer } from "./runtime-answer";
+import { createPasskeyAnswer, PagePermissionRefusal } from "./runtime-answer";
 import {
   type Sender,
   type PasskeySource,
@@ -174,6 +174,16 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       }
       return admission;
     }
+    const permissionRefusal = await Promise.try(() =>
+      options.pagePermission?.({
+        ...context,
+        origin,
+        conditional: admission.request.conditional === true,
+        userActivation: message.userActivation,
+        allowCredentials: admission.request.allowCredentialIds.length > 0,
+      }),
+    ).catch(() => "settings-unavailable");
+    if (permissionRefusal) return { kind: "delegate", reason: permissionRefusal };
     detail.rpId = admission.request.rpId;
     detail.allowCredentials = admission.request.allowCredentialIds.length;
     const conditional = admission.request.conditional === true;
@@ -337,6 +347,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       return result;
     } catch (error) {
       answered?.(false);
+      if (error instanceof PagePermissionRefusal) return { kind: "delegate", reason: error.reason };
       if (error instanceof ListedSite) return { kind: "delegate", reason: "browser-site" };
       // A lookup that failed on a listed hostname is handed on as such too.
       if (

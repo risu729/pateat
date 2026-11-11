@@ -1,4 +1,5 @@
 import {
+  resolvePagePermission,
   continuesRecipe,
   extendsRecipe,
   passwordVariants,
@@ -55,6 +56,8 @@ import { repairChooserForm, repairStale } from "./repair-run";
 import type { Runtime } from "./state";
 import { admitStart } from "./admit-start";
 import type { AdmitContext, AdmitStartContext } from "./admit-context";
+
+import { automaticFill, pageOff } from "./sign-in-fill";
 
 export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readiness> {
   // The tab asks for an account after the site rejected its login or another tab's login
@@ -396,7 +399,7 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
             (candidate) => candidate.entry.path === ctx.live.path,
           );
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-    if (entryRecipe) {
+    if (entryRecipe && !(await automaticFill(rt, ctx.live))) {
       ctx.live.state = "watching";
       delete ctx.live.reason;
       await publish(rt, ctx.live);
@@ -414,6 +417,12 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
         : await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
     if (confirm) {
+      const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      if (!snapshot.ok) return ctx.refuse("settings-unavailable");
+      const permission = resolvePagePermission(snapshot.snapshot.settings, ctx.live.url, "confirm");
+      if (permission?.permission !== "fill")
+        return pageOff(rt, ctx.live, confirm, permission?.source ?? "default", ctx.shown?.amount);
       const visit = confirmPage(rt, ctx.live, confirm);
       ctx.notStarted("confirm-unsupported", visit);
       ctx.live.state = "watching";

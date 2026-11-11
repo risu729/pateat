@@ -245,6 +245,15 @@ export function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<
 
 export type PasskeyRuntimeOptions<TCandidate extends PasskeyCandidate> = {
   extensionId: string;
+  /** Current page permissions, checked before lookup and immediately before signing. */
+  pagePermission?: (input: {
+    tabId: number;
+    origin: string;
+    documentId: string;
+    conditional: boolean;
+    userActivation: boolean;
+    allowCredentials: boolean;
+  }) => Promise<string | undefined>;
   timeoutMs?: () => number;
   /**
    * Per-origin presence and verification policy; the initial policy when absent. Read

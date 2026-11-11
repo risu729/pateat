@@ -1,4 +1,5 @@
 import {
+  resolvePagePermission,
   recoverLoginAttempt,
   transitionLoginAttempt,
   type LoginAttemptMetadata,
@@ -14,6 +15,7 @@ import { nextRecordStep, type RecordPhase, type RecordSeen } from "./admit-recor
 import { addAskFill } from "./relogin";
 import { confirmRecipeOn, startsFor } from "./generation-scope";
 import type { Runtime } from "./state";
+import { pageOff } from "./sign-in-fill";
 import { admitRecipe } from "./admit-recipe";
 import type { AdmitContext } from "./admit-context";
 
@@ -23,6 +25,44 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
   ctx.recorded = recordFor(rt, ctx.document.tabId, ctx.document.origin);
 
   ctx.askKey = recordKey(ctx.document.tabId, ctx.document.origin);
+
+  const permissionRecipe = await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
+  if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+  if (permissionRecipe) {
+    const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
+    if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+    if (!snapshot.ok) return ctx.refuse("settings-unavailable");
+    const permission = resolvePagePermission(snapshot.snapshot.settings, ctx.live.url, "confirm");
+    if (permission?.permission !== "fill")
+      return pageOff(
+        rt,
+        ctx.live,
+        permissionRecipe,
+        permission?.source ?? "default",
+        ctx.shown?.amount,
+      );
+  }
+
+  // Autofill follows its own account and step ledger; it performs no logout detection.
+  // A valid explicit pick starts a normal login instead, with all normal scope checks.
+  if (ctx.recorded?.signInFill) {
+    const pick = rt.picked.get(ctx.document.tabId);
+    const explicit =
+      pick &&
+      !pick.site &&
+      pick.origin === ctx.document.origin &&
+      pick.attemptId === undefined &&
+      pick.documentId === ctx.document.documentId;
+    const reloaded =
+      ctx.recorded.state === "blocked" &&
+      ctx.recorded.document.documentId !== ctx.document.documentId;
+    if (explicit || reloaded) {
+      rt.attempts.delete(ctx.document.tabId);
+      await forget(rt, ctx.askKey);
+      ctx.recorded = undefined;
+    }
+    return admitRecipe(rt, ctx);
+  }
 
   // Each decision sees the current context and picks after the preceding awaited effect.
   const recordStep = (phase: RecordPhase, seen: Omit<RecordSeen, "phase"> = {}, now = 0) =>

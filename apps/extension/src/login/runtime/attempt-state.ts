@@ -80,6 +80,10 @@ export const settledHere = (run: Execution) =>
  * back before its start. Undefined while it may still last, or when none runs.
  */
 export const siteWaitOver = (metadata: LoginAttemptMetadata, now: number) => {
+  if (metadata.signInFill && !terminal(metadata)) {
+    const since = metadata.fillSince ?? 0;
+    return now < since ? now : now >= since + WATCH_MS ? since + WATCH_MS : undefined;
+  }
   const since = metadata.timing.pageSince;
   if (since === undefined || terminal(metadata)) return undefined;
   if (now < since) return now;

@@ -52,6 +52,12 @@ const splitPartEntries = {
 export const commandSchema = v.variant("type", [
   v.strictObject({
     version: v.literal(1),
+    type: v.literal("login.fill.change"),
+    token: id,
+    timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(LOGIN_STEP_WAIT_MS)),
+  }),
+  v.strictObject({
+    version: v.literal(1),
     type: v.literal("login.observe"),
     token: id,
     path: v.string(),
