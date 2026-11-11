@@ -53,7 +53,7 @@
         "@webext-core/messaging": "4.0.1",
         "i18next": "27.1.1",
         "idb": "8.0.4",
-        "lucide-react": "1.70.0",
+        "lucide-react": "1.71.0",
         "react": "19.3.1",
         "react-dom": "19.3.1",
         "react-i18next": "18.0.1",
@@ -122,7 +122,7 @@
         "@tanstack/react-query": "5.107.1",
         "drizzle-orm": "0.45.4",
         "hono": "4.13.17",
-        "lucide-react": "1.70.0",
+        "lucide-react": "1.71.0",
         "react": "19.3.1",
         "react-dom": "19.3.1",
         "react-is": "19.3.1",
@@ -900,7 +900,7 @@
 
     "lodash.merge": ["lodash.merge@4.6.2", "", {}, "sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ=="],
 
-    "lucide-react": ["lucide-react@1.70.0", "", { "peerDependencies": { "@types/react": "*", "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" }, "optionalPeers": ["@types/react"] }, "sha512-gCTPPN1MlQUBtUgdsUv+0CAUj+X8hifRUiRBw4E5v7lvDIOIpx0EZezdGQMSimS8pKA6esvullJub4GYr0mCHA=="],
+    "lucide-react": ["lucide-react@1.71.0", "", { "peerDependencies": { "@types/react": "*", "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" }, "optionalPeers": ["@types/react"] }, "sha512-8YtvF+bqT/EMqAXU7kWvYdRu+TV9j4kS1eIS7IbN1j1Z1DgupbrTL0nDIygdqgBDTD7AJPP607VdVgzDTar4zA=="],
 
     "magic-string": ["magic-string@1.4.5", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0" } }, "sha512-oLLC2+YvQUfAa+vxoufE/yc1icb87M9iXIRqAoR/2EhE/8cb3SF/+Gi0c2By1B+5Vz2e2vQtUvHiu1+63Znh+w=="],
 
