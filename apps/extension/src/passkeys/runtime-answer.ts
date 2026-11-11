@@ -98,15 +98,19 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
       : found;
     const signWith = async (candidate: TCandidate) => {
       await unlisted(signal);
-      const refusal = await Promise.try(() =>
-        options.pagePermission?.({
-          ...context,
-          origin,
-          conditional: request.conditional === true,
-          userActivation: message.userActivation,
-          allowCredentials: request.allowCredentialIds.length > 0,
-        }),
-      ).catch(() => "settings-unavailable");
+      const refusal = await abortable(
+        Promise.try(() =>
+          options.pagePermission?.({
+            ...context,
+            origin,
+            conditional: request.conditional === true,
+            userActivation: message.userActivation,
+            allowCredentials: request.allowCredentialIds.length > 0,
+          }),
+        ).catch(() => "settings-unavailable"),
+        signal,
+      );
+      signal.throwIfAborted();
       if (refusal) throw new PagePermissionRefusal(refusal);
       setStep("signing");
       return abortable(
@@ -259,15 +263,19 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     }
     // A chooser stays open across settings changes. Recheck after asynchronous signing
     // as well, before any assertion or remembered choice can leave this request.
-    const refusal = await Promise.try(() =>
-      options.pagePermission?.({
-        ...context,
-        origin,
-        conditional: request.conditional === true,
-        userActivation: message.userActivation,
-        allowCredentials: request.allowCredentialIds.length > 0,
-      }),
-    ).catch(() => "settings-unavailable");
+    const refusal = await abortable(
+      Promise.try(() =>
+        options.pagePermission?.({
+          ...context,
+          origin,
+          conditional: request.conditional === true,
+          userActivation: message.userActivation,
+          allowCredentials: request.allowCredentialIds.length > 0,
+        }),
+      ).catch(() => "settings-unavailable"),
+      signal,
+    );
+    signal.throwIfAborted();
     if (refusal) return { kind: "delegate", reason: refusal };
     if (makeDefault) after.remember = credential;
     after.signed = credential;
