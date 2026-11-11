@@ -1000,8 +1000,9 @@ const politeStep = `[aria-live='polite' i]:not(${["alert", "status", "log", "mar
  * Up to three short texts a signed-in page shows near its code field, for the judge to
  * tell where the code comes from (ADR 0027, owner decision 2026-10-12 22:04 UTC), such as
  * an authenticator-app sentence outside the code form: each the rendered text of one
- * shown element without child elements, within six parents of the field (never the body
- * or above) and below the first parent that holds another shown field to type in, so the
+ * shown element without child elements, or whose child elements are only inline text
+ * (`textBlock`, as a sentence with a `<br>` or `<strong>`), within six parents of the
+ * field (never the body or above) and below the first parent that holds another shown field to type in, so the
  * texts stay with the code's own part of the page, nearest parent first and then in page
  * order, returned in page order. A text that looks like a key or recovery code
  * ({@link keyLike}, read before redaction), or whose parent up to the area shows one
@@ -1061,6 +1062,67 @@ function nearButtonTexts(
 }
 
 /**
+ * The elements that may sit inside a text block: line breaks, emphasis, `span` and
+ * `font` and other inline text, and an icon image. Links, buttons, controls, code-like
+ * elements and every other element keep their parent from being one.
+ */
+const inlineText = new Set([
+  "abbr",
+  "b",
+  "bdi",
+  "bdo",
+  "br",
+  "cite",
+  "del",
+  "dfn",
+  "em",
+  "font",
+  "i",
+  "img",
+  "ins",
+  "mark",
+  "q",
+  "rb",
+  "rp",
+  "rt",
+  "ruby",
+  "s",
+  "small",
+  "span",
+  "strong",
+  "sub",
+  "sup",
+  "u",
+  "wbr",
+]);
+/** Child elements a text block may hold, so a large region is never read as one. */
+const textBlockElements = 20;
+/**
+ * Whether `element` holds child elements that are all inline text (`inlineText`), at
+ * most `textBlockElements` of them in all, as a sentence written
+ * `<p>セキュリティ強化のため…<br>ピースを動かして…</p>` (EPOS Net, 2026-11-11): its
+ * rendered text is read whole, as one element without child elements is. A child element
+ * with a role, a live region's `aria-live`, editable text, a shadow root, or one that is
+ * or holds an `excluded` element (an error message the field names) keeps it from being
+ * one, so its parts are read one by one and such a part is left out as before.
+ */
+function textBlock(element: Element, excluded: readonly Element[]): boolean {
+  if (element.childElementCount === 0) return false;
+  let count = 0;
+  for (const child of element.querySelectorAll("*")) {
+    if (
+      (count += 1) > textBlockElements ||
+      !inlineText.has(child.localName) ||
+      child.hasAttribute("role") ||
+      child.matches(notNear) ||
+      shadowRootOf(child)
+    )
+      return false;
+  }
+  return !excluded.some((other) => other !== element && containsAcross(element, other));
+}
+
+/**
  * The texts near `anchors` that `nearCodeTexts` describes, read around each anchor in page
  * order, one parent further out at a time, until three are kept; `excluded` elements and
  * those inside them are left out, with `within`, no parent outside it is read, and
@@ -1083,6 +1145,8 @@ function nearTexts(
   };
   const found: { element: Element; text: string }[] = [];
   const keyParents = new Map<Element, boolean>();
+  // The inline elements of a text block read whole, which give no text of their own.
+  const inBlock = new Set<Element>();
   let scanned = 0;
   // Each anchor's innermost parent read so far; an anchor whose area may not grow is
   // dropped.
@@ -1102,8 +1166,10 @@ function nearTexts(
         continue;
       for (const element of queryAll(area, "*")) {
         if (found.length >= maxNear || (scanned += 1) > nearScanLimit) break;
+        const block = textBlock(element, excluded);
         if (
-          element.childElementCount > 0 ||
+          (element.childElementCount > 0 && !block) ||
+          inBlock.has(element) ||
           (shadowRootOf(element)?.childElementCount ?? 0) > 0 ||
           containsAcross(inner, element) ||
           notNearAbove(element) ||
@@ -1111,15 +1177,25 @@ function nearTexts(
         )
           continue;
         const rendered = renderedText(element, rawLimit);
+        if (rendered === undefined) continue;
+        // A block read, or left out as a key, gives no text through its parts; one with no
+        // text, or whose text `keep` drops, leaves them to be read alone.
+        const silence = () => {
+          if (block) for (const child of element.querySelectorAll("*")) inBlock.add(child);
+        };
         // A text that looks like a key or recovery code may be a secret, and is never
         // sent; it is read before redaction hides its digits. A key printed one group per
         // element shows only in the text of a parent, so each parent up to the area is
         // read too.
-        if (rendered === undefined || keyLike(rendered) || inKey(element, area, keyParents))
+        if (keyLike(rendered) || inKey(element, area, keyParents)) {
+          silence();
           continue;
+        }
         const raw = observedText(rendered, Number.POSITIVE_INFINITY);
         const text = raw && keep(raw);
-        if (text && !found.some((entry) => entry.text === text)) found.push({ element, text });
+        if (!text) continue;
+        silence();
+        if (!found.some((entry) => entry.text === text)) found.push({ element, text });
       }
       next.push({ anchor, inner: area });
     }

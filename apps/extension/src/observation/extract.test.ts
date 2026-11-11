@@ -3093,6 +3093,47 @@ describe("extractSignedInObservation", () => {
     ]);
   });
 
+  it("reads a sentence of inline text near the code field whole, without excluded parts", () => {
+    const near = (text: string, field = "") =>
+      page(
+        `<div><p>${text}</p>
+          <input id="otp" autocomplete="one-time-code" aria-label="Code" ${field}></div>
+        <button id="verify" type="submit">Verify</button>`,
+      );
+    near("Open your <strong>authenticator</strong> app<br>and enter the code.");
+    expect(signedIn().nearCode).toEqual(["Open your authenticator app and enter the code."]);
+    // A span may be a sentence too, inside a parent that holds a link.
+    near('<span>Open your<br>authenticator app.</span> <a href="/help">Help</a>');
+    expect(signedIn().nearCode).toEqual(["Open your authenticator app."]);
+    // A hidden part is left out of the sentence.
+    near(
+      'Open your app.<span hidden>Secret words here</span><span aria-hidden="true">More words</span>',
+    );
+    expect(signedIn().nearCode).toEqual(["Open your app."]);
+    // A live region, a part with a role or the field's error message is no inline text:
+    // the parts are read alone and that one is left out, as before.
+    for (const part of [
+      '<span role="alert">Wrong code typed</span>',
+      '<span aria-live="polite">Wrong code typed</span>',
+      '<span role="link">Wrong code typed</span>',
+    ]) {
+      near(`<span>Open your app.</span><br>${part}`);
+      expect(signedIn().nearCode, part).toEqual(["Open your app."]);
+    }
+    near(
+      '<span>Open your app.</span><br><span id="err">Wrong code typed</span>',
+      'aria-errormessage="err"',
+    );
+    expect(signedIn().nearCode).toEqual(["Open your app."]);
+    // A sentence not shown leaves a shown part of it to be read alone.
+    page(
+      `<div><p style="visibility: hidden">Hidden words <span style="visibility: visible">Open your app.</span></p>
+        <input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+      <button id="verify" type="submit">Verify</button>`,
+    );
+    expect(signedIn().nearCode).toEqual(["Open your app."]);
+  });
+
   it("never sends code-like text near the code field (ADR 0027)", () => {
     const near = (text: string) =>
       page(
@@ -3289,6 +3330,40 @@ describe("extractSignedInObservation", () => {
         );
         expect(signedIn().nearButtons, hidden).toEqual(["Touch your security key to continue."]);
       }
+    });
+
+    // EPOS Net's image puzzle after the sign-in (2026-11-11 12:53 UTC): the sentence that
+    // asks for it holds a `<br>`, and the description carried no text near its button.
+    it("reads a sentence whose child elements are only inline text whole", () => {
+      const puzzle = (text: string) =>
+        page(
+          `<div><h1>エポスNet マイページログイン</h1><form action="/login" method="post"><div>
+            <p class="text">${text}</p><div class="puzzle"></div>
+            <p class="btn"><input type="submit" value="ログイン"></p></div></form></div>`,
+        );
+      puzzle(
+        "セキュリティ強化のため、画像認証を実施中です。<br>ピースを動かして画像を完成させてください。",
+      );
+      expect(signedIn().nearButtons).toEqual([
+        "セキュリティ強化のため、画像認証を実施中です。 ピースを動かして画像を完成させてください。",
+      ]);
+      // Emphasis, a `span` and an icon inside it read the same, and once.
+      puzzle(
+        'ピースを<strong>動かして</strong><span class="note">画像を完成</span>させてください。<img alt="" src="data:,">',
+      );
+      expect(signedIn().nearButtons).toEqual(["ピースを動かして画像を完成させてください。"]);
+      // A sentence that holds a link is no text block: its inline parts are read alone.
+      puzzle('<span>ピースを動かしてください。</span><a href="/help">ヘルプ</a>');
+      expect(signedIn().nearButtons).toEqual(["ピースを動かしてください。"]);
+      // Nor is a region with more elements than a sentence holds.
+      puzzle(`<span>ピースを動かしてください。</span>${"<span>ああ</span>".repeat(20)}`);
+      expect(signedIn().nearButtons).toEqual(["ピースを動かしてください。", "ああ"]);
+    });
+
+    it("never reads a text block that looks like a key whole", () => {
+      page(`<main><p>Your key <b>ABCD-EFGH-IJKL</b><br>Keep it safe.</p>
+        <button id="verify" type="button">Verify</button></main>`);
+      expect(signedIn()).not.toHaveProperty("nearButtons");
     });
 
     it("reads only the open modal dialog that holds a button", () => {
