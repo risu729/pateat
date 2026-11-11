@@ -3508,8 +3508,13 @@ Installed-Chrome behavior is not verified.
 The bridge, admission rules, assertion format and unattended presence and verification
 policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). Like the official
 Bitwarden client, passkey requests search every live login item by RP ID rather than by
-saved URI; a site default only chooses among several matches. Every build registers the
-bridge on top-level `https://*/*` documents, and production also on `http://localhost/*`
+saved URI; a site default only chooses among several matches. The crypto Worker reads
+passkey metadata from both legacy field-encrypted items and admitted sealed-blob items.
+A sealed blob keeps its passkeys inside its authenticated envelope, so its metadata must
+be decrypted before deciding whether it holds any; legacy items without an encrypted
+passkey list are skipped. The same rule applies when listing an item's RP IDs for
+related origin requests. Every build registers the bridge on top-level `https://*/*`
+documents, and production also on `http://localhost/*`
 as Bitwarden does ([ADR 0050](adr/0050-http-pages-for-http-items.md)): `passkey-main.js`
 in the MAIN world and `passkey-isolated.js` in the isolated world, both at document
 start, under the install-time access of

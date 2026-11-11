@@ -110,10 +110,14 @@ export interface PasskeyMatches extends PasskeyBinding {
   readonly unavailableItemIds: readonly string[];
 }
 
-/** Cheap check on the still-encrypted cipher so items without passkeys are never decrypted. */
-function storesPasskey(cipher: unknown) {
-  const credentials = (cipher as { login?: { fido2Credentials?: unknown } } | null)?.login
-    ?.fido2Credentials;
+/**
+ * Skip legacy items without passkeys. Verified ciphers use `data` only for admitted sealed
+ * blobs, whose passkey metadata cannot be inspected before decryption.
+ */
+function mayStorePasskey(cipher: unknown) {
+  const stored = cipher as { data?: unknown; login?: { fido2Credentials?: unknown } } | null;
+  if (typeof stored?.data === "string" && stored.data.length > 0) return true;
+  const credentials = stored?.login?.fido2Credentials;
   return Array.isArray(credentials) && credentials.length > 0;
 }
 
@@ -140,7 +144,7 @@ export async function findStoredPasskeys(
       unavailableItemIds.push(itemId);
       continue;
     }
-    if (!storesPasskey(cipher)) continue;
+    if (!mayStorePasskey(cipher)) continue;
     let views: BitwardenResult<readonly { readonly rpId?: unknown }[]>;
     try {
       const input = { connectionId: binding.connectionId, cipher };
@@ -198,7 +202,7 @@ export async function storedPasskeyRpIds(
     ok: true as const,
     data: Object.freeze({ ...binding, itemId: item.data.itemId, rpIds: Object.freeze(rpIds) }),
   });
-  if (!storesPasskey(item.data.cipher)) return done([]);
+  if (!mayStorePasskey(item.data.cipher)) return done([]);
   const listed = await listStoredPasskeys(session, binding, item.data.itemId, item.data.cipher);
   if (!listed.ok) return listed;
   return done([...new Set(listed.data.map((credential) => credential.rpId))]);
