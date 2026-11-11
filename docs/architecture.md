@@ -3830,25 +3830,25 @@ explicit conflicts and a durable local last-known-good cache; stale sync must
 not silently overwrite newer restrictions. Server revocation stops server
 access, not guaranteed erasure of offline cached material.
 
-Claude credentials are per owner
-([ADR 0015](adr/0015-per-owner-claude-credentials.md)): the Worker holds only its
-OIDC signing key, and D1 holds each owner's Workload Identity Federation
-identifiers. A device may hold its own Anthropic or OpenAI API key, stored together
-with its selected provider ([ADR 0040](adr/0040-running-without-the-service.md)). It then
-makes the model calls of all four generation and judge routes itself. Every relay replay
-names the selected text provider, and a call for a different provider is refused. The
-device checks text-only request bodies and sends them to the provider's fixed URL only;
-OpenAI Responses requests disable storage and admit no tools, streaming, remote inputs
-or conversation references. Clef remains a separate optional credential and runs first
-for supported sign-in forms with either text provider. The service checks and stores the
-result as before. Keys never reach the service. Changing a key or provider keeps the
-same device spend ledger, including Clef. Reported OpenAI output tokens include reasoning;
-incomplete cache usage and missing usage use conservative estimates. A device that unpairs may keep the synced recipes as
-its own (`pateat.device-recipes.v1`); logins use them while no service is paired, and
-the next full sync after pairing uploads them once before it pulls. Unpaired with a key,
-the device runs the same generation and judge routes (`@pateat/generation`) against that
-store, its own record of the routes' limits (`pateat.device-generation.v1`) and its key,
-and logs nothing.
+Claude credentials are per owner ([ADR 0015](adr/0015-per-owner-claude-credentials.md)):
+the Worker holds only its OIDC signing key, and D1 holds each owner's Workload Identity
+Federation identifiers. A device may hold its own Anthropic or OpenAI API key, stored
+together with its selected provider
+([ADR 0040](adr/0040-running-without-the-service.md)). It then makes the model calls of
+all four generation and judge routes itself. Every relay replay names the selected text
+provider, and a call for a different provider is refused. The device checks text-only
+request bodies and sends them to the provider's fixed URL only; OpenAI Responses
+requests disable storage and admit no tools, streaming, remote inputs or conversation
+references. Clef remains a separate optional credential and runs first for supported
+sign-in forms with either text provider. The service checks and stores the result as
+before. Keys never reach the service. Changing a key or provider keeps the same device
+spend ledger, including Clef. Reported OpenAI output tokens include reasoning;
+incomplete cache usage and missing usage use conservative estimates. A device that
+unpairs may keep the synced recipes as its own (`pateat.device-recipes.v1`); logins use
+them while no service is paired, and the next full sync after pairing uploads them once
+before it pulls. Unpaired with a key, the device runs the same generation and judge
+routes (`@pateat/generation`) against that store, its own record of the routes' limits
+(`pateat.device-generation.v1`) and its key, and logs nothing.
 
 Version recipes immutably with a current pointer and revocation/tombstones. The owner
 revokes a recipe on `/manage`, and the service revokes one unused for 90 days
