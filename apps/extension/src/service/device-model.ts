@@ -1,6 +1,10 @@
 import {
   DEVICE_MODEL_TIMEOUT_MS,
   DEVICE_MODEL_URL,
+  OPENAI_DEVICE_MODEL_URL,
+  deviceOpenAIModelCallBody,
+  modelProviders,
+  type ModelProvider,
   deviceModelHeaderNames,
   deviceClefCallBody,
   deviceModelRequestHash,
@@ -21,15 +25,21 @@ import {
   estimateClaudeCost,
   type ClaudeRates,
 } from "@pateat/inference/claude-rates";
+import {
+  openAIModelRates,
+  openAIPricedModels,
+  normalizeOpenAIUsage,
+  estimateOpenAICostUsd,
+} from "@pateat/inference/openai-rates";
 import { clefModels, clefUrl, estimateClefCostUsd } from "@pateat/inference/clef-models";
 import * as v from "valibot";
 import { isoDay } from "../time";
 import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transport";
 
-// A paired device's own Anthropic API key (ADR 0040): with one saved, this device makes the
+// A paired device's own text-model API key (ADR 0040): with one saved, this device makes the
 // model calls of the service's generation and judge routes itself, and the service only
 // keeps the recipes and settings it shares. The key stays in this device's trusted
-// `storage.local`, and is sent to Anthropic only, never to the service. With a Cloudflare
+// `storage.local`, and is sent to its selected provider only, never to the service. With a Cloudflare
 // token saved too, the device makes Clef's calls the same way (ADR 0083); the token goes
 // to Cloudflare only.
 
@@ -61,7 +71,7 @@ export function parseSpendLimits(stored: unknown): { dailyUsd: number; monthlyUs
   return v.parse(modelSpendLimitsSchema, stored);
 }
 export { MAX_DEVICE_LIMIT_USD } from "@pateat/contracts";
-/** An Anthropic API key as pasted: printable ASCII without spaces. */
+/** A text-model API key as pasted: printable ASCII without spaces. */
 export const deviceModelKeySchema = v.pipe(
   v.string(),
   v.trim(),
@@ -71,17 +81,18 @@ export const deviceModelKeySchema = v.pipe(
 );
 /**
  * The saved key. Its spend limits are the synced profile setting `modelSpendLimits`
- * (ADR 0024); a record from before that still holds its old limits, which are dropped.
+ * (ADR 0024); the selected provider is stored with the key so they cannot be confused.
  */
-export const deviceModelSettingSchema = v.object({
+export const deviceModelSettingSchema = v.strictObject({
   version: v.literal(1),
+  provider: v.picklist(modelProviders),
   apiKey: deviceModelKeySchema,
 });
 export type DeviceModelSetting = v.InferOutput<typeof deviceModelSettingSchema>;
 
 /**
  * This device's Cloudflare account and API token for Clef (ADR 0083): with them and an
- * Anthropic key saved, a device without a pairing asks Clef first for a sign-in form. Kept
+ * text-model key saved, a device without a pairing asks Clef first for a sign-in form. Kept
  * like the key, on this device only.
  */
 export const DEVICE_CLEF_KEY = "pateat.device-clef.v1";
@@ -200,7 +211,12 @@ const worstCaseUsage = (body: string) => ({
  * worst case when usage is missing, as after a timeout, and nothing for a call that never
  * reached Anthropic or that it refused with an error before answering.
  */
-export function callCostMicroUsd(body: string, response: DeviceModelResponse): number {
+export function callCostMicroUsd(
+  body: string,
+  response: DeviceModelResponse,
+  provider: ModelProvider = "anthropic",
+): number {
+  if (provider === "openai") return openAICallCostMicroUsd(body, response);
   if (response.kind === "unreachable") return 0;
   let model: unknown;
   let fast = false;
@@ -231,6 +247,39 @@ export function callCostMicroUsd(body: string, response: DeviceModelResponse): n
   return Math.ceil((estimateClaudeCost(usage, rates) ?? 0) * 1_000_000);
 }
 
+/** Responses output tokens already include reasoning; unknown usage is bounded above. */
+function openAICallCostMicroUsd(body: string, response: DeviceModelResponse): number {
+  if (response.kind === "unreachable") return 0;
+  const prices = openAIPricedModels().map((model) => model.fast);
+  let rates = {
+    input: Math.max(...prices.map((price) => price.input)),
+    output: Math.max(...prices.map((price) => price.output)),
+    cachedInput: Math.max(...prices.map((price) => price.cachedInput)),
+    cacheWrite30m: Math.max(...prices.map((price) => price.cacheWrite30m)),
+    cacheWrite12h: Math.max(...prices.map((price) => price.cacheWrite12h)),
+  };
+  try {
+    const sent = JSON.parse(body) as { model?: unknown; service_tier?: unknown };
+    if (typeof sent.model === "string")
+      rates =
+        openAIModelRates(sent.model, sent.service_tier === "fast" ? "fast" : "standard") ?? rates;
+  } catch {
+    // An unreadable request uses the catalogue's highest rates.
+  }
+  let usage;
+  if (response.kind === "response") {
+    try {
+      usage = normalizeOpenAIUsage((JSON.parse(response.body) as { usage?: unknown }).usage);
+    } catch {
+      // A successful response without usable usage still counts its worst case.
+    }
+    const estimated = usage && estimateOpenAICostUsd(usage, rates);
+    if (estimated !== undefined) return Math.ceil(estimated * 1_000_000);
+    if (response.status >= 300) return 0;
+  }
+  return Math.ceil((estimateOpenAICostUsd(worstCaseUsage(body), rates) ?? 0) * 1_000_000);
+}
+
 type DeviceModelRequests = Pick<
   ServiceTransport,
   "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion"
@@ -241,7 +290,7 @@ type Unavailable = { version: 1; status: "unavailable"; reason: GenerationUnavai
 
 /**
  * The service's generation, logout (ADR 0063) and judge requests, made with this device's key when one is
- * saved (ADR 0040): each `model-call` answer is sent to Anthropic here and the request is
+ * saved (ADR 0040): each `model-call` answer is sent to its selected provider here and the request is
  * sent again with the responses so far, until the service answers otherwise. A spend stop
  * reached here answers as the service's own stops do. Without a key the requests go as
  * they are, and the service uses the owner's credential.
@@ -304,7 +353,7 @@ export function createDeviceModel(options: {
   }
 
   /**
-   * Sends one model call with the key, to Anthropic's fixed URL only, and what it cost.
+   * Sends one text-model call to its provider's fixed URL only, and what it cost.
    */
   async function send(
     apiKey: string,
@@ -314,14 +363,21 @@ export function createDeviceModel(options: {
     signal?: AbortSignal,
   ): Promise<{ response: DeviceModelResponse; cost: number }> {
     const request = await deviceModelRequestHash(call.body);
+    if (call.provider === "cloudflare") throw new TypeError("Unexpected text-model provider");
+    const provider = call.provider;
     const headers = new Headers();
-    for (const name of deviceModelHeaderNames) {
+    for (const name of provider === "openai"
+      ? (["content-type"] as const)
+      : deviceModelHeaderNames) {
       const value = call.headers[name];
       if (value !== undefined) headers.set(name, value);
     }
-    headers.set("x-api-key", apiKey);
-    // Anthropic asks a caller with a browser origin to say it holds the key itself.
-    headers.set("anthropic-dangerous-direct-browser-access", "true");
+    if (provider === "openai") headers.set("authorization", `Bearer ${apiKey}`);
+    else {
+      headers.set("x-api-key", apiKey);
+      // Anthropic asks a caller with a browser origin to say it holds the key itself.
+      headers.set("anthropic-dangerous-direct-browser-access", "true");
+    }
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(), DEVICE_MODEL_TIMEOUT_MS);
     const stop = () => timeout.abort();
@@ -331,29 +387,38 @@ export function createDeviceModel(options: {
     try {
       let response: Response;
       try {
-        response = await fetchModel(DEVICE_MODEL_URL, {
-          method: "POST",
-          headers,
-          body,
-          credentials: "omit",
-          redirect: "error",
-          signal: timeout.signal,
-        });
+        response = await fetchModel(
+          provider === "openai" ? OPENAI_DEVICE_MODEL_URL : DEVICE_MODEL_URL,
+          {
+            method: "POST",
+            headers,
+            body,
+            credentials: "omit",
+            redirect: "error",
+            signal: timeout.signal,
+          },
+        );
       } catch {
         const kind = timeout.signal.aborted ? "timeout" : "unreachable";
-        return { response: failed(kind), cost: callCostMicroUsd(call.body, failed(kind)) };
+        return {
+          response: failed(kind),
+          cost: callCostMicroUsd(call.body, failed(kind), provider),
+        };
       }
       let text: string;
       try {
         text = await response.text();
       } catch {
-        // Anthropic answered, so the call may have been charged: count its worst case.
+        // The provider answered, so the call may have been charged: count its worst case.
         const kind = timeout.signal.aborted ? "timeout" : "unreachable";
-        return { response: failed(kind), cost: callCostMicroUsd(call.body, failed("timeout")) };
+        return {
+          response: failed(kind),
+          cost: callCostMicroUsd(call.body, failed("timeout"), provider),
+        };
       }
       const answered = { kind: "response", request, status: response.status, body: text } as const;
-      const cost = callCostMicroUsd(call.body, answered);
-      // An answer too large to pass on is no answer the service could take, but Anthropic
+      const cost = callCostMicroUsd(call.body, answered, provider);
+      // An answer too large to pass on is no answer the service could take, but the provider
       // still charged it.
       if (byteLength(text) > MAX_DEVICE_MODEL_RESPONSE_BYTES)
         return { response: failed("unreachable"), cost };
@@ -446,7 +511,7 @@ export function createDeviceModel(options: {
     if (!setting && stored !== undefined) return { kind: "failed", error: "unexpected-response" };
     if (!setting) return request(undefined);
     // With a Cloudflare token too, the service may hand this device Clef's calls (ADR 0083);
-    // one that cannot be read leaves them to Claude.
+    // one that cannot be read leaves them to the text model.
     const clef = parseDeviceClefSetting(await options.clef?.read().catch(() => undefined));
     const responses: DeviceModelResponse[] = [];
     // A service that keeps asking for calls again is stopped after twice the most a
@@ -454,7 +519,7 @@ export function createDeviceModel(options: {
     for (let made = 0; ; made += 1) {
       // oxlint-disable-next-line no-await-in-loop -- each call depends on the answer before
       const answer = await request({
-        provider: "anthropic",
+        provider: setting.provider,
         responses: [...responses],
         ...(clef ? { clef: true } : {}),
       });
@@ -463,7 +528,13 @@ export function createDeviceModel(options: {
       // A call the routes never make (tools, streaming, a larger answer, another beta) is
       // not sent: a service, possibly someone else's, gets no other use of the key.
       const toClef = call.provider === "cloudflare";
-      const body = toClef ? clef && deviceClefCallBody(call) : deviceModelCallBody(call);
+      const body = toClef
+        ? clef && deviceClefCallBody(call)
+        : call.provider !== setting.provider
+          ? undefined
+          : setting.provider === "openai"
+            ? deviceOpenAIModelCallBody(call)
+            : deviceModelCallBody(call);
       if (call.index > responses.length || made >= 2 * MAX_DEVICE_MODEL_CALLS || !body)
         return { kind: "failed", error: "unexpected-response", ...timed(answer) };
       let stop: Awaited<ReturnType<typeof stopped>>;
@@ -500,7 +571,7 @@ export function createDeviceModel(options: {
     /**
      * The key's own calls, for generation on a device without a pairing (ADR 0040): the
      * saved setting (none without one; rejects for a record that cannot be read or is no
-     * key), the spend stop it reached, one call to Anthropic, and its cost.
+     * key), the spend stop it reached, one call to the selected text provider, and its cost.
      */
     direct: {
       async setting(): Promise<DeviceModelSetting | undefined> {
@@ -511,7 +582,7 @@ export function createDeviceModel(options: {
       },
       /**
        * The saved Cloudflare account and token for Clef (ADR 0083); none without one, or
-       * for a record that cannot be read, so that Claude answers alone.
+       * for a record that cannot be read, so that the text model answers alone.
        */
       async clefSetting(): Promise<DeviceClefSetting | undefined> {
         return parseDeviceClefSetting(await options.clef?.read());

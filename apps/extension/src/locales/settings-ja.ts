@@ -209,11 +209,12 @@ export const settingsJa = {
     "ロックでは同期用のログイン情報を残します。マスターパスワードで、サーバーに接続せずにロックを解除できます。",
   "Time counts from the last login filled, passkey signed, unlock or sign-in, on each device by itself. Applies on all your devices.":
     "時間は、ログイン情報の入力、パスキーでの署名、ロック解除、ログインのうち最後のものから、デバイスごとに数えます。すべてのデバイスに適用されます。",
-  "The limits apply on all your devices, each counting its own key's spend; the key itself is saved per device.":
-    "上限額はすべてのデバイスに適用され、各デバイスが自分のキーで使った額を数えます。キー自体はデバイスごとに保存します。",
+  "The limits apply on all your devices, each counting its own spend; keys are saved per device.":
+    "上限はすべての端末で適用され、利用額は端末ごとに集計します。キーは端末ごとに保存されます。",
+  "Text model provider": "テキストモデルのプロバイダー",
   "AI key": "AI キー",
-  "Anthropic API key": "Anthropic API キー",
-  "Replace the Anthropic API key": "Anthropic API キーを置き換える",
+  "{{provider}} API key": "{{provider}} API キー",
+  "Replace the {{provider}} API key": "{{provider}} API キーを置き換える",
   "Save key": "キーを保存",
   "Remove key": "キーを削除",
   "Cloudflare account ID": "Cloudflare のアカウント ID",
@@ -231,8 +232,8 @@ export const settingsJa = {
   "Cloudflare token saved for the account ending in {{ending}}.":
     "末尾が {{ending}} のアカウントの Cloudflare トークンを保存しています。",
   "The saved token could not be read.": "保存したトークンを読み込めませんでした。",
-  "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and Claude when Clef is not sure. Clef's spend counts toward the same limits.":
-    "Cloudflare のトークンも保存すると、このデバイスはログインフォームについてまず Cloudflare の Clef に問い合わせ、Clef が判断できないときは Claude に問い合わせます。同期サービスとペアリングしていても同じです。Clef の利用額も同じ上限に含めます。",
+  "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and the selected text model when Clef is not sure. Clef's spend counts toward the same limits.":
+    "Cloudflare トークンもある場合、ペアリング中もまず Cloudflare の Clef にサインインフォームを問い合わせ、不確かなときに選択したテキストモデルを使います。Clef の利用額にも同じ上限を適用します。",
   "Create the token with Use REST API on the Workers AI page of the Cloudflare dashboard (Workers AI Read and Edit). It stays on this device and is sent to Cloudflare only, never to the sync service.":
     "トークンは Cloudflare のダッシュボードで、Workers AI の「Use REST API」から作成してください（Workers AI の Read と Edit）。トークンはこのデバイスにだけ保存し、Cloudflare にだけ送ります。同期サービスには送りません。",
   "Daily limit (USD)": "1 日の上限（米ドル）",
@@ -242,19 +243,19 @@ export const settingsJa = {
   "The key was removed from this device.": "このデバイスからキーを削除しました。",
   "The key could not be removed. Try again.":
     "キーを削除できませんでした。もう一度お試しください。",
-  "Paste the whole API key from the Claude Console.":
-    "Claude Console の API キーを全部貼り付けてください。",
+  "Paste the whole API key for the selected provider.":
+    "選択したプロバイダーの API キー全体を貼り付けてください。",
   "Enter an amount in US dollars from 0 to {{max}}.":
     "0 から {{max}} までの米ドルの金額を入力してください。",
-  "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.":
-    "末尾が {{ending}} のキーを保存しています。同期サービスとペアリングしていても、このデバイスがこのキーで Claude に問い合わせます。そのとき同期サービスは、レシピと設定の保存と共有だけを行います。",
+  "{{provider}} key ending in {{ending}} saved. This device uses it, also while paired: the sync service then only keeps and shares the recipes and settings.":
+    "末尾が {{ending}} の {{provider}} キーを保存しました。ペアリング中もこの端末がキーを使い、同期サービスはレシピと設定の保存・共有のみを行います。",
   "The saved key could not be read.": "保存したキーを読み込めませんでした。",
-  "Without a key, the paired sync service asks Claude with its owner's credentials, and a device without a pairing makes no recipes.":
-    "キーがないときは、ペアリングした同期サービスが、その所有者の認証情報で Claude に問い合わせます。ペアリングしていないデバイスでは、レシピを作りません。",
-  "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.":
-    "このキーでの利用額: 今日 {{today}}、今月 {{month}}（UTC）。Anthropic が返す使用量からの見積もりです。どちらかの上限に達すると問い合わせを止めます。",
-  "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.":
-    "キーはこのデバイスにだけ保存し、Anthropic にだけ送ります。同期サービスには送りません。同期サービスとペアリングしていないときは、このデバイスがこのキーでレシピを作り、このデバイスに保存します。",
+  "Without a key, the paired sync service uses its owner's configured provider, and a device without a pairing makes no recipes.":
+    "キーがない場合はペアリング先の同期サービスが所有者の設定したプロバイダーを使います。ペアリングされていない端末はレシピを生成しません。",
+  "Spent on this device: {{today}} today and {{month}} this month (UTC), estimated from provider usage. Requests stop at either limit. Changing keys or providers keeps this total.":
+    "この端末の利用額は本日 {{today}}、今月 {{month}}（UTC）です。プロバイダーの使用量から推計し、いずれかの上限で停止します。キーやプロバイダーを変更しても合計は引き継がれます。",
+  "The key stays on this device and is sent to its selected provider only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.":
+    "キーはこの端末に保存され、選択したプロバイダーにのみ送信されます。同期サービスには送信しません。同期サービスとペアリングしていない場合は、この端末でレシピを生成して保存します。",
   "Export and import": "エクスポートとインポート",
   "Export to a file": "ファイルにエクスポート",
   "Import from a file": "ファイルからインポート",

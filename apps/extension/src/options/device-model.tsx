@@ -1,4 +1,4 @@
-import type { LocalSettings } from "@pateat/contracts";
+import type { LocalSettings, ModelProvider } from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cloud, Info, KeyRound, Wallet } from "lucide-react";
 import { useState } from "react";
@@ -14,6 +14,7 @@ import {
   DEVICE_MODEL_SPEND_KEY,
   deviceClefSettingSchema,
   deviceModelKeySchema,
+  deviceModelSettingSchema,
   MAX_DEVICE_LIMIT_USD,
   parseDeviceClefSetting,
   parseDeviceModelSetting,
@@ -30,6 +31,7 @@ export type DeviceModelView =
   | { saved: false }
   | {
       saved: true;
+      provider: ModelProvider;
       /** The key's last four characters, to tell keys apart. */
       ending: string;
       spentTodayUsd: number;
@@ -49,7 +51,7 @@ export interface DeviceClefClient {
 /** Reads and writes this device's key, which is never synced. */
 export interface DeviceModelClient {
   read(): Promise<DeviceModelView>;
-  save(change: { apiKey: string }): Promise<void>;
+  save(change: { provider: ModelProvider; apiKey: string }): Promise<void>;
   remove(): Promise<void>;
   /** This device's Cloudflare token for Clef (ADR 0083). */
   clef?: DeviceClefClient;
@@ -66,13 +68,14 @@ export function createDeviceModelClient(now: () => number = Date.now): DeviceMod
       const spent = currentSpend(await spend.read().catch(() => undefined), now());
       return {
         saved: true,
+        provider: setting.provider,
         ending: setting.apiKey.slice(-4),
         spentTodayUsd: spent.dayMicroUsd / 1_000_000,
         spentMonthUsd: spent.monthMicroUsd / 1_000_000,
       };
     },
-    async save({ apiKey }) {
-      await record.write({ version: 1, apiKey: v.parse(deviceModelKeySchema, apiKey) });
+    async save({ provider, apiKey }) {
+      await record.write(v.parse(deviceModelSettingSchema, { version: 1, provider, apiKey }));
     },
     remove: () => record.clear(),
     clef: createDeviceClefClient(),
@@ -111,7 +114,7 @@ function limitOf(text: string): number | undefined {
 }
 
 /**
- * This device's own Anthropic API key (ADR 0040): with one saved, this device makes the
+ * This device's own text-model API key (ADR 0040): with one saved, this device makes the
  * model calls for recipes itself, also while paired, and stops at the spend limits. The key
  * stays on the device; the limits are the profile setting `modelSpendLimits`, synced with
  * the others (ADR 0024).
@@ -130,6 +133,7 @@ export function DeviceModelPanel({
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
   const [key, setKey] = useState("");
+  const [selectedProvider, setProvider] = useState<ModelProvider>();
   // The limits as typed; saved once they are amounts in range.
   const [daily, setDaily] = useState<string>();
   const [monthly, setMonthly] = useState<string>();
@@ -155,15 +159,17 @@ export function DeviceModelPanel({
     onError: () => setMessage(t("The key could not be removed. Try again.")),
   });
   const current = view.data;
+  const provider = selectedProvider ?? (current?.saved ? current.provider : "anthropic");
+  const providerName = provider === "openai" ? "OpenAI" : "Anthropic";
   const busy = !current || save.isPending || remove.isPending;
   const limits = draft && spendLimits(draft);
   function saveKey() {
     const parsed = v.safeParse(deviceModelKeySchema, key);
     if (!parsed.success) {
-      setMessage(t("Paste the whole API key from the Claude Console."));
+      setMessage(t("Paste the whole API key for the selected provider."));
       return;
     }
-    save.mutate({ apiKey: parsed.output });
+    save.mutate({ provider, apiKey: parsed.output });
   }
   function saveLimit(which: "dailyUsd" | "monthlyUsd", text: string) {
     if (!limits) return;
@@ -233,8 +239,27 @@ export function DeviceModelPanel({
           saveKey();
         }}
       >
+        <label className={fieldClass}>
+          {t("Text model provider")}
+          <select
+            id="device-model-provider"
+            className={controlClass}
+            value={provider}
+            disabled={busy}
+            onChange={(event) => {
+              setProvider(event.target.value as ModelProvider);
+              setKey("");
+              setMessage("");
+            }}
+          >
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </label>
         <label className={`${fieldClass} min-w-0 flex-[1_1_18rem]`}>
-          {current?.saved ? t("Replace the Anthropic API key") : t("Anthropic API key")}
+          {current?.saved && current.provider === provider
+            ? t("Replace the {{provider}} API key", { provider: providerName })
+            : t("{{provider}} API key", { provider: providerName })}
           <input
             id="device-model-key"
             className={controlClass}
@@ -243,7 +268,13 @@ export function DeviceModelPanel({
             spellCheck={false}
             disabled={busy}
             value={key}
-            placeholder={current?.saved ? `••••${current.ending}` : "sk-ant-…"}
+            placeholder={
+              current?.saved && current.provider === provider
+                ? `••••${current.ending}`
+                : provider === "openai"
+                  ? "sk-…"
+                  : "sk-ant-…"
+            }
             aria-describedby="device-model-note"
             onChange={(event) => setKey(event.target.value)}
           />
@@ -280,8 +311,11 @@ export function DeviceModelPanel({
                 tone: "ok" as const,
                 icon: KeyRound,
                 text: t(
-                  "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.",
-                  { ending: current.ending },
+                  "{{provider}} key ending in {{ending}} saved. This device uses it, also while paired: the sync service then only keeps and shares the recipes and settings.",
+                  {
+                    ending: current.ending,
+                    provider: current.provider === "openai" ? "OpenAI" : "Anthropic",
+                  },
                 ),
               }
             : {
@@ -290,7 +324,7 @@ export function DeviceModelPanel({
                 text: view.isError
                   ? t("The saved key could not be read.")
                   : t(
-                      "Without a key, the paired sync service asks Claude with its owner's credentials, and a device without a pairing makes no recipes.",
+                      "Without a key, the paired sync service uses its owner's configured provider, and a device without a pairing makes no recipes.",
                     ),
               },
           ...(current?.saved
@@ -299,7 +333,7 @@ export function DeviceModelPanel({
                   tone: "idle" as const,
                   icon: Wallet,
                   text: t(
-                    "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.",
+                    "Spent on this device: {{today}} today and {{month}} this month (UTC), estimated from provider usage. Requests stop at either limit. Changing keys or providers keeps this total.",
                     { today: usd(current.spentTodayUsd), month: usd(current.spentMonthUsd) },
                   ),
                 },
@@ -309,14 +343,14 @@ export function DeviceModelPanel({
             tone: "idle",
             icon: Info,
             text: t(
-              "The limits apply on all your devices, each counting its own key's spend; the key itself is saved per device.",
+              "The limits apply on all your devices, each counting its own spend; keys are saved per device.",
             ),
           },
           {
             tone: "idle",
             icon: Info,
             text: t(
-              "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.",
+              "The key stays on this device and is sent to its selected provider only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.",
             ),
           },
         ]}
@@ -329,7 +363,7 @@ const CLEF_QUERY_KEY = ["settings", "device-clef"] as const;
 
 /**
  * This device's Cloudflare account and API token for Clef (ADR 0083): with them and the
- * Anthropic key, this device asks Clef first for a sign-in form, paired or not. They stay
+ * text-model key, this device asks Clef first for a sign-in form, paired or not. They stay
  * on the device like the key, and Clef's spend counts toward the same limits.
  */
 function DeviceClefForm({ client }: { client: DeviceClefClient }) {
@@ -448,7 +482,7 @@ function DeviceClefForm({ client }: { client: DeviceClefClient }) {
               : view.isError
                 ? t("The saved token could not be read.")
                 : t(
-                    "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and Claude when Clef is not sure. Clef's spend counts toward the same limits.",
+                    "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and the selected text model when Clef is not sure. Clef's spend counts toward the same limits.",
                   ),
           },
           {
