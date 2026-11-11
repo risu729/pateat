@@ -75,6 +75,7 @@ export function openPasswordWindow(
     connection: VaultConnectionMetadata;
     item: VaultItemMetadata;
   },
+  manualRequestId?: string,
 ) {
   const ask = rt.options.askMasterPassword!;
   const controller = new AbortController();
@@ -82,6 +83,7 @@ export function openPasswordWindow(
   const entry = {
     kind,
     connectionId: input.connection.id,
+    ...(manualRequestId ? { manualRequestId } : {}),
     answer: new Promise<{ answer: "verified" | "closed" | "unavailable"; aborted: boolean }>(
       (resolve) => (settle = resolve),
     ),
@@ -124,7 +126,26 @@ async function askLoginPassword(
   item: VaultItemMetadata,
 ): Promise<RepromptResponse> {
   const { document, account: login } = asking;
-  const manualRequest = asking.pick?.manual ? rt.manualStarts.get(document.tabId) : undefined;
+  const pending = rt.manualStarts.get(document.tabId);
+  const manualRequest =
+    asking.pick?.manualRequestId && asking.pick.manualRequestId === pending?.status.requestId
+      ? pending
+      : undefined;
+  const manualAllowed = () => {
+    if (!asking.pick?.manual) return true;
+    if (
+      !manualRequest ||
+      rt.manualStarts.get(document.tabId) !== manualRequest ||
+      manualRequest.pick?.connectionId !== asking.pick.connectionId ||
+      manualRequest.pick.itemId !== asking.pick.itemId
+    )
+      return false;
+    const page = rt.documents.get(frameKey(document));
+    return (
+      page?.document.documentId === document.documentId && manualPending(rt, page) === manualRequest
+    );
+  };
+  if (!manualAllowed()) return { ok: false, reason: "not-waiting" };
   const key = `${document.tabId} ${document.documentId}`;
   if (!rt.options.askMasterPassword) {
     if (manualRequest) endManual(rt, document.tabId, "unavailable", manualRequest);
@@ -136,14 +157,21 @@ async function askLoginPassword(
   // for this login only when it was checked for the same vault account.
   const asked =
     open ??
-    openPasswordWindow(rt, "login", key, {
-      tabId: document.tabId,
-      origin: document.origin,
-      account: login,
-      connection,
-      item,
-    });
+    openPasswordWindow(
+      rt,
+      "login",
+      key,
+      {
+        tabId: document.tabId,
+        origin: document.origin,
+        account: login,
+        connection,
+        item,
+      },
+      asking.pick?.manualRequestId,
+    );
   const { answer, aborted } = await asked.answer;
+  if (!manualAllowed()) return { ok: false, reason: "not-waiting" };
   // Checked for another vault account, whatever its answer: once it ends, this login
   // asks for its own, while the document still waits for it.
   const other = asked.connectionId !== connection.id;
@@ -165,16 +193,19 @@ async function askLoginPassword(
   if (asking.pick?.manual && manualPending(rt, live) !== manualRequest)
     return { ok: false, reason: "not-waiting" };
   if (!asking.pick?.manual && manualPending(rt, live)) return { ok: false, reason: "not-waiting" };
-  rt.repromptGrants.set(key, {
+  const grant = {
     connectionId: login.connectionId,
     itemId: login.itemId,
     at: Date.now(),
-  });
+    ...(asking.pick?.manualRequestId ? { manualRequestId: asking.pick.manualRequestId } : {}),
+  };
+  rt.repromptGrants.set(key, grant);
   if (asking.pick) {
-    const pending = asking.pick.manual ? manualPending(rt, live) : undefined;
-    rt.picked.set(document.tabId, pending?.pick ?? { ...asking.pick });
+    const selectedManual = asking.pick.manual ? manualPending(rt, live) : undefined;
+    rt.picked.set(document.tabId, selectedManual?.pick ?? { ...asking.pick });
     await quietly(rt, () => saveSession(rt));
   }
+  if (!manualAllowed()) return { ok: false, reason: "not-waiting" };
   try {
     await browser.tabs.sendMessage(
       document.tabId,
@@ -182,7 +213,7 @@ async function askLoginPassword(
       { frameId: document.frameId, documentId: document.documentId },
     );
   } catch {
-    rt.repromptGrants.delete(key);
+    if (rt.repromptGrants.get(key) === grant) rt.repromptGrants.delete(key);
     return { ok: false, reason: "document-gone" };
   }
   return { ok: true };

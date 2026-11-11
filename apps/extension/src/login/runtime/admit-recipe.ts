@@ -419,14 +419,15 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
     // while signed in, which Pateat does not fill yet. The page is neither logged in to
     // nor sent for generation again, and the page only watches (ADR 0035).
     const confirm =
-      ctx.recipe || ctx.document.frameId !== 0 || ctx.live.topUrl
+      ctx.recipe ||
+      ((ctx.document.frameId !== 0 || ctx.live.topUrl) && !manualPending(rt, ctx.live))
         ? undefined
         : await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
     if (confirm && manualPending(rt, ctx.live)) {
       return repairManualPage(rt, ctx, confirm);
     }
-    if (confirm) {
+    if (confirm && ctx.document.frameId === 0 && !ctx.live.topUrl) {
       const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
       if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
       if (!snapshot.ok) return ctx.refuse("settings-unavailable");

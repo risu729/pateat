@@ -245,7 +245,10 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
    * login with that item starts once, within `REPROMPT_GRANT_MS`. Kept in memory only, so a
    * restarted worker asks again.
    */
-  const repromptGrants = new Map<string, { connectionId: string; itemId: string; at: number }>();
+  const repromptGrants = new Map<
+    string,
+    { connectionId: string; itemId: string; at: number; manualRequestId?: string }
+  >();
 
   /**
    * Logins that hold the master password, by attempt ID, with its vault account: typed in
@@ -267,6 +270,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
       kind: "login" | "detail";
       connectionId: string;
       answer: Promise<{ answer: "verified" | "closed" | "unavailable"; aborted: boolean }>;
+      manualRequestId?: string;
     }
   >();
 

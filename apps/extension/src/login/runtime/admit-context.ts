@@ -16,6 +16,7 @@ import {
   type LaterStart,
 } from "./types";
 import type { AskReason } from "../choice-wire";
+import type { ManualAuthorization } from "./manual-scope";
 
 export type AdmitContext = {
   document: LoginDocument;
@@ -29,6 +30,7 @@ export type AdmitContext = {
   siteOrigin: string;
   live: LiveDocument;
   paused: boolean;
+  manual?: ManualAuthorization;
   refuse: (
     reason: string,
     detail?: string,

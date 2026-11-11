@@ -49,7 +49,7 @@ import { signedInAfterFrame, signedInByMove } from "./passkey";
 import type { Runtime } from "./state";
 import { admitRecord } from "./admit-record";
 import type { AdmitContext } from "./admit-context";
-import { manualPending } from "./manual-scope";
+import { manualAuthorizationCurrent } from "./manual-scope";
 
 export async function admit(
   rt: Runtime,
@@ -66,6 +66,14 @@ export async function admit(
   switchedInPlace?: true,
 ): Promise<Readiness> {
   const receivedAt = Date.now();
+  const requestedManual =
+    sender.tab?.id === undefined ? undefined : rt.manualStarts.get(sender.tab.id);
+  const manual =
+    requestedManual?.pick &&
+    requestedManual.document.frameId === sender.frameId &&
+    requestedManual.document.documentId === sender.documentId
+      ? { request: requestedManual, pick: requestedManual.pick }
+      : undefined;
 
   await rt.vars.loaded;
 
@@ -404,7 +412,8 @@ export async function admit(
     incognito: incognito,
     siteOrigin: siteOrigin,
     live: live,
-    paused: paused && manualPending(rt, live) === undefined,
+    paused: paused && !(manual && manualAuthorizationCurrent(rt, live, manual)),
+    ...(manual ? { manual } : {}),
     refuse: undefined!,
     notStarted: undefined!,
     recorded: undefined!,
@@ -441,6 +450,9 @@ export async function admit(
     await publish(rt, ctx.live);
     return { ok: false, reason };
   };
+
+  if (manual && !manualAuthorizationCurrent(rt, live, manual))
+    return ctx.refuse("manual-request-ended");
 
   // A sign-in input shows on this path, but the page only watches: logged once per
   // document and path, so a login that silently does not start can be told apart.

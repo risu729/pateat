@@ -58,6 +58,7 @@ async function pageRefusal(rt: Runtime, live: LiveDocument): Promise<string | un
 }
 
 function attemptRefusal(rt: Runtime, live: LiveDocument): string | undefined {
+  if (rt.attempts.get(live.document.tabId)?.running) return "login-running";
   if (
     rt.switchesRunning.has(live.document.tabId) ||
     rt.accountPicks.switchingHere(live.document.tabId, siteOf(live.document.origin), live.incognito)
@@ -185,6 +186,7 @@ export async function manualStart(
     makeDefault: false,
     waitedMs: 0,
     manual: true as const,
+    manualRequestId: request.requestId,
   };
   const pending: ManualStart = {
     document: live.document,
@@ -208,9 +210,15 @@ export async function manualStart(
         endManual(rt, tabId, "login-running", pending);
         return refuse("login-running");
       }
-      await forget(rt, recordKey(tabId, live.document.origin));
+      const busy = attemptRefusal(rt, live);
+      if (busy) {
+        endManual(rt, tabId, busy, pending);
+        return refuse(busy);
+      }
+      // Remove only the idle run before the storage write yields; an observer must not wake it meanwhile.
       if (rt.attempts.get(tabId)?.metadata.id === recorded.id) rt.attempts.delete(tabId);
       if (rt.effects.get(tabId)?.attemptId === recorded.id) rt.effects.delete(tabId);
+      await forget(rt, recordKey(tabId, live.document.origin));
     }
     const stale = await pageRefusal(rt, live);
     if (stale || rt.manualStarts.get(tabId) !== pending) {
