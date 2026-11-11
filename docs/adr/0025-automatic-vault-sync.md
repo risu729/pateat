@@ -90,7 +90,9 @@ removal cancel it and delete its stored revision.
 The record is `pateat.vault-sync-schedule.v1` in `chrome.storage.local`, holding no
 secret: per connection the local time of the last check, its outcome, the local time of
 the last check that found the revision unchanged, the cause and HTTP status of a failed
-check (only to log a repeated failure quietly; an applied full sync drops it, so the
+check (to log a repeated failure quietly and, with the time that check was sent, to show
+it on the settings page; an applied full sync or a check that does not fail drops it, so
+the
 next failure is logged as new; since 2026-11-11 also the decryption check and the ID of
 an item that failed strict decryption, so another item warns again), the server revision
 of the last applied sync, the local time a run of deferrals began and, after a 429, the
@@ -106,6 +108,13 @@ sent, whichever is later. That check time is recorded only once the check has an
 so a check in flight or cut off does not advance it and a later failed check does not
 take it back. The diagnostics page instead gives the open snapshot's age and the last
 check with its outcome.
+
+When the last check failed, the card also shows "Last automatic sync failed" with the
+local time that check was sent and its error code, or, when strict decryption refused
+the data, the check that refused it, and asks to press Sync to try again. The line goes
+once a later check does not fail or a sync applies, either of which drops the stored
+failure (an agent's choice, added on 2026-11-11 after a failed check went unnoticed for
+two days because only the log showed it).
 
 ### Not interrupting a login
 

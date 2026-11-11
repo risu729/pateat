@@ -89,6 +89,11 @@ describe("vault lock and unlock replies (ADR 0075)", () => {
     const reply = { ok: true, kind: "status", connections: [connection] } as const;
     expect(parseSetupReply(reply)).toEqual(reply);
   });
+  it("parses a connection whose last automatic check failed", () => {
+    const syncFailure = { at: 1_762_720_517_000, code: "crypto-failed", check: "sdk-decrypt" };
+    const reply = { ok: true, kind: "status", connections: [{ ...connection, syncFailure }] };
+    expect(parseSetupReply(reply)).toEqual(reply);
+  });
   it("parses a decryption failure with its check, item and revision date", () => {
     const reply = {
       ok: false,
@@ -108,6 +113,20 @@ describe("vault lock and unlock replies (ADR 0075)", () => {
     { ok: true, kind: "unlocked", connectionId: "" },
     { ok: true, kind: "unlocked", connectionId: "synthetic", handle: {} },
     { ok: true, kind: "status", connections: [{ ...connection, state: "logged-out" }] },
+    {
+      ok: true,
+      kind: "status",
+      connections: [
+        {
+          ...connection,
+          syncFailure: {
+            at: 1,
+            code: "crypto-failed",
+            item: "00000000-0000-4000-8000-000000000002",
+          },
+        },
+      ],
+    },
   ])("refuses the malformed reply %j", (reply) => {
     expect(() => parseSetupReply(reply)).toThrow();
   });

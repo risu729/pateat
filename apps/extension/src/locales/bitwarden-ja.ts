@@ -43,6 +43,10 @@ export const bitwardenJa = {
   "Sign in again to sync": "同期するには再ログインしてください",
   "Not signed in for sync": "同期用のログインは行われていません",
   "Sync sign-in unavailable": "同期用のログイン情報を利用できません",
+  "Last automatic sync failed ({{time}}). {{reason}}":
+    "前回の自動同期に失敗しました（{{time}}）。{{reason}}",
+  "Last automatic sync failed ({{time}}, {{code}}). Press Sync to try again now.":
+    "前回の自動同期に失敗しました（{{time}}、{{code}}）。「同期」を押すと今すぐ再試行します。",
   "Vault synced {{time}}": "保管庫の同期日時：{{time}}",
   "at an unknown time": "日時不明",
   "Automatic unlock on": "自動ロック解除は有効です",

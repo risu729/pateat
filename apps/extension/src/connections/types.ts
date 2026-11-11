@@ -67,6 +67,9 @@ export type SetupReply =
         /** Local `Date.now()` the vault was last known to match Bitwarden: the open
          * snapshot's acceptance, or a later automatic check that found no change. */
         syncedAt?: number;
+        /** The last automatic check, when it failed: when it was sent, its error code and
+         * the decryption check that refused the data, if one did. */
+        syncFailure?: { at: number; code: string; check?: string };
       }[];
     }
   | {
@@ -194,7 +197,10 @@ export type ConnectionSetupDependencies = {
   policy: ConnectionPolicy;
   sessions: Pick<ProviderSessions, "status" | "retain" | "acquire" | "forget" | "discard">;
   /** Revision dates of applied syncs, so an automatic check can skip an unchanged vault. */
-  revisions?: Pick<VaultSyncRecords, "read" | "revision" | "setRevision" | "clear">;
+  revisions?: Pick<
+    VaultSyncRecords,
+    "read" | "revision" | "setRevision" | "forgetFailure" | "clear"
+  >;
   nowMs?: () => number;
   randomId?: () => string;
 };
