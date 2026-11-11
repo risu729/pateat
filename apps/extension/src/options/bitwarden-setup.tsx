@@ -220,17 +220,29 @@ function statusLines(connection: Connection, t: TFunction, language: string): Li
       }),
     });
   }
-  // An automatic check runs unseen, so its failure stays here until a sync applies.
+  // An automatic check runs unseen, so its failure stays here until a later check does not
+  // fail or a sync applies. Only a refused decryption has a reason of its own: the other
+  // setup messages speak of a sign-in in progress or of refreshing, which retries nothing.
   if (connection.syncFailure) {
-    const formatted = localSyncTime(connection.syncFailure.at, language);
-    const reason = errorMessage(connection.syncFailure.code, connection.syncFailure.check);
+    const { at, code, check } = connection.syncFailure;
+    const formatted = localSyncTime(at, language);
+    const time = formatted === "at an unknown time" ? t("at an unknown time") : formatted;
     lines.push({
       tone: "warn",
       icon: TriangleAlert,
-      text: t("Last automatic sync failed ({{time}}). {{reason}}", {
-        time: formatted === "at an unknown time" ? t("at an unknown time") : formatted,
-        reason: typeof reason === "string" ? t(reason) : reason(t),
-      }),
+      text:
+        code === "crypto-failed" && check
+          ? t("Last automatic sync failed ({{time}}). {{reason}}", {
+              time,
+              reason: t(
+                "Pateat could not decrypt this vault's data (check: {{check}}). Report this check name.",
+                { check },
+              ),
+            })
+          : t("Last automatic sync failed ({{time}}, {{code}}). Press Sync to try again now.", {
+              time,
+              code,
+            }),
     });
   }
   // A locked or logged-out vault has no unlock to describe.

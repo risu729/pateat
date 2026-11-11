@@ -995,12 +995,12 @@ describe("failed refresh does not destroy a previously usable cache", () => {
       code: "crypto-failed",
       check: "sdk-decrypt",
     });
-    // A failure stored before its time was kept says nothing it cannot date.
+    // A stored value the reply cannot carry leaves the check out, not the whole status.
     await h.revisions.update(accountProfile.connectionId, (entry) => ({
       ...entry,
-      failure: { cause: "http-error", status: 503 },
+      failure: { at: 1_792_152_000_000, cause: "crypto-failed", check: "Not_A_Check" },
     }));
-    expect(await failure()).toBeUndefined();
+    expect(await failure()).toEqual({ at: 1_792_152_000_000, code: "crypto-failed" });
     await h.revisions.update(accountProfile.connectionId, (entry) => ({
       ...entry,
       failure: { at: 1_792_152_000_000, cause: "http-error", status: 503 },
@@ -1325,6 +1325,24 @@ describe("durable provider sessions", () => {
     expect(await h.restart().service.autoSync(accountProfile.connectionId, hold())).toEqual(
       outcome,
     );
+  });
+  it("a manual sync that applies without a revision date drops the automatic check's failure", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    await h.revisions.update(accountProfile.connectionId, (entry) => ({
+      ...entry,
+      outcome: "failed",
+      failure: { at: 1_792_152_000_000, cause: "network" },
+    }));
+    const before = await h.revisions.revision(accountProfile.connectionId);
+    h.revisionResponses.push({ status: 503, body: {} });
+    expect(await h.caller.sync(accountProfile.connectionId)).toMatchObject({ ok: true });
+    // No revision was learned, so the stored one stays.
+    expect(await h.revisions.revision(accountProfile.connectionId)).toBe(before);
+    const result = await h.caller.status();
+    expect(result).toMatchObject({ ok: true, kind: "status" });
+    if (result.ok && result.kind === "status")
+      expect(result.connections[0]?.syncFailure).toBeUndefined();
   });
   it("an unavailable transport reports its code", async () => {
     const h = harness({ existing: true });

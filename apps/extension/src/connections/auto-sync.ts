@@ -90,7 +90,7 @@ const entrySchema = v.strictObject({
    * the settings page says it; the schedule never reads it. */
   failure: v.optional(
     v.strictObject({
-      at: v.optional(time),
+      at: time,
       cause: v.pipe(v.string(), v.minLength(1), v.maxLength(64)),
       status: v.optional(time),
       check: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(64))),
@@ -152,6 +152,10 @@ export function createVaultSyncRecords(storage: VaultSyncStorage) {
         revisionMs,
         ...(outcome === undefined || outcome === "account-deleted" ? {} : { outcome }),
       })),
+    /** Recorded after a full sync applied without a known revision: the stored failure no
+     * longer describes the open vault. */
+    forgetFailure: (connectionId: string) =>
+      update(connectionId, ({ failure: _failure, ...entry }) => entry),
     clear: (connectionId: string) => update(connectionId, () => null),
   };
 }

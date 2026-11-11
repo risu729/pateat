@@ -91,7 +91,8 @@ The record is `pateat.vault-sync-schedule.v1` in `chrome.storage.local`, holding
 secret: per connection the local time of the last check, its outcome, the local time of
 the last check that found the revision unchanged, the cause and HTTP status of a failed
 check (to log a repeated failure quietly and, with the time that check was sent, to show
-it on the settings page; an applied full sync drops it, so the
+it on the settings page; an applied full sync or a check that does not fail drops it, so
+the
 next failure is logged as new; since 2026-11-11 also the decryption check and the ID of
 an item that failed strict decryption, so another item warns again), the server revision
 of the last applied sync, the local time a run of deferrals began and, after a 429, the
@@ -109,10 +110,11 @@ take it back. The diagnostics page instead gives the open snapshot's age and the
 check with its outcome.
 
 When the last check failed, the card also shows "Last automatic sync failed" with the
-local time that check was sent and the same reason a manual Sync gives, such as the
-decryption check that refused the data. The line stays until a sync applies, since that
-drops the stored failure (an agent's choice, added on 2026-11-11 after a failed check
-went unnoticed for two days because only the log showed it).
+local time that check was sent and its error code, or, when strict decryption refused
+the data, the check that refused it, and asks to press Sync to try again. The line goes
+once a later check does not fail or a sync applies, either of which drops the stored
+failure (an agent's choice, added on 2026-11-11 after a failed check went unnoticed for
+two days because only the log showed it).
 
 ### Not interrupting a login
 

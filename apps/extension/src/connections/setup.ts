@@ -338,8 +338,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       handles.set(profile.connectionId, accepted.data.handle);
       reviews.set(profile.connectionId, adopted.policyReviewItemIds);
       flow.published = true;
-      if (revisionMs !== undefined)
-        await deps.revisions?.setRevision(profile.connectionId, revisionMs).catch(() => undefined);
+      await (
+        revisionMs === undefined
+          ? deps.revisions?.forgetFailure(profile.connectionId)
+          : deps.revisions?.setRevision(profile.connectionId, revisionMs)
+      )?.catch(() => undefined);
       // A failed write leaves the cache usable; status then asks for sign-in before the next sync.
       if (source.kind === "password") {
         const retained = await deps.sessions.retain(
@@ -455,16 +458,20 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       ? Math.max(acceptedAt, unchangedAt)
       : acceptedAt;
   }
-  /** The last automatic check's failure, for the settings page. A full sync that applied
-   * since dropped it; a manual Sync's own failure is answered to the page directly. */
+  /** The last automatic check's failure, for the settings page. A later check that did not
+   * fail, or a full sync that applied, dropped it; a manual Sync's own failure is answered
+   * to the page directly. A stored value the reply cannot carry is left out, so it never
+   * fails the whole status. */
   function lastCheckFailure(check: VaultSyncEntry | undefined) {
     const failure = check?.outcome === "failed" ? check.failure : undefined;
-    if (failure?.at === undefined) return {};
+    if (!failure || !/^[a-z-]{1,80}$/.test(failure.cause)) return {};
     return {
       syncFailure: {
         at: failure.at,
         code: failure.cause,
-        ...(failure.check === undefined ? {} : { check: failure.check }),
+        ...(failure.check !== undefined && /^[a-z-]{1,40}$/.test(failure.check)
+          ? { check: failure.check }
+          : {}),
       },
     };
   }

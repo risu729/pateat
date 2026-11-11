@@ -2678,6 +2678,33 @@ test("the last automatic check's failure is a status line of its connection", as
     .toBeVisible();
 });
 
+test("an automatic check that failed otherwise gives its code and asks to press Sync", async () => {
+  const client = mockClient();
+  const open = { ...lockedVault, state: "ready" as const, autoUnlock: "enabled" as const };
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [{ ...open, syncFailure: { at: Date.UTC(2026, 10, 11, 9, 0), code: "network" } }],
+  });
+  await mount(client);
+  await expect
+    .element(
+      page.getByText(
+        /^Last automatic sync failed \(.+, network\)\. Press Sync to try again now\.$/,
+      ),
+    )
+    .toBeVisible();
+  expect(document.body.textContent).not.toContain("Refresh, then try again");
+});
+
+test("a connection whose checks did not fail shows no automatic sync line", async () => {
+  const client = mockClient();
+  const open = { ...lockedVault, state: "ready" as const, autoUnlock: "enabled" as const };
+  client.list.mockResolvedValue({ ...status(), connections: [open] });
+  await mount(client);
+  await expect.element(page.getByText("Automatic unlock on", { exact: true })).toBeVisible();
+  expect(document.body.textContent).not.toContain("Last automatic sync failed");
+});
+
 test("an unlock that fails otherwise says the vault could not be unlocked", async () => {
   const client = mockClient();
   client.list.mockResolvedValue({ ...status(), connections: [lockedVault] });

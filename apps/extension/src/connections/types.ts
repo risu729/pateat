@@ -197,7 +197,10 @@ export type ConnectionSetupDependencies = {
   policy: ConnectionPolicy;
   sessions: Pick<ProviderSessions, "status" | "retain" | "acquire" | "forget" | "discard">;
   /** Revision dates of applied syncs, so an automatic check can skip an unchanged vault. */
-  revisions?: Pick<VaultSyncRecords, "read" | "revision" | "setRevision" | "clear">;
+  revisions?: Pick<
+    VaultSyncRecords,
+    "read" | "revision" | "setRevision" | "forgetFailure" | "clear"
+  >;
   nowMs?: () => number;
   randomId?: () => string;
 };
