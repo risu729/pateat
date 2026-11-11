@@ -212,9 +212,15 @@ test("rejects a corrupted last received cipher before export or replacement of l
     const browser = await open();
     await vaultData(browser.page, { action: "accept", kind: "v1" });
     const before = await vaultData<VaultInspection>(browser.page, { action: "inspect" });
+    // The refused item is named by its ID and revision date for the diagnostic log only.
     expect(await invokeVault(browser.page, { action: "accept", kind: "corrupt-last" })).toEqual({
       ok: false,
-      error: { code: "crypto-failed" },
+      error: {
+        code: "crypto-failed",
+        check: "sdk-decrypt",
+        item: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+        revised: Date.parse("2024-01-30T17:55:36.150Z"),
+      },
     });
     expect(await vaultData(browser.page, { action: "inspect" })).toEqual(before);
     expect(await vaultData(browser.page, { action: "resolve" })).toEqual({ matches: true });
