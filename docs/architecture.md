@@ -4460,3 +4460,31 @@ intended account, login, origin and expiry. Treat codes and authentication links
 as secrets rather than recipe data or model context, and do not treat arbitrary
 message links as navigation authority. Provider choices and retrieval transport
 belong to that later implementation, not an initial inbox/SMS service.
+
+### Filling sign-in pages without pressing
+
+ADR 0035's `sign-in: fill` permission is a distinct local attempt mode. It chooses the
+saved default or the only matching item and uses its password route. Several matches
+ask for an account; a valid explicit popup pick starts the normal login. A passive
+attempt preserves its account and step across document and worker replacement, never
+clicks, submits, judges a page, detects a logout, learns handlers, or remembers a new
+default merely because it filled fields. Its records do not hold other tabs and retire
+after ten minutes. Local attempt lines carry `fillOnly` and `sign-in-fill`.
+
+The next step must actually become usable on a new document/path, or change from not
+ready to ready in the same document. A DOM mutation or elapsed time is not progression.
+The final advance may be continued by normal recipe generation when the missing input
+appears, with the existing per-step request and recipe budgets. Already learned detail
+handlers fill ordinary writable inputs without selecting their radio buttons. Software
+keyboards, fields marked as advancing/submitting and TOTP/code fields remain empty:
+the current recipe cannot prove that entering their last digit will not submit, even
+when it also names a button. This conservative limit also applies to learned code
+handlers.
+
+A document-start isolated-world recorder keeps only trusted-edit identities and fill
+claims, never typed values. It protects replacements and reconnects; an absent or
+invalidated recorder refuses autofill. Ambiguous edited identities suppress filling.
+The persisted mutation intent also fences a worker restart before acknowledgement.
+A passive mode delegates conditional and unactivated passkey requests, even when the
+profile's presence policy is `always`; activated requests keep the existing account
+and origin checks. The permission is read again immediately before signing.

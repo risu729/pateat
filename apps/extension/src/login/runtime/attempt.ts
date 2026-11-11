@@ -131,7 +131,16 @@ export const reportAttempt = (
     ...(metadata.unconfirmed ? { unconfirmed: true as const } : {}),
     ...(metadata.watch ? { watched: true as const } : {}),
     ...(unsubmitted(rt, metadata) ? { unsubmitted: true as const } : {}),
-    ...(metadata.fillOnly ? { fillOnly: true as const, reason: "fill-only" } : {}),
+    ...(metadata.fillOnly || metadata.signInFill
+      ? { fillOnly: true as const, reason: metadata.signInFill ? "sign-in-fill" : "fill-only" }
+      : {}),
+    ...(metadata.signInFill
+      ? {
+          fillMode: "sign-in-fill" as const,
+          permissionSource: metadata.fillPermissionSource ?? "default",
+          ...(metadata.fillExpired ? { fillExpired: true as const } : {}),
+        }
+      : {}),
     ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
     ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
     ...(stop ? { cause: stop } : {}),
@@ -444,13 +453,15 @@ export async function change(
     run.metadata,
     undelivered ? { type: "POLICY_CHANGED", undelivered } : event,
   );
-  noteSignedIn(
-    rt,
-    previous,
-    run.metadata,
-    run.live.document.frameId === 0 ? run.live.document.origin : undefined,
-  );
-  countRelogin(rt, previous, run.metadata, run.live.incognito === true);
+  if (!run.metadata.signInFill)
+    noteSignedIn(
+      rt,
+      previous,
+      run.metadata,
+      run.live.document.frameId === 0 ? run.live.document.origin : undefined,
+    );
+  if (!run.metadata.signInFill)
+    countRelogin(rt, previous, run.metadata, run.live.incognito === true);
   // A watch that begins in this document keeps the path the login was last read on, so
   // a route the document takes later is read (ADR 0027 amendment of 2026-10-25).
   const { watch } = run.metadata;
@@ -508,12 +519,19 @@ export async function change(
     rt.vars.storageHealthy = false;
     throw new Error("Synthetic intent write failed");
   }
+  if (run.metadata.signInFill && event.type === "OPERATION_OK")
+    reportAttempt(rt, run.metadata, run.recipe, undefined, { reason: "sign-in-fill" });
   await timed(rt, run, "saveMs", () => save(rt, run));
   await timed(rt, run, "statusMs", () => publish(rt, run.live, run.metadata));
   // A conditional request of the page waits for how this login ends (ADR 0034).
   if (terminal(run.metadata) || idle(run.metadata)) reviewRequests(rt);
   await settleBindingReview(rt, run);
-  if (run.metadata.state === "authenticated" && !run.metadata.unconfirmed && run.choice)
+  if (
+    !run.metadata.signInFill &&
+    run.metadata.state === "authenticated" &&
+    !run.metadata.unconfirmed &&
+    run.choice
+  )
     await remember(rt, run);
   // Links filled from the popup are saved once the login is confirmed, and links whose
   // value the site rejected are removed (ADR 0061).

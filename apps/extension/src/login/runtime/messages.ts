@@ -706,7 +706,7 @@ export function reportClosed(rt: Runtime, metadata: LoginAttemptMetadata): void 
       ...(metadata.watch ? { watched: true as const } : {}),
       ...(unsubmitted(rt, metadata) ? { unsubmitted: true as const } : {}),
       // A fill-only login's lines stay on the device (ADR 0066).
-      ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
+      ...(metadata.fillOnly || metadata.signInFill ? { fillOnly: true as const } : {}),
       cause: "tab-closed",
     },
   );
@@ -720,8 +720,16 @@ export function reportClosed(rt: Runtime, metadata: LoginAttemptMetadata): void 
 export async function active(rt: Runtime): Promise<boolean> {
   await rt.vars.loaded;
   return (
-    rt.attempts.values().some((run: Execution) => inProgress(rt, run)) ||
-    rt.persisted.values().some((metadata) => !terminal(metadata) && !idle(metadata))
+    rt.attempts
+      .values()
+      .some((run: Execution) =>
+        run.metadata.signInFill
+          ? run.metadata.operationId !== undefined && !terminal(run.metadata)
+          : inProgress(rt, run),
+      ) ||
+    rt.persisted
+      .values()
+      .some((metadata) => !metadata.signInFill && !terminal(metadata) && !idle(metadata))
   );
 }
 

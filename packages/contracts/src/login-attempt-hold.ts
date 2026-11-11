@@ -40,6 +40,7 @@ export const holdsOrigin = (entry: LoginAttemptMetadata) =>
   entry.state !== "authenticated" &&
   // A fill-only login never submits (ADR 0021 D).
   !entry.fillOnly &&
+  !entry.signInFill &&
   // A login interrupted, or whose tab left the origin, before anything was submitted
   // never submits: a filled username or password alone sent nothing (owner, 2026-11-09).
   // A fill the page may have submitted by itself, as a PIN pad does at its last key, is

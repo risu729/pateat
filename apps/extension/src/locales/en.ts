@@ -502,4 +502,12 @@ export const en = {
   vaultsLocked_one: "{{count}} vault is locked, so its logins and passkeys wait.",
   vaultsLocked_other: "{{count}} vaults are locked, so their logins and passkeys wait.",
   "Unlock in settings": "Unlock in settings",
+  "verification filling is turned off for this site or profile":
+    "verification filling is turned off for this site or profile",
+  "Autofill stopped after 10 minutes. Reload the page or choose an account to continue.":
+    "Autofill stopped after 10 minutes. Reload the page or choose an account to continue.",
+  "Autofill only: Pateat may fill sign-in fields and presses nothing. Continue the site's steps yourself.":
+    "Autofill only: Pateat may fill sign-in fields and presses nothing. Continue the site's steps yourself.",
+  "Autofill stopped: {{why}}. Nothing was pressed.":
+    "Autofill stopped: {{why}}. Nothing was pressed.",
 } as const;

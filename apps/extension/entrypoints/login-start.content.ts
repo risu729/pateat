@@ -1,5 +1,6 @@
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { answerFramePresence } from "../src/login/frame-presence";
+import { recordFillEdits } from "../src/page/fill-edits";
 import { recordSiteValues } from "../src/page/site-values";
 
 /**
@@ -15,6 +16,7 @@ export default defineContentScript({
   noScriptStartedPostMessage: true,
   main(ctx) {
     ctx.onInvalidated(recordSiteValues(document, window));
+    ctx.onInvalidated(recordFillEdits(document, window));
     ctx.onInvalidated(answerFramePresence());
   },
 });

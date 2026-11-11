@@ -127,6 +127,9 @@ export async function enterHandler(
   const entries = (run.recipe.handlers ?? []).flatMap((handler, index) => {
     if (
       handler.path !== path ||
+      (run.metadata.signInFill === true &&
+        (handler.kind !== "detail" ||
+          run.metadata.handlers.some((entry) => entry.index === index))) ||
       (stop && handler.kind !== "passkey") ||
       (passwordAhead && handler.kind === "passkey") ||
       (!choosesPassword && handler.kind === "password") ||
@@ -368,6 +371,7 @@ export async function enterHandler(
     await forgetDetail(rt, run, newQuestion);
     if (!current(rt, run)) return true;
   }
+  if (!fresh && run.metadata.signInFill) return false;
   if (!fresh) {
     const refused = refusal(shown[0]!)!;
     reportHandler(shown[0]!, refused);
@@ -439,6 +443,7 @@ export async function enterHandler(
   const entered = transitionLoginAttempt(run.metadata, event);
   if (entered.state !== "ready" || entered.handlers.length === run.metadata.handlers.length) {
     reportHandler(fresh, "no-room");
+    if (run.metadata.signInFill) return false;
     await challenge();
     return true;
   }

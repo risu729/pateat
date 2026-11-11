@@ -508,6 +508,8 @@ function lookOnChange(
     },
   };
 }
+import { claimFill, fillUntouched, fillEditsReady } from "../page/fill-edits";
+
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
   readonly probeStatus?: boolean;
@@ -1408,6 +1410,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       );
       return true;
     }
+    if (command.type === "login.fill.change") {
+      void pageChange(document, Date.now() + command.timeoutMs, waits.signal).then(
+        () => respond({ ok: !cancelled }),
+        () => respond({ ok: false }),
+      );
+      return true;
+    }
     if (command.type === "login.await") {
       // Checks the current DOM serially, again at each change of the page, until the step's
       // elements are ready; never mutates.
@@ -2298,6 +2307,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           codeIn &&
           (stopped !== "refused" || !input.isConnected || !writable(input) || input.value === "");
         try {
+          if (operation.signInFill && !fillEditsReady(window))
+            return fail("cancelled", "document-cancelled");
           for (const [index, field] of step.fields.entries()) {
             const input = inputs[index] as Control;
             // A preparing fill lets the page's handlers for the previous field run first.
@@ -2325,6 +2336,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                     ? "page-changed"
                     : "field-changed",
               );
+            if (
+              operation.signInFill &&
+              !claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot)
+            ) {
+              value.value = "";
+              continue;
+            }
             // An advance's next step is measured in this task, just before its first input,
             // and so is what the page shows before an effect (ADR 0029).
             if (index === 0) {
@@ -2467,6 +2485,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   beforeInput: buttonless ? lastIn : code?.typed,
                   between: () => {
                     if (cancelled) return "document-cancelled";
+                    if (operation.signInFill && !fillUntouched(window, input))
+                      return "field-changed";
                     if (pagePath() !== step.path) return "page-changed";
                     const now = matches(field.target);
                     return now.length !== 1 ||

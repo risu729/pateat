@@ -248,6 +248,21 @@ export const attemptMetadataSchema = v.pipe(
      * fields and stops before the first step with an effect, so it never clicks or submits.
      */
     fillOnly: v.optional(v.literal(true)),
+    /** Profile/site autofill across pages (ADR 0035), distinct from logout autofill. */
+    signInFill: v.optional(v.literal(true)),
+    fillExpired: v.optional(v.literal(true)),
+    fillSince: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+    fillPermissionSource: v.optional(v.picklist(["site", "default"])),
+    /** Structural state before a fill, retained across document/worker replacement. */
+    fillBaseline: v.optional(
+      v.strictObject({
+        stepIndex: integer(MAX_ATTEMPT_STEPS),
+        nextStep: integer(MAX_ATTEMPT_STEPS),
+        documentId: identifier,
+        path: v.pipe(v.string(), v.startsWith("/"), v.maxLength(WATCH_PATH_MAX)),
+        ready: v.boolean(),
+      }),
+    ),
     /**
      * The login went back to the `password` route (ADR 0034): it never takes the `passkey`
      * route again, so before a submission it changes route at most once each way.
@@ -388,6 +403,14 @@ export const parseAttemptMetadata = (value: unknown): LoginAttemptMetadata =>
 
 export const loginAttemptEventSchema = v.variant("type", [
   v.strictObject({ type: v.literal("RESOLVE") }),
+  v.strictObject({ type: v.literal("FILL_EXPIRED") }),
+  v.strictObject({ type: v.literal("FILL_PROGRESS"), stepIndex: integer(MAX_ATTEMPT_STEPS) }),
+  v.strictObject({
+    type: v.literal("FILL_BASELINE"),
+    nextStep: integer(MAX_ATTEMPT_STEPS),
+    path: v.pipe(v.string(), v.startsWith("/"), v.maxLength(WATCH_PATH_MAX)),
+    ready: v.boolean(),
+  }),
   v.strictObject({
     type: v.literal("PREPARE"),
     operationId: identifier,
@@ -1692,6 +1715,8 @@ export function createAttemptMetadata(input: {
   pageOrigin?: string;
   accountSwitched?: boolean;
   fillOnly?: boolean;
+  signInFill?: boolean;
+  fillPermissionSource?: "site" | "default";
   /** For a chooser recipe's login (ADR 0028): what it clicks on the list, or `other-shown`. */
   chooser?: ChooserClick;
   /** For an item without a password: where its `password` route stops (ADR 0036). */
@@ -1707,6 +1732,8 @@ export function createAttemptMetadata(input: {
   timing: Omit<AttemptTiming, "personSince" | "pageSince">;
 }): LoginAttemptMetadata {
   const recipe = parseLoginRecipe(input.recipe);
+  if (input.signInFill && (input.choice.route !== "password" || input.fillOnly))
+    throw new Error("Sign-in autofill requires its own password-route mode");
   if (input.account.origin !== recipe.origin)
     throw new Error("Attempt origin does not match recipe");
   return parseAttemptMetadata({
@@ -1747,6 +1774,13 @@ export function createAttemptMetadata(input: {
     usedOperationIds: [],
     ...(input.accountSwitched ? { accountSwitched: true } : {}),
     ...(input.fillOnly ? { fillOnly: true } : {}),
+    ...(input.signInFill
+      ? {
+          signInFill: true,
+          fillSince: Date.now(),
+          fillPermissionSource: input.fillPermissionSource ?? "default",
+        }
+      : {}),
     ...(input.chooser ? { chooser: { click: input.chooser } } : {}),
     ...(input.stopAt === undefined ? {} : { stopAt: input.stopAt }),
     ...(input.startAt === undefined ? {} : { startStep: input.startAt }),
@@ -1913,6 +1947,124 @@ export function transitionLoginAttempt(
   const metadata = parseAttemptMetadata(value);
   const event = v.parse(loginAttemptEventSchema, eventValue);
   if (metadata.state === "authenticated" || metadata.state === "blocked") return metadata;
+  if (metadata.signInFill) {
+    const clear = {
+      operationId: undefined,
+      operationKind: undefined,
+      operationEffect: undefined,
+      operationPresses: undefined,
+      mutationIntent: undefined,
+      retryRequired: undefined,
+      outcome: undefined,
+      settled: undefined,
+      watch: undefined,
+    };
+    // A restarted worker never replays a fill whose persisted intent may have reached
+    // the document. No click, submission, result judgement or logout is synthesized.
+    if (event.type === "INTERRUPTED")
+      return parseAttemptMetadata({
+        ...metadata,
+        ...clear,
+        state: "ready",
+        stepIndex: Math.min(
+          metadata.stepCount,
+          metadata.stepIndex +
+            (metadata.operationKind === "fill" && metadata.mutationIntent ? 1 : 0),
+        ),
+      });
+    if (event.type === "NAVIGATED" && sameScope(metadata.document, event.document))
+      return parseAttemptMetadata({
+        ...metadata,
+        ...clear,
+        state: "ready",
+        document: event.document,
+        stepIndex: Math.min(
+          metadata.stepCount,
+          metadata.stepIndex +
+            (metadata.document.documentId !== event.document.documentId &&
+            metadata.operationKind === "fill" &&
+            metadata.mutationIntent
+              ? 1
+              : 0),
+        ),
+      });
+    if (event.type === "FILL_EXPIRED")
+      return parseAttemptMetadata({
+        ...metadata,
+        ...clear,
+        state: "blocked",
+        outcome: "cancelled",
+        fillExpired: true,
+      });
+    if (event.type === "FILL_BASELINE" && metadata.state === "ready")
+      return parseAttemptMetadata({
+        ...metadata,
+        fillBaseline: {
+          stepIndex: metadata.stepIndex,
+          nextStep: event.nextStep,
+          documentId: metadata.document.documentId,
+          path: event.path,
+          ready: event.ready,
+        },
+      });
+    if (
+      event.type === "FILL_PROGRESS" &&
+      metadata.state === "ready" &&
+      event.stepIndex > metadata.stepIndex &&
+      event.stepIndex <= metadata.stepCount
+    )
+      return parseAttemptMetadata({ ...metadata, ...clear, stepIndex: event.stepIndex });
+    if (
+      event.type === "HANDLER" &&
+      metadata.state === "ready" &&
+      sameLoginDocument(metadata.document, event.document) &&
+      !metadata.handlers.some((entry) => entry.index === event.handler) &&
+      metadata.stepCount + event.steps <= MAX_ATTEMPT_STEPS
+    )
+      return parseAttemptMetadata({
+        ...metadata,
+        ...clear,
+        handlers: [
+          ...metadata.handlers,
+          {
+            index: event.handler,
+            start: metadata.stepIndex,
+            ...(event.field === undefined ? {} : { field: event.field }),
+          },
+        ],
+        stepCount: metadata.stepCount + event.steps,
+      });
+    if (
+      event.type === "CONTINUING" &&
+      "before" in event &&
+      metadata.state === "ready" &&
+      replaceable(metadata) &&
+      event.before === metadata.stepIndex &&
+      !metadata.continuation
+    )
+      return parseAttemptMetadata({ ...metadata, continuation: { before: event.before } });
+    if (
+      event.type === "UNCONTINUED" &&
+      "before" in event &&
+      metadata.continuation &&
+      "before" in metadata.continuation &&
+      metadata.continuation.before === event.before
+    )
+      return parseAttemptMetadata({ ...metadata, continuation: undefined });
+    // These paths are for automatic execution, never for passive autofill.
+    if (
+      ["OBSERVED", "JUDGING", "STOP_JUDGING", "AUTO_SUBMITTED", "ROUTE", "STOP_ANSWERED"].includes(
+        event.type,
+      )
+    )
+      return metadata;
+  }
+  if (
+    event.type === "FILL_PROGRESS" ||
+    event.type === "FILL_BASELINE" ||
+    event.type === "FILL_EXPIRED"
+  )
+    return metadata;
   const snapshot = loginAttemptMachine.resolveState({ value: metadata.state, context: metadata });
   // A login still at its first step that has submitted nothing, and has nothing in flight
   // that may have, has no result to settle as unknown: the page goes on, at the same step, as
@@ -2081,7 +2233,7 @@ export function nextLoginOperation(
     // runs (ADR 0036).
     !beforeStop(metadata, metadata.stepIndex) ||
     // A fill-only attempt never takes a step with an effect, a keypad or a code (ADR 0021 D).
-    (metadata.fillOnly === true && fillOnlyStops(step)) ||
+    ((metadata.fillOnly === true || metadata.signInFill === true) && fillOnlyStops(step)) ||
     (effectfulStep(step) && metadata.submissions >= stepBudget(metadata))
   )
     return undefined;
@@ -2093,7 +2245,8 @@ export function nextLoginOperation(
     document,
     stepIndex: metadata.stepIndex,
     // A fill-only attempt fills a step's other fields without its code.
-    step: metadata.fillOnly === true ? fillOnlyStep(step) : step,
+    step: metadata.fillOnly === true || metadata.signInFill === true ? fillOnlyStep(step) : step,
+    ...(metadata.signInFill ? { signInFill: true } : {}),
     expiresAt: now + 15000,
   });
 }
@@ -2116,7 +2269,11 @@ export function validateLoginOperation(
       : metadata.state === "executing";
   return (
     readyToExecute &&
-    !(metadata.fillOnly === true && fillOnlyStep(operation.step) !== operation.step) &&
+    !(
+      (metadata.fillOnly === true || metadata.signInFill === true) &&
+      fillOnlyStep(operation.step) !== operation.step
+    ) &&
+    operation.signInFill === metadata.signInFill &&
     beforeStop(metadata, operation.stepIndex) &&
     (!(operation.step.kind === "fill" || operation.step.kind === "click") ||
       metadata.mutationIntent === true) &&
