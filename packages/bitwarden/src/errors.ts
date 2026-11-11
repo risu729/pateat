@@ -44,14 +44,19 @@ export type BitwardenMismatchCheck =
  * Names which strict decryption check refused an item, on `crypto-failed` only. It never
  * carries a decrypted or encrypted value.
  * - `unknown-organization`: the item names an organization whose key the account lacks.
- * - `sdk-decrypt`: the SDK could not decrypt or authenticate the item.
+ *   The account mapper refuses such a sync first, so this guard is defensive.
+ * - `sdk-decrypt`: the SDK could not decrypt or authenticate the item or one of its fields,
+ *   including a URI or checksum that does not decrypt.
  * - `attachment`: an attachment's metadata failed to decrypt.
- * - `uri-dropped`: the SDK left out a URI, which it does when the URI or its checksum does
- *   not decrypt or the checksum does not match.
- * - `passkey-dropped`: the SDK left out a passkey.
+ * - `uri-dropped`: the SDK left out a URI. Strict decryption does this for an item with its
+ *   own key, or on an account whose security state is version 2 or later, when the URI's
+ *   checksum is missing, does not match or is not base64, or the URI is missing.
+ * - `passkey-dropped`: the SDK left out a passkey; only passkey operations decrypt them.
  * - `uri-checksum-without-uri`: a URI has a checksum but no URI.
- * - `uri-checksum`: a URI's checksum is not the SHA-256 of the URI.
- * - `item-type`: the decrypted item type is not one Pateat reads.
+ * - `uri-checksum`: a URI's checksum is not the SHA-256 of the URI. The SDK does not check
+ *   this for a legacy item without its own key on a version 1 account; this boundary does.
+ * - `item-type`: the decrypted item type is not one Pateat reads. Admission already
+ *   requires a readable type, so this guard is defensive.
  * - `folder`, `collection`: a folder or collection name failed to decrypt.
  */
 export const BITWARDEN_DECRYPT_CHECKS = [
