@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualOfferResponseSchema, type ManualStartRequest } from "../manual-wire";
+import type { LoginGeneration } from "../runtime/deps";
 import type { LiveUriMatcher } from "../../vault/site-candidates";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
@@ -17,6 +18,7 @@ const {
   sender,
   trusted,
   realTime,
+  recipe,
 } = createRuntimeTestHarness(fake);
 const popup = {
   id: "synthetic-extension",
@@ -297,4 +299,209 @@ it("an explicit retry can pass another tab's inactive failure without changing i
   expect(stored()).toContainEqual(other);
   await vi.waitFor(() => expect(executes()).toHaveLength(2));
   expect(stored()).toContainEqual(other);
+});
+
+describe("manual authorization while the selected recipe is rechecked", () => {
+  it.each(["expired", "query", "fragment"] as const)(
+    "starts no attempt when the authorization becomes %s during the recipe await",
+    async (change) => {
+      realTime();
+      const h = harness(
+        { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
+        { uris: uris() },
+      );
+      await h.hello();
+      const pick = await request(h);
+      const withdrawn = Promise.withResolvers<boolean>();
+      h.recipes.withdrawn.mockReturnValueOnce(withdrawn.promise);
+      fake.state.onReconnect = () => h.hello();
+      const starting = run(h, pick);
+      await vi.waitFor(() => expect(h.recipes.withdrawn).toHaveBeenCalledTimes(1));
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(stored()).toEqual([]);
+      const before = structuredClone(stored());
+      const clock =
+        change === "expired"
+          ? vi.spyOn(Date, "now").mockReturnValue(Date.now() + 5 * 60_000)
+          : undefined;
+      try {
+        if (change === "expired") {
+          expect(await offer(h)).toMatchObject({
+            status: { requestId: pick.requestId, state: "blocked", reason: "timed-out" },
+          });
+        } else {
+          fake.state.tabUrls[1] =
+            fake.state.pageUrl + (change === "query" ? "?changed=1" : "#changed");
+        }
+        withdrawn.resolve(false);
+        await starting;
+        expect(stored()).toEqual(before);
+        expect(h.fields).not.toHaveBeenCalled();
+        expect(executes()).toEqual([]);
+        expect(fake.state.session["pateat.login-picks.v1"]).toEqual([]);
+      } finally {
+        clock?.mockRestore();
+        withdrawn.resolve(false);
+      }
+    },
+  );
+});
+
+describe("a manual retry of a cached non-login page in a frame", () => {
+  it.each(["confirm", "unclear"] as const)(
+    "repairs a selected %s frame without executing its old recipe",
+    async (pageKind) => {
+      realTime();
+      const portal = "https://portal.example/account";
+      const frame = { frameId: 3, documentId: "selected", tab: { id: 1, url: portal } };
+      const cached = { ...recipe, id: "gen-synthetic", pageKind };
+      const answer = Promise.withResolvers<Awaited<ReturnType<LoginGeneration["generate"]>>>();
+      const generation = {
+        available: vi.fn<LoginGeneration["available"]>(async () => true),
+        generate: vi.fn<LoginGeneration["generate"]>(async (_request, sent) => {
+          sent?.();
+          return await answer.promise;
+        }),
+        generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+        judge: vi.fn<LoginGeneration["judge"]>(),
+        slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+      };
+      const repairs = {
+        due: vi.fn(async () => "due" as const),
+        hold: vi.fn(async () => undefined),
+      };
+      const h = harness(
+        { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
+        { uris: uris(), allowedOrigins: [], custom: [], generation, repairs },
+      );
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue([]);
+      h.recipes.routes.mockResolvedValue([cached]);
+      fake.state.tabUrls[1] = portal;
+      fake.state.extracted = {
+        login: {
+          ok: true,
+          observation: {
+            version: 1,
+            origin,
+            path: "/signin",
+            language: "en",
+            complete: true,
+            candidates: [
+              { id: "password", role: "password", target: { by: "id", value: "password" } },
+              {
+                id: "login",
+                role: "button",
+                target: { by: "id", value: "login" },
+                label: "Sign in",
+              },
+            ],
+          },
+        },
+      };
+      await h.hello({ documentId: "top", url: portal }, false);
+      await h.hello(frame, false);
+      const pick = await request(h, 3);
+      fake.state.onReconnect = () =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            signIn: { path: "/signin" },
+          },
+          sender(frame),
+        );
+      expect(await run(h, pick)).toMatchObject({ ok: true, state: "generating" });
+      await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledTimes(1));
+      expect(repairs.due).toHaveBeenCalledExactlyOnceWith({
+        recipeId: cached.id,
+        revision: cached.revision,
+        documentId: "selected",
+      });
+      expect(generation.generate.mock.calls[0]![0]).toMatchObject({
+        observation: { origin, path: "/signin" },
+        repair: { recipeId: cached.id, revision: cached.revision },
+      });
+      expect(generation.generate.mock.calls[0]![0].manual).toBeUndefined();
+      expect(fake.state.reconnects).toEqual([{ tabId: 1, frameId: 3, documentId: "selected" }]);
+      expect(cached.pageKind).toBe(pageKind);
+      expect(stored()).toEqual([]);
+      expect(executes()).toEqual([]);
+      expect(h.fields).not.toHaveBeenCalled();
+      answer.resolve({ outcome: "abstained", reason: "ambiguous" });
+      await vi.waitFor(async () =>
+        expect(await offer(h)).toMatchObject({
+          status: { requestId: pick.requestId, state: "blocked" },
+        }),
+      );
+      expect(cached.pageKind).toBe(pageKind);
+      expect(executes()).toEqual([]);
+    },
+  );
+});
+
+it("a stale reprompt re-entry cannot cancel a newer pending manual request", async () => {
+  realTime();
+  const firstWindow = Promise.withResolvers<"closed">();
+  const askMasterPassword = vi
+    .fn<() => Promise<"closed">>()
+    .mockReturnValueOnce(firstWindow.promise)
+    .mockResolvedValueOnce("closed");
+  const h = harness(
+    {
+      excludedSites: [{ hostname: "login.example", includeSubdomains: false }],
+      repromptSites: [{ hostname: "login.example", includeSubdomains: false }],
+    },
+    { uris: uris(), reprompt: true, askMasterPassword },
+  );
+  await h.hello();
+  const first = await request(h);
+  fake.state.onReconnect = () => h.hello();
+  expect(await run(h, first)).toMatchObject({ ok: true, state: "evaluating" });
+  expect(askMasterPassword).toHaveBeenCalledTimes(1);
+  const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 5 * 60_000);
+  expect(await offer(h)).toMatchObject({
+    status: { requestId: first.requestId, state: "blocked", reason: "timed-out" },
+  });
+  clock.mockRestore();
+  fake.state.onReconnect = undefined;
+  const second = { ...first, requestId: "replacement-request" };
+  expect(await run(h, second)).toMatchObject({ ok: true, state: "evaluating" });
+  firstWindow.resolve("closed");
+  expect(await offer(h)).toMatchObject({
+    status: { requestId: second.requestId, state: "evaluating" },
+  });
+  await h.login.handle({ version: 1, type: "login.reprompt.ask", tabId: 1 }, popup);
+  expect(await offer(h)).toMatchObject({
+    status: { requestId: second.requestId, state: "evaluating" },
+  });
+  expect(stored()).toEqual([]);
+  expect(h.fields).not.toHaveBeenCalled();
+  expect(executes()).toEqual([]);
+});
+
+it("keeps an existing ask-every-time policy after a successful manual login", async () => {
+  realTime();
+  const asking = [
+    {
+      site: "login.example",
+      incognito: false,
+      defaults: JSON.stringify([
+        [origin, "bitwarden", "70000000-0000-4000-8000-000000000001", itemId],
+      ]),
+    },
+  ];
+  fake.state.session["pateat.login-ask-every-time.v1"] = structuredClone(asking);
+  const h = harness({}, { uris: uris() });
+  expect(await h.hello()).toMatchObject({ ok: false });
+  const settings = structuredClone(h.settings);
+  const pick = await request(h);
+  fake.state.onReconnect = () => h.hello();
+  expect(await run(h, pick)).toMatchObject({ ok: true });
+  await vi.waitFor(() => expect(stored()).toMatchObject([{ state: "authenticated" }]));
+  expect(fake.state.session["pateat.login-ask-every-time.v1"]).toEqual(asking);
+  expect(fake.state.session["pateat.login-switch-picks.v1"]).toBeUndefined();
+  expect(h.settings).toEqual(settings);
+  expect(h.store.update).not.toHaveBeenCalled();
 });

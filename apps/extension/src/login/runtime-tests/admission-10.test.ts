@@ -325,7 +325,13 @@ describe("production login document admission", () => {
       await vi.waitFor(() =>
         expect(fake.state.messages.map((entry) => entry.type)).toContain("login.reconnect"),
       );
-      expect(service.available).toHaveBeenCalledWith(origin, "/signin");
+      expect(service.available).toHaveBeenCalledWith(
+        origin,
+        "/signin",
+        undefined,
+        undefined,
+        false,
+      );
       // Only slots the matching item can fill are offered.
       // The username's shape goes with its slot; the value itself never does.
       expect(service.generate).toHaveBeenCalledWith(
@@ -446,7 +452,13 @@ describe("production login document admission", () => {
         expect(fake.state.messages.map((entry) => entry.type)).toContain("login.reconnect"),
       );
       // The retry window and the request carry the replaced path, never the tenant's ID.
-      expect(service.available).toHaveBeenCalledWith(origin, tenantPath);
+      expect(service.available).toHaveBeenCalledWith(
+        origin,
+        tenantPath,
+        undefined,
+        undefined,
+        false,
+      );
       expect(service.generate).toHaveBeenCalledWith(
         expect.objectContaining({ observation: tenantPage.observation }),
         expect.any(Function),

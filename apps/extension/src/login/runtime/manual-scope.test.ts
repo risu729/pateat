@@ -47,6 +47,10 @@ function harness() {
       [frameKey(top.document), top],
       [frameKey(live.document), live],
     ]),
+    passwordAsks: new Map(),
+    repromptAsking: new Map(),
+    repromptGrants: new Map(),
+    repromptWaiting: new Map(),
     manualStarts: new Map([[1, pending]]),
     picked: new Map([[1, pick]]),
   };
