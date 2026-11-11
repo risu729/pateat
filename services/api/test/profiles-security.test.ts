@@ -598,3 +598,246 @@ describe("extension profile editor authorization", () => {
     expect(await (await deviceApi(alice.device.credential)).json()).toEqual(alice.settings);
   });
 });
+
+describe("page permissions through profile APIs and D1", () => {
+  const defaults = { "sign-in": "fill", confirm: "off", "personal-details": "fill" } as const;
+  const rules = [
+    { hostname: "bank.example", includeSubdomains: true, permissions: { confirm: "off" as const } },
+  ];
+  const read = async (credential: string) =>
+    v.parse(syncSettingsStateSchema, await (await deviceApi(credential)).json());
+  const document = async (id: string) => {
+    const stored = await env.DB.prepare("SELECT document FROM profiles WHERE id = ?")
+      .bind(id)
+      .first<{ document: string }>();
+    return JSON.parse(stored!.document) as Record<string, unknown>;
+  };
+  const editor = (by: Owner, id: string, revision: number, settings: LocalSettings) =>
+    request(`/extension/profiles/${id}/settings`, {
+      access: by.token,
+      method: "PUT",
+      headers: { Origin: EXTENSION_ORIGIN, "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, expectedRevision: revision, settings }),
+    });
+
+  it("stores, copies and edits per-profile policy while preserving shared bindings and device separation", async () => {
+    const { by, device, settings } = await setup();
+    const binding = {
+      recipeId: "synthetic-login",
+      origin: "https://bank.example",
+      provider: "bitwarden",
+      server: "cloud-us",
+      userId: USER,
+      itemId: "synthetic-item",
+      itemName: "Synthetic account",
+      slots: [{ slot: "password", field: "password" as const }],
+    };
+    const sharedLink = {
+      origin: "https://bank.example",
+      provider: "bitwarden",
+      server: "cloud-us",
+      userId: USER,
+      itemId: "synthetic-item",
+      detail: "birth-date" as const,
+      source: { itemId: "synthetic-identity", field: { custom: "Birth date" } },
+    };
+    const initial = {
+      ...createDefaultSettings(),
+      connections: [],
+      pagePermissionDefaults: defaults,
+      sitePagePermissions: rules,
+      bindings: [binding],
+      detailLinks: [sharedLink],
+    };
+    const saved = await save(device.credential, settings.revision, initial);
+    expect(saved.status).toBe(200);
+    expect((await read(device.credential)).settings).toMatchObject({
+      pagePermissionDefaults: defaults,
+      sitePagePermissions: rules,
+      bindings: [binding],
+      detailLinks: [sharedLink],
+    });
+    expect(await document(settings.profileId)).toMatchObject({
+      pagePermissionDefaults: defaults,
+      sitePagePermissions: rules,
+    });
+    expect(await document(settings.profileId)).not.toHaveProperty("bindings");
+    const ownerRead = await manage(by, `/profiles/${settings.profileId}/settings`);
+    expect(ownerRead.status).toBe(200);
+    expect(await ownerRead.json()).toMatchObject({
+      settings: {
+        pagePermissionDefaults: defaults,
+        sitePagePermissions: rules,
+        bindings: [binding],
+        detailLinks: [sharedLink],
+      },
+    });
+    const extensionRead = await request(`/extension/profiles/${settings.profileId}/settings`, {
+      access: by.token,
+      headers: { Origin: EXTENSION_ORIGIN },
+    });
+    expect(extensionRead.status).toBe(200);
+    expect(await extensionRead.json()).toMatchObject({
+      settings: {
+        pagePermissionDefaults: defaults,
+        sitePagePermissions: rules,
+        bindings: [binding],
+        detailLinks: [sharedLink],
+      },
+    });
+    const copied = await copy(by, settings.profileId);
+    expect(await document(copied.id)).toMatchObject({
+      pagePermissionDefaults: defaults,
+      sitePagePermissions: rules,
+    });
+    const agent = v.parse(
+      devicePairResultSchema,
+      await (await pair(by, copied.id, { label: "Agent" })).json(),
+    );
+    const current = await read(agent.credential);
+    const changed = {
+      ...initial,
+      pagePermissionDefaults: {
+        "sign-in": "auto",
+        confirm: "fill",
+        "personal-details": "off",
+      } as const,
+      sitePagePermissions: [
+        {
+          hostname: "agent.example",
+          includeSubdomains: false,
+          permissions: { "sign-in": "fill" as const },
+        },
+      ],
+    };
+    const response = await editor(by, copied.id, current.revision, changed);
+    expect(response.status).toBe(200);
+    expect((await read(agent.credential)).settings).toMatchObject({
+      pagePermissionDefaults: changed.pagePermissionDefaults,
+      sitePagePermissions: changed.sitePagePermissions,
+      bindings: [binding],
+      detailLinks: [sharedLink],
+    });
+    expect((await read(device.credential)).settings).toMatchObject({
+      pagePermissionDefaults: defaults,
+      sitePagePermissions: rules,
+      bindings: [binding],
+      detailLinks: [sharedLink],
+    });
+    const originalBefore = await read(device.credential);
+    const stale = await save(device.credential, current.revision, {
+      ...initial,
+      sitePagePermissions: [],
+    });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({ error: "settings_conflict", current: originalBefore });
+    expect(await read(device.credential)).toEqual(originalBefore);
+    const newPair = await pair(by, undefined, { newProfile: "Empty profile" });
+    expect(newPair.status).toBe(201);
+    const emptyDevice = v.parse(devicePairResultSchema, await newPair.json());
+    const empty = await read(emptyDevice.credential);
+    expect(empty.newProfile).toBe(true);
+    expect(empty.settings).not.toHaveProperty("pagePermissionDefaults");
+    expect(empty.settings).not.toHaveProperty("sitePagePermissions");
+    expect(empty.settings?.bindings).toEqual([binding]);
+    expect(empty.settings?.detailLinks).toEqual([sharedLink]);
+  });
+
+  it("canonicalizes explicit defaults and clears omitted policy through owner and extension writes", async () => {
+    const { by, device, settings } = await setup();
+    const initial = {
+      ...createDefaultSettings(),
+      connections: [],
+      pagePermissionDefaults: defaults,
+      sitePagePermissions: rules,
+    };
+    expect((await save(device.credential, settings.revision, initial)).status).toBe(200);
+    const current = await read(device.credential);
+    const reset = await manage(
+      by,
+      `/profiles/${settings.profileId}/settings`,
+      {
+        version: 1,
+        expectedRevision: current.revision,
+        settings: {
+          ...createDefaultSettings(),
+          connections: [],
+          pagePermissionDefaults: {
+            "sign-in": "auto",
+            confirm: "fill",
+            "personal-details": "fill",
+          },
+          sitePagePermissions: [],
+        },
+      },
+      "PUT",
+    );
+    expect(reset.status).toBe(200);
+    const after = await read(device.credential);
+    expect(after.settings).not.toHaveProperty("pagePermissionDefaults");
+    expect(after.settings).not.toHaveProperty("sitePagePermissions");
+    expect(await document(settings.profileId)).not.toHaveProperty("pagePermissionDefaults");
+    expect(await document(settings.profileId)).not.toHaveProperty("sitePagePermissions");
+    expect((await editor(by, settings.profileId, after.revision, initial)).status).toBe(200);
+    const restored = await read(device.credential);
+    expect(restored.settings).toMatchObject({
+      pagePermissionDefaults: defaults,
+      sitePagePermissions: rules,
+    });
+    expect(
+      (
+        await editor(by, settings.profileId, restored.revision, {
+          ...createDefaultSettings(),
+          connections: [],
+        })
+      ).status,
+    ).toBe(200);
+    const omitted = await read(device.credential);
+    expect(omitted.settings).not.toHaveProperty("pagePermissionDefaults");
+    expect(omitted.settings).not.toHaveProperty("sitePagePermissions");
+  });
+
+  it("refuses malformed policy and foreign profile writes without changing either owner's D1 state", async () => {
+    const alice = await setup();
+    const bob = await setup();
+    const initial = {
+      ...createDefaultSettings(),
+      connections: [],
+      pagePermissionDefaults: defaults,
+      sitePagePermissions: rules,
+    };
+    expect((await save(alice.device.credential, alice.settings.revision, initial)).status).toBe(
+      200,
+    );
+    const before = await read(alice.device.credential);
+    const invalid = await deviceApi(alice.device.credential, "/v1/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        expectedRevision: before.revision,
+        settings: { ...initial, pagePermissionDefaults: { "sign-in": "fill" } },
+      }),
+    });
+    expect(invalid.status).toBe(400);
+    expect((await editor(bob.by, alice.settings.profileId, before.revision, initial)).status).toBe(
+      404,
+    );
+    const forbidden = await deviceApi(
+      bob.device.credential,
+      `/extension/profiles/${alice.settings.profileId}/settings`,
+      {
+        method: "PUT",
+        headers: { Origin: EXTENSION_ORIGIN, "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, expectedRevision: before.revision, settings: initial }),
+      },
+    );
+    expect(forbidden.status).toBe(401);
+    expect(await read(alice.device.credential)).toEqual(before);
+    expect(await read(bob.device.credential)).toEqual(bob.settings);
+    expect(await document(alice.settings.profileId)).toMatchObject({
+      pagePermissionDefaults: defaults,
+      sitePagePermissions: rules,
+    });
+  });
+});
