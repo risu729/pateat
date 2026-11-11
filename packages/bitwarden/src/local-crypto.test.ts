@@ -412,6 +412,46 @@ describe("strict account initialization and metadata", () => {
     },
   );
 
+  it("zeroes the user key it unwraps to tell a right password from a failed open", async () => {
+    vi.spyOn(sdk.CryptoClient.prototype, "initialize_user_crypto").mockRejectedValue(
+      new Error("Stop after resource admission"),
+    );
+    const unwrapped = new Uint8Array(64).fill(7);
+    vi.spyOn(sdk.PureCrypto, "decrypt_user_key_with_master_password").mockReturnValue(unwrapped);
+    expect(await createLocalCryptoSession(v1Input(), sdk)).toEqual({
+      ok: false,
+      error: { code: "crypto-failed", check: "session-open" },
+    });
+    expect(unwrapped.every((byte) => byte === 0)).toBe(true);
+  });
+
+  // Below the SDK's minimums every unwrap throws, so it says nothing of the password.
+  it.each([
+    { pBKDF2: { iterations: 4999 } },
+    { argon2id: { iterations: 1, memory: 64, parallelism: 4 } },
+    { argon2id: { iterations: 3, memory: 8, parallelism: 4 } },
+  ])("does not call a password wrong for KDF settings below the SDK's minimums", async (kdf) => {
+    const original = v1Input();
+    const input = {
+      ...original,
+      kdf,
+      unlock: {
+        ...original.unlock,
+        masterPasswordUnlock: { ...original.unlock.masterPasswordUnlock, kdf },
+      },
+    };
+    vi.spyOn(sdk.CryptoClient.prototype, "initialize_user_crypto").mockRejectedValue(
+      new Error("Refused below the minimums"),
+    );
+    const unwrap = vi.spyOn(sdk.PureCrypto, "decrypt_user_key_with_master_password");
+    const result = await createLocalCryptoSession(input, sdk);
+    expect(result.ok).toBe(false);
+    expect(result.ok ? undefined : result.error).not.toEqual(
+      expect.objectContaining({ check: "master-password" }),
+    );
+    expect(unwrap).not.toHaveBeenCalled();
+  });
+
   it("initializes a decrypted-key account whose Argon2id memory is 1024 MiB", async () => {
     // The decrypted-key path runs no KDF, so the real SDK completes initialization quickly.
     const input = {

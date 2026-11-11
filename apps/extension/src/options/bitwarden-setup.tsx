@@ -113,17 +113,14 @@ function errorMessage(code: string, check?: string): Message {
         "Bitwarden's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.",
         { check: check ? translate(" (check: {{check}})", { check }) : "" },
       );
-  if (code === "crypto-failed") {
-    if (check === "master-password") return "Invalid master password.";
-    // Which check refused the data is what a report needs; refreshing would fail the same way.
-    return check
-      ? (translate) =>
-          translate(
-            "Pateat could not decrypt this vault's data (check: {{check}}). Report this check name.",
-            { check },
-          )
-      : "Pateat could not decrypt this vault's data.";
-  }
+  // A check names what refused the data, and refreshing would meet the same refusal. A
+  // crypto-failed without one comes from the crypto host itself, which a refresh restarts.
+  if (code === "crypto-failed" && check)
+    return (translate) =>
+      translate(
+        "Pateat could not decrypt this vault's data (check: {{check}}). Report this check name.",
+        { check },
+      );
   const messages: Record<string, string> = {
     "provider-permission-required":
       "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.",
@@ -794,7 +791,7 @@ export function BitwardenSetup({
             return;
           }
           if (result.ok) answer = { ok: true };
-          else if (result.error.code === "crypto-failed") {
+          else if (result.error.code === "crypto-failed" && result.error.check) {
             // The form says why too, instead of asking to refresh into the same refusal.
             const text = errorMessage(result.error.code, result.error.check);
             answer = {

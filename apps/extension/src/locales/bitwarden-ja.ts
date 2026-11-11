@@ -6,8 +6,6 @@ export const bitwardenJa = {
   " (check: {{check}})": "（確認項目：{{check}}）",
   "Pateat could not decrypt this vault's data (check: {{check}}). Report this check name.":
     "この保管庫のデータを Pateat で復号できませんでした（確認項目：{{check}}）。この確認項目名を報告してください。",
-  "Pateat could not decrypt this vault's data.":
-    "この保管庫のデータを Pateat で復号できませんでした。",
   "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.":
     "Pateat には Bitwarden サーバーへのアクセス許可がありません。もう一度接続または同期し、Chrome で確認されたらアクセスを許可してください。",
   "Sign in again to sync. The saved local vault can still unlock independently.":

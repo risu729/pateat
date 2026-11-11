@@ -124,7 +124,20 @@ function memoryBridge() {
   return { bridge: methods as unknown as Sdk.WasmStateBridge, values };
 }
 
-/** Whether the master password unwraps the account's user key; a wrong one fails authentication. */
+type MasterPasswordKdf = Parameters<
+  LocalCryptoSdk["PureCrypto"]["decrypt_user_key_with_master_password"]
+>[3];
+/** KDF settings the SDK refuses for any password, so a refusal says nothing of the password. */
+function belowSdkMinimum(kdf: MasterPasswordKdf): boolean {
+  return "pBKDF2" in kdf
+    ? kdf.pBKDF2.iterations < 5000
+    : kdf.argon2id.iterations < 2 || kdf.argon2id.memory < 16;
+}
+/**
+ * Whether the master password unwraps the account's user key; a wrong one fails
+ * authentication. Settings below the SDK's minimums answer true: the password is not
+ * what failed.
+ */
 function masterPasswordOpens(
   sdk: LocalCryptoSdk,
   unlock: {
@@ -132,10 +145,11 @@ function masterPasswordOpens(
     masterPasswordUnlock: {
       masterKeyWrappedUserKey: string;
       salt: string;
-      kdf: Parameters<LocalCryptoSdk["PureCrypto"]["decrypt_user_key_with_master_password"]>[3];
+      kdf: MasterPasswordKdf;
     };
   },
 ): boolean {
+  if (belowSdkMinimum(unlock.masterPasswordUnlock.kdf)) return true;
   try {
     sdk.PureCrypto.decrypt_user_key_with_master_password(
       unlock.masterPasswordUnlock.masterKeyWrappedUserKey,
@@ -436,12 +450,7 @@ export async function createLocalCryptoSession(
           const unlock = checked.masterPasswordUnlock;
           if (!withinResourceBudget(unlock.kdf)) return failure("resource-limit");
           // Below the SDK's own minimums it throws for any password; that is not a wrong one.
-          if (
-            "pBKDF2" in unlock.kdf
-              ? unlock.kdf.pBKDF2.iterations < 5000
-              : unlock.kdf.argon2id.iterations < 2 || unlock.kdf.argon2id.memory < 16
-          )
-            return failure("invalid-crypto-input");
+          if (belowSdkMinimum(unlock.kdf)) return failure("invalid-crypto-input");
           if (!authenticatedCiphertext(unlock.masterKeyWrappedUserKey))
             return failure("unsupported-crypto");
           const storedKey = memory.values.get("user_key");

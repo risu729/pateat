@@ -2613,6 +2613,23 @@ test("an unlock the vault data refuses names the check instead of a wrong passwo
   await expect.element(unlockField()).not.toHaveAttribute("aria-invalid");
 });
 
+test("an unlock the crypto host itself fails asks to refresh, not for a check name", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({ ...status(), connections: [lockedVault] });
+  client.unlock.mockResolvedValueOnce({ ok: false, error: { code: "crypto-failed" } });
+  await mount(client);
+  await unlockRow().click();
+  await unlockField().fill(password);
+  await submitUnlock().click();
+  await expect
+    .element(
+      page.getByText("The vault could not be unlocked. Refresh and try again.", { exact: true }),
+    )
+    .toBeVisible();
+  expect(document.body.textContent).not.toContain("Invalid master password.");
+  expect(document.body.textContent).not.toContain("could not decrypt");
+});
+
 test("a sync the vault data refuses says which check, not to refresh", async () => {
   const client = mockClient();
   const open = { ...lockedVault, state: "ready" as const, autoUnlock: "enabled" as const };

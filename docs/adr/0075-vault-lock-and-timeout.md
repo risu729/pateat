@@ -173,8 +173,12 @@ Now, when the SDK cannot initialize the account, the crypto Worker asks whether 
 password unwraps the stored user key at all (the SDK's
 `decrypt_user_key_with_master_password`, the same check as a re-prompt). Only a password
 that does not is the `master-password` check, which keeps "Invalid master password.";
-the key it opens is zeroed at once. Any other `crypto-failed`, on unlock or sync, says
+the key it opens is zeroed at once. KDF settings below the SDK's minimums, which it
+refuses for any password, are not called a wrong password. A wrong password derives the
+key twice, once in the failed initialization and once in this check; a right one still
+derives it once. Any other `crypto-failed` with a check, on unlock or sync, says
 "Pateat could not decrypt this vault's data (check: …). Report this check name." in the
 page status and the unlock form, and no longer asks to refresh, which would meet the
-same refusal (an agent's choice, from the owner's report on 2026-11-11 of a sync that
-said to refresh).
+same refusal. A `crypto-failed` without a check comes from the crypto host itself, such
+as a Worker that stopped, and still asks to refresh (an agent's choice, from the owner's
+report on 2026-11-11 of a sync that said to refresh).
