@@ -26,10 +26,10 @@ did the popup's `popupPageSection` choice
 stored only while `false`. `detailLinks` (the links to the vault fields that hold a
 login's personal details, ADR 0061) joined the owner's parts beside `bindings` the same
 day: like a binding, a link names a vault item and field for one login item on one
-site, which does not depend on how a browser is used. ADR 0035's page permissions are
-not built yet; when they land, they add their fields to the profile document
-(`profileDocument` in `services/api/src/settings-store.ts`) and to the extension's
-merge.
+site, which does not depend on how a browser is used. ADR 0035's page permissions
+joined the profile document (`profileDocument` in `services/api/src/settings-store.ts`)
+and the extension's merge in November 2026; its delivery 2 also adds their extension
+editors and pairing-replacement warning.
 
 ## Decision
 

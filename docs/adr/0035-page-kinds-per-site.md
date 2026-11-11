@@ -5,9 +5,11 @@ let profiles hold permissions", "per site"), then 21:11 to 21:30 UTC in the desi
 thread (`sign-in` can be limited to filling, login-time values belong to `sign-in`,
 re-verification is not split by kind for now, Pateat never presses on it, logs for
 evaluation, and the answers to the proposal's seven questions). The proposal was
-reviewed against the code by subagents before each round. Delivery 1 is implemented
-([below](#implementation-of-delivery-1)); deliveries 2 to 4 are not, so no page is
-`page-off` yet and only `confirm-unsupported` pages carry the evaluation fields. Amends
+reviewed against the code by subagents before each round. Delivery 1 and delivery 2
+are implemented ([delivery 1](#implementation-of-delivery-1),
+[delivery 2](#implementation-of-delivery-2)); confirmation filling and personal-data
+autofill in deliveries 3 and 4 are not. Delivery 2 conservatively leaves code inputs
+and software keyboards to the person. Amends
 [ADR 0012](0012-inference-request-log.md) (retention of evaluation rows) and
 [ADR 0024](0024-settings-profiles.md) (two more profile parts). Amended on 2026-10-18 by
 [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)
@@ -357,3 +359,56 @@ followed the same day, all local, with these readings:
   since autofill-only use needs filling without pressing (owner, 21:11 UTC).
 - Count login-time card codes and birth dates as `personal-details`: rejected; they are
   part of the login (owner, 21:12 UTC).
+
+## Implementation of delivery 2
+
+Implemented in November 2026 after the owner asked to continue the plan and roadmap
+(2026-11-11 UTC: 「他もplan? roadmap見てやって」). The accepted per-profile and
+per-site design above is unchanged. These are implementation choices within it, not
+additional owner decisions:
+
+- The settings document omits default page permissions and an empty override list,
+  following ADR 0024's later default-absence rule. A present defaults object still
+  requires all three kinds. Profile copying, switching, revision-checked editing,
+  three-way sync and file transfer preserve these profile fields. Concurrent defaults
+  merge per kind and site rules per hostname, using the service's choice on a conflict.
+- The extension settings page and remote-profile editor expose defaults and every
+  site rule. The popup edits its canonical hostname only. If that hostname's existing
+  row includes subdomains, the popup shows its scope and opens Settings instead of
+  silently narrowing that row. Replacing device settings with an existing profile
+  warns when page behavior is its only nondefault policy.
+- Automatic sign-in filling has its own persisted mode, separate from the one-time
+  fill after a logout in ADR 0021. It uses the default or sole eligible item on its
+  password route; an explicit, still-valid popup account choice keeps normal login
+  behavior. A passkey-only item has no password route to fill.
+- Filling never manufactures a click or submission event. It waits for a new document,
+  path or a newly available next field of the recipe before continuing. A missing
+  continuation uses ordinary generation with the existing limits and page-kind checks.
+  It does not judge the result, learn handlers, detect a logout or save an account
+  default or successful binding merely because fields were filled.
+- The content script records edited field identities from trusted input events from
+  document start, without reading or storing typed values. It also fences filled
+  steps before mutation. Edited or ambiguous replacement fields and a document whose
+  edit history is unavailable are left to the person. Normal account, vault, field,
+  destination, tab, frame and document checks still apply on every page.
+- Every button, effectful fill and software keyboard remains untouched. Code inputs
+  remain empty even for a learned TOTP handler: the present schema cannot prove that
+  entering its final digit will not submit, even when a button is also named. Safe
+  ordinary fields from learned handlers can still be filled. This is a conservative
+  limit of delivery 2, not a claim that TOTP autofill in this mode is complete.
+- Conditional passkeys and requests without user activation are delegated in this
+  mode, independently of the profile's presence flag. Requests deliberately initiated
+  by the person keep the existing selection and verification rules. The setting is
+  checked again before answering.
+- `confirm: off` reports `page-off`; `confirm: fill` remains unsupported for filling.
+  The UI says this explicitly. Both leave passkey re-verification after Pateat's own
+  login to the browser. Personal-detail choices are stored for delivery 4; they do not
+  enable filling arbitrary non-login forms.
+
+Verification here is synthetic. It does not close real-site, installed-Chrome or
+provider-account acceptance gates in the roadmap.
+
+The implementation and synthetic verification are split across the
+[settings foundation](https://github.com/risu729/pateat/pull/1504),
+[login execution](https://github.com/risu729/pateat/pull/1506) and
+[extension controls](https://github.com/risu729/pateat/pull/1505).

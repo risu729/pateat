@@ -4,8 +4,9 @@ Status: accepted by the owner on 2026-10-11 (12:15 UTC). Extends
 [ADR 0013](0013-service-held-recipes-and-settings.md) and
 [ADR 0023](0023-synced-vault-policy.md). Only the data split below applies now; profiles
 themselves are later work. Amended on 2026-10-12 by
-[ADR 0035](0035-page-kinds-per-site.md) (not implemented): `pagePermissionDefaults` and
-`sitePagePermissions` are profile parts. Amended on 2026-10-23: profiles are built for
+[ADR 0035](0035-page-kinds-per-site.md): `pagePermissionDefaults` and
+`sitePagePermissions` are profile parts, implemented with its delivery 2 in November
+2026. Amended on 2026-10-23: profiles are built for
 the parts that exist; see the amendment at the end.
 
 Amended on 2026-10-23 by [ADR 0062](0062-log-in-again-after-a-logout.md) (owner,
