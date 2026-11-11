@@ -126,6 +126,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     reading.set(message.operationId, pending);
     let policy: PasskeyPolicy;
     let relatedRpId: string | undefined;
+    let admission: ReturnType<typeof admitGetRequest>;
+    let permissionRefusal: string | undefined;
     try {
       policy = (await options.policy?.(origin)) ?? INITIAL_PASSKEY_POLICY;
       const requested = (message.request as { rpId?: unknown } | null)?.rpId;
@@ -139,6 +141,29 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         relatedRpId = (await relatedRpIdFor(origin, requested, message, policy))
           ? requested
           : undefined;
+      }
+      admission = admitGetRequest({
+        origin,
+        request: message.request,
+        userActivation: message.userActivation,
+        policy,
+        conditional: options.conditional !== undefined,
+        ...(relatedRpId === undefined ? {} : { relatedRpId }),
+      });
+      // Permission reads have the same pending identity/cancellation lifetime as the
+      // presence policy. Capacity is checked only after every asynchronous read, with
+      // no await between that check and registering the operation.
+      if (admission.kind !== "delegate") {
+        const request = admission.request;
+        permissionRefusal = await Promise.try(() =>
+          options.pagePermission?.({
+            ...context,
+            origin,
+            conditional: request.conditional === true,
+            userActivation: message.userActivation,
+            allowCredentials: request.allowCredentialIds.length > 0,
+          }),
+        ).catch(() => "settings-unavailable");
       }
     } finally {
       reading.delete(message.operationId);
@@ -156,14 +181,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       documentOperations >= MAX_DOCUMENT_OPERATIONS
     )
       return { kind: "delegate", reason: "busy" };
-    const admission = admitGetRequest({
-      origin,
-      request: message.request,
-      userActivation: message.userActivation,
-      policy,
-      conditional: options.conditional !== undefined,
-      ...(relatedRpId === undefined ? {} : { relatedRpId }),
-    });
+
     if (admission.kind === "delegate") {
       if (admission.reason === "invalid-request") {
         const invalid = describeInvalidRequest(message.request);
@@ -174,15 +192,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       }
       return admission;
     }
-    const permissionRefusal = await Promise.try(() =>
-      options.pagePermission?.({
-        ...context,
-        origin,
-        conditional: admission.request.conditional === true,
-        userActivation: message.userActivation,
-        allowCredentials: admission.request.allowCredentialIds.length > 0,
-      }),
-    ).catch(() => "settings-unavailable");
+
     if (permissionRefusal) return { kind: "delegate", reason: permissionRefusal };
     detail.rpId = admission.request.rpId;
     detail.allowCredentials = admission.request.allowCredentialIds.length;

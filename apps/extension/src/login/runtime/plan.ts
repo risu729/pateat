@@ -838,7 +838,13 @@ export async function planFor(
         continue;
       }
       fits[index] = true;
-      const taken = chooseLoginRoute(routeRecipe, known, fits);
+      // Passive autofill always evaluates the password variant. Its item may still
+      // advertise a passkey, which remains available for the person's own request.
+      const taken = signInFill
+        ? known.password
+          ? route
+          : undefined
+        : chooseLoginRoute(routeRecipe, known, fits);
       if (taken?.route === "password" && taken.variant === index)
         return { ...resolved, facts: known };
       // The first variant that fits decides; without the item's password none is taken.
