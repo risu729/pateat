@@ -91,6 +91,8 @@ const replySchema = v.union([
     error: v.strictObject({
       code: errorCode,
       check: v.optional(v.pipe(v.string(), v.maxLength(40), v.regex(/^[a-z-]+$/))),
+      item: v.optional(v.pipe(v.string(), v.uuid())),
+      revised: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(0))),
     }),
   }),
   v.strictObject({

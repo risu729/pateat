@@ -66,11 +66,14 @@ export const LOCAL_ONLY_FLAG = "fillOnly";
 
 /**
  * Fields of a local log event that a problem line leaves out: where a login's own time went
- * (ADR 0019, amendment of 2026-11-03), which only the login record sends (ADR 0055).
- * {@link PROBLEM_EVENT_FIELDS} lists none of them, so the service refuses them on a problem
- * line too.
+ * (ADR 0019, amendment of 2026-11-03), which only the login record sends (ADR 0055), and
+ * the revision date of a Bitwarden item that failed decryption, which only helps the owner
+ * find that item. {@link PROBLEM_EVENT_FIELDS} lists none of them, so the service refuses
+ * them on a problem line too.
  */
 export const LOCAL_ONLY_FIELDS = {
+  "vault.sync": ["revised"],
+  "vault.check": ["revised"],
   "login.attempt": [
     "beforeShownMs",
     "startMs",
@@ -104,7 +107,7 @@ export const PROBLEM_EVENT_FIELDS = {
   "vault.state": { state: "code", previous: "code", providerSession: "code", synced: "flag" },
   "vault.sync": { outcome: "code", check: "code" },
   "vault.sign-in": { step: "code", outcome: "code" },
-  "vault.check": { outcome: "code", cause: "code", status: "count" },
+  "vault.check": { outcome: "code", cause: "code", status: "count", check: "code" },
   "vault.timeout": { trigger: "code", action: "code", outcome: "code" },
   "vault.refresh": { outcome: "code", cause: "code", status: "count" },
   "service.sync": {

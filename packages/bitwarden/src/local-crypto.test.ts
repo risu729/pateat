@@ -740,7 +740,7 @@ describe("strict cipher isolation and disposal", () => {
     if (view.ok) expect(view.data.login?.password).toBe("test_password");
     expect(await active.decryptFido2Credentials({ connectionId, cipher })).toEqual({
       ok: false,
-      error: { code: "crypto-failed" },
+      error: { code: "crypto-failed", check: "sdk-decrypt" },
     });
   });
 
@@ -748,14 +748,36 @@ describe("strict cipher isolation and disposal", () => {
     [
       "a partial view",
       (view: sdk.CipherView) => ({ ...view, partial: true }),
-      "unsupported-crypto",
+      { code: "unsupported-crypto" },
     ],
     [
       "a dropped passkey",
       (view: sdk.CipherView) => ({ ...view, login: { ...view.login!, fido2Credentials: [] } }),
-      "crypto-failed",
+      { code: "crypto-failed", check: "passkey-dropped" },
     ],
-  ] as const)("rejects %s from the SDK", async (_name, transform, code) => {
+    [
+      "a dropped URI",
+      (view: sdk.CipherView) => ({ ...view, login: { ...view.login!, uris: [] } }),
+      { code: "crypto-failed", check: "uri-dropped" },
+    ],
+    [
+      "an attachment that failed to decrypt",
+      (view: sdk.CipherView) =>
+        ({ ...view, attachmentDecryptionFailures: [{}] }) as unknown as sdk.CipherView,
+      { code: "crypto-failed", check: "attachment" },
+    ],
+    [
+      "a URI checksum without its URI",
+      (view: sdk.CipherView) => ({
+        ...view,
+        login: {
+          ...view.login!,
+          uris: (view.login?.uris ?? []).map((uri) => ({ ...uri, uri: undefined })),
+        },
+      }),
+      { code: "crypto-failed", check: "uri-checksum-without-uri" },
+    ],
+  ] as const)("rejects %s from the SDK", async (_name, transform, error) => {
     const created = await createLocalCryptoSession(v1Input(), viewOverrideSdk(transform));
     expect(created.ok).toBe(true);
     if (!created.ok) return;
@@ -763,11 +785,15 @@ describe("strict cipher isolation and disposal", () => {
     const original = legacyCipher();
     const cipher = {
       ...original,
-      login: { ...original.login, fido2Credentials: [fidoCredential] },
+      login: {
+        ...original.login,
+        uris: [{ uri: uriCiphertexts.uri, match: null, uriChecksum: uriCiphertexts.checksum }],
+        fido2Credentials: [fidoCredential],
+      },
     };
     expect(await created.data.decryptFido2Credentials({ connectionId, cipher })).toEqual({
       ok: false,
-      error: { code },
+      error,
     });
   });
 
@@ -848,7 +874,7 @@ describe("strict cipher isolation and disposal", () => {
     };
     expect(await active.decryptFido2PrivateKey({ connectionId, cipher })).toEqual({
       ok: false,
-      error: { code: "crypto-failed" },
+      error: { code: "crypto-failed", check: "sdk-decrypt" },
     });
   });
 
@@ -933,7 +959,7 @@ describe("strict cipher isolation and disposal", () => {
     };
     expect(await active.decryptCipher({ connectionId, cipher })).toEqual({
       ok: false,
-      error: { code: "crypto-failed" },
+      error: { code: "crypto-failed", check: "sdk-decrypt" },
     });
   });
 
@@ -953,7 +979,7 @@ describe("strict cipher isolation and disposal", () => {
       expect(result.ok).toBe(accepted);
       if (result.ok)
         expect(result.data.login?.uris?.[0]?.uri).toBe("https://synthetic.example.test/login");
-      else expect(result.error).toEqual({ code: "crypto-failed" });
+      else expect(result.error).toEqual({ code: "crypto-failed", check: "uri-checksum" });
     },
   );
 
@@ -999,7 +1025,7 @@ describe("strict cipher isolation and disposal", () => {
         connectionId,
         cipher: { ...blobCipher(), key: corrupt(v1WrappedUserKey) },
       }),
-    ).toEqual({ ok: false, error: { code: "crypto-failed" } });
+    ).toEqual({ ok: false, error: { code: "crypto-failed", check: "sdk-decrypt" } });
   });
 
   it.each(["name", "username", "password"])(
@@ -1012,7 +1038,7 @@ describe("strict cipher isolation and disposal", () => {
       else cipher.login.password = corrupt(cipher.login.password);
       const result = await active.decryptCipher({ connectionId, cipher });
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toEqual({ code: "crypto-failed" });
+      if (!result.ok) expect(result.error).toEqual({ code: "crypto-failed", check: "sdk-decrypt" });
     },
   );
 
@@ -1044,7 +1070,7 @@ describe("strict cipher isolation and disposal", () => {
     const cipher = { ...legacyCipher(), organizationId: "11111111-1111-4111-8111-111111111111" };
     expect(await active.decryptCipher({ connectionId, cipher })).toEqual({
       ok: false,
-      error: { code: "crypto-failed" },
+      error: { code: "crypto-failed", check: "unknown-organization" },
     });
   });
 

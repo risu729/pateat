@@ -1,5 +1,6 @@
 import type { VaultSyncRecords } from "./auto-sync";
 import type {
+  BitwardenDecryptCheck,
   BitwardenMismatchCheck,
   BitwardenProfile,
   BitwardenResult,
@@ -120,8 +121,15 @@ export type SetupReply =
           | "authentication-rejected"
           | "setup-reauthentication-required"
           | "revision-conflict";
-        /** Only on account-mismatch: which consistency check failed, never a value. */
-        check?: BitwardenMismatchCheck;
+        /**
+         * On account-mismatch, which consistency check failed; on crypto-failed, which strict
+         * decryption check refused an item. Never a value.
+         */
+        check?: BitwardenMismatchCheck | BitwardenDecryptCheck;
+        /** On crypto-failed for a received item: its ID, for the diagnostic log. */
+        item?: string;
+        /** With `item`: the item's server revision date in milliseconds. */
+        revised?: number;
       };
     };
 export interface ConnectionPolicy {

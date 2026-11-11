@@ -185,7 +185,10 @@ export function createDiagnosticsLog(options: {
         } while (again);
       })().finally(() => (watching = undefined));
     },
-    /** A settings-page Sync: its outcome code, and on failure the mismatch check. */
+    /**
+     * A settings-page Sync: its outcome code, and on failure the mismatch or decryption
+     * check, with the refused item's pseudonym and revision date.
+     */
     vaultSync(connectionId: string, reply: SetupReply) {
       const outcome = reply.ok ? reply.kind : reply.error.code;
       void logger.log(
@@ -194,6 +197,8 @@ export function createDiagnosticsLog(options: {
           connection: connectionId,
           outcome,
           check: reply.ok ? undefined : reply.error.check,
+          item: reply.ok ? undefined : reply.error.item,
+          revised: reply.ok ? undefined : reply.error.revised,
         },
         { level: reply.ok || outcome === "cancelled" ? "info" : "warn" },
       );
@@ -233,13 +238,22 @@ export function createDiagnosticsLog(options: {
         event.previous === event.outcome &&
         (event.outcome !== "failed" ||
           (event.previousFailure?.cause === event.cause &&
-            event.previousFailure.status === event.status));
+            event.previousFailure.status === event.status &&
+            event.previousFailure.check === event.check));
       void logger.log(
         "vault.check",
         {
           connection: event.connectionId,
           outcome: event.outcome,
-          ...(event.outcome === "failed" ? { cause: event.cause, status: event.status } : {}),
+          ...(event.outcome === "failed"
+            ? {
+                cause: event.cause,
+                status: event.status,
+                check: event.check,
+                item: event.item,
+                revised: event.revised,
+              }
+            : {}),
         },
         {
           level:

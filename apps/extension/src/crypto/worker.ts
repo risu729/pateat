@@ -81,6 +81,23 @@ const fail = (
     | "invalid-uri-input"
     | "uri-context-unavailable",
 ) => ({ ok: false as const, error: { code } });
+/**
+ * A received item that failed strict decryption, named for the diagnostic log by its ID and
+ * server revision date; the check and both values are secret-free.
+ */
+function refused(cipher: unknown, check: string | undefined) {
+  const raw = cipher && typeof cipher === "object" ? (cipher as Record<string, unknown>) : {};
+  const revised = typeof raw["revisionDate"] === "string" ? Date.parse(raw["revisionDate"]) : NaN;
+  return {
+    ok: false as const,
+    error: {
+      code: "crypto-failed" as const,
+      ...(check ? { check } : {}),
+      ...(typeof raw["id"] === "string" ? { item: raw["id"] } : {}),
+      ...(Number.isSafeInteger(revised) && revised >= 0 ? { revised } : {}),
+    },
+  };
+}
 function exactSession(ref: HostSessionRef) {
   return (
     owned &&
@@ -193,8 +210,11 @@ async function execute(command: HostCommand) {
         connectionId: command.connectionId,
         cipher,
       });
-      if (!checked.ok) return checked;
-      if (![1, 2, 3, 4].includes(checked.data.type)) return fail("crypto-failed");
+      if (!checked.ok)
+        return checked.error.code === "crypto-failed"
+          ? refused(cipher, checked.error.check)
+          : checked;
+      if (![1, 2, 3, 4].includes(checked.data.type)) return refused(cipher, "item-type");
       // Pinned clients exclude deleted and archived items from URL matching.
       if (checked.data.type === 1 && !checked.data.deletedDate && !checked.data.archivedDate) {
         // Same identifier form as the catalog item, so settings eligibility applies.

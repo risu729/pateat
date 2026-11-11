@@ -3,7 +3,9 @@ import {
   admitPreparedBitwardenAccount,
   decodeBase64,
   normalizeBitwardenProfile,
+  type BitwardenDecryptCheck,
   type BitwardenErrorCode,
+  type BitwardenMismatchCheck,
   type BitwardenProfile,
   type PreparedBitwardenAccount,
 } from "@pateat/bitwarden";
@@ -20,7 +22,19 @@ export type VaultErrorCode =
   | "storage-uncertain"
   | "storage-conflict"
   | "stale-vault-handle";
-export type VaultResult<T> = { ok: true; data: T } | { ok: false; error: { code: VaultErrorCode } };
+/**
+ * Secret-free failure detail: on `account-mismatch` which consistency check failed; on
+ * `crypto-failed` from opening a snapshot, which strict decryption check refused which
+ * received item (its ID and server revision date), for the diagnostic log only.
+ */
+export type VaultFailureDetail = {
+  check?: BitwardenMismatchCheck | BitwardenDecryptCheck;
+  item?: string;
+  revised?: number;
+};
+export type VaultResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: { code: VaultErrorCode } & VaultFailureDetail };
 export const vaultFailure = (code: VaultErrorCode): VaultResult<never> => ({
   ok: false,
   error: { code },

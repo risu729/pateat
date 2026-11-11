@@ -523,6 +523,45 @@ describe("crypto Worker login usernames (ADR 0080)", () => {
   });
 });
 
+describe("crypto Worker snapshot verification failures", () => {
+  it("names the refused item's check, ID and revision date, and nothing else", async () => {
+    await openWorker(savedUris, 0, false, (login, index) =>
+      index === 2 ? { ...login, revisionDate: "2026-11-09T20:35:17.000Z" } : login,
+    );
+    mocks.decrypt.mockImplementationOnce(async ({ cipher }) => ({ ok: true, data: cipher }));
+    mocks.decrypt.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "crypto-failed", check: "uri-checksum" },
+    } as never);
+    expect(await command({ kind: "verify-received-ciphers", session })).toEqual({
+      ok: false,
+      error: {
+        code: "crypto-failed",
+        check: "uri-checksum",
+        item: itemId(2),
+        revised: Date.parse("2026-11-09T20:35:17.000Z"),
+      },
+    });
+  });
+
+  it("names an item of a type it cannot read", async () => {
+    await openWorker(savedUris);
+    mocks.decrypt.mockResolvedValueOnce({ ok: true, data: { type: 9 } } as never);
+    expect(await command({ kind: "verify-received-ciphers", session })).toEqual({
+      ok: false,
+      error: { code: "crypto-failed", check: "item-type", item: itemId(1) },
+    });
+  });
+
+  it("passes any other failure on unchanged", async () => {
+    await openWorker(savedUris);
+    mocks.decrypt.mockResolvedValueOnce({ ok: false, error: { code: "crypto-locked" } } as never);
+    expect(await command({ kind: "verify-received-ciphers", session })).toEqual(
+      failed("crypto-locked"),
+    );
+  });
+});
+
 describe("crypto Worker field requests", () => {
   beforeEach(async () => {
     await openWorker(savedUris, 0, true);

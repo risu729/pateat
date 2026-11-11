@@ -1,12 +1,13 @@
 import * as v from "valibot";
-import type {
-  BitwardenResult,
-  LocalFieldMetadata,
-  LocalFieldReference,
-  LocalFieldValue,
-  LocalCryptoSession,
-  PreparedBitwardenAccount,
-  LocalVaultMetadata,
+import {
+  BITWARDEN_DECRYPT_CHECKS,
+  type BitwardenResult,
+  type LocalFieldMetadata,
+  type LocalFieldReference,
+  type LocalFieldValue,
+  type LocalCryptoSession,
+  type PreparedBitwardenAccount,
+  type LocalVaultMetadata,
 } from "@pateat/bitwarden";
 import {
   ARGON2ID_JOB_BUDGET_MS,
@@ -78,6 +79,28 @@ const fail = (
     | "timeout"
     | "resource-limit",
 ): BitwardenResult<never> => ({ ok: false, error: { code } });
+
+const decryptDetailSchema = v.object({
+  check: v.optional(v.picklist(BITWARDEN_DECRYPT_CHECKS)),
+  item: v.optional(v.pipe(v.string(), v.uuid())),
+  revised: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(0))),
+});
+/**
+ * Which strict decryption check refused which received item, kept for the diagnostic log.
+ * Only a check code, an item ID and a revision date pass; anything else is dropped.
+ */
+function decryptDetail(
+  error: object,
+): Pick<Extract<BitwardenResult<never>, { ok: false }>["error"], "check" | "item" | "revised"> {
+  const parsed = v.safeParse(decryptDetailSchema, error);
+  if (!parsed.success) return {};
+  const { check, item, revised } = parsed.output;
+  return {
+    ...(check ? { check } : {}),
+    ...(item ? { item } : {}),
+    ...(revised !== undefined ? { revised } : {}),
+  };
+}
 
 /** A connection's live session plus the candidate a sync opens before retiring it. */
 const MAX_SESSIONS_PER_CONNECTION = 2;
@@ -268,7 +291,10 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         }
         finish(parsed.output.requestId, {
           ok: false,
-          error: { code: result.error.code },
+          error: {
+            code: result.error.code,
+            ...(result.error.code === "crypto-failed" ? decryptDetail(result.error) : {}),
+          },
         } as BitwardenResult<never>);
         return;
       }
