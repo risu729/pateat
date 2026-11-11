@@ -143,8 +143,19 @@ does not read:
 Items are told apart only by ID, so an item without a valid ID, or two with the same
 ID, still fails the sync, as does anything wrong outside the items. The vault manager
 lists these items with the ones decryption refused, the reason as the check; an item
-type Pateat does not read is not listed, since nothing in Bitwarden fixes it. An
-organization key that is received but does not open still fails the open.
+type Pateat does not read is not listed, since nothing in Bitwarden fixes it.
+
+An organization key that is received but does not open with the account's private key
+is treated the same way when the crypto Worker opens the account: that organization's
+collections are left out and strict decryption refuses each of its items with the
+check `organization-key`, so they are listed as unusable. Pateat never opens such an
+item with another key. The open still fails (`session-open`) when the account's own
+keys do not open, when its private key is not an RSA key, when no received
+organization key opens (the account's private key is then the likelier fault, and the
+two cannot be told apart without its public key), and when an organization key opens
+but the SDK then refuses it. The crypto Worker does not count these refusals as a
+possible SDK fault, since they are made before any SDK call, so a vault whose only
+items are such an organization's opens empty with them listed.
 
 ## Sources
 

@@ -589,6 +589,21 @@ describe("crypto Worker snapshot verification failures", () => {
     );
   });
 
+  it("opens an empty vault when every item is refused for its organization key", async () => {
+    await openWorker(savedUris);
+    // Refused before any SDK call, so no SDK fault can explain it.
+    mocks.decrypt.mockResolvedValue({
+      ok: false,
+      error: { code: "crypto-failed", check: "organization-key" },
+    } as never);
+    const verified = await command({ kind: "verify-received-ciphers", session });
+    expect(verified).toMatchObject({ ok: true, data: { verifiedCipherCount: 0 } });
+    const unusable = (verified as { data: { unusableItems: { check?: string }[] } }).data
+      .unusableItems;
+    expect(unusable.length).toBeGreaterThan(0);
+    expect(unusable.every((item) => item.check === "organization-key")).toBe(true);
+  });
+
   it("refuses the snapshot when a verified item no longer decrypts after a refusal", async () => {
     await openWorker(savedUris);
     // A fault partway through: every item after the first, and the first again, fails.

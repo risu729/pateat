@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
-import { createLocalCryptoSession } from "./local-crypto";
+import { createLocalCryptoSession, type LocalCryptoSession } from "./local-crypto";
 import { bitwardenTotpSecret } from "./__fixtures__/totp";
 import {
   blobPrivateKey,
@@ -14,6 +14,7 @@ import {
   sealedBlob,
   TEST_ORGANIZATION_ID,
   TEST_ORGANIZATION_KEY,
+  organizationCipherFields,
   totpCiphertext,
   uriCiphertexts,
   v1Email,
@@ -101,6 +102,54 @@ function organizationInput() {
     },
     organizationKeys: [{ organizationId: TEST_ORGANIZATION_ID, key: TEST_ORGANIZATION_KEY }],
   };
+}
+
+const unopenedOrganizationId = "2bc9ac1e-f5aa-45f2-94bf-b181009709b8";
+
+function organizationCipher() {
+  const cipher = legacyCipher();
+  return {
+    ...cipher,
+    organizationId: TEST_ORGANIZATION_ID,
+    name: organizationCipherFields.name,
+    login: {
+      ...cipher.login,
+      username: organizationCipherFields.username,
+      password: organizationCipherFields.password,
+    },
+  };
+}
+
+/** The unopened organization's items are refused by name and its collections left out. */
+async function expectOrganizationLeftOut(active: LocalCryptoSession, connection: string) {
+  try {
+    expect(
+      await active.decryptCipher({
+        connectionId: connection,
+        cipher: { ...legacyCipher(), organizationId: unopenedOrganizationId },
+      }),
+    ).toEqual({ ok: false, error: { code: "crypto-failed", check: "organization-key" } });
+    expect(
+      await active.decryptCatalogGroups({
+        folders: [],
+        collections: [
+          {
+            id: "6abcdef0-0000-4000-8000-000000000001",
+            organizationId: unopenedOrganizationId,
+            name: legacyCipher().name,
+            externalId: null,
+            hidePasswords: false,
+            readOnly: false,
+            manage: true,
+            defaultUserCollectionEmail: null,
+            type: 0,
+          },
+        ],
+      }),
+    ).toEqual({ ok: true, data: [] });
+  } finally {
+    active.dispose();
+  }
 }
 
 function corrupt(value: string) {
@@ -563,6 +612,7 @@ describe("strict account initialization and metadata", () => {
       input.organizationKeys[0]!.key = key;
       const initializeUser = vi.spyOn(sdk.CryptoClient.prototype, "initialize_user_crypto");
       const initializeOrganization = vi.spyOn(sdk.CryptoClient.prototype, "initialize_org_crypto");
+      // With no organization key that opens, the account's own key is the likelier fault.
       expect(await createLocalCryptoSession(input, sdk)).toEqual({
         ok: false,
         error: { code: "crypto-failed", check: "session-open" },
@@ -920,9 +970,55 @@ describe("strict cipher isolation and disposal", () => {
     });
   });
 
-  it("rejects a corrupted organization key without producing a partial account", async () => {
+  it("rejects a corrupted organization key when no organization key opens", async () => {
     const input = organizationInput();
     input.organizationKeys[0]!.key = corrupt(TEST_ORGANIZATION_KEY);
+    expect(await createLocalCryptoSession(input, sdk)).toEqual({
+      ok: false,
+      error: { code: "crypto-failed", check: "session-open" },
+    });
+  });
+
+  it.each([
+    ["corrupted", corrupt(TEST_ORGANIZATION_KEY)],
+    ["malformed COSE", "7.AA=="],
+  ])(
+    "leaves out only the organization whose %s key does not open (ADR 0006)",
+    async (_name, key) => {
+      const input = organizationInput();
+      input.organizationKeys.push({ organizationId: unopenedOrganizationId, key });
+      const opened = await createLocalCryptoSession(input, sdk);
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) return;
+      try {
+        const working = await opened.data.decryptCipher({
+          connectionId: input.connectionId,
+          cipher: organizationCipher(),
+        });
+        expect(working.ok && working.data.name).toBe("Synthetic organization login");
+      } finally {
+        await expectOrganizationLeftOut(opened.data, input.connectionId);
+      }
+    },
+  );
+
+  it("rejects an account private key that is not an RSA key", async () => {
+    const input = organizationInput();
+    const userKey = sdk.PureCrypto.decrypt_user_key_with_master_password(
+      input.unlock.masterPasswordUnlock.masterKeyWrappedUserKey,
+      v1Password,
+      input.unlock.masterPasswordUnlock.salt,
+      input.unlock.masterPasswordUnlock.kdf,
+    );
+    try {
+      input.accountCryptographicState = {
+        V1: { private_key: sdk.PureCrypto.symmetric_encrypt_bytes(new Uint8Array(64), userKey) },
+      };
+      // Without organization keys, nothing else would use the private key at open.
+      input.organizationKeys = [];
+    } finally {
+      userKey.fill(0);
+    }
     expect(await createLocalCryptoSession(input, sdk)).toEqual({
       ok: false,
       error: { code: "crypto-failed", check: "session-open" },

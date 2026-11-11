@@ -204,7 +204,7 @@ export async function createLocalCryptoSession(
     return failure("invalid-crypto-input");
   }
   const organizationKeys = new Map(
-    options.organizationKeys?.map((entry) => [entry.organizationId, entry.key]),
+    options.organizationKeys?.map((entry) => [entry.organizationId.toLowerCase(), entry.key]),
   );
   if (organizationKeys.size !== (options.organizationKeys?.length ?? 0))
     return failure("invalid-crypto-input");
@@ -308,6 +308,7 @@ export async function createLocalCryptoSession(
       throw error;
     }
     let securityVersion: 1 | 2 = 1;
+    const unopenedOrganizations = new Set<string>();
     if (accountVersion === "v1" || organizationKeys.size > 0) {
       // Upstream V1 initialization tolerates an invalid private key. Our session does not.
       const storedKey = memory.values.get("user_key");
@@ -319,11 +320,27 @@ export async function createLocalCryptoSession(
           "V1" in account ? account.V1.private_key : account.V2.private_key,
           userKey,
         );
+        // A private key that is not an RSA key fails here, before any organization key.
+        sdk.PureCrypto.rsa_extract_public_key(privateKey).fill(0);
         // Parse/decapsulate shared keys synchronously before the SDK's async serde boundary.
-        for (const key of organizationKeys.values()) {
-          const decryptedOrganizationKey = sdk.PureCrypto.decapsulate_key_unsigned(key, privateKey);
-          decryptedOrganizationKey.fill(0);
+        // An organization key that does not open leaves out only that organization's items
+        // and collections, as for one whose key was not received (ADR 0006).
+        const received = organizationKeys.size;
+        for (const [organizationId, key] of organizationKeys) {
+          try {
+            const decryptedOrganizationKey = sdk.PureCrypto.decapsulate_key_unsigned(
+              key,
+              privateKey,
+            );
+            decryptedOrganizationKey.fill(0);
+          } catch {
+            organizationKeys.delete(organizationId);
+            unopenedOrganizations.add(organizationId);
+          }
         }
+        // When no organization key opens, the account's private key is the likelier fault
+        // (a valid RSA key that is not the account's), so the open fails as before.
+        if (received > 0 && organizationKeys.size === 0) throw new Error();
       } finally {
         userKey.fill(0);
         privateKey?.fill(0);
@@ -378,7 +395,10 @@ export async function createLocalCryptoSession(
         passkeys === "omit" && admittedCipher.login?.fido2Credentials
           ? { ...admittedCipher, login: { ...admittedCipher.login, fido2Credentials: null } }
           : admittedCipher;
-      if (cipher.organizationId && !knownOrganizations.has(cipher.organizationId))
+      const organizationId = cipher.organizationId?.toLowerCase();
+      if (organizationId && unopenedOrganizations.has(organizationId))
+        return decryptFailure("organization-key");
+      if (organizationId && !knownOrganizations.has(organizationId))
         return decryptFailure("unknown-organization");
       const admitted = admitLocalCryptoCipher(admittedCipher);
       if (!admitted.ok) return admitted;
@@ -499,6 +519,13 @@ export async function createLocalCryptoSession(
                 const id = group.id.toLowerCase();
                 if (ids.has(id)) return failure("invalid-crypto-input");
                 ids.add(id);
+                // A collection of an organization whose key did not open is left out.
+                if (
+                  kind === "collection" &&
+                  "organizationId" in group &&
+                  unopenedOrganizations.has(group.organizationId.toLowerCase())
+                )
+                  continue;
                 // Folder::decrypt swallows name errors. Verify the same authenticated
                 // name with strict SDK cipher decryption before using its group view.
                 // eslint-disable-next-line no-await-in-loop

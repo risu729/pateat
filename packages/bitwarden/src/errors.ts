@@ -45,6 +45,7 @@ export type BitwardenMismatchCheck =
  * carries a decrypted or encrypted value.
  * - `unknown-organization`: the item names an organization whose key the account lacks.
  *   The account mapper leaves such an item out first, so this guard is defensive.
+ * - `organization-key`: the item's organization key was received but did not open.
  * - `malformed-item`: the server sent the item in a shape Pateat does not admit.
  * - `unsupported-item`: the server withheld part of the item or sent a form this SDK
  *   does not read.
@@ -58,10 +59,11 @@ export type BitwardenMismatchCheck =
  * - `catalog`: the SDK threw while reading the folders and collections.
  * - `master-password`: the master password did not unwrap the account's user key.
  * - `session-open`: opening the account failed before any item was read: its keys,
- *   security state or organization keys did not initialize.
+ *   security state, or the organization keys that opened, did not initialize.
  */
 export const BITWARDEN_DECRYPT_CHECKS = [
   "unknown-organization",
+  "organization-key",
   "malformed-item",
   "unsupported-item",
   "sdk-decrypt",
