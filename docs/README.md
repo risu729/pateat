@@ -138,6 +138,7 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0085: One vault item for a site account's password and SSO sign-ins](adr/0085-one-item-for-native-and-sso-login.md)
 - [0086: Logins in frames are treated like logins in the tab's page](adr/0086-logins-in-frames-like-top-pages.md)
 - [0087: OpenAI inference on the service and the device](adr/0087-openai-inference-on-service-and-device.md)
+- [0088: A one-time login from the popup](adr/0088-popup-manual-login.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

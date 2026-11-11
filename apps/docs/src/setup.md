@@ -260,6 +260,17 @@ detail such as a card's number, link the vault item that holds it and press **Fi
 The service's **Sites** page lists every site with a recipe, a default account or a
 pause, one settings profile at a time.
 
+To try a login that automatic conditions have stopped, choose the page and matching
+account in the popup and press **Log in now**. It also works with a single matching
+account and while **This page** is hidden. This tries once without changing the default
+account, resuming automatic login or remembering the account for later logins. Pateat
+may ask the configured AI to inspect the page again; its normal limits and costs apply.
+The popup shows whether it is preparing, generating a recipe, starting or unable to
+continue. If the page only has a sign-in link, open the actual sign-in page first.
+A running login in another tab, missing site access, a locked vault or a
+required master password still needs attention. A page classified as a confirmation
+is re-evaluated, not executed as a login merely because this button was pressed.
+
 On a site's page that waits for no account choice, **Switch account** in the popup lists
 the site's matching accounts. **Switch to this account** logs the tab out of the site,
 then logs in with that account; **Make it the default** keeps it as the site's default
