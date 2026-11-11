@@ -17,6 +17,10 @@ and so does a paired device with its own key, through the device-model protocol
 [ADR 0003](0003-service-and-ai.md) and
 [ADR 0014](0014-claude-generation-provider.md).
 
+Amended by [ADR 0087](0087-openai-inference-on-service-and-device.md): OpenAI is an
+additional text provider on the service and the device; the existing Anthropic
+defaults and per-owner billing remain.
+
 Date: 2026-11-04
 
 ## Context
@@ -143,3 +147,10 @@ labelled passkey button (23), and two more the labels had missed.
 - The request log gets a row for Clef's answer, so a page Claude answered after Clef
   has two rows. The dashboard counts such a page once, by the row after Clef's.
 - The service's Clef calls bill the operator's Cloudflare account.
+
+## Amendment 2026-11-11: OpenAI support
+
+[ADR 0087](0087-openai-inference-on-service-and-device.md) records the owner-authorized
+addition of OpenAI on both execution paths, provider-specific credentials and
+accounting, and deferred real-API verification. This extends the available text
+providers; earlier Anthropic behavior remains unless the owner selects OpenAI.

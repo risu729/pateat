@@ -9,6 +9,10 @@ identifiers on `/manage/claude`. The recipe generation routes of
 [ADR 0040](0040-running-without-the-service.md): a paired device with its own Anthropic
 API key makes the model calls itself, and the service's spend stops do not count them.
 
+Amended by [ADR 0087](0087-openai-inference-on-service-and-device.md): OpenAI is an
+additional text provider on the service and the device; the existing Anthropic
+defaults and per-owner billing remain.
+
 Date: 2026-10-11
 
 ## Context
@@ -113,3 +117,10 @@ stale, new exchanges fail until Anthropic can fetch the keys again.
   covered by Hono.
 - `@anthropic-ai/sdk` `oidcFederationProvider` for the exchange: it handles caching
   and refresh, but it would add a second Anthropic client next to `@ai-sdk/anthropic`.
+
+## Amendment 2026-11-11: OpenAI support
+
+[ADR 0087](0087-openai-inference-on-service-and-device.md) records the owner-authorized
+addition of OpenAI on both execution paths, provider-specific credentials and
+accounting, and deferred real-API verification. This extends the available text
+providers; earlier Anthropic behavior remains unless the owner selects OpenAI.
