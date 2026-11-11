@@ -40,6 +40,7 @@ export const OWNER_TABLES = [
   "login_timings",
   "problem_log",
   "inference_credentials",
+  "openai_credentials",
   "inference_model_configs",
   "devices",
   "profiles",
