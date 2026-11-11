@@ -19,7 +19,9 @@ export async function providerUnavailable(
   env: CallEnv,
   ownerId: string,
   provider: Provider,
-): Promise<GenerationUnavailableReason | undefined> {
+): Promise<
+  "credentials-not-configured" | "credentials-unavailable" | "issuer-unavailable" | undefined
+> {
   if (provider === "openai") {
     const result = await resolveOpenAICredential(env, ownerId);
     return result.status === "ready"

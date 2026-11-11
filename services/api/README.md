@@ -781,11 +781,22 @@ FROM problem_log ORDER BY created_at DESC, seq DESC LIMIT 50;
 [ADR 0040](../../docs/adr/0040-running-without-the-service.md), in
 `src/claude/calls.ts`. `POST /v1/recipes/generate` (recipes and entry requests) and
 `POST /v1/recipes/:recipeId/completion` take an optional
-`deviceModel: { responses }` (at most 6) from a device that holds its own Anthropic API
-key. The route runs as usual, but where it would call the model it answers 200
-`{ version: 1, status: "model-call", call: { index, headers, body } }`: the Messages
-request body (at most 160 KiB) and its `anthropic-version`, `anthropic-beta` and
-`content-type` headers. The device sends it to Anthropic and sends the request again
+`deviceModel: { provider, responses, clef? }` (at most 8 responses) from a device
+that holds its own Anthropic or OpenAI API key. The required `provider` is
+`anthropic` or `openai`; the service uses only that provider's configured role
+choices, or its defaults when none match. The route runs as usual, but where it
+would call the model it answers 200
+`{ version: 1, status: "model-call", call: { index, provider, headers, body } }`.
+An Anthropic call carries the Messages body and its allowed `anthropic-version`,
+`anthropic-beta` and `content-type` headers. An OpenAI call carries the Responses
+body with only `content-type`. Bodies are at most 160 KiB. The device validates
+the provider-specific body and sends it only to its locally pinned endpoint:
+`https://api.anthropic.com/v1/messages` or
+`https://api.openai.com/v1/responses`. It adds only that provider's local key;
+a mismatched provider or unsupported body is refused. Optional Clef calls use
+`provider: "cloudflare"` and the device's independently configured Cloudflare token.
+The two Clef calls can precede the three text-model choices, each fast then standard,
+within the eight-response bound. The device sends the route request again
 with one more response: `{ kind: "response", request, status, body }` (body at most
 16 KiB), `{ kind: "timeout", request }` or `{ kind: "unreachable", request }`, where
 `request` is the hex SHA-256 of the body it answers. The service takes response `index`

@@ -51,7 +51,10 @@ async function decrypt(
     key,
     Uint8Array.fromBase64(row.ciphertext, { alphabet: "base64url" }),
   );
-  return v.parse(openAIApiKeySchema, new TextDecoder("utf-8", { fatal: true }).decode(clear));
+  return v.parse(
+    openAIApiKeySchema,
+    new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(clear),
+  );
 }
 
 /** Status only: neither the stored ciphertext nor its plaintext is returned. */

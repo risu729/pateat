@@ -298,7 +298,7 @@ export function modelOptions(
   }
   const byId = new Map(candidates.map((model) => [model.id, model]));
   for (const choice of [...config.generate, ...config.judge].filter(
-    (choice) => choice.provider === "anthropic",
+    (entry) => entry.provider === "anthropic",
   ))
     if (!shown.some((model) => model.id === choice.model))
       shown.push(
