@@ -82,12 +82,14 @@ These limits apply to Pateat only and do not change anything in Bitwarden.
 4. If the service already holds settings, choose a **Settings profile**: an existing
    one, or **New profile with this device's site settings** with a **New profile name**.
    A profile holds the sites paused until turned back on, the allowed sites, the sites
-   that ask for the master password, the default accounts and whether Pateat logs in
-   automatically in private windows, and devices that share a profile share them.
+   that ask for the master password, the default accounts, page behavior and whether
+   Pateat logs in automatically in private windows. Devices sharing a profile share
+   these choices.
    Choosing an existing profile replaces this device's own lists with the profile's.
    Pateat asks first (**Pair and replace**) when this device has paused sites, allowed
-   sites or default accounts, or has **Log in automatically only on allowed sites** on,
-   but not when it has only sites that ask for the master password.
+   sites or default accounts, has **Log in automatically only on allowed sites** on,
+   or has changed page behavior defaults or site rules. Sites that ask for the master
+   password alone do not trigger this warning.
 
 When pairing succeeds, the page says **This device is paired.** Pateat then syncs its
 profile's settings and the recipes from the service and keeps a copy on this device.
@@ -168,6 +170,31 @@ list. On a site that is not allowed, the toolbar popup offers **Allow** followed
 site's name, which adds the site with its subdomains. The list starts empty and off, and
 belongs to the settings profile, like the paused sites.
 
+### Page behavior
+
+In **Page behavior**, choose **Auto** or **Fill only** for **Sign-in pages**. The
+profile default applies unless a site rule overrides it. Add a hostname and optionally
+**Apply to subdomains too**; the most specific matching rule wins separately for each
+kind of page. These settings sync with the profile and are included in export/import.
+The toolbar popup changes only its current host. A rule that also covers subdomains is
+edited in Settings so its scope is visible.
+
+**Fill only** fills ordinary login fields using the default account or the only matching
+account. Press **Next** or **Sign in** yourself; Pateat can fill the next known page or
+ask for a continuation recipe. It does not overwrite a field you edited, press a button,
+operate a software keyboard or enter an authentication code. Fields marked by the recipe
+as advancing or submitting as you type also stay empty. If several accounts match,
+choose in the popup; that explicit choice starts a normal login, including presses. An
+item with only a passkey has no password fields to fill. Pateat leaves passkey requests
+made automatically to the browser; requests you start deliberately still follow the
+usual passkey checks.
+
+Pauses, allowed sites, private-window settings and vault limits still apply.
+Verification pages while signed in are not filled yet; **Off** leaves them alone, and
+**Fill only** stores the choice for that later feature. Filling other personal-detail
+forms is not available yet either. Personal details asked during a login follow the
+sign-in setting.
+
 ### Private windows
 
 Pateat does not log in by itself in private (incognito) windows unless you turn on
@@ -205,10 +232,10 @@ holds. Save or reload the settings page before you import.
 ## Using Pateat
 
 Once both steps are done, open the login page of a site that has an item in your vault.
-Pateat logs in when the site has a recipe for that page. When it has none, Pateat sends
-a sanitized description of the page to the service, and a recipe is written with
-Claude. That needs an [AI key](#ai-key) on this device or Claude credentials set up on
-the service, as the
+With **Auto**, Pateat logs in when the site has a recipe for that page; **Fill only**
+leaves the presses to you. When it has no recipe, Pateat sends a sanitized description
+of the page to the service, and a recipe is written with Claude. That needs an
+[AI key](#ai-key) on this device or Claude credentials set up on the service, as the
 [service guide](https://github.com/risu729/pateat/blob/main/services/api/README.md#claude-credentials)
 describes; without either, the service still keeps the description it received.
 
@@ -229,7 +256,8 @@ account. The first switch on a site asks your Pateat service which control logs 
 the clicks it finds are kept for the next switch. A site you log in to through another
 account, such as a company or Google sign-in, may log you out of that account too.
 
-When you log out of a site yourself, Pateat logs in again on the next login page, with
+With **Auto**, when you log out of a site yourself, Pateat logs in again on the next
+login page, with
 the account it would use for an automatic login. To stay logged out, pause the site
 first. If Pateat logged in to a site twice in the last 10 minutes, it asks for an
 account instead of logging in a third time.
