@@ -93,7 +93,7 @@ describe("the logout service (ADR 0063)", () => {
         result: {
           version: 1,
           status: "model-call",
-          call: { index: 0, headers: {}, body: "{}" },
+          call: { provider: "anthropic", index: 0, headers: {}, body: "{}" },
         },
       },
       { outcome: "failed", reason: "unexpected-response" },
