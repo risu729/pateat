@@ -48,13 +48,7 @@ export type BitwardenMismatchCheck =
  * - `sdk-decrypt`: the SDK threw while decrypting the item: a field, URI or checksum that
  *   does not decrypt or authenticate, or an item shape or value this SDK does not read.
  * - `attachment`: an attachment's metadata failed to decrypt.
- * - `uri-dropped`: the SDK left out a URI. Strict decryption does this for an item with its
- *   own key, or on an account whose security state is version 2 or later, when the URI's
- *   checksum is missing, does not match or is not base64, or the URI is missing.
  * - `passkey-dropped`: the SDK left out a passkey; only passkey operations decrypt them.
- * - `uri-checksum-without-uri`: a URI has a checksum but no URI.
- * - `uri-checksum`: a URI's checksum is not the SHA-256 of the URI. The SDK does not check
- *   this for a legacy item without its own key on a version 1 account; this boundary does.
  * - `item-type`: the decrypted item type is not one Pateat reads. Admission already
  *   requires a readable type, so this guard is defensive.
  * - `folder`, `collection`: a folder or collection name failed to decrypt.
@@ -67,10 +61,7 @@ export const BITWARDEN_DECRYPT_CHECKS = [
   "unknown-organization",
   "sdk-decrypt",
   "attachment",
-  "uri-dropped",
   "passkey-dropped",
-  "uri-checksum-without-uri",
-  "uri-checksum",
   "item-type",
   "folder",
   "collection",

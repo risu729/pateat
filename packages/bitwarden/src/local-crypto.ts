@@ -389,16 +389,9 @@ export async function createLocalCryptoSession(
         // Admission refuses server-restricted ciphers; a partial view withholds its secrets.
         if (view.partial) return failure("unsupported-crypto");
         if (view.attachmentDecryptionFailures?.length) return decryptFailure("attachment");
-        // The SDK may remove invalid URI checksums; this boundary rejects partial results.
+        // The SDK leaves out a URI whose checksum it refuses and uses the rest of the item,
+        // as the official clients do (ADR 0005); a legacy item's URIs are used unchecked.
         const rawLogin = cipher["login"];
-        if (
-          rawLogin &&
-          typeof rawLogin === "object" &&
-          "uris" in rawLogin &&
-          Array.isArray(rawLogin.uris) &&
-          rawLogin.uris.length !== (view.login?.uris?.length ?? 0)
-        )
-          return decryptFailure("uri-dropped");
         // Strict decryption fails on any unreadable passkey; never accept a view that dropped one.
         if (
           rawLogin &&
@@ -408,20 +401,6 @@ export async function createLocalCryptoSession(
           rawLogin.fido2Credentials.length !== (view.login?.fido2Credentials?.length ?? 0)
         )
           return decryptFailure("passkey-dropped");
-        // Pinned SDK login.rs hashes the exact UTF-8 URI with SHA-256. Legacy keyless V1 skips
-        // checksum enforcement; reject any PROVIDED wrong checksum while preserving absent legacy ones.
-        for (const uri of view.login?.uris ?? []) {
-          if (uri.uriChecksum == null) continue;
-          if (uri.uri == null) return decryptFailure("uri-checksum-without-uri");
-          // Keep at most one digest pending; a large vault entry must not fan out native work.
-          // eslint-disable-next-line no-await-in-loop
-          const digest = await globalThis.crypto.subtle.digest(
-            "SHA-256",
-            new TextEncoder().encode(uri.uri),
-          );
-          const hash = new Uint8Array(digest);
-          if (hash.toBase64() !== uri.uriChecksum) return decryptFailure("uri-checksum");
-        }
         if (locked) return failure("crypto-locked");
         return { ok: true, data: view };
       } catch {

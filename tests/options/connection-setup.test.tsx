@@ -2636,14 +2636,14 @@ test("a sync the vault data refuses says which check, not to refresh", async () 
   client.list.mockResolvedValue({ ...status(), connections: [open] });
   client.sync.mockResolvedValueOnce({
     ok: false,
-    error: { code: "crypto-failed", check: "uri-checksum" },
+    error: { code: "crypto-failed", check: "attachment" },
   });
   await mount(client);
   await page.getByRole("button", { name: "Locked vault: Sync", exact: true }).click();
   await expect
     .element(
       page.getByText(
-        "Pateat could not decrypt this vault's data (check: uri-checksum). Report this check name.",
+        "Pateat could not decrypt this vault's data (check: attachment). Report this check name.",
         { exact: true },
       ),
     )

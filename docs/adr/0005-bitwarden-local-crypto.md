@@ -105,6 +105,26 @@ This host supplies the runtime for the separate
 Fresh operation grants after restoration remain an integration gate. The browser tests
 must verify actual sender identity and restart behavior before the host is accepted.
 
+## Amendment: URI checksums as the official clients (2026-11-11)
+
+Strict decryption used to refuse a whole item for its URI checksums in two ways the
+official clients do not:
+
+- When the SDK left out a URI whose checksum is missing or does not match (it does so
+  for an item with its own key, or on an account whose security state is version 2 or
+  later), Pateat refused the item because its URI count changed (`uri-dropped`).
+- For a legacy item without its own key on a version 1 account, which the SDK does not
+  check, Pateat refused a URI whose checksum did not match (`uri-checksum`) or that had
+  a checksum without a URI (`uri-checksum-without-uri`).
+
+One such item stopped a vault's sync for two days. The owner decided on 2026-11-11 to
+use such items as the official clients do: the item is used without the URIs the SDK
+left out, and a legacy item's URIs are used without checking their checksums. The
+checksum guards against a server that moves another field's ciphertext of the same key
+into a URI; that protection now rests, as in the official clients, on item keys and
+security state version 2, which Bitwarden is migrating accounts to. The three checks
+are removed.
+
 ## Sources
 
 - [Chrome offscreen documents and WORKERS reason](https://developer.chrome.com/docs/extensions/reference/api/offscreen).
@@ -118,5 +138,9 @@ must verify actual sender identity and restart behavior before the host is accep
 - [Server-authorization hash and independent test vectors](https://github.com/bitwarden/sdk-internal/blob/7de8f13a14b56068167160f88d55231f916cf16a/crates/bitwarden-crypto/src/keys/master_key.rs)
   and
   [public KDF resource validation](https://github.com/bitwarden/sdk-internal/blob/7de8f13a14b56068167160f88d55231f916cf16a/crates/bitwarden-crypto/src/keys/kdf.rs).
+- URI checksum handling in the SDK the extension pins:
+  [`remove_invalid_checksums` and its gate](https://github.com/bitwarden/sdk-internal/blob/839c6ca06110a7c1fde14fda086dcac096a8d675/crates/bitwarden-vault/src/cipher/cipher.rs#L812-L818)
+  and
+  [`is_checksum_valid`](https://github.com/bitwarden/sdk-internal/blob/839c6ca06110a7c1fde14fda086dcac096a8d675/crates/bitwarden-vault/src/cipher/login.rs#L58-L73).
 
 Implementation status and the full acceptance scope remain in [the plan](../plan.md).

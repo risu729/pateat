@@ -1681,8 +1681,9 @@ derivations, and only those, get a 60-second budget instead of 30 (owner's choic
 The pinned SDK's V2 version export also rewraps and re-signs an in-memory copy of
 verified key state. Pateat keeps only its version and does not send or persist
 the export. This adds transient sensitive copies and computation. Invalid blobs
-never fall back to legacy fields; supplied URI checksums are verified even for
-legacy keyless items, while absent legacy checksums remain supported.
+never fall back to legacy fields. URI checksums follow the SDK and the official
+clients: a URI the SDK leaves out is absent and a legacy keyless item's URIs are
+used unchecked (ADR 0005 amendment of 2026-11-11).
 
 Synchronous SDK parsing checks serialized keys before asynchronous bindings that can
 otherwise leave malformed-input calls unresolved. Signed COSE objects are not
@@ -1819,7 +1820,7 @@ grant or a change to the automatic candidate-scope contract. The current executo
 still has its existing account/origin/document checks, and live settings/catalog
 integration must derive authorization separately. Synthetic tests cover private
 suffix isolation, IDN, localhost/IP, equivalent groups and malformed destinations;
-the MV3 probe passes a real SDK-decrypted, checksum-validated URI to this matcher.
+the MV3 probe passes a real SDK-decrypted URI to this matcher.
 
 Prepared accounts now retain a URI context from the same sync: normalized direct
 equivalent-domain groups and the effective default mode. The default is Domain unless

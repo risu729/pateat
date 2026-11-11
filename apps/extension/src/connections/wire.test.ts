@@ -116,7 +116,7 @@ describe("vault lock and unlock replies (ADR 0075)", () => {
       ok: false,
       error: {
         code: "crypto-failed",
-        check: "uri-checksum",
+        check: "attachment",
         item: "00000000-0000-4000-8000-000000000002",
         revised: 1_762_720_517_000,
       },

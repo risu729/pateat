@@ -190,7 +190,7 @@ describe("vault check schedule", () => {
     const failure = {
       outcome: "failed" as const,
       cause: "crypto-failed",
-      check: "uri-checksum",
+      check: "attachment",
       item: "00000000-0000-4000-8000-000000000002",
       revised: 1_762_720_517_000,
     };
@@ -201,7 +201,7 @@ describe("vault check schedule", () => {
     expect(h.stored()?.connections["a"]).toEqual({
       checkedAt: h.now(),
       outcome: "failed",
-      failure: { at: h.now(), cause: "crypto-failed", check: "uri-checksum", item: failure.item },
+      failure: { at: h.now(), cause: "crypto-failed", check: "attachment", item: failure.item },
     });
     h.advance(VAULT_CHECK_INTERVAL_MS);
     h.auto.refreshIfStale();
@@ -210,7 +210,7 @@ describe("vault check schedule", () => {
       connectionId: "a",
       ...failure,
       previous: "failed",
-      previousFailure: { cause: "crypto-failed", check: "uri-checksum", item: failure.item },
+      previousFailure: { cause: "crypto-failed", check: "attachment", item: failure.item },
     });
   });
   it("reports a failure code and HTTP status, and the stored one of the check before", async () => {

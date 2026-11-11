@@ -1,6 +1,6 @@
 import { matchBitwardenLoginUris } from "../../../../packages/bitwarden/src/uri";
 
-/** The first input was decrypted and checksum-validated by the local SDK boundary. */
+/** The first input was decrypted by the local SDK boundary. */
 export function localUriVectors(uris: unknown) {
   const exact = matchBitwardenLoginUris(uris, "https://synthetic.example.test/login", {
     defaultMatch: 3,

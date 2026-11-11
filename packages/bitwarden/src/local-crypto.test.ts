@@ -801,27 +801,10 @@ describe("strict cipher isolation and disposal", () => {
       { code: "crypto-failed", check: "passkey-dropped" },
     ],
     [
-      "a dropped URI",
-      (view: sdk.CipherView) => ({ ...view, login: { ...view.login!, uris: [] } }),
-      { code: "crypto-failed", check: "uri-dropped" },
-    ],
-    [
       "an attachment that failed to decrypt",
       (view: sdk.CipherView) =>
         ({ ...view, attachmentDecryptionFailures: [{}] }) as unknown as sdk.CipherView,
       { code: "crypto-failed", check: "attachment" },
-    ],
-    [
-      "a URI checksum without its URI",
-      (view: sdk.CipherView) =>
-        ({
-          ...view,
-          login: {
-            ...view.login!,
-            uris: (view.login?.uris ?? []).map((uri) => ({ ...uri, uri: undefined })),
-          },
-        }) as unknown as sdk.CipherView,
-      { code: "crypto-failed", check: "uri-checksum-without-uri" },
     ],
   ] as const)("rejects %s from the SDK", async (_name, transform, error) => {
     const created = await createLocalCryptoSession(v1Input(), viewOverrideSdk(transform));
@@ -1009,12 +992,11 @@ describe("strict cipher isolation and disposal", () => {
     });
   });
 
-  it.each([
-    [uriCiphertexts.checksum, true],
-    [uriCiphertexts.wrongChecksum, false],
-  ])(
-    "accepts a URI only with its authenticated valid checksum %#",
-    async (uriChecksum, accepted) => {
+  // The official clients use a legacy keyless item's URIs unchecked, and the SDK leaves
+  // out a URI whose checksum it refuses (ADR 0005); either way the item is used.
+  it.each([uriCiphertexts.checksum, uriCiphertexts.wrongChecksum])(
+    "uses a legacy item's URI whatever its checksum %#",
+    async (uriChecksum) => {
       const active = await session();
       const original = legacyCipher();
       const cipher = {
@@ -1022,12 +1004,35 @@ describe("strict cipher isolation and disposal", () => {
         login: { ...original.login, uris: [{ uri: uriCiphertexts.uri, match: null, uriChecksum }] },
       };
       const result = await active.decryptCipher({ connectionId, cipher });
-      expect(result.ok).toBe(accepted);
+      expect(result.ok).toBe(true);
       if (result.ok)
         expect(result.data.login?.uris?.[0]?.uri).toBe("https://synthetic.example.test/login");
-      else expect(result.error).toEqual({ code: "crypto-failed", check: "uri-checksum" });
     },
   );
+
+  it("uses an item whose URI the SDK left out", async () => {
+    const created = await createLocalCryptoSession(
+      v1Input(),
+      viewOverrideSdk((view) => ({ ...view, login: { ...view.login!, uris: [] } })),
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    sessions.push(created.data);
+    const original = legacyCipher();
+    const cipher = {
+      ...original,
+      login: {
+        ...original.login,
+        uris: [{ uri: uriCiphertexts.uri, match: null, uriChecksum: uriCiphertexts.checksum }],
+      },
+    };
+    const result = await created.data.decryptCipher({ connectionId, cipher });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.login?.uris).toEqual([]);
+      expect(result.data.login?.password).toBe("test_password");
+    }
+  });
 
   it("decrypts the fixed TOTP key the E2E fixture stores", async () => {
     const active = await session();
