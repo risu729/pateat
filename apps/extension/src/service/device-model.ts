@@ -91,7 +91,7 @@ export const deviceModelSettingSchema = v.strictObject({
 export type DeviceModelSetting = v.InferOutput<typeof deviceModelSettingSchema>;
 
 /**
- * This device's Cloudflare account and API token for Clef (ADR 0083): with them and an
+ * This device's Cloudflare account and API token for Clef (ADR 0083): with them and a
  * text-model key saved, a device without a pairing asks Clef first for a sign-in form. Kept
  * like the key, on this device only.
  */
