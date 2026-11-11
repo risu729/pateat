@@ -1,3 +1,4 @@
+import { PagePermissions } from "./page-permissions";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { LocalSettings, SyncSettingsState, VaultCatalog } from "@pateat/contracts";
@@ -97,7 +98,7 @@ export function ProfileEditor({
       </h3>
       <p className="m-0 text-sm text-ink-muted">
         {t(
-          "Change another profile's site exclusions, allowed sites, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
+          "Change another profile's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
         )}
       </p>
       <div className="flex flex-wrap gap-2">
@@ -161,6 +162,12 @@ export function ProfileEditor({
           <AllowedSites
             idPrefix="profile-"
             key={`allowed-${profileId}`}
+            draft={draft}
+            edit={editDraft}
+          />
+          <PagePermissions
+            idPrefix="profile-"
+            key={`page-permissions-${profileId}`}
             draft={draft}
             edit={editDraft}
           />

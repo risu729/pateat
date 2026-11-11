@@ -1,3 +1,4 @@
+import { PopupPagePermissions } from "./page-permissions";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
@@ -1622,6 +1623,15 @@ export function SiteApp({
             {switchSection}
           </>
         )}
+        <PopupPagePermissions
+          settings={saved.snapshot.settings}
+          origin={origin}
+          disabled={busy}
+          onChange={(update) =>
+            void change(update, (translate) => translate("Page behavior saved."))
+          }
+          onOpenSettings={(section) => host.openSettings(section)}
+        />
         <RepromptSwitch
           site={reprompt}
           pending={reprompting}

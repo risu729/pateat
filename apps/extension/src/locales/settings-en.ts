@@ -326,4 +326,58 @@ export const settingsEn = {
     "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on all your devices.",
   "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.":
     "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.",
+
+  "Sign-in pages": "Sign-in pages",
+  "Verification while signed in": "Verification while signed in",
+  "Other personal-detail forms": "Other personal-detail forms",
+  Auto: "Auto",
+  "Fill only": "Fill only",
+  Off: "Off",
+  "Use profile default": "Use profile default",
+  "Use {{hostname}}'s rule ({{behavior}})": "Use {{hostname}}'s rule ({{behavior}})",
+  "Use profile default ({{behavior}})": "Use profile default ({{behavior}})",
+  "Auto fills and submits sign-in pages. Fill only leaves buttons, verification codes and software keyboards to you. Fields that advance or submit the page stay empty. Choosing an account in the popup logs in with presses.":
+    "Auto fills and submits sign-in pages. Fill only leaves buttons, verification codes and software keyboards to you. Fields that advance or submit the page stay empty. Choosing an account in the popup logs in with presses.",
+  "Verification pages are not filled yet. Off leaves them alone; Fill only keeps that choice for when filling is available. Passkey verification after a Pateat login is left to the browser in either mode.":
+    "Verification pages are not filled yet. Off leaves them alone; Fill only keeps that choice for when filling is available. Passkey verification after a Pateat login is left to the browser in either mode.",
+  "Filling personal details outside a login is not available yet. Its choices are saved for that feature. Personal details asked during a login follow the sign-in setting.":
+    "Filling personal details outside a login is not available yet. Its choices are saved for that feature. Personal details asked during a login follow the sign-in setting.",
+  "This site already has a rule. Edit it in the list.":
+    "This site already has a rule. Edit it in the list.",
+  "There are already 1,000 site rules. Remove one before adding another.":
+    "There are already 1,000 site rules. Remove one before adding another.",
+  "Page behavior": "Page behavior",
+  "These defaults and site rules are shared by devices using this settings profile. Pauses and allowed sites still decide where automatic login runs.":
+    "These defaults and site rules are shared by devices using this settings profile. Pauses and allowed sites still decide where automatic login runs.",
+  "Profile defaults": "Profile defaults",
+  "Site rules": "Site rules",
+  "Each page kind uses the most specific matching site's choice. A choice left at its default can still inherit a broader site's rule. Removing the last choice removes that site's rule.":
+    "Each page kind uses the most specific matching site's choice. A choice left at its default can still inherit a broader site's rule. Removing the last choice removes that site's rule.",
+  "No site rules. Every site uses the profile defaults.":
+    "No site rules. Every site uses the profile defaults.",
+  "Remove page behavior for {{hostname}}": "Remove page behavior for {{hostname}}",
+  "Apply to subdomains too": "Apply to subdomains too",
+  "Add site rule": "Add site rule",
+  "Changes here apply to {{hostname}} only and sync with this settings profile.":
+    "Changes here apply to {{hostname}} only and sync with this settings profile.",
+  "This host's saved rule also covers its subdomains. Edit it in Settings to keep its scope clear.":
+    "This host's saved rule also covers its subdomains. Edit it in Settings to keep its scope clear.",
+  "Rule for {{hostname}}": "Rule for {{hostname}}",
+  "Profile default": "Profile default",
+  "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages are not filled yet; Off leaves them alone. Other personal-detail forms are not filled yet.":
+    "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages are not filled yet; Off leaves them alone. Other personal-detail forms are not filled yet.",
+  "Edit profile defaults and site rules": "Edit profile defaults and site rules",
+  "Page behavior saved.": "Page behavior saved.",
+  "Change another profile's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
+    "Change another profile's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
+  "A profile holds site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.":
+    "A profile holds site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.",
+  "This device's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.":
+    "This device's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.",
+  "Syncs recipes, site exclusions, allowed sites, page behavior, default accounts and account bindings. Never sends vault values, passwords or keys.":
+    "Syncs recipes, site exclusions, allowed sites, page behavior, default accounts and account bindings. Never sends vault values, passwords or keys.",
+  "Your page behavior defaults and {{count}} site rule are replaced too._one":
+    "Your page behavior defaults and {{count}} site rule are replaced too.",
+  "Your page behavior defaults and {{count}} site rule are replaced too._other":
+    "Your page behavior defaults and {{count}} site rules are replaced too.",
 } as const;
