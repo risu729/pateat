@@ -617,6 +617,29 @@ describe("crypto Worker snapshot verification failures", () => {
     expect(item?.fields.map((field) => field.id)).not.toContain("login.password");
   });
 
+  it("refuses the snapshot when a repaired item may hide an SDK fault (ADR 0006)", async () => {
+    await openWorker(savedUris);
+    // The second item is repaired; then the first, checked again, no longer decrypts.
+    let calls = 0;
+    let checkedAgain = false;
+    mocks.decrypt.mockImplementation(async ({ cipher }) => {
+      calls += 1;
+      const again = calls > 2 && (cipher as { id?: string }).id === itemId(1);
+      checkedAgain ||= again;
+      return calls === 2 || again
+        ? ({ ok: false, error: { code: "crypto-failed", check: "sdk-decrypt" } } as never)
+        : { ok: true, data: cipher };
+    });
+    mocks.repair.mockImplementationOnce((async ({ cipher }: { cipher: unknown }) => ({
+      ok: true,
+      data: { cipher, unreadable: ["notes"] },
+    })) as never);
+    expect(await command({ kind: "verify-received-ciphers", session })).toEqual(
+      failed("crypto-failed"),
+    );
+    expect(checkedAgain).toBe(true);
+  });
+
   it("leaves out an item of a type it cannot read", async () => {
     await openWorker(savedUris);
     mocks.decrypt.mockResolvedValueOnce({ ok: true, data: { type: 9 } } as never);

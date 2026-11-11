@@ -2745,7 +2745,13 @@ test("items used without some fields are listed with the fields not read", async
     connections: [
       {
         ...open,
-        partialItems: [{ itemId, fields: ["login.password", "fields.2.value"] }],
+        partialItems: [
+          {
+            itemId,
+            fields: ["login.password", "fields.2.value", "login.uris.0", "card.number"],
+            moreFieldCount: 3,
+          },
+        ],
         partialItemCount: 2,
       },
     ],
@@ -2761,7 +2767,9 @@ test("items used without some fields are listed with the fields not read", async
     .toBeVisible();
   await expect
     .element(
-      page.getByRole("link", { name: `Item ${itemId} (not read: login.password, fields.2.value)` }),
+      page.getByRole("link", {
+        name: `Item ${itemId} (not read: Password, Custom field 3 value, URI 1, card.number, 3 more)`,
+      }),
     )
     .toHaveAttribute("href", `https://vault.bitwarden.com/#/vault?itemId=${itemId}`);
 });

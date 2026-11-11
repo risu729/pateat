@@ -267,7 +267,9 @@ async function execute(command: HostCommand) {
               receivedId,
               unreadableFieldIds(repaired.data.unreadable, owned.ref.snapshotId),
             );
-            partialItems.push({ itemId: receivedId, fields: repaired.data.unreadable });
+            // Values only another item type's object held are not shown, so not reported.
+            if (repaired.data.unreadable.length)
+              partialItems.push({ itemId: receivedId, fields: repaired.data.unreadable });
           }
         }
       }
@@ -342,15 +344,20 @@ async function execute(command: HostCommand) {
     // A fault in the SDK partway through, such as running out of memory, reads like every
     // later item failing. So once an item is refused, one that verified must still decrypt,
     // and a vault none of whose items verify is refused whole: either keeps the open vault
-    // instead of replacing it with a nearly empty one. An item refused for its organization
-    // was refused before any SDK call, so it cannot be such a fault.
+    // instead of replacing it with a nearly empty one. A repaired item also starts this
+    // check, since such a fault may refuse only an item's larger values; the item checked
+    // again is one that verified whole when there is one. An item refused for its
+    // organization was refused before any SDK call, so it cannot be such a fault.
     if (
+      owned.unreadableFields.size > 0 ||
       unusableItems.some(
         (item) => item.check !== "organization-key" && item.check !== "unknown-organization",
       )
     ) {
       const refused = new Set(unusableItems.map((item) => item.itemId));
-      const verifiedId = [...owned.ciphers.keys()].find((id) => !refused.has(id));
+      const repairedIds = owned.unreadableFields;
+      const usable = [...owned.ciphers.keys()].filter((id) => !refused.has(id));
+      const verifiedId = usable.find((id) => !repairedIds.has(id)) ?? usable[0];
       const again =
         verifiedId === undefined
           ? undefined

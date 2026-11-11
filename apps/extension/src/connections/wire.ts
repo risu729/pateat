@@ -199,6 +199,9 @@ const replySchema = v.union([
                     v.minLength(1),
                     v.maxLength(20),
                   ),
+                  moreFieldCount: v.optional(
+                    v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(1000)),
+                  ),
                 }),
               ),
               v.maxLength(100),

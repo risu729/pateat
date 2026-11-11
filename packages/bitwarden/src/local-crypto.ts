@@ -64,9 +64,10 @@ export interface LocalCryptoSession {
   /**
    * For an item strict decryption refuses: the same item with each field that does not
    * decrypt left empty, and those fields' paths (ADR 0006). Each field is checked with
-   * strict decryption under the item's own keys; the item key never leaves the SDK. It
-   * fails when the name does not decrypt, when nothing was left out, or when the rest
-   * still does not decrypt.
+   * strict decryption under the item's own keys; the item key never leaves the SDK. A value
+   * of another item type's object is left out without a path. It fails when the name does
+   * not decrypt, when nothing was left out, when the item has more than 500 encrypted
+   * values, or when the rest still does not decrypt.
    */
   repairCipher(
     input: unknown,
@@ -199,8 +200,14 @@ const repairableFields: Record<"login" | "card" | "identity", readonly string[]>
     "licenseNumber",
   ],
 };
+/**
+ * The most encrypted values one item is repaired from: each costs a decryption, and each
+ * unreadable one a path the crypto Worker reports (ADR 0006). A larger item stays unusable.
+ */
+const REPAIR_VALUE_LIMIT = 500;
 type RepairableCipher = Record<string, unknown> & {
   id: unknown;
+  type?: unknown;
   key?: string | null;
   organizationId?: string | null;
   name: unknown;
@@ -213,6 +220,7 @@ type RepairableCipher = Record<string, unknown> & {
   fields?: Record<string, unknown>[] | null;
   passwordHistory?: unknown[] | null;
   attachments?: unknown[] | null;
+  notes?: unknown;
 };
 /** An empty secure note whose only encrypted value is its name. */
 function noteTemplate(id: string) {
@@ -593,78 +601,86 @@ export async function createLocalCryptoSession(
           if (!name.ok) return name;
           if (!name.data) return decryptFailure("sdk-decrypt");
           const repaired = structuredClone(original);
+          const record = (value: unknown) => value as Record<string, unknown>;
+          // Values of another item type's object, which Vaultwarden may keep from an earlier
+          // edit, are left out without being reported: the item does not show them.
+          const kinds = { 1: "login", 3: "card", 4: "identity" } as const;
+          const ownKind = kinds[original.type as keyof typeof kinds];
+          // Each value is [owner, key, reported path or undefined].
+          const steps: [Record<string, unknown>, string, string | undefined][] = [];
+          if (repaired.notes != null) steps.push([repaired, "notes", "notes"]);
+          for (const [kind, names] of Object.entries(repairableFields)) {
+            const owner = repaired[kind as keyof typeof repairableFields];
+            if (owner)
+              for (const field of names)
+                if (owner[field] != null)
+                  steps.push([owner, field, kind === ownKind ? `${kind}.${field}` : undefined]);
+          }
+          for (const [index, field] of (repaired.fields ?? []).entries())
+            for (const key of ["name", "value"])
+              if (field[key] != null) steps.push([field, key, `fields.${index}.${key}`]);
+          const uris = (repaired.login?.uris ?? []).map(record);
+          const history = (repaired.passwordHistory ?? []).map(record);
+          const attachments = (repaired.attachments ?? []).map(record);
+          if (
+            steps.length + uris.length * 2 + history.length + attachments.length * 2 >
+            REPAIR_VALUE_LIMIT
+          )
+            return decryptFailure("sdk-decrypt");
           const unreadable: string[] = [];
-          const clear = async (
-            owner: Record<string, unknown> | null | undefined,
-            key: string,
-            path: string,
-          ): Promise<BitwardenResult<true>> => {
-            if (!owner) return { ok: true, data: true };
+          let changed = false;
+          for (const [owner, key, path] of steps) {
+            // eslint-disable-next-line no-await-in-loop
             const result = await readable(owner[key]);
             if (!result.ok) return result;
             if (!result.data) {
               owner[key] = null;
-              unreadable.push(path);
+              changed = true;
+              if (path) unreadable.push(path);
             }
-            return { ok: true, data: true };
+          }
+          // Each of these is left out whole when any of its values does not decrypt.
+          const keep = async (
+            entries: Record<string, unknown>[],
+            keys: readonly string[],
+            path: (index: number) => string | undefined,
+          ): Promise<BitwardenResult<Record<string, unknown>[]>> => {
+            const kept: Record<string, unknown>[] = [];
+            for (const [index, entry] of entries.entries()) {
+              let read = true;
+              for (const key of keys) {
+                // eslint-disable-next-line no-await-in-loop
+                const result = await readable(entry[key]);
+                if (!result.ok) return result;
+                read &&= result.data;
+              }
+              if (read) kept.push(entry);
+              else {
+                changed = true;
+                const reported = path(index);
+                if (reported && !unreadable.includes(reported)) unreadable.push(reported);
+              }
+            }
+            return { ok: true, data: kept };
           };
-          const steps: [Record<string, unknown> | null | undefined, string, string][] = [
-            [repaired, "notes", "notes"],
-          ];
-          for (const [kind, names] of Object.entries(repairableFields))
-            for (const field of names)
-              steps.push([
-                repaired[kind as "login" | "card" | "identity"],
-                field,
-                `${kind}.${field}`,
-              ]);
-          for (const [index, field] of (repaired.fields ?? []).entries()) {
-            steps.push([field, "name", `fields.${index}.name`]);
-            steps.push([field, "value", `fields.${index}.value`]);
-          }
-          for (const [owner, key, path] of steps) {
-            // eslint-disable-next-line no-await-in-loop
-            const result = await clear(owner, key, path);
-            if (!result.ok) return result;
-          }
-          // A URI is left out whole when it or its checksum does not decrypt, as the SDK does.
-          const login = repaired.login;
-          if (login?.uris) {
-            const kept: unknown[] = [];
-            for (const [index, entry] of login.uris.entries()) {
-              const uri = entry as Record<string, unknown>;
-              // eslint-disable-next-line no-await-in-loop
-              const value = await readable(uri["uri"]);
-              if (!value.ok) return value;
-              // eslint-disable-next-line no-await-in-loop
-              const checksum = await readable(uri["uriChecksum"]);
-              if (!checksum.ok) return checksum;
-              if (value.data && checksum.data) kept.push(entry);
-              else unreadable.push(`login.uris.${index}`);
-            }
-            login.uris = kept;
-          }
-          if (repaired.passwordHistory) {
-            const kept: unknown[] = [];
-            for (const entry of repaired.passwordHistory) {
-              // eslint-disable-next-line no-await-in-loop
-              const value = await readable((entry as Record<string, unknown>)["password"]);
-              if (!value.ok) return value;
-              if (value.data) kept.push(entry);
-            }
-            if (kept.length !== repaired.passwordHistory.length) unreadable.push("passwordHistory");
-            repaired.passwordHistory = kept;
-          }
-          // Pateat does not use attachments; an unreadable one leaves out only them. Passkeys
-          // stay: only passkey operations decrypt them, and each refuses an unreadable one.
-          if (repaired.attachments?.length) {
-            repaired.attachments = null;
-            unreadable.push("attachments");
-          }
-          if (unreadable.length === 0) return decryptFailure("sdk-decrypt");
+          const keptUris = await keep(uris, ["uri", "uriChecksum"], (index) =>
+            ownKind === "login" ? `login.uris.${index}` : undefined,
+          );
+          if (!keptUris.ok) return keptUris;
+          if (repaired.login?.uris) repaired.login.uris = keptUris.data;
+          const keptHistory = await keep(history, ["password"], () => "passwordHistory");
+          if (!keptHistory.ok) return keptHistory;
+          if (repaired.passwordHistory) repaired.passwordHistory = keptHistory.data;
+          // Pateat does not use attachments; only those that do not decrypt are left out.
+          const keptAttachments = await keep(attachments, ["fileName", "key"], () => "attachments");
+          if (!keptAttachments.ok) return keptAttachments;
+          if (repaired.attachments) repaired.attachments = keptAttachments.data;
+          if (!changed) return decryptFailure("sdk-decrypt");
           const admitted = admitLocalCryptoCipher(repaired);
           if (!admitted.ok) return decryptFailure("sdk-decrypt");
-          const rest = await decrypt({ connectionId, cipher: admitted.data });
+          // Passkeys stay: only passkey operations decrypt them, and each refuses an
+          // unreadable one.
+          const rest = await decrypt({ connectionId, cipher: admitted.data }, "omit");
           if (!rest.ok) return rest;
           return { ok: true as const, data: { cipher: admitted.data, unreadable } };
         },

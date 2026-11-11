@@ -1351,26 +1351,86 @@ describe("repairing a partly readable item (ADR 0006)", () => {
     expect(view.data.fields?.[0]?.value ?? null).toBeNull();
   });
 
-  it("leaves out the attachments, which Pateat does not use, when one does not decrypt", async () => {
+  it("leaves out only the attachments, which Pateat does not use, that do not decrypt", async () => {
     const active = await session();
     const original = legacyCipher();
+    const attachment = (id: string, fileName: string) => ({
+      id,
+      url: null,
+      fileName,
+      key: null,
+      size: "10",
+      sizeName: "10 Bytes",
+    });
     const cipher = {
       ...original,
       attachments: [
-        {
-          id: "a1b2c3",
-          url: null,
-          fileName: corrupt(original.name),
-          key: null,
-          size: "10",
-          sizeName: "10 Bytes",
-        },
+        attachment("a1b2c3", corrupt(original.name)),
+        attachment("d4e5f6", original.name),
       ],
     };
     const refused = await active.decryptCipher({ connectionId, cipher });
     expect(refused).toMatchObject({ ok: false, error: { code: "crypto-failed" } });
     const repaired = await active.repairCipher({ connectionId, cipher });
     expect(repaired.ok && repaired.data.unreadable).toEqual(["attachments"]);
+    expect(repaired.ok && repaired.data.cipher.attachments?.map(({ id }) => id)).toEqual([
+      "d4e5f6",
+    ]);
+  });
+
+  it("keeps an unreadable passkey, which only passkey operations decrypt", async () => {
+    const active = await session();
+    const original = legacyCipher();
+    const cipher = {
+      ...original,
+      login: {
+        ...original.login,
+        password: corrupt(original.login.password),
+        fido2Credentials: [{ ...fidoCredential, keyValue: corrupt(fidoCredential.keyValue) }],
+      },
+    };
+    const repaired = await active.repairCipher({ connectionId, cipher });
+    expect(repaired.ok && repaired.data.unreadable).toEqual(["login.password"]);
+    expect(repaired.ok && repaired.data.cipher.login?.fido2Credentials).toHaveLength(1);
+  });
+
+  it("leaves out another item type's unreadable value without reporting it", async () => {
+    const active = await session();
+    const original = legacyCipher();
+    const cipher = {
+      ...original,
+      notes: corrupt(original.name),
+      card: {
+        cardholderName: corrupt(original.name),
+        brand: null,
+        number: null,
+        expMonth: null,
+        expYear: null,
+        code: null,
+      },
+    };
+    const repaired = await active.repairCipher({ connectionId, cipher });
+    expect(repaired.ok && repaired.data.unreadable).toEqual(["notes"]);
+  });
+
+  it("does not repair an item with more than 500 encrypted values", async () => {
+    const active = await session();
+    const original = legacyCipher();
+    const fields = Array.from({ length: 250 }, () => ({
+      name: original.name,
+      value: original.name,
+      type: 0,
+      linkedId: null,
+    }));
+    const cipher = { ...original, notes: corrupt(original.name), fields };
+    expect(await active.repairCipher({ connectionId, cipher })).toEqual({
+      ok: false,
+      error: { code: "crypto-failed", check: "sdk-decrypt" },
+    });
+    expect(
+      (await active.repairCipher({ connectionId, cipher: { ...cipher, fields: fields.slice(10) } }))
+        .ok,
+    ).toBe(true);
   });
 
   it("does not repair an item whose name does not decrypt", async () => {

@@ -540,9 +540,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         ...(opened.partialItems?.length && (state === "ready" || state === "review-required")
           ? {
               partialItemCount: opened.partialItems.length,
-              partialItems: opened.partialItems
-                .slice(0, 100)
-                .map(({ itemId, fields }) => ({ itemId, fields: fields.slice(0, 20) })),
+              partialItems: opened.partialItems.slice(0, 100).map(({ itemId, fields }) => ({
+                itemId,
+                fields: fields.slice(0, 20),
+                ...(fields.length > 20 ? { moreFieldCount: fields.length - 20 } : {}),
+              })),
             }
           : {}),
         ...lastCheckFailure(checks?.connections[configuration.profile.connectionId]),

@@ -169,21 +169,30 @@ decrypting the whole item would refuse.
 
 - A value that does not decrypt is left empty: the notes, a login's username,
   password or TOTP key, a card's or identity's values, a custom field's name or value.
-  A URI is left out whole when it or its checksum does not decrypt, as the SDK does,
-  and so is a password-history entry. Attachments, which Pateat does not use, are left
-  out together. Passkeys stay: only passkey operations decrypt them, and each refuses
-  an item with an unreadable one, as before.
+  A URI is left out whole when its address or its checksum does not decrypt (strict
+  SDK decryption refuses the whole item then), and so is a password-history entry and
+  an attachment whose file name or key does not decrypt; Pateat does not use
+  attachments. A value of another item type's object, which Vaultwarden may keep from
+  an earlier edit, is left out without being reported, since the item does not show
+  it. Passkeys stay: only passkey operations decrypt them, and each refuses an item
+  with an unreadable one, as before.
 - The item is not repaired, and stays unusable, when its name does not decrypt (no
   other value may stand in for it), when it is a sealed blob (one ciphertext), when
-  nothing was left out, or when the rest still does not decrypt. An item key that does
-  not decrypt makes every value fail, so such an item stays unusable too.
+  nothing was left out, when it holds more than 500 encrypted values, or when the rest
+  still does not decrypt. An item key that does not decrypt makes every value fail, so
+  such an item stays unusable too. The limit bounds the decryptions one item costs and
+  the paths reported for it, so one item cannot fail the open.
 - The session then uses the repaired copy in memory; the stored record is unchanged
   and the repair is made again on each open. A field left empty is not offered: it is
   missing from the item's fields and from a fill, never read as an empty value, and an
   item with an unreadable custom field never compares as unchanged in a review.
-- The settings page lists up to 100 such items by ID, each with the paths of the
-  values that were not read (such as `login.password` or `fields.2.value`), linking to
-  the item in the web vault.
+- A repaired item starts the same check for an SDK fault partway through as an
+  unusable one, since such a fault may refuse only an item's larger values: an item
+  that verified must still decrypt, one that verified whole when there is one.
+- The settings page lists up to 100 such items by ID, each with up to 20 of the values
+  that were not read, named as Bitwarden shows them (such as "Password" or "Custom
+  field 3 value", or a card's or identity's property name) with how many more there
+  are, linking to the item in the web vault.
 
 ## Sources
 

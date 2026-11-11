@@ -1670,7 +1670,7 @@ function PartialItems({ connection }: { connection: Connection }) {
         ]}
       />
       <ul className="m-0 flex list-none flex-col gap-1 p-0 ps-6 text-[0.8125rem]">
-        {items.map(({ itemId, fields }) => (
+        {items.map(({ itemId, fields, moreFieldCount }) => (
           <li key={itemId}>
             <a
               href={`${origin}/#/vault?itemId=${encodeURIComponent(itemId)}`}
@@ -1678,13 +1678,42 @@ function PartialItems({ connection }: { connection: Connection }) {
               rel="noreferrer"
               className="underline wrap-anywhere"
             >
-              {t("Item {{itemId}} (not read: {{fields}})", { itemId, fields: fields.join(", ") })}
+              {t("Item {{itemId}} (not read: {{fields}})", {
+                itemId,
+                fields: new Intl.ListFormat(i18n.language, {
+                  style: "narrow",
+                  type: "conjunction",
+                }).format([
+                  ...fields.map((path) => unreadableFieldLabel(path, t)),
+                  ...(moreFieldCount ? [t("{{count}} more", { count: moreFieldCount })] : []),
+                ]),
+              })}
             </a>
           </li>
         ))}
       </ul>
     </div>
   );
+}
+
+/**
+ * A name the owner finds in Bitwarden for a path of an item's field that could not be read.
+ * Card and identity values keep their property names, as the item's field list shows them.
+ */
+function unreadableFieldLabel(path: string, t: TFunction): string {
+  const [group, index, part] = path.split(".");
+  const number = Number(index) + 1;
+  if (path === "notes") return t("Notes");
+  if (path === "login.username") return t("Username");
+  if (path === "login.password") return t("Password");
+  if (path === "login.totp") return t("Verification code");
+  if (path === "passwordHistory") return t("Password history");
+  if (path === "attachments") return t("Attachments");
+  if (group === "fields" && part === "name") return t("Custom field {{number}} name", { number });
+  if (group === "fields" && part === "value") return t("Custom field {{number}} value", { number });
+  if (group === "login" && index === "uris" && part)
+    return t("URI {{number}}", { number: Number(part) + 1 });
+  return path;
 }
 
 /** Where a connection's vault lives, as the Server choice names it. */
