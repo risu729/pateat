@@ -66,7 +66,7 @@ function record(): VaultResult<VaultEntry | null> {
           kdf: { pBKDF2: { iterations: 600_000 } },
           unavailableItems: [
             { itemId: "x", reason: "unsupported-cipher-type" },
-            // Items left out for another reason are listed on the settings page, not counted here.
+            // An item left out for another reason was received: it counts in the total.
             { itemId: "y", reason: "malformed-item" },
           ],
           ciphers: [
@@ -177,7 +177,7 @@ describe("diagnostics status", () => {
       environment: "self-hosted",
       state: "ready",
       acceptedAt: NOW - 25 * 60_000,
-      items: { total: 3, login: 2, totp: 1, passkey: 1, unsupported: 1 },
+      items: { total: 4, login: 2, totp: 1, passkey: 1, unsupported: 1 },
       unlockKdf: "PBKDF2-SHA256 600000",
     });
     expect(status.permissions).toEqual({
@@ -300,7 +300,7 @@ describe("diagnostics status", () => {
     expect(report).toContain("· sync sign-in active ·");
     expect(report).toContain("Permissions: storage, offscreen, https://*/* + 1 granted site\n");
     expect(report).toContain("warn clock 95 s behind the service");
-    expect(report).toContain("3 items (login 2, TOTP 1, passkey 1) + 1 unsupported");
+    expect(report).toContain("4 items (login 2, TOTP 1, passkey 1) + 1 unsupported");
     // The KDF family is copied; its parameters stay on the page.
     expect(report).toContain("· KDF PBKDF2 ·");
     expect(report).toContain("self-hosted · Bitwarden server 2026.9.2 · ready");

@@ -131,13 +131,14 @@ does not read:
 
 - `unknown-organization`: the item names an organization whose key the sync did not
   send (no membership, a disabled organization or no key). That organization's
-  collections are left out with it, as the official clients list only organizations
-  whose key they hold.
+  collections are still checked like any other, then left out with it, as the official
+  clients list only organizations whose key they hold.
 - `malformed-item`: the item's shape does not admit, for example a field of the wrong
   type, a stored Data copy that is not JSON or contradicts the response, or an
   attachment of another object type.
-- `unsupported-item`: the server withheld part of the item (`partialData`) or claimed a
-  sealed form this SDK does not read.
+- `unsupported-item`: the server withheld part of the item (`partialData`), or sent a
+  form Pateat does not read: a claimed sealed form, flat legacy Data without a name or
+  with a sealed form's key, or a ciphertext type that is not authenticated.
 
 Items are told apart only by ID, so an item without a valid ID, or two with the same
 ID, still fails the sync, as does anything wrong outside the items. The vault manager

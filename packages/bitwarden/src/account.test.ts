@@ -1013,9 +1013,16 @@ describe("received-envelope item mapping", () => {
 
   it("leaves out an organization's collections and items when its key is not received", () => {
     const raw = rawWithCollection({});
-    raw.sync.profile.organizations = [];
+    setAt(raw, ["sync", "profile", "organizations", 0, "key"], null);
     const result = expectLeftOut(raw, "unknown-organization");
     expect(result.ok && result.data.encryptedMetadata.collections).toEqual([]);
+    // Such a collection is still checked, and one outside every membership still fails.
+    const malformed = rawWithCollection({ readOnly: "yes" });
+    setAt(malformed, ["sync", "profile", "organizations", 0, "key"], null);
+    expect(mapRaw(malformed)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
+    const outside = rawWithCollection({});
+    outside.sync.profile.organizations = [];
+    expect(mapRaw(outside)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
   });
 
   it.each([

@@ -57,10 +57,12 @@ custom fields, passkeys and organization items worked. Two things did not:
    before, and every nested object must still be a plain object. The SDK and the vault
    cache receive the copy without the unknown keys (`admitLocalCryptoCipher` in
    `packages/bitwarden/src/local-crypto.ts`); a cached copy must still match its
-   admission exactly. Some unknown keys still refuse the item, and with it the
-   connection: `__proto__`, `prototype` and `constructor`, two keys that differ only in
-   case with different values, and any spelling of a sealed blob's keys in the flat
-   `data` (agent's choice, not confirmed by the owner).
+   admission exactly. Some unknown keys still refuse the item: `__proto__`, `prototype`
+   and `constructor`, two keys that differ only in case with different values, and any
+   spelling of a sealed blob's keys in the flat `data` (agent's choice, not confirmed by
+   the owner). Since 2026-11-11 such an item is left out alone rather than failing the
+   connection
+   ([ADR 0006](0006-atomic-local-vault-cache.md#items-the-account-mapper-cannot-admit-2026-11-11)).
 3. A self-hosted server root may use `http://` only when its host is exactly
    `localhost` or `127.0.0.1`, so the master-password hash and tokens never leave the
    machine in clear text; every other root stays `https://`. The owner was asked about

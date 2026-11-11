@@ -135,9 +135,12 @@ function itemCounts(prepared: unknown): DiagnosticsConnection["items"] {
     if (cipher.output.login?.fido2Credentials?.length) items.passkey += 1;
   }
   // Unsupported items are not among the ciphers; they are counted beside the total.
-  items.unsupported =
-    parsed.output.unavailableItems?.filter((item) => v.safeParse(unsupportedSchema, item).success)
-      .length ?? 0;
+  // Items left out for another reason were received, so they count in the total.
+  const unavailable = parsed.output.unavailableItems ?? [];
+  items.unsupported = unavailable.filter(
+    (item) => v.safeParse(unsupportedSchema, item).success,
+  ).length;
+  items.total += unavailable.length - items.unsupported;
   return items;
 }
 

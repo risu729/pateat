@@ -240,8 +240,10 @@ fall back to legacy state. Previously verified account format and signed
 security-version floors must survive subsequent syncs.
 
 The initial mapper admits login, secure-note, card and identity items. Other
-types have explicit unavailable results containing only IDs and an unsupported
-reason. Validate uniqueness across both sets. No secrets from unavailable records
+types, and items it cannot admit (no organization key, a malformed or partly sent
+item), have explicit unavailable results containing only IDs and a reason
+([ADR 0006](adr/0006-atomic-local-vault-cache.md#items-the-account-mapper-cannot-admit-2026-11-11)).
+Validate uniqueness across both sets. No secrets from unavailable records
 may be released. Mapping success is preparation only; native cryptographic
 verification and later cache acceptance remain separate gates.
 

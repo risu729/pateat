@@ -281,11 +281,11 @@ export function createBitwardenAccountMapper(
                 revisionDate: requiredText(read(folder, "revisionDate")),
               };
             }),
-            // A collection of an organization without a key is left out with its items.
-            collections: list(sync.collections).flatMap((collectionInput) => {
+            collections: list(sync.collections).map((collectionInput) => {
               const collection = record(collectionInput);
               const organizationId = identifier(read(collection, "organizationId"));
-              if (!organizations.has(organizationId)) return [];
+              // A collection must still name a membership, even one without a key.
+              if (!organizationIds.has(organizationId)) reject();
               return {
                 id: identifier(read(collection, "id")),
                 organizationId,
@@ -319,6 +319,11 @@ export function createBitwardenAccountMapper(
               encryptedMetadata.output.folders.length + encryptedMetadata.output.collections.length
           )
             reject();
+          // A collection of an organization without a key is left out with its items
+          // (ADR 0006), after it was checked like the others.
+          encryptedMetadata.output.collections = encryptedMetadata.output.collections.filter(
+            (collection) => organizations.has(collection.organizationId),
+          );
           return {
             ok: true,
             data: {
