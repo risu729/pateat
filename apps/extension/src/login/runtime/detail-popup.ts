@@ -16,7 +16,8 @@ import {
   type VaultCatalog,
 } from "@pateat/contracts";
 import { browser } from "wxt/browser";
-import { observationSchema, type AskedQuestion } from "../wire";
+import { newId } from "@pateat/contracts/ids";
+import { LOGIN_STEP_WAIT_MS, observationSchema, type AskedQuestion } from "../wire";
 import { loginUsernameFieldId } from "../vault";
 import {
   cardGuessFields,
@@ -58,6 +59,49 @@ import { detailSite, askDetailPassword } from "./master-password";
 import { send, saveSession } from "./attempt";
 import { quietly } from "./session-store";
 import type { Runtime } from "./state";
+
+/** One auxiliary fill, scoped to the offer and vault snapshot that authorized its values. */
+export type DetailFillGrant = {
+  offer: DetailOffer;
+  live: LiveDocument;
+  policyRevision: number;
+  snapshotId: string | undefined;
+  expiresAt: number;
+};
+
+/** Rechecked after asynchronous work; a new offer, document, policy or vault withdraws it. */
+export async function detailFillCurrent(
+  rt: Runtime,
+  fillId: string,
+  grant: DetailFillGrant,
+): Promise<boolean> {
+  const current = () =>
+    rt.vars.storageHealthy &&
+    rt.detailFills.get(fillId) === grant &&
+    Date.now() < grant.expiresAt &&
+    rt.detailOffers.get(grant.offer.document.tabId) === grant.offer &&
+    rt.documents.get(frameKey(grant.offer.document)) === grant.live &&
+    tabAttempt(rt, grant.offer.document.tabId)?.id === grant.offer.attemptId;
+  if (!current()) return false;
+  const snapshot = await rt.settings
+    .handle({ version: 1, type: "settings.get" })
+    .catch(() => undefined);
+  if (!snapshot?.ok || !current() || snapshot.snapshot.revision !== grant.policyRevision)
+    return false;
+  const { account } = grant.offer;
+  return (
+    snapshot.catalog.connections.find((entry) => entry.id === account.connectionId)?.snapshotId ===
+      grant.snapshotId &&
+    !isSiteExcluded(snapshot.snapshot.settings, account.origin) &&
+    isSiteAllowed(snapshot.snapshot.settings, account.origin) &&
+    getItemEligibility(
+      snapshot.snapshot.settings,
+      snapshot.catalog,
+      account.connectionId,
+      account.itemId,
+    ).eligible
+  );
+}
 
 /** The tab's page, when it is an HTTP(S) page the popup has a section for. */
 export async function popupPage(_rt: Runtime, tabId: number) {
@@ -560,12 +604,33 @@ export async function popupDetailFill(
   const command = {
     type: "login.detail.fill",
     path: offer.path,
+    fillId: newId(),
+    expiresAt: Date.now() + LOGIN_STEP_WAIT_MS,
+    origin: live.document.origin,
+    submit: offer.target,
     fields: values.map((entry, at) => ({ ...entry, target: targets[at]! })),
     ...(own ? { account: own } : {}),
   };
-  const response = await send(rt, live, command).catch(() => undefined);
-  for (const entry of [...values, ...command.fields]) entry.value = "";
-  if (own) own.username = "";
+  const grant: DetailFillGrant = {
+    offer,
+    live,
+    policyRevision: snapshot.snapshot.revision,
+    snapshotId: found.connection.snapshotId,
+    expiresAt: command.expiresAt,
+  };
+  rt.detailFills.set(command.fillId, grant);
+  const expiry = setTimeout(() => rt.detailFills.delete(command.fillId), LOGIN_STEP_WAIT_MS);
+  let response: unknown;
+  try {
+    if (!(await detailFillCurrent(rt, command.fillId, grant)))
+      return { ok: false, reason: "not-filled" };
+    response = await send(rt, live, command).catch(() => undefined);
+  } finally {
+    clearTimeout(expiry);
+    rt.detailFills.delete(command.fillId);
+    for (const entry of [...values, ...command.fields]) entry.value = "";
+    if (own) own.username = "";
+  }
   if (
     v.safeParse(v.object({ ok: v.literal(false), reason: v.literal("other-account") }), response)
       .success
