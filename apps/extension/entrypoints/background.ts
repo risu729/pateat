@@ -784,8 +784,7 @@ export default defineBackground(() => {
     },
     fetch: (input, init) => fetch(input, init),
     settings: async () => (await settings.read()).settings,
-    logs: () => logger.summary(),
-    recentLog: () => logger.recent(),
+    logs: () => logger.snapshot(),
     storage: {
       localBytes: () => browser.storage.local.getBytesInUse(null),
       recipeCache: () => recipeCacheStorage.read(),
