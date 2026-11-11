@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LoginAttemptMetadata } from "@pateat/contracts";
+import { createDefaultSettings, type LoginAttemptMetadata } from "@pateat/contracts";
 import type { AdmitContext } from "./admit-context";
 import type { Runtime } from "./state";
 import type { LiveDocument } from "./types";
@@ -93,6 +93,14 @@ function harness(entry = record()) {
   const documents = new Map([["current-key", live]]);
   const picked = new Map<number, PickedAccount>();
   const rt = {
+    settings: {
+      handle: vi.fn(async () => ({
+        version: 1,
+        ok: true,
+        snapshot: { version: 1, revision: 1, settings: createDefaultSettings() },
+        catalog: { connections: [] },
+      })),
+    },
     documents,
     picked,
     switchStates: new Map(),
