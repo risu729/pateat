@@ -240,7 +240,11 @@ export async function runCall<T>(
           status: "called",
           ...sent,
           timings: last
-            ? { ...last.timings, modelMs: last.timings.modelMs + sent.timings.modelMs }
+            ? {
+                ...last.timings,
+                tokenMs: last.timings.tokenMs + sent.timings.tokenMs,
+                modelMs: last.timings.modelMs + sent.timings.modelMs,
+              }
             : sent.timings,
           served: servedModel(attempt),
         };
