@@ -185,7 +185,7 @@ describe("vault check schedule", () => {
     });
     expect(JSON.stringify(h.report.mock.calls)).not.toContain("synthetic");
   });
-  it("stores a decryption failure's check but not its item, and reports both", async () => {
+  it("stores a decryption failure's check and item, and reports them", async () => {
     const h = harness();
     const failure = {
       outcome: "failed" as const,
@@ -201,7 +201,7 @@ describe("vault check schedule", () => {
     expect(h.stored()?.connections["a"]).toEqual({
       checkedAt: h.now(),
       outcome: "failed",
-      failure: { cause: "crypto-failed", check: "uri-checksum" },
+      failure: { cause: "crypto-failed", check: "uri-checksum", item: failure.item },
     });
     h.advance(VAULT_CHECK_INTERVAL_MS);
     h.auto.refreshIfStale();
@@ -210,7 +210,7 @@ describe("vault check schedule", () => {
       connectionId: "a",
       ...failure,
       previous: "failed",
-      previousFailure: { cause: "crypto-failed", check: "uri-checksum" },
+      previousFailure: { cause: "crypto-failed", check: "uri-checksum", item: failure.item },
     });
   });
   it("reports a failure code and HTTP status, and the stored one of the check before", async () => {

@@ -109,7 +109,10 @@ export const LOG_EVENTS = {
       revised: "time",
     },
   },
-  "vault.sign-in": { level: "info", fields: { step: "code", outcome: "code" } },
+  "vault.sign-in": {
+    level: "info",
+    fields: { step: "code", outcome: "code", check: "code", item: "item", revised: "time" },
+  },
   "vault.check": {
     level: "info",
     fields: {

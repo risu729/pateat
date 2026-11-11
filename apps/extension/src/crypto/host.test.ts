@@ -801,6 +801,17 @@ describe("fixed operations, session scope and reply fencing", () => {
       error: { code: "crypto-failed", check: "Synthetic item name", item: "not-a-uuid" },
     });
     expect(await refused).toEqual({ ok: false, error: { code: "crypto-failed" } });
+    // Each value is checked on its own: a valid check stays beside an invalid item ID.
+    const c = await h.open();
+    const partly = h.host.verifyReceivedCiphers(c);
+    h.reply(await h.command(5), {
+      ok: false,
+      error: { code: "crypto-failed", check: "worker-exception", item: "not-a-uuid", revised: -1 },
+    });
+    expect(await partly).toEqual({
+      ok: false,
+      error: { code: "crypto-failed", check: "worker-exception" },
+    });
   });
 
   it("forwards an unavailable URI context as its own result", async () => {

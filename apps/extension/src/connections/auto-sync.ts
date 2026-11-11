@@ -50,7 +50,12 @@ export type VaultSyncReport = {
   previous?: VaultSyncOutcome | undefined;
   /** The stored cause of the check before, when it failed too. */
   previousFailure?:
-    | { cause: string; status?: number | undefined; check?: string | undefined }
+    | {
+        cause: string;
+        status?: number | undefined;
+        check?: string | undefined;
+        item?: string | undefined;
+      }
     | undefined;
 } & ({ outcome: Exclude<VaultSyncOutcome, "failed"> } | VaultSyncFailure);
 
@@ -80,13 +85,14 @@ const entrySchema = v.strictObject({
   deferredSince: v.optional(time),
   /** Local time before which no check is sent, after a 429. */
   retryAt: v.optional(time),
-  /** The last check's failure code, HTTP status and decryption check, so the log tells a
-   * new cause from the same failure repeated; the schedule never reads it. */
+  /** The last check's failure code, HTTP status, decryption check and refused item, so the
+   * log tells a new cause from the same failure repeated; the schedule never reads it. */
   failure: v.optional(
     v.strictObject({
       cause: v.pipe(v.string(), v.minLength(1), v.maxLength(64)),
       status: v.optional(time),
       check: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(64))),
+      item: v.optional(v.pipe(v.string(), v.uuid())),
     }),
   ),
 });
@@ -283,6 +289,7 @@ export function createVaultAutoSync(deps: {
                   cause: result.cause,
                   ...(result.status === undefined ? {} : { status: result.status }),
                   ...(result.check === undefined ? {} : { check: result.check }),
+                  ...(result.item === undefined ? {} : { item: result.item }),
                 },
               }),
           // Only this check's own answer confirms the snapshot; a record cleared meanwhile

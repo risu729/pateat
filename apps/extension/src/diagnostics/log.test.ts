@@ -1555,7 +1555,12 @@ describe("unhandled errors", () => {
     });
     log.vaultSignIn("keep-alive", { ok: false, error: { code: "setup-expired" } });
     log.vaultSignIn("continue", { ok: false, error: { code: "authentication-rejected" } });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(6));
+    const itemId = "00000000-0000-4000-8000-000000000002";
+    log.vaultSignIn("begin", {
+      ok: false,
+      error: { code: "crypto-failed", check: "sdk-decrypt", item: itemId, revised: 1 },
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(7));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       ["vault.sign-in", "info", { step: "begin", outcome: "mfa-required" }],
@@ -1564,8 +1569,25 @@ describe("unhandled errors", () => {
       ["vault.sign-in", "info", { step: "continue", outcome: "code-refused" }],
       ["vault.sign-in", "info", { step: "keep-alive", outcome: "setup-expired" }],
       ["vault.sign-in", "warn", { step: "continue", outcome: "authentication-rejected" }],
+      [
+        "vault.sign-in",
+        "warn",
+        {
+          step: "begin",
+          outcome: "crypto-failed",
+          check: "sdk-decrypt",
+          item: expect.stringMatching(/^item:[0-9a-f]{8}$/u),
+          revised: 1,
+        },
+      ],
     ]);
     expect(JSON.stringify(entries)).not.toContain(flowId);
+    expect(JSON.stringify(entries)).not.toContain(itemId);
+    expect(problemLine(entries[6]!)?.fields).toEqual({
+      step: "begin",
+      outcome: "crypto-failed",
+      check: "sdk-decrypt",
+    });
     vi.restoreAllMocks();
   });
 
@@ -2820,10 +2842,12 @@ describe("unhandled errors", () => {
     });
     // A decryption failure warns again when another check refused the item.
     const itemId = "00000000-0000-4000-8000-000000000002";
-    for (const [check, previous] of [
-      ["uri-checksum", undefined],
-      ["uri-checksum", "uri-checksum"],
-      ["sdk-decrypt", "uri-checksum"],
+    const otherItem = "00000000-0000-4000-8000-000000000003";
+    for (const [check, previous, previousItem] of [
+      ["uri-checksum", undefined, undefined],
+      ["uri-checksum", "uri-checksum", itemId],
+      ["uri-checksum", "uri-checksum", otherItem],
+      ["sdk-decrypt", "uri-checksum", itemId],
     ] as const)
       log.vaultCheck({
         connectionId,
@@ -2833,11 +2857,11 @@ describe("unhandled errors", () => {
         item: itemId,
         revised: 1_762_720_517_000,
         previous: "failed",
-        previousFailure: { cause: "crypto-failed", check: previous },
+        previousFailure: { cause: "crypto-failed", check: previous, item: previousItem },
       });
     log.vaultRefresh({ connectionId, outcome: "not-sent", cause: "no-refresh-token" });
     log.recipeSync("busy", { scope: "full", added: 0, updated: 0, removed: 0 });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(16));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(17));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(
       entries.map((entry) => [
@@ -2859,6 +2883,7 @@ describe("unhandled errors", () => {
       ["vault.check", "warn", "failed", "http-error"],
       ["vault.check", "warn", "failed", "crypto-failed"],
       ["vault.check", "debug", "failed", "crypto-failed"],
+      ["vault.check", "warn", "failed", "crypto-failed"],
       ["vault.check", "warn", "failed", "crypto-failed"],
       ["vault.refresh", "info", "not-sent", "no-refresh-token"],
       ["service.sync", "info", "busy", undefined],
@@ -2884,6 +2909,7 @@ describe("unhandled errors", () => {
       { outcome: "failed", cause: "http-error", status: 429 },
       { outcome: "failed", cause: "crypto-failed", check: "uri-checksum" },
       undefined,
+      { outcome: "failed", cause: "crypto-failed", check: "uri-checksum" },
       { outcome: "failed", cause: "crypto-failed", check: "sdk-decrypt" },
     ]);
     vi.restoreAllMocks();

@@ -223,7 +223,18 @@ export function createDiagnosticsLog(options: {
       const failed = reply.ok
         ? reply.kind === "email-code" && reply.result !== "sent"
         : outcome !== "cancelled" && outcome !== "setup-expired";
-      void logger.log("vault.sign-in", { step, outcome }, { level: failed ? "warn" : "info" });
+      void logger.log(
+        "vault.sign-in",
+        {
+          step,
+          outcome,
+          // A sign-in also opens the next snapshot, so it names a refused item as Sync does.
+          ...(reply.ok
+            ? {}
+            : { check: reply.error.check, item: reply.error.item, revised: reply.error.revised }),
+        },
+        { level: failed ? "warn" : "info" },
+      );
     },
     /**
      * An automatic vault check (ADR 0025): debug when nothing changed, info when a sync was
@@ -239,7 +250,8 @@ export function createDiagnosticsLog(options: {
         (event.outcome !== "failed" ||
           (event.previousFailure?.cause === event.cause &&
             event.previousFailure.status === event.status &&
-            event.previousFailure.check === event.check));
+            event.previousFailure.check === event.check &&
+            event.previousFailure.item === event.item));
       void logger.log(
         "vault.check",
         {

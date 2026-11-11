@@ -73,6 +73,7 @@ export const LOCAL_ONLY_FLAG = "fillOnly";
  */
 export const LOCAL_ONLY_FIELDS = {
   "vault.sync": ["revised"],
+  "vault.sign-in": ["revised"],
   "vault.check": ["revised"],
   "login.attempt": [
     "beforeShownMs",
@@ -106,7 +107,7 @@ export const PROBLEM_EVENT_FIELDS = {
   "runtime.updated": { previousBuild: "revision", build: "revision", version: "revision" },
   "vault.state": { state: "code", previous: "code", providerSession: "code", synced: "flag" },
   "vault.sync": { outcome: "code", check: "code" },
-  "vault.sign-in": { step: "code", outcome: "code" },
+  "vault.sign-in": { step: "code", outcome: "code", check: "code" },
   "vault.check": { outcome: "code", cause: "code", status: "count", check: "code" },
   "vault.timeout": { trigger: "code", action: "code", outcome: "code" },
   "vault.refresh": { outcome: "code", cause: "code", status: "count" },

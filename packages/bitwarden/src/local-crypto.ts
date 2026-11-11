@@ -512,7 +512,7 @@ export async function createLocalCryptoSession(
             }
             return locked ? failure("crypto-locked") : { ok: true as const, data: output };
           } catch {
-            return failure(locked ? "crypto-locked" : "crypto-failed");
+            return locked ? failure("crypto-locked") : decryptFailure("catalog");
           } finally {
             folders.free();
             collections.free();
@@ -548,6 +548,6 @@ export async function createLocalCryptoSession(
     };
   } catch {
     dispose();
-    return failure("crypto-failed");
+    return decryptFailure("session-open");
   }
 }

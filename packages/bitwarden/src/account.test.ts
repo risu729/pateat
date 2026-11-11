@@ -299,7 +299,7 @@ describe("raw provider account through native local crypto", () => {
     if (!prepared.ok) return;
     expect(await initializePrepared(prepared.data)).toEqual({
       ok: false,
-      error: { code: "crypto-failed" },
+      error: { code: "crypto-failed", check: "session-open" },
     });
   });
 

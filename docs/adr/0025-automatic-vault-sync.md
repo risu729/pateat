@@ -89,14 +89,15 @@ removal cancel it and delete its stored revision.
 
 The record is `pateat.vault-sync-schedule.v1` in `chrome.storage.local`, holding no
 secret: per connection the local time of the last check, its outcome, the local time of
-the last check that found the revision unchanged, the cause and HTTP
-status of a failed check (only to log a repeated failure quietly; an applied full sync
-drops it, so the next failure is logged as new), the server revision
+the last check that found the revision unchanged, the cause and HTTP status of a failed
+check (only to log a repeated failure quietly; an applied full sync drops it, so the
+next failure is logged as new; since 2026-11-11 also the decryption check and the ID of
+an item that failed strict decryption, so another item warns again), the server revision
 of the last applied sync, the local time a run of deferrals began and, after a 429, the
-local time before which no check is sent. The check time is written before the
-request, so a restart does not resend it at once; a check time in the future counts as
-due. The diagnostics page shows the last check, its outcome and, after a 429, when the
-next check may be sent.
+local time before which no check is sent. The check time is written before the request,
+so a restart does not resend it at once; a check time in the future counts as due. The
+diagnostics page shows the last check, its outcome and, after a 429, when the next check
+may be sent.
 
 The settings page's Bitwarden card shows "Vault synced" with the local time the vault
 was last known to match the server (requested by the owner on 2026-10-13): when the open

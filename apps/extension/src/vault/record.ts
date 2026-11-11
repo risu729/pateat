@@ -28,7 +28,9 @@ export type VaultErrorCode =
  * received item (its ID and server revision date), for the diagnostic log only.
  */
 export type VaultFailureDetail = {
-  check?: BitwardenMismatchCheck | BitwardenDecryptCheck;
+  /** `worker-exception`: a crypto Worker command threw; `cipher-count`: the Worker verified
+   * another number of items than were received. */
+  check?: BitwardenMismatchCheck | BitwardenDecryptCheck | "worker-exception" | "cipher-count";
   item?: string;
   revised?: number;
 };

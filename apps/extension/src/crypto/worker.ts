@@ -451,7 +451,9 @@ self.onmessage = (event: MessageEvent<unknown>) => {
   }
   busy = true;
   void execute(command)
-    .then(reply, () => reply(fail("crypto-failed")))
+    .then(reply, () =>
+      reply({ ok: false, error: { code: "crypto-failed", check: "worker-exception" } }),
+    )
     .finally(() => {
       busy = false;
     });

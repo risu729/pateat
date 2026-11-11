@@ -553,6 +553,15 @@ describe("crypto Worker snapshot verification failures", () => {
     });
   });
 
+  it("names a command that threw", async () => {
+    await openWorker(savedUris);
+    mocks.decrypt.mockRejectedValueOnce(new Error("synthetic SDK panic"));
+    expect(await command({ kind: "verify-received-ciphers", session })).toEqual({
+      ok: false,
+      error: { code: "crypto-failed", check: "worker-exception" },
+    });
+  });
+
   it("passes any other failure on unchanged", async () => {
     await openWorker(savedUris);
     mocks.decrypt.mockResolvedValueOnce({ ok: false, error: { code: "crypto-locked" } } as never);

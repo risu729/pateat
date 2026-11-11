@@ -1,6 +1,5 @@
 import * as v from "valibot";
 import {
-  BITWARDEN_DECRYPT_CHECKS,
   type BitwardenResult,
   type LocalFieldMetadata,
   type LocalFieldReference,
@@ -13,6 +12,7 @@ import {
   ARGON2ID_JOB_BUDGET_MS,
   boundedMessage,
   commandSchema,
+  CRYPTO_FAILURE_CHECKS,
   CRYPTO_PORT,
   derivesArgon2id,
   JOB_BUDGET_MS,
@@ -20,6 +20,7 @@ import {
   progressSchema,
   replySchema,
   sessionSchema,
+  type CryptoFailureCheck,
   type CustomDigests,
   type LoginUsernames,
   type HostOperation,
@@ -80,26 +81,27 @@ const fail = (
     | "resource-limit",
 ): BitwardenResult<never> => ({ ok: false, error: { code } });
 
-const decryptDetailSchema = v.object({
-  check: v.optional(v.picklist(BITWARDEN_DECRYPT_CHECKS)),
-  item: v.optional(v.pipe(v.string(), v.uuid())),
-  revised: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(0))),
-});
+const detailSchemas = {
+  check: v.picklist(CRYPTO_FAILURE_CHECKS),
+  item: v.pipe(v.string(), v.uuid()),
+  revised: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+} as const;
 /**
- * Which strict decryption check refused which received item, kept for the diagnostic log.
- * Only a check code, an item ID and a revision date pass; anything else is dropped.
+ * Which check refused which received item, kept for the diagnostic log. Each of a check
+ * code, an item ID and a revision date passes only in its own valid shape; anything else is
+ * dropped.
  */
-function decryptDetail(
-  error: object,
-): Pick<Extract<BitwardenResult<never>, { ok: false }>["error"], "check" | "item" | "revised"> {
-  const parsed = v.safeParse(decryptDetailSchema, error);
-  if (!parsed.success) return {};
-  const { check, item, revised } = parsed.output;
-  return {
-    ...(check ? { check } : {}),
-    ...(item ? { item } : {}),
-    ...(revised !== undefined ? { revised } : {}),
-  };
+function decryptDetail(error: object): {
+  check?: CryptoFailureCheck;
+  item?: string;
+  revised?: number;
+} {
+  const detail: Record<string, unknown> = {};
+  for (const [key, schema] of Object.entries(detailSchemas)) {
+    const value = (error as Record<string, unknown>)[key];
+    if (value !== undefined && v.is(schema, value)) detail[key] = value;
+  }
+  return detail;
 }
 
 /** A connection's live session plus the candidate a sync opens before retiring it. */

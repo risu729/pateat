@@ -229,7 +229,7 @@ describe("strict account initialization and metadata", () => {
     input.unlock.password = "synthetic-wrong-password";
     expect(await createLocalCryptoSession(input, sdk)).toEqual({
       ok: false,
-      error: { code: "crypto-failed" },
+      error: { code: "crypto-failed", check: "session-open" },
     });
   });
 
@@ -238,7 +238,7 @@ describe("strict account initialization and metadata", () => {
     input.accountCryptographicState.V1.private_key = corrupt(v1PrivateKey);
     expect(await createLocalCryptoSession(input, sdk)).toEqual({
       ok: false,
-      error: { code: "crypto-failed" },
+      error: { code: "crypto-failed", check: "session-open" },
     });
   });
 
@@ -251,7 +251,8 @@ describe("strict account initialization and metadata", () => {
       );
       const result = await createLocalCryptoSession(input, sdk);
       expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toEqual({ code: "crypto-failed" });
+      if (!result.ok)
+        expect(result.error).toEqual({ code: "crypto-failed", check: "session-open" });
     },
   );
 
@@ -390,7 +391,7 @@ describe("strict account initialization and metadata", () => {
         .mockRejectedValue(new Error("Stop after resource admission"));
       expect(await createLocalCryptoSession(input, { ...sdk, init_sdk: initializeSdk })).toEqual({
         ok: false,
-        error: { code: "crypto-failed" },
+        error: { code: "crypto-failed", check: "session-open" },
       });
       expect(initializeSdk).toHaveBeenCalledTimes(1);
       expect(initializeUser).toHaveBeenCalledTimes(1);
@@ -484,7 +485,7 @@ describe("strict account initialization and metadata", () => {
       .mockRejectedValue(new Error("Stop after supported-format admission"));
     expect(await createLocalCryptoSession(input, sdk)).toEqual({
       ok: false,
-      error: { code: "crypto-failed" },
+      error: { code: "crypto-failed", check: "session-open" },
     });
     expect(initializeUser).toHaveBeenCalledTimes(1);
     expect(initializeUser).toHaveBeenCalledWith(
@@ -520,7 +521,7 @@ describe("strict account initialization and metadata", () => {
       const initializeOrganization = vi.spyOn(sdk.CryptoClient.prototype, "initialize_org_crypto");
       expect(await createLocalCryptoSession(input, sdk)).toEqual({
         ok: false,
-        error: { code: "crypto-failed" },
+        error: { code: "crypto-failed", check: "session-open" },
       });
       expect(initializeUser).toHaveBeenCalledTimes(1);
       expect(initializeOrganization).not.toHaveBeenCalled();
@@ -551,7 +552,7 @@ describe("strict account initialization and metadata", () => {
     });
     expect(await createLocalCryptoSession(v1Input(), { ...sdk, init_sdk: initialize })).toEqual({
       ok: false,
-      error: { code: "crypto-failed" },
+      error: { code: "crypto-failed", check: "session-open" },
     });
   });
 });
@@ -897,7 +898,7 @@ describe("strict cipher isolation and disposal", () => {
     input.organizationKeys[0]!.key = corrupt(TEST_ORGANIZATION_KEY);
     expect(await createLocalCryptoSession(input, sdk)).toEqual({
       ok: false,
-      error: { code: "crypto-failed" },
+      error: { code: "crypto-failed", check: "session-open" },
     });
   });
 

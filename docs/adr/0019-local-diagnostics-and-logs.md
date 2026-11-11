@@ -168,6 +168,9 @@ implementation.
   `recipe-N` separately from a log download, and the page says so.
 - A new `vault.sync` event records each settings-page Sync: `info` for a result,
   `warn` for a failure, with the outcome code and, for an account mismatch, the check.
+  (2026-11-11: on `crypto-failed` also the check that refused a received item, the
+  item's pseudonym and its server revision date, which stays on the device; see the
+  [log table](../architecture.md).)
   The HTTP status the proposal mentioned is not recorded, because the Sync reply
   carries only a code.
 - An authenticated `GET /v1/device` returns, for the calling device only, when it was
