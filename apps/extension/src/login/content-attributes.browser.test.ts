@@ -1,6 +1,8 @@
 import type { LoginTarget } from "@pateat/contracts";
+import * as v from "valibot";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installLoginContent } from "./content";
+import { readySchema, type LoginReadiness } from "./wire";
 
 type Listener = (
   message: unknown,
@@ -10,7 +12,7 @@ type Listener = (
 const { sent, listeners, watch } = vi.hoisted(() => ({
   sent: [] as Record<string, unknown>[],
   listeners: [] as Listener[],
-  watch: { starts: [] as Record<string, unknown>[], generate: false },
+  watch: { starts: [] as LoginReadiness[], generate: false },
 }));
 vi.mock("wxt/browser", () => ({
   browser: {
@@ -26,9 +28,17 @@ vi.mock("wxt/browser", () => ({
 vi.mock("../messaging/protocol", () => ({
   sendMessage: async (_channel: string, message: Record<string, unknown>) => {
     sent.push(message);
-    return sent.length === 1
-      ? { ok: false, reason: "form-not-ready", starts: watch.starts, generate: watch.generate }
-      : { ok: false, reason: "generating" };
+    return v.parse(
+      readySchema,
+      sent.length === 1
+        ? {
+            ok: false,
+            reason: "form-not-ready",
+            starts: watch.starts,
+            ...(watch.generate ? { generate: true } : {}),
+          }
+        : { ok: false, reason: "generating" },
+    );
   },
 }));
 
@@ -92,10 +102,10 @@ describe("the page watch after only an attribute changes", () => {
       "field",
     ],
   ])(
-    "announces a start whose accessible name is supplied by %s",
+    "announces a start whose input label is supplied by %s",
     async (_name, html, selector, attribute, value) => {
       document.body.innerHTML = html;
-      startAt({ by: "accessible-name", value: "Password" });
+      startAt({ by: "label", value: "Password" });
       await install();
       expect(starts()).toEqual([]);
       document.querySelector(selector)!.setAttribute(attribute, value);
