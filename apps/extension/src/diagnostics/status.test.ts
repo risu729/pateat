@@ -136,20 +136,22 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
         bindings: [],
         passkeyBrowserSites: [{ hostname: "bank.example" }],
       }) as never,
-    logs: async () => ({ entries: 120, bytes: 18_000, recentErrors: 2, recentWarnings: 3 }),
-    recentLog: async () => ({
-      problems: [
-        "2026-10-11T09:20Z warn login.attempt site-1 recipe-1 blocked structural-mismatch",
-      ],
-      updated: { time: NOW - 3 * 60 * 60_000, from: "9cf8356de6a0cf2c82dae5c4e70f15ea3dbc5d4b" },
-      passkeyDelegations: [
-        { reason: "no-credential", count: 3 },
-        { reason: "ambiguous-credential", count: 1 },
-      ],
-      unsentVerifications: [
-        { reason: "frame", count: 2 },
-        { reason: "text-answer", count: 1 },
-      ],
+    logs: async () => ({
+      summary: { entries: 120, bytes: 18_000, recentErrors: 2, recentWarnings: 3 },
+      recent: {
+        problems: [
+          "2026-10-11T09:20Z warn login.attempt site-1 recipe-1 blocked structural-mismatch",
+        ],
+        updated: { time: NOW - 3 * 60 * 60_000, from: "9cf8356de6a0cf2c82dae5c4e70f15ea3dbc5d4b" },
+        passkeyDelegations: [
+          { reason: "no-credential", count: 3 },
+          { reason: "ambiguous-credential", count: 1 },
+        ],
+        unsentVerifications: [
+          { reason: "frame", count: 2 },
+          { reason: "text-answer", count: 1 },
+        ],
+      },
     }),
     storage: {
       localBytes: async () => 412 * 1024,
@@ -163,6 +165,35 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
 }
 
 describe("diagnostics status", () => {
+  it("collects summary and recent output from one snapshot dependency call", async () => {
+    const deps = dependencies();
+    const snapshot = await deps.logs();
+    const logs = vi.fn(async () => snapshot);
+    const status = await collectDiagnostics({ ...deps, logs });
+    expect(logs).toHaveBeenCalledOnce();
+    expect(status.logs).toEqual(snapshot.summary);
+    expect(status.recent).toEqual(snapshot.recent);
+    const report = formatReport(status, { name: "Chrome", version: "156", installType: "normal" });
+    expect(report).toContain("Logs: 120 entries (18 KB), 2 errors, 3 warnings in 24 h");
+    expect(report).toContain(
+      "Recent problems (24 h, newest first):\n  2026-10-11T09:20Z warn login.attempt site-1 recipe-1 blocked structural-mismatch",
+    );
+    expect(report).toContain(
+      "Passkey delegations (24 h): no-credential 3 · ambiguous-credential 1",
+    );
+  });
+
+  it("keeps recent output when the snapshot has no summary", async () => {
+    const recent = (await dependencies().logs()).recent;
+    const status = await collectDiagnostics(dependencies({ logs: async () => ({ recent }) }));
+    expect(status.logs).toBeUndefined();
+    expect(status.recent).toEqual(recent);
+    expect(status.checks).toContainEqual({ id: "logs", level: "error", detail: "logs unreadable" });
+    expect(
+      formatReport(status, { name: "Chrome", version: "156", installType: "normal" }),
+    ).toContain("Recent problems (24 h, newest first):");
+  });
+
   it("reports states and counts with no names, emails, hosts or IDs", async () => {
     const deps = dependencies();
     const status = await collectDiagnostics(deps);
@@ -641,6 +672,7 @@ describe("diagnostics status", () => {
       }),
     );
     expect(unreadable.logs).toBeUndefined();
+    expect(unreadable.recent).toBeUndefined();
     expect(unreadable.checks).toContainEqual({
       id: "logs",
       level: "error",
@@ -649,7 +681,10 @@ describe("diagnostics status", () => {
     // A login that did not finish is a warning, so the summary does not read as all clear.
     const warned = await collectDiagnostics(
       dependencies({
-        logs: async () => ({ entries: 9, bytes: 900, recentErrors: 0, recentWarnings: 1 }),
+        logs: async () => ({
+          summary: { entries: 9, bytes: 900, recentErrors: 0, recentWarnings: 1 },
+          recent: { problems: [], passkeyDelegations: [], unsentVerifications: [] },
+        }),
       }),
     );
     expect(warned.checks).toContainEqual({
