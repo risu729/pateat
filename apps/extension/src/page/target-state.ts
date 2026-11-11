@@ -45,9 +45,14 @@ export function codeMarked(element: Element | undefined): boolean {
     element instanceof HTMLInputElement && autocompleteTokens(element).includes("one-time-code")
   );
 }
-/** A shown input of a kind Pateat fills that is neither disabled nor read-only. */
+/**
+ * A shown input of a kind Pateat fills that is neither disabled nor read-only.
+ * `:disabled` includes a disabled fieldset, with the browser's first-legend exception.
+ */
 export function writable(element: Element | undefined): element is HTMLInputElement {
-  return textInput(element) && visible(element) && !element.disabled && !element.readOnly;
+  return (
+    textInput(element) && visible(element) && !element.matches(":disabled") && !element.readOnly
+  );
 }
 /**
  * A shown single-choice select that is not disabled, nor inside a disabled fieldset: the
@@ -70,7 +75,7 @@ export function settable(element: Element | undefined): boolean {
  * page's software keyboard (ADR 0067), which pages keep read-only.
  */
 export function keyable(element: Element | undefined): element is HTMLInputElement {
-  return textInput(element) && visible(element) && !element.disabled;
+  return textInput(element) && visible(element) && !element.matches(":disabled");
 }
 /**
  * A shown enabled button, or a shown script button that is not `aria-disabled`, neither
@@ -85,7 +90,7 @@ export function clickable(
   { fragment = false }: { fragment?: boolean } = {},
 ): element is HTMLElement {
   if (element === undefined || closestAcross(element, "[inert]")) return false;
-  if (isButton(element)) return visible(element) && !element.disabled;
+  if (isButton(element)) return visible(element) && !element.matches(":disabled");
   return (
     element instanceof HTMLElement &&
     (isScriptButton(element) || (fragment && isFragmentButton(element))) &&
