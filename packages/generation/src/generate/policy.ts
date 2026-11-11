@@ -59,12 +59,13 @@ export function attemptWindow(
   backend: GenerationBackend,
   key: AttemptKey,
   recheck: () => Promise<GenerationUnavailableReason | undefined>,
+  manual = false,
 ) {
   return {
     gate: async (now: number) => {
       const stale = await recheck();
       if (stale) return stale;
-      return (await backend.attemptedSince(key, now - ATTEMPT_WINDOW_MS))
+      return !manual && (await backend.attemptedSince(key, now - ATTEMPT_WINDOW_MS))
         ? "recently-tried"
         : undefined;
     },

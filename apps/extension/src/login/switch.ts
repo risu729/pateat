@@ -183,6 +183,16 @@ export function createAccountPicks(now: () => number = Date.now) {
           )
       );
     },
+    /** A live switch in this tab must finish before an explicit manual login may start. */
+    switchingHere(tabId: number, site: string | undefined, incognito?: boolean): boolean {
+      const pick = switches.get(tabId);
+      return (
+        pick !== undefined &&
+        pick.site === site &&
+        (incognito === undefined || pick.incognito === incognito) &&
+        live(pick)
+      );
+    },
     /** The tab's switch pick while it lasts, for a page of `site` in the same window kind. */
     async switchFor(
       tabId: number,

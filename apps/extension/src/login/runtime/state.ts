@@ -36,6 +36,7 @@ import {
 import type { SettingsRuntime, LoginRuntimeOptions } from "./deps";
 import type { DetailFillGrant } from "./detail-popup";
 import type { BindingReviewState } from "./binding-review-state";
+import type { ManualStart } from "./manual-scope";
 
 export function createRuntimeState(settings: SettingsRuntime, options: LoginRuntimeOptions) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation, repairs } = options;
@@ -215,6 +216,9 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   const replacedTabs = new Set<number>();
 
   const picked = new Map<number, PickedAccount>();
+
+  /** One explicit, page-scoped login request and its last popup result per tab. */
+  const manualStarts = new Map<number, ManualStart>();
 
   /** Tabs whose account switch is logging out (ADR 0063). */
   const switchesRunning = new Set<number>();
@@ -476,6 +480,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     persisted,
     replacedTabs,
     picked,
+    manualStarts,
     switchesRunning,
     switchTabs,
     switchStates,

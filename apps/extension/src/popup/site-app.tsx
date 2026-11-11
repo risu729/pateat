@@ -57,6 +57,8 @@ import {
   type DetailResponse,
 } from "../login/detail-wire";
 import { pauseSite } from "../login/pause";
+import type { ManualClient } from "../login/manual-wire";
+import { ManualLogin } from "./manual-login";
 import { hostnameOf, PageStatusSection } from "./page-status";
 import { PopupBindingReview, type BindingReviewClient } from "./binding-review";
 import {
@@ -554,6 +556,7 @@ function Line({
 export function SiteApp({
   client,
   choices,
+  manual,
   details,
   bindingReviews,
   host,
@@ -561,6 +564,7 @@ export function SiteApp({
 }: {
   client: SettingsClient;
   choices: ChoiceClient;
+  manual?: ManualClient;
   details: DetailClient;
   bindingReviews?: BindingReviewClient;
   host: PopupHost;
@@ -1702,6 +1706,18 @@ export function SiteApp({
             </a>
           </span>
         </p>
+      )}
+      {manual && tabId !== undefined && origin && saved && (
+        <ManualLogin
+          client={manual}
+          tabId={tabId}
+          saved={saved}
+          accounts={accounts.data?.ok ? accounts.data : undefined}
+          disabled={busy}
+          onBusy={setBusy}
+          onStarted={() => host.close()}
+          onReprompt={() => void askAgain()}
+        />
       )}
       {body}
       <PopupBindingReview client={bindingReviews} tabId={tabId} origin={origin} host={host} />

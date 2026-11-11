@@ -49,6 +49,7 @@ import { signedInAfterFrame, signedInByMove } from "./passkey";
 import type { Runtime } from "./state";
 import { admitRecord } from "./admit-record";
 import type { AdmitContext } from "./admit-context";
+import { manualPending } from "./manual-scope";
 
 export async function admit(
   rt: Runtime,
@@ -403,7 +404,7 @@ export async function admit(
     incognito: incognito,
     siteOrigin: siteOrigin,
     live: live,
-    paused: paused,
+    paused: paused && manualPending(rt, live) === undefined,
     refuse: undefined!,
     notStarted: undefined!,
     recorded: undefined!,

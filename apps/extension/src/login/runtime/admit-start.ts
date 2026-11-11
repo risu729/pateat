@@ -35,7 +35,8 @@ import { clearChoice, offerChoice } from "./choice";
 import { type Readiness, type Execution } from "./types";
 import { listClick, showsNow } from "./markers";
 import { note, recipeInUse, retryAfterSync, choicesSaved } from "./generation";
-import { tabAttempt, recordFor, heldElsewhere, showHeld } from "./hold";
+import { tabAttempt, recordFor, heldForLogin, showHeld } from "./hold";
+import { endManual } from "./manual-scope";
 import { terminal, holdsSite } from "./attempt-state";
 import { askMasterPassword, holdPassword } from "./master-password";
 import { type PolicyChange } from "./report";
@@ -96,7 +97,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
 
   if (!ctx.ask && everyTime) ctx.ask = "one-time-pick";
 
-  if (ctx.ask && heldElsewhere(rt, ctx.document.tabId, ctx.document.origin)) {
+  if (ctx.ask && heldForLogin(rt, ctx.live)) {
     showHeld(rt, ctx.document.tabId);
     return ctx.refuse("origin-busy");
   }
@@ -361,7 +362,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
     return refused;
   }
 
-  if (heldElsewhere(rt, ctx.document.tabId, ctx.document.origin)) {
+  if (heldForLogin(rt, ctx.live)) {
     showHeld(rt, ctx.document.tabId);
     return ctx.refuse("origin-busy");
   }
@@ -459,7 +460,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
     if (rt.savingChoices.size || rt.vars.remembered !== savedBefore)
       return { ok: false, reason: CHOICE_SAVED };
-    if (heldElsewhere(rt, ctx.document.tabId, ctx.document.origin)) {
+    if (heldForLogin(rt, ctx.live)) {
       showHeld(rt, ctx.document.tabId);
       return ctx.refuse("origin-busy");
     }
@@ -498,6 +499,13 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
             : {}),
         };
         if (ctx.document.frameId === 0) rt.repromptWaiting.set(ctx.document.tabId, awaiting);
+        const manual = rt.manualStarts.get(ctx.document.tabId);
+        if (manual?.pick && manual.pick === rt.picked.get(ctx.document.tabId))
+          manual.status = {
+            requestId: manual.status.requestId,
+            state: "evaluating",
+            reason: "master-password-reprompt",
+          };
         void askMasterPassword(rt, awaiting, connection, item!);
         return ctx.refuse("master-password-reprompt");
       }
@@ -794,6 +802,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
         ctx.switched && pick.attemptId === ctx.recorded?.id)
   ) {
     pick.attemptId = metadata.id;
+    if (pick.manual) endManual(rt, ctx.document.tabId);
     sessionChanged = true;
   }
 

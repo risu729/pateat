@@ -6,6 +6,7 @@ import type { en } from "./en";
 import { settingsJa } from "./settings-ja";
 
 export const ja = {
+  ...manualJa,
   ...bitwardenJa,
   ...bindingReviewJa,
   ...settingsJa,
@@ -517,3 +518,4 @@ export const ja = {
   "Autofill stopped: {{why}}. Nothing was pressed.":
     "自動入力を停止しました：{{why}}。ボタンは押していません。",
 } satisfies Record<keyof typeof en, string>;
+import { manualJa } from "./manual-ja";

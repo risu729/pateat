@@ -325,6 +325,7 @@ export async function generateRecipe(
           backend,
           { recipeId, branch: attemptBranch, origin, path, baseRevision },
           recheck,
+          request.manual === true,
         )),
     invoke: (model) =>
       createRecipeGenerator({ model, ...roleConfig })({
