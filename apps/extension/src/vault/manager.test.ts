@@ -358,7 +358,7 @@ describe("acceptance verification and publication", () => {
       // A refused item's check, ID and revision date pass through for the diagnostic log.
       const refused = {
         code: "crypto-failed" as const,
-        check: "uri-checksum" as const,
+        check: "attachment" as const,
         item: "00000000-0000-4000-8000-000000000002",
         revised: 1_762_720_517_000,
       };

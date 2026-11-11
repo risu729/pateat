@@ -784,7 +784,7 @@ describe("fixed operations, session scope and reply fencing", () => {
       ok: false,
       error: {
         code: "crypto-failed",
-        check: "uri-checksum",
+        check: "attachment",
         item,
         revised: 1_762_720_517_000,
         name: "Synthetic item name",
@@ -792,7 +792,7 @@ describe("fixed operations, session scope and reply fencing", () => {
     });
     expect(await verified).toEqual({
       ok: false,
-      error: { code: "crypto-failed", check: "uri-checksum", item, revised: 1_762_720_517_000 },
+      error: { code: "crypto-failed", check: "attachment", item, revised: 1_762_720_517_000 },
     });
     const b = await h.open();
     const refused = h.host.verifyReceivedCiphers(b);

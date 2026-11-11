@@ -536,7 +536,7 @@ describe("crypto Worker snapshot verification failures", () => {
     mocks.decrypt.mockImplementationOnce(async ({ cipher }) => ({ ok: true, data: cipher }));
     mocks.decrypt.mockResolvedValueOnce({
       ok: false,
-      error: { code: "crypto-failed", check: "uri-checksum" },
+      error: { code: "crypto-failed", check: "attachment" },
     } as never);
     const verified = await command({ kind: "verify-received-ciphers", session });
     expect(verified).toEqual({
@@ -546,7 +546,7 @@ describe("crypto Worker snapshot verification failures", () => {
         unusableItems: [
           {
             itemId: itemId(2),
-            check: "uri-checksum",
+            check: "attachment",
             revised: Date.parse("2026-11-09T20:35:17.000Z"),
           },
         ],

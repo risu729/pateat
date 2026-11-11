@@ -1468,7 +1468,7 @@ describe("unhandled errors", () => {
       ok: false,
       error: {
         code: "crypto-failed",
-        check: "uri-checksum",
+        check: "attachment",
         item: itemId,
         revised: 1_762_720_517_000,
       },
@@ -1501,7 +1501,7 @@ describe("unhandled errors", () => {
         {
           connection: entries[0]?.fields["connection"],
           outcome: "crypto-failed",
-          check: "uri-checksum",
+          check: "attachment",
           item: expect.stringMatching(/^item:[0-9a-f]{8}$/u),
           revised: 1_762_720_517_000,
         },
@@ -1512,7 +1512,7 @@ describe("unhandled errors", () => {
     // The service gets the check, never the item's pseudonym or its revision date.
     expect(problemLine(entries[3]!)?.fields).toEqual({
       outcome: "crypto-failed",
-      check: "uri-checksum",
+      check: "attachment",
     });
     vi.restoreAllMocks();
   });
@@ -2844,10 +2844,10 @@ describe("unhandled errors", () => {
     const itemId = "00000000-0000-4000-8000-000000000002";
     const otherItem = "00000000-0000-4000-8000-000000000003";
     for (const [check, previous, previousItem] of [
-      ["uri-checksum", undefined, undefined],
-      ["uri-checksum", "uri-checksum", itemId],
-      ["uri-checksum", "uri-checksum", otherItem],
-      ["sdk-decrypt", "uri-checksum", itemId],
+      ["attachment", undefined, undefined],
+      ["attachment", "attachment", itemId],
+      ["attachment", "attachment", otherItem],
+      ["sdk-decrypt", "attachment", itemId],
     ] as const)
       log.vaultCheck({
         connectionId,
@@ -2907,9 +2907,9 @@ describe("unhandled errors", () => {
       undefined,
       { outcome: "failed", cause: "http-error", status: 503 },
       { outcome: "failed", cause: "http-error", status: 429 },
-      { outcome: "failed", cause: "crypto-failed", check: "uri-checksum" },
+      { outcome: "failed", cause: "crypto-failed", check: "attachment" },
       undefined,
-      { outcome: "failed", cause: "crypto-failed", check: "uri-checksum" },
+      { outcome: "failed", cause: "crypto-failed", check: "attachment" },
       { outcome: "failed", cause: "crypto-failed", check: "sdk-decrypt" },
     ]);
     vi.restoreAllMocks();

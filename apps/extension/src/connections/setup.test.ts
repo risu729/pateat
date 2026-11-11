@@ -1423,7 +1423,7 @@ describe("durable provider sessions", () => {
     await connected(h);
     const detail = {
       code: "crypto-failed" as const,
-      check: "uri-checksum" as const,
+      check: "attachment" as const,
       item: "00000000-0000-4000-8000-000000000002",
       revised: 1_762_720_517_000,
     };
@@ -1435,7 +1435,7 @@ describe("durable provider sessions", () => {
     expect(await restarted.service.autoSync(accountProfile.connectionId, hold())).toEqual({
       outcome: "failed",
       cause: "crypto-failed",
-      check: "uri-checksum",
+      check: "attachment",
       item: detail.item,
       revised: detail.revised,
     });
