@@ -32,17 +32,10 @@ import {
   type SemanticSlot,
 } from "@pateat/contracts";
 import { toJsonSchema } from "@valibot/to-json-schema";
-import type { LanguageModel } from "ai";
 import * as v from "valibot";
-import {
-  noUsage,
-  promptVersionOf,
-  requestBytes,
-  roleLimitsSchema,
-  type InferenceOutcome,
-  type RoleLimits,
-} from "./outcome";
-import { described, runStructuredRole, type Interpreted } from "./structured";
+import { noUsage, promptVersionOf, type InferenceOutcome } from "./outcome";
+import { described, type Interpreted } from "./structured";
+import { createStructuredRole, type StructuredRoleConfig } from "./structured-role";
 
 const reference = v.pipe(v.string(), v.maxLength(64));
 /**
@@ -658,20 +651,12 @@ function asksForInput(candidate: ObservedCandidate): boolean {
  * (ADR 0065). A named passkey or password button that is not a button of this page, and a code
  * that fails the checks of `totpCode`, are dropped.
  */
-export function createCompletionJudge(config: {
-  model: Exclude<LanguageModel, string>;
-  limits: RoleLimits;
-  maxOutputTokens: number;
-  refusalCategory?: (providerMetadata: unknown) => string | undefined;
-}) {
-  if (typeof config.model !== "object" || config.model === null)
-    throw new TypeError("Pass a configured model instance");
-  const limits = v.parse(roleLimitsSchema, config.limits);
-  const maxOutputTokens = v.parse(
-    v.pipe(v.number(), v.integer(), v.minValue(16), v.maxValue(16_384)),
-    config.maxOutputTokens,
-  );
-
+export function createCompletionJudge(config: StructuredRoleConfig) {
+  const call = createStructuredRole(config, {
+    schema: judgedPageSchema,
+    schemaJson: outputSchemaJson,
+    name: "sign_in_judgement",
+  });
   return async function judge(
     request: CompletionRequest,
   ): Promise<InferenceOutcome<SignInJudgement>> {
@@ -709,20 +694,11 @@ export function createCompletionJudge(config: {
       : request.beside
         ? completionBesideInstructions
         : completionInstructions;
-    if (requestBytes([instructions, prompt, outputSchemaJson]) > limits.maxInputBytes)
-      return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
-
     const page = observation.output;
-    return runStructuredRole({
-      model: config.model,
+    return call({
       instructions,
       prompt,
-      schema: judgedPageSchema,
-      name: "sign_in_judgement",
-      limits,
-      maxOutputTokens,
       abortSignal: request.abortSignal,
-      refusalCategory: config.refusalCategory,
       answer: (output) => loggedAnswer(page, slots.output, output),
       interpret: (output): Interpreted<SignInJudgement> => {
         const draft = output.result;

@@ -12,18 +12,11 @@ import {
   type LogoutTarget,
 } from "@pateat/contracts";
 import { toJsonSchema } from "@valibot/to-json-schema";
-import type { LanguageModel } from "ai";
 import * as v from "valibot";
-import {
-  noUsage,
-  promptVersionOf,
-  requestBytes,
-  roleLimitsSchema,
-  type InferenceOutcome,
-  type RoleLimits,
-} from "./outcome";
+import { noUsage, promptVersionOf, type InferenceOutcome } from "./outcome";
 import { accountText, type EntryRejection } from "./plan";
-import { described, runStructuredRole, type Interpreted } from "./structured";
+import { described, type Interpreted } from "./structured";
+import { createStructuredRole, type StructuredRoleConfig } from "./structured-role";
 
 // The logout role of an account switch (ADR 0063): which control of a signed-in page signs
 // out, or opens the menu holding it, or confirms a sign-out the page asks about.
@@ -146,19 +139,12 @@ export type LogoutGenerationRequest = { observation: unknown; abortSignal?: Abor
  * never retried on another provider or model. The page must show no field to fill and
  * list no accounts, as a page without a login form (ADR 0031).
  */
-export function createLogoutGenerator(config: {
-  model: Exclude<LanguageModel, string>;
-  limits: RoleLimits;
-  maxOutputTokens: number;
-  refusalCategory?: (providerMetadata: unknown) => string | undefined;
-}) {
-  if (typeof config.model !== "object" || config.model === null)
-    throw new TypeError("Pass a configured model instance");
-  const limits = v.parse(roleLimitsSchema, config.limits);
-  const maxOutputTokens = v.parse(
-    v.pipe(v.number(), v.integer(), v.minValue(16), v.maxValue(16_384)),
-    config.maxOutputTokens,
-  );
+export function createLogoutGenerator(config: StructuredRoleConfig) {
+  const call = createStructuredRole(config, {
+    schema: logoutAnswerSchema,
+    schemaJson: outputSchemaJson,
+    name: "logout_control",
+  });
   return async function generateLogout(
     request: LogoutGenerationRequest,
   ): Promise<InferenceOutcome<ValidatedLogout>> {
@@ -169,18 +155,10 @@ export function createLogoutGenerator(config: {
       return { status: "failed", error: "incomplete-observation", calls: 0, usage: noUsage };
     const page = observation.output;
     const prompt = JSON.stringify({ task: "logout", observation: page });
-    if (requestBytes([logoutInstructions, prompt, outputSchemaJson]) > limits.maxInputBytes)
-      return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
-    return runStructuredRole({
-      model: config.model,
+    return call({
       instructions: logoutInstructions,
       prompt,
-      schema: logoutAnswerSchema,
-      name: "logout_control",
-      limits,
-      maxOutputTokens,
       abortSignal: request.abortSignal,
-      refusalCategory: config.refusalCategory,
       answer: (output) => loggedAnswer(page, output),
       interpret: ({ result }): Interpreted<ValidatedLogout> => {
         if (result.decision === "abstain") return { status: "abstained", reason: result.reason };
