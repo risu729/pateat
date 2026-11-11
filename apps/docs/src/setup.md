@@ -271,6 +271,11 @@ A running login in another tab, missing site access, a locked vault or a
 required master password still needs attention. A page classified as a confirmation
 is re-evaluated, not executed as a login merely because this button was pressed.
 
+With **Fill only**, **Log in now** can start one normal login once Pateat is waiting
+for you. It cannot interrupt an input or passkey operation, and the site's/profile's
+setting stays unchanged. A confirmation page set to **Off** can be re-evaluated too;
+if it is still classified as a verification, Pateat leaves it untouched.
+
 On a site's page that waits for no account choice, **Switch account** in the popup lists
 the site's matching accounts. **Switch to this account** logs the tab out of the site,
 then logs in with that account; **Make it the default** keeps it as the site's default

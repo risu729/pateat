@@ -299,6 +299,8 @@ export type LoginRuntimeOptions = {
    * write still waits (ADR 0007): the login treats it as listed already.
    */
   pendingBrowserSite?: (origin: string) => boolean;
+  /** A passkey request is reading, choosing or signing in this exact document. */
+  passkeyActive?: (documentId: string) => boolean;
   /** Receives each attempt state change, refusal and generation result. */
   report?: (report: LoginReport) => void;
   /**

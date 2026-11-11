@@ -1,6 +1,6 @@
 import { type LoginAttemptMetadata } from "@pateat/contracts";
 import { recordKey, siteOf } from "./steps";
-import { terminal, watchOver, idle } from "./attempt-state";
+import { terminal, watchOver, idle, passiveFillWaiting } from "./attempt-state";
 import { manualPending } from "./manual-scope";
 import type { LiveDocument, Execution } from "./types";
 import {
@@ -106,6 +106,8 @@ export function manualHeldElsewhere(rt: Runtime, tabId: number, origin: string):
     [...rt.attempts.values()].some(
       (run) =>
         run.running &&
+        (!passiveFillWaiting(run.metadata, run) ||
+          rt.options.passkeyActive?.(run.metadata.document.documentId)) &&
         run.metadata.document.tabId !== tabId &&
         run.metadata.account.origin === origin &&
         sharesCookies(rt, tabId, run.metadata.document.tabId),
@@ -119,6 +121,8 @@ export function manualHeldElsewhere(rt: Runtime, tabId: number, origin: string):
       record.document.tabId !== tabId &&
       record.account.origin === origin &&
       sharesCookies(rt, tabId, record.document.tabId) &&
+      (!passiveFillWaiting(record, rt.attempts.get(record.document.tabId)) ||
+        rt.options.passkeyActive?.(record.document.documentId)) &&
       ((!terminal(record) && !record.settled) ||
         (record.state === "watching" && !watchOver(record, Date.now()))),
   );
@@ -150,6 +154,8 @@ export function manualExecutionConflict(rt: Runtime, run: Execution): boolean {
       sharesCookies(rt, run.metadata.document.tabId, other.metadata.document.tabId) &&
       (manual(run) || manual(other)) &&
       !terminal(other.metadata) &&
+      (!passiveFillWaiting(other.metadata, other) ||
+        rt.options.passkeyActive?.(other.metadata.document.documentId)) &&
       (other.running ||
         !idle(other.metadata) ||
         (other.metadata.state === "watching" && !watchOver(other.metadata, Date.now()))),

@@ -160,10 +160,16 @@ export async function fillBoundary(rt: Runtime, run: Execution): Promise<boolean
     if (!current(rt, run)) return false;
     // The content script observes the document's own signals; timeout bounds only the
     // message so policy changes/cancellation are rechecked even on a quiet page.
-    const response = await send(rt, run.live, {
-      type: "login.fill.change",
-      timeoutMs: LOGIN_STEP_WAIT_MS,
-    }).catch(() => undefined);
+    run.fillWaiting = true;
+    let response: unknown;
+    try {
+      response = await send(rt, run.live, {
+        type: "login.fill.change",
+        timeoutMs: LOGIN_STEP_WAIT_MS,
+      }).catch(() => undefined);
+    } finally {
+      delete run.fillWaiting;
+    }
     if (!response || !current(rt, run)) return false;
   }
   /* eslint-enable no-await-in-loop */

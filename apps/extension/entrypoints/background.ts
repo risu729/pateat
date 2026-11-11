@@ -478,10 +478,12 @@ export default defineBackground(() => {
   const noteSignIn = (tabId: number, origin: string, rpId?: string) =>
     void signIns.add(tabId, { origin, ...(rpId === undefined ? {} : { rpId }) }).catch(() => {});
   let siteWaitAwake: ReturnType<typeof setInterval> | undefined;
+  let passkeyActive: ((documentId: string) => boolean) | undefined;
   const login = createLoginRuntime(loginSettings, {
     bindingScope: async (snapshot) =>
       bindingProfileScope(await settingsBaseStorage.read(), snapshot, await service.connection()),
     bindingSnapshotCurrent: connections.snapshotCurrent,
+    passkeyActive: (documentId) => passkeyActive?.(documentId) ?? false,
     vault: vaultSync,
     // Wakes a stopped worker to end a login whose wait for the site or watch ran out
     // (ADR 0022).
@@ -728,6 +730,7 @@ export default defineBackground(() => {
         // The open vault is not replaced while a passkey request is looked up or signed.
         hold: () => vaultSync.enter(false),
       });
+  passkeyActive = passkeys.active;
   // ADR 0007: a registration listing the vault's passkey right after a Pateat sign-in in the
   // tab is refused; every other one goes to the browser. It only reads the vault.
   const passkeyCreate = createPasskeyCreateHandler(passkeyProbe?.source ?? vaultPasskeys, {

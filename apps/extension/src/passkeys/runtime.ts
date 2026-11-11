@@ -47,6 +47,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   options: PasskeyRuntimeOptions<TCandidate>,
 ) {
   const operations = new Map<string, Operation>();
+  // Includes the final reply after `get` removes its operation. A manual handoff must
+  // not slip between signing and returning the assertion to the content script.
+  const answering = new Map<string, number>();
   /**
    * Requests still reading the device's policy, before they become operations: a page's
    * cancel that arrives meanwhile is kept here, so it is not lost.
@@ -388,6 +391,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   }
 
   return {
+    /** Local coordination only; a manual login must not overlap a page's passkey request. */
+    active(documentId: string): boolean {
+      return (answering.get(documentId) ?? 0) > 0;
+    },
     /**
      * Settings changed, so in-flight operations no longer follow them and are cancelled. One
      * that opened the chooser window is left to its person; the passkey chosen there is looked
@@ -411,80 +418,88 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         operation.controller.abort();
         return { ok: true };
       }
-      const { request } = command;
-      // Read as the request comes in, for the report only; the answer never waits for it.
-      const loginAtEntry = Promise.try(() => options.loginAccount?.(sender.tab!.id!, origin)).catch(
-        () => undefined,
-      );
-      if (
-        !(typeof request === "object" && request !== null && "mediation" in request) ||
-        request.mediation !== "conditional"
-      )
-        try {
-          options.requested?.(sender.tab!.id!, origin);
-        } catch {
-          // Never changes the answer.
-        }
-      const detail: ReportDetail = {};
-      const after: After<TCandidate> = {};
-      const result = await get(
-        command,
-        origin,
-        {
-          documentId: sender.documentId!,
-          tabId: sender.tab!.id!,
-          incognito: sender.tab?.incognito === true,
-          // A prerendered or cached document never gets a window.
-          active: sender.documentLifecycle === "active",
-        },
-        detail,
-        after,
-      );
-      if (result.kind === "assertion" && detail.rpId !== undefined && after.signed)
-        try {
-          options.answered?.(sender.tab!.id!, origin, detail.rpId, after.signed, {
-            ...(after.silent ? { silent: true } : {}),
-            incognito: sender.tab?.incognito === true,
-            // senderOrigin() accepted only a top document with an ID.
+      const documentId = sender.documentId!;
+      answering.set(documentId, (answering.get(documentId) ?? 0) + 1);
+      try {
+        const { request } = command;
+        // Read as the request comes in, for the report only; the answer never waits for it.
+        const loginAtEntry = Promise.try(() =>
+          options.loginAccount?.(sender.tab!.id!, origin),
+        ).catch(() => undefined);
+        if (
+          !(typeof request === "object" && request !== null && "mediation" in request) ||
+          request.mediation !== "conditional"
+        )
+          try {
+            options.requested?.(sender.tab!.id!, origin);
+          } catch {
+            // Never changes the answer.
+          }
+        const detail: ReportDetail = {};
+        const after: After<TCandidate> = {};
+        const result = await get(
+          command,
+          origin,
+          {
             documentId: sender.documentId!,
-          });
-        } catch {
-          // Never changes the answer.
-        }
-      const remembered = after.remember;
-      const mediation = mediationOf(request);
-      if (mediation) detail.mediation = mediation;
-      if (typeof request === "object" && request !== null && "uiMode" in request)
-        if (request.uiMode === "immediate") detail.uiMode = "immediate";
-      if (remembered && options.remember) {
-        const remember = options.remember;
-        // After the reply is on its way: saving settings cancels pending passkey requests.
-        setTimeout(() => void remember(origin, remembered).catch(() => undefined), 0);
-      }
-      if (after.browserSite && options.addBrowserSite) {
-        const add = options.addBrowserSite;
-        setTimeout(() => void add(origin).catch(() => undefined), 0);
-      }
-      const report = (login?: unknown) => {
-        try {
-          options.report?.({
-            ...detail,
-            // senderOrigin() accepted only a sender with a tab.
             tabId: sender.tab!.id!,
-            origin,
-            outcome: result.kind,
-            ...(result.kind === "delegate" ? { reason: result.reason } : {}),
-            ...(login ? { duringLogin: true } : {}),
-          });
-        } catch {
-          // A report must never change the answer.
+            incognito: sender.tab?.incognito === true,
+            // A prerendered or cached document never gets a window.
+            active: sender.documentLifecycle === "active",
+          },
+          detail,
+          after,
+        );
+        if (result.kind === "assertion" && detail.rpId !== undefined && after.signed)
+          try {
+            options.answered?.(sender.tab!.id!, origin, detail.rpId, after.signed, {
+              ...(after.silent ? { silent: true } : {}),
+              incognito: sender.tab?.incognito === true,
+              // senderOrigin() accepted only a top document with an ID.
+              documentId: sender.documentId!,
+            });
+          } catch {
+            // Never changes the answer.
+          }
+        const remembered = after.remember;
+        const mediation = mediationOf(request);
+        if (mediation) detail.mediation = mediation;
+        if (typeof request === "object" && request !== null && "uiMode" in request)
+          if (request.uiMode === "immediate") detail.uiMode = "immediate";
+        if (remembered && options.remember) {
+          const remember = options.remember;
+          // After the reply is on its way: saving settings cancels pending passkey requests.
+          setTimeout(() => void remember(origin, remembered).catch(() => undefined), 0);
         }
-      };
-      // A delegated request is reported once the login read as it came in is known, after
-      // the reply is on its way.
-      if (result.kind === "delegate") void loginAtEntry.then(report);
-      else report();
-      return result;
+        if (after.browserSite && options.addBrowserSite) {
+          const add = options.addBrowserSite;
+          setTimeout(() => void add(origin).catch(() => undefined), 0);
+        }
+        const report = (login?: unknown) => {
+          try {
+            options.report?.({
+              ...detail,
+              // senderOrigin() accepted only a sender with a tab.
+              tabId: sender.tab!.id!,
+              origin,
+              outcome: result.kind,
+              ...(result.kind === "delegate" ? { reason: result.reason } : {}),
+              ...(login ? { duringLogin: true } : {}),
+            });
+          } catch {
+            // A report must never change the answer.
+          }
+        };
+        // A delegated request is reported once the login read as it came in is known, after
+        // the reply is on its way.
+        if (result.kind === "delegate") void loginAtEntry.then(report);
+        else report();
+        return result;
+      } finally {
+        const remaining = (answering.get(documentId) ?? 1) - 1;
+        if (remaining > 0) answering.set(documentId, remaining);
+        else answering.delete(documentId);
+      }
     },
   };
 }

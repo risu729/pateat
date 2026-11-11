@@ -406,12 +406,12 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
         return ctx.refuse("sign-in-page-required");
       }
       if (!(await automaticFill(rt, ctx.live))) {
-      ctx.live.state = "watching";
-      delete ctx.live.reason;
-      await publish(rt, ctx.live);
-      void pressEntry(rt, ctx.live, entryRecipe).catch(() =>
-        refuseEntry(rt, ctx.live, entryRecipe, "exception"),
-      );
+        ctx.live.state = "watching";
+        delete ctx.live.reason;
+        await publish(rt, ctx.live);
+        void pressEntry(rt, ctx.live, entryRecipe).catch(() =>
+          refuseEntry(rt, ctx.live, entryRecipe, "exception"),
+        );
         return { ok: false, reason: "entry", starts };
       }
     }
