@@ -191,7 +191,28 @@ export async function destinationRefusal(
   run: Execution,
   destination: URL,
 ): Promise<Exclude<DestinationAnswer, { ok: true }>["reason"] | undefined> {
-  const page = new URL(run.live.document.origin);
+  return accountDestinationRefusal(
+    rt,
+    {
+      origin: run.live.document.origin,
+      account: run.metadata.account,
+      policyRevision: run.metadata.policyRevision,
+    },
+    destination,
+  );
+}
+
+/** The same destination policy for an ordinary step and a document-bound detail fill. */
+export async function accountDestinationRefusal(
+  rt: Runtime,
+  context: {
+    origin: string;
+    account: { connectionId: string; itemId: string };
+    policyRevision: number;
+  },
+  destination: URL,
+): Promise<Exclude<DestinationAnswer, { ok: true }>["reason"] | undefined> {
+  const page = new URL(context.origin);
   // HTTPS, or HTTP from an HTTP document (ADR 0050); the content script sends no other.
   if (
     destination.protocol !== "https:" &&
@@ -208,19 +229,18 @@ export async function destinationRefusal(
   const snapshot = await rt.settings
     .handle({ version: 1, type: "settings.get" })
     .catch(() => undefined);
-  if (!snapshot?.ok || snapshot.snapshot.revision !== run.metadata.policyRevision)
-    return "unchecked";
+  if (!snapshot?.ok || snapshot.snapshot.revision !== context.policyRevision) return "unchecked";
   const matched = await itemMatchesUrl(
     rt,
     snapshot,
-    run.metadata.account,
+    context.account,
     destination.href,
     snapshot.catalog,
   );
   if (!("reason" in matched)) return undefined;
   // A Bitwarden connection without a snapshot is one whose vault is not readable now.
   const connection = snapshot.catalog.connections.find(
-    (entry) => entry.id === run.metadata.account.connectionId,
+    (entry) => entry.id === context.account.connectionId,
   );
   const unreadable = connection?.provider === "bitwarden" && !connection.snapshotId;
   return matched.reason === "mismatch" && !unreadable ? "item-mismatch" : "unchecked";

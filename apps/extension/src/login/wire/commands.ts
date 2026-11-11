@@ -4,6 +4,7 @@ import {
   listClickSchema,
   loginFieldTargetSchema,
   loginOperationSchema,
+  loginOriginSchema,
   loginMarkerTargetSchema,
   loginTargetSchema,
   logoutPurposeSchema,
@@ -190,6 +191,12 @@ export const commandSchema = v.variant("type", [
     type: v.literal("login.detail.fill"),
     token: id,
     path,
+    /** The pending, document-bound fill whose destinations the background authorizes. */
+    fillId: id,
+    expiresAt: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    origin: loginOriginSchema,
+    /** The shown handler button, checked for a submitter's `formaction` before filling. */
+    submit: loginTargetSchema,
     fields: v.pipe(
       v.array(
         v.strictObject({

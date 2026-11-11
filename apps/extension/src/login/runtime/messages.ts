@@ -10,6 +10,7 @@ import { browser } from "wxt/browser";
 import {
   authorizeSchema,
   destinationCheckSchema,
+  detailAuthorizeSchema,
   keypadPressSchema,
   cancelSchema,
   configureSchema,
@@ -52,13 +53,13 @@ import {
   pauseOf,
 } from "./pause";
 import { switchFor } from "./switch-run";
-import { popupDetail, popupDetailFill, popupDetailRemove } from "./detail-popup";
+import { popupDetail, popupDetailFill, popupDetailRemove, detailFillCurrent } from "./detail-popup";
 import { repromptFor, dropReprompt } from "./master-password";
 import { routedHere, describedHere, terminal, idle } from "./attempt-state";
 import { drive } from "./run-steps";
 import { frameKey, choiceKey } from "./steps";
 import { ready } from "./generation";
-import { destinationRefusal } from "./plan";
+import { destinationRefusal, accountDestinationRefusal } from "./plan";
 import { allowed } from "./plan-2";
 import { reviewRequests } from "./passkey";
 import { armSiteWait, quietly, scopes } from "./session-store";
@@ -309,6 +310,41 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
       void answer.finally(() => announced(tabId, url)).catch(() => undefined);
     }
     return answer;
+  }
+  const detailAuthorization = v.safeParse(detailAuthorizeSchema, message);
+  if (detailAuthorization.success) {
+    const request = detailAuthorization.output;
+    const grant = rt.detailFills.get(request.fillId);
+    const document = await identify(rt, sender);
+    if (
+      !grant ||
+      !document ||
+      grant.live.token !== request.token ||
+      !sameLoginDocument(grant.live.document, document) ||
+      (grant.live.topUrl !== undefined &&
+        (!sender.tab?.url ||
+          new URL(sender.tab.url).origin !== new URL(grant.live.topUrl).origin)) ||
+      !(await detailFillCurrent(rt, request.fillId, grant))
+    )
+      return false;
+    for (const value of request.destinations) {
+      const destination = URL.parse(value);
+      if (
+        !destination ||
+        // eslint-disable-next-line no-await-in-loop
+        (await accountDestinationRefusal(
+          rt,
+          {
+            origin: document.origin,
+            account: grant.offer.account,
+            policyRevision: grant.policyRevision,
+          },
+          destination,
+        )) !== undefined
+      )
+        return false;
+    }
+    return detailFillCurrent(rt, request.fillId, grant);
   }
   const destinationCheck = v.safeParse(destinationCheckSchema, message);
   if (destinationCheck.success) {
