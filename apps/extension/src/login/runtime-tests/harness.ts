@@ -176,6 +176,7 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
       /** The items holding a discoverable passkey for an origin (ADR 0034). */
       passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
+      passkeyActive?: (documentId: string) => boolean;
       /** A hostname chosen "Always for this site" whose write still waits (ADR 0007). */
       pendingBrowserSite?: (origin: string) => boolean;
       bindingScope?: Parameters<typeof createLoginRuntime>[1]["bindingScope"];
@@ -415,6 +416,7 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       ...(live.repairs ? { repairs: live.repairs } : {}),
       ...(live.passkeys ? { passkeys: live.passkeys } : {}),
       ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
+      ...(live.passkeyActive ? { passkeyActive: live.passkeyActive } : {}),
       ...(live.pendingBrowserSite ? { pendingBrowserSite: live.pendingBrowserSite } : {}),
       ...(live.vault ? { vault: live.vault } : {}),
       ...(live.bindingScope ? { bindingScope: live.bindingScope } : {}),

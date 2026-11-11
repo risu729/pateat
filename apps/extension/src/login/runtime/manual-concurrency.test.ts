@@ -36,6 +36,7 @@ function harness() {
     timing: { since: 0, serviceMs: 0, networkMs: 0, personMs: 0 },
   };
   const rt = {
+    options: {},
     vars: { loaded: Promise.resolve(), sessionLoaded: Promise.resolve() },
     settings: {
       handle: async () => ({ ok: true, snapshot: { settings: createDefaultSettings() } }),
@@ -52,6 +53,7 @@ function harness() {
     attempts: new Map(),
     persisted: new Map(),
     effects: new Map(),
+    continuations: new Map(),
     incognitoTabs: new Map(),
     repromptGrants: new Map(),
     repromptWaiting: new Map(),
