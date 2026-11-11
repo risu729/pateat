@@ -1,5 +1,6 @@
 import {
   DEFAULT_MODEL_CONFIG,
+  DEFAULT_OPENAI_MODEL_CONFIG,
   MAX_MODEL_CHOICES,
   modelRoles,
   type ManageModelOption,
@@ -22,12 +23,18 @@ const ROLE_TITLES: Record<ModelRole, string> = {
   judge: "Sign-in judge",
 };
 const EFFORT_LABELS = {
+  none: "None",
+  minimal: "Minimal",
   low: "Low",
   medium: "Medium",
   high: "High",
   xhigh: "Extra high",
   max: "Max",
 };
+const modelKey = (model: { provider: string; id: string }) => `${model.provider}:${model.id}`;
+const choiceKey = (choice: ModelChoice) =>
+  modelKey({ provider: choice.provider, id: choice.model });
+
 const SELECT_CLASSES = "min-h-10 rounded-lg border border-border-strong bg-surface px-3";
 
 const price = (rates: { input: number; output: number }) =>
@@ -43,7 +50,9 @@ function unavailable(model: ManageModelOption) {
 /** Whether every choice names a model the list offers, as the service checks on saving. */
 function offersConfig(models: readonly ManageModelOption[], config: ModelConfig) {
   return [...config.generate, ...config.judge].every((choice) => {
-    const model = models.find((entry) => entry.id === choice.model);
+    const model = models.find(
+      (entry) => entry.provider === choice.provider && entry.id === choice.model,
+    );
     return (
       model !== undefined &&
       unavailable(model) === undefined &&
@@ -57,6 +66,7 @@ function offersConfig(models: readonly ManageModelOption[], config: ModelConfig)
 function withModel(choice: ModelChoice, model: ManageModelOption): ModelChoice {
   return {
     ...choice,
+    provider: model.provider,
     model: model.id,
     effort: model.efforts.includes(choice.effort) ? choice.effort : (model.efforts[0] ?? "low"),
     speed: model.fast === "available" ? choice.speed : "standard",
@@ -66,11 +76,11 @@ function withModel(choice: ModelChoice, model: ManageModelOption): ModelChoice {
 /**
  * The owner's model configuration (ADR 0014): for each role, the model, effort and speed
  * to ask first, then the fallbacks asked in order after a refusal. Fast mode that fails
- * asks the same model at the standard speed. Only the Claude page reads or changes it.
+ * asks the same model at the standard speed. The provider pages read or change it.
  */
 export function ModelsPanel({ client }: { client: ManageClient }) {
   const queryClient = useQueryClient();
-  // Read once per visit: each read exchanges a new token and calls the Models API.
+  // Read once per visit: Anthropic discovery uses its own credential; OpenAI uses a priced static catalogue.
   const models = useQuery({
     queryKey: MODELS_QUERY_KEY,
     queryFn: () => client.models(),
@@ -171,7 +181,7 @@ function ModelsForm({
                 count={config[role].length}
                 choice={choice}
                 models={view.models}
-                taken={config[role].filter((_, at) => at !== index).map((entry) => entry.model)}
+                taken={config[role].filter((_, at) => at !== index).map(choiceKey)}
                 onChange={(next) =>
                   setRole(
                     role,
@@ -195,7 +205,10 @@ function ModelsForm({
           </ol>
           {(() => {
             const unused = offered.find(
-              (model) => !config[role].some((choice) => choice.model === model.id),
+              (model) =>
+                !config[role].some(
+                  (choice) => choice.provider === model.provider && choice.model === model.id,
+                ),
             );
             return (
               config[role].length < MAX_MODEL_CHOICES &&
@@ -208,7 +221,7 @@ function ModelsForm({
                       ...config[role],
                       withModel(
                         {
-                          provider: "anthropic",
+                          provider: unused.provider,
                           model: unused.id,
                           effort: "low",
                           speed: "standard",
@@ -238,6 +251,14 @@ function ModelsForm({
         >
           Use the defaults
         </Button>
+        <Button
+          variant="outline"
+          id="models-openai-defaults"
+          disabled={saving || !offersConfig(view.models, DEFAULT_OPENAI_MODEL_CONFIG)}
+          onClick={() => onChange(DEFAULT_OPENAI_MODEL_CONFIG)}
+        >
+          Use OpenAI defaults
+        </Button>
       </div>
     </form>
   );
@@ -266,7 +287,9 @@ function ChoiceRow({
   onRemove: () => void;
 }) {
   const id = `models-${role}-${index}`;
-  const model = models.find((entry) => entry.id === choice.model);
+  const model = models.find(
+    (entry) => entry.provider === choice.provider && entry.id === choice.model,
+  );
   const name = model?.displayName ?? choice.model;
   const fastNote =
     model?.fast === "failing"
@@ -284,18 +307,24 @@ function ChoiceRow({
           Model
           <select
             id={`${id}-model`}
-            value={choice.model}
+            value={choiceKey(choice)}
             className={SELECT_CLASSES}
             onChange={(event) => {
-              const next = models.find((entry) => entry.id === event.target.value);
+              const next = models.find((entry) => modelKey(entry) === event.target.value);
               if (next) onChange(withModel(choice, next));
             }}
           >
             {models.map((entry) => {
-              const reason = taken.includes(entry.id) ? "already in this list" : unavailable(entry);
+              const reason = taken.includes(modelKey(entry))
+                ? "already in this list"
+                : unavailable(entry);
               return (
-                <option key={entry.id} value={entry.id} disabled={reason !== undefined}>
-                  {entry.displayName}
+                <option
+                  key={modelKey(entry)}
+                  value={modelKey(entry)}
+                  disabled={reason !== undefined}
+                >
+                  {entry.provider === "openai" ? "OpenAI" : "Anthropic"} / {entry.displayName}
                   {reason ? ` (${reason})` : ` – ${price(entry.rates!)}`}
                 </option>
               );

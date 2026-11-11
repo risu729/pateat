@@ -1,5 +1,6 @@
 import {
   DEVICE_MODEL_URL,
+  OPENAI_DEVICE_MODEL_URL,
   deviceModelHeaderNames,
   deviceModelRequestHash,
   type DeviceModel,
@@ -77,7 +78,9 @@ export function deviceRelay(
     fetch: async (input, init) => {
       const outbound = new Request(input, init);
       // The provider adapter pins the URL; anything else is never handed to the device.
-      if (outbound.url !== DEVICE_MODEL_URL || outbound.method !== "POST")
+      const expected =
+        caller.device.provider === "openai" ? OPENAI_DEVICE_MODEL_URL : DEVICE_MODEL_URL;
+      if (outbound.url !== expected || outbound.method !== "POST")
         throw new TypeError("Unexpected model request");
       const body = await outbound.text();
       const response = caller.device.responses[caller.index];
@@ -87,7 +90,7 @@ export function deviceRelay(
           const value = outbound.headers.get(name);
           if (value !== null) headers[name] = value;
         }
-        relay.next = { index: caller.index, headers, body };
+        relay.next = { index: caller.index, provider: caller.device.provider, headers, body };
         throw new Error("Model call left to the device");
       }
       await reservation?.run();

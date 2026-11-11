@@ -7,7 +7,13 @@ import {
   type ModelConfig,
   type ModelEffort,
 } from "@pateat/contracts";
-import { claudeModelRates, claudePricedModels, type ClaudeCredential } from "@pateat/inference";
+import {
+  claudeModelRates,
+  claudePricedModels,
+  openAIPricedModels,
+  openAIModelRates,
+  type ClaudeCredential,
+} from "@pateat/inference";
 import { and, desc, eq, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
@@ -291,7 +297,9 @@ export function modelOptions(
     }
   }
   const byId = new Map(candidates.map((model) => [model.id, model]));
-  for (const choice of [...config.generate, ...config.judge])
+  for (const choice of [...config.generate, ...config.judge].filter(
+    (choice) => choice.provider === "anthropic",
+  ))
     if (!shown.some((model) => model.id === choice.model))
       shown.push(
         byId.get(choice.model) ?? {
@@ -302,9 +310,30 @@ export function modelOptions(
           efforts: [],
         },
       );
+  const openai: ManageModelOption[] = openAIPricedModels().map((model) => ({
+    provider: "openai",
+    id: model.modelId,
+    displayName: model.displayName,
+    efforts: [...model.efforts],
+    rates: { input: model.rates.input, output: model.rates.output },
+    fast: fastFailing.has(`openai:${model.modelId}`) ? "failing" : "available",
+    fastRates: { input: model.fast.input, output: model.fast.output },
+  }));
+  for (const choice of [...config.generate, ...config.judge]) {
+    if (choice.provider !== "openai" || openai.some((model) => model.id === choice.model)) continue;
+    const rates = openAIModelRates(choice.model);
+    openai.push({
+      provider: "openai",
+      id: choice.model,
+      displayName: choice.model,
+      efforts: [],
+      rates: rates ? { input: rates.input, output: rates.output } : null,
+      fast: "none",
+    });
+  }
   return {
     catalog: apiModels === undefined ? "pricing" : "models-api",
-    models: shown.map((model) => option(model, fastFailing)),
+    models: [...shown.map((model) => option(model, fastFailing)), ...openai],
   };
 }
 
@@ -314,7 +343,9 @@ export function modelOptions(
  */
 export function configOffered(config: ModelConfig, models: readonly ManageModelOption[]) {
   return [...config.generate, ...config.judge].every((choice) => {
-    const model = models.find((entry) => entry.id === choice.model);
+    const model = models.find(
+      (entry) => entry.provider === choice.provider && entry.id === choice.model,
+    );
     return (
       model !== undefined &&
       model.rates !== null &&

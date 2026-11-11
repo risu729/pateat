@@ -3,6 +3,7 @@ import {
   manageLoginHistorySchema,
   type ManageLoginHistoryQuery,
   manageClaudeSchema,
+  manageOpenAISchema,
   manageClaudeTestSchema,
   manageDevicesSchema,
   profilesSchema,
@@ -231,6 +232,22 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
     async testClaude() {
       return read(await call(fetcher, "/claude/test", { method: "POST" }), manageClaudeTestSchema);
     },
+    async openai() {
+      return read(await call(fetcher, "/openai"), manageOpenAISchema);
+    },
+    async saveOpenAI(apiKey: string) {
+      return read(
+        await call(fetcher, "/openai", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, apiKey }),
+        }),
+        manageOpenAISchema,
+      );
+    },
+    async deleteOpenAI() {
+      return read(await call(fetcher, "/openai", { method: "DELETE" }), manageOpenAISchema);
+    },
     /** The newest problem lines devices sent (ADR 0066). */
     async problems() {
       return read(await call(fetcher, "/problems"), manageProblemsSchema);
@@ -248,6 +265,8 @@ export function describeError(error: unknown): string {
       return "Your sign-in may have expired. Reload the page to sign in again.";
     case "forbidden":
       return "Your sign-in could not be verified. Reload the page to sign in again.";
+    case "credential_storage_unavailable":
+      return "The operator has not configured provider credential storage.";
     case "access_unavailable":
       return "Owner sign-in is not configured for this service.";
     case "access_keys_unavailable":
@@ -255,7 +274,7 @@ export function describeError(error: unknown): string {
     case "not_found":
       return "It no longer exists. Reload the page.";
     case "not_paired":
-      return "No device is paired with this account yet. Pair a device first; settings and Claude identifiers belong to an account with a paired device.";
+      return "No device is paired with this account yet. Pair a device first; settings and provider credentials belong to an account with a paired device.";
     case "settings_limit":
       return "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.";
     case "payload_too_large":

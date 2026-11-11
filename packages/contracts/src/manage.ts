@@ -491,6 +491,21 @@ export const manageClaudeTestSchema = v.strictObject({
   ]),
 });
 
+/** Keys are accepted on write only; status reads never return a credential. */
+export const openAIApiKeySchema = v.pipe(v.string(), v.trim(), v.nonEmpty(), v.maxLength(512));
+export const manageOpenAIWriteSchema = v.strictObject({
+  version: v.literal(1),
+  apiKey: openAIApiKeySchema,
+});
+export const manageOpenAISchema = v.strictObject({
+  version: v.literal(1),
+  configured: v.boolean(),
+  storage: v.picklist(["ready", "unavailable"]),
+  storedInvalid: v.boolean(),
+});
+export type ManageOpenAI = v.InferOutput<typeof manageOpenAISchema>;
+export type ManageOpenAIWrite = v.InferOutput<typeof manageOpenAIWriteSchema>;
+
 export const manageErrorCodeSchema = v.picklist([
   "bad_request",
   /** No Access token: the page must be reloaded through Access. */
@@ -521,6 +536,7 @@ export const manageErrorCodeSchema = v.picklist([
   /** Too many requests from this identity in the last minute. */
   "rate_limited",
   "internal_error",
+  "credential_storage_unavailable",
 ]);
 export const manageErrorSchema = v.strictObject({ error: manageErrorCodeSchema });
 /**

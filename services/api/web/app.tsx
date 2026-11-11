@@ -3,6 +3,7 @@ import logo from "../../../apps/extension/icons/icon.svg?url";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { describeError, type ManageClient } from "./api";
+import { OpenAIPage } from "./openai";
 import { ClaudePage } from "./claude";
 import { DashboardPage } from "./dashboard";
 import { SETTINGS_QUERY_KEY } from "./settings";
@@ -33,6 +34,7 @@ const PAGES = [
   { path: "/manage/profiles", title: "Profiles", Page: ProfilesPage },
   { path: "/manage", title: "Devices", Page: DevicesPage },
   { path: "/manage/claude", title: "Claude", Page: ClaudePage },
+  { path: "/manage/openai", title: "OpenAI", Page: OpenAIPage },
   { path: "/manage/problems", title: "Problems", Page: ProblemsPage },
   { path: "/manage/request-log", title: "Request log", Page: RequestLogPage },
 ] as const;

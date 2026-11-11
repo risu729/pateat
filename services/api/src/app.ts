@@ -18,6 +18,7 @@ import { message } from "./pages";
 import { traceRequest } from "./request-timing";
 import { deviceRoutes } from "./routes/device";
 import { manageApiRoutes } from "./routes/manage-api";
+import { manageOpenAIRoutes } from "./routes/manage-openai";
 import { manageClaudeRoutes } from "./routes/manage-claude";
 import { oidcRoutes } from "./routes/oidc";
 import { createPairedDevice, pairLimit } from "./routes/pair";
@@ -66,6 +67,7 @@ export const app = new Hono<ApiEnv>()
   )
   .route("/manage/api", manageApiRoutes)
   .route("/manage/api/claude", manageClaudeRoutes)
+  .route("/manage/api/openai", manageOpenAIRoutes)
   .all("/manage/api/dashboard", methodNotAllowed("GET"))
   .all("/manage/api/logins", methodNotAllowed("GET"))
   .all("/manage/api/devices", methodNotAllowed("GET"))
@@ -79,6 +81,7 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/api/request-log", methodNotAllowed("GET, DELETE"))
   .all("/manage/api/models", methodNotAllowed("GET, PUT"))
   .all("/manage/api/claude", methodNotAllowed("GET, PUT"))
+  .all("/manage/api/openai", methodNotAllowed("GET, PUT, DELETE"))
   .all("/manage/api/claude/test", methodNotAllowed("POST"))
   .all("/manage/api/problems", methodNotAllowed("GET"))
   .get("/manage/assets/*", requireAccess, appAsset)
@@ -89,6 +92,8 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/dashboard", methodNotAllowed("GET"))
   .get("/manage/request-log", requireAccess, appPage)
   .all("/manage/request-log", methodNotAllowed("GET"))
+  .get("/manage/openai", requireAccess, appPage)
+  .all("/manage/openai", methodNotAllowed("GET"))
   .get("/manage/claude", requireAccess, appPage)
   .all("/manage/claude", methodNotAllowed("GET"))
   .get("/manage/profiles", requireAccess, appPage)

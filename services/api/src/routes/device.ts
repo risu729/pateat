@@ -10,8 +10,9 @@ import { bodyLimit } from "hono/body-limit";
 import * as v from "valibot";
 import type { ApiEnv } from "../auth";
 import { limitReached, purgeExpiredLog } from "../claude/calls";
-import { readWifCredential } from "../claude/credentials";
-import { readIssuerConfig, signingKeyImports } from "../claude/issuer";
+import { providerUnavailable } from "../claude/provider-credentials";
+import { readModelConfig } from "../claude/models";
+import { roleChoices } from "@pateat/generation";
 import { devices, owners, problemLog, settings } from "../db/schema";
 import { apiError } from "../http";
 import { MAX_PROBLEM_LINES_PER_DAY } from "../limits";
@@ -22,15 +23,6 @@ import { jsonBody, requireJsonBody } from "../validation";
 const MAX_PROBLEM_REPORT_BYTES = 64 * 1024;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** The checks a generation call makes after its spend stop, in the same order. */
-async function generationReady(env: ApiEnv["Bindings"], configured: boolean) {
-  if (!configured) return "credentials-not-configured" as const;
-  const issuer = readIssuerConfig(env);
-  return issuer && (await signingKeyImports(issuer))
-    ? ("ok" as const)
-    : ("issuer-unavailable" as const);
-}
-
 export const deviceRoutes = new Hono<ApiEnv>()
   /**
    * The calling device's server-side state for its diagnostics page (ADR 0019): no other
@@ -40,7 +32,7 @@ export const deviceRoutes = new Hono<ApiEnv>()
     const { ownerId, deviceId } = c.get("scope");
     const db = drizzle(c.env.DB);
     const now = Date.now();
-    const [[device], [recipes], [stored], credential, limit] = await Promise.all([
+    const [[device], [recipes], [stored], modelConfig, limit] = await Promise.all([
       db
         .select({ createdAt: devices.createdAt })
         .from(devices)
@@ -54,17 +46,21 @@ export const deviceRoutes = new Hono<ApiEnv>()
         .select({ revision: settings.revision })
         .from(settings)
         .where(eq(settings.ownerId, ownerId)),
-      readWifCredential(c.env.DB, ownerId),
+      readModelConfig(c.env.DB, ownerId),
       limitReached(db, ownerId, now),
     ]);
     // The device passed authentication in this request, so its row exists.
     if (!device) return apiError(c, 401, { error: "unauthorized" });
+    const provider = roleChoices(modelConfig.config, "generate")[0]?.provider;
+    const readiness = provider
+      ? await providerUnavailable(c.env, ownerId, provider)
+      : "credentials-not-configured";
     const state: SyncDeviceState = {
       version: 1,
       pairedAt: device.createdAt,
       recipes: recipes?.total ?? 0,
       settingsRevision: stored?.revision ?? 0,
-      generation: limit ?? (await generationReady(c.env, credential !== null)),
+      generation: limit ?? readiness ?? "ok",
     };
     return c.json(state);
   })
