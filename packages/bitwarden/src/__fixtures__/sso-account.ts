@@ -2,7 +2,7 @@
 // existing upstream V1 user key, independent Node AES-256-CBC/HMAC-SHA256 and IV
 // 000102030405060708090a0b0c0d0e0f. No test runtime encryptor or decryption mock.
 import { rawLoginCipher, rawV1Account, syntheticJwt } from "./account";
-import { legacyPassword, legacyUsername } from "./crypto";
+import { fidoCredential, legacyPassword, legacyUsername } from "./crypto";
 
 export const syntheticSsoOrigins = {
   rp: "https://rp.synthetic.example.test",
@@ -38,7 +38,22 @@ const encrypted = {
     "2.AAECAwQFBgcICQoLDA0ODw==|I649m0wOxgQmYIZWdsSmR8WQxSJ1HF8I9DHcsOK77LcXUPS47M/wYzniz6o2bOVk|7Pa5AvAqvkZ9QpCLZ3z22QkUO58PDnHxyfc8fFGdgCc=",
 } as const;
 
-export function rawSsoAccount(exactUri: boolean, nowSeconds: number) {
+const idpPasskeyRpId =
+  "2.AAECAwQFBgcICQoLDA0ODw==|CyQImCJPY0OCwPiO/ye3IqvEG1MGU/h8c4gVdfXAn/E=|3Im1BpIhqFqbrhEJs/QDB4GCmSY2kAEpRGsu9G7R6M8=";
+
+const siblingUri = {
+  uri: "2.AAECAwQFBgcICQoLDA0ODw==|5xq+IyItJI2K8q6V1LoPcubvSmEHw+5v1Cf5gbAh+Nen9vowxDtUUI1BVpewyVvF+QyZEI9P3o40UvUpBUviig==|XGbmkKF4fcayTCOYOFAQeW8A8mZRvqp14pH2RE2iemQ=",
+  uriChecksum:
+    "2.AAECAwQFBgcICQoLDA0ODw==|dYvR5OkmQ9Vh9mvf7AwvAFvZYSkdXVafzYBTLNCswh2Jr5ba/ckp89yRlie2w1Bm|eWCutZRODhug/n/C0KB7+h2BPk+bN3FWhkC4866IL74=",
+  match: 1,
+};
+
+export function rawSsoAccount(
+  exactUri: boolean,
+  nowSeconds: number,
+  passkey = false,
+  sibling = false,
+) {
   const raw = rawV1Account();
   const item = (kind: keyof typeof syntheticSsoItemIds) => {
     const source = rawLoginCipher();
@@ -53,7 +68,7 @@ export function rawSsoAccount(exactUri: boolean, nowSeconds: number) {
     const fields = rp
       ? [{ name: encrypted.fieldName, value: encrypted.fieldValue, type: 0, linkedId: null }]
       : [];
-    const uris = [
+    const uris: { uri: string; uriChecksum: string; match: number }[] = [
       {
         uri: rp ? encrypted.rpUri : encrypted.idpUri,
         uriChecksum: rp ? encrypted.rpChecksum : encrypted.idpChecksum,
@@ -61,14 +76,30 @@ export function rawSsoAccount(exactUri: boolean, nowSeconds: number) {
         match: exactUri && !rp ? 3 : 1,
       },
     ];
-    const login = { ...source.login, username, password, uris };
+    if (sibling && kind === "idp") uris.push(siblingUri);
+    const login = {
+      ...source.login,
+      username,
+      password,
+      uris,
+      fido2Credentials:
+        passkey && kind === "idp" ? [{ ...fidoCredential, rpId: idpPasskeyRpId }] : null,
+    };
     return {
       ...source,
       id: syntheticSsoItemIds[kind],
       name,
       login,
       fields,
-      data: JSON.stringify({ ...JSON.parse(source.data), name, username, password, uris, fields }),
+      data: JSON.stringify({
+        ...JSON.parse(source.data),
+        name,
+        username,
+        password,
+        uris,
+        fields,
+        fido2Credentials: login.fido2Credentials,
+      }),
     };
   };
   return {
