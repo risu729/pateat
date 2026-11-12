@@ -16,7 +16,7 @@ function passwordInput(input: SecretInput): boolean {
 /**
  * A short numeric field, as a code or a PIN goes in. Its `inputmode` is read from the
  * attribute, trimmed and in lower case, as the page's description reads it
- * (observation/extract.ts), so the service and the fill agree on every value.
+ * (observation/extract-candidates.ts), so the service and the fill agree on every value.
  */
 export function shortNumericInput(input: SecretInput): boolean {
   const maxLength = input.maxLength ?? -1;
@@ -37,10 +37,10 @@ export function codeInput(input: SecretInput): boolean {
   return autocompleteTokens(input).includes("one-time-code") || shortNumericInput(input);
 }
 
-/** The `autocomplete` tokens a page's description names (observation/extract.ts). */
+/** The `autocomplete` tokens a page's description names (observation/extract-candidates.ts). */
 const describedTokens: ReadonlySet<string> = new Set(observedAutocompleteTokens);
 
-/** The `inputmode` values a page's description shows (observation/extract.ts). */
+/** The `inputmode` values a page's description shows (observation/extract-candidates.ts). */
 const describedInputModes: ReadonlySet<string> = new Set(observedInputModes);
 
 /**

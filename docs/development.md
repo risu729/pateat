@@ -10,6 +10,14 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
+The connection setup service keeps flow and caller lifecycle, manual/automatic work
+exclusion and connection epochs in `connections/setup.ts`. `setup-sync.ts` owns
+password-token challenges and vault snapshot acceptance, policy adoption and session
+retention; it uses the service's live guards and shared handle/review maps.
+`setup-status.ts` owns local status reads and projections, and `setup-reply.ts` owns
+the settings reply sanitization boundary. The public service API and existing test
+files stay unchanged; cancellation, publication and retirement retain their ordering.
+
 `packages/bitwarden/src/local-crypto-admission.ts` owns structural context schemas,
 encrypted DTO admission and ciphertext framing checks. `local-crypto.ts` keeps native
 SDK initialization, session operations and cleanup, and re-exports the original
@@ -48,6 +56,17 @@ account-option and rule decisions; `site-policy-rows.tsx` owns the reusable site
 component and default-account editor. Existing controls, keys, focus behavior and
 public exports are preserved.
 
+The Bitwarden settings panel keeps its public component in
+`options/bitwarden-setup.tsx`. `use-bitwarden-setup.ts` owns the page's state, actions,
+response fences, challenge heartbeat and focus effects in their original hook order and
+client lifetime. `bitwarden-setup-view.tsx`, `bitwarden-connection-rows.tsx` and
+`bitwarden-setup-review.tsx` render the panel, connection rows and field reviews through
+hook-free synchronous render functions, preserving element ancestry and existing
+component identities. Status and message projections live in
+`bitwarden-connection-status.tsx` and `bitwarden-setup-messages.ts`. The shared delete
+dialog handle stays at module scope; secret clearing, cancellation, deadlines and
+generation guards keep their existing order. Existing tests stay in place.
+
 The extension's `service/transport.ts` retains endpoint contracts and response mapping.
 `service-call.ts` owns bounded JSON fetching, credential and redirect rules,
 cancellation and request timing. `service-timing.ts` owns pure timing parsing and
@@ -60,6 +79,21 @@ owns the login report field projections and log-level decisions, including gener
 and judge timing; its reporter receives the same logger without owning runtime or
 persistence state. The `createDiagnosticsLog` in `background.ts` is the public facade
 for both, with the same report methods.
+
+The observation extractor keeps its original public exports in
+`apps/extension/src/observation/extract.ts`. Its `extract-login.ts`,
+`extract-account-list.ts`, `extract-entry.ts`, `extract-logout.ts`,
+`extract-passkey.ts` and `extract-signed-in.ts` own the page readers.
+`extract-candidates.ts` owns control, keypad, select and marker collection;
+`extract-locators.ts` owns locator indexing and target selection;
+`extract-text.ts`, `extract-labels.ts` and `extract-near-text.ts` own redaction,
+labels and bounded surrounding text. `extract-observe.ts` assembles observations,
+including document ordering, candidate IDs and form groups, using the shared
+contracts in `extract-types.ts` and control primitives in `extract-controls.ts`.
+Internal modules import their owners directly, without importing the facade or
+forming runtime cycles. This source split preserves reader execution, visibility,
+locator precedence, candidate ordering, IDs, bounds and initialization; existing
+test files and discovery stay in place.
 
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
