@@ -34,6 +34,8 @@ const schema = v.variant("action", [
       "uri-totp",
       "sso",
       "sso-exact-uri",
+      "sso-passkey",
+      "sso-sibling-uri",
     ]),
     challenge: v.optional(v.picklist(["none", "mfa", "new-device", "rejected"]), "none"),
     permission: v.optional(v.boolean(), true),

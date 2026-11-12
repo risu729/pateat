@@ -29,13 +29,27 @@ export type CustomAccountVariant =
   /** A relying party and exact provider account, plus an unrelated saved default. */
   | "sso"
   /** The same provider uses exact URI matching for the login path. */
-  | "sso-exact-uri";
+  | "sso-exact-uri"
+  /** The exact provider item also holds the existing synthetic FIDO2 key. */
+  | "sso-passkey"
+  /** The provider owns two origins; one mapping must never grant both. */
+  | "sso-sibling-uri";
 export function rawCustomAccount(
   variant: CustomAccountVariant = "unchanged",
   nowSeconds = accountNow,
 ) {
-  if (variant === "sso" || variant === "sso-exact-uri")
-    return rawSsoAccount(variant === "sso-exact-uri", nowSeconds);
+  if (
+    variant === "sso" ||
+    variant === "sso-exact-uri" ||
+    variant === "sso-passkey" ||
+    variant === "sso-sibling-uri"
+  )
+    return rawSsoAccount(
+      variant === "sso-exact-uri",
+      nowSeconds,
+      variant === "sso-passkey",
+      variant === "sso-sibling-uri",
+    );
   const raw = rawV1Account();
   const text =
     variant === "reencrypted" ? reencryptedCustomFieldCiphertexts : customFieldCiphertexts;

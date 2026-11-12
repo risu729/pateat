@@ -8,7 +8,7 @@ import { rawCustomAccount } from "./__fixtures__/connection";
 import { syntheticSsoItemIds, syntheticSsoOrigins } from "./__fixtures__/sso-account";
 import { v1Email, v1Password } from "./__fixtures__/crypto";
 
-it.each(["sso", "sso-exact-uri"] as const)(
+it.each(["sso", "sso-exact-uri", "sso-passkey", "sso-sibling-uri"] as const)(
   "%s admits and genuinely decrypts the RP, exact provider and unrelated provider default",
   async (variant) => {
     const raw = rawCustomAccount(variant);
@@ -68,9 +68,31 @@ it.each(["sso", "sso-exact-uri"] as const)(
         login: {
           username: "test_username",
           password: "test_password",
-          uris: [{ uri: syntheticSsoOrigins.idp + "/login", match: variant === "sso" ? 1 : 3 }],
+          uris: [
+            { uri: syntheticSsoOrigins.idp + "/login", match: variant === "sso-exact-uri" ? 3 : 1 },
+            ...(variant === "sso-sibling-uri"
+              ? [{ uri: "https://submit.idp.synthetic.example.test/session", match: 1 }]
+              : []),
+          ],
         },
       });
+      if (variant === "sso-passkey") {
+        const passkeys = await unlocked.data.decryptFido2Credentials({
+          connectionId: accountProfile.connectionId,
+          cipher: context.ciphers[1],
+        });
+        expect(passkeys).toMatchObject({
+          ok: true,
+          data: [
+            {
+              rpId: "idp.synthetic.example.test",
+              credentialId: "12345678-1234-4234-8234-123456789abc",
+              discoverable: "true",
+            },
+          ],
+        });
+        if (passkeys.ok) expect(passkeys.data[0]).not.toHaveProperty("keyValue");
+      }
       expect(decrypted[2]).toMatchObject({
         name: "Other provider account",
         login: { username: "other_user", password: "test_password" },
