@@ -24,16 +24,17 @@ export type WantedOption = {
 
 /**
  * The digits a select option's value or visible text says: the one run of ASCII digits it
- * holds after NFKC and trimming, as in `4`, `04`, `4月`, `31`, `2031` or `2031年`. A text with
- * no digits, such as a placeholder or a month's name, or with two runs, as `2031 (13)`,
- * says none.
+ * holds after NFKC and trimming, as in `4`, `04`, `4月`, `31`, `2031` or `2031年`. A minus
+ * sign immediately before that run, with optional whitespace, is kept as `-`, including
+ * U+2212, so a negative number never matches a positive part. A text with no digits, such
+ * as a placeholder or a month's name, or with two runs, as `2031 (13)`, says none.
  */
 function optionDigits(text: string): string | undefined {
   const runs = text
     .normalize("NFKC")
     .trim()
-    .match(/[0-9]+/gu);
-  return runs?.length === 1 ? runs[0] : undefined;
+    .match(/(?:[-\u2212]\s*)?[0-9]+/gu);
+  return runs?.length === 1 ? runs[0]?.replace(/\s/gu, "").replace("\u2212", "-") : undefined;
 }
 
 /** The options a person could choose: enabled, shown, and not in a disabled group. */
@@ -51,8 +52,8 @@ function choosableOptions(select: HTMLSelectElement): HTMLOptionElement[] {
 /**
  * Whether the numbers a select's option values say lie in `wanted`'s part's own range: 1
  * to 12 for a month, 1 to 31 for a day, four digits for a year (or two for a card expiry
- * year), and never 0, so values that count from 0 or stand for something else are never
- * read as the part's number.
+ * year), and never 0 or negative, so values that count from 0 or stand for something
+ * else are never read as the part's number.
  */
 function valuesInRange(options: readonly HTMLOptionElement[], wanted: WantedOption): boolean {
   if (wanted.part === undefined) return false;
@@ -64,7 +65,7 @@ function valuesInRange(options: readonly HTMLOptionElement[], wanted: WantedOpti
     numbers.length > 0 &&
     numbers.every((digits) => {
       const number = Number(digits);
-      if (number === 0) return false;
+      if (number <= 0) return false;
       if (wanted.part === "month") return number <= 12;
       if (wanted.part === "day") return number <= 31;
       return digits.length === 4 || (wanted.shortYear === true && digits.length === 2);

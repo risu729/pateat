@@ -34,6 +34,11 @@ Amended on 2026-11-11 by the owner (12:46 UTC, on My Digital Connect's phone num
 page): the popup proposes an identity item's fields before any other item's
 ([Guess, propose, confirm](#guess-propose-confirm)).
 
+Clarified on 2026-11-12 by an agent: the positive-number range for split-date selects
+preserves minus signs
+([clarification](#clarification-signed-select-option-numbers-2026-11-12)); this corrects
+the implementation of the existing range, with no new owner decision.
+
 Date: 2026-10-23
 
 ## Context
@@ -668,6 +673,17 @@ runs; it is dropped), `detail-forgotten` (a refused value's link was removed) an
 `detail-kept` (that removal could not be written now). The judge's log keeps `details`
 with each ID that is not a candidate replaced by `?`, and a pairing's slot index (`-1`
 for one not sent) and question. Never a value or an item name.
+
+## Clarification: Signed select-option numbers (2026-11-12)
+
+The split-date select rule above reads a minus immediately before a digit run, with
+optional whitespace, as part of its number. ASCII and fullwidth minus signs (after
+NFKC), and U+2212, keep that number negative in both visible text and option values.
+Negative text therefore cannot match a positive date part or fall back to its value;
+a negative option value, like zero, makes value-based range inference unavailable for
+the select. Positive visible text still decides independently of those values. Other
+prefixes and suffixes around a single digit run, and the refusal of multiple digit
+runs, keep their existing behavior.
 
 ## Delivery
 
