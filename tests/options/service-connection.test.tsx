@@ -466,6 +466,20 @@ test("shows when recipes last synced and when the service rejects the device", a
   await expect.element(page.getByText(/no longer fit/)).toBeVisible();
 });
 
+test("composition limit explains retained local edits and clears on a reload after complete sync", async () => {
+  const client = mockClient({ ...connected, settingsLimited: true });
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await expect.element(page.getByText(/Your changes stay on this device/)).toBeVisible();
+  await expect
+    .element(page.getByText(/Your recipes or settings no longer fit/))
+    .not.toBeInTheDocument();
+  await cleanup();
+  client.get.mockResolvedValue(ok({ ...connected, syncedAt: Date.UTC(2026, 9, 10, 6, 0) }));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await expect.element(page.getByText(/^Recipes and settings synced /)).toBeVisible();
+  await expect.element(page.getByText(/Your changes stay on this device/)).not.toBeInTheDocument();
+});
+
 test("shows the first sync finishing without a reload", async () => {
   // The page's own poll runs on a fake clock, advanced instead of waited out.
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
