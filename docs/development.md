@@ -925,6 +925,23 @@ entry exports its `VaultPolicyTestFixtures` type, and the module imports it with
 it stays outside the coverage root and is not discovered as a test file. Each file
 follows the 1,000-line limit.
 
+### Passkey page test organization
+
+`apps/extension/src/passkeys/page.test.ts` is the discovered entry for the MAIN-world
+page wrapper's unit cases; the passkey runtime suite covers `snapshotGetOptions` and the
+extension end-to-end passkey suite covers the wrapper in Chromium through their own
+entries. It owns the four describe scopes, the root `afterEach` that restores real
+timers, and the shared `fakePage`, `publicKey`, `answer`, `laterProvider`,
+`registration`, `answerCreate` and `types` helpers. Plain modules in
+`apps/extension/test/passkeys/` export synchronous registration functions for the get,
+get coexistence, create and create coexistence cases. The entry calls each inside its
+describe scope with the helpers that scope uses; importing a module registers no cases.
+Each registrar holds its scope's local `assertion` or `laterCreate` helper with its
+cases. The modules import `vitest` and the production exports they use directly. The
+entry exports its `PageFixtures` and `Message` types, which the modules import with
+`import type`. The modules sit outside `src/`, so they stay outside the coverage root
+and are not discovered as test files. Each file follows the 1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
