@@ -75,7 +75,8 @@ export async function confirmAccount(rt: Runtime, work: ConfirmWork) {
   const { account } = work.parent;
   const scoped = await liveScope(rt, snapshot, work.live, account);
   if ("reason" in scoped || !confirmCurrent(rt, work)) return;
-  if (await topScope(rt, snapshot, work.live, account, scoped.catalog)) return;
+  // A frame-only URI grant must never authorize its top page, even on the same origin.
+  if (await topScope(rt, snapshot, work.live, account, snapshot.catalog)) return;
   const connection = scoped.catalog.connections.find((entry) => entry.id === account.connectionId);
   const item = connection?.items.find((entry) => entry.id === account.itemId);
   const eligible = getItemEligibility(

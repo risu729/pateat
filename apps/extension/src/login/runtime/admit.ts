@@ -27,7 +27,8 @@ import {
   type ConfirmVisit,
   type Execution,
 } from "./types";
-import { leaveConfirm, previousPage, confirmSigns } from "./markers";
+import { leaveConfirm, previousPage } from "./markers";
+import { noteNotStarted } from "./not-started";
 import { noteUnadmitted, note, loginRelated } from "./generation";
 import { tabAttempt, recordFor } from "./hold";
 import { terminal, siteWaitOver, watchOver } from "./attempt-state";
@@ -160,6 +161,13 @@ export async function admit(
       confirming.live.token === token
     ) {
       const visit = rt.confirmVisits.get(document.tabId);
+      if (
+        !confirming.generation &&
+        visit &&
+        sameLoginDocument(visit.document, document) &&
+        visit.path === confirming.live.path
+      )
+        noteNotStarted(rt, confirming.live, shown, "confirm-fill", confirming.recipe, visit);
       return {
         ok: false,
         reason: confirming.generation ? "generating" : "confirm-fill",
@@ -491,50 +499,8 @@ export async function admit(
 
   // A sign-in input shows on this path, but the page only watches: logged once per
   // document and path, so a login that silently does not start can be told apart.
-  ctx.notStarted = (detail: string, visit?: ConfirmVisit) => {
-    if (ctx.shown?.path !== ctx.live.path || ctx.live.notStarted === detail) return;
-    ctx.live.notStarted = detail;
-    const refused = {
-      type: "refused" as const,
-      tabId: ctx.document.tabId,
-      origin: ctx.document.origin,
-      reason: "not-started",
-      detail,
-      ...(ctx.document.frameId === 0 ? {} : { frame: true as const }),
-    };
-    if (!visit) {
-      const later = ctx.shown?.later;
-      report(rt, ctx.document, {
-        ...refused,
-        ...(detail === "first-step-missing" && ctx.recipe
-          ? { recipeId: ctx.recipe.id, recipeRevision: ctx.recipe.revision }
-          : {}),
-        ...(later
-          ? { laterSteps: later.steps, laterPartial: later.partial, laterMiss: later.miss }
-          : {}),
-      });
-      return;
-    }
-    // A page Pateat does not fill also logs what it shows for the evaluation of page kinds
-    // (ADR 0035), read first, so the entry names this page's URL; its visit logs the
-    // person's submission and the next page once the tab leaves it.
-    const amount = ctx.shown?.amount;
-    visit.logged = confirmSigns(rt, ctx.live).then((signs) => {
-      report(rt, ctx.document, {
-        ...refused,
-        recipeId: visit.recipe.id,
-        recipeRevision: visit.recipe.revision,
-        pageKind: visit.recipe.pageKind,
-        ...(amount === undefined ? {} : { amount }),
-        ...signs,
-        url: ctx.live.url,
-      });
-      // Read as the `signedIn` hint false: the page was read and neither shows, E2 also
-      // when it was not read.
-      return signs.e1 === false && signs.e2 !== true;
-    });
-    void visit.logged.catch(() => undefined);
-  };
+  ctx.notStarted = (detail: string, visit?: ConfirmVisit) =>
+    noteNotStarted(rt, ctx.live, ctx.shown, detail, ctx.recipe, visit);
 
   // The page after a sign-in entry press is checked before anything else runs on it, and
   // one that blocked the entry is neither sent for generation nor logged in to (ADR 0031).
