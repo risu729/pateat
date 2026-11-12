@@ -693,7 +693,7 @@ describe("createSiteCounter", () => {
     const wrapped = recountingSettings(base, saved);
     expect(await wrapped.read()).toBe(snapshot);
     await expect(wrapped.update(1, "account-choice", (current) => current)).resolves.toBe(snapshot);
-    expect(base.update).toHaveBeenCalledWith(1, "account-choice", expect.any(Function));
+    expect(base.update).toHaveBeenCalledWith(1, "account-choice", expect.any(Function), undefined);
     expect(saved).toHaveBeenCalledTimes(1);
     // A refused update is no save.
     base.update.mockRejectedValueOnce(new Error("revision"));
@@ -701,6 +701,42 @@ describe("createSiteCounter", () => {
       "revision",
     );
     expect(saved).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards the queued authorization guard and recounts only an authorized save", async () => {
+    const saved = vi.fn();
+    const snapshot = settings({}, {}, 2);
+    const catalog = { connections: [] };
+    const guard = vi.fn(async () => true);
+    const base = {
+      update: vi.fn(
+        async (
+          _revision: number | undefined,
+          _cause: SettingsChangeCause,
+          mutate: (current: SettingsSnapshot) => SettingsSnapshot,
+          authorize?: (
+            current: SettingsSnapshot,
+            readCatalog: () => Promise<typeof catalog>,
+          ) => Promise<boolean>,
+        ) => {
+          if (authorize && !(await authorize(snapshot, async () => catalog)))
+            throw new Error("authorization-refused");
+          return mutate(snapshot);
+        },
+      ),
+    };
+    const wrapped = recountingSettings(base, saved);
+    await expect(wrapped.update(2, "account-choice", (current) => current, guard)).resolves.toBe(
+      snapshot,
+    );
+    expect(base.update).toHaveBeenLastCalledWith(2, "account-choice", expect.any(Function), guard);
+    expect(guard).toHaveBeenCalledWith(snapshot, expect.any(Function));
+    expect(saved).toHaveBeenCalledOnce();
+    guard.mockResolvedValueOnce(false);
+    await expect(wrapped.update(2, "account-choice", (current) => current, guard)).rejects.toThrow(
+      "authorization-refused",
+    );
+    expect(saved).toHaveBeenCalledOnce();
   });
 
   it("shows a stored count after a restart even before the vault opens", async () => {

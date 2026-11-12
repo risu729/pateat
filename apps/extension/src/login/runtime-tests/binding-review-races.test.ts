@@ -7,6 +7,36 @@ const { start, offer, pick, stale, records, executes, repairedRecipe, setPause }
   bindingReviewFixture(fake);
 
 describe("binding repair freshness across asynchronous boundaries", () => {
+  it("rejects a recipe changed while the final queued guard awaits its last profile read", async () => {
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let guarded = false;
+    let scopeReads = 0;
+    const h = start({
+      bindingScope: async () => {
+        if (guarded && ++scopeReads === 2) {
+          entered.resolve();
+          await release.promise;
+        }
+        return "profile-a";
+      },
+    });
+    const review = await offer(h);
+    const original = h.store.update.getMockImplementation()!;
+    h.store.update.mockImplementationOnce(async (...args) => {
+      guarded = true;
+      return original(...args);
+    });
+    fake.state.onReconnect = () => h.hello();
+    expect(await pick(h, review)).toEqual({ ok: true });
+    await entered.promise;
+    h.recipes.recipe.mockResolvedValue({ ...repairedRecipe, revision: 2 });
+    release.resolve();
+    await vi.waitFor(() =>
+      expect(fake.state.session["pateat.login-binding-reviews.v1"]).toEqual([]),
+    );
+    expect(h.settings.settings.bindings[0]).toEqual(stale);
+  });
   it.each(["scope", "recipe"])(
     "rechecks a snapshot replaced during the awaited %s read",
     async (boundary) => {

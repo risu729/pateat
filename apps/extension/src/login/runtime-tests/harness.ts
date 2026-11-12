@@ -179,6 +179,7 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       /** A hostname chosen "Always for this site" whose write still waits (ADR 0007). */
       pendingBrowserSite?: (origin: string) => boolean;
       bindingScope?: Parameters<typeof createLoginRuntime>[1]["bindingScope"];
+      bindingSnapshotCurrent?: Parameters<typeof createLoginRuntime>[1]["bindingSnapshotCurrent"];
       /** Automatic vault sync (ADR 0025). */
       vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
       /** Receives the runtime's reports for the local log, without page URLs unless `urls`. */
@@ -388,6 +389,10 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
     };
     const fields = vi.fn<LoginFieldSource>(async () => "synthetic-secret");
     const recipes = {
+      fence: vi.fn(async (_recipe: LoginRecipe): Promise<(() => boolean) | undefined> => {
+        const implementation = recipes.recipe.getMockImplementation();
+        return () => recipes.recipe.getMockImplementation() === implementation;
+      }),
       recipe: vi.fn(async (at: string, path: string): Promise<typeof recipe | undefined> =>
         at === origin && path === "/signin" ? recipe : undefined,
       ),
@@ -413,6 +418,12 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       ...(live.pendingBrowserSite ? { pendingBrowserSite: live.pendingBrowserSite } : {}),
       ...(live.vault ? { vault: live.vault } : {}),
       ...(live.bindingScope ? { bindingScope: live.bindingScope } : {}),
+      bindingSnapshotCurrent:
+        live.bindingSnapshotCurrent ??
+        ((id, requestedSnapshot) =>
+          id === connectionId &&
+          requestedSnapshot === current.current &&
+          current.userId !== undefined),
       ...(live.signedIn ? { signedIn: live.signedIn } : {}),
       ...(live.logout ? { logout: live.logout } : {}),
       ...(live.pauses ? { pauses: live.pauses } : {}),
