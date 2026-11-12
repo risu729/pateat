@@ -823,6 +823,39 @@ import `vitest` and the production exports they use directly. The entry exports 
 `import type`. The modules sit outside `src/`, so they stay outside the production
 coverage root. Each file follows the 1,000-line limit.
 
+### API owner test organization
+
+`services/api/test/owner.test.ts` is the discovered entry for the main owner route
+suites. It installs the synthetic Access keys and owns the `manageApi`, `postPair` and
+`pairDevice` helpers and every describe scope. Plain modules in
+`services/api/test/owner/` export synchronous registration functions for the web UI,
+recipe and request-log cases, which the entry calls inside those describe scopes with
+the same `manageApi` and `pairDevice` references; the recipe and request-log modules
+define their local helpers inside the registrar. Importing a module registers no
+cases. The modules import `vitest`, `cloudflare:workers` and the production exports
+they use directly. The entry exports its `OwnerTestHelpers` type, and the modules
+import it with `import type`, so there is no runtime import cycle. The modules lack
+the `.test.ts` suffix, so the `test/**/*.test.ts` include does not discover them, and
+they sit outside `src/`, so they stay outside the production coverage root. Each file
+follows the 1,000-line limit. When changing the layout, compare the expanded test
+names and counts and run the local Worker tests.
+
+### Local crypto test organization
+
+`packages/bitwarden/src/local-crypto.test.ts` is the discovered entry for the local
+crypto suite. It owns the synthetic account and SDK helpers, the shared `sessions`
+array, the root `afterEach` that disposes sessions and restores mocks, and the account
+initialization, cipher isolation and item repair describe scopes. Plain modules in
+`packages/bitwarden/test/local-crypto/` export synchronous registration functions for
+those three groups, which the entry calls inside the matching scope with the same
+helper, session and constant references; importing a module registers no cases. The
+modules import `vitest`, the SDK, the production exports and the fixture values they
+use directly. The entry exports its `LocalCryptoTestFixtures` type, and `context.ts`
+builds the module contexts from it with `import type`, so the modules create no
+runtime import cycle. The modules sit outside `src/`, so they stay outside the
+production coverage root and are not discovered as test files. Each file follows the
+1,000-line limit.
+
 ### Bitwarden account test organization
 
 `packages/bitwarden/src/account.test.ts` is the discovered entry for the main account
