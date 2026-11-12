@@ -51,8 +51,14 @@ public exports are preserved.
 The extension's `service/transport.ts` retains endpoint contracts and response mapping.
 `service-call.ts` owns bounded JSON fetching, credential and redirect rules,
 cancellation and request timing. `service-timing.ts` owns pure timing parsing and
-aggregation. The transport facade preserves its public exports and existing tests stay
-in place.
+aggregation. The transport facade preserves its public exports and existing test entry.
+
+The service transport suite keeps `apps/extension/src/service/transport.test.ts` as
+its only test entry and suite owner. Passive registrars in
+`apps/extension/test/service/transport/` register pairing, settings, generation,
+outcome and timing cases at their original positions, using the entry's original
+fixtures and helpers. They add no suites or registration on import and sit outside
+the production coverage include; assertions, tables and test order stay unchanged.
 
 `apps/extension/src/diagnostics/background.ts` owns the worker logger, connection-state
 watches and the report entry points other than `login`. `diagnostics/login-report.ts`
