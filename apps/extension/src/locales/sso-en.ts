@@ -1,4 +1,5 @@
 export const ssoEn = {
+  Continue: "Continue",
   Passkey: "Passkey",
   "Remove provider mapping": "Remove provider mapping",
   "SSO field: {{field}}. ": "SSO field: {{field}}. ",

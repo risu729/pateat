@@ -1,4 +1,5 @@
 export const ssoJa = {
+  Continue: "続ける",
   Passkey: "パスキー",
   "Remove provider mapping": "ID プロバイダーの対応付けを削除",
   "SSO field: {{field}}. ": "フィールド「{{field}}」：",
