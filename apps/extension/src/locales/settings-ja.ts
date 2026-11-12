@@ -335,4 +335,6 @@ export const settingsJa = {
   "Tell sites that you were verified": "本人確認が済んだとサイトに伝える",
   "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on all your devices.":
     "Pateat 自身は確認をしません。保管庫のロックが解除されていて、サイトのアカウントが選ばれていれば応じます。オフにすると、クリックなしのリクエストや本人確認が必須のリクエストはブラウザーか別の拡張機能に任せるので、そのサイトでは Pateat がパスキーで自動ログインできなくなります。すべてのデバイスに適用されます。",
+  "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.":
+    "共有のアカウント関連付けや個人情報のリンクと組み合わせると、設定プロファイルの容量を超えるため保存できませんでした。編集内容は残っています。該当するプロファイルの項目を減らしてから再試行してください。",
 } satisfies Record<keyof typeof settingsEn, string>;

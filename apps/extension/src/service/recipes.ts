@@ -303,6 +303,8 @@ export function createRecipeSync(options: {
       await service.recordSync(connection.deviceId, { rejected: true });
       return "rejected";
     }
+    if (settingsOutcome === "settings-limit")
+      await service.recordSync(connection.deviceId, { settingsLimited: true });
     if (settingsOutcome === "too-large")
       await service.recordSync(connection.deviceId, { cacheFull: true });
     const outcome = recipesOutcome === "synced" ? settingsOutcome : recipesOutcome;

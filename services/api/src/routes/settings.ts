@@ -18,6 +18,7 @@ export const settingsRoutes = new Hono<ApiEnv>()
       c.req.valid("json"),
       scope.deviceId,
     );
+    if (!result.ok && "error" in result) return c.json({ error: result.error }, 413);
     if (!result.ok)
       return c.json({ error: "settings_conflict" as const, current: result.current }, 409);
     return c.json(result.state);

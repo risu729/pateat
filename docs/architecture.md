@@ -3878,9 +3878,21 @@ people.
   that the cap refuses answers `recipe-limit`. The cap and
   `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts; no migration is
   required.
-- Unchanged. Settings are one document of at most 120 KiB per owner. The inference
-  request log, the login result codes and the login records are kept one year (owner,
-  2026-10-18). The log's calls are bounded by the $5 daily spend limit; requests
+- Settings. Every live profile's document, composed with the owner's shared account
+  bindings and personal-detail links, is at most 120 KiB of UTF-8 JSON. A settings
+  replacement checks the proposed shared parts with every live profile, including
+  profiles that no device uses. The same composition and schema defaults are used for
+  readback and byte validation. The owner revision guards the atomic write after that
+  check: concurrent settings writes, profile copies, deletions and device assignments
+  make it conflict instead of committing a composition checked against old data. A new
+  empty profile cannot be larger than the valid selected profile with those shared
+  parts. A refused composition answers 413 `settings_limit` without changing settings,
+  the revision or the writing device's acknowledgement. Device sync and both profile
+  editors retain pending edits and report the size failure; device sync retries after
+  entries are reduced. Writes replace the shared parts too: omitting `detailLinks`
+  clears them rather than retaining earlier links.
+- The inference request log, login result codes and login records are kept one year
+  (owner, 2026-10-18). The log's calls are bounded by the $5 daily spend limit; requests
   answered without a call are logged too (owner, 08:04 UTC) within the request limit
   above, the same request answered the same way once in 10 minutes and at most 500 such
   rows per owner a UTC day; a repeat login's signed-in page is logged as a `sampled` row
@@ -4240,16 +4252,16 @@ field exclusions and custom-field review, which need the device's vault catalog
   code of `/v1/settings` and `/v1/recipes/:recipeId`. Settings and recipe writes carry
   the revision the page last read; a stale write changes nothing and returns the current
   state. The service copy of settings holds no `connections`: the extension uploads
-  none, a web write must have none, and the page drops any that another client stored.
-  A web write also stays within the 120 KiB document size devices upload. An identity
+  none, a web write must have none, and the page drops any that another client stored. A
+  web write also preserves the 120 KiB composed-document limit for every live profile
+  ([service limits](#service-limits)); a size refusal keeps pending edits. An identity
   with no paired device has no settings to edit and is told to pair one. Devices receive
   the change on their next settings or recipe sync. The device ID columns recording who
   wrote a settings or recipe revision are nullable; null means the web UI wrote it. A
   web write records no device's `settings_write_id`, which only a device's own winning
-  write sets ([plan](plan.md#service-sync-progress)). The
-  Claude identifiers are written whole by `PUT /manage/api/claude` without a revision,
-  since only the owner edits them and devices never do; an identity with no paired
-  device has none either.
+  write sets ([plan](plan.md#service-sync-progress)). The Claude identifiers are written
+  whole by `PUT /manage/api/claude` without a revision, since only the owner edits them
+  and devices never do; an identity with no paired device has none either.
 - Display names. Site defaults and bindings keep display-only names beside their IDs, so
   the page can name them: `itemName`, the item's label (optional on a site default), and
   an optional `accountName`, the label the owner gave the vault connection the account

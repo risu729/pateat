@@ -19,6 +19,8 @@ export type ProfileEditorFailure =
   | "extension-not-allowed"
   /** Another save changed the owner's settings first. */
   | "conflict"
+  /** Shared settings would make a live profile too large. */
+  | "settings-limit"
   /** The profile was deleted meanwhile. */
   | "not-found"
   | "unreachable"
@@ -121,6 +123,11 @@ export function createServiceClient(deps: {
           ? "extension-not-allowed"
           : "forbidden",
       );
+    }
+    if (response.status === 413) {
+      const answer: unknown = await response.json().catch(() => undefined);
+      if (v.is(v.strictObject({ error: v.literal("settings_limit") }), answer))
+        throw new ProfileEditorError("settings-limit");
     }
     if (response.status === 409) throw new ProfileEditorError("conflict");
     if (response.status === 404) throw new ProfileEditorError("not-found");

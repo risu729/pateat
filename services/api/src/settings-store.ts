@@ -1,4 +1,7 @@
 import {
+  localSettingsSchema,
+  MAX_SETTINGS_DOCUMENT_BYTES,
+  settingsDocumentBytes,
   syncSettingsStateSchema,
   type LocalSettings,
   type SavedLoginBinding,
@@ -50,6 +53,25 @@ export const ownerDocument = (document: LocalSettings) => ({
   detailLinks: document.detailLinks,
 });
 
+/** The exact document read back and uploaded, including schema defaults. */
+function composeSettings(
+  shared: Partial<ReturnType<typeof ownerDocument>>,
+  profile: Partial<ReturnType<typeof profileDocument>>,
+): LocalSettings {
+  return v.parse(localSettingsSchema, {
+    connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
+    excludedSites: [],
+    repromptSites: [],
+    siteDefaults: [],
+    ...profile,
+    bindings: shared.bindings,
+    ...(shared.detailLinks ? { detailLinks: shared.detailLinks } : {}),
+  });
+}
+
 /**
  * Reads the profile and the owner's shared parts at the owner's revision in one statement. A
  * profile with no document of its own yet answers `newProfile`, so the first device to
@@ -78,27 +100,14 @@ export async function readSettings(
   const shared: Partial<ReturnType<typeof ownerDocument>> = row.shared
     ? JSON.parse(row.shared)
     : { bindings: [] };
-  const profile = {
-    accountPolicies: [],
-    itemPolicies: [],
-    customFieldReviews: [],
-    excludedSites: [],
-    repromptSites: [],
-    siteDefaults: [],
-    ...(row.document ? JSON.parse(row.document) : {}),
-  };
+  const profile: Partial<ReturnType<typeof profileDocument>> = row.document
+    ? JSON.parse(row.document)
+    : {};
   return v.parse(syncSettingsStateSchema, {
     version: 1,
     profileId,
     revision: row.revision ?? 0,
-    settings: row.revision
-      ? {
-          connections: [],
-          ...profile,
-          bindings: shared.bindings,
-          ...(shared.detailLinks ? { detailLinks: shared.detailLinks } : {}),
-        }
-      : null,
+    settings: row.revision ? composeSettings(shared, profile) : null,
     ...(row.revision && !row.document ? { newProfile: true } : {}),
     ...(row.written === null ? {} : { written: row.written }),
   });
@@ -140,10 +149,36 @@ export async function writeSettings(
   writer: string | null,
 ): Promise<
   | { ok: true; state: SyncSettingsState }
+  | { ok: false; error: "settings_limit" }
   /** `current` is missing when the profile was deleted meanwhile. */
   | { ok: false; current: SyncSettingsState | undefined }
 > {
   const settings = write.settings;
+  // One statement reads every live profile at the same owner revision. The CAS below
+  // refuses an intervening settings write, profile copy, deletion or device reassignment.
+  // ensureProfile only adds an empty profile: its composition cannot exceed this write's.
+  const profiles = await db
+    .prepare(`SELECT p.id, p.document, COALESCE(s.revision, 0) AS revision
+      FROM profiles p LEFT JOIN settings s ON s.owner_id = p.owner_id
+      WHERE p.owner_id = ? AND p.deleted_at IS NULL`)
+    .bind(ownerId)
+    .all<{ id: string; document: string | null; revision: number }>();
+  if (
+    profiles.results.some((profile) => profile.id === profileId) &&
+    profiles.results.every((profile) => profile.revision === write.expectedRevision)
+  ) {
+    const shared = ownerDocument(settings);
+    const tooLarge = profiles.results.some((profile) => {
+      const document =
+        profile.id === profileId
+          ? profileDocument(settings)
+          : profile.document
+            ? JSON.parse(profile.document)
+            : {};
+      return settingsDocumentBytes(composeSettings(shared, document)) > MAX_SETTINGS_DOCUMENT_BYTES;
+    });
+    if (tooLarge) return { ok: false, error: "settings_limit" };
+  }
   // Both statements use the exact same compare-and-swap predicate. The profile write
   // runs first; changes() gates the revision write so losing writers update neither, and
   // the revision write's changes() gates the writing device's record of it (`written`).
