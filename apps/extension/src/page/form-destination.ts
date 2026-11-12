@@ -96,7 +96,8 @@ function submittersIn(root: Node): (HTMLButtonElement | HTMLInputElement)[] {
       ? Document.prototype.querySelectorAll
       : root instanceof DocumentFragment
         ? DocumentFragment.prototype.querySelectorAll
-        : Element.prototype.querySelectorAll;
+        : // A disconnected form's root is an element of its detached subtree.
+          Element.prototype.querySelectorAll;
   const found = Reflect.apply(query, root, ["button, input"]) as NodeListOf<Element>;
   return [...found].filter((element) => submitsForm(element));
 }
