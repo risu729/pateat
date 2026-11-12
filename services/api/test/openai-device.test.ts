@@ -5,6 +5,7 @@ import {
   recipeGenerationResultSchema,
   storedLayouts,
   type DeviceModelResponse,
+  type DeviceModel,
   type LoginObservation,
 } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
@@ -86,11 +87,15 @@ async function post(
   body: object,
   responses: DeviceModelResponse[] = [],
   provider = "openai",
+  judgement?: DeviceModel["judgement"],
 ) {
   const response = await exports.default.fetch(`https://pateat.invalid${path}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ ...body, deviceModel: { provider, responses } }),
+    body: JSON.stringify({
+      ...body,
+      deviceModel: { provider, responses, ...(judgement ? { judgement } : {}) },
+    }),
   });
   return { status: response.status, body: (await response.json()) as unknown };
 }
@@ -236,12 +241,22 @@ describe("OpenAI calls relayed to a paired device", () => {
       observation: home,
     };
     const judgePath = `/v1/recipes/${recipeId}/completion`;
-    const judge = call(await post(by.token, judgePath, judgedBody));
+    const pendingJudge = await post(by.token, judgePath, judgedBody, [], "openai", {
+      id: crypto.randomUUID(),
+    });
+    const grant = v.parse(deviceModelCallSchema, pendingJudge.body).judgement;
+    expect(grant).toEqual({ id: expect.any(String), startedAt: expect.any(Number) });
+    const judge = call(pendingJudge);
     expect(
       (
-        await post(by.token, judgePath, judgedBody, [
-          await answer(judge.body, { result: { decision: "signed-in", marker: "logout" } }),
-        ])
+        await post(
+          by.token,
+          judgePath,
+          judgedBody,
+          [await answer(judge.body, { result: { decision: "signed-in", marker: "logout" } })],
+          "openai",
+          grant,
+        )
       ).body,
     ).toMatchObject({ status: "signed-in" });
     const log = (
@@ -276,6 +291,121 @@ describe("OpenAI calls relayed to a paired device", () => {
           .all()
       ).results,
     ).toEqual([]);
+  });
+
+  async function judgeFixture() {
+    const by = await device();
+    const request = { version: 1, observation: login, slots, signedIn: false };
+    const first = call(await post(by.token, "/v1/recipes/generate", request));
+    const generated = v.parse(
+      recipeGenerationResultSchema,
+      (await post(by.token, "/v1/recipes/generate", request, [await answer(first.body, plan)]))
+        .body,
+    );
+    if (generated.status !== "recipe") throw new Error("Expected generated recipe");
+    const { recipeId, revision, recipe } = generated.change;
+    const path = `/v1/recipes/${recipeId}/completion`;
+    const requestBody = {
+      version: 1,
+      revision,
+      branch: storedLayouts(recipe)[0]!.key,
+      route: "password",
+      slots: [],
+      observation: home,
+    };
+    const judge = (
+      operation: DeviceModel["judgement"],
+      responses: DeviceModelResponse[] = [],
+      body = requestBody,
+    ) => post(by.token, path, body, responses, "openai", operation);
+    const ledger = async () =>
+      (
+        await env.DB.prepare(
+          "SELECT id, state, issued_count FROM judgement_reservations WHERE owner_id = ? ORDER BY started_at, id",
+        )
+          .bind(by.ownerId)
+          .all()
+      ).results;
+    return { by, requestBody, judge, ledger };
+  }
+
+  it("keeps OpenAI grant, response replay and refusal fallback within one daily debit", async () => {
+    const { judge, ledger, requestBody } = await judgeFixture();
+    const id = crypto.randomUUID();
+    const initial = await judge({ id });
+    const first = call(initial);
+    const grant = v.parse(deviceModelCallSchema, initial.body).judgement!;
+    expect(grant).toEqual({ id, startedAt: expect.any(Number) });
+    expect(await ledger()).toEqual([{ id, state: "active", issued_count: 1 }]);
+    expect((await judge({ id })).body).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    const refused = await answer(first.body, {}, true);
+    expect((await judge(grant, [{ ...refused, request: "0".repeat(64) }])).body).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    const fallback = await judge(grant, [refused]);
+    const second = v.parse(deviceModelCallSchema, fallback.body);
+    expect(second.judgement).toEqual(grant);
+    expect(second.call).toMatchObject({ provider: "openai", index: 1 });
+    expect(deviceOpenAIModelCallBody(second.call)).toBe(second.call.body);
+    expect(JSON.parse(second.call.body).model).toBe("gpt-6.1-terra");
+    expect((await judge(grant, [refused])).body).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    const responses = [
+      refused,
+      await answer(second.call.body, { result: { decision: "optional" } }),
+    ];
+    expect((await judge(grant, responses)).body).toMatchObject({ status: "optional" });
+    expect(await ledger()).toEqual([{ id, state: "finished", issued_count: 2 }]);
+    expect((await judge(grant, responses)).body).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    expect(
+      (await judge(grant, [], { ...requestBody, observation: { ...home, path: "/fresh" } })).body,
+    ).toMatchObject({ status: "unavailable", reason: "judgement-unanswered" });
+    expect(await ledger()).toHaveLength(1);
+  });
+
+  it("restores the prior cache answer on an OpenAI cancellation and retains the issued debit", async () => {
+    const { by, judge, ledger } = await judgeFixture();
+    const first = await judge({ id: crypto.randomUUID() });
+    const grant = v.parse(deviceModelCallSchema, first.body).judgement!;
+    expect(
+      (await judge(grant, [await answer(call(first).body, { result: { decision: "optional" } })]))
+        .body,
+    ).toMatchObject({ status: "optional" });
+    const next = await judge({ id: crypto.randomUUID() });
+    call(next);
+    const nextGrant = v.parse(deviceModelCallSchema, next.body).judgement!;
+    expect((await judge({ ...nextGrant, cancel: true })).body).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT verdict FROM page_judgements WHERE owner_id = ? AND path = '/home'",
+        )
+          .bind(by.ownerId)
+          .all()
+      ).results,
+    ).toEqual([{ verdict: "optional" }]);
+    const rows = await ledger();
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row["state"] === "finished" && row["issued_count"] === 1)).toBe(
+      true,
+    );
+    expect((await judge(nextGrant)).body).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    expect(await ledger()).toHaveLength(2);
   });
 
   it.each(["entry", "logout"])("hands over and validates the %s route's response", async (kind) => {

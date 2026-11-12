@@ -95,7 +95,14 @@ function setup(
       async (...args: unknown[]) => {
         const request = args.at(-1) as { deviceModel?: DeviceModel };
         requests.push({ route, deviceModel: structuredClone(request.deviceModel) });
-        return { kind: "result", result: replies.shift() };
+        const result = replies.shift() as { status?: string } | undefined;
+        return {
+          kind: "result",
+          result:
+            route === "judgeCompletion" && result?.status === "model-call"
+              ? { ...result, judgement: { id: request.deviceModel!.judgement!.id, startedAt: now } }
+              : result,
+        };
       },
     ]),
   ) as unknown as Pick<ServiceTransport, Route>;
@@ -155,12 +162,18 @@ describe("OpenAI calls relayed by a paired device", () => {
     async (route) => {
       const { invoke, fetch, requests, spent } = setup();
       expect(await invoke(route)).toEqual({ kind: "result", result: done });
+      const judgement =
+        route === "judgeCompletion" ? requests[0]!.deviceModel!.judgement : undefined;
       expect(requests).toEqual([
-        { route, deviceModel: { provider: "openai", responses: [] } },
+        {
+          route,
+          deviceModel: { provider: "openai", responses: [], ...(judgement ? { judgement } : {}) },
+        },
         {
           route,
           deviceModel: {
             provider: "openai",
+            ...(judgement ? { judgement: { ...judgement, startedAt: now } } : {}),
             responses: [
               {
                 kind: "response",
@@ -184,6 +197,61 @@ describe("OpenAI calls relayed by a paired device", () => {
       expect(spent()).toEqual({ dayMicroUsd: 30_900, monthMicroUsd: 30_900 });
     },
   );
+
+  it("keeps OpenAI metadata and the server grant in a locally refused judge cancellation", async () => {
+    const unsafe = {
+      ...call,
+      call: {
+        ...call.call,
+        body: JSON.stringify({ ...JSON.parse(body), tools: [{ type: "web_search" }] }),
+      },
+    };
+    const { invoke, fetch, requests } = setup({ calls: [unsafe, done] });
+    expect(await invoke("judgeCompletion")).toEqual({
+      kind: "failed",
+      error: "unexpected-response",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(2);
+    expect(requests[0]!.deviceModel).toEqual({
+      provider: "openai",
+      responses: [],
+      judgement: { id: expect.any(String) },
+    });
+    expect(requests[1]!.deviceModel).toEqual({
+      provider: "openai",
+      responses: [],
+      judgement: { ...requests[0]!.deviceModel!.judgement, startedAt: now, cancel: true },
+    });
+  });
+
+  it("preserves one server grant while relaying an OpenAI judge fallback", async () => {
+    const second = {
+      ...call,
+      call: { ...call.call, index: 1, body: body.replace("gpt-6.1-sol", "gpt-6.1-terra") },
+    };
+    const { invoke, fetch, requests } = setup({ calls: [call, second, done] });
+    expect(await invoke("judgeCompletion")).toEqual({ kind: "result", result: done });
+    const judgement = { ...requests[0]!.deviceModel!.judgement, startedAt: now };
+    expect(requests.slice(1).map((request) => request.deviceModel!.judgement)).toEqual([
+      judgement,
+      judgement,
+    ]);
+    expect(requests.map((request) => request.deviceModel!.provider)).toEqual([
+      "openai",
+      "openai",
+      "openai",
+    ]);
+    expect(requests[2]!.deviceModel!.responses.map((response) => response.request)).toEqual([
+      await deviceModelRequestHash(body),
+      await deviceModelRequestHash(second.call.body),
+    ]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      OPENAI_DEVICE_MODEL_URL,
+      OPENAI_DEVICE_MODEL_URL,
+    ]);
+  });
 
   it.each(["anthropic", "cloudflare", undefined])(
     "rejects a mismatched %s call before using an OpenAI key",

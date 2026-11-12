@@ -530,7 +530,7 @@ describe("paired judge reservations before device provider dispatch", () => {
           slots: [],
           observation: { ...loginPage, path, candidates: [element("help", "link", "Help")] },
           ...extra,
-          deviceModel: { responses, ...(judgement ? { judgement } : {}) },
+          deviceModel: { provider: "anthropic", responses, ...(judgement ? { judgement } : {}) },
         }),
       },
     );

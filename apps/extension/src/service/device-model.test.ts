@@ -708,6 +708,7 @@ describe("paired judge client identity", () => {
     ).toMatchObject({ kind: "failed", error: "unexpected-response" });
     expect(requests).toHaveLength(2);
     expect(requests[1]!.deviceModel).toEqual({
+      provider: "anthropic",
       responses: [],
       judgement: { ...requests[0]!.deviceModel!.judgement, startedAt: NOW, cancel: true },
     });
