@@ -479,6 +479,16 @@ file on GitHub Releases, loaded with **Load unpacked**. `apps/docs/package.json`
 `license` field, like `services/api`, until the owner decides whether
 [LICENSING.md](../LICENSING.md)'s installation material covers the site.
 
+### Test organization
+
+The login contract tests keep `packages/contracts/src/login.test.ts` as their only
+discovered entry. It owns the shared fixture factories and the second-factor suite's
+local helpers. Plain modules under `packages/contracts/test/login/` export synchronous
+registration functions called at the original positions and describe nesting; importing
+a module registers no tests. The case callbacks, tables, titles, hooks and registration
+order stay unchanged. These test modules live outside `src/` so they do not enter the
+production coverage denominator.
+
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
