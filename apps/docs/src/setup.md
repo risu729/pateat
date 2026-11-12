@@ -297,9 +297,49 @@ the account it would use for an automatic login. To stay logged out, pause the s
 first. If Pateat logged in to a site twice in the last 10 minutes, it asks for an
 account instead of logging in a third time.
 
-SSO sign-in is still being implemented. Its local chooser can select a method only
-after the site account has been chosen. Provider account and origin mappings stay on
-this device and can be replaced or removed there; method selection applies only to
-that sign-in. A locked or changed vault, an invalid SSO field or an unresolved mapping
-stops the choice. The chooser does not yet start an SSO login, and no new permission,
-account creation or consent page is approved by a mapping.
+## SSO sign-in
+
+Keep one vault login item for the site account, and a separate item for each identity
+provider account that signs in to it. The site's item can keep its own password and
+passkeys. Add a Text or Hidden custom field for each SSO method:
+
+| Field | Example value |
+| --- | --- |
+| `SSO` | `[Example ID] member@example.test` |
+| `SSO 2` | `[Another ID] another-member` |
+
+The brackets contain the provider label shown on the site's sign-in button. The rest
+is the full username in that provider's own saved item, even when it equals the site's
+username. The label can be sent with the sanitized page description to write an SSO
+recipe; the username and saved mapping stay local. Further methods use `SSO 3` and so
+on. Excluding a field from automatic filling disables that method.
+
+For an SSO-only account with one provider, the URL form also works: leave Password
+empty, put the provider account's username in Username, and set the sole `SSO` field
+to the provider's origin, such as `https://login.example.test`. Do not combine URL and
+bracket forms on one item. These examples describe the format, not verified real sites.
+
+Choose the site account first. **Sign-in method** then lets you choose a method and,
+when needed, its saved provider account and sign-in origin. Select an origin from that
+provider item's own saved websites; Pateat does not guess it from the label. The
+mapping stays on this device and can be replaced or removed in the chooser. A URL
+field with no unambiguous page entry asks you to choose the entry shown on the page.
+
+The automatic preference is passkey, then the unsuffixed `SSO` method, then the site's
+password. Numbered SSO methods are explicit alternatives. Your method choice applies
+only to this sign-in. Invalid fields, duplicate provider accounts, unresolved mappings
+and failed sign-ins stop the operation; they do not silently try another method.
+
+SSO stays in the same tab and uses only the chosen provider account. That account
+must sign in directly with its own password or passkey; another SSO hop stops. Pateat
+can choose an exact displayed account or a recognized continuation for that account,
+but stops on an unknown page, a different account, new permissions, data sharing or
+account creation. It does not handle a new window or a browser-managed identity
+dialog. Signing in to the provider alone is not success: the original site must
+confirm the completed sign-in. An interrupted flow is not automatically replayed.
+
+Both the original site and the provider must allow **Auto** sign-in and be unpaused.
+A one-page **Sign in now** request does not override these settings for an SSO hop.
+Site access, vault restrictions and master-password checks still apply at both sites.
+**Fill only** does not press SSO entries or continuation controls. Pateat does not
+create accounts, change provider grants or rewrite vault items.

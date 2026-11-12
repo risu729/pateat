@@ -36,6 +36,15 @@ function harness() {
     timing: { since: 0, serviceMs: 0, networkMs: 0, personMs: 0 },
   };
   const rt = {
+    sso: {
+      flows: new Map(),
+      children: new Map(),
+      native: new Map(),
+      interrupted: new Map(),
+      loaded: Promise.resolve(),
+      write: async () => undefined,
+      healthy: () => true,
+    },
     confirmFill: {
       loaded: Promise.resolve(),
       healthy: true,

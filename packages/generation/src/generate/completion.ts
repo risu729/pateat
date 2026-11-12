@@ -1,3 +1,4 @@
+import { judgeSsoCompletion } from "./sso-completion";
 import {
   parseRecipeBranch,
   deviceModelRequestHash,
@@ -18,7 +19,7 @@ import {
   type ObservedCandidate,
   type LoginMarkerTarget,
   type LoginRoute,
-  type RecipeCompletionRequest,
+  type CompletionRequest,
   type RecipeCompletionResult,
   type RecipePageSampleRequest,
   type StoredLoginRecipe,
@@ -114,8 +115,9 @@ export async function judgedInputs(observation: LoginObservation): Promise<strin
 export async function judgeCompletion(
   backend: GenerationBackend,
   recipeId: string,
-  request: RecipeCompletionRequest,
+  request: CompletionRequest,
 ): Promise<RecipeCompletionResult | undefined | null> {
+  if ("kind" in request) return judgeSsoCompletion(backend, recipeId, request);
   const head = await backend.readHead(recipeId);
   if (!head) return undefined;
   const { observation, route, branch, partial, slots } = request;

@@ -37,6 +37,8 @@ const pressing = (entry: LoginAttemptMetadata) =>
  * against other tabs (ADR 0022). The runtime adds the time limit.
  */
 export const holdsOrigin = (entry: LoginAttemptMetadata) =>
+  // A detached IdP child retains diagnostics, never a hold after the allowed RP return.
+  !(entry.ssoChild?.attemptId === entry.id && entry.ssoChild.released === true) &&
   entry.state !== "authenticated" &&
   // A fill-only login never submits (ADR 0021 D).
   !entry.fillOnly &&

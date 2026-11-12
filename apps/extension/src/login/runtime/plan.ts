@@ -1,3 +1,6 @@
+import { ssoChild } from "./sso-state";
+import { ssoScope } from "./sso-scope";
+import { sameLoginDocument } from "@pateat/contracts";
 import {
   resolvePagePermission,
   fillOnlyStep,
@@ -196,6 +199,28 @@ export async function destinationRefusal(
   run: Execution,
   destination: URL,
 ): Promise<Exclude<DestinationAnswer, { ok: true }>["reason"] | undefined> {
+  if (ssoChild(rt.sso, run.metadata)) {
+    const parent = rt.sso.flows.get(run.metadata.document.tabId);
+    if (
+      !parent ||
+      parent.childId !== run.metadata.id ||
+      destination.origin !== parent.selected.origin
+    )
+      return "item-mismatch";
+    const refusal = await accountDestinationRefusal(
+      rt,
+      {
+        origin: run.live.document.origin,
+        account: run.metadata.account,
+        policyRevision: run.metadata.policyRevision,
+      },
+      destination,
+    );
+    if (refusal) return refusal;
+    return (await ssoScope(rt, parent, run.live)) && parent.deliveryFence?.()
+      ? undefined
+      : "unchecked";
+  }
   return accountDestinationRefusal(
     rt,
     {
@@ -683,6 +708,12 @@ export async function planFor(
   };
   // A running or resumed login checks its recorded route alone.
   if (request.route) return resolveRoute(request.route);
+  const selectedMethod = rt.sso.native.get(live.document.tabId);
+  const explicitMethod =
+    selectedMethod && sameLoginDocument(selectedMethod.document, live.document)
+      ? selectedMethod.route
+      : undefined;
+  if (explicitMethod === "passkey") return resolveRoute({ route: "passkey" });
   let facts: LoginItemFacts | undefined;
   // Only a page the passkey scripts run on can answer a passkey request (ADR 0050), and
   // none on a site whose passkey requests go to the browser (ADR 0007): there the item
@@ -722,7 +753,12 @@ export async function planFor(
   // A pick on a paused site takes the route any pick takes (ADR 0062, amended 2026-11-08):
   // its login answers the passkey request of its own step with the picked item, as the
   // bridge asks no chooser while a login runs.
-  if (!signInFill && passkeyPage && (recipeHasRoute(routeRecipe, "passkey") || pageRequest)) {
+  if (
+    explicitMethod !== "password" &&
+    !signInFill &&
+    passkeyPage &&
+    (recipeHasRoute(routeRecipe, "passkey") || pageRequest)
+  ) {
     const resolved = await resolveRoute({ route: "passkey" });
     if (resolved.ok) {
       facts = await factsOf(resolved);

@@ -1,3 +1,5 @@
+import { ssoChild } from "./sso-state";
+import { ssoChildChanged } from "./sso/flow";
 import {
   attemptPlan,
   parseAttemptMetadata,
@@ -98,6 +100,7 @@ export const reportAttempt = (
     endedAt?: number;
   } = {},
 ) => {
+  if (ssoChild(rt.sso, metadata)) return;
   const { stop, endedAt, ...marks } = flags;
   // A login that just ended, signed in or blocked, says how long it took (ADR 0019); a
   // watched one only when its watch ends, which may have been before it was noticed.
@@ -302,6 +305,7 @@ export const noteSignedIn = (
   next: LoginAttemptMetadata,
   pageOrigin?: string,
 ) => {
+  if (ssoChild(rt.sso, next)) return;
   // A login confirmed signed in keeps its account for the site's session (ADR 0063).
   if (
     next.state === "authenticated" &&
@@ -329,6 +333,7 @@ export const noteSignedIn = (
  * pick instead (ADR 0063).
  */
 export async function keepPick(rt: Runtime, signedIn: LoginAttemptMetadata): Promise<void> {
+  if (ssoChild(rt.sso, signedIn)) return;
   const { tabId } = signedIn.document;
   const pick = rt.picked.get(tabId);
   const site = siteOf(signedIn.account.origin);
@@ -528,7 +533,7 @@ export async function change(
   await timed(rt, run, "statusMs", () => publish(rt, run.live, run.metadata));
   // A conditional request of the page waits for how this login ends (ADR 0034).
   if (terminal(run.metadata) || idle(run.metadata)) reviewRequests(rt);
-  await settleBindingReview(rt, run);
+  if (!ssoChild(rt.sso, run.metadata)) await settleBindingReview(rt, run);
   if (
     !run.metadata.signInFill &&
     run.metadata.state === "authenticated" &&
@@ -536,9 +541,14 @@ export async function change(
     run.choice
   )
     await remember(rt, run);
+  ssoChildChanged(rt, run);
   // Links filled from the popup are saved once the login is confirmed, and links whose
   // value the site rejected are removed (ADR 0061).
-  if (run.metadata.state === "authenticated" && !run.metadata.unconfirmed)
+  if (
+    !ssoChild(rt.sso, run.metadata) &&
+    run.metadata.state === "authenticated" &&
+    !run.metadata.unconfirmed
+  )
     await settleDetails(rt, run, true);
   else if (
     run.metadata.outcome === "credential-rejected" &&

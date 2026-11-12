@@ -1,3 +1,7 @@
+import { ssoMoved } from "./sso/moved";
+import { authorizeSso } from "./sso-effects";
+import { ssoAuthorizeSchema } from "../sso-operation-wire";
+import { cancelSso } from "./sso/flow";
 import * as v from "valibot";
 import { ssoGetRequestSchema, ssoChooseRequestSchema, ssoCancelRequestSchema } from "../sso-wire";
 import { authorizeConfirmation } from "./confirm-fill";
@@ -140,6 +144,7 @@ export const fromPopup = (_rt: Runtime, sender: Sender) =>
   senderPageUrl(sender) === browser.runtime.getURL("/popup.html");
 
 export async function handle(rt: Runtime, message: unknown, sender: Sender): Promise<unknown> {
+  if (v.safeParse(ssoAuthorizeSchema, message).success) return authorizeSso(rt, message, sender);
   // Probe controls are compiled into every build but answer only in the probe build.
   if (probeMode && trusted(rt, sender)) {
     const control = v.safeParse(probeControlSchema, message);
@@ -180,7 +185,14 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
         version: 1,
         ok: true,
         ...(rt.vars.checkpoint ? { checkpoint: rt.vars.checkpoint } : {}),
-        attempts: [...rt.persisted.values()],
+        attempts: [
+          ...rt.persisted.values(),
+          ...[...rt.sso.flows.values()].flatMap((work) =>
+            work.parent && !rt.persisted.values().some((record) => record.id === work.parent!.id)
+              ? [work.parent]
+              : [],
+          ),
+        ],
         // Tabs that ask because the site rejected their login (ADR 0021 D).
         asks: [...rt.rejectedAsks].map(() => "rejected"),
         documents: [...rt.documents.values()].map((live) => ({
@@ -266,11 +278,13 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
       visit.submitted = true;
     return undefined;
   }
-  if (v.safeParse(movedSchema, message).success) {
+  const moved = v.safeParse(movedSchema, message);
+  if (moved.success) {
     // A route of the document a login is watched in, or one it took while the login was
     // read, is read once (ADR 0027 amendment of 2026-10-25). The document says its path,
     // which the tab's URL may not show yet.
     const document = await identify(rt, sender);
+    if (document && ssoMoved(rt, document, moved.output.token)) return undefined;
     const run = document ? rt.attempts.get(document.tabId) : undefined;
     if (!document || document.frameId !== 0 || !run || !current(rt, run)) return undefined;
     if (!sameLoginDocument(run.live.document, document)) return undefined;
@@ -480,6 +494,7 @@ export async function operationRun(
  */
 export function settingsChanged(rt: Runtime, source: "synced" | "saved"): void {
   rt.ssoChoices?.invalidateAll("settings-changed");
+  for (const tabId of rt.sso.flows.keys()) cancelSso(rt, tabId, "sso-settings-changed");
   for (const work of rt.confirmFill.work.values())
     void send(rt, work.live, { type: "login.cancel" }).catch(() => undefined);
   cancelConfirm(rt);
@@ -600,6 +615,7 @@ export async function choiceDefaults(rt: Runtime): Promise<void> {
 export async function incognitoClosed(rt: Runtime): Promise<void> {
   const windows = await browser.windows.getAll().catch(() => undefined);
   if (!windows || windows.some((window) => window.incognito)) return;
+  rt.sso.pauseIntents.clearPrivate();
   await rt.vars.sessionLoaded;
   let changed = false;
   for (const [key, entry] of rt.relogins)
@@ -620,6 +636,9 @@ export async function incognitoClosed(rt: Runtime): Promise<void> {
  * goes on in the new tab, which its record moved to first.
  */
 export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
+  cancelSso(rt, tabId, "sso-tab-closed");
+  rt.sso.native.delete(tabId);
+  if (closed) rt.sso.interrupted.delete(tabId);
   rt.ssoChoices?.invalidateTab(tabId, "page-changed");
   forgetConfirmTab(rt, tabId);
   clearBindingReview(rt, tabId);
@@ -762,7 +781,7 @@ export function reportClosed(rt: Runtime, metadata: LoginAttemptMetadata): void 
  */
 export async function active(rt: Runtime): Promise<boolean> {
   await rt.vars.loaded;
-  if (confirmBusy(rt)) return true;
+  if (confirmBusy(rt) || rt.sso.flows.size > 0) return true;
   return (
     rt.attempts
       .values()

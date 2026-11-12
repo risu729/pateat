@@ -468,3 +468,210 @@ it("policy invalidation during an awaited consume permanently withdraws that rec
   expect((await consuming).ok).toBe(false);
   expect(await h.controller.consume(id)).toEqual({ ok: false, reason: "choice-gone" });
 });
+
+describe("automatic URL method entries use only fresh exact-origin evidence", () => {
+  const entries = [
+    { id: "opaque-entry", label: "Observed local action" },
+    { id: "other-entry", label: "A misleading provider label" },
+  ];
+  const knownUrl = async () => {
+    const h = start([{ method: { number: 1 }, automatic: true, form: "url" }]);
+    await h.request();
+    expect(await h.choose()).toEqual({ ok: true });
+    return h;
+  };
+  const automatic = { automatic: true, native: { passkey: false, password: true } };
+  it("chooses one freshly observed exact-origin destination without guessing a provider label", async () => {
+    const h = await knownUrl();
+    const entryCurrent = vi.fn(async () => true);
+    const entryOrigin = vi.fn(async (id: string) => id === "opaque-entry");
+    const pending = await h.request({ ...automatic, entries, entryCurrent, entryOrigin });
+    const answer = await pending.result;
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) throw new Error(answer.reason);
+    expect(entryOrigin).toHaveBeenCalledWith("opaque-entry", idpOrigin);
+    expect(entryOrigin).toHaveBeenCalledWith("other-entry", idpOrigin);
+    expect(await h.controller.consume(answer.choiceId)).toMatchObject({
+      ok: true,
+      selection: { kind: "sso", selected, entryId: "opaque-entry", label: "Observed local action" },
+    });
+    expect(await h.controller.consume(answer.choiceId)).toEqual({
+      ok: false,
+      reason: "choice-gone",
+    });
+    expect(JSON.stringify(h.records())).not.toMatch(/Observed local action|opaque-entry/u);
+  });
+  it.each(["none", "multiple", "false", "throw", "no-current", "no-origin"])(
+    "keeps an explicit entry choice pending for %s origin evidence",
+    async (mode) => {
+      const h = await knownUrl();
+      const entryOrigin = vi.fn(async () => {
+        if (mode === "throw") throw new Error("local inspection unavailable");
+        return mode === "multiple";
+      });
+      const pending = await h.request({
+        ...automatic,
+        entries: mode === "none" ? [] : entries,
+        ...(mode === "no-current" ? {} : { entryCurrent: async () => true }),
+        ...(mode === "no-origin" ? {} : { entryOrigin }),
+      });
+      let answer: unknown;
+      void pending.result.then((value) => {
+        answer = value;
+        return undefined;
+      });
+      await Promise.resolve();
+      expect(answer).toBeUndefined();
+      expect(await h.offer()).toMatchObject({ reason: "entry-required", password: false });
+      expect(h.record.write).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each(["document", "catalog", "validation"])(
+    "withdraws authority changed during automatic origin validation: %s",
+    async (change) => {
+      const h = await knownUrl();
+      const pending = await h.request({
+        ...automatic,
+        entries: entries.slice(0, 1),
+        entryCurrent: async () => true,
+        entryOrigin: async () => {
+          if (change === "document") h.setCurrent(false);
+          if (change === "catalog")
+            h.saved.catalog.connections[1]!.snapshotId = "b0000000-0000-4000-8000-000000000002";
+          if (change === "validation")
+            h.source.validate.mockResolvedValue({ ok: false, reason: "source-changed" });
+          return true;
+        },
+      });
+      if (change !== "validation")
+        expect(await pending.result).toEqual({ ok: false, reason: "scope-changed" });
+      else {
+        let answer: unknown;
+        void pending.result.then((value) => {
+          answer = value;
+          return undefined;
+        });
+        await Promise.resolve();
+        expect(answer).toBeUndefined();
+        expect(await h.offer()).toMatchObject({ reason: "source-changed" });
+      }
+    },
+  );
+  it("rechecks the automatic destination at consume and consumes even a refused receipt once", async () => {
+    const h = await knownUrl();
+    const entryOrigin = vi.fn(async () => true);
+    const pending = await h.request({
+      ...automatic,
+      entries: entries.slice(0, 1),
+      entryCurrent: async () => true,
+      entryOrigin,
+    });
+    const answer = await pending.result;
+    if (!answer.ok) throw new Error(answer.reason);
+    entryOrigin.mockResolvedValue(false);
+    expect(await h.controller.consume(answer.choiceId)).toEqual({
+      ok: false,
+      reason: "entry-changed",
+    });
+    expect(await h.controller.consume(answer.choiceId)).toEqual({
+      ok: false,
+      reason: "choice-gone",
+    });
+  });
+  it.each(["document", "catalog", "validation"])(
+    "withdraws an automatic receipt when %s changes during consume's origin await",
+    async (change) => {
+      const h = await knownUrl();
+      const entryOrigin = vi.fn(async () => true);
+      const pending = await h.request({
+        ...automatic,
+        entries: entries.slice(0, 1),
+        entryCurrent: async () => true,
+        entryOrigin,
+      });
+      const answer = await pending.result;
+      if (!answer.ok) throw new Error(answer.reason);
+      entryOrigin.mockImplementationOnce(async () => {
+        if (change === "document") h.setCurrent(false);
+        if (change === "catalog")
+          h.saved.catalog.connections[1]!.snapshotId = "b0000000-0000-4000-8000-000000000002";
+        if (change === "validation")
+          h.source.validate.mockResolvedValue({ ok: false, reason: "source-changed" });
+        return true;
+      });
+      expect((await h.controller.consume(answer.choiceId)).ok).toBe(false);
+      expect(await h.controller.consume(answer.choiceId)).toEqual({
+        ok: false,
+        reason: "choice-gone",
+      });
+    },
+  );
+  it("retains explicit manual JavaScript-entry choice without inventing destination evidence", async () => {
+    const h = await knownUrl();
+    const entryOrigin = vi.fn(async () => false);
+    const pending = await h.request({
+      automatic: false,
+      entries: entries.slice(0, 1),
+      entryCurrent: async () => true,
+      entryOrigin,
+    });
+    expect(await h.choose("sso", 1, { entryId: "opaque-entry" })).toEqual({ ok: true });
+    const answer = await pending.result;
+    if (!answer.ok) throw new Error(answer.reason);
+    expect(await h.controller.consume(answer.choiceId)).toMatchObject({
+      ok: true,
+      selection: { kind: "sso", entryId: "opaque-entry", label: "Observed local action" },
+    });
+    expect(entryOrigin).not.toHaveBeenCalled();
+  });
+  it("locks popup mapping and native actions while an automatic origin inspection is in flight", async () => {
+    const h = await knownUrl();
+    const gate = Promise.withResolvers<boolean>();
+    const entered = vi.fn(() => gate.promise);
+    const request = h.request({
+      ...automatic,
+      entries: entries.slice(0, 1),
+      entryCurrent: async () => true,
+      entryOrigin: entered,
+    });
+    await vi.waitFor(() => expect(entered).toHaveBeenCalled());
+    const shown = await h.offer();
+    expect(await h.choose()).toEqual({ ok: false, reason: "offer-gone" });
+    expect(
+      await h.controller.choose({
+        tabId: 7,
+        offerId: shown.id,
+        selection: { kind: "native", route: "passkey" },
+      }),
+    ).toEqual({ ok: false, reason: "offer-gone" });
+    gate.resolve(true);
+    const pending = await request;
+    const answer = await pending.result;
+    if (!answer.ok) throw new Error(answer.reason);
+    expect(await h.controller.consume(answer.choiceId)).toMatchObject({
+      ok: true,
+      selection: { kind: "sso", selected },
+    });
+    expect(await h.controller.consume(answer.choiceId)).toEqual({
+      ok: false,
+      reason: "choice-gone",
+    });
+  });
+  it("withdraws an automatic request replaced while its origin inspection is in flight", async () => {
+    const h = await knownUrl();
+    const gate = Promise.withResolvers<boolean>();
+    const entered = vi.fn(() => gate.promise);
+    const request = h.request({
+      ...automatic,
+      entries: entries.slice(0, 1),
+      entryCurrent: async () => true,
+      entryOrigin: entered,
+    });
+    await vi.waitFor(() => expect(entered).toHaveBeenCalled());
+    const replacement = await h.request();
+    gate.resolve(true);
+    const old = await request;
+    expect(await old.result).toEqual({ ok: false, reason: "replaced" });
+    expect(await h.offer()).toMatchObject({ id: replacement.offerId });
+  });
+});

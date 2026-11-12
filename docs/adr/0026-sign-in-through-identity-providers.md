@@ -1,9 +1,12 @@
 # ADR 0026: Signing in to a site through an identity provider
 
-Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented apart
-from account choice and the local discovery / declarative generation foundations
+Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; the scoped
+coordinator is implemented on a branch, with synthetic verification recorded in
+[the implementation PR](https://github.com/risu729/pateat/pull/1532), following account
+choice and the local discovery / declarative generation foundations
 ([2026-11-12 amendment](#amendment-2026-11-12-declarative-sso-entry-generation)). The
-owner set it as low priority: this record fixes the direction, and implementation waits.
+owner initially set it as low priority; the current implementation is described in the
+[coordinator note](#implementation-2026-11-12-scoped-coordinator).
 Builds on [ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11
 by [ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
 routes, chosen after a passkey route and before a password route. Amended on 2026-10-12
@@ -201,3 +204,117 @@ native submission.
 The method chooser, local mapping UI, same-tab RP/IdP coordinator, IdP intermediate-page
 handling and final RP authentication remain the next required implementation. This
 amendment does not claim end-to-end, packaged-browser or real-account compatibility.
+
+## Implementation 2026-11-12: same-tab operation primitives
+
+The coordinator now has separate content inspection, preparation and single-use commit
+commands, a memory-only parent-flow model and a secret-free session intent journal. An
+intent is durable before a commit can authorize a click; restored intents only hold an
+interrupted tab and never recreate execution authority. Inspection refuses new browsing
+contexts, unsafe account-creation or permission pages, and non-HTTP destinations. IdP
+account comparison requires a complete local identifier without masked or folded
+aliases. Continue and stay-signed-in are finite local classifications with exact account
+evidence, never authorization inferred from a Continue label alone.
+
+The scope checks both selected vault snapshots, current source and mapping, current
+top document and policy, and a synchronous recipe-cache fence after awaited work.
+Each origin retains its own item's full-URI destination rule; only the prepared RP
+entry may cross to the one selected IdP origin. Concurrent requests consume an intent
+once. Child-attempt identity is immutable and survives parent cancellation so late
+callbacks can remain excluded from IdP default and authentication-proof writes.
+
+These are lower-level primitives and recipe/generation adapters. Admission, parent/child
+lifecycle integration and confirmed RP-return completion are still being implemented;
+this checkpoint enables no automatic SSO effect. Synthetic checks are separate evidence
+from packaged execution and real-account compatibility, neither of which is claimed.
+
+## Implementation 2026-11-12: scoped coordinator
+
+The extension now connects the local method chooser to a same-tab coordinator. Its
+parent stores the original RP account, selected method and exact IdP account/origin in
+memory; the native execution map contains only the IdP child. The child retains its
+ordinary account/document origin invariant, full URI rules and credential checks. An
+immutable child identity suppresses IdP defaults, account picks, authentication proofs,
+login history success and automatic relogin counts even after the parent is cancelled.
+
+The coordinator resolves the mapping before pressing an entry. Account selection
+includes SSO-only items. Automatic method order is passkey, unsuffixed SSO, then
+password; numbered methods require an explicit choice. A current-page manual request
+offers an explicit method choice. It may use SSO only under existing automatic
+permission on both origins and without a pause; its one-page grant never expands to the
+IdP. Frames, extra origins, new contexts, nested SSO, consent, sharing and account
+creation stop the flow.
+
+IdP account choices require the full exact identifier. Continue and stay-signed-in need
+finite local evidence tied to that identifier. Only the original RP's positive identity
+or freshly observed signed-in marker completes the parent. The URL form's username is
+an IdP identifier and is never treated as the RP's own identity. Its return therefore
+needs an RP marker or a marker learned by the dedicated RP-return judge. The judge uses
+the existing provider abstraction and atomic daily judgement quota; it receives only a
+redacted RP observation and recipe/layout identity. Its marker is stored separately from
+SSO entry provenance and rechecked locally. A cached verdict alone is insufficient.
+
+Each effect rechecks policy, pauses/private-window settings, source and selected item,
+vault snapshots, session and exact document, recipe epochs and observed destinations.
+Pointer events and the final click have separate single-use authorizations; policy,
+vault and recipe epochs are checked again after the pointer's awaited page tasks.
+Unknown acknowledgements and worker restart never replay an entry. Persisted intents
+become interrupted holds. Cancellation withdraws authority, while the child association
+remains available to suppress late callbacks. Its opaque parent/attempt exclusion tag is
+durable without restoring authority. An allowed RP return detaches that child and
+releases its IdP origin hold while retaining submission diagnostics; it supplies no
+ordinary IdP recent success, default or authentication proof. Native fill-only and
+confirmation flows start no SSO effect.
+
+Packaged synthetic checks exercise popup mapping, the actual RP entry, encrypted IdP
+passwords and passkeys, finite intermediate pages, service generation/cache and original
+RP completion. They also check interruption and refusal without changing the IdP default
+or creating an IdP authentication proof. Exact revisions, results and independent review
+are recorded in [the implementation PR](https://github.com/risu729/pateat/pull/1532).
+This evidence does not establish real-account or installed-user-browser compatibility.
+
+## Review hardening 2026-11-12: finite IdP actions and local labels
+
+A prepared finite IdP action carries the selected native username and action kind only
+in short-lived content-script memory. Preparation and every pointer/final-click guard
+repeat the exact account reading and target comparison. This evidence is never stored
+in a journal, diagnostic, mapping, service request or recipe. An IdP operation without
+that expectation is refused, and an RP entry cannot carry it.
+
+An observed URL-form entry label passes through the same local username redaction as the
+RP observation before cache lookup or generation. Only the selected target's safe
+redacted label is used, while the exact locally selected target remains bound through
+cached and repaired layout selection. Ambiguous or unredactable labels stop the flow.
+Bracket-form provider labels remain the explicitly approved public-label exception. A
+repaired layout executes only after current local inspection, newest first; an old
+retained layout or an uninspectable new target cannot win by array position.
+
+A native child detaches its execution authority before a finite IdP action. On the same
+document a narrow attempt cancellation withdraws pending native mutations without
+cancelling SSO inspection or clicks; a different document can still be fully cancelled.
+Scope checks both the original RP pause and selected IdP pause in the original cookie
+partition. A pause request withdraws affected SSO flows before awaiting persistence or
+popup/badge work, so a later native or SSO grant cannot slip through that interval.
+
+## Review hardening 2026-11-12: pause intents during method choice
+
+A pending method choice has no parent flow to cancel yet. Before awaiting a pause
+write, the runtime therefore installs a bounded local SSO intent guard for the site's
+cookie partition. Both original RP and selected IdP guards participate in the final
+synchronous authority fence. A successful write hands enforcement to the persisted
+pause; a failed write keeps SSO blocked until a successful explicit resume or retry.
+The guard is memory-only and ordinary native pause-store behavior is unchanged.
+Concurrent writes retain their own pending tokens, so one completed write cannot
+release another pending intent. These guards carry no credentials or mappings.
+
+## Review hardening 2026-11-12: in-place IdP path changes
+
+An IdP document already held by the parent keeps reporting its existing path-change
+signal after its native child finishes. For the exact active top document, token and
+cookie partition, that signal requests normal re-admission with the browser's current
+URL. A one-use refresh permits replacing the same document's old native URL while its
+child is still awaiting a result. Concurrent signals coalesce; they grant no click or
+credential authority. The refreshed page must pass the ordinary SSO scope and finite
+IdP identity checks before the old native execution is detached. Other documents and
+ordinary native logins retain their existing admission rules. DOM-only transitions use
+the existing page-change signals; this adds no polling or separate DOM observer.

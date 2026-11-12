@@ -1,3 +1,5 @@
+import { ssoScope } from "./sso-scope";
+import { cancelSso, installSsoLifecycle } from "./sso/flow";
 import * as v from "valibot";
 import {
   parseAttemptMetadata,
@@ -100,6 +102,20 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
     }): Promise<string | undefined> {
       await rt.vars.loaded;
       await rt.vars.sessionLoaded;
+      const sso = rt.sso.flows.get(input.tabId);
+      if (sso) {
+        if (input.origin !== sso.selected.origin) return "sso-in-progress";
+        await rt.admitting.get(`${input.tabId}:0`);
+        const child = rt.attempts.get(input.tabId);
+        if (
+          !child ||
+          child.metadata.id !== sso.childId ||
+          child.live.document.documentId !== input.documentId ||
+          !(await ssoScope(rt, sso, child.live)) ||
+          !sso.deliveryFence?.()
+        )
+          return "sso-child-not-ready";
+      }
       const snapshot = await settings.handle({ version: 1, type: "settings.get" });
       if (!snapshot.ok) return "settings-unavailable";
       const permission = resolvePagePermission(snapshot.snapshot.settings, input.origin, "sign-in");
@@ -135,7 +151,10 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
     handle: (message: unknown, sender: Sender) => handle(rt, message, sender),
     /** Local chooser seam for the SSO coordinator; it never executes a login. */
     ssoChoices: rt.ssoChoices,
-    vaultStateMayChange: () => rt.ssoChoices?.invalidateAll("vault-changed"),
+    vaultStateMayChange: () => {
+      rt.ssoChoices?.invalidateAll("vault-changed");
+      for (const tabId of rt.sso.flows.keys()) cancelSso(rt, tabId, "sso-vault-changed");
+    },
     settingsChanged: (source: "synced" | "saved") => settingsChanged(rt, source),
     siteCount,
     /** A site default was saved outside the settings page, as by the passkey chooser. */
@@ -402,6 +421,7 @@ function startRuntime(rt: Runtime) {
     rt.vars.appliedPolicy ??= await pausingSettings(rt);
   })();
 
+  installSsoLifecycle(rt);
   browser.tabs.onRemoved.addListener((tabId) => forgetTab(rt, tabId, true));
 
   browser.windows?.onRemoved?.addListener(() => void incognitoClosed(rt));

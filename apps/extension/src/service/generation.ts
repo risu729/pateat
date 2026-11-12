@@ -1,5 +1,6 @@
 import {
   parseRecipeBranch,
+  isSsoDocument,
   recipeBranchSchema,
   storedLayoutRecipe,
   storedRecipeSlots,
@@ -153,7 +154,8 @@ function notRecipe(
 export function createLoginGeneration(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
   transport: Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "judgeCompletion"> &
-    Partial<Pick<ServiceTransport, "samplePage">>;
+    Partial<Pick<ServiceTransport, "samplePage">> &
+    Partial<import("./transport").SsoTransport>;
   storage: GenerationAttemptStorage;
   /** Generated slot maps, written before a generated recipe is reported. */
   slotStorage: GeneratedSlotStorage;
@@ -390,6 +392,45 @@ export function createLoginGeneration(options: {
       await (base ? refresh() : sync()).catch(() => undefined);
       return { outcome: "recipe", recipe, ...timed };
     },
+    async judgeSso(recipeId, request) {
+      const connection = await connected();
+      if (!connection) return { signedIn: false };
+      const answer = await transport.judgeCompletion(
+        connection.origin,
+        connection.credential,
+        recipeId,
+        request,
+      );
+      if (answer.kind !== "result" || answer.result.status !== "signed-in")
+        return { signedIn: false };
+      await refresh().catch(() => undefined);
+      const recipe = answer.result.change?.recipe;
+      return { signedIn: true, ...(recipe && isSsoDocument(recipe) ? { recipe } : {}) };
+    },
+    async generateSso(request) {
+      if (!transport.generateSso) return { outcome: "refused", reason: "unavailable" };
+      const claim = await claimed(
+        request.observation,
+        undefined,
+        "sso",
+        request.repair,
+        undefined,
+        (connection) => transport.generateSso!(connection.origin, connection.credential, request),
+      );
+      if ("outcome" in claim) return { outcome: "refused", reason: claim.reason };
+      const { answer } = claim;
+      if (
+        answer.kind !== "result" ||
+        answer.result.status !== "recipe" ||
+        !isSsoDocument(answer.result.change.recipe)
+      )
+        return {
+          outcome: "refused",
+          reason: answer.kind === "result" ? answer.result.status : "unavailable",
+        };
+      await refresh().catch(() => undefined);
+      return { outcome: "recipe", recipe: answer.result.change.recipe };
+    },
     async generateEntry(request: EntryGenerationRequest, sent): Promise<EntryGenerationOutcome> {
       // An entry's repair is claimed apart from the page's first generation (ADR 0041).
       const claim = await claimed(
@@ -430,6 +471,8 @@ export function createLoginGeneration(options: {
       // The service files a sample under the layout the login ran (ADR 0060).
       if (!v.is(recipeBranchSchema, branch)) return { outcome: "not-due", reason: "no-layout" };
       await pendingSamples();
+      if (sample.route === "sso")
+        return { outcome: "not-sent", reason: "sso-needs-dedicated-judgement" };
       const due = await recentSamples().then(
         (samples) => !samples.some(sameSample(connection, recipeId, branch)),
         () => false,
@@ -474,6 +517,7 @@ export function createLoginGeneration(options: {
       slots: readonly SemanticSlot[] = [],
       beside?: true,
     ) {
+      if (route === "sso") return { verdict: "unclear", reason: "sso-needs-dedicated-judgement" };
       const connection = await connected();
       if (!connection) return { verdict: "retry", reason: "not-connected" };
       // The service judges the route of the layout the login ran (ADR 0060).

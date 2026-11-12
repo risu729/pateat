@@ -1,3 +1,4 @@
+import { cancelSso } from "./sso/flow";
 import {
   isPasskeyBrowserSite,
   type LoginAttemptMetadata,
@@ -285,12 +286,27 @@ export async function pauseFor(
   const url = tab?.url;
   if (!url || pauseSite(url) === undefined) return { ok: false, reason: "no-site" };
   const incognito = tab.incognito === true;
+  // Guard choices that have no flow yet, before persistence or other awaited work.
+  const ssoPause = paused ? rt.sso.pauseIntents.begin(url, incognito) : undefined;
+  // Withdraw SSO authority before the pause write can resolve or await any UI work.
+  if (paused)
+    for (const flow of rt.sso.flows.values())
+      if (
+        (flow.live.incognito ?? incognito) === incognito &&
+        [flow.account.origin, flow.selected.origin].some(
+          (origin) => pauseSite(origin) === pauseSite(url),
+        )
+      )
+        cancelSso(rt, flow.rpLive.document.tabId, "sso-paused");
   let until: number | undefined;
   let resumed = false;
   try {
     if (paused) until = await rt.pauses.pause(url, incognito, length);
     else resumed = await rt.pauses.resume(url, incognito);
+    ssoPause?.success();
+    if (!paused) rt.sso.pauseIntents.resumed(url, incognito);
   } catch {
+    ssoPause?.failure();
     return { ok: false, reason: "storage-unavailable" };
   }
   if (paused || resumed)

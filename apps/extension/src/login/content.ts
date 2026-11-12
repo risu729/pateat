@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { createSsoContent } from "./content-sso";
 import { sameLoginTarget, type LoginMarkerTarget, type LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { comparableAccounts, formAccounts, showsOtherAccount } from "../page/accounts";
@@ -518,6 +519,22 @@ export interface LoginContentOptions {
 export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
   const token = newId();
   let cancelled = false;
+  const cancelledNative = new Set<string>();
+  const ssoContent = createSsoContent(document, {
+    cancelled: () => cancelled,
+    authorize: async ({ flowId, operationId, handle, phase }) => {
+      const answer: unknown = await sendMessage("login", {
+        version: 1,
+        type: "login.sso.authorize",
+        phase,
+        token,
+        flowId,
+        operationId,
+        handle,
+      });
+      return answer !== null && typeof answer === "object" && "ok" in answer && answer.ok === true;
+    },
+  });
   // Ends every wait for a change of the page once `cancelled` is set.
   const waits = new AbortController();
   // Ends the running `login.extract.watch`, once another replaces it or the login cancels.
@@ -533,6 +550,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // a same-document URL change to another path is reported, so a login watched after its
   // submission reads a single-page site's next route as the tab's next page (ADR 0027).
   let carrying = false;
+  // The SSO parent may still own this IdP document after its native child finishes.
+  let ssoCarrying = false;
   let routePath = pagePath();
   const used = new Set<string>();
   // What this document showed when its last effect step ran (ADR 0029: F1, F2).
@@ -575,6 +594,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let pendingSwitch:
     | {
         operationId: string;
+        attemptId: string;
         element: HTMLElement;
         /** Finds the switch again: the recipe's target, or the page's own controls. */
         find: () => Element[];
@@ -1206,6 +1226,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const parsed = v.safeParse(commandSchema, message);
     if (!parsed.success || parsed.output.token !== token) return false;
     const command = parsed.output;
+    if (
+      command.type === "login.sso.return" ||
+      command.type === "login.sso.inspect" ||
+      command.type === "login.sso.prepare" ||
+      command.type === "login.sso.commit" ||
+      command.type === "login.sso.idp"
+    ) {
+      if (command.type === "login.sso.idp") ssoCarrying = true;
+      void ssoContent(command).then(respond, () => respond({ ok: false }));
+      return true;
+    }
     if (command.type === "login.detail.question") {
       const found = cancelled || pagePath() !== command.path ? [] : matches(command.target);
       const input = found.length === 1 ? found[0] : undefined;
@@ -1329,6 +1360,23 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         .then(respond, () => respond({ ok: false }));
       return true;
     }
+    if (command.type === "login.native.cancel") {
+      if (!cancelledNative.has(command.attemptId) && cancelledNative.size >= 256) {
+        respond({ ok: false });
+        return false;
+      }
+      cancelledNative.add(command.attemptId);
+      if (pendingSwitch?.attemptId === command.attemptId) pendingSwitch = undefined;
+      if (filledAttempt === command.attemptId) {
+        if (deferredAccount) deferredAccount.username = "";
+        deferredAccount = undefined;
+        filled = new WeakSet();
+        chosen = [];
+        shownBefore = undefined;
+      }
+      respond({ ok: true });
+      return false;
+    }
     if (command.type === "login.cancel") {
       cancelled = true;
       lateWatch?.();
@@ -1399,7 +1447,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       }
       // The switch is withdrawn only when the page got no press: one the page stopped after
       // `pointerdown` may already have switched.
-      const pressing = () => !cancelled && pagePath() === pending.path;
+      const pressing = () =>
+        !cancelled && !cancelledNative.has(pending.attemptId) && pagePath() === pending.path;
       void pressElement(pending.element, pressing).then(
         (pressed) => {
           respond({ ok: pressed !== "missed" });
@@ -1814,6 +1863,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     let siblingsBefore: TargetState[][] | undefined;
     void (async () => {
       const operation = command.operation;
+      const nativeCancelled = () => cancelled || cancelledNative.has(operation.attemptId);
       let mutated = false;
       // A key of the page's keypad was pressed (ADR 0067).
       let keyPressed = false;
@@ -1883,7 +1933,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               : [],
           ),
         );
-        if (cancelled) return "document-cancelled";
+        if (nativeCancelled()) return "document-cancelled";
         if (Date.now() >= operation.expiresAt) return "operation-expired";
         if (answers.some((answer) => !answer.success)) return "form-destination-unchecked";
         const refusals = answers.flatMap((answer) =>
@@ -1894,7 +1944,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (JSON.stringify(read()) !== JSON.stringify(destinations)) return "form-changed";
         return undefined;
       };
-      if (cancelled) return fail("cancelled", "document-cancelled");
+      if (nativeCancelled()) return fail("cancelled", "document-cancelled");
       if (used.has(operation.operationId)) return fail("cancelled", "operation-used");
       if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
       // The document's own origin, opaque ("null") in a sandboxed document whatever its URL.
@@ -1940,6 +1990,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (find && element instanceof HTMLElement) {
           pendingSwitch = {
             operationId: operation.operationId,
+            attemptId: operation.attemptId,
             element,
             find,
             path: pagePath(),
@@ -1980,7 +2031,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           addEventListener("load", done);
           waits.signal.addEventListener("abort", done);
         });
-        if (cancelled) return fail("cancelled", "document-cancelled");
+        if (nativeCancelled()) return fail("cancelled", "document-cancelled");
         if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
         if (step.path !== pagePath()) return fail("cancelled", "page-changed");
         return undefined;
@@ -2119,7 +2170,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               accountQuietMs,
               Math.min(Date.now() + accountWaitMs, operation.expiresAt - accountReserveMs),
             );
-            if (cancelled) return fail("cancelled", "document-cancelled");
+            if (nativeCancelled()) return fail("cancelled", "document-cancelled");
             if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
             if (step.path !== pagePath()) return fail("cancelled", "page-changed");
           }
@@ -2353,7 +2404,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             const value = command.values.find((entry) => entry.slot === field.slot)!;
             if (!passiveDestinationsCurrent()) return fail("cancelled", "form-changed");
             if (
-              cancelled ||
+              nativeCancelled() ||
               pagePath() !== step.path ||
               current.length !== 1 ||
               current[0] !== input ||
@@ -2364,7 +2415,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             )
               return fail(
                 "cancelled",
-                cancelled
+                nativeCancelled()
                   ? "document-cancelled"
                   : pagePath() !== step.path
                     ? "page-changed"
@@ -2408,7 +2459,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 // The page's handlers for an earlier digit may have changed this input; the
                 // same checks run after each wait of the digit's own typing.
                 const scope = () =>
-                  cancelled
+                  nativeCancelled()
                     ? "document-cancelled"
                     : pagePath() !== step.path
                       ? "page-changed"
@@ -2466,7 +2517,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 // A keypad the page redrew is looked up again for each press; the field
                 // must stay the same input.
                 between: () => {
-                  if (cancelled) return "document-cancelled";
+                  if (nativeCancelled()) return "document-cancelled";
                   if (pagePath() !== step.path) return "page-changed";
                   if (!input.isConnected) return "field-gone";
                   const now = matches(field.target);
@@ -2499,7 +2550,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               if (
                 command.choose &&
                 (!chooseFor(input) ||
-                  cancelled ||
+                  nativeCancelled() ||
                   pagePath() !== step.path ||
                   !isOnly(matches(field.target), input) ||
                   !takes(input, value.secret) ||
@@ -2519,7 +2570,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 {
                   beforeInput: buttonless ? lastIn : code?.typed,
                   between: () => {
-                    if (cancelled) return "document-cancelled";
+                    if (nativeCancelled()) return "document-cancelled";
                     if (!passiveDestinationsCurrent()) return "form-changed";
                     if (operation.signInFill && !fillUntouched(window, input))
                       return "field-changed";
@@ -2566,13 +2617,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           // marks reject the code (ADR 0027).
           if (code && baseline) {
             const until = Date.now() + CODE_SETTLE_MS;
-            // eslint-disable-next-line no-unmodified-loop-condition
-            while (!cancelled && Date.now() < until) {
+            while (!nativeCancelled() && Date.now() < until) {
               if (code.submitted()) return fail("submitted");
               // eslint-disable-next-line no-await-in-loop
               await pause(50);
             }
-            if (cancelled) return fail("cancelled", "document-cancelled");
+            if (nativeCancelled()) return fail("cancelled", "document-cancelled");
             if (code.submitted()) return fail("submitted");
             const rejection = fillRejection(split ?? writableInputs, baseline, { statuses: false });
             if (rejection)
@@ -2587,7 +2637,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           // the values first. An effectful fill has already submitted through its event.
           if (baseline) {
             await pause(fillSettleMs);
-            if (cancelled) return fail("cancelled", "document-cancelled");
+            if (nativeCancelled()) return fail("cancelled", "document-cancelled");
             // The page replaced the form, perhaps signing in by itself; the background
             // observes the page instead of clicking.
             if (writableInputs.some((input) => !input.isConnected))
@@ -2710,9 +2760,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // a press the page stopped after `pointerdown` may have acted as the click, so it is
         // answered as made; one the moving events already stopped clicked nothing.
         const pressing = () =>
-          !cancelled && pagePath() === step.path && Date.now() < operation.expiresAt;
+          !nativeCancelled() && pagePath() === step.path && Date.now() < operation.expiresAt;
         if ((await pressElement(element, pressing)) === "missed")
-          return cancelled
+          return nativeCancelled()
             ? fail("cancelled", "document-cancelled")
             : pagePath() !== step.path
               ? fail("cancelled", "page-changed")
@@ -2733,8 +2783,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           : fail("structural-mismatch", "assert-failed");
       const until = Math.min(operation.expiresAt, Date.now() + step.timeoutMs);
       // Cancellation is set by the independent background message listener.
-      // eslint-disable-next-line no-unmodified-loop-condition
-      while (!cancelled && Date.now() < until && pagePath() === step.path) {
+      while (!nativeCancelled() && Date.now() < until && pagePath() === step.path) {
         if (satisfied()) return { ok: true, mutation: "none" };
         // Check the current DOM serially, again at each change of the page; parallel checks
         // cannot observe later render states.
@@ -2742,7 +2791,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         await pageChange(document, until, waits.signal);
       }
       // The page moving to another path ends the wait early; that is not a timeout.
-      return cancelled
+      return nativeCancelled()
         ? fail("cancelled", "document-cancelled")
         : pagePath() !== step.path
           ? fail("timeout", "page-changed")
@@ -2901,7 +2950,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const urlChanged = () => {
     if (!cancelled && pagePath() !== routePath) {
       routePath = pagePath();
-      if (carrying)
+      if (carrying || ssoCarrying)
         void sendMessage("login", { version: 1, type: "login.document.moved", token }).catch(
           () => undefined,
         );

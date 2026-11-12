@@ -25,6 +25,8 @@ export type SsoChoiceInput = {
   /** URL-form entries come from a local observation, never from a guessed provider label. */
   entries?: { id: string; label: string }[];
   entryCurrent?: (entryId: string) => Promise<boolean>;
+  /** A fresh explicit HTTP destination matches this already selected origin; never a label guess. */
+  entryOrigin?: (entryId: string, selectedOrigin: string) => Promise<boolean>;
   signal?: AbortSignal;
 };
 export type SsoResolvedChoice =
@@ -50,7 +52,12 @@ type Offer = {
   done: (outcome: SsoChoiceOutcome) => void;
   releaseAbort: () => void;
 };
-type Receipt = { offer: Offer; selection: SsoResolvedChoice };
+type Receipt = {
+  offer: Offer;
+  selection: SsoResolvedChoice;
+  /** Only automatic URL choices require this exact destination again when consumed. */
+  entryOrigin?: string;
+};
 const sameAccount = (a: SsoIdpChoice["account"], b: SsoIdpChoice["account"]) =>
   a.connectionId === b.connectionId && a.itemId === b.itemId;
 const continuity = (connection: VaultConnectionMetadata | undefined) =>
@@ -154,12 +161,53 @@ export function createSsoChoiceController(options: {
     }
     return (await current(offer)) ? undefined : "scope-changed";
   }
-  function resolve(offer: Offer, selection: SsoResolvedChoice) {
+  function resolve(offer: Offer, selection: SsoResolvedChoice, entryOrigin?: string) {
     if (!retained(offer) || offer.settled) return failure("offer-gone");
     const choiceId = newId();
-    receipts.set(choiceId, { offer, selection });
+    receipts.set(choiceId, { offer, selection, ...(entryOrigin ? { entryOrigin } : {}) });
     finish(offer, { ok: true, choiceId });
     return { ok: true as const };
+  }
+  async function automaticUrl(offer: Offer, method: Method): Promise<string | undefined> {
+    if (offer.choosing || offer.settled) return undefined;
+    offer.choosing = true;
+    try {
+      const { entryCurrent, entryOrigin, entries } = offer.input;
+      const candidate = method.candidates.find((entry) => entry.id === method.selectedId);
+      if (!candidate || !entryCurrent || !entryOrigin) return "entry-required";
+      const selected = candidate.selected;
+      const matches: { id: string; label: string }[] = [];
+      for (const entry of entries ?? []) {
+        // oxlint-disable-next-line no-await-in-loop -- inspect each local entry before resolving ambiguity
+        const present = await entryCurrent(entry.id).catch(() => false);
+        if (!retained(offer)) return "scope-changed";
+        if (!present) continue;
+        // oxlint-disable-next-line no-await-in-loop -- destination evidence belongs to this exact entry
+        const matchesOrigin = await entryOrigin(entry.id, selected.origin).catch(() => false);
+        if (!retained(offer)) return "scope-changed";
+        if (matchesOrigin) matches.push(entry);
+        if (matches.length > 1) return "entry-required";
+      }
+      const entry = matches.length === 1 ? matches[0] : undefined;
+      if (!entry) return "entry-required";
+      const refused = await validateAll(offer);
+      if (refused) return refused;
+      if (!retained(offer)) return "scope-changed";
+      const resolved = resolve(
+        offer,
+        {
+          kind: "sso",
+          source: method.source,
+          selected,
+          entryId: entry.id,
+          label: entry.label,
+        },
+        selected.origin,
+      );
+      return resolved.ok ? undefined : resolved.reason;
+    } finally {
+      offer.choosing = false;
+    }
   }
   async function mapping(offer: Offer, method: Method, candidateId: string) {
     const candidate = method.candidates.find((entry) => entry.id === candidateId);
@@ -381,6 +429,10 @@ export function createSsoChoiceController(options: {
                   .selected,
                 ...(preferred.label ? { label: preferred.label } : {}),
               });
+            } else if (preferred?.form === "url") {
+              const reason = await automaticUrl(offer, preferred);
+              if (reason === "scope-changed") return refused(reason);
+              if (reason) offer.reason = reason;
             } else if (!preferred && input.native.password)
               resolve(offer, { kind: "native", route: "password" });
             else offer.reason = preferred ? "entry-required" : "method-unavailable";
@@ -450,9 +502,14 @@ export function createSsoChoiceController(options: {
         if (
           !offer.input.entryCurrent ||
           !(await offer.input.entryCurrent(selection.entryId)) ||
+          (receipt.entryOrigin !== undefined &&
+            (!offer.input.entryOrigin ||
+              !(await offer.input.entryOrigin(selection.entryId, receipt.entryOrigin)))) ||
           !(await current(offer))
         )
           return failure("entry-changed");
+        const afterEntry = await validateAll(offer);
+        if (afterEntry) return failure(afterEntry);
       }
       if (!retained(offer)) return failure("scope-changed");
       invalidateTab(offer.input.document.tabId, "consumed");

@@ -1,3 +1,5 @@
+import { ssoChildOn } from "./sso-scope";
+import { registerSsoChild } from "./sso-state";
 import {
   resolvePagePermission,
   attemptRouteChoice,
@@ -766,6 +768,11 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   if (manual) {
     manual.pick.attemptId = metadata.id;
     endManual(rt, ctx.document.tabId, undefined, manual.request);
+  }
+  const ssoParent = ssoChildOn(rt, ctx.document);
+  if (ssoParent && metadata.id !== ssoParent.childId) {
+    if (!registerSsoChild(rt.sso, ssoParent, metadata)) return ctx.refuse("sso-child-changed");
+    delete run.choice;
   }
   rt.attempts.set(ctx.document.tabId, run);
 

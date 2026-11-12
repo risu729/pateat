@@ -64,6 +64,13 @@ empty, untouched fields and presses nothing. It does not authorize a transfer, o
 account change or other action; you review the form and press its button yourself.
 It requests no additional Chrome permission.
 
+[SSO sign-in](./setup.md#sso-sign-in) uses the same site access. It stays in one tab,
+with one selected provider account and an origin from that account's own saved
+websites. This mapping does not authorize new permissions, data sharing, account
+creation or another provider hop. Pateat confirms success at the original site and
+does not use the provider's sign-in as permission to fill the original site's
+confirmation pages. SSO requires no additional Chrome permission.
+
 ## Plain HTTP pages
 
 On a plain HTTP page, Pateat logs in only with an item whose website is saved in your

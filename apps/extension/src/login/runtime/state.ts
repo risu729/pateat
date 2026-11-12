@@ -4,6 +4,7 @@ import {
   type LoginDocument,
 } from "@pateat/contracts";
 import { frameKey } from "./steps";
+import { createSsoState } from "./sso-state";
 import { createSsoChoiceController } from "../sso-choice";
 import { createConfirmState } from "./confirm-state";
 import { sessionValue, trustedRecord } from "../../storage";
@@ -482,6 +483,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     pauses,
     documents,
     ssoChoices,
+    sso: createSsoState(),
     attempts,
     keypadPresses,
     begunIn,
