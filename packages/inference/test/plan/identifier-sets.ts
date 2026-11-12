@@ -21,7 +21,7 @@ export function registerIdentifierSets({
   page: LoginObservation;
   all: SemanticSlot[];
   primary: GeneratedPagePlan;
-  byContract: PagePlan;
+  byContract: Pick<PagePlan, "fields"> & { action: PlanTestFixtures["action"] };
   input: PlanTestFixtures["input"];
   action: PlanTestFixtures["action"];
 }) {

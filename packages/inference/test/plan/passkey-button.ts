@@ -15,7 +15,7 @@ type Generate = (
   change?: Partial<GeneratedPagePlan>,
 ) => ReturnType<typeof validateGeneratedPage>;
 
-export function registerPasskeyEntry({
+export function registerPasskeyButton({
   generate,
   page,
   fields,

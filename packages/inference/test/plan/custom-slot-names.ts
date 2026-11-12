@@ -1,9 +1,8 @@
 import type { LoginObservation } from "@pateat/contracts";
 import { customSlotNames, validatePagePlan } from "../../src/plan";
 import { expect, it } from "vitest";
-import type { PlanTestFixtures } from "../../src/plan.test";
+import type { Candidate, PlanTestFixtures } from "../../src/plan.test";
 
-type Candidate = PlanTestFixtures["candidate"];
 type NameOf = (
   extra: Partial<Candidate>,
   page?: Partial<LoginObservation>,

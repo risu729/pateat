@@ -1,8 +1,3 @@
-import { registerCustomSlotStorage, registerCustomSlotNames } from "../test/plan/custom-slot-names";
-import { registerSavedBindingMatches, registerCarriedSlotNames } from "../test/plan/saved-bindings";
-import { registerIdentifierSets } from "../test/plan/identifier-sets";
-import { registerPasskeyEntry } from "../test/plan/passkey-entry";
-import { registerActionPurpose } from "../test/plan/action-purpose";
 import {
   builtInLoginSlots,
   customFieldSlotDescriptions,
@@ -21,12 +16,16 @@ import {
   type GeneratedPagePlan,
   type PagePlan,
 } from "./plan";
+import { registerActionPurpose } from "../test/plan/action-purpose";
+import { registerCustomSlotNames, registerCustomSlotStorage } from "../test/plan/custom-slot-names";
+import { registerIdentifierSets } from "../test/plan/identifier-sets";
+import { registerPasskeyButton } from "../test/plan/passkey-button";
+import { registerCarriedSlotNames, registerSavedBindingMatches } from "../test/plan/saved-bindings";
 
 // Synthetic page only: custom-field slot names and the Hidden fill rule (ADR 0027).
 
-type Candidate = LoginObservation["candidates"][number];
+export type Candidate = LoginObservation["candidates"][number];
 export type PlanTestFixtures = {
-  candidate: Candidate;
   observation: typeof observation;
   slots: typeof slots;
   action: typeof action;
@@ -724,7 +723,7 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
   const generate = (passkeyButton: string | undefined, change: Partial<GeneratedPagePlan> = {}) =>
     validateGeneratedPage(page, slots, { fields, action, passkeyButton, ...change });
 
-  registerPasskeyEntry({ generate, page, fields, slots, branch, input, action });
+  registerPasskeyButton({ generate, page, fields, slots, branch, input, action });
 });
 
 describe("the action's purpose read from the page (owner 2026-10-22, #834)", () => {

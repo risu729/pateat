@@ -488,20 +488,6 @@ a module registers no tests. The case callbacks, tables, titles, hooks and regis
 order stay unchanged. These test modules live outside `src/` so they do not enter the
 production coverage denominator.
 
-### Inference plan test organization
-
-`packages/inference/src/plan.test.ts` remains the sole discovered entry for plan
-validation. It owns all describe scopes and shared and suite-local fixtures and
-helpers. Passive synchronous registrars in `packages/inference/test/plan/` register
-contiguous custom-slot naming, saved-binding, identifier-set, passkey-entry and
-action-purpose cases at their original positions. The custom-slot and saved-binding
-scopes call separate registrars around their local helper and fixture initialization.
-The entry passes the same initialized helper and object references; importing a leaf
-registers no cases. Its exported fixture contract is type-only, so leaves create no
-runtime import cycle. Callbacks, tables, comments and registration order stay
-unchanged. Each file follows the 1,000-line limit, and the leaves remain outside the
-production coverage root without discovery or coverage configuration changes.
-
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
@@ -766,6 +752,20 @@ and helper references; importing a module registers no cases. The entry exports 
 fixture type, and `context.ts` imports it with `import type`, so the type follows the
 helpers. The modules sit outside `src/`, so they stay outside the production coverage
 root. Each file follows the 1,000-line limit.
+
+### Inference plan test organization
+
+`packages/inference/src/plan.test.ts` is the discovered entry for the main plan
+validation suites. It owns all describe scopes and the shared and suite-local fixtures
+and helpers. Synchronous registrar modules in `packages/inference/test/plan/` hold the
+custom-slot naming, saved-binding, identifier-set, passkey sign-in button and
+action-purpose cases, and the entry calls each registrar inside its describe scope.
+The custom-slot and saved-binding scopes each call two registrars, with local helpers
+and fixtures defined between them. Importing a module registers no cases. The
+entry's exported `PlanTestFixtures` and `Candidate` types are type-only imports, so
+the modules create no runtime import cycle. The modules sit outside `src/`, so they
+stay outside the coverage root and are not discovered as test files. Each file follows
+the 1,000-line limit.
 
 ### Login wire contracts
 
