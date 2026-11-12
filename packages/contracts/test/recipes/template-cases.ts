@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { customFieldReference, templateLoginBinding } from "../../src/recipes";
-import type { RecipeTestContext } from "../../src/recipes.test";
+import type { BindingFieldContext } from "./context";
 
 export function registerTemplateBindings({
   origin,
@@ -8,7 +8,7 @@ export function registerTemplateBindings({
   snapshotId,
   fields,
   resolve,
-}: Pick<RecipeTestContext, "origin" | "binding" | "snapshotId" | "fields" | "resolve">) {
+}: BindingFieldContext) {
   const custom = (index: number) => `custom.${snapshotId}.${index}`;
   const bank = { id: "bank-signin", origin };
   const account = {

@@ -13,7 +13,7 @@ import {
   localSettingsSchema,
   savedLoginBindingSchema,
 } from "../../src/settings";
-import type { RecipeTestContext } from "../../src/recipes.test";
+import type { SyncedBindingContext } from "./context";
 
 export function registerSyncedBindings({
   origin,
@@ -22,7 +22,7 @@ export function registerSyncedBindings({
   snapshotId,
   fields,
   resolve,
-}: Pick<RecipeTestContext, "origin" | "recipe" | "binding" | "snapshotId" | "fields" | "resolve">) {
+}: SyncedBindingContext) {
   it("finds the binding for one recipe and item only", () => {
     const account = {
       provider: "bitwarden",

@@ -7,13 +7,9 @@ import {
   savedLoginBindingSchema,
   type SavedLoginBinding,
 } from "../../src/settings";
-import type { RecipeTestContext } from "../../src/recipes.test";
+import type { AutomaticChoiceContext } from "./context";
 
-export function registerAutomaticChoice({
-  origin,
-  recipe,
-  binding,
-}: Pick<RecipeTestContext, "origin" | "recipe" | "binding">) {
+export function registerAutomaticChoice({ origin, recipe, binding }: AutomaticChoiceContext) {
   const account = {
     provider: "bitwarden",
     server: "cloud-us",

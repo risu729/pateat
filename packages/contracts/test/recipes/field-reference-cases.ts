@@ -9,7 +9,7 @@ import {
   totpFieldReference,
   type LocalItemField,
 } from "../../src/recipes";
-import type { RecipeTestContext } from "../../src/recipes.test";
+import type { BindingFieldContext } from "./context";
 
 export function registerDetailSources() {
   const itemFields: LocalItemField[] = [
@@ -49,7 +49,7 @@ export function registerTotpFields({
   snapshotId,
   fields,
   resolve,
-}: Pick<RecipeTestContext, "origin" | "binding" | "snapshotId" | "fields" | "resolve">) {
+}: BindingFieldContext) {
   const custom = (index: number) => `custom.${snapshotId}.${index}`;
   const bank = { id: "bank-signin", origin };
   const account = {

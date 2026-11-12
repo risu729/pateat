@@ -488,20 +488,6 @@ a module registers no tests. The case callbacks, tables, titles, hooks and regis
 order stay unchanged. These test modules live outside `src/` so they do not enter the
 production coverage denominator.
 
-### Recipe contract test organization
-
-`packages/contracts/src/recipes.test.ts` remains the sole discovered entry for recipe
-selection and account-binding tests. It initializes the shared fixture factories and
-field catalog and keeps all eight describe scopes in their original order. Passive
-modules in `packages/contracts/test/recipes/` register the complete bodies of those
-scopes synchronously: recipe selection, synced bindings, automatic account choice,
-template bindings, saved binding gaps, and field references and display names. Each
-registrar receives the original shared helpers it uses; scope-local fixtures initialize
-at the same registration point. The entry exports their shared context only as an
-erased type derived from those helpers. Importing a registrar module registers no
-tests, and the modules remain outside the production coverage include under `src/`.
-Case callbacks, assertions, tables, titles and registration order stay unchanged.
-
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,

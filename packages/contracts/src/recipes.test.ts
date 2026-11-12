@@ -6,17 +6,17 @@ import {
   type LoginRecipeDocument,
 } from "./login";
 import { resolveBindingFields, type LocalItemField } from "./recipes";
-import { type SavedLoginBinding } from "./settings";
-import { registerRecipeSelection } from "../test/recipes/selection";
-import { registerSyncedBindings } from "../test/recipes/synced-bindings";
-import { registerAutomaticChoice } from "../test/recipes/automatic-choice";
-import { registerTemplateBindings } from "../test/recipes/templates";
-import { registerBindingGaps } from "../test/recipes/binding-gaps";
+import type { SavedLoginBinding } from "./settings";
+import { registerRecipeSelection } from "../test/recipes/selection-cases";
+import { registerSyncedBindings } from "../test/recipes/synced-binding-cases";
+import { registerAutomaticChoice } from "../test/recipes/automatic-choice-cases";
+import { registerTemplateBindings } from "../test/recipes/template-cases";
+import { registerBindingGaps } from "../test/recipes/binding-gap-cases";
 import {
   registerDetailSources,
   registerTotpFields,
   registerDisplayNames,
-} from "../test/recipes/field-references";
+} from "../test/recipes/field-reference-cases";
 
 const origin = "https://bank.example";
 const target = (value: string) => ({ by: "id" as const, value });

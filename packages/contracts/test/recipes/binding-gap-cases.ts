@@ -1,12 +1,8 @@
 import { expect, it } from "vitest";
 import { bindingGaps, fillLoginBinding } from "../../src/recipes";
-import type { RecipeTestContext } from "../../src/recipes.test";
+import type { BindingGapContext } from "./context";
 
-export function registerBindingGaps({
-  binding,
-  fields,
-  resolve,
-}: Pick<RecipeTestContext, "binding" | "fields" | "resolve">) {
+export function registerBindingGaps({ binding, fields, resolve }: BindingGapContext) {
   const saved = binding({ slots: [{ slot: "username", field: "username" }] });
   const branch = [{ slot: "branch", field: { custom: "Branch number" } }];
 

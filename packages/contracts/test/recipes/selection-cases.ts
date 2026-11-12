@@ -18,14 +18,14 @@ import {
   rankLayouts,
   selectLoginRecipe,
 } from "../../src/recipes";
-import type { RecipeTestContext } from "../../src/recipes.test";
+import type { RecipeSelectionContext } from "./context";
 
 export function registerRecipeSelection({
   origin,
   target,
   recipe,
   stored,
-}: Pick<RecipeTestContext, "origin" | "target" | "recipe" | "stored">) {
+}: RecipeSelectionContext) {
   const recipes = [
     stored(recipe("bank-signin", "/login")),
     stored(recipe("bank-admin", "/admin")),
