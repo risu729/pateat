@@ -776,6 +776,8 @@ export synchronous registration functions for the sign-in, code-answer,
 personal-detail and account-slot cases, which the entry calls inside those suites with
 the same fixture references; importing a module registers no cases. The entry exports
 its `CompletionFixtures` type, and the modules and `context.ts` import it with
+`import type`. The modules sit outside `src/`, so they stay outside the production
+coverage root. Each file follows the 1,000-line limit.
 
 ### Recipe assembly test organization
 
