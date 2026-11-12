@@ -43,7 +43,6 @@
         "packages/contracts/src/login.ts",
         "services/api/test/generation.test.ts",
         "tests/extension/login-generation.spec.ts",
-        "tests/extension/login-server.ts",
         "tests/extension/passkeys.spec.ts",
         "tests/options/popup.test.tsx"
       ],

@@ -962,6 +962,21 @@ below `tests/options/`, so the `tests/options/*.test.tsx` include does not disco
 them, and coverage includes only `apps/extension/src/`. Each file follows the
 1,000-line limit.
 
+### Synthetic login fixture organization
+
+`tests/extension/login-server.ts` is the synthetic login fixture's HTTP server. It owns
+routing, response status and headers, the `/effect/` and `/sign-in-submit` POST
+handling, run evidence, held results and server lifetime, and builds the remaining
+pages inline. `login-identity-pages.ts` exports pure, synchronous builders for the
+`/identity`, `/identifier-first`, `/identifier-kept`, `/identifier-swap`,
+`/method-choice`, `/method-choice-named`, `/identifier`, `/identifier/again` and
+`/identifier/password` pages; each takes the request URL and the fixture options it
+reads and returns the page HTML. It also owns the RFC 6238 code window that
+`/identifier-kept?code` accepts. `login-html.ts` owns the shared `html` wrapper, so the
+builders do not import the server. These modules lack the `.spec.ts` suffix that
+Playwright matches, so they are not discovered as specs. Each file follows the
+1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
