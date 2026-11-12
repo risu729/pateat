@@ -42,7 +42,6 @@
         "packages/contracts/src/login-attempt.ts",
         "packages/contracts/src/login.ts",
         "services/api/test/generation.test.ts",
-        "tests/extension/login-generation.spec.ts",
         "tests/extension/passkeys.spec.ts",
         "tests/options/popup.test.tsx"
       ],
