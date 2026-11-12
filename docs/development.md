@@ -628,19 +628,6 @@ expanded test count. The owner approved this organization with the runtime split
 on 2026-10-30. Compare the full Verify job as well as test counts when changing the
 suite layout, since each file loads the runtime and harness separately.
 
-### Connection runtime test organization
-
-`apps/extension/src/connections/runtime.test.ts` remains the sole discovered entry
-for the connection runtime suite. Plain modules under
-`apps/extension/test/connections/runtime/` export synchronous registration functions
-for settings-port admission, current-catalog restoration and pending settings-page
-requests. The entry calls them at the original describe positions and retains the
-hoisted mocks, shared mutable owners, cleanup and local helper declarations. Leaves
-receive the same live references; importing them registers no tests. Existing titles,
-callbacks, assertions, tables, comments and registration order stay unchanged. Each
-file follows the 1,000-line limit, and the plain modules stay outside production `src/`
-coverage.
-
 ### API sync test organization
 
 `services/api/test/sync.test.ts` remains the sole discovered entry for the sync
@@ -652,6 +639,18 @@ order, callbacks, parameter tables and migration SQL remain unchanged. Each file
 follows the 1,000-line limit. The API coverage configuration covers production
 `src/` only, so these test helpers remain outside it. Compare expanded collection
 names and counts as well as the local Worker tests when changing this layout.
+
+### Connection runtime test organization
+
+`apps/extension/src/connections/runtime.test.ts` is the discovered entry for the
+connection runtime suite. It owns the hoisted mocks, the shared stored entry and
+session keys, the cleanup and the local helpers. Plain modules in
+`apps/extension/test/connections/runtime/` export synchronous registration functions
+for settings-port admission, current-catalog restoration and pending settings-page
+requests, which the entry calls inside its describe scopes with the same live
+references; importing a module registers no cases. The modules sit outside `src/`,
+so they stay outside the production coverage root. Each file follows the 1,000-line
+limit.
 
 ### Login wire contracts
 
