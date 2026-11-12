@@ -47,6 +47,9 @@ export type SsoWork = {
   choice?: UnsavedChoice;
   childId?: string;
   childRecord?: LoginAttemptMetadata;
+  moved?: Promise<void>;
+  movedAgain?: boolean;
+  refresh?: LiveDocument;
   reprompted?: boolean;
   generation?: boolean;
   completionTried?: boolean;

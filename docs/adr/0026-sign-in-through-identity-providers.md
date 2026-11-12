@@ -306,3 +306,15 @@ pause; a failed write keeps SSO blocked until a successful explicit resume or re
 The guard is memory-only and ordinary native pause-store behavior is unchanged.
 Concurrent writes retain their own pending tokens, so one completed write cannot
 release another pending intent. These guards carry no credentials or mappings.
+
+## Review hardening 2026-11-12: in-place IdP path changes
+
+An IdP document already held by the parent keeps reporting its existing path-change
+signal after its native child finishes. For the exact active top document, token and
+cookie partition, that signal requests normal re-admission with the browser's current
+URL. A one-use refresh permits replacing the same document's old native URL while its
+child is still awaiting a result. Concurrent signals coalesce; they grant no click or
+credential authority. The refreshed page must pass the ordinary SSO scope and finite
+IdP identity checks before the old native execution is detached. Other documents and
+ordinary native logins retain their existing admission rules. DOM-only transitions use
+the existing page-change signals; this adds no polling or separate DOM observer.

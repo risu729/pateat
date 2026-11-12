@@ -1,3 +1,4 @@
+import { ssoMoved } from "./sso/moved";
 import { authorizeSso } from "./sso-effects";
 import { ssoAuthorizeSchema } from "../sso-operation-wire";
 import { cancelSso } from "./sso/flow";
@@ -277,11 +278,13 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
       visit.submitted = true;
     return undefined;
   }
-  if (v.safeParse(movedSchema, message).success) {
+  const moved = v.safeParse(movedSchema, message);
+  if (moved.success) {
     // A route of the document a login is watched in, or one it took while the login was
     // read, is read once (ADR 0027 amendment of 2026-10-25). The document says its path,
     // which the tab's URL may not show yet.
     const document = await identify(rt, sender);
+    if (document && ssoMoved(rt, document, moved.output.token)) return undefined;
     const run = document ? rt.attempts.get(document.tabId) : undefined;
     if (!document || document.frameId !== 0 || !run || !current(rt, run)) return undefined;
     if (!sameLoginDocument(run.live.document, document)) return undefined;

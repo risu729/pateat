@@ -550,6 +550,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // a same-document URL change to another path is reported, so a login watched after its
   // submission reads a single-page site's next route as the tab's next page (ADR 0027).
   let carrying = false;
+  // The SSO parent may still own this IdP document after its native child finishes.
+  let ssoCarrying = false;
   let routePath = pagePath();
   const used = new Set<string>();
   // What this document showed when its last effect step ran (ADR 0029: F1, F2).
@@ -1231,6 +1233,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       command.type === "login.sso.commit" ||
       command.type === "login.sso.idp"
     ) {
+      if (command.type === "login.sso.idp") ssoCarrying = true;
       void ssoContent(command).then(respond, () => respond({ ok: false }));
       return true;
     }
@@ -2947,7 +2950,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const urlChanged = () => {
     if (!cancelled && pagePath() !== routePath) {
       routePath = pagePath();
-      if (carrying)
+      if (carrying || ssoCarrying)
         void sendMessage("login", { version: 1, type: "login.document.moved", token }).catch(
           () => undefined,
         );
