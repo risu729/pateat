@@ -708,8 +708,12 @@ chosen when it pairs or on the management page's Devices page; `/manage/profiles
 renames, copies and deletes profiles, and the Sites pages edit one profile at a time.
 The extension's settings page can edit another profile with its own vault catalog
 through `/extension/profiles`, behind the same host-wide Access application as pairing
-and management; that does not move its device. When a device's profile changes, the
-extension replaces its exclusions, saved accounts and vault policy with the new
+and management; that does not move its device. The management API and extension
+editor share the profile list and revision-checked settings handlers, with separate
+access and origin middleware. An unpaired owner sees an empty profile list; settings
+requests answer `404 not_paired` in management and `404 not_found` in the extension
+editor. When a device's profile changes, the extension replaces its exclusions,
+saved accounts and vault policy with the new
 profile's and drops its merge base for them, while bindings and personal-detail links
 keep merging. Chrome use access to these pages is not assumed. Keep settings and
 execution operations independent of their UI.
