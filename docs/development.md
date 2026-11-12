@@ -107,6 +107,19 @@ checks, handler takeover and reporting. Its `judgeMove` and `judgeStop` keep the
 distinct completion rules. The policy's table tests pin the existing behavior;
 extracting it does not change what an undecided answer means.
 
+The document-side login content script keeps one live owner in `login/content-state.ts`.
+`content.ts` installs and disposes its listeners in order; `content-watch.ts` owns
+readiness announcements, offer windows, frame visibility, shadow-root submission
+listeners and same-document URL watches. `content-dispatch.ts` validates sender and
+document tokens before routing commands to the finite page readers (`content-page.ts`),
+personal-detail fills (`content-detail.ts`) or native execution (`content-execute.ts`
+and its existing asynchronous effect helpers, `content-effects.ts`). These modules read
+narrow live views of the same document state after asynchronous work; they never
+snapshot cancellation, filled inputs or pending account switches. `content-dom.ts` holds
+the shared DOM checks and bounded change watcher; `content-command.ts` derives the local
+handler types from the existing wire schema. The SSO prepared-grant owner remains in
+`content-sso.ts`, and native completion leaves the SSO document-path watch active.
+
 The login runtime lives under `apps/extension/src/login/runtime/` using the
 owner-approved extraction plan (accepted 2026-10-30). Session schemas, public dependency
 contracts and reports, internal types, constants, and existing pure attempt/step helpers
