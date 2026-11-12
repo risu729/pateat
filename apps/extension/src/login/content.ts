@@ -1904,11 +1904,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       const step = operation.step;
       if (
         operation.signInFill &&
-        (step.kind !== "fill" ||
-          step.effect !== "prepare" ||
+        (step.kind === "click" ||
           command.code ||
           command.choose ||
-          step.fields.some((field) => field.keypad))
+          (step.kind === "fill" &&
+            (step.effect !== "prepare" || step.fields.some((field) => field.keypad))))
       )
         return fail("cancelled", "not-authorized");
       // Another attempt in this document starts from nothing filled.
