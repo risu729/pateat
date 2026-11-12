@@ -1361,13 +1361,12 @@ names items the owner mentioned and gates still open on 2026-10-11.
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5),
   with one item per site account holding its password and every SSO method
   ([ADR 0085](adr/0085-one-item-for-native-and-sso-login.md), owner 2026-11-07). Local
-  discovery, separate label-only SSO entry contracts/generation, device-local mappings
-  and the popup choice seam are implemented. The same-tab coordinator, IdP
-  intermediate-page boundaries and complete synthetic packaged matrix remain required.
-  The same-tab coordinator now executes the exact mapped IdP native route and confirms
-  only the original RP return. The first encrypted packaged password flow passes; the
-  remaining matrix, passkey, service-generation, cloud and independent review gates are
-  still in progress. No real-account compatibility is claimed.
+  discovery, label-only entry generation, device-local mappings, popup method choice
+  and the same-tab coordinator are implemented. The coordinator executes the exact
+  mapped IdP native route and confirms only the original RP return. Synthetic packaged
+  checks cover password and passkey IdP sign-ins, intermediate pages, generation and
+  cache, interruption and refusal. Installed-user-browser and real-account
+  compatibility remain separate open gates.
 - Signing in with a code or link sent by email, which
   [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
   page ends `challenge`). It has the same priority as signing in through an identity

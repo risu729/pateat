@@ -3443,7 +3443,7 @@ its checks without failing the answer. A `hidden` slot is filled only into an in
 Hidden rule of ADR 0013 accepts; the decision role and the heuristic name custom slots
 the same way. Signing in to a site through Google or Microsoft follows the policy in
 [ADR 0026](adr/0026-sign-in-through-identity-providers.md) (scoped execution
-implemented; verification gates remain). Local discovery and label-only generation now
+implemented; real-account verification remains). Local discovery and label-only generation now
 have separate SSO entry contracts: an `sso` sibling of a stored recipe holds its path
 and up to three layouts of label/target entries, without fill slots or ordinary click
 steps. Native layouts may coexist with that sibling; conditional writes, repair and
