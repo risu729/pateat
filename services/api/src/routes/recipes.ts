@@ -30,6 +30,7 @@ import {
 } from "../recipe-store";
 import {
   generateEntry,
+  generateSso,
   generateLogout,
   generateRecipe,
   judgeCompletion,
@@ -100,12 +101,15 @@ export const recipeRoutes = new Hono<ApiEnv>()
   // Registered before `/:recipeId` routes; ADR 0018. Answers are 200 with a status.
   .post("/generate", requireJsonBody, jsonBody(generationRequestSchema), async (c) => {
     const request = c.req.valid("json");
-    // A request without slots asks for a page's sign-in entry (ADR 0031).
+    // A request with `kind: "sso"` asks for a page's SSO entries (ADR 0026 amendment of
+    // 2026-11-12); one without slots, for its sign-in entry (ADR 0031).
     const backend = d1Backend(c.env, c.get("scope"), c.get("trace"));
     const result =
-      "slots" in request
-        ? await generateRecipe(backend, request)
-        : await generateEntry(backend, request);
+      "kind" in request
+        ? await generateSso(backend, request)
+        : "slots" in request
+          ? await generateRecipe(backend, request)
+          : await generateEntry(backend, request);
     return result ? c.json(result) : apiError(c, 400, { error: "bad_request" });
   })
   // An account switch's signed-in page (ADR 0063), under the generation route's device

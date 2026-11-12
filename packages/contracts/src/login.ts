@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { createSsoRoutesSchema, ssoTargetsSeparate } from "./sso";
 import { canonicalJson } from "./canonical-json";
 import {
   datePartSchema,
@@ -1357,6 +1358,13 @@ const storedChooserSchema = v.strictObject({
     v.maxLength(MAX_RECIPE_LAYOUTS),
   ),
 });
+/** Declarative SSO entries are kept apart from native executable routes. */
+export const loginSsoRoutesSchema = createSsoRoutesSchema({
+  path,
+  target: loginTargetSchema,
+  key: recipeLayoutKeySchema,
+  language: recipeLanguageSchema,
+});
 /** A stored recipe document's members, before the checks that relate them. */
 const recipeDocumentEntriesSchema = v.strictObject({
   version: v.literal(1),
@@ -1365,6 +1373,7 @@ const recipeDocumentEntriesSchema = v.strictObject({
   origin: loginOriginSchema,
   layouts: v.optional(loginLayoutsSchema),
   chooser: v.optional(storedChooserSchema),
+  sso: v.optional(loginSsoRoutesSchema),
 });
 /** Each route a stored recipe's chooser layouts hold: their branches and passkey routes. */
 const chooserBranchBodies = (chooser: v.InferOutput<typeof storedChooserSchema> | undefined) =>
@@ -1388,7 +1397,8 @@ const chooserBranchBodies = (chooser: v.InferOutput<typeof storedChooserSchema> 
 export const recipeDocumentSchema = v.pipe(
   recipeDocumentEntriesSchema,
   v.check(
-    (recipe) => recipe.layouts !== undefined || recipe.chooser !== undefined,
+    (recipe) =>
+      recipe.layouts !== undefined || recipe.chooser !== undefined || recipe.sso !== undefined,
     "A recipe holds a sign-in form or a list of accounts",
   ),
   v.check(
@@ -1396,6 +1406,7 @@ export const recipeDocumentSchema = v.pipe(
       unique([
         ...(recipe.layouts ?? []).map((layout) => layout.key),
         ...(recipe.chooser?.layouts ?? []).map((layout) => layout.key),
+        ...(recipe.sso?.layouts ?? []).map((layout) => layout.key),
       ]),
     "Duplicate layout keys",
   ),
@@ -1407,6 +1418,22 @@ export const recipeDocumentSchema = v.pipe(
   v.check(
     ({ layouts, chooser }) => !layouts || !chooser || layouts[0]!.steps[0]!.path === chooser.path,
     "The list of accounts shows on the recipe's start path",
+  ),
+  v.check(
+    ({ layouts, chooser, sso }) =>
+      !sso ||
+      ((!layouts || layouts[0]!.steps[0]!.path === sso.path) &&
+        (!chooser || chooser.path === sso.path)),
+    "SSO entries share the recipe start path",
+  ),
+  v.check(
+    (recipe) =>
+      ssoTargetsSeparate(
+        recipe,
+        [...(recipe.layouts ?? []), ...chooserBranchBodies(recipe.chooser)],
+        handlerTargets,
+      ),
+    "SSO targets are separate from native executable routes",
   ),
   // All layouts share one start page, so they share its kind (ADR 0060): a recipe is run,
   // or kept as a confirm or unclear page, as a whole.
@@ -1641,6 +1668,7 @@ export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
   if ("logout" in recipe) return recipe.logout.path;
   if (isChooserDocument(recipe)) return recipe.chooser.path;
   if (isLoginRecipeDocument(recipe)) return recipe.layouts[0]!.steps[0]!.path;
+  if ("sso" in recipe && recipe.sso) return recipe.sso.path;
   throw new Error(`Unknown stored recipe kind: ${JSON.stringify(recipe)}`);
 }
 /** A layout's key, language and creation time, without its route. */
@@ -1821,54 +1849,6 @@ export function storedLayoutRecipe(
   if (layout) return layoutRecipe(recipe as LoginRecipeDocument, layout);
   const chooser = choosers.find((entry) => entry.key === wanted);
   return chooser && chooserLayoutRecipe(recipe as LoginChooserDocument, chooser);
-}
-/**
- * The key, language and creation time of each layout of a stored recipe, its sign-in form's
- * then its list's; none for an entry.
- */
-export function storedLayouts(recipe: StoredLoginRecipe): LayoutMeta[] {
-  return [
-    ...(isLoginRecipeDocument(recipe) ? recipe.layouts.map(layoutMeta) : []),
-    ...(isChooserDocument(recipe) ? recipe.chooser.layouts.map(layoutMeta) : []),
-  ];
-}
-/**
- * The stored recipe without the layout of the key, as the next revision (ADR 0060): a
- * recipe's last layout of one kind takes that kind away, so the other kind stays alone.
- * `undefined` when it has no such layout or that is its last one, which revoking the recipe
- * removes instead.
- */
-export function withoutLayout(
-  recipe: StoredLoginRecipe,
-  key: string,
-): StoredLoginRecipe | undefined {
-  if ("entry" in recipe || "logout" in recipe) return undefined;
-  const layouts = recipe.layouts?.filter((layout) => layout.key !== key);
-  const choosers = recipe.chooser?.layouts.filter((layout) => layout.key !== key);
-  if (
-    layouts?.length === recipe.layouts?.length &&
-    choosers?.length === recipe.chooser?.layouts.length
-  )
-    return undefined;
-  const { layouts: _layouts, chooser: _chooser, ...rest } = recipe;
-  const next: RecipeDocument = {
-    ...rest,
-    revision: recipe.revision + 1,
-    ...(layouts?.length ? { layouts } : {}),
-    ...(recipe.chooser && choosers?.length
-      ? { chooser: { ...recipe.chooser, layouts: choosers } }
-      : {}),
-  };
-  return next.layouts || next.chooser ? next : undefined;
-}
-/**
- * A key for a layout created at `createdAt` (ADR 0060): that time in epoch milliseconds,
- * moved on by a millisecond while another layout of the recipe holds it.
- */
-export function newLayoutKey(createdAt: number, taken: readonly string[]): string {
-  let at = Math.max(0, Math.trunc(createdAt));
-  while (taken.includes(String(at))) at += 1;
-  return String(at);
 }
 /**
  * A branch of a chooser recipe (ADR 0028): the page after a listed or shown account
