@@ -823,6 +823,23 @@ import `vitest` and the production exports they use directly. The entry exports 
 `import type`. The modules sit outside `src/`, so they stay outside the production
 coverage root. Each file follows the 1,000-line limit.
 
+### API owner test organization
+
+`services/api/test/owner.test.ts` is the discovered entry for the main owner route
+suites. It installs the synthetic Access keys and owns the `manageApi`, `postPair` and
+`pairDevice` helpers and every describe scope. Plain modules in
+`services/api/test/owner/` export synchronous registration functions for the web UI,
+recipe and request-log cases, which the entry calls inside those describe scopes with
+the same `manageApi` and `pairDevice` references; the recipe and request-log modules
+define their local helpers inside the registrar. Importing a module registers no
+cases. The modules import `vitest`, `cloudflare:workers` and the production exports
+they use directly. The entry exports its `OwnerTestHelpers` type, and the modules
+import it with `import type`, so there is no runtime import cycle. The modules lack
+the `.test.ts` suffix, so the `test/**/*.test.ts` include does not discover them, and
+they sit outside `src/`, so they stay outside the production coverage root. Each file
+follows the 1,000-line limit. When changing the layout, compare the expanded test
+names and counts and run the local Worker tests.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
