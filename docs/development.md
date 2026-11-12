@@ -303,6 +303,17 @@ lines and comments included (owner, 2026-10-23). Files that were already longer 
 listed in the last override of `.oxlintrc.json` with the rule off until each is split;
 remove a file from that list when its split lands, and do not add new ones.
 
+The popup component suite keeps `tests/options/popup.test.tsx` as its only discovered
+entry and owner of shared clients, React mounting, cleanup and fixture initialization.
+Its passive `popup-settings-cases.tsx`, `popup-choice-cases.tsx`, `popup-page-cases.tsx`
+and `popup-detail-cases.tsx` modules register settings and site policy, account choices,
+page status and controls, and personal details and availability respectively. The entry
+calls each registrar at the original position around shared helper initialization;
+the earlier settings case reads the later `lineText` helper through a lazy getter.
+The context type is derived from the entry's helper types and imported only as a type,
+so the split adds no runtime import cycle or test discovery entry. Test callbacks,
+assertions, fixtures and registration order are preserved.
+
 Focused tasks are available for diagnosis:
 
 | Task | Purpose |
