@@ -650,6 +650,22 @@ follows the 1,000-line limit. The API coverage configuration covers production
 `src/` only, so these test helpers remain outside it. Compare expanded collection
 names and counts as well as the local Worker tests when changing this layout.
 
+### Bitwarden account test organization
+
+`packages/bitwarden/src/account.test.ts` remains the discovered account suite. It
+owns the original fixture imports, shared mapper and transport helpers, session
+cleanup, all five describe scopes and the native local-crypto cases. Plain modules
+in `packages/bitwarden/test/account/` export synchronous registration functions for
+account admission, strict modern metadata, received-envelope item mapping and
+same-account URI context. The entry calls each inside its original describe scope
+with the same fixture and helper references; importing a module registers no cases.
+The URI context registrar keeps its local constants and helpers with their cases,
+so initialization stays at the same registration point. Erased context types follow
+the entry helpers through `typeof`; they introduce no runtime import back to the
+entry. The modules sit outside `src/`, so they stay outside the production coverage
+root. All callbacks, assertions, parameter tables and cleanup remain unchanged, and
+each file follows the 1,000-line limit.
+
 ### Observation reader test organization
 
 `apps/extension/src/observation/extract.test.ts` remains the discovered Chromium
