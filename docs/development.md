@@ -573,6 +573,24 @@ that result to its existing shared map and saves the session; tab queries and
 closed-site cleanup remain outside the policy. Tests cover window boundaries,
 clock rollback, popup picks, normal/private partitions and the 256-site cap.
 
+### Service generation test organization
+
+`apps/extension/src/service/generation.test.ts` remains the single discovered entry
+for generation service tests. It keeps the original suite wrappers, shared fixtures
+and helper initialization; contiguous case spans register synchronously through
+passive modules under `apps/extension/test/service/generation/`. Registrars receive
+the same fixture and helper references and add no suite wrappers or import-time
+registration. Their context module uses an erased type-only import of the entry
+fixtures and direct imports of the owning contracts, runtime and transport types.
+The local answer type used by continuation cases stays with those cases and has no
+runtime initialization.
+
+The support directory is outside `src`, so these modules are outside the existing
+production coverage include. Test discovery and coverage configuration stay unchanged.
+The entry and every support module follow the 1,000-line limit. Preserve case order,
+callbacks, assertions, parameter tables and expanded test count when changing this
+organization.
+
 ### Login runtime test organization
 
 The production login suites live in `apps/extension/src/login/runtime-tests/`.
