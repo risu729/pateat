@@ -1,26 +1,26 @@
+import { expect, it, vi } from "vitest";
+import {
+  MAX_SETTINGS_DEFER_MS,
+  MAX_SETTINGS_SYNC_ATTEMPTS,
+  mergeSyncedSettings,
+  syncedSettings,
+} from "../../../src/service/settings-sync";
 import type { LocalSettings } from "@pateat/contracts";
 import type { AfterFirstContext } from "./context";
 
 export function registerAfterFirst({
-  it,
   setup,
   agreed,
   localConnection,
   state,
   baseOf,
-  expect,
   CONNECTION,
   never,
   account,
   binding,
   settingsOf,
-  syncedSettings,
-  mergeSyncedSettings,
   site,
-  vi,
-  MAX_SETTINGS_SYNC_ATTEMPTS,
   PROFILE,
-  MAX_SETTINGS_DEFER_MS,
 }: AfterFirstContext) {
   it("changes nothing when neither side changed", async () => {
     const {

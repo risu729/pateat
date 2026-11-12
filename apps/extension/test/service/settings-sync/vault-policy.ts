@@ -1,7 +1,8 @@
+import { expect, it } from "vitest";
+import { mergeSyncedSettings, syncedSettings } from "../../../src/service/settings-sync";
 import type { VaultPolicyContext } from "./context";
 
 export function registerVaultPolicy({
-  it,
   settingsOf,
   localConnection,
   accountPolicy,
@@ -9,12 +10,9 @@ export function registerVaultPolicy({
   itemPolicy,
   review,
   setup,
-  expect,
   CONNECTION,
   never,
   state,
-  syncedSettings,
-  mergeSyncedSettings,
   owner,
   binding,
   baseOf,

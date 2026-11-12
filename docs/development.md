@@ -665,19 +665,6 @@ module registers no cases. `runtime-context.ts` holds the fixture types. The mod
 sit outside `src/`, so they stay outside the production coverage root without an
 exclude. Each file follows the 1,000-line limit.
 
-### Service settings sync test organization
-
-`apps/extension/src/service/settings-sync.test.ts` remains the sole discovered entry
-for settings sync. It owns the shared fixture factories, the original describe
-scopes and each suite's local fixtures. Plain modules under
-`apps/extension/test/service/settings-sync/` export synchronous registrars for the
-contiguous after-first-sync, vault-policy and personal-detail-link cases. The entry
-calls them at the original positions with the same fixture and helper references;
-importing a module registers no tests. The callbacks, assertions, parameter tables,
-titles and registration order stay unchanged. The context module contains only
-types. Every file follows the 1,000-line limit, and the modules remain outside the
-production coverage root without changing test discovery or runner configuration.
-
 ### Connection settings test organization
 
 The options connection suite keeps `tests/options/connection-setup.test.tsx` as its
@@ -691,6 +678,20 @@ vault locking and status. `context.ts` owns their type-only shared-helper contra
 The challenge registrar reads the registered-connection fixture, which the entry
 initializes after the call, through a getter inside its test callback. The entry owns
 cleanup and mock restoration. Each file follows the 1,000-line limit.
+
+### Service settings sync test organization
+
+`apps/extension/src/service/settings-sync.test.ts` is the discovered entry for the
+main settings sync cases; the lost-base and property suites are separate entries. It
+owns the shared fixture factories, its describe scopes and each scope's local
+fixtures. Plain modules in `apps/extension/test/service/settings-sync/` export
+synchronous registration functions for the after-first-sync, vault-policy and
+personal-detail-link groups, which the entry calls inside those scopes with the same
+fixture and helper references; importing a module registers no cases. The modules
+import `vitest` and the production exports they use directly. The entry exports its
+fixture type, and `context.ts` picks from it with `import type`. The modules sit
+outside `src/`, so they stay outside the production coverage root. Each file follows
+the 1,000-line limit.
 
 ### Login wire contracts
 

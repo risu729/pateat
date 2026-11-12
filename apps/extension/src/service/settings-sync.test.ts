@@ -1,6 +1,3 @@
-import { registerAfterFirst } from "../../test/service/settings-sync/after-first";
-import { registerVaultPolicy } from "../../test/service/settings-sync/vault-policy";
-import { registerDetailLinks } from "../../test/service/settings-sync/detail-links";
 import {
   createSettingsStore,
   type LocalSettings,
@@ -12,13 +9,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { ServiceConnection } from "./runtime";
 import {
   createSettingsSync,
-  MAX_SETTINGS_DEFER_MS,
-  MAX_SETTINGS_SYNC_ATTEMPTS,
   mergeSyncedSettings,
   refreshDisplayNames,
   syncedSettings,
 } from "./settings-sync";
 import type { ServiceTransport, SettingsResult } from "./transport";
+import { registerAfterFirst } from "../../test/service/settings-sync/after-first";
+import { registerVaultPolicy } from "../../test/service/settings-sync/vault-policy";
+import { registerDetailLinks } from "../../test/service/settings-sync/detail-links";
 
 // Synthetic service, credential and vault references only.
 
@@ -174,24 +172,17 @@ const baseOf = (
 ) => ({ version: 1, origin: SERVICE, deviceId, profileId: PROFILE, revision, settings, local });
 
 export type SettingsSyncFixtures = {
-  it: typeof it;
   setup: typeof setup;
   localConnection: typeof localConnection;
   state: typeof state;
   baseOf: typeof baseOf;
-  expect: typeof expect;
   CONNECTION: typeof CONNECTION;
   never: typeof never;
   account: typeof account;
   binding: typeof binding;
   settingsOf: typeof settingsOf;
-  syncedSettings: typeof syncedSettings;
-  mergeSyncedSettings: typeof mergeSyncedSettings;
   site: typeof site;
-  vi: typeof vi;
-  MAX_SETTINGS_SYNC_ATTEMPTS: typeof MAX_SETTINGS_SYNC_ATTEMPTS;
   PROFILE: typeof PROFILE;
-  MAX_SETTINGS_DEFER_MS: typeof MAX_SETTINGS_DEFER_MS;
   OTHER_PROFILE: typeof OTHER_PROFILE;
 };
 
@@ -347,25 +338,18 @@ describe("settings sync after the first", () => {
   });
 
   registerAfterFirst({
-    it,
     setup,
     agreed,
     localConnection,
     state,
     baseOf,
-    expect,
     CONNECTION,
     never,
     account,
     binding,
     settingsOf,
-    syncedSettings,
-    mergeSyncedSettings,
     site,
-    vi,
-    MAX_SETTINGS_SYNC_ATTEMPTS,
     PROFILE,
-    MAX_SETTINGS_DEFER_MS,
   });
 });
 
@@ -410,7 +394,6 @@ describe("vault policy (ADR 0023)", () => {
   };
 
   registerVaultPolicy({
-    it,
     settingsOf,
     localConnection,
     accountPolicy,
@@ -418,12 +401,9 @@ describe("vault policy (ADR 0023)", () => {
     itemPolicy,
     review,
     setup,
-    expect,
     CONNECTION,
     never,
     state,
-    syncedSettings,
-    mergeSyncedSettings,
     owner,
     binding,
     baseOf,
@@ -775,20 +755,16 @@ describe("personal-detail links (ADR 0061)", () => {
   });
 
   registerDetailLinks({
-    it,
     link,
     setup,
     settingsOf,
     state,
     baseOf,
-    expect,
     CONNECTION,
     never,
     localConnection,
     birthDate,
     cardCode,
-    syncedSettings,
-    mergeSyncedSettings,
     site,
     OTHER_PROFILE,
   });

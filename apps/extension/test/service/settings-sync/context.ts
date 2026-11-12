@@ -3,39 +3,28 @@ import type { SettingsSyncFixtures } from "../../../src/service/settings-sync.te
 
 export type AfterFirstContext = Pick<
   SettingsSyncFixtures,
-  | "it"
   | "setup"
   | "localConnection"
   | "state"
   | "baseOf"
-  | "expect"
   | "CONNECTION"
   | "never"
   | "account"
   | "binding"
   | "settingsOf"
-  | "syncedSettings"
-  | "mergeSyncedSettings"
   | "site"
-  | "vi"
-  | "MAX_SETTINGS_SYNC_ATTEMPTS"
   | "PROFILE"
-  | "MAX_SETTINGS_DEFER_MS"
 > & { agreed: LocalSettings };
 
 type AccountOwner = { provider: string; server: string; userId: string };
 export type VaultPolicyContext = Pick<
   SettingsSyncFixtures,
-  | "it"
   | "settingsOf"
   | "localConnection"
   | "setup"
-  | "expect"
   | "CONNECTION"
   | "never"
   | "state"
-  | "syncedSettings"
-  | "mergeSyncedSettings"
   | "binding"
   | "baseOf"
 > & {
@@ -69,17 +58,13 @@ type DetailLink = {
 };
 export type DetailLinksContext = Pick<
   SettingsSyncFixtures,
-  | "it"
   | "setup"
   | "settingsOf"
   | "state"
   | "baseOf"
-  | "expect"
   | "CONNECTION"
   | "never"
   | "localConnection"
-  | "syncedSettings"
-  | "mergeSyncedSettings"
   | "site"
   | "OTHER_PROFILE"
 > & {

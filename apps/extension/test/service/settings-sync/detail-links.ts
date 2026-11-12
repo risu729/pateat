@@ -1,20 +1,18 @@
+import { expect, it } from "vitest";
+import { mergeSyncedSettings, syncedSettings } from "../../../src/service/settings-sync";
 import type { DetailLinksContext } from "./context";
 
 export function registerDetailLinks({
-  it,
   link,
   setup,
   settingsOf,
   state,
   baseOf,
-  expect,
   CONNECTION,
   never,
   localConnection,
   birthDate,
   cardCode,
-  syncedSettings,
-  mergeSyncedSettings,
   site,
   OTHER_PROFILE,
 }: DetailLinksContext) {
