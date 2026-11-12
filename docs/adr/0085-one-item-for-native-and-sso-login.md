@@ -2,12 +2,15 @@
 
 Status: accepted by the owner on 2026-11-07 (12:51 UTC:
 「これはそのまま反映していいです」, the proposal of
-[#1380](https://github.com/risu729/pateat/issues/1380) applied as written); not
-implemented as a complete route. Amended on 2026-11-12 by the local discovery
+[#1380](https://github.com/risu729/pateat/issues/1380) applied as written); not verified
+on real accounts; the scoped route is implemented with synthetic checks in progress.
+Amended on 2026-11-12 by the local discovery
 [implementation note](#amendment-2026-11-12-local-method-discovery-and-mapping-validation);
 the
 [local mapping and method chooser](#implementation-2026-11-12-local-mapping-and-method-choice)
-adds the popup boundary; execution remains unimplemented. Also amended by the
+adds the popup boundary; the
+[coordinator integration](#implementation-2026-11-12-coordinator-integration) now
+connects execution. Also amended by the
 [label-only generation implementation](#amendment-2026-11-12-label-only-declarative-route-generation).
 The owner asked for the format itself: keep the SSO-only format, keep a mixed account's
 own credentials, one readable value such as `[GitHub] github-user` per SSO method, and
@@ -311,3 +314,19 @@ from session storage is authority to continue. The mapping store survives, but r
 always repeats source and IdP validation. This layer performs no click, navigation,
 credential release, service request or real-account operation. Full SSO execution and
 real-site compatibility remain open.
+
+## Implementation 2026-11-12: coordinator integration
+
+The local chooser now feeds the same-tab coordinator described in
+[ADR 0026](0026-sign-in-through-identity-providers.md#implementation-2026-11-12-scoped-coordinator).
+The bracket form keeps the RP account's native credentials and identity. The URL form
+keeps its legacy IdP-username meaning and requires positive RP marker evidence on
+return; that username is not a guessed RP identity. One exact observed URL entry can be
+chosen locally; ambiguous or JavaScript-only entries need the popup's explicit
+selection. Only the chosen method's public label and redacted RP candidates reach
+generation. Malformed, unavailable or unresolved preferred methods never silently choose
+a native password. Completion stores only the RP's confirmed account choice and proof.
+
+Synthetic packaged execution is being validated with encrypted fixtures. The owning
+plan retains the remaining gates; implementation does not establish real-account
+compatibility, migrate an account, create an account, or authorize a new grant.

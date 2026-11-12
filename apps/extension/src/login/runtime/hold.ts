@@ -19,6 +19,9 @@ export function recordFor(
   tabId: number,
   documentOrigin: string,
 ): LoginAttemptMetadata | undefined {
+  const parent = rt.sso.flows.get(tabId);
+  if (parent && !parent.ended && parent.account.origin === documentOrigin && parent.parent)
+    return parent.parent;
   const run = rt.attempts.get(tabId);
   return run?.metadata.account.origin === documentOrigin
     ? run.metadata
@@ -35,6 +38,16 @@ export function recordFor(
  */
 export function heldElsewhere(rt: Runtime, tabId: number, siteOrigin: string): boolean {
   const now = Date.now();
+  if (
+    [...rt.sso.flows.values()].some(
+      (flow) =>
+        !flow.ended &&
+        flow.rpLive.document.tabId !== tabId &&
+        [flow.account.origin, flow.selected.origin].includes(siteOrigin) &&
+        sharesCookies(rt, tabId, flow.rpLive.document.tabId),
+    )
+  )
+    return true;
   return (
     switchingElsewhere(rt, tabId, siteOf(siteOrigin)) ||
     recordsHeldElsewhere(rt.persisted.values(), rt.incognitoTabs, tabId, siteOrigin, now)

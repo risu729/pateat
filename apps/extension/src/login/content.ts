@@ -522,7 +522,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const ssoContent = createSsoContent(document, {
     cancelled: () => cancelled,
     authorize: async ({ flowId, operationId, handle }) => {
-      const answer = await browser.runtime.sendMessage({
+      const answer: unknown = await sendMessage("login", {
         version: 1,
         type: "login.sso.authorize",
         token,
@@ -530,7 +530,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         operationId,
         handle,
       });
-      return answer?.ok === true;
+      return answer !== null && typeof answer === "object" && "ok" in answer && answer.ok === true;
     },
   });
   // Ends every wait for a change of the page once `cancelled` is set.
@@ -1222,6 +1222,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (!parsed.success || parsed.output.token !== token) return false;
     const command = parsed.output;
     if (
+      command.type === "login.sso.return" ||
       command.type === "login.sso.inspect" ||
       command.type === "login.sso.prepare" ||
       command.type === "login.sso.commit" ||

@@ -1,3 +1,4 @@
+import { ssoChild } from "./sso-state";
 import { type LoginAttemptMetadata } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { reloginKey, siteOf } from "./steps";
@@ -22,10 +23,14 @@ export function addAskFill(rt: Runtime, entry: string): void {
 
 /** A login just signed in, confirmed: what `noteSignedIn` tells (ADR 0007, ADR 0062). */
 export const signedInNow = (
-  _rt: Runtime,
+  rt: Runtime,
   previous: LoginAttemptMetadata,
   next: LoginAttemptMetadata,
-) => next.state === "authenticated" && !next.unconfirmed && previous.state !== "authenticated";
+) =>
+  !ssoChild(rt.sso, next) &&
+  next.state === "authenticated" &&
+  !next.unconfirmed &&
+  previous.state !== "authenticated";
 
 /**
  * The times automatic logins of `site` ended `authenticated` that still count at `now`
@@ -79,6 +84,7 @@ export function countRelogin(
   next: LoginAttemptMetadata,
   incognito: boolean,
 ): void {
+  if (ssoChild(rt.sso, next)) return;
   if (!countsAsRelogin(previous, next, rt.picked.get(next.document.tabId)?.attemptId)) return;
   countSignIn(rt, next.account.origin, incognito);
 }

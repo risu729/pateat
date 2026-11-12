@@ -1,3 +1,6 @@
+import { authorizeSso } from "./sso-effects";
+import { ssoAuthorizeSchema } from "../sso-operation-wire";
+import { cancelSso } from "./sso/flow";
 import * as v from "valibot";
 import { ssoGetRequestSchema, ssoChooseRequestSchema, ssoCancelRequestSchema } from "../sso-wire";
 import { authorizeConfirmation } from "./confirm-fill";
@@ -140,6 +143,7 @@ export const fromPopup = (_rt: Runtime, sender: Sender) =>
   senderPageUrl(sender) === browser.runtime.getURL("/popup.html");
 
 export async function handle(rt: Runtime, message: unknown, sender: Sender): Promise<unknown> {
+  if (v.safeParse(ssoAuthorizeSchema, message).success) return authorizeSso(rt, message, sender);
   // Probe controls are compiled into every build but answer only in the probe build.
   if (probeMode && trusted(rt, sender)) {
     const control = v.safeParse(probeControlSchema, message);
@@ -180,7 +184,14 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
         version: 1,
         ok: true,
         ...(rt.vars.checkpoint ? { checkpoint: rt.vars.checkpoint } : {}),
-        attempts: [...rt.persisted.values()],
+        attempts: [
+          ...rt.persisted.values(),
+          ...[...rt.sso.flows.values()].flatMap((work) =>
+            work.parent && !rt.persisted.values().some((record) => record.id === work.parent!.id)
+              ? [work.parent]
+              : [],
+          ),
+        ],
         // Tabs that ask because the site rejected their login (ADR 0021 D).
         asks: [...rt.rejectedAsks].map(() => "rejected"),
         documents: [...rt.documents.values()].map((live) => ({
@@ -480,6 +491,7 @@ export async function operationRun(
  */
 export function settingsChanged(rt: Runtime, source: "synced" | "saved"): void {
   rt.ssoChoices?.invalidateAll("settings-changed");
+  for (const tabId of rt.sso.flows.keys()) cancelSso(rt, tabId, "sso-settings-changed");
   for (const work of rt.confirmFill.work.values())
     void send(rt, work.live, { type: "login.cancel" }).catch(() => undefined);
   cancelConfirm(rt);
@@ -620,6 +632,9 @@ export async function incognitoClosed(rt: Runtime): Promise<void> {
  * goes on in the new tab, which its record moved to first.
  */
 export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
+  cancelSso(rt, tabId, "sso-tab-closed");
+  rt.sso.native.delete(tabId);
+  if (closed) rt.sso.interrupted.delete(tabId);
   rt.ssoChoices?.invalidateTab(tabId, "page-changed");
   forgetConfirmTab(rt, tabId);
   clearBindingReview(rt, tabId);
@@ -762,7 +777,7 @@ export function reportClosed(rt: Runtime, metadata: LoginAttemptMetadata): void 
  */
 export async function active(rt: Runtime): Promise<boolean> {
   await rt.vars.loaded;
-  if (confirmBusy(rt)) return true;
+  if (confirmBusy(rt) || rt.sso.flows.size > 0) return true;
   return (
     rt.attempts
       .values()

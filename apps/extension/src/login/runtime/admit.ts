@@ -1,3 +1,5 @@
+import { cancelSso, ssoAdmit } from "./sso/flow";
+import { offerSso } from "./sso/entry";
 import {
   finishedLogin,
   recoverLoginAttempt,
@@ -503,6 +505,19 @@ export async function admit(
     unrelated?: boolean,
     candidates?: number,
   ) => {
+    const ssoParent = rt.sso.flows.get(ctx.document.tabId);
+    if (
+      ssoParent &&
+      ctx.document.origin === ssoParent.selected.origin &&
+      ![
+        "recipe-not-found",
+        "form-not-ready",
+        "tab-busy",
+        "generation-in-progress",
+        "sso-in-progress",
+      ].includes(reason)
+    )
+      cancelSso(rt, ctx.document.tabId, "sso-idp-admission-stopped");
     note(rt, ctx.document, ctx.live.url, reason, detail, unrelated, candidates);
     ctx.live.state = "denied";
     ctx.live.reason = reason;
@@ -578,6 +593,10 @@ export async function admit(
       !(await loginRelated(rt, ctx.document.tabId, ctx.document.frameId, ctx.document.origin)),
     );
 
+  const sso = await ssoAdmit(rt, ctx);
+  if (sso) return sso;
+  const offeredSso = await offerSso(rt, ctx);
+  if (offeredSso) return offeredSso;
   const holder = tabAttempt(rt, ctx.document.tabId);
 
   /** Logs why a move of `record` did not complete it, or that it was kept (ADR 0022). */

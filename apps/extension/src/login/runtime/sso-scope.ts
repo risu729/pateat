@@ -1,3 +1,4 @@
+import { pausedInPrivate } from "../pause";
 import {
   getItemEligibility,
   isSiteAllowed,
@@ -43,6 +44,8 @@ export async function ssoScope(
     rt.bindingReviews.has(live.document.tabId)
   )
     return false;
+  const picked = rt.picked?.get(live.document.tabId);
+  if (picked && picked !== work.chosen.pick && picked.attemptId !== work.id) return false;
   const tab = await browser.tabs.get(live.document.tabId).catch(() => undefined);
   if (
     !ssoCurrent(rt, work, live) ||
@@ -61,19 +64,21 @@ export async function ssoScope(
     JSON.stringify(saved.catalog) !== JSON.stringify(work.saved.catalog)
   )
     return false;
-  for (const origin of [work.account.origin, work.selected.origin]) {
+  if (pausedInPrivate(saved.snapshot.settings, live.incognito)) return false;
+  if (await pauseOf(rt, { url: work.selected.origin, incognito: live.incognito })) return false;
+  for (const page of [work.rpLive.url, live.url, work.selected.origin]) {
     if (
-      isSiteExcluded(saved.snapshot.settings, origin) ||
-      !isSiteAllowed(saved.snapshot.settings, origin)
-    )
-      return false;
-    const permission = resolvePagePermission(saved.snapshot.settings, origin, "sign-in");
-    if (
-      permission?.permission !== "auto" &&
-      !(origin === work.account.origin && work.chosen.source === "pick")
+      isSiteExcluded(saved.snapshot.settings, page) ||
+      !isSiteAllowed(saved.snapshot.settings, page) ||
+      resolvePagePermission(saved.snapshot.settings, page, "sign-in")?.permission !== "auto"
     )
       return false;
   }
+  if (
+    live.document.origin === work.account.origin &&
+    !isSiteAllowed(saved.snapshot.settings, work.selected.origin)
+  )
+    return false;
   for (const account of [work.source.account, work.selected.account]) {
     const found = getItemEligibility(
       saved.snapshot.settings,
@@ -102,6 +107,7 @@ export async function ssoScope(
     live.document.origin === work.selected.origin ? work.selected.account : work.source.account;
   const matched = await itemMatchesUrl(rt, saved, selected, live.url, saved.catalog);
   if ("reason" in matched || !ssoCurrent(rt, work, live)) return false;
+  const recipe = work.recipe;
   let recipeCurrent: (() => boolean) | undefined;
   if (work.recipe) {
     recipeCurrent = await rt.recipes.ssoFence?.(work.recipe).catch(() => undefined);
@@ -126,7 +132,10 @@ export async function ssoScope(
       );
     });
   const current = () =>
-    ssoCurrent(rt, work, live) && snapshotCurrent() && (!work.recipe || recipeCurrent?.() === true);
+    ssoCurrent(rt, work, live) &&
+    snapshotCurrent() &&
+    work.recipe === recipe &&
+    (!recipe || recipeCurrent?.() === true);
   if (
     !current() ||
     !latest.ok ||

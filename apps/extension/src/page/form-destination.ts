@@ -64,15 +64,16 @@ export function clickDestinations(element: Element): FormDestination[] {
 /** Exact ordinary HTTP destinations for an SSO click, including same-origin paths. */
 export function ssoClickDestinations(element: Element): string[] | undefined {
   const urls = [];
+  const base = Reflect.apply(Document.prototype.querySelector, element.ownerDocument, [
+    "base[target]",
+  ]) as Element | null;
+  const defaultTarget = base && Element.prototype.getAttribute.call(base, "target");
   for (const control of clickedControls(element)) {
     if (!submitsForm(control)) continue;
     for (const form of formsAround(control)) {
       const target = Element.prototype.getAttribute.call(form, "target");
       const override = Element.prototype.getAttribute.call(control, "formtarget");
-      if (
-        (target && target.toLowerCase() !== "_self") ||
-        (override && override.toLowerCase() !== "_self")
-      )
+      if ((override || target || defaultTarget || "_self").toLowerCase() !== "_self")
         return undefined;
       const parsed = destination(control, form, true);
       if (

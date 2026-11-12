@@ -7,7 +7,6 @@ import {
   type LoginAccount,
   type LoginAttemptMetadata,
   type LoginDocument,
-  type LoginRouteChoice,
   type SettingsResponse,
   type SsoRecipeDocument,
 } from "@pateat/contracts";
@@ -31,6 +30,7 @@ export type SsoWork = {
   chosen: Choice;
   source: SsoSourceRef;
   selected: SsoIdpChoice;
+  form?: "url" | "bracket";
   label?: string;
   entryId?: string;
   phase: "prepared" | "entering-idp" | "at-idp" | "returning-rp";
@@ -45,6 +45,9 @@ export type SsoWork = {
   parent?: LoginAttemptMetadata;
   choice?: UnsavedChoice;
   childId?: string;
+  reprompted?: boolean;
+  generation?: boolean;
+  completionTried?: boolean;
   operation?: {
     id: string;
     handle: string;
@@ -55,13 +58,14 @@ export type SsoWork = {
   used: Set<string>;
   busy: boolean;
   ended: boolean;
+  stopReason?: string;
   timer?: ReturnType<typeof setTimeout>;
 };
 export type SsoNativeChoice = {
   document: LoginDocument;
   account: LoginAccount;
   chosen: Choice;
-  route: LoginRouteChoice;
+  route: "passkey" | "password";
 };
 /** Authority is memory-only. Persisted intents become interrupted holds after restart. */
 export function createSsoState() {
@@ -88,6 +92,7 @@ export function createSsoState() {
   );
   const write = async () => {
     queue = queue.then(async () => {
+      await loaded;
       if (!healthy) throw new Error("sso-storage-unavailable");
       const active = [...flows.values()]
         .filter((work) => !work.ended)
@@ -131,11 +136,13 @@ export function registerSsoChild(
     metadata.account.itemId !== work.selected.account.itemId
   )
     return false;
+  metadata.ssoChild = { parentId: work.id, attemptId: metadata.id };
   work.childId = metadata.id;
   state.children.set(metadata.id, { parentId: work.id, account: { ...metadata.account } });
   return true;
 }
 export const ssoChild = (state: SsoState, metadata: LoginAttemptMetadata) => {
+  if (metadata.ssoChild?.attemptId === metadata.id) return true;
   const child = state.children.get(metadata.id);
   return (
     !!child &&

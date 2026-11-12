@@ -1,6 +1,7 @@
 import {
   type SsoRecipeDocument,
   type SsoGenerationRequest,
+  type SsoCompletionRequest,
   type LoginFieldTarget,
   type LoginAccount,
   type LoginBindingTemplate,
@@ -171,6 +172,10 @@ export interface LoginGeneration {
     request: EntryGenerationRequest,
     sent?: () => void,
   ): Promise<EntryGenerationOutcome>;
+  judgeSso?(
+    recipeId: string,
+    request: SsoCompletionRequest,
+  ): Promise<{ signedIn: boolean; recipe?: SsoRecipeDocument }>;
   generateSso?(
     request: SsoGenerationRequest,
   ): Promise<

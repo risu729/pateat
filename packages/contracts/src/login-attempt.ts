@@ -127,7 +127,11 @@ export const attemptMetadataSchema = v.pipe(
     policyRevision: integer(Number.MAX_SAFE_INTEGER - 1),
     account: loginAccountSchema,
     /** The route chosen when the login started (ADR 0027). */
-    route: loginRouteSchema,
+    route: v.picklist(["password", "passkey", "sso"]),
+    /** Explicit parent metadata never enters the native transition engine. */
+    ssoParent: v.optional(v.literal(true)),
+    /** Durable exclusion only: an IdP child never restores parent authority. */
+    ssoChild: v.optional(v.strictObject({ parentId: identifier, attemptId: identifier })),
     /**
      * The password route's variant chosen with it: 0 for the recipe's own steps. A
      * `passkey` route that answers the start page's own request keeps the variant it falls
@@ -302,6 +306,37 @@ export const attemptMetadataSchema = v.pipe(
     /** How long the login has taken so far (`attemptTimes`), never with any value. */
     timing: attemptTimingSchema,
   }),
+  v.check(
+    (metadata) =>
+      metadata.route === "sso"
+        ? metadata.ssoParent === true &&
+          metadata.ssoChild === undefined &&
+          metadata.variant === undefined &&
+          metadata.handlers.length === 0 &&
+          metadata.chooser === undefined &&
+          metadata.watch === undefined &&
+          metadata.operationId === undefined &&
+          metadata.operationKind === undefined &&
+          metadata.operationEffect === undefined &&
+          metadata.mutationIntent === undefined &&
+          metadata.signInFill === undefined &&
+          metadata.fillOnly === undefined &&
+          metadata.document.frameId === 0 &&
+          metadata.stepCount === 1 &&
+          metadata.stepIndex === 0 &&
+          metadata.usedOperationIds.length === 0 &&
+          ["awaiting-result", "reconciling", "authenticated", "blocked"].includes(metadata.state)
+        : metadata.ssoParent === undefined,
+    "An SSO parent has no native execution state",
+  ),
+  v.check(
+    (metadata) =>
+      metadata.ssoChild === undefined ||
+      (metadata.route !== "sso" &&
+        metadata.ssoChild.attemptId === metadata.id &&
+        metadata.document.frameId === 0),
+    "An SSO child exclusion names its exact native attempt",
+  ),
   v.check(
     (metadata) =>
       metadata.startStep === undefined ||
@@ -1949,6 +1984,7 @@ export function transitionLoginAttempt(
   now = Date.now(),
 ): LoginAttemptMetadata {
   const metadata = parseAttemptMetadata(value);
+  if (metadata.route === "sso") throw new Error("SSO parent does not enter native transitions");
   const event = v.parse(loginAttemptEventSchema, eventValue);
   if (metadata.state === "authenticated" || metadata.state === "blocked") return metadata;
   if (metadata.signInFill) {
@@ -2166,6 +2202,10 @@ export function withdrawAccountSwitch(value: unknown): LoginAttemptMetadata {
 /** Restart always observes; it never restores an actor snapshot with pending actions. */
 export function recoverLoginAttempt(value: unknown): LoginAttemptMetadata {
   const metadata = parseAttemptMetadata(value);
+  if (metadata.route === "sso")
+    return ["authenticated", "blocked"].includes(metadata.state)
+      ? metadata
+      : parseAttemptMetadata({ ...metadata, state: "blocked", outcome: "interrupted" });
   return transitionLoginAttempt(metadata, { type: "INTERRUPTED" });
 }
 

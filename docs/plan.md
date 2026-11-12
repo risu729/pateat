@@ -1364,7 +1364,10 @@ names items the owner mentioned and gates still open on 2026-10-11.
   discovery, separate label-only SSO entry contracts/generation, strict device mappings
   and the popup choice seam are implemented. The same-tab coordinator, IdP
   intermediate-page boundaries and complete synthetic packaged matrix remain required.
-  No SSO entry executes yet and no real-account compatibility is claimed.
+  The same-tab coordinator now executes the exact mapped IdP native route and confirms
+  only the original RP return. The first encrypted packaged password flow passes; the
+  remaining matrix, passkey, service-generation, cloud and independent review gates are
+  still in progress. No real-account compatibility is claimed.
 - Signing in with a code or link sent by email, which
   [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
   page ends `challenge`). It has the same priority as signing in through an identity

@@ -1,3 +1,5 @@
+import { ssoChild } from "./sso-state";
+import { ssoScope } from "./sso-scope";
 import { attemptRouteChoice, handlerSlots, resolvePagePermission } from "@pateat/contracts";
 import { type Execution, type Authorized } from "./types";
 import { current, change } from "./attempt";
@@ -9,6 +11,16 @@ import { manualExecutionConflict } from "./hold";
 export async function allowed(rt: Runtime, run: Execution): Promise<Authorized | undefined> {
   if (!current(rt, run) || !rt.vars.storageHealthy || manualExecutionConflict(rt, run))
     return undefined;
+  if (ssoChild(rt.sso, run.metadata)) {
+    const parent = rt.sso.flows.get(run.metadata.document.tabId);
+    if (
+      !parent ||
+      parent.childId !== run.metadata.id ||
+      !(await ssoScope(rt, parent, run.live)) ||
+      !parent.deliveryFence?.()
+    )
+      return undefined;
+  }
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (!current(rt, run) || manualExecutionConflict(rt, run)) return undefined;
   // A watched login only reads, so newer settings stop it only when they no longer plan
@@ -67,6 +79,16 @@ export async function allowed(rt: Runtime, run: Execution): Promise<Authorized |
       return undefined;
   }
   if (manualExecutionConflict(rt, run)) return undefined;
+  if (ssoChild(rt.sso, run.metadata)) {
+    const parent = rt.sso.flows.get(run.metadata.document.tabId);
+    if (
+      !parent ||
+      parent.childId !== run.metadata.id ||
+      !(await ssoScope(rt, parent, run.live)) ||
+      !parent.deliveryFence?.()
+    )
+      return undefined;
+  }
   return {
     connection: plan.connection,
     binding: plan.binding,

@@ -26,7 +26,7 @@ import {
   type LogoutGenerationRequest,
   type LogoutGenerationResult,
   type ProblemReport,
-  type RecipeCompletionRequest,
+  type CompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
@@ -340,7 +340,7 @@ export interface ServiceTransport {
     origin: string,
     credential: string,
     recipeId: string,
-    request: RecipeCompletionRequest,
+    request: CompletionRequest,
   ): Promise<InferenceResult<RecipeCompletionResult>>;
   /**
    * `POST /v1/recipes/:recipeId/page-sample`: a repeat login's signed-in page, which the

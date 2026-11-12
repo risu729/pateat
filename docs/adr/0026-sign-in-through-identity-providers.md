@@ -1,9 +1,11 @@
 # ADR 0026: Signing in to a site through an identity provider
 
-Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented apart
-from account choice and the local discovery / declarative generation foundations
+Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; the scoped
+coordinator is implemented with synthetic verification in progress, following account
+choice and the local discovery / declarative generation foundations
 ([2026-11-12 amendment](#amendment-2026-11-12-declarative-sso-entry-generation)). The
-owner set it as low priority: this record fixes the direction, and implementation waits.
+owner initially set it as low priority; the current implementation is described in the
+[coordinator note](#implementation-2026-11-12-scoped-coordinator).
 Builds on [ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11
 by [ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
 routes, chosen after a passkey route and before a password route. Amended on 2026-10-12
@@ -224,3 +226,42 @@ These are lower-level primitives and recipe/generation adapters. Admission, pare
 lifecycle integration and confirmed RP-return completion are still being implemented;
 this checkpoint enables no automatic SSO effect. Synthetic checks are separate evidence
 from packaged execution and real-account compatibility, neither of which is claimed.
+
+## Implementation 2026-11-12: scoped coordinator
+
+The extension now connects the local method chooser to a same-tab coordinator. Its
+parent stores the original RP account, selected method and exact IdP account/origin in
+memory; the native execution map contains only the IdP child. The child retains its
+ordinary account/document origin invariant, full URI rules and credential checks. An
+immutable child identity suppresses IdP defaults, account picks, authentication proofs,
+login history success and automatic relogin counts even after the parent is cancelled.
+
+The coordinator resolves the mapping before pressing an entry. Account selection
+includes SSO-only items. Automatic method order is passkey, unsuffixed SSO, then
+password; numbered methods require an explicit choice. A current-page manual request
+offers an explicit method choice. It may use SSO only under existing automatic
+permission on both origins and without a pause; its one-page grant never expands to the
+IdP. Frames, extra origins, new contexts, nested SSO, consent, sharing and account
+creation stop the flow.
+
+IdP account choices require the full exact identifier. Continue and stay-signed-in need
+finite local evidence tied to that identifier. Only the original RP's positive identity
+or freshly observed signed-in marker completes the parent. The URL form's username is
+an IdP identifier and is never treated as the RP's own identity. Its return therefore
+needs an RP marker or a marker learned by the dedicated RP-return judge. The judge uses
+the existing provider abstraction and atomic daily judgement quota; it receives only a
+redacted RP observation and recipe/layout identity. Its marker is stored separately from
+SSO entry provenance and rechecked locally. A cached verdict alone is insufficient.
+
+Each effect rechecks policy, pauses/private-window settings, source and selected item,
+vault snapshots, session and exact document, recipe epochs and observed destinations.
+Unknown acknowledgements and worker restart never replay an entry. Persisted intents
+become interrupted holds. Cancellation withdraws authority, while the child association
+remains available to suppress late callbacks. Native fill-only and confirmation flows
+start no SSO effect.
+
+The first packaged synthetic password flow has exercised popup mapping, the actual RP
+entry, exact encrypted IdP credentials, and confirmed original-RP completion without
+changing the IdP default or creating an IdP authentication proof. Full negative-matrix,
+passkey, service-generation, cloud and independent review checks are still in progress.
+No real-account or installed-user-browser compatibility is claimed.

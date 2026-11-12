@@ -1,4 +1,6 @@
 import * as v from "valibot";
+import { ssoChildOn } from "./sso-scope";
+import { ssoChild } from "./sso-state";
 import {
   resolvePagePermission,
   getItemEligibility,
@@ -43,6 +45,10 @@ import type { Runtime } from "./state";
  * again.
  */
 export async function remember(rt: Runtime, run: Execution): Promise<void> {
+  if (ssoChild(rt.sso, run.metadata)) {
+    delete run.choice;
+    return;
+  }
   const choice = run.choice;
   delete run.choice;
   const { account: used } = run.metadata;
@@ -188,6 +194,10 @@ export async function choose(
   accountTargets: readonly LoginFieldTarget[] = [],
 ): Promise<Choice | Refusal> {
   await rt.vars.sessionLoaded;
+  const child = ssoChildOn(rt, live.document);
+  if (child) return { ...child.selected.account, source: "match", saved: false };
+  const native = rt.sso.native.get(live.document.tabId);
+  if (native && sameLoginDocument(native.document, live.document)) return native.chosen;
   // An account switch's pick (ADR 0063) wins for the tab's next login page of its site,
   // over an older pick, a logout's asking and the saved default: it becomes the pick of
   // this document, and of the login it starts, which ends the switch's pick.
@@ -332,7 +342,7 @@ export async function choose(
   delete live.autoChoice;
   const found = await siteCandidates(rt, snapshot, live);
   if ("reason" in found) return { reason: found.reason };
-  const candidates = ownLogins(snapshot, found.candidates);
+  const candidates = rt.options.sso ? [...found.candidates] : ownLogins(snapshot, found.candidates);
   if (candidates.length > 1) {
     // The account the page itself put into the recipe's account input picks one of them,
     // for this document and the login it starts only, and is never saved (ADR 0028

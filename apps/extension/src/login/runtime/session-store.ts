@@ -1,3 +1,4 @@
+import { ssoChild } from "./sso-state";
 import { parseAttemptMetadata, type LoginAttemptMetadata } from "@pateat/contracts";
 import { rememberConfirmAuthentication } from "./confirm-state";
 import { recordKey } from "./steps";
@@ -43,7 +44,9 @@ export async function keep(
   rt: Runtime,
   metadata: LoginAttemptMetadata,
   progressed = true,
+  authorize?: () => boolean,
 ): Promise<void> {
+  if (authorize && !authorize()) return;
   const key = recordKey(metadata.document.tabId, metadata.account.origin);
   const previous = rt.persisted.get(key);
   const next = parseAttemptMetadata({ ...metadata, changedAt: undefined });
@@ -68,6 +71,8 @@ export async function keep(
   rt.persisted.set(key, { ...next, changedAt: unchanged ? previous.changedAt : Date.now() });
   await write(rt);
   if (
+    !ssoChild(rt.sso, metadata) &&
+    (!authorize || authorize()) &&
     metadata.state === "authenticated" &&
     !metadata.unconfirmed &&
     (previous?.state !== "authenticated" || previous.unconfirmed)

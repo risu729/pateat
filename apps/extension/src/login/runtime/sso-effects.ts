@@ -35,8 +35,8 @@ async function destinationsAllowed(
         ? { ...work.selected.account, origin: work.selected.origin }
         : work.account;
     // Each origin's own navigation retains that item's full-URI destination rule.
-    // oxlint-disable-next-line no-await-in-loop -- authorization is sequential before any intent
     if (
+      // oxlint-disable-next-line no-await-in-loop -- authorization is sequential before any intent
       await accountDestinationRefusal(
         rt,
         { origin: live.document.origin, account, policyRevision: work.saved.snapshot.revision },
@@ -56,10 +56,17 @@ export async function ssoPress(
   purpose: string,
 ): Promise<boolean> {
   const key = JSON.stringify([purpose, live.document.documentId, live.path, target]);
-  if (work.used.has(key)) return false;
+  if (work.used.has(key)) {
+    work.stopReason = "sso-entry-already-used";
+    return false;
+  }
   // Reserve before the first await. Failed or uncertain operations are never retried.
   work.used.add(key);
-  if (!(await ssoScope(rt, work, live))) return false;
+  if (!(await ssoScope(rt, work, live))) {
+    work.stopReason = "sso-entry-scope";
+    return false;
+  }
+  work.stopReason = "sso-entry-prepare";
   const operationId = newId();
   const prepared = v.safeParse(
     ssoInspectResultSchema,
@@ -76,6 +83,7 @@ export async function ssoPress(
     !(await ssoScope(rt, work, live))
   )
     return false;
+  work.stopReason = "sso-entry-intent";
   work.operation = {
     id: operationId,
     handle: prepared.output.handle,
@@ -93,6 +101,7 @@ export async function ssoPress(
   )
     return false;
   try {
+    work.stopReason = "sso-entry-commit";
     const result = await send(rt, live, {
       type: "login.sso.commit",
       flowId: work.id,

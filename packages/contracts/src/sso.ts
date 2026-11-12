@@ -36,6 +36,7 @@ export const ssoLabelsSchema = v.pipe(
 export function createSsoRoutesSchema(schemas: {
   path: typeof import("./login").loginPathSchema;
   target: typeof import("./login").loginTargetSchema;
+  marker: typeof import("./login").loginMarkerTargetSchema;
   key: typeof import("./login").recipeLayoutKeySchema;
   language: typeof import("./login").recipeLanguageSchema;
 }) {
@@ -63,6 +64,19 @@ export function createSsoRoutesSchema(schemas: {
           createdAt: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
           language: v.optional(schemas.language),
           entries,
+          completion: v.optional(
+            v.pipe(
+              v.array(v.strictObject({ target: schemas.marker })),
+              v.minLength(1),
+              v.maxLength(4),
+              v.check(
+                (markers) =>
+                  new Set(markers.map((entry) => JSON.stringify(entry.target))).size ===
+                  markers.length,
+                "Duplicate SSO completion markers",
+              ),
+            ),
+          ),
         }),
       ),
       v.minLength(1),

@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { ssoGenerationRequestSchema } from "./sso-generation";
+import { ssoCompletionRequestSchema, ssoGenerationRequestSchema } from "./sso-generation";
 import { isSsoDocument } from "./sso";
 import { deviceModelCallSchema, deviceModelSchema } from "./device-model";
 import {
@@ -677,3 +677,10 @@ export type RecipeCompletionResult = v.InferOutput<typeof recipeCompletionResult
 export type RecipePageSampleRequest = v.InferOutput<typeof recipePageSampleRequestSchema>;
 export type GenerationOutputRejection = v.InferOutput<typeof generationOutputRejectionSchema>;
 export type GenerationUnavailableReason = v.InferOutput<typeof generationUnavailableReasonSchema>;
+
+/** The endpoint accepts two disjoint modes; native completion remains unchanged. */
+export const completionRequestSchema = v.union([
+  recipeCompletionRequestSchema,
+  ssoCompletionRequestSchema,
+]);
+export type CompletionRequest = v.InferOutput<typeof completionRequestSchema>;

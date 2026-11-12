@@ -4,7 +4,7 @@ import { clickDestinations, ssoClickDestinations } from "../page/form-destinatio
 import { visible } from "../page/code-submission";
 import { clickable } from "../page/target-state";
 import { findTargets } from "../page/targets";
-import { closestAcross, formOf, queryAll } from "../page/shadow";
+import { closestAcross, queryAll } from "../page/shadow";
 import { pressElement } from "../page/script-url-click";
 import { extractSignedInObservation, extractEntryObservation } from "../observation/extract";
 import { showsSignUp } from "../page/entry";
@@ -57,9 +57,16 @@ function inspected(
   if (ssoUnsafePage(document) || unsafe.test(element.textContent ?? ""))
     return { reason: "unsafe-page" };
   const destinations = [];
+  const base = Reflect.apply(Document.prototype.querySelector, document, [
+    "base[target]",
+  ]) as Element | null;
+  const defaultTarget = base && Element.prototype.getAttribute.call(base, "target");
   const link = closestAcross(element, "a[href]");
   if (link instanceof HTMLAnchorElement) {
-    if ((link.target && link.target.toLowerCase() !== "_self") || link.hasAttribute("download"))
+    if (
+      (link.target || defaultTarget || "_self").toLowerCase() !== "_self" ||
+      link.hasAttribute("download")
+    )
       return { reason: "new-context" };
     const parsed = URL.parse(link.href);
     if (
@@ -71,18 +78,6 @@ function inspected(
       return { reason: "unsafe-destination" };
     destinations.push(parsed.href);
   }
-  const control = closestAcross(element, "button,input");
-  const form =
-    control instanceof HTMLButtonElement || control instanceof HTMLInputElement
-      ? formOf(control)
-      : (closestAcross(element, "form") as HTMLFormElement | null);
-  if (
-    form &&
-    ((form.target && form.target.toLowerCase() !== "_self") ||
-      (element.getAttribute("formtarget") &&
-        element.getAttribute("formtarget")?.toLowerCase() !== "_self"))
-  )
-    return { reason: "new-context" };
   for (const destination of clickDestinations(element)) {
     if (destination.kind === "refused") return { reason: "unsafe-destination" };
     if (destination.kind === "other-origin") destinations.push(destination.url);
@@ -117,7 +112,7 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
     return (
       !/[*●•]/u.test(text) &&
       (normalized(text) === normalized(username) ||
-        accounts.some((account) => normalized(account) === normalized(username)))
+        (accounts.length === 1 && normalized(accounts[0]!) === normalized(username)))
     );
   });
   if (exact.length === 1 && exact[0]!.target.by !== "href")
@@ -140,17 +135,49 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
         ...queryAll(document, "h1,h2").map((element) => element.textContent ?? ""),
       ].join(" "),
     );
-  const candidates = controls.filter(
-    (candidate) =>
-      candidate.target.by !== "href" &&
-      (stays
-        ? /^(?:yes|はい)$/iu
-        : /^(?:continue|continue as .+|next|続行|次へ|.+でログイン)$/iu
-      ).test(candidate.label?.trim() ?? ""),
-  );
+  const candidates = controls.filter((candidate) => {
+    if (candidate.target.by === "href") return false;
+    const label = candidate.label?.trim() ?? "";
+    if (stays) return /^(?:yes|はい)$/iu.test(label);
+    if (/^(?:continue|next|続行|次へ)$/iu.test(label)) return true;
+    const named = /^continue as (.+)$/iu.exec(label)?.[1] ?? /^(.+)でログイン$/u.exec(label)?.[1];
+    return named !== undefined && normalized(named) === normalized(username);
+  });
   if (sameAccount && candidates.length === 1 && candidates[0]!.target.by !== "href")
     return { kind: stays ? "stay-signed-in" : "continue", target: candidates[0]!.target };
   return { kind: "unknown" };
+}
+/** Explicit wrong identity defeats a generic signed-in marker on the RP return. */
+export function readSsoReturn(
+  document: Document,
+  username?: string,
+): { ok: false; reason: string } | { ok: true; identity: "match" | "different" | "absent" } {
+  if (ssoUnsafePage(document)) return { ok: false, reason: "unsafe-return" };
+  if (!username) return { ok: true, identity: "absent" };
+  const identity = normalized(username);
+  const headers = queryAll<HTMLElement>(
+    document,
+    "header,nav,[role=banner],[role=navigation]",
+  ).filter(visible);
+  const accounts = headers.flatMap((element) => exactAccounts(element.innerText));
+  if (accounts.some((account) => normalized(account) !== identity))
+    return { ok: true, identity: "different" };
+  const explicit = headers
+    .flatMap((header) => queryAll<HTMLElement>(header, "[data-username]").filter(visible))
+    .map((element) => element.getAttribute("data-username") || element.textContent || "");
+  if (explicit.some((value) => normalized(value) !== identity))
+    return { ok: true, identity: "different" };
+  const matched =
+    accounts.some((value) => normalized(value) === identity) ||
+    headers.some((header) =>
+      queryAll<HTMLElement>(header, "span,a,p,strong,b,[data-username]")
+        .filter(visible)
+        .some(
+          (element) =>
+            element.children.length === 0 && normalized(element.textContent ?? "") === identity,
+        ),
+    );
+  return { ok: true, identity: matched ? "match" : "absent" };
 }
 /** A prepared DOM object is single-use. The background must authorize after intent is durable. */
 export function createSsoContent(
@@ -173,11 +200,14 @@ export function createSsoContent(
   >();
   return async (
     command: SsoContentCommand,
-  ): Promise<SsoInspection | SsoIdpReading | { ok: boolean }> => {
+  ): Promise<
+    SsoInspection | SsoIdpReading | { ok: boolean } | ReturnType<typeof readSsoReturn>
+  > => {
     if (options.cancelled()) {
       prepared.clear();
       return { ok: false, reason: "cancelled" };
     }
+    if (command.type === "login.sso.return") return readSsoReturn(document, command.username);
     if (command.type === "login.sso.idp") return readSsoIdp(document, command.username);
     if (command.type === "login.sso.commit") {
       const held = prepared.get(command.handle);
@@ -196,7 +226,7 @@ export function createSsoContent(
       };
       if (!current()) return { ok: false, reason: "target-changed" };
       const pressed = await pressElement(held.element, current);
-      return { ok: pressed !== "missed" };
+      return { ok: pressed === "clicked" };
     }
     const found = inspected(document, command.target);
     if ("reason" in found) return { ok: false, reason: found.reason };

@@ -328,7 +328,7 @@ const stepTargetCount = (step: v.InferOutput<typeof loginStepSchema>) =>
  * when a login starts. `password` runs the recipe's steps; `passkey` clicks the start
  * page's passkey sign-in button.
  */
-export const loginRouteSchema = v.picklist(["password", "passkey", "sso"]);
+export const loginRouteSchema = v.picklist(["password", "passkey"]);
 /**
  * The details Pateat never fills, though it learns the page that asks for them (ADR 0061):
  * none, since the owner decided that every linked value is filled, a whole card number
@@ -1362,6 +1362,7 @@ const storedChooserSchema = v.strictObject({
 export const loginSsoRoutesSchema = createSsoRoutesSchema({
   path,
   target: loginTargetSchema,
+  marker: loginMarkerTargetSchema,
   key: recipeLayoutKeySchema,
   language: recipeLanguageSchema,
 });
@@ -2154,7 +2155,7 @@ export function storedRecipeSlots(recipe: StoredLoginRecipe): string[] {
   ];
   return [...new Set(routes.flatMap(recipeSlots))];
 }
-export type LoginRoute = v.InferOutput<typeof loginRouteSchema>;
+export type LoginRoute = v.InferOutput<typeof loginRouteSchema> | "sso";
 export type LoginHandler = v.InferOutput<typeof loginHandlerSchema>;
 
 /**
