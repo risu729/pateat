@@ -942,6 +942,26 @@ entry exports its `PageFixtures` and `Message` types, which the modules import w
 `import type`. The modules sit outside `src/`, so they stay outside the coverage root
 and are not discovered as test files. Each file follows the 1,000-line limit.
 
+### Settings app test organization
+
+`tests/options/settings-app.test.tsx` is the discovered entry for the main settings app
+component cases; `connection-setup.test.tsx` and `i18n-settings.test.tsx` also render
+the settings app through their own entries. It owns the `getById` locator extension,
+the synthetic settings and service clients, the `saved`, `mount`, `addSite`, `expand`,
+`deferred`, `conflict`, `written` and `navLink` helpers, and the root `afterEach` that
+restores real timers, cleans up and resets focus. Plain modules in
+`tests/options/settings-app/` export synchronous registration functions for settings
+changes, vault policy, site policy, reloads and drafts, save conflicts, and navigation
+and preferences. The entry calls them at the root in that order with the helpers each
+group uses; importing a module registers no cases and adds no hooks or suites. The
+modules import `vitest`, `vitest/browser`, `vitest-browser-react`, React Query and the
+production exports they use directly. The entry exports its `SettingsAppTestFixtures`
+type, and `context.ts` builds the module contexts from it with `import type`, so the
+modules create no runtime import cycle. The modules lack the `.test.tsx` suffix and sit
+below `tests/options/`, so the `tests/options/*.test.tsx` include does not discover
+them, and coverage includes only `apps/extension/src/`. Each file follows the
+1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
