@@ -890,6 +890,24 @@ from it with `import type`. The modules sit outside `src/`, so they stay outside
 coverage root and are not discovered as test files. Each file follows the 1,000-line
 limit.
 
+### Recipe contract test organization
+
+`packages/contracts/src/recipes.test.ts` is the discovered entry for the recipe
+selection and account-binding suites; `layouts.exhaustive.test.ts` separately walks
+layout ranking. The entry owns the `recipe`, `stored` and `binding` factories, the
+`fields` catalog and its `resolve` helper, and all eight describe scopes. Plain
+modules in `packages/contracts/test/recipes/` export synchronous registration
+functions for the recipe selection, synced binding, automatic account choice,
+template binding, binding gap, and field reference and display name cases. The entry
+calls each registrar inside its describe scope, and `field-reference-cases.ts`
+supplies the registrars for three scopes. Each registrar defines its scope-local
+fixtures in its body. Importing a module registers no cases. The modules import
+`vitest`, `valibot` and the production exports they use directly. The entry exports
+its `RecipeTestContext` type, and `context.ts` builds the module contexts from it with
+`import type`, so there is no runtime import cycle. The modules lack the `.test.ts`
+suffix, so Vitest does not discover them, and they sit outside `src/`, so they stay
+outside the coverage root. Each file follows the 1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
