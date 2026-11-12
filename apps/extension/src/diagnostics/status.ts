@@ -312,6 +312,7 @@ async function service(
     kind: "connected",
     ...(state.rejected ? { rejected: true } : {}),
     ...(state.cacheFull ? { cacheFull: true } : {}),
+    ...(state.settingsLimited ? { settingsLimited: true } : {}),
     ...(state.syncedAt === undefined ? {} : { syncedAt: state.syncedAt }),
   };
   const [cache, schedule, base, hold] = await Promise.all([

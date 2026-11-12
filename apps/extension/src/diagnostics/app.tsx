@@ -225,6 +225,7 @@ function Service({ status }: { status: DiagnosticsStatus }) {
           {diagnosticsCode(service.kind, t)}
           {service.rejected && t(" (rejected)")}
           {service.cacheFull && t(" (recipe cache full)")}
+          {service.settingsLimited && t(" (settings profile too large)")}
         </Row>
         {service.siteAccess !== undefined && (
           <Row term="Site access">{t(service.siteAccess ? "granted" : "withheld")}</Row>

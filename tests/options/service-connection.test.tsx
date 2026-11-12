@@ -469,7 +469,9 @@ test("shows when recipes last synced and when the service rejects the device", a
 test("composition limit explains retained local edits and clears on a reload after complete sync", async () => {
   const client = mockClient({ ...connected, settingsLimited: true });
   await render(<ServiceConnection client={client} pollMs={60_000} />);
-  await expect.element(page.getByText(/Your changes stay on this device/)).toBeVisible();
+  await expect
+    .element(page.getByText(/changes from your other devices are not applied here either/))
+    .toBeVisible();
   await expect
     .element(page.getByText(/Your recipes or settings no longer fit/))
     .not.toBeInTheDocument();

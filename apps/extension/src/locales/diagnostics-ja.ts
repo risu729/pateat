@@ -100,6 +100,7 @@ export const diagnosticsJa = {
     "{{total}} 件（ログイン {{login}}、TOTP {{totp}}、パスキー {{passkey}}。ログインのうち一括暗号化 {{sealed}}：その TOTP とパスキーは数えていません）+ 未対応 {{unsupported}} 件",
   " (rejected)": "（拒否）",
   " (recipe cache full)": "（レシピの保存容量超過）",
+  " (settings profile too large)": "（設定プロファイルの容量超過）",
   granted: "許可",
   withheld: "未許可",
   "unavailable ({{error}})": "利用不可（{{error}}）",

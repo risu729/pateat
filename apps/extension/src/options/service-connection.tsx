@@ -738,7 +738,7 @@ export function ServiceConnection({
                             tone: "warn",
                             icon: TriangleAlert,
                             text: t(
-                              "The service could not save your settings because shared account bindings and personal-detail links would make a settings profile too large. Your changes stay on this device. Remove some entries from the affected profiles to resume sync.",
+                              "The service could not save your settings because shared account bindings and personal-detail links would make a settings profile too large. Your changes stay on this device, and changes from your other devices are not applied here either. Remove some entries from the affected profiles to resume sync.",
                             ),
                           }
                         : state.cacheFull

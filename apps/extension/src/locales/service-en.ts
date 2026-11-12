@@ -128,6 +128,6 @@ export const serviceEn = {
   "Each ended login's result and times, and the diagnostics log's warnings, errors and reasons Pateat did nothing on a page. Off: none are sent, and what was logged while off is never sent. Applies on all your devices.":
     "Each ended login's result and times, and the diagnostics log's warnings, errors and reasons Pateat did nothing on a page. Off: none are sent, and what was logged while off is never sent. Applies on all your devices.",
   "Reports to the service": "Reports to the service",
-  "The service could not save your settings because shared account bindings and personal-detail links would make a settings profile too large. Your changes stay on this device. Remove some entries from the affected profiles to resume sync.":
-    "The service could not save your settings because shared account bindings and personal-detail links would make a settings profile too large. Your changes stay on this device. Remove some entries from the affected profiles to resume sync.",
+  "The service could not save your settings because shared account bindings and personal-detail links would make a settings profile too large. Your changes stay on this device, and changes from your other devices are not applied here either. Remove some entries from the affected profiles to resume sync.":
+    "The service could not save your settings because shared account bindings and personal-detail links would make a settings profile too large. Your changes stay on this device, and changes from your other devices are not applied here either. Remove some entries from the affected profiles to resume sync.",
 } as const;

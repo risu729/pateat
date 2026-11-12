@@ -52,6 +52,7 @@ function serviceLine(service: DiagnosticsStatus["service"]): string {
   const parts: string[] = [service.kind];
   if (service.rejected) parts.push("rejected");
   if (service.cacheFull) parts.push("cache full");
+  if (service.settingsLimited) parts.push("settings limited");
   if (service.health)
     parts.push(
       service.health.ok

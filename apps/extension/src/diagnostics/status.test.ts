@@ -456,6 +456,25 @@ describe("diagnostics status", () => {
     expect(rejected.service.device).toBeUndefined();
     expect(serviceDevice).not.toHaveBeenCalled();
 
+    // A full cache and a settings write the service refused for size both show.
+    const limited = await collectDiagnostics(
+      dependencies({
+        serviceState: async () => ({
+          kind: "connected",
+          origin: SERVICE_ORIGIN,
+          label: "Owner laptop",
+          deviceId: "dev_secret",
+          cacheFull: true,
+          settingsLimited: true,
+        }),
+      }),
+    );
+    expect(v.is(diagnosticsStatusSchema, limited)).toBe(true);
+    expect(limited.service).toMatchObject({ cacheFull: true, settingsLimited: true });
+    expect(
+      formatReport(limited, { name: "Chrome", version: "156", installType: "normal" }),
+    ).toContain("Pateat service: connected · cache full · settings limited · ");
+
     const behind = await collectDiagnostics(
       dependencies({
         storage: {
