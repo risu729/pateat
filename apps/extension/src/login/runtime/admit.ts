@@ -47,6 +47,7 @@ import {
 } from "./moves";
 import { signedInAfterFrame, signedInByMove } from "./passkey";
 import type { Runtime } from "./state";
+import { cancelConfirm } from "./confirm-state";
 import { admitRecord } from "./admit-record";
 import type { AdmitContext } from "./admit-context";
 import { manualAuthorizationCurrent } from "./manual-scope";
@@ -143,6 +144,37 @@ export async function admit(
   }
 
   if (rt.hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
+
+  // Re-announcing the same document must not replace a confirmation's identity while
+  // extraction, a vault read or a delivery is in flight. Other frames gain no authority.
+  const confirming = rt.confirmFill.work.get(document.tabId);
+  if (confirming) {
+    const same = sameLoginDocument(confirming.live.document, document);
+    if (
+      same &&
+      confirming.live.url === url &&
+      confirming.live.topUrl === topUrl &&
+      confirming.live.token === token
+    ) {
+      const visit = rt.confirmVisits.get(document.tabId);
+      return {
+        ok: false,
+        reason: confirming.generation ? "generating" : "confirm-fill",
+        ...(visit?.document.documentId === document.documentId ? { confirm: visit.first } : {}),
+      };
+    }
+    if (
+      same ||
+      document.frameId === confirming.live.document.frameId ||
+      (document.frameId === 0 &&
+        (confirming.topDocumentId !== document.documentId ||
+          (confirming.live.topUrl ?? confirming.live.url) !== url))
+    ) {
+      cancelConfirm(rt, document.tabId);
+      await send(rt, confirming.live, { type: "login.cancel" }).catch(() => undefined);
+      if (rt.hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
+    } else return { ok: false, reason: "tab-busy" };
+  }
 
   // A tab runs one attempt. Another frame of the tab, such as an embedded widget or the
   // page around a framed login, never takes it over or disturbs it. Only a new page in

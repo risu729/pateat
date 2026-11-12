@@ -60,7 +60,7 @@ import { nextFrame } from "../page/frames";
 import { watchFrameShown } from "../page/frame-shown";
 import { pageChange } from "../page/page-change";
 import { claimFill, fillUntouched, fillEditsReady } from "../page/fill-edits";
-import { awaitFillChange, beyondSignInFill } from "./sign-in-fill-page";
+import { awaitFillChange, beyondSignInFill, confirmOperation } from "./sign-in-fill-page";
 import { documentLoaded } from "../page/document-load";
 import { breaksQuiet, pageWatch, settled } from "../page/quiet";
 import {
@@ -2133,7 +2133,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // A username or password never goes into a code input (issue #1413).
         const usable = (input: Element | undefined, index: number) =>
           (step.fields[index]!.keypad ? keyable(input) : takes(input, secretOf(index))) &&
-          !(signInSlot(step.fields[index]!.slot) && codeMarked(input));
+          !(signInSlot(step.fields[index]!.slot) && codeMarked(input)) &&
+          !(operation.signInFill && codeMarked(input));
         if (inputs.some((input, index) => !usable(input, index)))
           return fail("structural-mismatch", "target-missing");
         // Each field's keypad, which holds the keys, shown or not yet.
@@ -2343,7 +2344,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                     : "field-changed",
               );
             // As Bitwarden's autofill on page load fills only empty password fields
-            // (`onlyEmptyFields`), a sign-in fill keeps a password already in its input.
+            // (`onlyEmptyFields`), a sign-in fill keeps a password already in its input. A
+            // confirmation fill keeps any value already there (ADR 0035 delivery 3).
             const keptPassword =
               (value.secret === "password" ||
                 (input instanceof HTMLInputElement && input.type === "password")) &&
@@ -2351,6 +2353,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             if (
               operation.signInFill &&
               (keptPassword ||
+                (confirmOperation(operation) && input.value !== "") ||
                 !claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot))
             ) {
               value.value = "";

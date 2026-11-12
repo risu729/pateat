@@ -10,6 +10,12 @@ type Command = v.InferOutput<typeof commandSchema>;
 type Execute = Extract<Command, { type: "login.execute" }>;
 type FillChange = Extract<Command, { type: "login.fill.change" }>;
 
+/** Marks the attempt ID of a confirmation page's fill (ADR 0035 delivery 3). */
+export const CONFIRM_ATTEMPT_PREFIX = "confirm:";
+/** Whether a fill operation fills a confirmation page for an authenticated login. */
+export const confirmOperation = (operation: { attemptId: string }): boolean =>
+  operation.attemptId.startsWith(CONFIRM_ATTEMPT_PREFIX);
+
 /**
  * Whether a sign-in fill's command asks for more than filling ordinary fields or checking
  * the page: a click, an effectful fill, a keypad, a code, a choice, an account list or an

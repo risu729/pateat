@@ -19,6 +19,7 @@ import { pageOff, recordedFillShows } from "./sign-in-fill";
 import { probeRecipe } from "../dummy";
 import { explicitlyPicked, pagePermission } from "./page-permission";
 import { terminal } from "./attempt-state";
+import { admitConfirm } from "./confirm-admit";
 import { admitRecipe } from "./admit-recipe";
 import type { AdmitContext } from "./admit-context";
 
@@ -28,6 +29,9 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
   ctx.recorded = recordFor(rt, ctx.document.tabId, ctx.document.origin);
 
   ctx.askKey = recordKey(ctx.document.tabId, ctx.document.origin);
+
+  const confirmation = await admitConfirm(rt, ctx);
+  if (confirmation) return confirmation;
 
   // Autofill follows its own account and step ledger; it performs no logout detection.
   if (ctx.recorded?.signInFill) {
