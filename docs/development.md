@@ -10,6 +10,14 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
+The connection setup service keeps flow and caller lifecycle, manual/automatic work
+exclusion and connection epochs in `connections/setup.ts`. `setup-sync.ts` owns
+password-token challenges and vault snapshot acceptance, policy adoption and session
+retention; it uses the service's live guards and shared handle/review maps.
+`setup-status.ts` owns local status reads and projections, and `setup-reply.ts` owns
+the settings reply sanitization boundary. The public service API and existing test
+files stay unchanged; cancellation, publication and retirement retain their ordering.
+
 `packages/bitwarden/src/local-crypto-admission.ts` owns structural context schemas,
 encrypted DTO admission and ciphertext framing checks. `local-crypto.ts` keeps native
 SDK initialization, session operations and cleanup, and re-exports the original
