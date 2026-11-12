@@ -3929,10 +3929,13 @@ people.
 - Settings. Every live profile's document, composed with the owner's shared account
   bindings and personal-detail links, is at most 120 KiB of UTF-8 JSON. A settings
   replacement checks the proposed shared parts with every live profile, including
-  profiles that no device uses. The same composition and schema defaults are used for
+  profiles that no device uses, and may not grow any composition past the limit. A
+  profile already over it, as stored before this check, does not block writes that leave
+  it as large or make it smaller. The same composition and schema defaults are used for
   readback and byte validation. The owner revision guards the atomic write after that
   check: concurrent settings writes, profile copies, deletions and device assignments
-  make it conflict instead of committing a composition checked against old data. A new
+  make it conflict instead of committing a composition checked against old data, and a
+  write whose expected revision is not the one read conflicts before writing. A new
   empty profile cannot be larger than the valid selected profile with those shared
   parts. A refused composition answers 413 `settings_limit` without changing settings,
   the revision or the writing device's acknowledgement. Device sync and both profile
@@ -4306,7 +4309,7 @@ field exclusions and custom-field review, which need the device's vault catalog
   the revision the page last read; a stale write changes nothing and returns the current
   state. The service copy of settings holds no `connections`: the extension uploads
   none, a web write must have none, and the page drops any that another client stored. A
-  web write also preserves the 120 KiB composed-document limit for every live profile
+  web write also may not grow any live profile's composed document past 120 KiB
   ([service limits](#service-limits)); a size refusal keeps pending edits. An identity
   with no paired device has no settings to edit and is told to pair one. Devices receive
   the change on their next settings or recipe sync. The device ID columns recording who

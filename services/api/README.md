@@ -30,7 +30,7 @@ and `generation.ts`.
 | `GET /.well-known/openid-configuration` | OIDC discovery for Claude Workload Identity Federation |
 | `GET /.well-known/jwks.json` | Public halves of the issuer's ES256 keys |
 | `GET /v1/settings` | Device-selected profile policy plus shared bindings and `profileId`; revision 0 with `settings: null` before the first write |
-| `PUT /v1/settings` | Replace settings when `expectedRevision` matches; otherwise 409 with the current state. A replacement that would overflow any live profile's composed settings answers 413 `settings_limit` without a write |
+| `PUT /v1/settings` | Replace settings when `expectedRevision` matches; otherwise 409 with the current state. A replacement that would grow any live profile's composed settings past 120 KiB answers 413 `settings_limit` without a write |
 | `GET /v1/recipes?after=&limit=` | Latest state of recipes changed after the cursor, at most 100 per page |
 | `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
 | `POST /v1/recipes/generate` | Generate or extend this origin's recipe from one login page observation |
@@ -58,7 +58,7 @@ and `generation.ts`.
 | `DELETE /manage/api/profiles/:profileId` | Delete a profile; 204, or 409 `profile_in_use` with the labels of the devices using it, or 409 `last_profile` |
 | `POST /manage/api/devices/:deviceId/profile` | Assign an owned profile to an owned active device; advances the settings revision |
 | `GET /manage/api/profiles/:profileId/settings` | Selected owned profile with shared bindings and owner revision; 404 for a foreign profile |
-| `PUT /manage/api/profiles/:profileId/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and every live profile's composition with the proposed shared data at most 120 KiB; otherwise 413 `settings_limit` |
+| `PUT /manage/api/profiles/:profileId/settings` | Replace them like `PUT /v1/settings`; a document with `connections` or over 120 KiB is 400 `bad_request`, and one that would grow any live profile's composition with the proposed shared data past 120 KiB is 413 `settings_limit` |
 | `GET /manage/api/recipes` | Every recipe head with its document and each layout's last use and first page's source (`firstPage`: origin, model, time; ADR 0060), most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
 | `POST /manage/api/recipes/:recipeId/layouts/:layout/revoke` | Remove one layout as the next revision if `expectedRevision` is the head, revoking the recipe when it was the last; 404 for a layout the head lacks, otherwise 409 with the current head |
@@ -171,12 +171,16 @@ recipe their chosen item cannot run with `PUT /v1/recipes/:recipeId` and
 Settings replacements validate the UTF-8 JSON size of every live profile combined with
 proposed shared bindings and personal-detail links, using the same composition and
 schema defaults as readback. The 120 KiB limit applies to these complete documents,
-not just the submitted profile. The owner revision compare-and-swap protects that
-validation through the atomic profile/shared-settings/device-acknowledgement batch;
-concurrent profile copies, deletions, assignments or settings writes make a stale
-write conflict. A newly inserted empty profile fits whenever the selected composition
-fits. Rejection is 413 `settings_limit`, with no changes to any document, revision or
-device acknowledgement. The device and both profile editors retain pending changes
+not just the submitted profile: a write may not grow any of them past it. A profile
+already over the limit, as stored before this check, does not block a write that
+leaves it as large or makes it smaller; one whose stored document no longer passes the
+schema is skipped. The owner revision compare-and-swap protects that validation through
+the atomic profile/shared-settings/device-acknowledgement batch; concurrent profile
+copies, deletions, assignments or settings writes make a stale write conflict, and a
+write whose `expectedRevision` is not the revision read is refused as a conflict before
+the batch. A newly inserted empty profile fits whenever the selected composition fits.
+Rejection is 413 `settings_limit`, with no changes to any document, revision or device
+acknowledgement. The device and both profile editors retain pending changes
 and explain the size refusal. Omitted `detailLinks` clears those shared links, as
 settings writes replace the document.
 

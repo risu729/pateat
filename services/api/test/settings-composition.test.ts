@@ -509,3 +509,117 @@ describe("canonical defaults and empty-profile creation races", () => {
     },
   );
 });
+
+describe("profiles already over the composed limit", () => {
+  /** Profile A holds shared bindings; profile B's own parts put it over the limit, as stored before the limit covered every profile. */
+  async function overLimit() {
+    const c = await setup();
+    const shared = { ...empty(), bindings: bindings(60) };
+    expect((await save(c.device.credential, 0, shared)).status).toBe(200);
+    const copied = await copyProfile(env.DB, c.ownerId, c.state.profileId, "Over limit");
+    expect(copied.ok).toBe(true);
+    if (!copied.ok) throw new Error("copy failed");
+    await env.DB.prepare("UPDATE profiles SET document = ? WHERE owner_id = ? AND id = ?")
+      .bind(JSON.stringify({ excludedSites: excluded(410) }), c.ownerId, copied.profile.id)
+      .run();
+    const over = await readSettings(env.DB, c.ownerId, copied.profile.id);
+    const bytes = settingsDocumentBytes(over.settings);
+    expect(bytes).toBeGreaterThan(MAX_SETTINGS_DOCUMENT_BYTES);
+    return { ...c, shared, overId: copied.profile.id, bytes, revision: over.revision };
+  }
+  const overBytes = async (ownerId: string, profileId: string) =>
+    settingsDocumentBytes((await readSettings(env.DB, ownerId, profileId)).settings);
+
+  it("accepts an unrelated edit from another profile", async () => {
+    const c = await overLimit();
+    const response = await save(c.device.credential, c.revision, { ...c.shared, language: "ja" });
+    expect(response.status).toBe(200);
+    expect(await overBytes(c.ownerId, c.overId)).toBe(c.bytes);
+  });
+
+  it("accepts a shared edit that shrinks the over-limit profile without bringing it under", async () => {
+    const c = await overLimit();
+    const response = await editor(c.by, c.state.profileId, c.revision, {
+      ...empty(),
+      bindings: bindings(55),
+    });
+    expect(response.status).toBe(200);
+    const after = await overBytes(c.ownerId, c.overId);
+    expect(after).toBeLessThan(c.bytes);
+    expect(after).toBeGreaterThan(MAX_SETTINGS_DOCUMENT_BYTES);
+  });
+
+  it.each(["device", "manage"] as const)(
+    "refuses a shared edit through %s that grows the over-limit profile further",
+    async (mount) => {
+      const c = await overLimit();
+      const before = await rows(c.ownerId);
+      const grown = { ...empty(), bindings: bindings(61) };
+      const response =
+        mount === "device"
+          ? await save(c.device.credential, c.revision, grown)
+          : await editor(c.by, c.state.profileId, c.revision, grown);
+      expect(response.status).toBe(413);
+      expect(await response.json()).toEqual({ error: "settings_limit" });
+      expect(await rows(c.ownerId)).toEqual(before);
+    },
+  );
+
+  it("does not fail writes when another profile's stored document no longer passes the schema", async () => {
+    const c = await overLimit();
+    await env.DB.prepare("UPDATE profiles SET document = ? WHERE owner_id = ? AND id = ?")
+      .bind(JSON.stringify({ excludedSites: "not a list" }), c.ownerId, c.overId)
+      .run();
+    const response = await save(c.device.credential, c.revision, { ...c.shared, language: "ja" });
+    expect(response.status).toBe(200);
+  });
+});
+
+describe("writes against another revision", () => {
+  it("refuses a future expectedRevision before a concurrent write could make it current", async () => {
+    const c = await twoProfiles();
+    const small = await readSettings(env.DB, c.ownerId, c.secondId);
+    let batched = false;
+    const db = beforeBatch(async () => {
+      batched = true;
+      await writeSettings(
+        env.DB,
+        c.ownerId,
+        c.secondId,
+        { version: 1, expectedRevision: small.revision, settings: empty() },
+        null,
+      );
+    });
+    const before = await rows(c.ownerId);
+    // Shared bindings that would put the large profile over the limit.
+    const result = await writeSettings(
+      db,
+      c.ownerId,
+      c.secondId,
+      {
+        version: 1,
+        expectedRevision: small.revision + 1,
+        settings: { ...empty(), bindings: bindings(60) },
+      },
+      null,
+    );
+    expect(result).toMatchObject({ ok: false, current: { revision: small.revision } });
+    expect(batched).toBe(false);
+    expect(await rows(c.ownerId)).toEqual(before);
+    await liveDocuments(c.ownerId);
+  });
+
+  it("answers a missing profile without writing", async () => {
+    const c = await setup();
+    const before = await rows(c.ownerId);
+    const result = await writeSettings(
+      env.DB,
+      c.ownerId,
+      crypto.randomUUID(),
+      { version: 1, expectedRevision: 0, settings: empty() },
+      null,
+    );
+    expect(result).toEqual({ ok: false, current: undefined });
+    expect(await rows(c.ownerId)).toEqual(before);
+  });
+});
