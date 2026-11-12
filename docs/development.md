@@ -303,6 +303,13 @@ lines and comments included (owner, 2026-10-23). Files that were already longer 
 listed in the last override of `.oxlintrc.json` with the rule off until each is split;
 remove a file from that list when its split lands, and do not add new ones.
 
+The passkey runtime tests retain their discovered entrypoint in
+`apps/extension/src/passkeys/runtime.test.ts`, including the original describe scopes,
+fixture initialization and scoped timer cleanup. Contiguous case groups register
+synchronously from plain modules in `apps/extension/test/passkeys/`, outside production
+coverage roots, with the same fixture and helper references. Test discovery,
+registration order, assertions and tables are unchanged.
+
 Focused tasks are available for diagnosis:
 
 | Task | Purpose |

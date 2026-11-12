@@ -43,7 +43,6 @@
         "apps/extension/src/observation/extract.ts",
         "apps/extension/src/options/bitwarden-setup.tsx",
         "apps/extension/src/passkeys/page.test.ts",
-        "apps/extension/src/passkeys/runtime.test.ts",
         "apps/extension/src/popup/site-app.tsx",
         "apps/extension/src/service/generation.test.ts",
         "apps/extension/src/service/recipes.test.ts",
