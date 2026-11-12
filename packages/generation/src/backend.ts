@@ -215,6 +215,26 @@ export type KeptJudgement = {
   inputs: string | null;
 };
 
+/** One logical judge operation, reused across a paired device's model responses. */
+export type JudgementReservation = {
+  id: string;
+  startedAt: number;
+  fingerprint: string;
+};
+/** A lost relay may resume briefly; expiry never refunds uncertain model work. */
+export const JUDGEMENT_RESERVATION_MS = 5 * 60 * 1000;
+/** The existing twenty logical judgements per recipe per UTC day (ADR 0027). */
+export const JUDGEMENTS_PER_RECIPE_DAY = 20;
+export const utcDayStart = (now: number) => now - (now % 86_400_000);
+export type JudgementReservationState =
+  | { status: "missing" }
+  | { status: "invalid" }
+  | { status: "active"; previous: KeptJudgement | undefined };
+export type JudgementReservationResult =
+  | { status: "held" }
+  | { status: "limited" }
+  | { status: "taken" | "resumed"; previous: KeptJudgement | undefined };
+
 /** A generation attempt's key (ADR 0016): the chooser branch is empty without one. */
 export type AttemptKey = {
   recipeId: string;
@@ -292,31 +312,46 @@ export interface GenerationBackend {
    * of the inputs its description showed (null on a row kept without one).
    */
   judgement(key: JudgementKey): Promise<KeptJudgement | undefined>;
-  /** How many of the recipe's pages were judged since `since`. */
-  judgementsSince(recipeId: string, since: number): Promise<number>;
+  /** Reads only this device's matching, unfinished operation; completed IDs never resume. */
+  judgementReservation(
+    key: JudgementKey,
+    reservation: JudgementReservation,
+    now: number,
+  ): Promise<JudgementReservationState>;
   /**
-   * Records a page's judgement at `now`, unanswered, with the digest of the inputs its
-   * description shows: a new row, one whose verdict was `partial` or `optional`, or one
-   * kept `challenge` or `unclear` for a description with other inputs (or none recorded),
-   * which takes today's slot again. With it, forgets the recipe's rows judged before `expired` whose
-   * revision is below `revision` or whose prompt version is none of `versions`. Both
-   * happen in one write; a row with any other verdict, or an unanswered one, is left as
-   * it is. Returns whether this request took the row: false when another request's row
-   * was there, as one written since this request's gate.
+   * Atomically claims an eligible page and a slot of the recipe's UTC-day quota, once
+   * per operation. A matching active operation resumes without another slot. Cache
+   * pruning cannot change quota usage. Local refusals never call this method.
    */
-  recordJudgement(
+  reserveJudgement(
     key: JudgementKey,
     now: number,
     stale: { expired: number; versions: readonly string[] },
     inputs: string,
+    reservation: JudgementReservation,
+  ): Promise<JudgementReservationResult>;
+  /** Atomically admits exactly the outstanding paired response once. */
+  continueJudgement(
+    key: JudgementKey,
+    reservation: JudgementReservation,
+    responseHashes: readonly string[],
+    now: number,
   ): Promise<boolean>;
-  /**
-   * Keeps the page's verdict on its row, and with `inputs` its inputs' digest; a failure
-   * only costs that.
-   */
+  /** Authorizes the next paired provider call once, before its body leaves the service. */
+  dispatchJudgement(
+    key: JudgementKey,
+    reservation: JudgementReservation,
+    call: { index: number; hash: string },
+  ): Promise<boolean>;
+  /** Ends continuation, retaining the quota even when the model failed or timed out. */
+  finishJudgement(key: JudgementKey, reservation: JudgementReservation): Promise<void>;
+  /** Restores a cancelled page; a dispatched or uncertain call retains its quota slot. */
+  cancelJudgement(key: JudgementKey, reservation: JudgementReservation): Promise<boolean>;
+  /** A late result writes only the page still claimed by this operation. */
   keepVerdict(
     key: JudgementKey,
     verdict: PageJudgementVerdict,
+    claimId: string,
     inputs?: string | null,
   ): Promise<void>;
 

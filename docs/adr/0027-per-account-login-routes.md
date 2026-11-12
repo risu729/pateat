@@ -145,6 +145,10 @@ Amended on 2026-11-08 (agent, for the owner's issue #1413; implemented): a usern
 password never goes into an input marked `one-time-code`
 ([No account in a code input](#amendment-2026-11-08-no-account-in-a-code-input)).
 
+Amended on 2026-11-12 by an agent's implementation correction for
+[issue #1460](https://github.com/risu729/pateat/issues/1460), implemented with the
+daily-quota amendment below. The existing owner-selected daily limit is unchanged.
+
 Date: 2026-10-11
 
 ## Context
@@ -1887,3 +1891,44 @@ the whole sentence, so a sentence that shows a key in a `<b>` is left out whole.
   would crowd out the sentence nearest the field and could carry a link's or control's
   label), and a list of sentence elements such as `p` (sites draw sentences in `div` and
   `span` as often).
+
+## Amendment 2026-11-12: daily quota independent of cached page answers
+
+Implementation correction for
+[issue #1460](https://github.com/risu729/pateat/issues/1460), chosen by an agent. The
+owner's twenty judgements per recipe per UTC day is unchanged. A page's answer is
+mutable: an optional or partial page, or a challenge or unclear page with different
+inputs, can be judged again under the same cache key. Counting that cache undercounted
+actual judgements and a separate check could race with another page.
+
+- A logical judgement reserves one immutable daily slot, atomically with its eligible
+  page claim. The service scopes it by owner and recipe; standalone generation scopes it
+  by this device and recipe. Paths, origins, routes, layouts, branches, revisions and
+  prompt versions share that quota. Only the reservation operation decides availability.
+- Direct inference reserves immediately before the first provider request. Cached
+  answers, local validation failures, missing credentials and refusals before this
+  boundary reserve nothing. Provider failures, timeouts and uncertain sends keep their
+  slot; model-choice fallback remains part of the same logical judgement.
+- A paired device's judge reserves before the service hands it the first provider body.
+  Its bounded operation identity, exact judge-input fingerprint and authenticated device
+  bind every continuation. The outstanding response index and body hash are admitted
+  once; an old or completed identity cannot dispatch another primary call. A relay
+  expires after five minutes without refunding uncertain work. This replaces the
+  judge's dry-run-only concurrency choice in ADR 0040; generation, entry and logout keep
+  their existing protocol.
+- A known cancellation can restore the previous page answer. It refunds quota only
+  before any provider body was issued. Once a body was issued, even a lost reply or a
+  cancellation before this device sent it retains the slot conservatively. Expiry never
+  refunds a dispatched slot. Answer/restoration writes name their claim, so a late
+  operation cannot overwrite a different operation's page.
+- Daily records survive answer replacement, cache pruning and recreating the same
+  recipe ID. The current and previous UTC days are retained, allowing a bounded relay
+  to cross midnight; earlier records can be discarded without reopening their expired
+  identities. The standalone cache's 2,000-entry limit never evicts daily usage.
+- Historical usage cannot be reconstructed from the overwritten rows. Migration 0039
+  conservatively treats every recipe ID already in the service, including a tombstone,
+  as having used its cutover day's quota. It does not invent an exact backfill. Such
+  recipes can be judged again after the next UTC midnight, an availability cost of at
+  most the remainder of one UTC day. New IDs are unaffected. A nonempty standalone
+  record that the new format cannot read similarly closes its cutover day's quota;
+  clearing obsolete page answers preserves daily usage.

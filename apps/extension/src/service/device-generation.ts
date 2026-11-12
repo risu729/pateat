@@ -23,6 +23,9 @@ import {
 } from "@pateat/contracts";
 import {
   choiceAttempts,
+  JUDGEMENT_RESERVATION_MS,
+  JUDGEMENTS_PER_RECIPE_DAY,
+  utcDayStart,
   CLEF_MODEL,
   generateEntry,
   generateRecipe,
@@ -36,6 +39,9 @@ import {
   type GenerationCall,
   type GenerationCallResult,
   type JudgementKey,
+  type JudgementReservation,
+  type JudgementReservationResult,
+  type JudgementReservationState,
 } from "@pateat/generation";
 import {
   clefUrl,
@@ -80,7 +86,8 @@ const judgementKey = {
  * 0027, ADR 0041, ADR 0060), kept here for this device's own requests.
  */
 const recordSchema = v.strictObject({
-  version: v.literal(1),
+  version: v.literal(2),
+  cutoverDay: v.nullable(timeSchema),
   attempts: v.array(
     v.strictObject({
       recipeId: syncRecipeIdSchema,
@@ -97,10 +104,31 @@ const recordSchema = v.strictObject({
   judgements: v.array(
     v.strictObject({
       ...judgementKey,
+      claimId: v.nullable(textSchema),
       verdict: v.nullable(v.picklist(pageJudgementVerdicts)),
       // The digest of the judged description's inputs (ADR 0029 amendment of 2026-11-06).
       inputs: v.nullable(textSchema),
       at: timeSchema,
+    }),
+  ),
+  quotas: v.array(
+    v.strictObject({
+      ...judgementKey,
+      id: textSchema,
+      startedAt: timeSchema,
+      fingerprint: textSchema,
+      day: timeSchema,
+      state: v.picklist(["active", "finished", "cancelled"]),
+      issuedCount: v.pipe(v.number(), v.integer(), v.minValue(0)),
+      responseHash: v.nullable(textSchema),
+      processing: v.boolean(),
+      previous: v.nullable(
+        v.strictObject({
+          at: timeSchema,
+          verdict: v.nullable(v.picklist(pageJudgementVerdicts)),
+          inputs: v.nullable(textSchema),
+        }),
+      ),
     }),
   ),
   layoutUses: v.array(
@@ -116,7 +144,9 @@ export interface DeviceGenerationStorage {
 }
 
 const empty = (): DeviceGenerationRecord => ({
-  version: 1,
+  version: 2,
+  cutoverDay: null,
+  quotas: [],
   attempts: [],
   repairs: [],
   judgements: [],
@@ -148,9 +178,9 @@ type DeviceKey = ReturnType<typeof createDeviceModel>["direct"];
 /**
  * The generation routes' backend on this device (ADR 0040): its recipes, its own record of
  * the routes' limits, the bindings of its settings, and its key's calls with the default
- * models. Nothing is logged. `forget` drops the record, for when the recipes it describes
- * are replaced or deleted: a recipe made here again starts at revision 1, and must not meet
- * the old revision's judgements.
+ * models. Nothing is logged. Forgetting drops cached decisions when recipes are replaced
+ * or deleted: a recipe made again starts at revision 1, and must not meet an old answer.
+ * Daily quota survives that cache reset, so recreating the same ID cannot reset usage.
  */
 export function createDeviceGenerationBackend(options: {
   recipes: DeviceRecipes;
@@ -172,8 +202,13 @@ export function createDeviceGenerationBackend(options: {
 
   /** The record; one that does not parse counts as empty, as no older format is kept. */
   async function read(): Promise<DeviceGenerationRecord> {
-    const parsed = v.safeParse(recordSchema, await storage.read());
-    return parsed.success ? parsed.output : empty();
+    const raw = await storage.read();
+    const parsed = v.safeParse(recordSchema, raw);
+    // Old overwritten cache rows cannot reconstruct today's actual usage. A nonempty,
+    // unreadable record conservatively closes this day's quota instead of resetting it.
+    return parsed.success
+      ? parsed.output
+      : { ...empty(), cutoverDay: raw === undefined ? null : utcDayStart(now()) };
   }
   async function current() {
     await queue;
@@ -186,7 +221,11 @@ export function createDeviceGenerationBackend(options: {
       const changed = apply(await read());
       const last = <T>(entries: T[]) => entries.slice(-MAX_DEVICE_GENERATION_ENTRIES);
       await storage.write({
-        version: 1,
+        version: 2,
+        cutoverDay: changed.cutoverDay,
+        // Quota is independent of the cache's 2,000-entry bound. Keep yesterday for a
+        // bounded operation that spans midnight; never evict a live quota for capacity.
+        quotas: changed.quotas.filter((entry) => entry.day >= utcDayStart(now()) - 86_400_000),
         attempts: last(changed.attempts),
         repairs: last(changed.repairs),
         judgements: last(changed.judgements),
@@ -196,6 +235,45 @@ export function createDeviceGenerationBackend(options: {
     });
     queue = next.catch(() => undefined);
     await next;
+  }
+
+  function matchesOperation(
+    entry: DeviceGenerationRecord["quotas"][number],
+    judged: JudgementKey,
+    operation: JudgementReservation,
+  ) {
+    return (
+      sameJudgement(judged)(entry) &&
+      entry.id === operation.id &&
+      entry.startedAt === operation.startedAt &&
+      entry.fingerprint === operation.fingerprint
+    );
+  }
+  function reservationState(
+    record: DeviceGenerationRecord,
+    judged: JudgementKey,
+    operation: JudgementReservation,
+    at: number,
+  ): JudgementReservationState {
+    if (operation.startedAt > at || at - operation.startedAt >= JUDGEMENT_RESERVATION_MS)
+      return { status: "invalid" };
+    const heldOperation = record.quotas.find((entry) => entry.id === operation.id);
+    if (!heldOperation) return { status: "missing" };
+    if (
+      !matchesOperation(heldOperation, judged, operation) ||
+      heldOperation.state !== "active" ||
+      record.judgements.find(sameJudgement(judged))?.claimId !== operation.id
+    )
+      return { status: "invalid" };
+    return {
+      status: "active",
+      previous: heldOperation.previous
+        ? {
+            verdict: heldOperation.previous.verdict,
+            inputs: heldOperation.previous.inputs,
+          }
+        : undefined,
+    };
   }
 
   async function callModel<T>(call: GenerationCall<T>): Promise<GenerationCallResult<T>> {
@@ -478,46 +556,163 @@ export function createDeviceGenerationBackend(options: {
       const entry = (await current()).judgements.find(sameJudgement(judged));
       return entry && { verdict: entry.verdict, inputs: entry.inputs };
     },
-    async judgementsSince(recipeId, since) {
-      return (await current()).judgements.filter(
-        (entry) => entry.recipeId === recipeId && entry.at >= since,
-      ).length;
+    async judgementReservation(judged, operation, at) {
+      return reservationState(await current(), judged, operation, at);
     },
-    async recordJudgement(judged, at, stale, inputs) {
-      // Whether this request took the row: not while another request's row is there.
-      let taken = false;
+    async reserveJudgement(judged, at, stale, inputs, operation) {
+      let result: JudgementReservationResult = { status: "held" };
       await change((record) => {
-        const held = record.judgements.find(sameJudgement(judged));
-        // A `partial` or `optional` verdict, or `challenge` or `unclear` for other inputs,
-        // takes today's slot again; any other stays.
-        taken =
-          !held ||
-          held.verdict === "partial" ||
-          held.verdict === "optional" ||
-          ((held.verdict === "challenge" || held.verdict === "unclear") && held.inputs !== inputs);
-        const judgements = taken
-          ? [
-              ...record.judgements.filter((entry) => !sameJudgement(judged)(entry)),
-              { ...judged, verdict: null, inputs, at },
-            ]
-          : record.judgements;
+        const held = reservationState(record, judged, operation, at);
+        if (held.status === "active") {
+          result = { status: "resumed", previous: held.previous };
+          return record;
+        }
+        if (held.status === "invalid") return record;
+        const day = utcDayStart(at);
+        const previous = record.judgements.find(sameJudgement(judged));
+        if (
+          previous &&
+          previous.verdict !== "partial" &&
+          previous.verdict !== "optional" &&
+          !(
+            (previous.verdict === "challenge" || previous.verdict === "unclear") &&
+            previous.inputs !== inputs
+          )
+        )
+          return record;
+        if (
+          record.cutoverDay === day ||
+          record.quotas.filter(
+            (entry) =>
+              entry.recipeId === judged.recipeId &&
+              entry.day === day &&
+              entry.state !== "cancelled",
+          ).length >= JUDGEMENTS_PER_RECIPE_DAY
+        ) {
+          result = { status: "limited" };
+          return record;
+        }
+        result = {
+          status: "taken",
+          previous: previous && { verdict: previous.verdict, inputs: previous.inputs },
+        };
         return {
           ...record,
-          judgements: judgements.filter(
-            (entry) =>
-              entry.recipeId !== judged.recipeId ||
-              (entry.revision >= judged.revision && stale.versions.includes(entry.promptVersion)) ||
-              entry.at >= stale.expired,
+          quotas: [
+            ...record.quotas,
+            {
+              ...judged,
+              ...operation,
+              day,
+              state: "active",
+              issuedCount: 0,
+              responseHash: null,
+              processing: true,
+              previous: previous
+                ? { at: previous.at, verdict: previous.verdict, inputs: previous.inputs }
+                : null,
+            },
+          ],
+          judgements: [
+            ...record.judgements.filter(
+              (entry) =>
+                !sameJudgement(judged)(entry) &&
+                (entry.recipeId !== judged.recipeId ||
+                  (entry.revision >= judged.revision &&
+                    stale.versions.includes(entry.promptVersion)) ||
+                  entry.at >= stale.expired),
+            ),
+            { ...judged, claimId: operation.id, verdict: null, inputs, at },
+          ],
+        };
+      });
+      return result;
+    },
+    async continueJudgement(judged, operation, responseHashes, at) {
+      let admitted = false;
+      await change((record) => {
+        if (reservationState(record, judged, operation, at).status !== "active") return record;
+        return {
+          ...record,
+          quotas: record.quotas.map((entry) => {
+            if (
+              entry.id !== operation.id ||
+              entry.processing ||
+              responseHashes.length === 0 ||
+              entry.issuedCount !== responseHashes.length ||
+              entry.responseHash !== responseHashes.at(-1)
+            )
+              return entry;
+            admitted = true;
+            return { ...entry, processing: true };
+          }),
+        };
+      });
+      return admitted;
+    },
+    async dispatchJudgement(judged, operation, call) {
+      let dispatched = false;
+      await change((record) => ({
+        ...record,
+        quotas: record.quotas.map((entry) => {
+          if (
+            !matchesOperation(entry, judged, operation) ||
+            entry.state !== "active" ||
+            !entry.processing ||
+            entry.issuedCount !== call.index
+          )
+            return entry;
+          dispatched = true;
+          return {
+            ...entry,
+            processing: false,
+            issuedCount: call.index + 1,
+            responseHash: call.hash,
+          };
+        }),
+      }));
+      return dispatched;
+    },
+    finishJudgement(judged, operation) {
+      return change((record) => ({
+        ...record,
+        quotas: record.quotas.map((entry) =>
+          matchesOperation(entry, judged, operation) && entry.state === "active"
+            ? { ...entry, state: "finished" }
+            : entry,
+        ),
+      }));
+    },
+    async cancelJudgement(judged, operation) {
+      let cancelled = false;
+      await change((record) => {
+        const heldOperation = record.quotas.find((entry) =>
+          matchesOperation(entry, judged, operation),
+        );
+        if (!heldOperation || heldOperation.state !== "active") return record;
+        cancelled = true;
+        const judgements = record.judgements.filter(
+          (row) => !(sameJudgement(judged)(row) && row.claimId === operation.id),
+        );
+        if (heldOperation.previous)
+          judgements.push({ ...judged, ...heldOperation.previous, claimId: null });
+        return {
+          ...record,
+          judgements,
+          quotas: record.quotas.map((row) =>
+            row === heldOperation
+              ? { ...row, state: row.issuedCount === 0 ? "cancelled" : "finished" }
+              : row,
           ),
         };
       });
-      return taken;
+      return cancelled;
     },
-    keepVerdict(judged, verdict, inputs) {
+    keepVerdict(judged, verdict, claimId, inputs) {
       return change((record) => ({
         ...record,
         judgements: record.judgements.map((entry) =>
-          sameJudgement(judged)(entry)
+          sameJudgement(judged)(entry) && entry.claimId === claimId
             ? { ...entry, verdict, ...(inputs === undefined ? {} : { inputs }) }
             : entry,
         ),
@@ -526,7 +721,10 @@ export function createDeviceGenerationBackend(options: {
 
     call: callModel,
     forget() {
-      const next = queue.then(() => storage.clear());
+      const next = queue.then(async () => {
+        const record = await read();
+        return storage.write({ ...empty(), quotas: record.quotas, cutoverDay: record.cutoverDay });
+      });
       queue = next.catch(() => undefined);
       return next;
     },

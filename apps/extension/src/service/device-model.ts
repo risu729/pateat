@@ -496,6 +496,7 @@ export function createDeviceModel(options: {
 
   async function relay<Result extends { status: string }>(
     request: (deviceModel: DeviceModel | undefined) => Promise<InferenceResult<Result>>,
+    judge = false,
   ): Promise<InferenceResult<Result | Unavailable>> {
     let stored: unknown;
     try {
@@ -514,6 +515,22 @@ export function createDeviceModel(options: {
     // one that cannot be read leaves them to the text model.
     const clef = parseDeviceClefSetting(await options.clef?.read().catch(() => undefined));
     const responses: DeviceModelResponse[] = [];
+    let judgement: DeviceModel["judgement"] = judge ? { id: crypto.randomUUID() } : undefined;
+    // A stopped key cannot send a judge call: avoid claiming a service quota slot first.
+    if (judge) {
+      const stop = await stopped();
+      if (stop)
+        return { kind: "result", result: { version: 1, status: "unavailable", reason: stop } };
+    }
+    const cancelUnsent = async () => {
+      if (judgement && responses.length === 0) {
+        // This restores the previous page answer. The service conservatively retains
+        // quota once it issued a provider body, even though this device did not send it.
+        await request({ provider: setting.provider, responses: [], judgement: { ...judgement, cancel: true } }).catch(
+          () => undefined,
+        );
+      }
+    };
     // A service that keeps asking for calls again is stopped after twice the most a
     // request needs.
     for (let made = 0; ; made += 1) {
@@ -522,9 +539,19 @@ export function createDeviceModel(options: {
         provider: setting.provider,
         responses: [...responses],
         ...(clef ? { clef: true } : {}),
+        ...(judgement ? { judgement } : {}),
       });
       if (answer.kind !== "result" || answer.result.status !== "model-call") return answer;
-      const { call } = answer.result as unknown as DeviceModelCall;
+      const { call, judgement: issued } = answer.result as unknown as DeviceModelCall;
+      if (judge) {
+        if (
+          !issued ||
+          issued.id !== judgement?.id ||
+          (judgement.startedAt !== undefined && judgement.startedAt !== issued.startedAt)
+        )
+          return { kind: "failed", error: "unexpected-response", ...timed(answer) };
+        judgement = issued;
+      }
       // A call the routes never make (tools, streaming, a larger answer, another beta) is
       // not sent: a service, possibly someone else's, gets no other use of the key.
       const toClef = call.provider === "cloudflare";
@@ -535,8 +562,11 @@ export function createDeviceModel(options: {
           : setting.provider === "openai"
             ? deviceOpenAIModelCallBody(call)
             : deviceModelCallBody(call);
-      if (call.index > responses.length || made >= 2 * MAX_DEVICE_MODEL_CALLS || !body)
+      if (call.index > responses.length || made >= 2 * MAX_DEVICE_MODEL_CALLS || !body) {
+        // oxlint-disable-next-line no-await-in-loop -- cancellation ends this relay before a send
+        await cancelUnsent();
         return { kind: "failed", error: "unexpected-response", ...timed(answer) };
+      }
       let stop: Awaited<ReturnType<typeof stopped>>;
       try {
         // oxlint-disable-next-line no-await-in-loop
@@ -544,12 +574,15 @@ export function createDeviceModel(options: {
       } catch {
         return { kind: "failed", error: "unexpected-response", ...timed(answer) };
       }
-      if (stop)
+      if (stop) {
+        // oxlint-disable-next-line no-await-in-loop -- cancellation ends this relay before a send
+        await cancelUnsent();
         return {
           kind: "result",
           result: { version: 1, status: "unavailable", reason: stop },
           ...timed(answer),
         };
+      }
       const { response, cost } = toClef
         ? // oxlint-disable-next-line no-await-in-loop
           await sendClefFor(clef!, call, body)
@@ -617,11 +650,13 @@ export function createDeviceModel(options: {
             }),
           ) as ReturnType<DeviceModelRequests["generateLogout"]>,
         judgeCompletion: (origin, credential, recipeId, request) =>
-          relay((deviceModel) =>
-            transport.judgeCompletion(origin, credential, recipeId, {
-              ...request,
-              ...(deviceModel ? { deviceModel } : {}),
-            }),
+          relay(
+            (deviceModel) =>
+              transport.judgeCompletion(origin, credential, recipeId, {
+                ...request,
+                ...(deviceModel ? { deviceModel } : {}),
+              }),
+            true,
           ) as ReturnType<DeviceModelRequests["judgeCompletion"]>,
       };
     },

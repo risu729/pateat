@@ -22,6 +22,10 @@ Amended by [ADR 0087](0087-openai-inference-on-service-and-device.md): OpenAI is
 additional text provider on the service and the device; the existing Anthropic
 defaults and per-owner billing remain.
 
+Amended on 2026-11-12 by an agent's implementation correction for
+[issue #1460](https://github.com/risu729/pateat/issues/1460), implemented with the
+daily-quota amendment below. The existing owner-selected daily limit is unchanged.
+
 Date: 2026-10-23
 
 ## Context
@@ -319,3 +323,37 @@ How it works (chosen by an agent unless noted):
 addition of OpenAI on both execution paths, provider-specific credentials and
 accounting, and deferred real-API verification. This extends the available text
 providers; earlier Anthropic behavior remains unless the owner selects OpenAI.
+
+## Amendment 2026-11-12: reserve a paired judgement before its provider call
+
+Implementation correction for
+[issue #1460](https://github.com/risu729/pateat/issues/1460), chosen by an agent,
+implementing the existing daily judgement limit in
+[ADR 0027](0027-per-account-login-routes.md#amendment-2026-11-12-daily-quota-independent-of-cached-page-answers).
+It replaces the judge's earlier agent-chosen rule that no write occurs until every
+device response arrives and two devices may both pay for the same judgement. The
+owner's provider and key choices are unchanged.
+
+Only completion requests opt into the new protocol. Their first device-model envelope
+has a fresh opaque UUID. The first provider-body response adds the service's start
+timestamp; the device echoes that authoritative identity through the relay,
+independently of its own clock. Before the service returns a provider body, it
+atomically reserves the recipe's daily quota and the page claim, then records the
+expected response index and body hash. A continuation is bound to the same authenticated
+owner and device, exact judge-input fingerprint and unfinished operation, with a
+five-minute resume window. The outstanding response is admitted once; empty, older,
+mismatched and completed replays cannot authorize another primary call. Model fallback
+continues that logical operation without taking another daily slot.
+
+The device checks its spend stops before the first completion request. A local stop
+there claims nothing. If it refuses the first provider body or reaches a stop before
+sending it, it may explicitly cancel to restore the previous page answer. The server
+conservatively retains quota once any provider body has left it: a lost response or
+expired relay cannot prove that the provider was never called. Direct service calls
+and unpaired device calls still reserve just before their actual provider request.
+
+Generation, entry and logout retain the original dry-run protocol above. Standalone
+generation now stores immutable quota separately from its bounded answer cache.
+Replacing or deleting recipes clears obsolete answers while preserving quota for the
+same recipe ID. The one-time conservative service and standalone cutover, and the
+retention boundary, are owned by the linked ADR 0027 amendment.
