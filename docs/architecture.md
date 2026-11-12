@@ -2314,7 +2314,9 @@ that exact page URL and returns a value-free summary
   another third-party server, whose version is the Bitwarden version it is compatible
   with), setup state, automatic unlock, sync sign-in, the vault record's accepted time
   and read failure code, item counts by type (trash excluded) while the vault is
-  unlocked, the unlock KDF family (`PBKDF2` or `Argon2id`) and, on the page only, its
+  unlocked, read from the still encrypted record (a sealed login item, whose content is
+  in an encrypted `data` blob, counts as `sealed`, and its TOTP and passkeys are not
+  counted), the unlock KDF family (`PBKDF2` or `Argon2id`) and, on the page only, its
   parameters;
 - the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync (now,
@@ -2498,9 +2500,9 @@ and `error` entries, pruned at worker start and every 500 writes.
 Each diagnostics refresh reads and admits the stored log once, then derives its size,
 problem counts and recent lines from that same snapshot and reference time. A failed
 entry read makes both projections unavailable, rather than trying separate reads that
-could describe different logs. Debug-deadline metadata does not determine whether
-recent lines are available; if its lookup unexpectedly fails, only the summary is
-unavailable. The snapshot changes no log fields, retention or export redaction.
+could describe different logs. A failed debug-deadline read counts as debug logging off;
+it changes neither the summary's counts nor the recent lines. The snapshot changes no
+log fields, retention or export redaction.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
 `diagnostics.logs.clear` and `diagnostics.logs.debug` (with `enabled`), accepted from
@@ -2517,7 +2519,10 @@ many entries it copied. The export shows sites and recipe IDs as logged. When
 **Hide site addresses and recipe IDs** is checked, every origin, pseudonymized origin
 and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that export.
 The preview can limit the export to the last 15 minutes, hour or 24 hours, and to
-warnings and errors. The default keeps all retained entries at every level, including
+problem lines (**Warnings, errors and reasons Pateat did nothing**): every `warn` and
+`error` entry and the `info` entries that say why Pateat did nothing (`problemEntry`,
+the predicate `sentToService` also uses, which then leaves out lines kept on the
+device). The default keeps all retained entries at every level, including
 entries ahead of the clock. A time window includes both endpoints, from its duration
 before the export time through the export time, which is captured after reading the
 entries. The preview shows selected and retained counts from that exact export. A

@@ -132,7 +132,7 @@ export type LogSummary = {
 };
 
 /** The diagnostics page's projections from one admitted log and one reference time. */
-export type LogSnapshot = { summary?: LogSummary; recent: RecentLog };
+export type LogSnapshot = { summary: LogSummary; recent: RecentLog };
 
 const KNOWN_SITES_TTL_MS = MINUTE_MS;
 const MAX_WINDOWS = 500;
@@ -601,16 +601,12 @@ export function createLogger(deps: LoggerDependencies) {
     setProblemCursor: (cursor: unknown) => serial(() => putMeta(PROBLEM_CURSOR_KEY, cursor)),
     /** Reads the log once for both diagnostics projections; metadata cannot hide recent lines. */
     async snapshot(): Promise<LogSnapshot> {
-      const [all, until] = await Promise.all([
-        serial(entries),
-        debugDeadline().catch(() => undefined),
-      ]);
+      // debugDeadline never rejects: a failed read counts as debug logging off.
+      const [all, until] = await Promise.all([serial(entries), debugDeadline()]);
       const at = now();
-      const recent = recentLog(all, at);
-      if (until === undefined) return { recent };
       const since = at - 24 * HOUR_MS;
       return {
-        recent,
+        recent: recentLog(all, at),
         summary: {
           entries: all.length,
           bytes: all.reduce(

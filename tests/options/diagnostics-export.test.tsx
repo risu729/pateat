@@ -243,3 +243,24 @@ test("debug logging keeps a resolved scoped preview and does not reset its filte
   expect(value.exportLogs).toHaveBeenCalledTimes(2);
   expect(value.setDebugLogs).toHaveBeenCalledExactlyOnceWith(true);
 });
+
+test("the filtered-export note follows the chosen filters while their export is pending", async () => {
+  const value = client();
+  await show(value);
+  const note = () =>
+    page.getByText("A filtered export can leave out earlier steps and related events.");
+  await expect.element(note()).not.toBeInTheDocument();
+  const filtered = deferredExport(value);
+  await range().selectOptions("1h");
+  await expect.poll(preview).toBe("Updating preview…");
+  await expect.element(note()).toBeVisible();
+  filtered(exported(true, { range: "1h", severity: "all" }));
+  await expect.poll(preview).toBe(exported(true, { range: "1h", severity: "all" }));
+  const unfiltered = deferredExport(value);
+  await range().selectOptions("all");
+  await expect.poll(preview).toBe("Updating preview…");
+  await expect.element(note()).not.toBeInTheDocument();
+  unfiltered(exported());
+  await expect.poll(preview).toBe(exported());
+  await expect.element(note()).not.toBeInTheDocument();
+});

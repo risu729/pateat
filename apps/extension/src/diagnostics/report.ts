@@ -43,7 +43,7 @@ function connectionLine(entry: DiagnosticsConnection): string {
   if (entry.kdfType) parts.push(`KDF ${entry.kdfType}`);
   if (entry.items)
     parts.push(
-      `${plural(entry.items.total, "item")} (login ${entry.items.login}, TOTP ${entry.items.totp}, passkey ${entry.items.passkey}) + ${entry.items.unsupported} unsupported`,
+      `${plural(entry.items.total, "item")} (login ${entry.items.login}, TOTP ${entry.items.totp}, passkey ${entry.items.passkey}${entry.items.sealed > 0 ? `, sealed ${entry.items.sealed}: TOTP and passkey not counted` : ""}) + ${entry.items.unsupported} unsupported`,
     );
   return `${entry.id}: ${parts.join(" · ")}`;
 }

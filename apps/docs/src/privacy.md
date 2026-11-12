@@ -57,9 +57,9 @@ read it, and removing the extension deletes it.
   vault values. Entries are kept for at most 14 days. Its warnings, errors and the
   reasons Pateat did nothing are also sent to your Pateat service, as described below;
   the rest stays on your device unless you download it and share it yourself. Before
-  saving or copying a log download, you can limit it to a recent time window or to
-  warnings and errors. The preview shows how many retained entries it includes;
-  filtering does not delete entries.
+  saving or copying the logs, you can limit them to a recent time window or to those
+  warnings, errors and reasons. The preview shows how many of the retained entries it
+  includes; filtering does not delete entries.
 
 Vault values are decrypted only on your device, by the official Bitwarden SDK running in
 the extension. A value leaves the extension only into a login page of a site where that
