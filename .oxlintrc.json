@@ -34,7 +34,6 @@
       "files": [
         "apps/extension/src/crypto/host.test.ts",
         "apps/extension/src/login/content.ts",
-        "apps/extension/src/passkeys/page.test.ts",
         "apps/extension/src/popup/site-app.tsx",
         "apps/extension/src/service/generation.test.ts",
         "apps/extension/src/service/transport.test.ts",

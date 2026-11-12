@@ -675,6 +675,20 @@ module registers no cases. `runtime-context.ts` holds the fixture types. The mod
 sit outside `src/`, so they stay outside the production coverage root without an
 exclude. Each file follows the 1,000-line limit.
 
+### Passkey page test organization
+
+`apps/extension/src/passkeys/page.test.ts` remains the sole discovered entry for the
+page wrapper suite. It owns the four original describe scopes, root timer cleanup,
+shared synthetic page and provider helpers, and the registration helpers initialized
+between the get and create suites. Plain modules in `apps/extension/test/passkeys/`
+own the get, get coexistence, create and create coexistence case groups. The entry
+calls their synchronous registrars inside the original describe scopes; importing a
+module registers no cases. Describe-local fixtures and helpers initialize in the
+same registration order and remain shared by the same callbacks. The entry exports
+the `PageFixtures` and `PageMessage` forwarding types for type-only imports. The
+modules sit outside `src/`, so they stay outside the production coverage root. Each
+file follows the 1,000-line limit; discovery and runner configuration stay unchanged.
+
 ### Connection settings test organization
 
 The options connection suite keeps `tests/options/connection-setup.test.tsx` as its
