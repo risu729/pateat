@@ -1,7 +1,6 @@
 import type { LoginRecipeDocument } from "@pateat/contracts";
+export type { RecipeSyncFixtures } from "../../../src/service/recipes.test";
 import type { RecipeSyncFixtures } from "../../../src/service/recipes.test";
-
-export type RecipeSyncContext = RecipeSyncFixtures;
 
 export type CachedLookupContext = RecipeSyncFixtures & {
   signin: LoginRecipeDocument;

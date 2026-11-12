@@ -1,9 +1,13 @@
 import { expect, it, vi } from "vitest";
 import type { RecipeChangesResult } from "../../../src/service/transport";
-import { parseLoginRecipe, routeBodyOf, toLoginLayout } from "@pateat/contracts";
+import {
+  type LoginRecipeDocument,
+  parseLoginRecipe,
+  routeBodyOf,
+  toLoginLayout,
+} from "@pateat/contracts";
 import { laterReadiness } from "../../../src/login/wire";
-import type { LoginRecipeDocument } from "@pateat/contracts";
-import type { RecipeSyncContext } from "./context";
+import type { RecipeSyncFixtures } from "./context";
 
 export function registerSyncLayoutCases({
   setup,
@@ -18,7 +22,7 @@ export function registerSyncLayoutCases({
   storedOf,
   projected,
 }: Pick<
-  RecipeSyncContext,
+  RecipeSyncFixtures,
   | "setup"
   | "page"
   | "active"

@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { MAX_RECIPE_CACHE_BYTES, MAX_RECIPE_PAGES_PER_SYNC } from "../../../src/service/recipes";
 import type { RecipeChangesResult } from "../../../src/service/transport";
-import type { RecipeSyncContext } from "./context";
+import type { RecipeSyncFixtures } from "./context";
 
 export function registerSyncCapacityCases({
   SERVICE,
@@ -16,7 +16,7 @@ export function registerSyncCapacityCases({
   CREDENTIAL,
   SITE,
 }: Pick<
-  RecipeSyncContext,
+  RecipeSyncFixtures,
   | "SERVICE"
   | "DEVICE"
   | "recipe"

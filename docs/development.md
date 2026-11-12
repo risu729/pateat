@@ -489,19 +489,6 @@ a module registers no tests. The case callbacks, tables, titles, hooks and regis
 order stay unchanged. These test modules live outside `src/` so they do not enter the
 production coverage denominator.
 
-### Service recipe sync test organization
-
-`apps/extension/src/service/recipes.test.ts` remains the sole discovered entry for
-recipe sync tests. It owns the shared synthetic fixtures, cache builders and setup,
-all seven describe scopes, and the cached lookup suite's `signin` and `stored`
-initializers. Plain modules under `apps/extension/test/service/recipes/` export
-synchronous registrars for contiguous page sync, recovery, capacity, layout and cached
-lookup cases. The entry calls them at the original positions with the same fixture
-and helper references; importing a module registers no cases. The entry exports an
-erased fixture type based on its existing helpers, and the context module imports it
-with `import type`. Each file follows the 1,000-line limit. The modules live outside
-`src/`, so production coverage, discovery and runner configuration stay unchanged.
-
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
@@ -691,6 +678,19 @@ vault locking and status. `context.ts` owns their type-only shared-helper contra
 The challenge registrar reads the registered-connection fixture, which the entry
 initializes after the call, through a getter inside its test callback. The entry owns
 cleanup and mock restoration. Each file follows the 1,000-line limit.
+
+### Service recipe sync test organization
+
+`apps/extension/src/service/recipes.test.ts` is the discovered entry for the recipe
+sync and cached lookup cases. It owns the shared synthetic fixtures, cache builders
+and setup, its seven describe scopes, and the cached lookup suite's `signin` and
+`stored` initializers. Plain modules in `apps/extension/test/service/recipes/` export
+synchronous registration functions for the page sync, recovery, capacity, layout and
+cached lookup groups, which the entry calls inside those scopes with the same fixture
+and helper references; importing a module registers no cases. The entry exports its
+fixture type, and `context.ts` imports it with `import type`, so the type follows the
+helpers. The modules sit outside `src/`, so they stay outside the production coverage
+root. Each file follows the 1,000-line limit.
 
 ### Login wire contracts
 

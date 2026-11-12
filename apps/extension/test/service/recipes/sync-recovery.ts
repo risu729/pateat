@@ -1,8 +1,7 @@
 import { expect, it, vi } from "vitest";
-import { MAX_ACTIVE_RECIPE_BYTES, parseLoginRecipe } from "@pateat/contracts";
+import { type LoginRecipe, MAX_ACTIVE_RECIPE_BYTES, parseLoginRecipe } from "@pateat/contracts";
 import { MAX_RECIPE_CACHE_BYTES, MAX_RECIPE_PAGES_PER_SYNC } from "../../../src/service/recipes";
-import type { LoginRecipe } from "@pateat/contracts";
-import type { RecipeSyncContext } from "./context";
+import type { RecipeSyncFixtures } from "./context";
 
 export function registerSyncRecoveryCases({
   route,
@@ -23,7 +22,7 @@ export function registerSyncRecoveryCases({
   CREDENTIAL,
   projected,
 }: Pick<
-  RecipeSyncContext,
+  RecipeSyncFixtures,
   | "route"
   | "storedOf"
   | "target"
