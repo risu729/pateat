@@ -1267,7 +1267,20 @@ or a value that does not parse, refuses the step with `form-off-origin` before a
 is written or clicked; when the settings could not be read or the item's rules could not
 be evaluated now, the detail is `form-destination-unchecked`. The destinations are read
 again after the background's answers, and one that changed fails the step as
-`form-changed`. A `javascript:` destination is allowed (owner's decision, 2026-10-18
+`form-changed`. The popup's personal-detail Fill and its continuation after a master
+password prompt apply the same destination policy before typing: every field's form and
+every submitter of the field's form, including the shown handler button, is checked with
+its override, image inputs too, since a pressed Enter submits through the form's default
+button even when it is hidden, although submission is left to the person. A short-lived,
+memory-only fill grant binds the check to the exact offer, login account, document,
+frame, token, targets, settings revision and vault snapshot; it expires after the step
+wait and is removed when the fill answers. The background rechecks that scope after
+asynchronous work and matches destinations using the login item, never the card or
+identity item supplying the detail. The content script rechecks the authorized
+destinations and target identities after authorization, around choosing a radio, between
+split fields and while typing. A changed or unchecked destination fills nothing further.
+This does not intercept a person's later submission or constrain JavaScript running in
+the receiving page. A `javascript:` destination is allowed (owner's decision, 2026-10-18
 04:19 UTC): submitting to it sends the values nowhere, and legacy forms such as
 `<form action="javascript:void(0)">` post them from their own handlers. Chrome does not
 run the URL itself when the executor's click submits such a form: the content script's

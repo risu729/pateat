@@ -28,6 +28,7 @@ vi.mock("wxt/browser", () => ({
 vi.mock("../messaging/protocol", () => ({
   sendMessage: async (_channel: string, message: Record<string, unknown>) => {
     sent.push(message);
+    if (message["type"] === "login.detail.authorize") return true;
     return (replies.shift() ?? (() => ({ ok: false, reason: "stale-document" })))(message);
   },
 }));
@@ -200,7 +201,7 @@ describe("a one-page form shown with its password input alone (ADR 0049)", () =>
 
 describe("a secret question's answer under the question the owner confirmed (ADR 0061)", () => {
   const questionPage = `<main><form><p>秘密の質問：母親の旧姓は？</p>
-    <input type="text" id="answer"><button type="submit">次へ</button></form></main>`;
+    <input type="text" id="answer"><button id="question-next" type="submit">次へ</button></form></main>`;
   const target = { by: "id", value: "answer" };
   /** Sends `message` with the document's token and returns the content script's answer. */
   async function command(message: Record<string, unknown>) {
@@ -254,6 +255,10 @@ describe("a secret question's answer under the question the owner confirmed (ADR
     const fill = (question: { name: string } | { question: string }) =>
       command({
         type: "login.detail.fill",
+        fillId: "90000000-0000-4000-8000-000000000001",
+        expiresAt: Date.now() + 60_000,
+        origin: location.origin,
+        submit: { by: "id", value: "question-next" },
         path: "/question",
         fields: [{ target, value: "synthetic answer", secret: "answer", question }],
       });

@@ -50,6 +50,7 @@ import { fillBaseline, fillRejection, inputValueMismatch, unreadyForm } from "..
 import {
   clickDestinations,
   formDestinations,
+  submitterDestinations,
   type FormDestination,
 } from "../page/form-destination";
 import { typeValue } from "../page/enter-value";
@@ -1272,6 +1273,48 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // requires (`fields-split`).
         const form = formOf(controls[0] as Control);
         if (controls.some((control) => formOf(control as Control) !== form)) return { ok: false };
+        if (new Set(controls).size !== controls.length) return { ok: false };
+        // A popup fill leaves submission to the person, so check every control that can
+        // submit the form too, the shown button and the default button a pressed Enter
+        // uses with their overrides, before putting any value into the form (ADR 0051).
+        const buttons = matches(command.submit);
+        const button = buttons.length === 1 ? buttons[0] : undefined;
+        if (!button || targetState(document, command.submit, "shown") !== "unique")
+          return { ok: false };
+        const destinations = () => [
+          ...controls.flatMap((control) => formDestinations(control as Control, "fill")),
+          ...submitterDestinations(controls as Control[]),
+          ...clickDestinations(button),
+        ];
+        const before = destinations();
+        if (before.some((entry) => entry.kind === "refused")) return { ok: false };
+        const unchanged = () =>
+          !cancelled &&
+          command.origin === self.origin &&
+          pagePath() === command.path &&
+          Date.now() < command.expiresAt &&
+          isOnly(matches(command.submit), button) &&
+          targetState(document, command.submit, "shown") === "unique" &&
+          fields.every(
+            (field, position) =>
+              isOnly(matches(field.target), controls[position]!) &&
+              usable(controls[position], field) &&
+              formOf(controls[position] as Control) === form,
+          ) &&
+          JSON.stringify(destinations()) === JSON.stringify(before);
+        if (!unchanged()) return { ok: false };
+        const authorized: unknown = await sendMessage("login", {
+          version: 1,
+          type: "login.detail.authorize",
+          token,
+          fillId: command.fillId,
+          destinations: [
+            ...new Set(
+              before.flatMap((entry) => (entry.kind === "other-origin" ? [entry.url] : [])),
+            ),
+          ],
+        }).catch(() => undefined);
+        if (authorized !== true || !unchanged()) return { ok: false };
         // A value goes only to the login item's account when the page shows one, as a
         // login's fill does (owner decision, 2026-10-11).
         if (
@@ -1287,23 +1330,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           // eslint-disable-next-line no-await-in-loop
           if (position > 0) await nextFrame();
           // The radio's click may change the input, so its checks run again.
-          if (
-            cancelled ||
-            pagePath() !== command.path ||
-            !chooseFor(control) ||
-            !isOnly(matches(field.target), control) ||
-            !usable(control, field)
-          )
-            return { ok: false };
+          if (!unchanged() || !chooseFor(control) || !unchanged()) return { ok: false };
           // eslint-disable-next-line no-await-in-loop
           const stopped = await enter(control, field, setter, {
-            between: () =>
-              cancelled || pagePath() !== command.path || !takes(control, field.secret)
-                ? "field-changed"
-                : undefined,
+            between: () => (!unchanged() ? "field-changed" : undefined),
           });
-          field.value = "";
-          if (stopped !== undefined) return { ok: false };
+          if (stopped !== undefined || !unchanged()) return { ok: false };
         }
         return { ok: true };
       })()
