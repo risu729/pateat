@@ -62,6 +62,54 @@ export function clickDestinations(element: Element): FormDestination[] {
 }
 
 /**
+ * Where each submit control of the forms the `controls`' values may go with
+ * ({@link formsAround}) sends them when it submits: a pressed Enter submits through the
+ * form's default button, the first submit button or image input in tree order whose form
+ * owner is the form, even a hidden one, and through its `formaction`, so a
+ * `<button form="…" formaction="…">` or `<input type="image" form="…">` injected anywhere
+ * in the page can take a value the person submits. A disabled one counts too, since the
+ * page may enable it. The form's `elements` leave image inputs out, so each form's tree
+ * (its document or shadow root) is searched instead, once per tree, with the prototypes'
+ * methods: a control or a named element can replace a form's or a document's own.
+ */
+export function submitterDestinations(
+  controls: readonly (HTMLButtonElement | HTMLInputElement | HTMLSelectElement)[],
+): FormDestination[] {
+  const forms = new Set(controls.flatMap((control) => formsAround(control)));
+  const byRoot = new Map<Node, HTMLFormElement[]>();
+  for (const form of forms) {
+    const root = Reflect.apply(Node.prototype.getRootNode, form, []) as Node;
+    byRoot.set(root, [...(byRoot.get(root) ?? []), form]);
+  }
+  return [...byRoot].flatMap(([root, rootForms]) =>
+    submittersIn(root).flatMap((submitter) => {
+      const owner = formOwner(submitter);
+      return owner && rootForms.includes(owner) ? formDestinations(submitter, "click") : [];
+    }),
+  );
+}
+
+/** The submit buttons and image inputs in `root`'s tree, in tree order ({@link submitsForm}). */
+function submittersIn(root: Node): (HTMLButtonElement | HTMLInputElement)[] {
+  const query =
+    root instanceof Document
+      ? Document.prototype.querySelectorAll
+      : root instanceof DocumentFragment
+        ? DocumentFragment.prototype.querySelectorAll
+        : // A disconnected form's root is an element of its detached subtree.
+          Element.prototype.querySelectorAll;
+  const found = Reflect.apply(query, root, ["button, input"]) as NodeListOf<Element>;
+  return [...found].filter((element) => submitsForm(element));
+}
+
+/** `control`'s form owner, read through its prototype. */
+function formOwner(control: HTMLButtonElement | HTMLInputElement): HTMLFormElement | null {
+  const prototype =
+    control instanceof HTMLButtonElement ? HTMLButtonElement.prototype : HTMLInputElement.prototype;
+  return Reflect.get(prototype, "form", control) as HTMLFormElement | null;
+}
+
+/**
  * Why a click on `element` may not run without the background's word: a control it
  * submits a form through would send that form off the document's origin.
  */

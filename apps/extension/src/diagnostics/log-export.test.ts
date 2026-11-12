@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
-import { formatLogExport } from "./log-format";
+import { formatLogExport, sentToService } from "./log-format";
 import { logExportCounts, type LogExportScope } from "./log-export";
 import type { LogEntry } from "./log-fields";
 import { diagnosticsRequestSchema } from "./wire";
@@ -99,6 +99,38 @@ describe("scoped log export", () => {
       recipe: "synthetic-recipe",
       url: "/signin",
     });
+  });
+
+  it("keeps the info lines that say why Pateat did nothing among problems, as the service does", () => {
+    const at = (event: string, level: LogEntry["level"], fields: LogEntry["fields"]) =>
+      ({ time: NOW, level, event, fields }) as LogEntry;
+    const entries = [
+      at("login.refused", "info", { reason: "no-item" }),
+      at("login.entry", "info", { outcome: "refused" }),
+      at("login.entry", "info", { outcome: "pressed" }),
+      at("recipe.generate", "info", { outcome: "skipped", reason: "frame" }),
+      at("login.start", "info", {}),
+      at("login.start", "debug", {}),
+      // A local-only warning stays in a local export, though the service never gets it.
+      at("passkey.request", "warn", { outcome: "delegate", reason: "no-credential" }),
+    ];
+    const text = formatLogExport(entries, {
+      ...context,
+      scope: { range: "all", severity: "problems" },
+    });
+    const [header, ...rows] = records(text);
+    expect(header).toMatchObject({ entries: 4, retainedEntries: 7 });
+    expect(rows.map((row) => [row["event"], row["level"]])).toEqual([
+      ["login.refused", "info"],
+      ["login.entry", "info"],
+      ["recipe.generate", "info"],
+      ["passkey.request", "warn"],
+    ]);
+    expect(entries.filter(sentToService).map(({ event }) => event)).toEqual([
+      "login.refused",
+      "login.entry",
+      "recipe.generate",
+    ]);
   });
 
   it("preserves all retained rows and the original header when scope is omitted or all/all", () => {

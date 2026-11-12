@@ -34,6 +34,7 @@ import {
 } from "./session-schemas";
 
 import type { SettingsRuntime, LoginRuntimeOptions } from "./deps";
+import type { DetailFillGrant } from "./detail-popup";
 
 export function createRuntimeState(settings: SettingsRuntime, options: LoginRuntimeOptions) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation, repairs } = options;
@@ -58,6 +59,9 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   let probeStepWaitMs: number | undefined = undefined;
 
   const documents = new Map<string, LiveDocument>();
+
+  /** Pending popup fills only; no values, persistence or authority after their reply. */
+  const detailFills = new Map<string, DetailFillGrant>();
 
   const attempts = new Map<number, Execution>();
 
@@ -489,6 +493,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     entryRefused,
     unsavedBlocks,
     detailOffers,
+    detailFills,
     cardGuesses,
     pendingDetails,
     refusedDetails,

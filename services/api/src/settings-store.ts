@@ -153,7 +153,6 @@ export async function writeSettings(
   /** `current` is missing when the profile was deleted meanwhile. */
   | { ok: false; current: SyncSettingsState | undefined }
 > {
-  const settings = write.settings;
   // One statement reads every live profile at the same owner revision. The CAS below
   // refuses an intervening settings write, profile copy, deletion or device reassignment.
   // ensureProfile only adds an empty profile: its composition cannot exceed this write's.
@@ -167,11 +166,11 @@ export async function writeSettings(
     profiles.results.some((profile) => profile.id === profileId) &&
     profiles.results.every((profile) => profile.revision === write.expectedRevision)
   ) {
-    const shared = ownerDocument(settings);
+    const shared = ownerDocument(write.settings);
     const tooLarge = profiles.results.some((profile) => {
       const document =
         profile.id === profileId
-          ? profileDocument(settings)
+          ? profileDocument(write.settings)
           : profile.document
             ? JSON.parse(profile.document)
             : {};
@@ -207,7 +206,7 @@ export async function writeSettings(
       .bind(
         ownerId,
         write.expectedRevision + 1,
-        JSON.stringify(ownerDocument(settings)),
+        JSON.stringify(ownerDocument(write.settings)),
         Date.now(),
         writer,
       ),
@@ -238,7 +237,7 @@ export async function writeSettings(
       version: 1,
       profileId,
       revision: write.expectedRevision + 1,
-      settings,
+      settings: write.settings,
       ...(writer === null || write.writeId === undefined ? {} : { written: write.writeId }),
     },
   };

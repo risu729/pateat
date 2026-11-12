@@ -6,6 +6,7 @@ import {
   formDestinations,
   formRefusal,
   submitsForm,
+  submitterDestinations,
 } from "./form-destination";
 
 afterEach(() => {
@@ -390,6 +391,17 @@ describe("formDestination", () => {
       { kind: "allowed" },
       { kind: "other-origin", url: attacker },
     ]);
+  });
+});
+
+describe("submitterDestinations", () => {
+  it("finds a form's hidden image input although named elements override the document's query", () => {
+    document.body.innerHTML = `<img name="querySelectorAll" alt=""><form name="querySelectorAll"></form>
+      <input type="image" form="f" alt="" style="display:none" formaction="${attacker}">
+      <form id="f" action="/ok"><input id="answer"><button>Go</button></form>`;
+    expect(document.querySelectorAll).not.toBe(Document.prototype.querySelectorAll);
+    const destinations = submitterDestinations([control("#answer") as HTMLInputElement]);
+    expect(destinations).toContainEqual({ kind: "other-origin", url: attacker });
   });
 });
 

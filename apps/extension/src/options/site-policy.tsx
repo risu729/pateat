@@ -11,6 +11,7 @@ import {
   type SiteDefault,
   type VaultCatalog,
 } from "@pateat/contracts";
+import { sitePauseRules } from "@pateat/contracts/site";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import {
@@ -24,7 +25,6 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import * as v from "valibot";
-import { pauseSite } from "../login/pause";
 import { unavailableReason } from "./unavailable-reason";
 import { Button } from "./button";
 import {
@@ -369,7 +369,8 @@ export function SitePolicy({
       })),
       { value: NO_DEFAULT, text: t("No default") },
     ];
-    const site = pauseSite(origin) ?? hostOf(origin);
+    const policy = sitePauseRules(draft.excludedSites, origin);
+    const site = policy.site;
     return (
       <SiteRow
         key={`origin ${origin}`}
@@ -407,12 +408,9 @@ export function SitePolicy({
                 { site, origin },
               )}
               onClick={() => {
-                // As the popup pauses it: the registrable site with its subdomains (ADR 0062).
+                // The popup's pause: the registrable site with its subdomains (ADR 0062).
                 edit((settings) => {
-                  settings.excludedSites = settings.excludedSites.filter(
-                    (entry) => entry.hostname !== site,
-                  );
-                  settings.excludedSites.push({ hostname: site, includeSubdomains: true });
+                  settings.excludedSites = policy.pause(settings.excludedSites);
                 });
                 originInput.current?.focus();
               }}

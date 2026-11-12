@@ -9,6 +9,13 @@ site). Amends the form destination check of
 [issue #636](https://github.com/risu729/pateat/issues/636)
 ([architecture](../architecture.md#background-execution)).
 
+Amended on 2026-11-12: the background also answers `login.detail.authorize` for the
+popup's personal-detail fill ([ADR 0061](0061-personal-details-during-a-login.md)), only
+under a short-lived fill grant for that offer, document, frame, token and targets, and
+by the login's item, never the item that supplies the detail. The content script sends
+the destinations of every field's form and of every submitter of those forms, the shown
+handler button and a hidden default button that a pressed Enter would use included.
+
 Date: 2026-10-19
 
 ## Context

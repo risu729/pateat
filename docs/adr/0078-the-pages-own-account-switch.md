@@ -59,7 +59,10 @@ the login.
    again in the attempt that follows. A recipe's own target still wins: a recipe that
    names one never falls back to the page's control.
 2. **A switch in place.** After a switch click, the content script waits until the
-   document has loaded and its DOM has had no change for 1 second, at most 5 seconds.
+   document has loaded and its DOM has had no change for 1 second, at most 5 seconds
+   (since 2026-11-12, a change counted as the
+   [ADR 0057 note](0057-decide-no-input-pages-when-the-dom-is-quiet.md#note-2026-11-12-the-page-watch-sees-every-attribute)
+   says).
    If the switch it clicked no longer shows, the page changed in place, and the content
    script announces the document again as a new page, marked as switched: a recipe that
    starts on its path starts a new attempt carrying the switch, and a page without one

@@ -986,6 +986,35 @@ test("an origin with a trailing dot is excluded by its hostname without the dot"
     .toBeVisible();
 });
 
+test("pausing replaces the site's own rule as the popup does and keeps other sites' rules", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  // Each name under the private suffix github.io is its own site (ADR 0062).
+  response.snapshot.settings.excludedSites.push(
+    { hostname: "alice.github.io", includeSubdomains: false },
+    { hostname: "bob.github.io", includeSubdomains: true },
+  );
+  response.snapshot.settings.siteDefaults.push({
+    origin: "https://auth.alice.github.io",
+    provider: "dummy",
+    server: "cloud-us",
+    userId: "demo-personal-account",
+    itemId: "primary",
+  });
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  await page
+    .getByRole("button", {
+      name: "Pause automatic login on alice.github.io and its subdomains, which includes https://auth.alice.github.io",
+    })
+    .click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
+  expect(client.saveSettings.mock.calls[0]?.[0].settings.excludedSites).toEqual([
+    { hostname: "bob.github.io", includeSubdomains: true },
+    { hostname: "alice.github.io", includeSubdomains: true },
+  ]);
+});
+
 test("the add form makes the entered site ask for the master password, then stops", async () => {
   const client = mockClient();
   await mount(client);

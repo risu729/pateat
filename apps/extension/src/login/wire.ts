@@ -43,6 +43,7 @@ export {
   authorizeSchema,
   keypadPressSchema,
   destinationCheckSchema,
+  detailAuthorizeSchema,
 } from "./wire/messages";
 export { commandSchema } from "./wire/commands";
 export {

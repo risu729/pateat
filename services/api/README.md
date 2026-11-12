@@ -86,14 +86,12 @@ devices receive as revoked
 ([minimal service](../../docs/architecture.md#minimal-service)).
 
 Settings PUTs replace the selected profile's settings and the owner's shared bindings
-and personal-detail links at the expected owner revision. An omitted optional field
-is absent from the replacement too: omitting `detailLinks` removes the stored links,
-as an empty list does. Callers that change another setting must include the links they
-keep. The extension's device sync, extension profile editor and management editor
-already send their full edited document. Older clients that omit the links no longer
-preserve them implicitly; Pateat is unreleased and keeps no older-client compatibility.
-This replacement rule does not enforce the combined size of shared settings with every
-other profile; that remains a separate limit check.
+and personal-detail links at the expected owner revision. An omitted optional field is
+absent from the replacement too: omitting `detailLinks` removes the stored links, as an
+empty list does. Callers that change another setting must include the links they keep.
+The extension's device sync, extension profile editor and management editor send their
+full edited document. This replacement rule does not enforce the combined size of shared
+settings with every other profile; that remains a separate limit check.
 
 One Cloudflare Access application covers the whole host, and a more specific Bypass
 application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration`,

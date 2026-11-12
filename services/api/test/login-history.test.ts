@@ -7,7 +7,7 @@ import {
 import { env } from "cloudflare:workers";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { readLoginHistory } from "../src/login-history";
+import { loginHistoryQuery, readLoginHistory } from "../src/login-history";
 import {
   installAccessKeys,
   ORIGIN,
@@ -35,10 +35,17 @@ async function pair(by: Owner) {
   const device = v.parse(devicePairResultSchema, await response.json());
   return { ownerId: (await ownerIdFor(by.subject))!, device };
 }
-function insert(ownerId: string, n: number, at: number, origin = SITE, outcome = "authenticated") {
+function insert(
+  ownerId: string,
+  n: number,
+  at: number,
+  origin = SITE,
+  outcome = "authenticated",
+  cause: string | null = null,
+) {
   return env.DB.prepare(
-    "INSERT INTO login_timings (id, owner_id, recipe_id, branch, revision, origin, outcome, cause, extension_build, total_ms, service_ms, network_ms, person_ms, page_ms, created_at) VALUES (?, ?, 'gen-synthetic', '', 2, ?, ?, NULL, 'development', 4000, 500, 100, 2000, 1500, ?)",
-  ).bind(id(n), ownerId, origin, outcome, at);
+    "INSERT INTO login_timings (id, owner_id, recipe_id, branch, revision, origin, outcome, cause, extension_build, total_ms, service_ms, network_ms, person_ms, page_ms, created_at) VALUES (?, ?, 'gen-synthetic', '', 2, ?, ?, ?, 'development', 4000, 500, 100, 2000, 1500, ?)",
+  ).bind(id(n), ownerId, origin, outcome, cause, at);
 }
 async function read(by: Owner, query = ""): Promise<ManageLoginHistory> {
   const response = await request(`/manage/api/logins${query}`, { access: by.token });
@@ -164,6 +171,49 @@ describe("owner login history API", () => {
     });
     expect(deleted.status).toBe(200);
     expect(await read(by, cursor(first.next!))).toEqual({ version: 1, entries: [], next: null });
+  });
+
+  it("seeks an older page through the owner and time index, bounded by the cursor", async () => {
+    const by = await owner();
+    const { ownerId } = await pair(by);
+    const now = Date.now();
+    const { sql, params } = loginHistoryQuery(
+      env.DB,
+      ownerId,
+      { outcome: "timeout", beforeAt: now, beforeId: id(1) },
+      now,
+    ).toSQL();
+    const plan = await env.DB.prepare(`EXPLAIN QUERY PLAN ${sql}`)
+      .bind(...params)
+      .all<{ detail: string }>();
+    expect(plan.results.map((row) => row.detail)).toContainEqual(
+      expect.stringMatching(
+        /^SEARCH login_timings USING INDEX login_timings_owner_created \(owner_id=\? AND created_at>\? AND created_at<\?\)$/,
+      ),
+    );
+  });
+
+  it("leaves out rows with codes the contract no longer accepts and pages past them", async () => {
+    const by = await owner();
+    const { ownerId } = await pair(by);
+    const now = Date.now();
+    await env.DB.batch(
+      Array.from({ length: 53 }, (_, n) =>
+        n === 1
+          ? insert(ownerId, 7000 + n, now - n, SITE, "renamed-result")
+          : n === 49
+            ? insert(ownerId, 7000 + n, now - n, SITE, "timeout", "removed-cause")
+            : insert(ownerId, 7000 + n, now - n),
+      ),
+    );
+    const first = await read(by);
+    expect(first.entries).toHaveLength(48);
+    expect(first.entries.map((entry) => entry.id)).not.toContain(id(7001));
+    // The cursor is the last row read, here a left-out one, so it is neither repeated nor stuck.
+    expect(first.next).toEqual({ at: now - 49, id: id(7049) });
+    const second = await read(by, cursor(first.next!));
+    expect(second.entries.map((entry) => entry.id)).toEqual([id(7050), id(7051), id(7052)]);
+    expect(second.next).toBeNull();
   });
 
   it("includes the retention boundary and returns only the safe metadata projection", async () => {

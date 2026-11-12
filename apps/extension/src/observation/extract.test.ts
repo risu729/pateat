@@ -5349,6 +5349,15 @@ describe("extractLocalLogout (ADR 0063)", () => {
     });
   });
 
+  it("reads a logout control's form whose named controls hide its own members", () => {
+    // A control named `querySelector` hides the form's own method (`form-native.ts`).
+    const named = '<input type="hidden" name="querySelector">';
+    page(`<form>${named}<button type="button" id="bye">Log out</button></form>`);
+    expect(extractLocalLogout()).toEqual({ ok: true, target: { by: "id", value: "bye" } });
+    page(`<form>${named}<input name="q"><button type="button" id="bye">Log out</button></form>`);
+    expect(extractLocalLogout()).toEqual({ ok: false, reason: "none" });
+  });
+
   it("answers none, ambiguous or unlocated otherwise", () => {
     page(`<header><button type="button">Sign out of all other sessions</button></header>`);
     expect(extractLocalLogout()).toEqual({ ok: false, reason: "none" });

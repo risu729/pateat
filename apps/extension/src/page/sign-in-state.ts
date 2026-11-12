@@ -3,6 +3,7 @@ import { visible } from "./code-submission";
 import { findKeypad, keypadField } from "./keypad";
 import { autocompleteTokens } from "./targets";
 import { collapseText, readBehindModal, renderedText } from "./text";
+import { elementProperty } from "./form-native";
 import { composedParent, containsAcross, controlsOf, formOf, queryAll, treeOf } from "./shadow";
 
 // The page signs of ADR 0029, read after an effect step that no check explained. Nothing
@@ -99,7 +100,7 @@ function writableInput(element: Element): element is HTMLInputElement {
   return (
     element instanceof HTMLInputElement &&
     visible(element) &&
-    !element.disabled &&
+    !element.matches(":disabled") &&
     !element.readOnly
   );
 }
@@ -108,7 +109,7 @@ function writableInput(element: Element): element is HTMLInputElement {
  * one of `keyed`, entered on the page's software keyboard (ADR 0067).
  */
 const signInInput = (input: HTMLInputElement, keyed: ReadonlySet<HTMLInputElement>) =>
-  keyed.has(input) ? visible(input) && !input.disabled : writableInput(input);
+  keyed.has(input) ? visible(input) && !input.matches(":disabled") : writableInput(input);
 const ariaInvalid = (input: HTMLInputElement) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
@@ -133,12 +134,12 @@ const unaskedInputs = new Set([
  */
 function asksForInput(form: HTMLFormElement): boolean {
   return (
-    controlsOf(form, form.ownerDocument).some(
+    controlsOf(form, elementProperty(form, "ownerDocument")).some(
       (control) =>
         ((control instanceof HTMLInputElement && !unaskedInputs.has(control.type)) ||
           control instanceof HTMLTextAreaElement ||
           control instanceof HTMLSelectElement) &&
-        !control.disabled &&
+        !control.matches(":disabled") &&
         visible(control),
     ) ||
     queryAll<HTMLElement>(form, "[contenteditable]").some(

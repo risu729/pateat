@@ -33,7 +33,11 @@ vi.mock("../messaging/protocol", () => ({
   sendMessage: async (_channel: string, message: Record<string, unknown>) => {
     sent.push(message);
     // The background authorizes every operation of a login's synthetic steps.
-    if (message["type"] === "login.operation.authorize") return true;
+    if (
+      message["type"] === "login.operation.authorize" ||
+      message["type"] === "login.detail.authorize"
+    )
+      return true;
     return { ok: false, reason: "stale-document" };
   },
 }));
@@ -74,7 +78,15 @@ async function ask(message: Record<string, unknown>) {
 }
 /** The page's answer to the popup's `login.detail.fill` of these fields. */
 const fill = (fields: Field[]) =>
-  ask({ type: "login.detail.fill", path: location.pathname, fields });
+  ask({
+    type: "login.detail.fill",
+    fillId: "90000000-0000-4000-8000-000000000001",
+    expiresAt: Date.now() + 60_000,
+    origin: location.origin,
+    submit: { by: "id", value: "confirm" },
+    path: location.pathname,
+    fields,
+  });
 let operations = 0;
 /**
  * The page's answer to a login's step, as the service worker sends it (`login.execute`),
@@ -221,7 +233,8 @@ describe("a split detail's popup fill", () => {
     ).join("");
     await install(
       `<form><select id="by"><option value="">--</option>${eraYears}</select>
-        <select id="bm">${options(1, 12)}</select><select id="bd">${options(1, 31)}</select></form>`,
+        <select id="bm">${options(1, 12)}</select><select id="bd">${options(1, 31)}</select>
+        <button id="confirm" type="button">Confirm</button></form>`,
     );
     expect(await fill(birthDate())).toEqual({ ok: false });
     expect(value("by")).toBe("");
@@ -230,7 +243,8 @@ describe("a split detail's popup fill", () => {
   it("chooses a card expiry year a select writes with two digits", async () => {
     await install(
       `<form><select id="em"><option value="">MM</option>${options(1, 12)}</select>
-        <select id="ey"><option value="">YY</option>${options(26, 36)}</select></form>`,
+        <select id="ey"><option value="">YY</option>${options(26, 36)}</select>
+        <button id="confirm" type="button">Confirm</button></form>`,
     );
     expect(
       await fill([
@@ -252,7 +266,8 @@ describe("a split detail's popup fill", () => {
   it("fills no parts that are in different forms", async () => {
     await install(
       `<form><select id="by">${options(1940, 2010)}</select></form>
-       <form><select id="bm">${options(1, 12)}</select><select id="bd">${options(1, 31)}</select></form>`,
+       <form><select id="bm">${options(1, 12)}</select><select id="bd">${options(1, 31)}</select>
+        <button id="confirm" type="button">Confirm</button></form>`,
     );
     const before = [value("by"), value("bm"), value("bd")];
     expect(await fill(birthDate())).toEqual({ ok: false });

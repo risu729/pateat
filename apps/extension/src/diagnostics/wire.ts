@@ -79,6 +79,8 @@ const connectionSchema = v.strictObject({
       login: count,
       totp: count,
       passkey: count,
+      /** Login items whose content is sealed, so their TOTP and passkeys are not counted. */
+      sealed: count,
       unsupported: count,
     }),
   ),

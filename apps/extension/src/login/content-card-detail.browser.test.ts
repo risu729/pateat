@@ -27,7 +27,9 @@ vi.mock("wxt/browser", () => ({
 vi.mock("../messaging/protocol", () => ({
   sendMessage: async (_channel: string, message: Record<string, unknown>) => {
     sent.push(message);
-    return { ok: false, reason: "stale-document" };
+    return message["type"] === "login.detail.authorize"
+      ? true
+      : { ok: false, reason: "stale-document" };
   },
 }));
 
@@ -53,6 +55,10 @@ async function fill({ account, ...field }: Record<string, unknown>) {
       {
         version: 1,
         type: "login.detail.fill",
+        fillId: "90000000-0000-4000-8000-000000000001",
+        expiresAt: Date.now() + 60_000,
+        origin: location.origin,
+        submit: { by: "id", value: "next" },
         token,
         path: location.pathname,
         fields: [{ target: { by: "name", value: "asked" }, ...field }],

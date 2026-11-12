@@ -1,7 +1,6 @@
 import {
   PROBLEM_EVENT_FIELDS,
   PROBLEM_PAGE_FIELDS,
-  problemInfoLine,
   problemLocalOnly,
   REDACTED_PATH_SEGMENT,
   type ProblemFieldKind,
@@ -20,7 +19,7 @@ import {
 } from "./log-events";
 import { KIND_SCHEMAS, PARAMETER_NAME, STORED_SCHEMAS, type LogEntry } from "./log-fields";
 import type { LogEventName } from "./log-events";
-import { selectLogEntries, type LogExportScope } from "./log-export";
+import { problemEntry, selectLogEntries, type LogExportScope } from "./log-export";
 
 type Substitute = (kind: "origin" | "rpId" | "recipe", value: string) => string;
 
@@ -146,14 +145,12 @@ function emailSegment(segment: string): boolean {
 }
 
 /**
- * Whether an entry goes to the service (ADR 0066): every `warn` and `error` entry, and an
- * `info` entry that says why Pateat did nothing on a page (`PROBLEM_INFO_LINES`), except a
+ * Whether an entry goes to the service (ADR 0066): every problem line ({@link problemEntry}:
+ * `warn`, `error`, and an `info` line that says why Pateat did nothing on a page), except a
  * passkey report or a fill-only login's line, which stay local (`problemLocalOnly`).
  */
 export function sentToService(entry: Pick<LogEntry, "level" | "event" | "fields">): boolean {
-  if (problemLocalOnly(entry.event, entry.fields)) return false;
-  if (entry.level === "warn" || entry.level === "error") return true;
-  return entry.level === "info" && problemInfoLine(entry.event, entry.fields);
+  return !problemLocalOnly(entry.event, entry.fields) && problemEntry(entry);
 }
 
 /**

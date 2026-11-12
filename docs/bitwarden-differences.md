@@ -100,6 +100,13 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   unparsable values are refused. Injected markup on an admitted page, such as a dangling
   `<form action="https://attacker.example/">` or a `<base href>`, would otherwise
   receive the username and password.
+- The popup's fill of a personal detail during a login
+  ([ADR 0061](adr/0061-personal-details-during-a-login.md)) applies the same check
+  before typing, although the person submits: the field's form `action` and the
+  `formaction` of every submitter of that form, the shown button and a hidden default
+  button that a pressed Enter would use included, by the login's item rather than the
+  card or identity that supplies the value. The official clients fill personal details
+  without checking any destination.
 - A form that shows no button (ADR 0064) is submitted by Enter in its last field: Pateat
   clicks the form's default button, its first submit button in tree order among the
   form's controls, or calls `requestSubmit()` when it has none. The official auto-submit

@@ -96,12 +96,15 @@ export function keypadKeys(root: ParentNode): HTMLElement[] {
  */
 const typingKeys = (root: ParentNode) => keypadKeys(root).filter((key) => !otherControl(key));
 
-/** Whether a person can press `key` now: shown, enabled and not inert. */
+/**
+ * Whether a person can press `key` now: shown, enabled and not inert. A native control is
+ * enabled when it does not match `:disabled`, which a disabled fieldset's controls also
+ * match, apart from those in its first legend.
+ */
 export function pressable(key: HTMLElement): boolean {
   return (
     shown(key) &&
-    !(key instanceof HTMLButtonElement && key.disabled) &&
-    !(key instanceof HTMLInputElement && key.disabled) &&
+    !key.matches(":disabled") &&
     key.getAttribute("aria-disabled") !== "true" &&
     key.closest("[inert]") === null
   );
@@ -456,7 +459,7 @@ export function keypadInput(field: HTMLInputElement): boolean {
   const tokens = autocompleteTokens(field);
   return (
     field.readOnly &&
-    !field.disabled &&
+    !field.matches(":disabled") &&
     field.value === "" &&
     (field.type === "password" ||
       tokens.includes("current-password") ||

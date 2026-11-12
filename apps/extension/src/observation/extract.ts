@@ -60,6 +60,7 @@ import {
   shadowRootOf,
   treeOf,
 } from "../page/shadow";
+import { elementProperty } from "../page/form-native";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
   attributeHidden,
@@ -195,6 +196,12 @@ const actionTypes = new Set(["submit", "button", "image"]);
 const ignoredTypes = new Set(["hidden", "reset"]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
+/**
+ * Whether `form` holds a field: through `Element`, as the form's named controls hide its
+ * own `querySelector` (`form-native.ts`).
+ */
+const holdsField = (form: Element | null) =>
+  form !== null && Element.prototype.querySelector.call(form, fields) !== null;
 /** Every element `describe` may accept, script buttons included. */
 const observed = `input, select, textarea, button, a, ${scriptControls}`;
 /**
@@ -1495,14 +1502,14 @@ function describe(element: Element, keypads?: Keypads): Found | undefined {
     if (keyed && keypad)
       keypadLocator = keypad.target ?? keypadPositionTarget(element, keypad.container);
     if (keyed && !keypadLocator) keyed = false;
-    if (!keyed && (present === "faint" || element.readOnly || element.disabled))
+    if (!keyed && (present === "faint" || element.readOnly || element.matches(":disabled")))
       return { kind: "unsupported", form: formOf(element), field: element, element };
   } else if (present !== "visible") return undefined;
   if (element instanceof HTMLInputElement) {
     const type = element.type;
     if (ignoredTypes.has(type)) return undefined;
     // A disabled submit often enables once fields are filled, so it stays a candidate.
-    if (element.disabled && !actionTypes.has(type)) return undefined;
+    if (element.matches(":disabled") && !actionTypes.has(type)) return undefined;
     const fillRole = fillTypes[type];
     if (fillRole) {
       const label = fieldLabel(element, keypads?.keys);
@@ -1540,7 +1547,7 @@ function describe(element: Element, keypads?: Keypads): Found | undefined {
     return { kind: "unsupported", form: formOf(element), field: undefined, element };
   }
   if (element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement)
-    return element.disabled
+    return element.matches(":disabled")
       ? undefined
       : { kind: "unsupported", form: formOf(element), field: undefined, element };
   if (element instanceof HTMLButtonElement) {
@@ -1596,7 +1603,7 @@ const siteSearch = (element: Element) =>
  * wrapped in one form, or a sign-in form with a site search box, is none.
  */
 function searchForm(form: HTMLFormElement): boolean {
-  const held = controlsOf(form, form.ownerDocument).filter(
+  const held = controlsOf(form, elementProperty(form, "ownerDocument")).filter(
     (element) => !(element instanceof HTMLInputElement && element.type === "hidden"),
   );
   const typed = held.filter(
@@ -1963,7 +1970,7 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
 
   const index = locatorIndex(document);
   const filled = (field: HTMLInputElement) =>
-    (field.readOnly || field.disabled) &&
+    (field.readOnly || field.matches(":disabled")) &&
     known.some((target) => {
       if ("within" in target && target.within) {
         const found = findTargets(document, target, { hidden: true });
@@ -1993,7 +2000,8 @@ function readLogin(document: Document, known: readonly LoginTarget[]): Observati
       !(
         entry.kind === "unsupported" &&
         entry.field &&
-        (filled(entry.field) || (entry.field.disabled && presence(entry.field) === "faint"))
+        (filled(entry.field) ||
+          (entry.field.matches(":disabled") && presence(entry.field) === "faint"))
       ) &&
       !(
         entry.kind === "candidate" &&
@@ -2654,7 +2662,7 @@ function readLogout(document: Document): ObservationResult {
   const tokens = redactsPath(location.pathname);
   const index = locatorIndex(document);
   const inFieldForm = (element: Element, form?: HTMLFormElement | null) =>
-    Boolean((form ?? closestAcross(element, "form"))?.querySelector(fields));
+    holdsField(form ?? closestAcross(element, "form"));
   const described = describeAll(document).flatMap((entry) => {
     if (entry.kind !== "candidate") return [];
     const { element, role } = entry.draft;
@@ -2752,7 +2760,7 @@ export function extractLocalLogout(
   if (!location) return { ok: false, reason: "none" };
   const control = localLogoutControl(document);
   if (typeof control === "string") return { ok: false, reason: control };
-  if (!enabled(control) || closestAcross(control, "form")?.querySelector(fields))
+  if (!enabled(control) || holdsField(closestAcross(control, "form")))
     return { ok: false, reason: "none" };
   const refusal = entryElementRefusal(control);
   if (refusal === "new-window" || refusal === "download") return { ok: false, reason: "none" };
@@ -2920,7 +2928,7 @@ function describeSignedIn(document: Document): ObservationResult {
       // A disabled field may be a code field waiting for a timer or a sent code: one that
       // may not be a sign-in field is left out, but only `signed-in` completes the page.
       if (entry.field && mayBeSignIn(entry.field)) gap ??= "unfillable-field";
-      else if (entry.field?.disabled) disabledLeftOut = true;
+      else if (entry.field?.matches(":disabled")) disabledLeftOut = true;
     } else if (fillTypes[entry.draft.role]) fieldEntries.push(entry);
     else if (entry.draft.role !== "checkbox") markers.push(entry);
   }

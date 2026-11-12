@@ -222,3 +222,12 @@ export const destinationCheckSchema = v.strictObject({
   operationId: id,
   destination: v.pipe(v.string(), v.maxLength(8192)),
 });
+
+/** Authorizes only the destinations of a pending popup detail fill, never a login step. */
+export const detailAuthorizeSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.detail.authorize"),
+  token: id,
+  fillId: id,
+  destinations: v.pipe(v.array(v.pipe(v.string(), v.maxLength(8192))), v.maxLength(32)),
+});
