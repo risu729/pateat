@@ -1,6 +1,7 @@
 // The diagnostics page receives this summary from the service worker (ADR 0019). It holds
 // versions, states, counts and reason codes only: no value, name, email, URL or host.
 import * as v from "valibot";
+import { logExportScopeSchema } from "./log-export";
 import { vaultTimeoutSchema } from "../vault/timeout";
 
 export const DIAGNOSTICS_STATUS_REQUEST = { version: 1, type: "diagnostics.status" } as const;
@@ -11,6 +12,7 @@ export const diagnosticsRequestSchema = v.variant("type", [
     version: v.literal(1),
     type: v.literal("diagnostics.logs.export"),
     includeSites: v.boolean(),
+    scope: v.optional(logExportScopeSchema),
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("diagnostics.logs.clear") }),
   v.strictObject({

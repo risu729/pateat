@@ -215,4 +215,18 @@ export const diagnosticsJa = {
   "diagnostics.count.error_other": "{{count}} 件のエラー",
   "diagnostics.count.warning_one": "{{count}} 件の警告",
   "diagnostics.count.warning_other": "{{count}} 件の警告",
+  "Updating preview…": "プレビューを更新しています…",
+  "Time range": "期間",
+  "All retained entries": "保存されているすべてのログ",
+  "Last 15 minutes": "過去 15 分",
+  "Last hour": "過去 1 時間",
+  "Last 24 hours": "過去 24 時間",
+  Severity: "重要度",
+  "All levels": "すべての重要度",
+  "Warnings and errors": "警告とエラー",
+  "Showing {{selected}} of {{retained}} retained entries.":
+    "保存されている {{retained}} 件のうち {{selected}} 件を表示しています。",
+  "No entries match these filters.": "この条件に一致するログはありません。",
+  "A filtered export can leave out earlier steps and related events.":
+    "絞り込んだログには、それ以前の手順や関連する出来事が含まれないことがあります。",
 } satisfies Record<keyof typeof diagnosticsEn, string>;
