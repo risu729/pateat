@@ -104,24 +104,23 @@ already on it.
 The service is a small Cloudflare Worker. Its pairing and management pages are behind
 Cloudflare Access; the extension reaches it with its device credential. It stores your
 settings profiles, which vault field fills which part of each site's login, and recipes,
-and writes a recipe with Anthropic or OpenAI for a login page that has none. It also keeps, for one
-year, the page descriptions it receives, a record of each login that followed a recipe
-and the problems the extension reports; the
+and writes a recipe with Anthropic or OpenAI for a login page that has none. It also
+keeps, for one year, the page descriptions it receives, a record of each login that
+followed a recipe and the problems the extension reports; the
 [privacy policy](./privacy.md#your-pateat-service) lists them. It never receives vault
 values or keys. Its pages are **Dashboard**, **Sites**, **Profiles**, **Devices**,
-**Claude** (Claude credentials), **OpenAI** (an OpenAI API key), **Problems** (the warnings,
-errors and reasons for doing nothing that devices reported) and **Request log**. On
-**Request log**, **Login history** lists the login records already held by your service.
-Filter by **Site** (such as `https://example.com`; a path is ignored) and **Result**,
-then choose **Apply filters**; the count above the list names the filters it follows.
-**Older** shows earlier records and **Newest** returns to the latest ones. Open a
-record's **Details** for its recipe, result code and recorded times. Network time is
-part of the service time. **Delete all** deletes the stored request logs, login records
-and problem reports.
-The Claude and OpenAI pages also let you choose the models. An OpenAI
-key saved on the service is encrypted and belongs to your signed-in account; you can
-replace or remove it on its **OpenAI** page. The service operator must first configure
-its encryption key, as described in the
+**Claude** (Claude credentials), **OpenAI** (an OpenAI API key), **Problems** (the
+warnings, errors and reasons for doing nothing that devices reported) and
+**Request log**. On **Request log**, **Login history** lists the login records already
+held by your service. Filter by **Site** (such as `https://example.com`; a path is
+ignored) and **Result**, then choose **Apply filters**; the count above the list names
+the filters it follows. **Older** shows earlier records and **Newest** returns to the
+latest ones. Open a record's **Details** for its recipe, result code and recorded times.
+Network time is part of the service time. **Delete all** deletes the stored request
+logs, login records and problem reports. The Claude and OpenAI pages also let you choose
+the models. An OpenAI key saved on the service is encrypted and belongs to your
+signed-in account; you can replace or remove it on its **OpenAI** page. The service
+operator must first configure its encryption key, as described in the
 [service guide](https://github.com/risu729/pateat/blob/main/services/api/README.md#openai-credentials).
 
 Today each service is run by its owner for themselves: the service at `pateat.takuk.me`
