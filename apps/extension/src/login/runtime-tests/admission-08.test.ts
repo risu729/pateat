@@ -337,6 +337,7 @@ describe("production login document admission", () => {
         for (const listener of fake.state.removed) listener(1);
         await vi.waitFor(() =>
           expect(fake.state.session).toEqual({
+            "pateat.confirm-fills.v1": { proofs: [], claims: [] },
             "pateat.login-binding-reviews.v1": [],
             "pateat.login-noted.v1": [],
             "pateat.login-picks.v1": [],

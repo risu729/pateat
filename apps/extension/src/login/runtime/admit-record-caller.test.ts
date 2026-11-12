@@ -93,6 +93,14 @@ function harness(entry = record()) {
   const documents = new Map([["current-key", live]]);
   const picked = new Map<number, PickedAccount>();
   const rt = {
+    confirmFill: {
+      loaded: Promise.resolve(),
+      healthy: true,
+      proofs: [],
+      claims: [],
+      work: new Map(),
+      queue: Promise.resolve(),
+    },
     settings: {
       handle: vi.fn(async () => ({
         version: 1,

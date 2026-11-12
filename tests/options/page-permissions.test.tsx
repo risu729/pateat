@@ -57,7 +57,7 @@ afterEach(async () => {
   await i18n.changeLanguage("en");
 });
 
-test("all three defaults are editable and unavailable features are explained", async () => {
+test("all three defaults are editable and confirmation scope and unavailable personal details are explained", async () => {
   const { changed } = await mount();
   await expect
     .element(defaults().getByRole("combobox", { name: "Sign-in pages", exact: true }))
@@ -70,7 +70,13 @@ test("all three defaults are editable and unavailable features are explained", a
   await expect
     .element(defaults().getByRole("combobox", { name: "Other personal-detail forms", exact: true }))
     .toHaveValue("fill");
-  await expect.element(page.getByText(/Verification pages are not filled yet\./)).toBeVisible();
+  await expect
+    .element(
+      page.getByText(
+        /Verification pages fill only after a confirmed Pateat login in the same tab, using that account\./,
+      ),
+    )
+    .toBeVisible();
   await expect
     .element(page.getByText(/Filling personal details outside a login is not available yet\./))
     .toBeVisible();
