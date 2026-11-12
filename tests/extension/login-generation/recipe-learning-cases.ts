@@ -1,33 +1,18 @@
-import type { LoginGenerationCaseContext, RecipeChanges } from "../login-generation.spec";
+import { test, expect } from "@playwright/test";
+import { startLoginFixture } from "../login-server";
+import { startSyncService } from "../sync-service";
+import { withVaultProfile } from "../vault-fixture";
+import { sendToBackground as send } from "../background-message";
+import type { RecipeChanges, RecipeLearningContext } from "./context";
 
 export function registerRecipeLearning({
-  test,
-  expect,
-  startLoginFixture,
-  startSyncService,
-  withVaultProfile,
-  send,
   site,
   password,
   serveSite,
   SETTLE_MS,
   syntheticClaude,
   connect,
-}: Pick<
-  LoginGenerationCaseContext,
-  | "test"
-  | "expect"
-  | "startLoginFixture"
-  | "startSyncService"
-  | "withVaultProfile"
-  | "send"
-  | "site"
-  | "password"
-  | "serveSite"
-  | "SETTLE_MS"
-  | "syntheticClaude"
-  | "connect"
->): void {
+}: RecipeLearningContext): void {
   for (const [button, marker] of [
     ["button", "button"],
     ["anchor", "button"],

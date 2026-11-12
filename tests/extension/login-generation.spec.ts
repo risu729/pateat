@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, type BrowserContext, type Page } from "@playwright/test";
 import {
   beginInput,
   settingsRequest,
@@ -6,17 +6,14 @@ import {
   setupRequest,
   useOnly,
 } from "./connection-fixture";
-import { logs } from "./login-fixture";
-import { startLoginFixture } from "./login-server";
 import { startSyncService } from "./sync-service";
-import { withVaultProfile, type VaultBrowser } from "./vault-fixture";
+import type { VaultBrowser } from "./vault-fixture";
 import { sendToBackground as send } from "./background-message";
 import type { LoginRecipeDocument } from "../../packages/contracts/src/index";
-
-import { registerRecipeLearning } from "./login-generation-cases/recipe-learning";
-import { registerContinuations } from "./login-generation-cases/continuations";
-import { registerEntryPages } from "./login-generation-cases/entry-pages";
-import { registerLayoutRepair } from "./login-generation-cases/layout-repair";
+import { registerRecipeLearning } from "./login-generation/recipe-learning-cases";
+import { registerContinuations } from "./login-generation/continuation-cases";
+import { registerEntryPages } from "./login-generation/entry-page-cases";
+import { registerLayoutRepair } from "./login-generation/layout-repair-cases";
 
 // The synthetic Bitwarden item stores the URI https://synthetic.example.test/login, the
 // username "test_username" and the login password "test_password". The site has no recipe;
@@ -39,7 +36,7 @@ async function serveSite(context: BrowserContext, fixture: { origin: string }) {
 }
 
 /** `GET /v1/recipes` as these tests read it: each login recipe with its layouts (ADR 0060). */
-type RecipeChanges = { changes: { recipe?: LoginRecipeDocument }[] };
+export type RecipeChanges = { changes: { recipe?: LoginRecipeDocument }[] };
 /**
  * Gives the probe a 2-second step wait in place of the 10-second one, for a test whose login
  * runs past an advance's wait; the loopback origin is the probe's default.
@@ -286,15 +283,7 @@ async function connect(
   return options;
 }
 
-export type { RecipeChanges };
-
-export type LoginGenerationCaseContext = {
-  test: typeof test;
-  expect: typeof expect;
-  startLoginFixture: typeof startLoginFixture;
-  startSyncService: typeof startSyncService;
-  withVaultProfile: typeof withVaultProfile;
-  send: typeof send;
+export type LoginGenerationTestFixtures = {
   site: typeof site;
   password: typeof password;
   serveSite: typeof serveSite;
@@ -303,17 +292,9 @@ export type LoginGenerationCaseContext = {
   connect: typeof connect;
   username: typeof username;
   shortenStepWait: typeof shortenStepWait;
-  logs: typeof logs;
-  settingsRequest: typeof settingsRequest;
 };
 
 registerRecipeLearning({
-  test,
-  expect,
-  startLoginFixture,
-  startSyncService,
-  withVaultProfile,
-  send,
   site,
   password,
   serveSite,
@@ -323,12 +304,6 @@ registerRecipeLearning({
 });
 
 registerContinuations({
-  test,
-  expect,
-  startLoginFixture,
-  startSyncService,
-  withVaultProfile,
-  send,
   site,
   password,
   serveSite,
@@ -337,17 +312,9 @@ registerContinuations({
   connect,
   username,
   shortenStepWait,
-  logs,
-  settingsRequest,
 });
 
 registerEntryPages({
-  test,
-  expect,
-  startLoginFixture,
-  startSyncService,
-  withVaultProfile,
-  send,
   site,
   password,
   serveSite,
@@ -358,12 +325,6 @@ registerEntryPages({
 });
 
 registerLayoutRepair({
-  test,
-  expect,
-  startLoginFixture,
-  startSyncService,
-  withVaultProfile,
-  send,
   site,
   password,
   serveSite,

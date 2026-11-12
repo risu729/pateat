@@ -1,12 +1,11 @@
-import type { LoginGenerationCaseContext, RecipeChanges } from "../login-generation.spec";
+import { test, expect } from "@playwright/test";
+import { startLoginFixture } from "../login-server";
+import { startSyncService } from "../sync-service";
+import { withVaultProfile } from "../vault-fixture";
+import { sendToBackground as send } from "../background-message";
+import type { EntryPageContext, RecipeChanges } from "./context";
 
 export function registerEntryPages({
-  test,
-  expect,
-  startLoginFixture,
-  startSyncService,
-  withVaultProfile,
-  send,
   site,
   password,
   serveSite,
@@ -14,22 +13,7 @@ export function registerEntryPages({
   syntheticClaude,
   connect,
   username,
-}: Pick<
-  LoginGenerationCaseContext,
-  | "test"
-  | "expect"
-  | "startLoginFixture"
-  | "startSyncService"
-  | "withVaultProfile"
-  | "send"
-  | "site"
-  | "password"
-  | "serveSite"
-  | "SETTLE_MS"
-  | "syntheticClaude"
-  | "connect"
-  | "username"
->): void {
+}: EntryPageContext): void {
   for (const { name, loginPage } of [
     { name: "login page", loginPage: "/sign-in" },
     // The login page asks for the account alone, by an input named only `login` (ADR 0016).

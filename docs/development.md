@@ -716,22 +716,6 @@ closes its own synthetic fixture and browser profile, and keeps its per-test tim
 Each file follows the 1,000-line limit. Compare the `--list` output for each shard
 when changing this layout.
 
-### Packaged login generation test organization
-
-`tests/extension/login-generation.spec.ts` remains the sole packaged login-generation
-spec entry and owns the synthetic site constants, step-wait and settle bounds,
-synthetic Claude responder, connection and site-serving helpers, and original fixture
-imports. Passive synchronous registrars in `tests/extension/login-generation-cases/`
-own contiguous recipe-learning, continuation, entry-page and layout-repair cases.
-The entry calls them in the original order with the same test API, fixture and helper
-references; its exported context and recipe-result types are erased. Importing a leaf
-registers no tests. The registrars preserve all tables, callbacks, assertions, comments,
-timeouts and per-case cleanup without adding suites, hooks or shared fixture scopes.
-Every test remains a root test of the original spec and its own round-robin shard unit.
-Each file follows the 1,000-line limit. Compare test IDs, full titles, registration
-order, annotations, expected status and all six shard memberships when changing this
-layout.
-
 ### Connection setup service test organization
 
 `apps/extension/src/connections/setup.test.ts` is the discovered entry for the
@@ -888,6 +872,25 @@ exports and the fixtures they use directly. The entry exports its `AccountTestFi
 and `AccountTestRaw` types, and `context.ts` builds the module contexts from them with
 `import type`. The modules sit outside `src/`, so they stay outside the coverage root
 and are not discovered as test files. Each file follows the 1,000-line limit.
+
+### Packaged login generation test organization
+
+`tests/extension/login-generation.spec.ts` is the discovered entry for the packaged
+login-generation cases; `login-service.spec.ts` also runs recipes stored as generated
+ones, and `services/api/test/generation.test.ts` covers the Worker's generation, through
+their own entries. The entry owns the synthetic site constants, the step-wait and settle
+bounds, the synthetic Claude responder and the `serveSite`, `connect` and
+`shortenStepWait` helpers. Plain modules in `tests/extension/login-generation/` export
+synchronous registration functions for the recipe-learning, continuation, entry-page and
+sign-in timing, and layout-repair cases, which the entry calls at the root with the
+helpers each group uses; importing a module registers no cases. The modules import
+`@playwright/test` and the shared fixtures they use directly. The entry exports its
+`LoginGenerationTestFixtures` and `RecipeChanges` types, and `context.ts` builds the
+module contexts from them with `import type`. The modules lack the `.spec.ts` suffix, so
+the `*.spec.ts` test match does not discover them. The registrars add no suites, hooks
+or fixture scopes, so every test stays a root test of `login-generation.spec.ts` and its
+own round-robin shard unit. Each file follows the 1,000-line limit. Compare the `--list`
+output for each shard when changing this layout.
 
 ### Login wire contracts
 

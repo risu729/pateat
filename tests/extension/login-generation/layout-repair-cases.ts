@@ -1,31 +1,17 @@
-import type { LoginGenerationCaseContext, RecipeChanges } from "../login-generation.spec";
+import { test, expect } from "@playwright/test";
+import { startLoginFixture } from "../login-server";
+import { startSyncService } from "../sync-service";
+import { withVaultProfile } from "../vault-fixture";
+import { sendToBackground as send } from "../background-message";
+import type { LayoutRepairContext, RecipeChanges } from "./context";
 
 export function registerLayoutRepair({
-  test,
-  expect,
-  startLoginFixture,
-  startSyncService,
-  withVaultProfile,
-  send,
   site,
   password,
   serveSite,
   syntheticClaude,
   connect,
-}: Pick<
-  LoginGenerationCaseContext,
-  | "test"
-  | "expect"
-  | "startLoginFixture"
-  | "startSyncService"
-  | "withVaultProfile"
-  | "send"
-  | "site"
-  | "password"
-  | "serveSite"
-  | "syntheticClaude"
-  | "connect"
->): void {
+}: LayoutRepairContext): void {
   test("a generated recipe whose start page changed gets a layout for it on the first load, never for a maintenance page (ADR 0041)", async () => {
     // Each page that misses its first step reports after the ten-second step wait.
     test.setTimeout(180_000);

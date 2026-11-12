@@ -1,13 +1,13 @@
-import type { Page } from "@playwright/test";
-import type { LoginGenerationCaseContext, RecipeChanges } from "../login-generation.spec";
+import { test, expect, type Page } from "@playwright/test";
+import { settingsRequest } from "../connection-fixture";
+import { logs } from "../login-fixture";
+import { startLoginFixture } from "../login-server";
+import { startSyncService } from "../sync-service";
+import { withVaultProfile } from "../vault-fixture";
+import { sendToBackground as send } from "../background-message";
+import type { ContinuationContext, RecipeChanges } from "./context";
 
 export function registerContinuations({
-  test,
-  expect,
-  startLoginFixture,
-  startSyncService,
-  withVaultProfile,
-  send,
   site,
   password,
   serveSite,
@@ -16,27 +16,7 @@ export function registerContinuations({
   connect,
   username,
   shortenStepWait,
-  logs,
-  settingsRequest,
-}: Pick<
-  LoginGenerationCaseContext,
-  | "test"
-  | "expect"
-  | "startLoginFixture"
-  | "startSyncService"
-  | "withVaultProfile"
-  | "send"
-  | "site"
-  | "password"
-  | "serveSite"
-  | "SETTLE_MS"
-  | "syntheticClaude"
-  | "connect"
-  | "username"
-  | "shortenStepWait"
-  | "logs"
-  | "settingsRequest"
->): void {
+}: ContinuationContext): void {
   for (const { name, start, query, passwordPath } of [
     // Next hides the account form and shows the password form on the same path.
     {
