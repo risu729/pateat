@@ -1,4 +1,6 @@
 import * as v from "valibot";
+import { authorizeConfirmation } from "./confirm-fill";
+import { cancelConfirm, confirmBusy, forgetConfirmTab } from "./confirm-state";
 import { manualOfferRequestSchema, manualStartRequestSchema } from "../manual-wire";
 import { manualOffer, manualStart } from "./manual";
 import { endManual } from "./manual-scope";
@@ -362,6 +364,16 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
   }
   const destinationCheck = v.safeParse(destinationCheckSchema, message);
   if (destinationCheck.success) {
+    const confirmationDestination = URL.parse(destinationCheck.output.destination);
+    if (!confirmationDestination) return { ok: false, reason: "not-authorized" };
+    const confirmed = await authorizeConfirmation(
+      rt,
+      destinationCheck.output,
+      sender,
+      confirmationDestination,
+    );
+    if (confirmed !== undefined)
+      return confirmed ? { ok: true } : { ok: false, reason: "not-authorized" };
     const found = await operationRun(rt, destinationCheck.output, sender);
     const destination = URL.parse(destinationCheck.output.destination);
     if (
@@ -402,6 +414,8 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
   }
   const authorization = v.safeParse(authorizeSchema, message);
   if (!authorization.success) return undefined;
+  const confirmed = await authorizeConfirmation(rt, authorization.output, sender);
+  if (confirmed !== undefined) return confirmed;
   const found = await operationRun(rt, authorization.output, sender);
   if (!found) return false;
   return validateLoginOperation(
@@ -451,6 +465,9 @@ export async function operationRun(
  * stops only when they no longer plan its account (ADR 0027).
  */
 export function settingsChanged(rt: Runtime, source: "synced" | "saved"): void {
+  for (const work of rt.confirmFill.work.values())
+    void send(rt, work.live, { type: "login.cancel" }).catch(() => undefined);
+  cancelConfirm(rt);
   for (const tabId of rt.bindingReviews.keys()) clearBindingReview(rt, tabId);
   const stopped = new Set<number>();
   for (const run of rt.attempts.values()) {
@@ -588,6 +605,7 @@ export async function incognitoClosed(rt: Runtime): Promise<void> {
  * goes on in the new tab, which its record moved to first.
  */
 export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
+  forgetConfirmTab(rt, tabId);
   clearBindingReview(rt, tabId);
   endManual(rt, tabId, "page-changed");
   rt.manualStarts.delete(tabId);
@@ -728,6 +746,7 @@ export function reportClosed(rt: Runtime, metadata: LoginAttemptMetadata): void 
  */
 export async function active(rt: Runtime): Promise<boolean> {
   await rt.vars.loaded;
+  if (confirmBusy(rt)) return true;
   return (
     rt.attempts
       .values()

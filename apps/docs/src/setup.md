@@ -195,10 +195,18 @@ made automatically to the browser; requests you start deliberately still follow 
 usual passkey checks.
 
 Pauses, allowed sites, private-window settings and vault limits still apply.
-Verification pages while signed in are not filled yet; **Off** leaves them alone, and
-**Fill only** stores the choice for that later feature. Filling other personal-detail
-forms is not available yet either. Personal details asked during a login follow the
-sign-in setting.
+For **Verification pages**, **Fill only** uses the account whose Pateat login finished
+successfully in this same tab and browser session. It never chooses another account.
+**Off** leaves the page alone. Pateat fills only ordinary empty, untouched fields;
+buttons, authentication codes, software keyboards and fields that advance or submit as
+you type stay with you. Review the form and press its button yourself. Passkey
+re-verification stays with the browser in either mode.
+
+A new verification page may be described to make a recipe, even when filling is off.
+Reloading or restarting the extension does not replay an uncertain fill. After a
+browser restart, Pateat needs a newly confirmed login in the tab before verification
+autofill can run. Filling other personal-detail forms is not available yet. Personal
+details asked during a login follow the sign-in setting.
 
 ### Private windows
 

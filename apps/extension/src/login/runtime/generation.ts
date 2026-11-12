@@ -95,6 +95,7 @@ export async function generateFor(
     later?: { layout: string; step: number };
     done(outcome: GenerationOutcome): void;
   },
+  confirmation?: { current(): Promise<boolean>; reconnect(): void },
 ): Promise<void> {
   if (!rt.generation) return;
   const manualRequest = manualPending(rt, live);
@@ -243,6 +244,7 @@ export async function generateFor(
     const custom = slotless ? [] : await customSlots(rt, live.document.origin, scope);
     if (rt.documents.get(key) !== live) return;
     if (await pausedMeanwhile(rt, live, otherless ? "other" : undefined)) return;
+    if (confirmation && !(await confirmation.current())) return;
     const spin = spinning(rt, live.document.tabId);
     const asked = Date.now();
     const result = await rt.generation
@@ -306,6 +308,10 @@ export async function generateFor(
       }
     }
     if (result.outcome !== "recipe") return;
+    if (confirmation) {
+      if (!(await confirmation.current())) return;
+      confirmation.reconnect();
+    }
     // Every tab's page still tracked on this origin and path that holds no login announces
     // again and starts the recipe: this document, and one refused for want of a recipe
     // while the request was in flight, such as a page that replaced this one or the same
@@ -315,7 +321,8 @@ export async function generateFor(
       return (
         other.document.origin === live.document.origin &&
         other.path === live.path &&
-        rt.attempts.get(other.document.tabId)?.live !== other &&
+        ((confirmation && other === live) ||
+          rt.attempts.get(other.document.tabId)?.live !== other) &&
         !(running && !terminal(running))
       );
     });

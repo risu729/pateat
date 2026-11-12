@@ -162,6 +162,7 @@ export async function generationSlotsFor(
   live: LiveDocument,
   miss: (reason: GenerationMiss, detail?: string) => void = () => undefined,
   passkeyOnly: false | "some" | "every" = false,
+  selected?: { connectionId: string; itemId: string },
 ): Promise<GenerationScope | undefined> {
   if (!rt.uris) return undefined;
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
@@ -230,14 +231,23 @@ export async function generationSlotsFor(
       return undefined;
     }
   }
+  const allCandidates = candidates;
+  if (selected)
+    candidates = candidates.filter(
+      (candidate) =>
+        candidate.connectionId === selected.connectionId && candidate.itemId === selected.itemId,
+    );
   const items = catalogItems(snapshot.catalog, candidates);
   // Every item that matches the frame's URL may be the one the frame shows the account of.
-  const frameOnly = framed
-    ? catalogItems(
-        snapshot.catalog,
-        scope.candidates.filter((candidate) => !candidates.includes(candidate)),
-      )
-    : [];
+  const frameOnly =
+    framed || selected
+      ? catalogItems(
+          snapshot.catalog,
+          [...new Set([...scope.candidates, ...allCandidates])].filter(
+            (candidate) => !candidates.includes(candidate),
+          ),
+        )
+      : [];
   // Only slots a matching item can fill; built-in fields keep these IDs on every device.
   const slots = generationSlots.filter(({ fieldId }) =>
     items.some(({ connection, item }) =>

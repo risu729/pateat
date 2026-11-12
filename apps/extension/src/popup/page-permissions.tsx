@@ -95,7 +95,7 @@ export function PopupPagePermissions({
       )}
       <p className="popup-muted">
         {t(
-          "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages are not filled yet; Off leaves them alone. Other personal-detail forms are not filled yet.",
+          "Fill only leaves buttons, verification codes and software keyboards to you. Verification pages use the account Pateat confirmed in this tab; Off leaves them alone. Other personal-detail forms are not filled yet.",
         )}
       </p>
       <Button

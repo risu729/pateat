@@ -150,7 +150,7 @@ export function PagePermissionNotes() {
       </p>
       <p className="m-0">
         {t(
-          "Verification pages are not filled yet. Off leaves them alone; Fill only keeps that choice for when filling is available. Passkey verification after a Pateat login is left to the browser in either mode.",
+          "Verification pages fill only after a confirmed Pateat login in the same tab, using that account. Off leaves them alone. Buttons, codes and passkey verification stay with you or the browser.",
         )}
       </p>
       <p className="m-0">

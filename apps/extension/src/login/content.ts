@@ -1902,6 +1902,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return fail("cancelled", "page-changed");
       used.add(operation.operationId);
       const step = operation.step;
+      if (
+        operation.signInFill &&
+        (step.kind !== "fill" ||
+          step.effect !== "prepare" ||
+          command.code ||
+          command.choose ||
+          step.fields.some((field) => field.keypad))
+      )
+        return fail("cancelled", "not-authorized");
       // Another attempt in this document starts from nothing filled.
       if (operation.attemptId !== filledAttempt) {
         filled = new WeakSet();
@@ -2127,7 +2136,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // A username or password never goes into a code input (issue #1413).
         const usable = (input: Element | undefined, index: number) =>
           (step.fields[index]!.keypad ? keyable(input) : takes(input, secretOf(index))) &&
-          !(signInSlot(step.fields[index]!.slot) && codeMarked(input));
+          !(signInSlot(step.fields[index]!.slot) && codeMarked(input)) &&
+          !(operation.signInFill && codeMarked(input));
         if (inputs.some((input, index) => !usable(input, index)))
           return fail("structural-mismatch", "target-missing");
         // Each field's keypad, which holds the keys, shown or not yet.
@@ -2338,7 +2348,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               );
             if (
               operation.signInFill &&
-              !claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot)
+              (input.value !== "" ||
+                !claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot))
             ) {
               value.value = "";
               continue;

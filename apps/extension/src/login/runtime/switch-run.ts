@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { confirmBusy } from "./confirm-state";
 import { isEntryObservation } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import {
@@ -41,7 +42,8 @@ export async function switchFor(
   const site = live && siteOf(live.document.origin);
   if (!live || site === undefined) return { ok: false, reason: "no-page" };
   if (rt.pending.has(tabId)) return { ok: false, reason: "choice-waiting" };
-  if (rt.switchesRunning.has(tabId)) return { ok: false, reason: "in-progress" };
+  if (rt.switchesRunning.has(tabId) || confirmBusy(rt, tabId))
+    return { ok: false, reason: "in-progress" };
   const running = tabAttempt(rt, tabId);
   if (running && !terminal(running) && !idle(running)) return { ok: false, reason: "tab-busy" };
   // Another tab's login of the site, as one waiting for a code, holds the session the
@@ -65,7 +67,8 @@ export async function switchFor(
     return { ok: false, reason: "not-a-candidate" };
   // Checked again after the reads: the tab may have started a login or switch meanwhile,
   // and so may another tab of the site.
-  if (rt.switchesRunning.has(tabId)) return { ok: false, reason: "in-progress" };
+  if (rt.switchesRunning.has(tabId) || confirmBusy(rt, tabId))
+    return { ok: false, reason: "in-progress" };
   if (siteHeldElsewhere(rt, tabId, site)) return { ok: false, reason: "site-held" };
   if (rt.documents.get(frameKey(live.document)) !== live) return { ok: false, reason: "no-page" };
   rt.switchesRunning.add(tabId);

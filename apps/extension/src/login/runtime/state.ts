@@ -3,6 +3,7 @@ import {
   type LoginAttemptMetadata,
   type LoginDocument,
 } from "@pateat/contracts";
+import { createConfirmState } from "./confirm-state";
 import { sessionValue, trustedRecord } from "../../storage";
 import { createLoginBadge, memoryBadgeStorage, setActionBadge } from "../badge";
 import { DEFAULT_PROBE_ORIGIN, DEMO_PROBE_ACCOUNT, type ProbeAccount } from "../dummy";
@@ -514,6 +515,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     refusedDetails,
     savingChoices,
     attemptRecords,
+    confirmFill: createConfirmState(),
     probeConfig,
     entryBlockRecords,
     incognitoTabs,

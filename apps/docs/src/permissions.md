@@ -58,6 +58,12 @@ Anthropic (`https://api.anthropic.com/v1/messages`) or OpenAI
 (`https://api.openai.com/v1/responses`). Pateat calls only the fixed endpoints it
 needs there: on Bitwarden, those of the server you chose.
 
+Verification autofill uses the account of a confirmed Pateat login in the same tab and
+browser session, under the profile's verification-page setting. It fills ordinary
+empty, untouched fields and presses nothing. It does not authorize a transfer, order,
+account change or other action; you review the form and press its button yourself.
+It requests no additional Chrome permission.
+
 ## Plain HTTP pages
 
 On a plain HTTP page, Pateat logs in only with an item whose website is saved in your
