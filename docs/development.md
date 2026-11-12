@@ -823,6 +823,23 @@ import `vitest` and the production exports they use directly. The entry exports 
 `import type`. The modules sit outside `src/`, so they stay outside the production
 coverage root. Each file follows the 1,000-line limit.
 
+### Bitwarden account test organization
+
+`packages/bitwarden/src/account.test.ts` is the discovered entry for the main account
+mapping cases; `connection-fixtures.test.ts` and `local-unlock.test.ts` also exercise
+the account mapper. It owns the shared mapper, transport and local-crypto session
+helpers, the session cleanup hook, all five describe scopes and the native local-crypto
+cases. Plain modules in `packages/bitwarden/test/account/` export synchronous
+registration functions for the provider binding admission, strict modern metadata,
+received-envelope item mapping and same-account URI context groups, which the entry
+calls inside those scopes with the same helper references; importing a module
+registers no cases. The same-account URI module defines its local constants and
+helpers inside its registration function. The modules import `vitest`, the production
+exports and the fixtures they use directly. The entry exports its `AccountTestFixtures`
+and `AccountTestRaw` types, and `context.ts` builds the module contexts from them with
+`import type`. The modules sit outside `src/`, so they stay outside the coverage root
+and are not discovered as test files. Each file follows the 1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
