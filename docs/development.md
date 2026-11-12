@@ -628,6 +628,19 @@ expanded test count. The owner approved this organization with the runtime split
 on 2026-10-30. Compare the full Verify job as well as test counts when changing the
 suite layout, since each file loads the runtime and harness separately.
 
+### Connection runtime test organization
+
+`apps/extension/src/connections/runtime.test.ts` remains the sole discovered entry
+for the connection runtime suite. Plain modules under
+`apps/extension/test/connections/runtime/` export synchronous registration functions
+for settings-port admission, current-catalog restoration and pending settings-page
+requests. The entry calls them at the original describe positions and retains the
+hoisted mocks, shared mutable owners, cleanup and local helper declarations. Leaves
+receive the same live references; importing them registers no tests. Existing titles,
+callbacks, assertions, tables, comments and registration order stay unchanged. Each
+file follows the 1,000-line limit, and the plain modules stay outside production `src/`
+coverage.
+
 ### API sync test organization
 
 `services/api/test/sync.test.ts` remains the sole discovered entry for the sync
