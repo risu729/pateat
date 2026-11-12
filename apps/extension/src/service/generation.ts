@@ -1,5 +1,6 @@
 import {
   parseRecipeBranch,
+  isSsoDocument,
   recipeBranchSchema,
   storedLayoutRecipe,
   storedRecipeSlots,
@@ -153,7 +154,8 @@ function notRecipe(
 export function createLoginGeneration(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
   transport: Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "judgeCompletion"> &
-    Partial<Pick<ServiceTransport, "samplePage">>;
+    Partial<Pick<ServiceTransport, "samplePage">> &
+    Partial<import("./transport").SsoTransport>;
   storage: GenerationAttemptStorage;
   /** Generated slot maps, written before a generated recipe is reported. */
   slotStorage: GeneratedSlotStorage;
@@ -389,6 +391,30 @@ export function createLoginGeneration(options: {
       // settings change that stops it (ADR 0018, ADR 0027). Settings follow at the next one.
       await (base ? refresh() : sync()).catch(() => undefined);
       return { outcome: "recipe", recipe, ...timed };
+    },
+    async generateSso(request) {
+      if (!transport.generateSso) return { outcome: "refused", reason: "unavailable" };
+      const claim = await claimed(
+        request.observation,
+        undefined,
+        "sso",
+        request.repair,
+        undefined,
+        (connection) => transport.generateSso!(connection.origin, connection.credential, request),
+      );
+      if ("outcome" in claim) return { outcome: "refused", reason: claim.reason };
+      const { answer } = claim;
+      if (
+        answer.kind !== "result" ||
+        answer.result.status !== "recipe" ||
+        !isSsoDocument(answer.result.change.recipe)
+      )
+        return {
+          outcome: "refused",
+          reason: answer.kind === "result" ? answer.result.status : "unavailable",
+        };
+      await refresh().catch(() => undefined);
+      return { outcome: "recipe", recipe: answer.result.change.recipe };
     },
     async generateEntry(request: EntryGenerationRequest, sent): Promise<EntryGenerationOutcome> {
       // An entry's repair is claimed apart from the page's first generation (ADR 0041).

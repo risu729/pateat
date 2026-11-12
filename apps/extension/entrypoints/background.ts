@@ -517,6 +517,12 @@ export default defineBackground(() => {
     generation: createLoginGeneration({
       service: generationService,
       transport: {
+        generateSso: (origin, credential, request) => {
+          const generate = generationRequests(origin).generateSso;
+          return generate
+            ? keepAlive(generate(origin, credential, request))
+            : Promise.resolve({ kind: "failed" as const, error: "unexpected-response" as const });
+        },
         generateRecipe: (origin, ...request) =>
           keepAlive(generationRequests(origin).generateRecipe(origin, ...request)),
         generateEntry: (origin, ...request) =>

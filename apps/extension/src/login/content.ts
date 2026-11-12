@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { createSsoContent } from "./content-sso";
 import { sameLoginTarget, type LoginMarkerTarget, type LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { comparableAccounts, formAccounts, showsOtherAccount } from "../page/accounts";
@@ -518,6 +519,20 @@ export interface LoginContentOptions {
 export function installLoginContent({ probeStatus = false }: LoginContentOptions = {}): () => void {
   const token = newId();
   let cancelled = false;
+  const ssoContent = createSsoContent(document, {
+    cancelled: () => cancelled,
+    authorize: async ({ flowId, operationId, handle }) => {
+      const answer = await browser.runtime.sendMessage({
+        version: 1,
+        type: "login.sso.authorize",
+        token,
+        flowId,
+        operationId,
+        handle,
+      });
+      return answer?.ok === true;
+    },
+  });
   // Ends every wait for a change of the page once `cancelled` is set.
   const waits = new AbortController();
   // Ends the running `login.extract.watch`, once another replaces it or the login cancels.
@@ -1206,6 +1221,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const parsed = v.safeParse(commandSchema, message);
     if (!parsed.success || parsed.output.token !== token) return false;
     const command = parsed.output;
+    if (
+      command.type === "login.sso.inspect" ||
+      command.type === "login.sso.prepare" ||
+      command.type === "login.sso.commit" ||
+      command.type === "login.sso.idp"
+    ) {
+      void ssoContent(command).then(respond, () => respond({ ok: false }));
+      return true;
+    }
     if (command.type === "login.detail.question") {
       const found = cancelled || pagePath() !== command.path ? [] : matches(command.target);
       const input = found.length === 1 ? found[0] : undefined;

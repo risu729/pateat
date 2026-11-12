@@ -328,7 +328,7 @@ const stepTargetCount = (step: v.InferOutput<typeof loginStepSchema>) =>
  * when a login starts. `password` runs the recipe's steps; `passkey` clicks the start
  * page's passkey sign-in button.
  */
-export const loginRouteSchema = v.picklist(["password", "passkey"]);
+export const loginRouteSchema = v.picklist(["password", "passkey", "sso"]);
 /**
  * The details Pateat never fills, though it learns the page that asks for them (ADR 0061):
  * none, since the owner decided that every linked value is filled, a whole card number

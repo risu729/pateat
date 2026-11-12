@@ -2174,6 +2174,7 @@ export function attemptRouteChoice(
   metadata: Pick<LoginAttemptMetadata, "route" | "variant">,
 ): LoginRouteChoice {
   if (metadata.route === "passkey") return { route: "passkey" };
+  if (metadata.route === "sso") throw new Error("SSO parent has no native execution route");
   // The schema requires a variant for the password route.
   return { route: metadata.route, variant: metadata.variant ?? 0 };
 }

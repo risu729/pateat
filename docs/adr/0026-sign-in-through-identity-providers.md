@@ -201,3 +201,26 @@ native submission.
 The method chooser, local mapping UI, same-tab RP/IdP coordinator, IdP intermediate-page
 handling and final RP authentication remain the next required implementation. This
 amendment does not claim end-to-end, packaged-browser or real-account compatibility.
+
+## Implementation 2026-11-12: same-tab operation primitives
+
+The coordinator now has separate content inspection, preparation and single-use commit
+commands, a memory-only parent-flow model and a secret-free session intent journal. An
+intent is durable before a commit can authorize a click; restored intents only hold an
+interrupted tab and never recreate execution authority. Inspection refuses new browsing
+contexts, unsafe account-creation or permission pages, and non-HTTP destinations. IdP
+account comparison requires a complete local identifier without masked or folded
+aliases. Continue and stay-signed-in are finite local classifications with exact account
+evidence, never authorization inferred from a Continue label alone.
+
+The scope checks both selected vault snapshots, current source and mapping, current
+top document and policy, and a synchronous recipe-cache fence after awaited work.
+Each origin retains its own item's full-URI destination rule; only the prepared RP
+entry may cross to the one selected IdP origin. Concurrent requests consume an intent
+once. Child-attempt identity is immutable and survives parent cancellation so late
+callbacks can remain excluded from IdP default and authentication-proof writes.
+
+These are lower-level primitives and recipe/generation adapters. Admission, parent/child
+lifecycle integration and confirmed RP-return completion are still being implemented;
+this checkpoint enables no automatic SSO effect. Synthetic checks are separate evidence
+from packaged execution and real-account compatibility, neither of which is claimed.
