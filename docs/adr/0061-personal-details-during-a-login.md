@@ -36,8 +36,9 @@ page): the popup proposes an identity item's fields before any other item's
 
 Clarified on 2026-11-12 by an agent: a split-date select option whose text or value
 starts with a minus sign says a negative number
-([clarification](#clarification-signed-select-option-numbers-2026-11-12)); this corrects
-the implementation of the existing range, with no new owner decision.
+([clarification](#clarification-signed-select-option-numbers-2026-11-12)). Such text
+never matches, and such a value is left out of the range check; both are small new rules
+the owner has not yet reviewed.
 
 Date: 2026-10-23
 
