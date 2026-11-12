@@ -624,9 +624,9 @@ fails as stated rather than retrying:
   terminating the Worker is the only way to stop it. On an open vault, only the
   catalog read after an accepted password sign-in, settings-page sync or automatic sync
   passes such a cancellation (`acceptSync` in
-  `apps/extension/src/connections/setup.ts`), so stopping that work then, as closing
-  the settings page or a password sign-in that stops an automatic sync does, ends the
-  session it just accepted. Logins and passkeys pass none.
+  `apps/extension/src/connections/setup-sync.ts`), so stopping that work then, as
+  closing the settings page or a password sign-in that stops an automatic sync does,
+  ends the session it just accepted. Logins and passkeys pass none.
 - A Worker that fails while it has no job is noticed only by its next job, which
   fails `crypto-locked`.
 - One vault manager runs one open at a time. A restore, sync or password sign-in of a
