@@ -98,6 +98,14 @@ admission, including account binding, requested item coverage and passkey signat
 bounds. The public host exports remain available from `host.ts`; existing test files
 and assertions stay in place.
 
+The crypto host tests keep their discovered entry in
+`apps/extension/src/crypto/host.test.ts`, including the shared synthetic harness,
+cleanup hook and scoped fixture initialization. Passive synchronous registrars in
+`apps/extension/test/crypto/host/` own contiguous authorization, operation,
+session-lane, passkey, cancellation and SSO case groups. They receive the same helper
+and fixture references at their original registration points, preserving suite nesting
+and order.
+
 The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
 `apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
