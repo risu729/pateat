@@ -716,6 +716,18 @@ closes its own synthetic fixture and browser profile, and keeps its per-test tim
 Each file follows the 1,000-line limit. Compare the `--list` output for each shard
 when changing this layout.
 
+### Connection setup service test organization
+
+`apps/extension/src/connections/setup.test.ts` is the discovered entry for the
+connection setup service suite. It owns the shared harness, the root cleanup and the
+describe-local helpers. Plain modules in `apps/extension/test/connections/setup/`
+export synchronous registration functions for the composition, challenge, refresh,
+session, permission and lock/unlock case groups, which the entry calls inside its
+describe scopes with the same fixture and helper references; importing a module
+registers no cases. `context.ts` holds the harness and helper types. The modules sit
+outside `src/`, so they stay outside the production coverage root. Each file follows
+the 1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
