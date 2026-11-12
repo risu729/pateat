@@ -1208,6 +1208,12 @@ time: only one input has focus, and typing two at once would move focus, and run
 page's blur and focus checks, at every character; one task apart, a field's characters
 take a few milliseconds, so typing the fields in turn costs little (owner, 2026-10-13).
 
+Native inputs and buttons must be enabled under the browser's `:disabled` rule before
+being filled, entered through a software keypad or clicked. A disabled fieldset disables
+its descendants too, except controls inside its first legend, as HTML defines. Selects
+use the same enabled-state rule. Visibility, input read-only state and the existing
+click restrictions still apply.
+
 MV3 workers can stop. Persist only resumable metadata, never an instruction to blindly
 replay a submit. Input and change handlers can submit without a click. Declare whether a
 fill prepares fields, advances a flow or submits it; an input-triggered advance or
