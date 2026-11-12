@@ -57,10 +57,10 @@ only Bitwarden for the time being.
   `http://` address is used ([permissions](./permissions.md#plain-http-pages)).
 - When a site asks for a passkey, Pateat can answer with a passkey stored in your vault.
 - When a site has no recipe yet, Pateat sends a sanitized description of the page, never
-  your vault values, to your Pateat service, and a recipe is written with Claude, using
-  the service's Claude credentials or an Anthropic API key saved on your device. With a
-  key and no service paired, the extension writes the recipe itself and keeps it on the
-  device.
+  your vault values, to your Pateat service, and a recipe is written with Anthropic or
+  OpenAI, using the service's credentials or that provider's API key saved on your
+  device. With a key and no service paired, the extension writes the recipe itself and
+  keeps it on the device.
 
 Settings and recipes live on a Pateat service that you pair the extension with. The
 extension keeps a copy, so logins keep working while the service is offline.

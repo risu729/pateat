@@ -1,5 +1,8 @@
 import {
   DEFAULT_MODEL_CONFIG,
+  DEFAULT_OPENAI_MODEL_CONFIG,
+  OPENAI_DEVICE_MODEL_URL,
+  deviceOpenAIModelCallBody,
   DEVICE_MODEL_URL,
   MAX_ACTIVE_RECIPE_BYTES,
   MAX_ACTIVE_RECIPES,
@@ -37,6 +40,7 @@ import {
 import {
   clefUrl,
   createClaudeGenerationModel,
+  createOpenAIGenerationModel,
   createClefDecisionModel,
   unknownUsage,
   type InferenceOutcome,
@@ -49,7 +53,7 @@ import type { InferenceResult, ServiceTransport } from "./transport";
 
 // Generation on a device without a pairing (ADR 0040, owner 2026-10-23 21:11 UTC): the
 // service's own generation and judge routes run here, against the recipes this device
-// holds and its own Anthropic key. Nothing is logged: the request log is the service's.
+// holds and its own text-model key. Nothing is logged: the request log is the service's.
 
 export const DEVICE_GENERATION_KEY = "pateat.device-generation.v1";
 /**
@@ -201,30 +205,44 @@ export function createDeviceGenerationBackend(options: {
       const start = now();
       const blocked = await call.gate?.(start);
       if (blocked) return { status: "unavailable", reason: blocked };
-      const setting = await key.setting().catch(() => undefined);
+      let setting;
+      try {
+        setting = await key.setting();
+      } catch {
+        return { status: "unavailable", reason: "credentials-unavailable" };
+      }
       if (!setting) return { status: "unavailable", reason: "credentials-not-configured" };
       // The written record before the first request is sent, once (ADR 0016, ADR 0027).
       let reserved: Promise<GenerationUnavailableReason | void> | undefined;
       const reserve = () => (reserved ??= call.beforeSend?.(now()) ?? Promise.resolve());
       let timedOut = false;
-      // Anthropic's fixed URL only, with the key added by `send`; the request the role built
+      // The selected provider's fixed URL only, with the key added by `send`; the request the role built
       // is checked as the paired relay checks a service's, and the checked body is sent.
       const direct: typeof globalThis.fetch = async (input, init) => {
         const outbound = new Request(input, init);
-        if (outbound.url !== DEVICE_MODEL_URL || outbound.method !== "POST")
+        if (
+          outbound.url !==
+            (setting.provider === "openai" ? OPENAI_DEVICE_MODEL_URL : DEVICE_MODEL_URL) ||
+          outbound.method !== "POST"
+        )
           throw new TypeError("Unexpected model request");
         const headers: DeviceModelCall["call"]["headers"] = {};
-        for (const name of deviceModelHeaderNames) {
+        for (const name of setting.provider === "openai"
+          ? (["content-type"] as const)
+          : deviceModelHeaderNames) {
           const value = outbound.headers.get(name);
           if (value !== null) headers[name] = value;
         }
         const sent = {
-          provider: "anthropic" as const,
+          provider: setting.provider,
           index: 0,
           headers,
           body: await outbound.text(),
         };
-        const checked = deviceModelCallBody(sent);
+        const checked =
+          setting.provider === "openai"
+            ? deviceOpenAIModelCallBody(sent)
+            : deviceModelCallBody(sent);
         if (!checked) throw new TypeError("Unexpected model request");
         // A reason stops the request unsent (ADR 0018); the loop below answers with it.
         if (await reserve()) throw new Error("Model call not sent");
@@ -232,7 +250,7 @@ export function createDeviceGenerationBackend(options: {
         inFlight.add(sending);
         try {
           const { response, cost } = await sending;
-          // An answer Anthropic charged is kept even when its spend cannot be written; the
+          // An answer the provider charged is kept even when its spend cannot be written; the
           // count keeps it in memory until it can.
           await key.charge(cost).catch(() => undefined);
           return answer(response);
@@ -292,7 +310,7 @@ export function createDeviceGenerationBackend(options: {
             served: { provider: "cloudflare", model: CLEF_MODEL },
             promptVersion: call.firstChoice.promptVersion,
           };
-        // Otherwise Claude answers, its time before the model counting Clef's.
+        // Otherwise the text model answers, its time before the model counting Clef's.
       }
 
       const answer = (response: DeviceModelResponse) => {
@@ -305,7 +323,9 @@ export function createDeviceGenerationBackend(options: {
       };
 
       let last: Extract<GenerationCallResult<T>, { status: "called" }> | undefined;
-      for (const attempt of roleChoices(DEFAULT_MODEL_CONFIG, call.role).flatMap(choiceAttempts)) {
+      const defaults =
+        setting.provider === "openai" ? DEFAULT_OPENAI_MODEL_CONFIG : DEFAULT_MODEL_CONFIG;
+      for (const attempt of roleChoices(defaults, call.role).flatMap(choiceAttempts)) {
         const next = last === undefined ? "ask" : nextAttempt(last, attempt);
         if (next === "skip") continue;
         if (next === "stop") break;
@@ -322,7 +342,9 @@ export function createDeviceGenerationBackend(options: {
           // oxlint-disable-next-line no-await-in-loop
           outcome = await call.invoke(
             // The key goes with `send` only; the provider's own header is dropped.
-            createClaudeGenerationModel({ apiKey: "device", choice: attempt, fetch: direct }),
+            attempt.provider === "openai"
+              ? createOpenAIGenerationModel({ apiKey: "device", choice: attempt, fetch: direct })
+              : createClaudeGenerationModel({ apiKey: "device", choice: attempt, fetch: direct }),
           );
         } catch {
           outcome = { status: "failed", error: "provider-error", calls: 1, usage: unknownUsage };

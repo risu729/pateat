@@ -4,8 +4,8 @@ Pateat が Chrome に求める権限は、役割に必要な最小限です。�
 
 | 権限 | Pateat が使う目的 |
 | --- | --- |
-| すべてのサイトへのアクセス（`https://*/*` と `http://*/*`） | ログインページを見つけて完了させる、パスキー要求に応答する、Bitwarden サーバー、Pateat サービス、自分のキーがあれば Anthropic の API に接続する |
-| `storage` | 設定、レシピの写し、保管庫の接続情報、サービスとのペアリング、Anthropic API キーを Chrome 内に保存する |
+| すべてのサイトへのアクセス（`https://*/*` と `http://*/*`） | ログインページを見つけて完了させる、パスキー要求に応答する、Bitwarden サーバー、Pateat サービス、自分のキーがあれば Anthropic または OpenAI の API に接続する |
+| `storage` | 設定、レシピの写し、保管庫の接続情報、サービスとのペアリング、選んだ AI プロバイダーの API キーを Chrome 内に保存する |
 | `offscreen` | 非表示の拡張機能ページで Bitwarden SDK を動かし、そこで保管庫を復号し、パスキー要求に署名する |
 | `alarms` | サービスワーカーが休止していても 5 分ごとに保管庫を同期し直す時期かを確かめる、タイムアウトが来たら保管庫をロック（またはログアウト）する |
 | `idle` | その[保管庫のタイムアウト](./setup.md#vault-timeout)を選んだとき、コンピューターがアイドルになるかロックされたら保管庫をロック（またはログアウト）する。この権限に Chrome は警告を表示しません |
@@ -23,7 +23,7 @@ Pateat は、サイトごとにあとで求めるのではなく、インスト�
 
 ツールバーのアイコンに、今のタブに一致する保管庫のアイテムの数を出すため、Pateat はタブのアドレスを端末上で保管庫と照らし合わせます。これにはレシピは要らず、何も送らず、一時停止したサイトでも行います。
 
-同じアクセスで、Pateat は Bitwarden サーバー、Pateat サービス、[AI キー](./setup.md#ai-key)を保存したときは Anthropic の API（`https://api.anthropic.com/v1/messages`）に接続します。どこでも、必要な決まったエンドポイントだけを呼びます。Bitwarden では、選んだサーバーのものだけです。
+同じアクセスで、Pateat は Bitwarden サーバー、Pateat サービス、[AI キー](./setup.md#ai-key)を保存したときは 選んだプロバイダーの API、Anthropic（`https://api.anthropic.com/v1/messages`）または OpenAI（`https://api.openai.com/v1/responses`）に接続します。どこでも、必要な決まったエンドポイントだけを呼びます。Bitwarden では、選んだサーバーのものだけです。
 
 ## 暗号化されていない HTTP のページ {#plain-http-pages}
 

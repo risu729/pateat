@@ -205,11 +205,12 @@ export const settingsEn = {
     "Lock keeps the sync sign-in; unlock with the master password, without the server.",
   "Time counts from the last login filled, passkey signed, unlock or sign-in, on each device by itself. Applies on all your devices.":
     "Time counts from the last login filled, passkey signed, unlock or sign-in, on each device by itself. Applies on all your devices.",
-  "The limits apply on all your devices, each counting its own key's spend; the key itself is saved per device.":
-    "The limits apply on all your devices, each counting its own key's spend; the key itself is saved per device.",
+  "The limits apply on all your devices, each counting its own spend; keys are saved per device.":
+    "The limits apply on all your devices, each counting its own spend; keys are saved per device.",
+  "Text model provider": "Text model provider",
   "AI key": "AI key",
-  "Anthropic API key": "Anthropic API key",
-  "Replace the Anthropic API key": "Replace the Anthropic API key",
+  "{{provider}} API key": "{{provider}} API key",
+  "Replace the {{provider}} API key": "Replace the {{provider}} API key",
   "Save key": "Save key",
   "Remove key": "Remove key",
   "Cloudflare account ID": "Cloudflare account ID",
@@ -225,8 +226,8 @@ export const settingsEn = {
   "Cloudflare token saved for the account ending in {{ending}}.":
     "Cloudflare token saved for the account ending in {{ending}}.",
   "The saved token could not be read.": "The saved token could not be read.",
-  "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and Claude when Clef is not sure. Clef's spend counts toward the same limits.":
-    "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and Claude when Clef is not sure. Clef's spend counts toward the same limits.",
+  "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and the selected text model when Clef is not sure. Clef's spend counts toward the same limits.":
+    "With a Cloudflare token as well, this device asks Cloudflare's Clef first for a sign-in form, also while paired, and the selected text model when Clef is not sure. Clef's spend counts toward the same limits.",
   "Create the token with Use REST API on the Workers AI page of the Cloudflare dashboard (Workers AI Read and Edit). It stays on this device and is sent to Cloudflare only, never to the sync service.":
     "Create the token with Use REST API on the Workers AI page of the Cloudflare dashboard (Workers AI Read and Edit). It stays on this device and is sent to Cloudflare only, never to the sync service.",
   "Daily limit (USD)": "Daily limit (USD)",
@@ -235,19 +236,19 @@ export const settingsEn = {
   "The key could not be saved. Try again.": "The key could not be saved. Try again.",
   "The key was removed from this device.": "The key was removed from this device.",
   "The key could not be removed. Try again.": "The key could not be removed. Try again.",
-  "Paste the whole API key from the Claude Console.":
-    "Paste the whole API key from the Claude Console.",
+  "Paste the whole API key for the selected provider.":
+    "Paste the whole API key for the selected provider.",
   "Enter an amount in US dollars from 0 to {{max}}.":
     "Enter an amount in US dollars from 0 to {{max}}.",
-  "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.":
-    "Key ending in {{ending}} saved. This device asks Claude with it, also while paired: the sync service then only keeps and shares the recipes and settings.",
+  "{{provider}} key ending in {{ending}} saved. This device uses it, also while paired: the sync service then only keeps and shares the recipes and settings.":
+    "{{provider}} key ending in {{ending}} saved. This device uses it, also while paired: the sync service then only keeps and shares the recipes and settings.",
   "The saved key could not be read.": "The saved key could not be read.",
-  "Without a key, the paired sync service asks Claude with its owner's credentials, and a device without a pairing makes no recipes.":
-    "Without a key, the paired sync service asks Claude with its owner's credentials, and a device without a pairing makes no recipes.",
-  "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.":
-    "Spent with this key: {{today}} today and {{month}} this month (UTC), estimated from the usage Anthropic reports. Requests stop at either limit.",
-  "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.":
-    "The key stays on this device and is sent to Anthropic only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.",
+  "Without a key, the paired sync service uses its owner's configured provider, and a device without a pairing makes no recipes.":
+    "Without a key, the paired sync service uses its owner's configured provider, and a device without a pairing makes no recipes.",
+  "Spent on this device: {{today}} today and {{month}} this month (UTC), estimated from provider usage. Requests stop at either limit. Changing keys or providers keeps this total.":
+    "Spent on this device: {{today}} today and {{month}} this month (UTC), estimated from provider usage. Requests stop at either limit. Changing keys or providers keeps this total.",
+  "The key stays on this device and is sent to its selected provider only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.":
+    "The key stays on this device and is sent to its selected provider only, never to the sync service. Without a paired sync service, this device makes recipes with it and keeps them here.",
   "Export and import": "Export and import",
   "Export to a file": "Export to a file",
   "Import from a file": "Import from a file",

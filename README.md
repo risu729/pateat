@@ -9,12 +9,12 @@ Bitwarden vault. **Pateat supports only Bitwarden for the time being**; other va
 are not planned for now. It covers passwords, custom fields, TOTP and existing software
 passkeys, with several Bitwarden connections and site, item and field controls.
 
-The extension executes locally, including in background tabs. AI identifies form
-fields for reusable login recipes and judges unclear sign-in pages; recipe repair is
-planned. Vault values and signing keys remain local. WXT, TypeScript and Valibot are the
-chosen foundation. A minimal Cloudflare service holds settings and recipes, edited on
-its web UI (item and field choices stay on the extension's settings page), and calls
-Claude. The extension keeps a cached copy, so login continues while the service is
+The extension executes locally, including in background tabs. AI identifies form fields
+for reusable login recipes and judges unclear sign-in pages; recipe repair is planned.
+Vault values and signing keys remain local. WXT, TypeScript and Valibot are the chosen
+foundation. A minimal Cloudflare service holds settings and recipes, edited on its web
+UI (item and field choices stay on the extension's settings page), and calls Anthropic
+or OpenAI. The extension keeps a cached copy, so login continues while the service is
 offline. Its UI is in English and Japanese
 ([ADR 0043](docs/adr/0043-extension-language-preference.md)), and the toolbar icon shows
 how many accounts match the site and how the tab's last login ended
@@ -36,11 +36,11 @@ to the latest Vaultwarden release, the only one supported, with authenticator an
 codes ([ADR 0059](docs/adr/0059-latest-vaultwarden-server.md)). On HTTPS sites, and on
 `http:` pages for items saved with an `http://` URI
 ([ADR 0050](docs/adr/0050-http-pages-for-http-items.md)), the extension runs login
-recipes from the service and asks the service to generate one with Claude for a login
-page that has a vault match but no recipe. It signs with passkeys stored in the vault.
-The service runs at `pateat.takuk.me` for the owner, paired with the owner's Chrome.
-Password, custom-field, TOTP and passkey logins, also with generated recipes, have
-signed in on real sites; the [plan](docs/plan.md#phase-1-usable) lists them and the
+recipes from the service and asks the service to generate one with the selected provider
+for a login page that has a vault match but no recipe. It signs with passkeys stored in
+the vault. The service runs at `pateat.takuk.me` for the owner, paired with the owner's
+Chrome. Password, custom-field, TOTP and passkey logins, also with generated recipes,
+have signed in on real sites; the [plan](docs/plan.md#phase-1-usable) lists them and the
 open gates.
 
 See [development](docs/development.md) for installation and checks. The production

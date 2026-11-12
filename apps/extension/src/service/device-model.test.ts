@@ -30,6 +30,7 @@ const CREDENTIAL = `pateat_device_${"C".repeat(43)}`;
 const NOW = Date.UTC(2026, 9, 23, 20, 0);
 const SETTING: DeviceModelSetting = {
   version: 1,
+  provider: "anthropic",
   apiKey: KEY,
 };
 const REQUEST = {
@@ -421,19 +422,15 @@ describe("model calls with this device's own key (ADR 0040)", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("keeps the key of a record saved with its own limits, which the profile's replace", async () => {
+  it("refuses unexpected stored key fields instead of falling back to the service", async () => {
     const { transport, fetch } = setup({
       readKey: async () => ({ ...SETTING, dailyLimitUsd: 0, monthlyLimitUsd: 0 }),
     });
-    // Its old $0 limits would have stopped the call; the profile's $5 and $100 apply.
     expect(await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST)).toEqual({
-      kind: "result",
-      result: RECIPE,
+      kind: "failed",
+      error: "unexpected-response",
     });
-    expect(fetch).toHaveBeenCalledOnce();
-    expect(new Headers((fetch.mock.calls[0]![1] as RequestInit).headers).get("x-api-key")).toBe(
-      KEY,
-    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("stops when the spend count reads as something else", async () => {

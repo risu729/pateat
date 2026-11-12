@@ -853,7 +853,7 @@ that these stay on the device:
 
 | Setting | Where it is stored | Why it stays |
 | --- | --- | --- |
-| This device's Anthropic API key ([ADR 0040](adr/0040-running-without-the-service.md)); its spend limits are synced | `storage.local` `pateat.device-model.v1` | The key is a secret |
+| This device's selected text-model provider and API key ([ADR 0040](adr/0040-running-without-the-service.md)); its spend limits are synced | `storage.local` `pateat.device-model.v1` | The key is a secret |
 | This device's Cloudflare account ID and API token for Clef ([ADR 0083](adr/0083-clef-first-for-sign-in-forms.md)) | `storage.local` `pateat.device-clef.v1` | The token is a secret |
 | Debug logging until a time or until turned off ([ADR 0019](adr/0019-local-diagnostics-and-logs.md)) | the diagnostics log's IndexedDB | The log itself never leaves the device |
 | Vault connections: server, account and sign-in ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)) | `connections` in `pateat.local-settings.v1` | Each device signs in to Bitwarden itself |
@@ -3830,19 +3830,25 @@ explicit conflicts and a durable local last-known-good cache; stale sync must
 not silently overwrite newer restrictions. Server revocation stops server
 access, not guaranteed erasure of offline cached material.
 
-Claude credentials are per owner
-([ADR 0015](adr/0015-per-owner-claude-credentials.md)): the Worker holds only its
-OIDC signing key, and D1 holds each owner's Workload Identity Federation
-identifiers. A device may hold its own Anthropic API key
-([ADR 0040](adr/0040-running-without-the-service.md)): it then makes the model calls
-of the generation and judge routes itself, sending the request bodies the service
-hands it to Anthropic only, and the service checks and stores the result as before.
-The key never reaches the service. A device that unpairs may keep the synced recipes as
-its own (`pateat.device-recipes.v1`); logins use them while no service is paired, and
-the next full sync after pairing uploads them once before it pulls. Unpaired with a key,
-the device runs the same generation and judge routes (`@pateat/generation`) against that
-store, its own record of the routes' limits (`pateat.device-generation.v1`) and its key,
-and logs nothing.
+Claude credentials are per owner ([ADR 0015](adr/0015-per-owner-claude-credentials.md)):
+the Worker holds only its OIDC signing key, and D1 holds each owner's Workload Identity
+Federation identifiers. A device may hold its own Anthropic or OpenAI API key, stored
+together with its selected provider
+([ADR 0040](adr/0040-running-without-the-service.md)). It then makes the model calls of
+all four generation and judge routes itself. Every relay replay names the selected text
+provider, and a call for a different provider is refused. The device checks text-only
+request bodies and sends them to the provider's fixed URL only; OpenAI Responses
+requests disable storage and admit no tools, streaming, remote inputs or conversation
+references. Clef remains a separate optional credential and runs first for supported
+sign-in forms with either text provider. The service checks and stores the result as
+before. Keys never reach the service. Changing a key or provider keeps the same device
+spend ledger, including Clef. Reported OpenAI output tokens include reasoning;
+incomplete cache usage and missing usage use conservative estimates. A device that
+unpairs may keep the synced recipes as its own (`pateat.device-recipes.v1`); logins use
+them while no service is paired, and the next full sync after pairing uploads them once
+before it pulls. Unpaired with a key, the device runs the same generation and judge
+routes (`@pateat/generation`) against that store, its own record of the routes' limits
+(`pateat.device-generation.v1`) and its key, and logs nothing.
 
 Version recipes immutably with a current pointer and revocation/tombstones. The owner
 revokes a recipe on `/manage`, and the service revokes one unused for 90 days
