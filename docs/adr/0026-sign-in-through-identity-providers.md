@@ -191,9 +191,12 @@ The service stores entries with the existing conditional revision write, spend l
 request log and generation retry/repair windows. This is a generation call, not a
 post-login judgement and does not count toward a recipe's 20 judgements a day. SSO and
 native writes keep each other's siblings, with one bounded conditional rebase when only
-the other family changed. SSO layouts have their own provenance units and participate in
-layout keys, removal and start-path validation. They never acquire fill slots or a
-native submission.
+the other family changed. A native-only update does not discard a pending SSO repair.
+Layout-key collisions are renamed together with the generated provenance; the winning
+document must still match the requested recipe ID, origin and start path. SSO targets
+cannot overlap native form, chooser or handler controls. SSO layouts have their own
+provenance units and participate in layout keys, removal and start-path validation. They
+never acquire fill slots or a native submission.
 
 The method chooser, local mapping UI, same-tab RP/IdP coordinator, IdP intermediate-page
 handling and final RP authentication remain the next required implementation. This

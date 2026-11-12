@@ -137,8 +137,8 @@ export const ssoLayoutMeta = (recipe: StoredLoginRecipe): LayoutMeta[] =>
     : [];
 /**
  * Whether no SSO entry names an element that a native route of the same document uses on
- * the SSO path: a form or chooser branch step, a passkey button, an account switch,
- * rejection or signed-in marker, or a handler control. An SSO entry never runs as a
+ * the SSO path: a form or chooser branch step, a list of accounts' own button, a passkey
+ * button, an account switch, rejection or signed-in marker, or a handler control. An SSO entry never runs as a
  * native step, nor a native step as an SSO entry.
  */
 export function ssoTargetsSeparate(
@@ -167,6 +167,10 @@ export function ssoTargetsSeparate(
       ),
     ]),
   );
+  // A list of accounts' own buttons, which its branches start with.
+  for (const layout of recipe.chooser?.layouts ?? [])
+    for (const target of [layout.other, layout.continue])
+      if (target) used.add(at(recipe.chooser!.path, target));
   return sso.layouts.every((layout) =>
     layout.entries.every((entry) => !used.has(at(sso.path, entry.target))),
   );
