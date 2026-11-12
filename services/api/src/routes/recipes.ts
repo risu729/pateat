@@ -30,6 +30,7 @@ import {
 } from "../recipe-store";
 import {
   generateEntry,
+  generateSso,
   generateLogout,
   generateRecipe,
   judgeCompletion,
@@ -103,9 +104,11 @@ export const recipeRoutes = new Hono<ApiEnv>()
     // A request without slots asks for a page's sign-in entry (ADR 0031).
     const backend = d1Backend(c.env, c.get("scope"), c.get("trace"));
     const result =
-      "slots" in request
-        ? await generateRecipe(backend, request)
-        : await generateEntry(backend, request);
+      "kind" in request
+        ? await generateSso(backend, request)
+        : "slots" in request
+          ? await generateRecipe(backend, request)
+          : await generateEntry(backend, request);
     return result ? c.json(result) : apiError(c, 400, { error: "bad_request" });
   })
   // An account switch's signed-in page (ADR 0063), under the generation route's device

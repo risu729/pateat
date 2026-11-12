@@ -8,8 +8,10 @@ detection over them) and part B (the start page's `passkey` route), and delivery
 by the amendment of 2026-10-23 (owner, 2026-10-23: a Text or Hidden field shaped like a
 TOTP key is flagged and becomes the `totp` field, never a raw slot)
 ([A TOTP code from a custom field](#amendment-2026-10-23-a-totp-code-from-a-custom-field));
-delivery 5 (the `sso` route) is not implemented; its item fact, route order,
-custom-field offers and model input are amended on 2026-11-07 by
+delivery 5 (the `sso` route) is not implemented end to end; local discovery and separate
+declarative entry generation are implemented in the
+[2026-11-12 amendment](#amendment-2026-11-12-sso-entry-contracts-and-generation). Its
+item fact, route order, custom-field offers and model input are amended on 2026-11-07 by
 [ADR 0085](0085-one-item-for-native-and-sso-login.md)
 ([amendment](#amendment-2026-11-07-one-item-for-password-and-sso)). Amends
 [ADR 0007](0007-existing-passkey-assertions.md) and
@@ -1932,3 +1934,20 @@ actual judgements and a separate check could race with another page.
   most the remainder of one UTC day. New IDs are unaffected. A nonempty standalone
   record that the new format cannot read similarly closes its cutover day's quota;
   clearing obsolete page answers preserves daily usage.
+
+## Amendment 2026-11-12: SSO entry contracts and generation
+
+Implementation detail chosen by an agent. SSO entry layouts are a separate declarative
+sibling of a stored recipe, as described in the
+[ADR 0026 amendment](0026-sign-in-through-identity-providers.md#amendment-2026-11-12-declarative-sso-entry-generation).
+They are deliberately absent from `LoginRoute`, `routeSteps`, native method selection
+and ordinary execution until the mapping and same-tab coordinator are wired. A stored
+SSO entry cannot run as a password or passkey step. A mixed document refuses a target
+that is also used by a native executable route on the same path.
+
+The dedicated SSO generation mode handles SSO-only and mixed pages without password
+slots, preserves native siblings and uses only labels scoped to the chosen RP account
+and method. Missing or ambiguous requested entries abstain rather than selecting another
+method. This implements the contract/generation portion of delivery 5; the popup,
+coordinator, IdP behavior and full synthetic integration remain required before the
+accepted route order and no-fallback policy are enabled.

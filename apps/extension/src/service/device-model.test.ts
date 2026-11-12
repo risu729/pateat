@@ -731,3 +731,65 @@ describe("paired judge client identity", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe("paired device SSO relay", () => {
+  it("replays the SSO request with only model responses and never sends the device key to the service", async () => {
+    const calls: import("@pateat/contracts").SsoGenerationRequest[] = [];
+    const responses: import("@pateat/contracts").SsoGenerationResult[] = [CALL, RECIPE];
+    const fetch = vi.fn(async () => new Response(ANSWER, { status: 200 }));
+    const model = createDeviceModel({
+      limits: async () => ({ dailyUsd: 5, monthlyUsd: 100 }),
+      storage: { read: async () => SETTING, write: async () => {}, clear: async () => {} },
+      spend: { read: async () => undefined, write: async () => {} },
+      fetch,
+      now: () => NOW,
+    });
+    const service = {
+      generateRecipe: vi.fn(),
+      generateEntry: vi.fn(),
+      generateLogout: vi.fn(),
+      judgeCompletion: vi.fn(),
+      generateSso: async (
+        _origin: string,
+        _credential: string,
+        body: import("@pateat/contracts").SsoGenerationRequest,
+      ) => {
+        calls.push(body);
+        return { kind: "result" as const, result: responses.shift()! };
+      },
+    };
+    const transport = model.wrap(service);
+    const request: import("@pateat/contracts").SsoGenerationRequest = {
+      version: 1,
+      kind: "sso",
+      labels: ["Example"],
+      observation: REQUEST.observation,
+    };
+    if (!transport.generateSso) throw new Error("SSO relay missing");
+    expect(await transport.generateSso(ORIGIN, CREDENTIAL, request)).toEqual({
+      kind: "result",
+      result: RECIPE,
+    });
+    expect(calls).toEqual([
+      { ...request, deviceModel: { provider: "anthropic", responses: [] } },
+      {
+        ...request,
+        deviceModel: {
+          provider: "anthropic",
+          responses: [
+            {
+              kind: "response",
+              request: await deviceModelRequestHash(BODY),
+              status: 200,
+              body: ANSWER,
+            },
+          ],
+        },
+      },
+    ]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.stringify(calls)).not.toContain(KEY);
+    expect(service.generateRecipe).not.toHaveBeenCalled();
+    expect(service.generateEntry).not.toHaveBeenCalled();
+  });
+});

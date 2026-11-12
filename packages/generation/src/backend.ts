@@ -362,8 +362,8 @@ export interface GenerationBackend {
   call<T>(call: GenerationCall<T>): Promise<GenerationCallResult<T>>;
   /** Logs a request answered without a model call under its code (ADR 0012). */
   logUnsent(unsent: UnsentRequest, code: UnsentOutcome): Promise<void>;
-  /** Names on a call's log row the recipe revision its answer wrote. */
-  keepLogRevision(logId: string | undefined, revision: number): Promise<void>;
+  /** Names the written revision, and optionally remaps a generated layout after a collision. */
+  keepLogRevision(logId: string | undefined, revision: number, layout?: string): Promise<void>;
   /**
    * Keeps a repeat login's signed-in page in the request log (ADR 0029): false when the
    * owner already has a recent sample of the recipe and branch.

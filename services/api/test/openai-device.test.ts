@@ -445,3 +445,121 @@ describe("OpenAI calls relayed to a paired device", () => {
     expect((await post(by.token, "/v1/recipes/generate", request, [], "unknown")).status).toBe(400);
   });
 });
+
+describe("OpenAI SSO integration with native layouts and judgement quota", () => {
+  it("relays label-only SSO, preserves its sibling metadata, and allocates no judgement identity", async () => {
+    const by = await device();
+    const observation = {
+      ...login,
+      candidates: [
+        ...login.candidates,
+        {
+          id: "provider",
+          role: "button" as const,
+          label: "Continue with Example",
+          target: { by: "id" as const, value: "provider" },
+        },
+      ],
+    };
+    const request = { version: 1, kind: "sso", observation, labels: ["Example"] };
+    const offered = await post(by.token, "/v1/recipes/generate", request);
+    const firstCall = call(offered);
+    expect(offered.body).not.toHaveProperty("judgement");
+    const ssoPlan = {
+      result: {
+        decision: "plan",
+        page: "sign-in",
+        entries: [{ label: "Example", candidate: "provider" }],
+      },
+    };
+    const sso = (
+      await post(by.token, "/v1/recipes/generate", request, [await answer(firstCall.body, ssoPlan)])
+    ).body as import("@pateat/contracts").SsoGenerationResult;
+    expect(sso).toMatchObject({
+      status: "recipe",
+      change: {
+        revision: 1,
+        recipe: {
+          sso: {
+            path: "/login",
+            layouts: [{ entries: [{ label: "Example", target: { by: "id", value: "provider" } }] }],
+          },
+        },
+      },
+    });
+    if (sso.status !== "recipe" || !("sso" in sso.change.recipe))
+      throw new Error("No synthetic SSO recipe");
+    const ssoMetadata = structuredClone(sso.change.recipe.sso);
+    expect(sso.change.recipe).not.toHaveProperty("layouts");
+    const nativeRequest = { version: 1, observation, slots, signedIn: false };
+    const nativeCall = call(await post(by.token, "/v1/recipes/generate", nativeRequest));
+    const native = v.parse(
+      recipeGenerationResultSchema,
+      (
+        await post(by.token, "/v1/recipes/generate", nativeRequest, [
+          await answer(nativeCall.body, plan),
+        ])
+      ).body,
+    );
+    expect(native).toMatchObject({
+      status: "recipe",
+      change: { revision: 2, recipe: { layouts: [expect.anything()] } },
+    });
+    if (native.status !== "recipe" || !("sso" in native.change.recipe))
+      throw new Error("Missing mixed recipe");
+    expect(native.change.recipe.sso).toEqual(ssoMetadata);
+    expect(native.change.recipeId).toBe(sso.change.recipeId);
+    const reservations = await env.DB.prepare(
+      "SELECT id FROM judgement_reservations WHERE owner_id = ?",
+    )
+      .bind(by.ownerId)
+      .all();
+    expect(reservations.results).toEqual([]);
+    const logs = await env.DB.prepare(
+      "SELECT provider, source, role, request, result, revision FROM inference_log WHERE owner_id = ? ORDER BY revision",
+    )
+      .bind(by.ownerId)
+      .all<{
+        provider: string;
+        source: string;
+        role: string;
+        request: string;
+        result: string;
+        revision: number;
+      }>();
+    expect(
+      logs.results.map(({ provider, source, role, revision }) => ({
+        provider,
+        source,
+        role,
+        revision,
+      })),
+    ).toEqual([
+      { provider: "openai", source: "device", role: "generate", revision: 1 },
+      { provider: "openai", source: "device", role: "generate", revision: 2 },
+    ]);
+    const loggedSso = JSON.parse(logs.results[0]!.request);
+    expect(loggedSso).toMatchObject({
+      labels: ["Example"],
+      observation: {
+        ...observation,
+        candidates: observation.candidates.filter((candidate) => candidate.role === "button"),
+      },
+    });
+    expect(loggedSso).not.toHaveProperty("slots");
+    expect(loggedSso).not.toHaveProperty("deviceModel");
+    expect(JSON.parse(logs.results[0]!.result)).toEqual({
+      entries: [{ label: "Example", candidate: "provider" }],
+    });
+    expect(JSON.stringify([native, sso, logs.results])).not.toContain(by.token);
+    const provenance = await env.DB.prepare(
+      "SELECT unit, origin FROM recipe_unit_sources WHERE owner_id = ? AND recipe_id = ? ORDER BY unit",
+    )
+      .bind(by.ownerId, sso.change.recipeId)
+      .all();
+    expect(provenance.results).toEqual([
+      { unit: "page:0", origin: "generated" },
+      { unit: "sso", origin: "generated" },
+    ]);
+  });
+});

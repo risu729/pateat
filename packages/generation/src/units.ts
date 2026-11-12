@@ -122,6 +122,15 @@ export async function documentUnits(
       : "logout" in recipe
         ? [{ layout: null, unit: LOGOUT_UNIT, content: recipe.logout }]
         : [
+            ...(recipe.sso?.layouts ?? []).map((layout) => ({
+              layout: layout.key,
+              unit: "sso",
+              content: {
+                path: recipe.sso!.path,
+                entries: layout.entries,
+                language: layout.language,
+              },
+            })),
             ...(recipe.layouts ?? []).flatMap((layout) =>
               routeContents(layout, startsOf(layout.key), undefined, layout.language).map(
                 ([unit, content]) => ({ layout: layout.key, unit, content }),

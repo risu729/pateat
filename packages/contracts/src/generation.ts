@@ -1,4 +1,6 @@
 import * as v from "valibot";
+import { ssoGenerationRequestSchema } from "./sso-generation";
+import { isSsoDocument } from "./sso";
 import { deviceModelCallSchema, deviceModelSchema } from "./device-model";
 import {
   customSlotIdSchema,
@@ -8,12 +10,11 @@ import {
   type LoginObservation,
 } from "./observation";
 import {
-  loginChooserDocumentSchema,
   loginEntryRecipeSchema,
   loginFieldTargetSchema,
   loginLogoutRecipeSchema,
   loginPathSchema,
-  loginRecipeDocumentSchema,
+  recipeDocumentSchema,
   loginRouteSchema,
   logoutTargetSchema,
   MAX_LOGOUT_TARGETS,
@@ -58,7 +59,7 @@ const activeChange = v.pipe(
     revision: writtenRevision,
     state: v.literal("active"),
     // An entry recipe (ADR 0031) answers only an entry request (`activeEntryChange`).
-    recipe: v.union([loginRecipeDocumentSchema, loginChooserDocumentSchema]),
+    recipe: recipeDocumentSchema,
   }),
   v.check((change) => sameIdentity(change), "Recipe identity does not match its sync revision"),
 );
@@ -318,6 +319,7 @@ export const entryGenerationRequestSchema = v.pipe(
 export const generationRequestSchema = v.union([
   recipeGenerationRequestSchema,
   entryGenerationRequestSchema,
+  ssoGenerationRequestSchema,
 ]);
 
 /** Answers that are not a recipe, shared by page and entry requests. */
@@ -397,6 +399,16 @@ export const recipeGenerationResultSchema = v.pipe(
     "Custom slots must be recipe slots",
   ),
 );
+
+/** A separate SSO request always answers with its declarative SSO sibling. */
+export const ssoGenerationResultSchema = v.pipe(
+  recipeGenerationResultSchema,
+  v.check(
+    (result) => result.status !== "recipe" || isSsoDocument(result.change.recipe),
+    "SSO result has SSO entries",
+  ),
+);
+export type SsoGenerationResult = v.InferOutput<typeof ssoGenerationResultSchema>;
 
 /**
  * The answer to an entry request (ADR 0031): the entry recipe of the page's origin and

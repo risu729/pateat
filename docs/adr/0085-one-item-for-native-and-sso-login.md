@@ -5,12 +5,13 @@ Status: accepted by the owner on 2026-11-07 (12:51 UTC:
 [#1380](https://github.com/risu729/pateat/issues/1380) applied as written); not
 implemented as a complete route. Amended on 2026-11-12 by the local discovery
 [implementation note](#amendment-2026-11-12-local-method-discovery-and-mapping-validation);
-execution remains unimplemented. The owner asked for the format itself: keep the
-SSO-only format, keep a mixed account's own credentials, one readable value such as
-`[GitHub] github-user` per SSO method, and no separate provider and username fields or
-JSON. The selection and validation rules below were written in
-[#1380](https://github.com/risu729/pateat/issues/1380) as proposed implementation
-details and were accepted with it. Amends
+execution remains unimplemented. Also amended by the
+[label-only generation implementation](#amendment-2026-11-12-label-only-declarative-route-generation).
+The owner asked for the format itself: keep the SSO-only format, keep a mixed account's
+own credentials, one readable value such as `[GitHub] github-user` per SSO method, and
+no separate provider and username fields or JSON. The selection and validation rules
+below were written in [#1380](https://github.com/risu729/pateat/issues/1380) as proposed
+implementation details and were accepted with it. Amends
 [ADR 0026](0026-sign-in-through-identity-providers.md) (item format, which IdP item is
 used, field rules and item-wide exclusions) and
 [ADR 0027](0027-per-account-login-routes.md) (the `sso` fact, the route order, the
@@ -261,3 +262,14 @@ unambiguous local entry whose observed destination is the selected origin. Other
 local popup must explicitly choose an observed entry and its displayed label, including
 JavaScript-only buttons. Neither the origin nor the local mapping is sent to the
 service. This is an agent's implementation detail, not a new owner decision.
+
+## Amendment 2026-11-12: label-only declarative route generation
+
+Implementation detail chosen by an agent. The local method descriptors feed a dedicated
+label-only generation mode and separate SSO recipe layouts, documented in the
+[ADR 0026 amendment](0026-sign-in-through-identity-providers.md#amendment-2026-11-12-declarative-sso-entry-generation).
+The generation request has no fields for an IdP account, username, origin, comparison
+proof or mapping. The label is the permitted exception; a native route never receives
+an SSO custom field as a fill slot. Automatic route selection remains unchanged until
+the mapping chooser and same-tab coordinator integrate this foundation. No live vault
+format has been migrated and no real-account compatibility has been established.

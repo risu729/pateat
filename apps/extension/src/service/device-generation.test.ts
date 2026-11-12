@@ -744,3 +744,205 @@ describe("the connection generation runs under (ADR 0040)", () => {
     ).toBeUndefined();
   });
 });
+
+describe("standalone label-only SSO generation", () => {
+  const ssoRequest = {
+    version: 1 as const,
+    kind: "sso" as const,
+    labels: ["Example"],
+    observation: {
+      ...page,
+      candidates: [
+        ...page.candidates,
+        {
+          id: "provider",
+          role: "button" as const,
+          label: "Continue with Example",
+          target: { by: "id" as const, value: "provider" },
+        },
+      ],
+    },
+  };
+  const ssoPlan = JSON.stringify({
+    result: {
+      decision: "plan",
+      page: "sign-in",
+      entries: [{ label: "Example", candidate: "provider" }],
+    },
+  });
+
+  it("keeps SSO and native siblings with no SSO slot mapping", async () => {
+    const { generation, recipes, sent } = setup({ replies: [ssoPlan, plan] });
+    const sso = await generation.generateSso(DEVICE_GENERATION_ORIGIN, "", ssoRequest);
+    expect(sso).toMatchObject({
+      kind: "result",
+      result: { status: "recipe", change: { revision: 1 } },
+    });
+    expect(sso).not.toHaveProperty("result.slots");
+    expect(sso).not.toHaveProperty("result.slotMap");
+    const native = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    expect(native).toMatchObject({
+      kind: "result",
+      result: { status: "recipe", change: { revision: 2 } },
+    });
+    expect(await recipes.list()).toEqual([
+      expect.objectContaining({
+        layouts: expect.any(Array),
+        sso: {
+          path: "/login",
+          layouts: [
+            expect.objectContaining({
+              entries: [{ label: "Example", target: { by: "id", value: "provider" } }],
+            }),
+          ],
+        },
+      }),
+    ]);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("validates label-only requests before making a call or writing an attempt", async () => {
+    const { generation, sent, record } = setup();
+    expect(
+      await generation.generateSso(DEVICE_GENERATION_ORIGIN, "", {
+        ...ssoRequest,
+        slots: request.slots,
+      } as typeof ssoRequest),
+    ).toMatchObject({ kind: "failed", error: "unexpected-response" });
+    expect(sent).toHaveLength(0);
+    expect(record()).toBeUndefined();
+  });
+
+  it("keeps credential and spending gates for SSO-only pages", async () => {
+    const missing = setup({ setting: undefined });
+    expect(
+      await missing.generation.generateSso(DEVICE_GENERATION_ORIGIN, "", ssoRequest),
+    ).toMatchObject({
+      kind: "result",
+      result: { status: "unavailable", reason: "credentials-not-configured" },
+    });
+    expect(missing.sent).toHaveLength(0);
+    const day = new Date().toISOString().slice(0, 10);
+    const limited = setup({
+      spend: {
+        version: 1,
+        day,
+        dayMicroUsd: 5_000_000,
+        month: day.slice(0, 7),
+        monthMicroUsd: 5_000_000,
+      },
+    });
+    expect(
+      await limited.generation.generateSso(DEVICE_GENERATION_ORIGIN, "", ssoRequest),
+    ).toMatchObject({
+      kind: "result",
+      result: { status: "unavailable", reason: "daily-limit" },
+    });
+    expect(limited.sent).toHaveLength(0);
+  });
+});
+
+describe("OpenAI standalone SSO and native sibling integration", () => {
+  const setting: DeviceModelSetting = {
+    version: 1,
+    provider: "openai",
+    apiKey: "synthetic-openai-sso-local-key",
+  };
+  const ssoRequest = {
+    version: 1 as const,
+    kind: "sso" as const,
+    labels: ["Example"],
+    observation: {
+      ...page,
+      candidates: [
+        ...page.candidates,
+        {
+          id: "provider",
+          role: "button" as const,
+          label: "Continue with Example",
+          target: { by: "id" as const, value: "provider" },
+        },
+      ],
+    },
+  };
+  const ssoPlan = JSON.stringify({
+    result: {
+      decision: "plan",
+      page: "sign-in",
+      entries: [{ label: "Example", candidate: "provider" }],
+    },
+  });
+  it("uses the Responses SDK for SSO and preserves its metadata when native generation follows", async () => {
+    const { generation, recipes, sent, wire, record, spend } = setup({
+      setting,
+      replies: [ssoPlan, plan],
+    });
+    const first = await generation.generateSso(DEVICE_GENERATION_ORIGIN, "", ssoRequest);
+    if (first.kind !== "result" || first.result.status !== "recipe")
+      throw new Error("No synthetic SSO recipe");
+    expect(first.result).not.toHaveProperty("slots");
+    expect(first.result).not.toHaveProperty("slotMap");
+    const firstRecipe = first.result.change.recipe;
+    if (!("sso" in firstRecipe)) throw new Error("No SSO metadata");
+    const sso = structuredClone(firstRecipe.sso);
+    expect(sso).toMatchObject({
+      path: "/login",
+      layouts: [{ entries: [{ label: "Example", target: { by: "id", value: "provider" } }] }],
+    });
+    const native = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    expect(native).toMatchObject({
+      kind: "result",
+      result: { status: "recipe", change: { revision: 2 } },
+    });
+    const held = await recipes.list();
+    expect(held).toHaveLength(1);
+    expect(held[0]).toMatchObject({ layouts: [expect.anything()] });
+    expect(held[0] && "sso" in held[0] ? held[0].sso : undefined).toEqual(sso);
+    expect(sent).toEqual(
+      Array.from({ length: 2 }, () => ({
+        apiKey: null,
+        authorization: `Bearer ${setting.apiKey}`,
+        model: "gpt-6.1-sol",
+      })),
+    );
+    expect(wire.every((outgoing) => outgoing.url === OPENAI_DEVICE_MODEL_URL)).toBe(true);
+    const bodies = await Promise.all(wire.map((outgoing) => outgoing.clone().json()));
+    expect(
+      bodies.every(
+        (body) => body.store === false && body.service_tier === "default" && !body.tools,
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(bodies)).not.toContain(setting.apiKey);
+    expect(record()).toMatchObject({ quotas: [], judgements: [] });
+    expect(spend()!.dayMicroUsd).toBeGreaterThan(0);
+    expect(JSON.stringify([first, native, held, record(), spend()])).not.toContain(setting.apiKey);
+  });
+  it("keeps OpenAI refusal fallback and spending without taking a judgement reservation", async () => {
+    const { generation, sent, record, spend } = setup({
+      setting,
+      replies: [{ refusal: "synthetic" }, ssoPlan],
+    });
+    expect(await generation.generateSso(DEVICE_GENERATION_ORIGIN, "", ssoRequest)).toMatchObject({
+      kind: "result",
+      result: { status: "recipe" },
+    });
+    expect(sent.map((call) => [call.model, call.authorization, call.apiKey])).toEqual([
+      ["gpt-6.1-sol", `Bearer ${setting.apiKey}`, null],
+      ["gpt-6.1-terra", `Bearer ${setting.apiKey}`, null],
+    ]);
+    expect(record()).toMatchObject({ quotas: [], judgements: [] });
+    expect(spend()!.dayMicroUsd).toBeGreaterThan(0);
+  });
+  it("refuses private SSO fields before provider calls or quota/attempt records", async () => {
+    const { generation, sent, record, spend } = setup({ setting, replies: [ssoPlan] });
+    expect(
+      await generation.generateSso(DEVICE_GENERATION_ORIGIN, "", {
+        ...ssoRequest,
+        username: "private-synthetic@example.test",
+      } as typeof ssoRequest),
+    ).toMatchObject({ kind: "failed", error: "unexpected-response" });
+    expect(sent).toEqual([]);
+    expect(record()).toBeUndefined();
+    expect(spend()).toBeUndefined();
+  });
+});

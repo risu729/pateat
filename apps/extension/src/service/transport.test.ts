@@ -1427,3 +1427,77 @@ describe("logout generation (ADR 0063)", () => {
     ).toEqual({ kind: "failed", error: "unexpected-response" });
   });
 });
+
+describe("label-only SSO transport", () => {
+  it("posts the SSO discriminator and labels and validates a declarative SSO-only recipe", async () => {
+    const recipe = {
+      version: 1,
+      id: "gen-sso",
+      revision: 1,
+      origin: "https://shop.example.test",
+      sso: {
+        path: "/login",
+        layouts: [
+          {
+            key: "1000",
+            createdAt: 1000,
+            entries: [{ label: "Example", target: { by: "id", value: "provider" } }],
+          },
+        ],
+      },
+    };
+    const result = {
+      version: 1,
+      status: "recipe",
+      change: { recipeId: recipe.id, revision: 1, state: "active", recipe },
+    };
+    const fetch = respond(200, result, { headers: { "Content-Type": "application/json" } });
+    const transport = createServiceTransport({ fetch });
+    const request: import("@pateat/contracts").SsoGenerationRequest = {
+      version: 1,
+      kind: "sso",
+      labels: ["Example"],
+      observation: {
+        version: 1,
+        origin: recipe.origin,
+        path: "/login",
+        complete: true,
+        language: "en",
+        candidates: [],
+      },
+    };
+    expect(await untimed(transport.generateSso(ORIGIN, CREDENTIAL, request))).toEqual({
+      kind: "result",
+      result,
+    });
+    expect(fetch.mock.calls[0]![0]).toBe(ORIGIN + "/v1/recipes/generate");
+    expect(JSON.parse(fetch.mock.calls[0]![1]!.body as string)).toEqual(request);
+  });
+
+  it("rejects an SSO result carrying an account mapping", async () => {
+    const fetch = respond(
+      200,
+      { version: 1, status: "abstained", reason: "ambiguous", mapping: { username: "private" } },
+      {
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    expect(
+      await untimed(
+        createServiceTransport({ fetch }).generateSso(ORIGIN, CREDENTIAL, {
+          version: 1,
+          kind: "sso",
+          labels: ["Example"],
+          observation: {
+            version: 1,
+            origin: "https://shop.example.test",
+            path: "/login",
+            complete: true,
+            language: "en",
+            candidates: [],
+          },
+        }),
+      ),
+    ).toEqual({ kind: "failed", error: "unexpected-response" });
+  });
+});

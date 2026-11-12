@@ -459,3 +459,95 @@ describe("provider-tagged local key and cost boundaries", () => {
     expect(callCostMicroUsd(body, { kind: "timeout", request: "" }, "openai")).toBeGreaterThan(0);
   });
 });
+
+describe("OpenAI SSO relay after provider and judgement-quota integration", () => {
+  it("preserves the label-only request and provider on replay without creating a judgement identity", async () => {
+    const requests: import("@pateat/contracts").SsoGenerationRequest[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(answer));
+    let spend: unknown;
+    const model = createDeviceModel({
+      storage: {
+        read: async () => ({ version: 1, provider: "openai", apiKey: key }),
+        write: async () => {},
+        clear: async () => {},
+      },
+      spend: {
+        read: async () => spend,
+        write: async (value) => {
+          spend = value;
+        },
+      },
+      limits: async () => ({ dailyUsd: 5, monthlyUsd: 100 }),
+      fetch,
+      now: () => now,
+    });
+    const service = {
+      generateRecipe: vi.fn(),
+      generateEntry: vi.fn(),
+      generateLogout: vi.fn(),
+      judgeCompletion: vi.fn(),
+      generateSso: vi.fn(
+        async (
+          _origin: string,
+          _credential: string,
+          request: import("@pateat/contracts").SsoGenerationRequest,
+        ) => {
+          requests.push(structuredClone(request));
+          return { kind: "result" as const, result: requests.length === 1 ? call : done };
+        },
+      ),
+    };
+    const transport = model.wrap(service);
+    const request: import("@pateat/contracts").SsoGenerationRequest = {
+      version: 1,
+      kind: "sso",
+      labels: ["Synthetic provider"],
+      observation: {
+        version: 1,
+        origin: "https://site.example.test",
+        path: "/sign-in",
+        language: "en",
+        complete: true,
+        candidates: [
+          {
+            id: "provider",
+            role: "button",
+            label: "Continue with Synthetic provider",
+            target: { by: "id", value: "provider" },
+          },
+        ],
+      },
+    };
+    expect(
+      await transport.generateSso!("https://service.example", "synthetic-device-token", request),
+    ).toEqual({ kind: "result", result: done });
+    expect(requests).toEqual([
+      { ...request, deviceModel: { provider: "openai", responses: [] } },
+      {
+        ...request,
+        deviceModel: {
+          provider: "openai",
+          responses: [
+            {
+              kind: "response",
+              request: await deviceModelRequestHash(body),
+              status: 200,
+              body: answer,
+            },
+          ],
+        },
+      },
+    ]);
+    expect(requests.every((envelope) => envelope.deviceModel?.judgement === undefined)).toBe(true);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]![0]).toBe(OPENAI_DEVICE_MODEL_URL);
+    expect(new Headers(fetch.mock.calls[0]![1]?.headers).get("authorization")).toBe(
+      `Bearer ${key}`,
+    );
+    expect(new Headers(fetch.mock.calls[0]![1]?.headers).has("x-api-key")).toBe(false);
+    expect(JSON.stringify([requests, spend])).not.toContain(key);
+    expect(currentSpend(spend, now)).toEqual({ dayMicroUsd: 30_900, monthMicroUsd: 30_900 });
+    expect(service.judgeCompletion).not.toHaveBeenCalled();
+    expect(service.generateRecipe).not.toHaveBeenCalled();
+  });
+});

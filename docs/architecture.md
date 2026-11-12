@@ -3427,7 +3427,15 @@ when its label or locator names a passkey or security key, and drops a button th
 its checks without failing the answer. A `hidden` slot is filled only into an input the
 Hidden rule of ADR 0013 accepts; the decision role and the heuristic name custom slots
 the same way. Signing in to a site through Google or Microsoft follows the policy in
-[ADR 0026](adr/0026-sign-in-through-identity-providers.md) (not implemented).
+[ADR 0026](adr/0026-sign-in-through-identity-providers.md) (not implemented end to end).
+Local discovery and label-only generation now have separate SSO entry contracts: an
+`sso` sibling of a stored recipe holds its path and up to three layouts of label/target
+entries, without fill slots or ordinary click steps. Native layouts may coexist with
+that sibling; conditional writes, repair and layout provenance preserve both. A
+dedicated `kind: "sso"` generation request sends only selected account/method labels and
+a value-free page description; no IdP origin, account, username or mapping is sent. The
+method chooser, local mapping, same-tab coordinator and IdP behavior still must
+integrate those contracts before any SSO entry executes.
 
 Split inference into independently configured recipe generation/repair and
 finite selection/classification roles. Adapters may share an underlying provider
