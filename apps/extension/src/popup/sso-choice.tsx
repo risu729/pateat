@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import { Button } from "../options/button";
-import type { SsoClient, SsoSelection } from "../login/sso-wire";
+import type { SsoActionResponse, SsoClient, SsoSelection } from "../login/sso-wire";
 
 /** A method choice belongs to an already chosen site account, never another account card. */
 export function PopupSsoChoice({
@@ -21,8 +21,6 @@ export function PopupSsoChoice({
     enabled: client !== undefined && tabId !== undefined,
     refetchInterval: 1000,
   });
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
   const response = query.data;
   const offer = response?.ok ? response.offer : undefined;
   if (!client || tabId === undefined || !offer || offer.origin !== origin) return null;
@@ -32,53 +30,52 @@ export function PopupSsoChoice({
       client={client}
       tabId={tabId}
       offer={offer}
-      busy={busy}
-      notice={notice}
-      submit={async (selection) => {
-        if (busy) return;
-        setBusy(true);
-        setNotice("");
-        try {
-          const answer = await client.choose({ tabId, offerId: offer.id, selection });
-          if (!answer.ok) setNotice(answer.reason);
-          await query.refetch();
-        } catch {
-          setNotice("unavailable");
-        } finally {
-          setBusy(false);
-        }
-      }}
-      cancel={async () => {
-        if (busy) return;
-        setBusy(true);
-        try {
-          await client.cancel(tabId, offer.id);
-          await query.refetch();
-        } catch {
-          setNotice("unavailable");
-        } finally {
-          setBusy(false);
-        }
-      }}
+      refresh={() => query.refetch()}
     />
   );
 }
 type Offer = NonNullable<Extract<Awaited<ReturnType<SsoClient["get"]>>, { ok: true }>["offer"]>;
 function SsoOffer({
+  client,
+  tabId,
   offer,
-  busy,
-  notice,
-  submit,
-  cancel,
+  refresh,
 }: {
   client: SsoClient;
   tabId: number;
   offer: Offer;
-  busy: boolean;
-  notice: string;
-  submit: (selection: SsoSelection) => Promise<void>;
-  cancel: () => Promise<void>;
+  refresh: () => Promise<unknown>;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const pending = useRef(false);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  async function act(action: () => Promise<SsoActionResponse>) {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setNotice("");
+    try {
+      const answer = await action();
+      if (!alive.current) return;
+      if (!answer.ok) setNotice(answer.reason);
+      await refresh();
+    } catch {
+      if (alive.current) setNotice("unavailable");
+    } finally {
+      pending.current = false;
+      if (alive.current) setBusy(false);
+    }
+  }
+  const submit = (selection: SsoSelection) =>
+    act(() => client.choose({ tabId, offerId: offer.id, selection }));
+  const cancel = () => act(() => client.cancel(tabId, offer.id));
   const { t } = useTranslation(undefined, { i18n });
   const [method, setMethod] = useState("");
   const [picks, setPicks] = useState<Record<number, string>>({});
