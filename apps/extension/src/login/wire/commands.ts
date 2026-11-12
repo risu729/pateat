@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { ssoCommandSchemas } from "../sso-operation-wire";
 import {
   datePartSchema,
   listClickSchema,
@@ -50,6 +51,7 @@ const splitPartEntries = {
 };
 
 export const commandSchema = v.variant("type", [
+  ...ssoCommandSchemas,
   v.strictObject({
     version: v.literal(1),
     type: v.literal("login.fill.change"),

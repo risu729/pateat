@@ -1,4 +1,6 @@
 import {
+  type SsoRecipeDocument,
+  type SsoGenerationRequest,
   type LoginFieldTarget,
   type LoginAccount,
   type LoginBindingTemplate,
@@ -97,6 +99,9 @@ export interface LoginRecipes {
    * or being started by a lookup ends first, for at most a few seconds.
    */
   withdrawn?(origin: string, recipeId: string, layout?: string): Promise<boolean>;
+  /** Separate declarative SSO documents, never projected as native steps. */
+  sso?(origin: string, path: string, recipeId?: string): Promise<SsoRecipeDocument[]>;
+  ssoFence?(recipe: SsoRecipeDocument): Promise<(() => boolean) | undefined>;
   /** Where every recipe for the origin starts; a document watches for its first steps. */
   starts(origin: string): Promise<LoginRecipeStart[]>;
   /**
@@ -166,6 +171,11 @@ export interface LoginGeneration {
     request: EntryGenerationRequest,
     sent?: () => void,
   ): Promise<EntryGenerationOutcome>;
+  generateSso?(
+    request: SsoGenerationRequest,
+  ): Promise<
+    { outcome: "recipe"; recipe: SsoRecipeDocument } | { outcome: "refused"; reason: string }
+  >;
   /**
    * Which vault field each custom slot of a recipe generated from this device names, from
    * the request that produced it (ADR 0027); nothing for a recipe it did not generate.
