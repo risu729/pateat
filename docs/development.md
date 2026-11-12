@@ -337,6 +337,14 @@ lines and comments included (owner, 2026-10-23). Files that were already longer 
 listed in the last override of `.oxlintrc.json` with the rule off until each is split;
 remove a file from that list when its split lands, and do not add new ones.
 
+The login-attempt contract suite keeps `packages/contracts/src/login-attempt.test.ts`
+as its sole discovered entry, with shared fixtures and helpers initialized there.
+Synchronous registrars in `packages/contracts/test/login-attempt/` preserve the
+original describe scopes and registration order; the submission and missing-password
+wrappers call focused registrars inside their original scopes. Typed contexts pass
+the same fixture and helper references. These support files stay outside `src` and
+the contract source-coverage include.
+
 Focused tasks are available for diagnosis:
 
 | Task | Purpose |
