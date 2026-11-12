@@ -49,7 +49,6 @@
         "apps/extension/src/service/recipes.test.ts",
         "apps/extension/src/service/settings-sync.test.ts",
         "apps/extension/src/service/transport.test.ts",
-        "apps/extension/src/vault/manager.test.ts",
         "apps/extension/src/vault/manager.ts",
         "packages/bitwarden/src/account.test.ts",
         "packages/bitwarden/src/local-crypto.test.ts",
