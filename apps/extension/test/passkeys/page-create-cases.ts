@@ -5,7 +5,7 @@ import {
   PAGE_TIMEOUT_MS,
   type PageResult,
 } from "../../src/passkeys/wire";
-import type { PageFixtures, PageMessage as Message } from "../../src/passkeys/page.test";
+import type { Message, PageFixtures } from "../../src/passkeys/page.test";
 
 export function registerPageCreateCases({
   fakePage,

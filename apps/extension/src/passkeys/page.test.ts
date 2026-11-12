@@ -7,7 +7,7 @@ import { registerPageCreateCases } from "../../test/passkeys/page-create-cases";
 import { registerPageCreateCoexistenceCases } from "../../test/passkeys/page-create-coexistence-cases";
 
 const origin = "https://login.example.com";
-type Message = { channel: string; type: string; id: string };
+export type Message = { channel: string; type: string; id: string };
 
 /** Minimal top-level window: same-origin postMessage plus a scripted isolated relay. */
 function fakePage(
@@ -124,14 +124,6 @@ const answerCreate = (result: PageResult) => (message: Message) =>
     : [];
 const types = (posted: Message[]) => posted.map((message) => message.type);
 
-describe("MAIN-world passkey create wrapper (ADR 0007)", () => {
-  registerPageCreateCases({ fakePage, publicKey, answer, registration, answerCreate, types });
-});
-
-describe("create coexistence with a later passkey provider", () => {
-  registerPageCreateCoexistenceCases({ fakePage, answer, registration, answerCreate, types });
-});
-
 export type PageFixtures = {
   fakePage: typeof fakePage;
   publicKey: typeof publicKey;
@@ -142,4 +134,10 @@ export type PageFixtures = {
   types: typeof types;
 };
 
-export type PageMessage = Message;
+describe("MAIN-world passkey create wrapper (ADR 0007)", () => {
+  registerPageCreateCases({ fakePage, publicKey, answer, registration, answerCreate, types });
+});
+
+describe("create coexistence with a later passkey provider", () => {
+  registerPageCreateCoexistenceCases({ fakePage, answer, registration, answerCreate, types });
+});
