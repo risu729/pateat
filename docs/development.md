@@ -648,11 +648,11 @@ its shared helpers and constants. It calls the passive synchronous registrars in
 `.ts` leaves own contiguous input-effect, primary-login, method-choice, code,
 form, lifecycle and failure-sign cases; `context.ts` owns their forwarding types.
 The entry passes the original test API, fixtures and helper identities directly.
-The registrars add no suites, hooks or fixture scopes, preserving root titles,
-registration order and round-robin shard units. Each case still starts and closes
-its own synthetic fixture and browser profile. Splits keep assertions, parameter
-tables and per-test annotations unchanged, with every file within the 1,000-line
-limit; actual Playwright collection and shard comparisons verify the layout.
+The registrars add no suites, hooks or fixture scopes, so every test stays a root
+test of `login.spec.ts` and its own round-robin shard unit. Each case starts and
+closes its own synthetic fixture and browser profile, and keeps its per-test timeout.
+Each file follows the 1,000-line limit. Compare the `--list` output for each shard
+when changing this layout.
 
 ### Login wire contracts
 
