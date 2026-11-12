@@ -57,7 +57,7 @@
         "react": "19.3.1",
         "react-dom": "19.3.1",
         "react-i18next": "18.0.1",
-        "tldts": "7.4.21",
+        "tldts": "7.4.22",
         "valibot": "1.5.0",
       },
       "devDependencies": {
@@ -75,7 +75,7 @@
         "@bitwarden/sdk-internal": "0.2.0-main.1234",
         "cbor2": "2.4.1",
         "otpauth": "9.6.0",
-        "tldts": "7.4.21",
+        "tldts": "7.4.22",
         "valibot": "1.5.0",
       },
     },
@@ -83,7 +83,7 @@
       "name": "@pateat/contracts",
       "version": "0.1.0",
       "dependencies": {
-        "tldts": "7.4.21",
+        "tldts": "7.4.22",
         "uuid": "14.0.3",
         "valibot": "1.5.0",
         "xstate": "5.33.4",
@@ -1066,7 +1066,7 @@
 
     "tinyrainbow": ["tinyrainbow@3.2.0", "", {}, "sha512-LgO3D9yZJjApUiuUfl9iFAwrtaX4+lok3wJIqttGoKCHlWUqHqbQpnxCf82L8FjgKsh4iGo78hqJwgL8F6To2A=="],
 
-    "tldts": ["tldts@7.4.21", "", { "dependencies": { "tldts-core": "^7.4.21" }, "bin": { "tldts": "bin/cli.js" } }, "sha512-SomReMX1GpjzK4KzAMr8SKtn628eakKLlPWEEPOLnC2lfKXt5UZ5gh/y2I8cgRI2zWidULCx2p7vfYyjGSwnaw=="],
+    "tldts": ["tldts@7.4.22", "", { "dependencies": { "tldts-core": "^7.4.22" }, "bin": { "tldts": "bin/cli.js" } }, "sha512-TmLwkCZ1GFMxGkKfg2ooQhPF8rDMuuXvJHSxFiOU1fofh27L6NaO5T9KSlQXCJX2eoSt14I8F4saSMILOmXmaQ=="],
 
     "tldts-core": ["tldts-core@7.4.22", "", {}, "sha512-NRyhrlvJcTwvoRibE0dEZvp6C5RwV4RxpsX1zbkI1k7Fk2pzIhmQ+MvswJEd5KKl3VRFRMDTipXse/ejh/ld/w=="],
 

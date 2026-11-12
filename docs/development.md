@@ -873,6 +873,110 @@ and `AccountTestRaw` types, and `context.ts` builds the module contexts from the
 `import type`. The modules sit outside `src/`, so they stay outside the coverage root
 and are not discovered as test files. Each file follows the 1,000-line limit.
 
+### Bitwarden URI test organization
+
+`packages/bitwarden/src/uri.test.ts` is the discovered entry for the URI matcher's unit
+cases; the account and crypto Worker suites cover matching through their own entries.
+It owns the seven describe scopes and the shared `target`, `saved`, `emptyResult` and
+`userDomains` helpers. Plain modules in `packages/bitwarden/test/uri/` export
+synchronous registration functions for ordinary semantics, equivalent domains,
+retained context, strict admission, caller-answered Regex URIs, the destination grant
+and the authenticated SDK case. The entry calls each inside its describe scope with
+the helpers that scope uses; importing a module registers no cases. Each registrar
+holds its scope's local constants and helpers with its cases. The modules import
+`vitest`, the production exports and the `__fixtures__` values they use directly. The
+entry exports its `UriTestFixtures` type, and `context.ts` builds the module contexts
+from it with `import type`. The modules sit outside `src/`, so they stay outside the
+coverage root and are not discovered as test files. Each file follows the 1,000-line
+limit.
+
+### Recipe contract test organization
+
+`packages/contracts/src/recipes.test.ts` is the discovered entry for the recipe
+selection and account-binding suites; `layouts.exhaustive.test.ts` separately walks
+layout ranking. The entry owns the `recipe`, `stored` and `binding` factories, the
+`fields` catalog and its `resolve` helper, and all eight describe scopes. Plain
+modules in `packages/contracts/test/recipes/` export synchronous registration
+functions for the recipe selection, synced binding, automatic account choice,
+template binding, binding gap, and field reference and display name cases. The entry
+calls each registrar inside its describe scope, and `field-reference-cases.ts`
+supplies the registrars for three scopes. Each registrar defines its scope-local
+fixtures in its body. Importing a module registers no cases. The modules import
+`vitest`, `valibot` and the production exports they use directly. The entry exports
+its `RecipeTestContext` type, and `context.ts` builds the module contexts from it with
+`import type`, so there is no runtime import cycle. The modules lack the `.test.ts`
+suffix, so Vitest does not discover them, and they sit outside `src/`, so they stay
+outside the coverage root. Each file follows the 1,000-line limit.
+
+### Vault policy contract test organization
+
+`packages/contracts/src/vault-policy.test.ts` is the discovered entry for the synced
+vault policy cases; `settings.test.ts` also covers item eligibility and settings-store
+saves. It owns all ten describe scopes, the synthetic account, item, policy and
+evidence factories, the `memoryStorage` helper and the `save` message builder. The
+plain module `packages/contracts/test/vault-policy/settings-page-save-cases.ts`
+exports a synchronous registration function for the settings page save and
+custom-field review cases, which the entry calls inside that describe scope with the
+fixture and helper references it uses; importing the module registers no cases. The
+registrar defines the scope's local `pin`, `stored` and `storeFor` helpers with its
+cases. The module imports `vitest` and the production exports it uses directly. The
+entry exports its `VaultPolicyTestFixtures` type, and the module imports it with
+`import type`, so there is no runtime import cycle. The module sits outside `src/`, so
+it stays outside the coverage root and is not discovered as a test file. Each file
+follows the 1,000-line limit.
+
+### Passkey page test organization
+
+`apps/extension/src/passkeys/page.test.ts` is the discovered entry for the MAIN-world
+page wrapper's unit cases; the passkey runtime suite covers `snapshotGetOptions` and the
+extension end-to-end passkey suite covers the wrapper in Chromium through their own
+entries. It owns the four describe scopes, the root `afterEach` that restores real
+timers, and the shared `fakePage`, `publicKey`, `answer`, `laterProvider`,
+`registration`, `answerCreate` and `types` helpers. Plain modules in
+`apps/extension/test/passkeys/` export synchronous registration functions for the get,
+get coexistence, create and create coexistence cases. The entry calls each inside its
+describe scope with the helpers that scope uses; importing a module registers no cases.
+Each registrar holds its scope's local `assertion` or `laterCreate` helper with its
+cases. The modules import `vitest` and the production exports they use directly. The
+entry exports its `PageFixtures` and `Message` types, which the modules import with
+`import type`. The modules sit outside `src/`, so they stay outside the coverage root
+and are not discovered as test files. Each file follows the 1,000-line limit.
+
+### Settings app test organization
+
+`tests/options/settings-app.test.tsx` is the discovered entry for the main settings app
+component cases; `connection-setup.test.tsx` and `i18n-settings.test.tsx` also render
+the settings app through their own entries. It owns the `getById` locator extension,
+the synthetic settings and service clients, the `saved`, `mount`, `addSite`, `expand`,
+`deferred`, `conflict`, `written` and `navLink` helpers, and the root `afterEach` that
+restores real timers, cleans up and resets focus. Plain modules in
+`tests/options/settings-app/` export synchronous registration functions for settings
+changes, vault policy, site policy, reloads and drafts, save conflicts, and navigation
+and preferences. The entry calls them at the root in that order with the helpers each
+group uses; importing a module registers no cases and adds no hooks or suites. The
+modules import `vitest`, `vitest/browser`, `vitest-browser-react`, React Query and the
+production exports they use directly. The entry exports its `SettingsAppTestFixtures`
+type, and `context.ts` builds the module contexts from it with `import type`, so the
+modules create no runtime import cycle. The modules lack the `.test.tsx` suffix and sit
+below `tests/options/`, so the `tests/options/*.test.tsx` include does not discover
+them, and coverage includes only `apps/extension/src/`. Each file follows the
+1,000-line limit.
+
+### Synthetic login fixture organization
+
+`tests/extension/login-server.ts` is the synthetic login fixture's HTTP server. It owns
+routing, response status and headers, the `/effect/` and `/sign-in-submit` POST
+handling, run evidence, held results and server lifetime, and builds the remaining
+pages inline. `login-identity-pages.ts` exports pure, synchronous builders for the
+`/identity`, `/identifier-first`, `/identifier-kept`, `/identifier-swap`,
+`/method-choice`, `/method-choice-named`, `/identifier`, `/identifier/again` and
+`/identifier/password` pages; each takes the request URL and the fixture options it
+reads and returns the page HTML. It also owns the RFC 6238 code window that
+`/identifier-kept?code` accepts. `login-html.ts` owns the shared `html` wrapper, so the
+builders do not import the server. These modules lack the `.spec.ts` suffix that
+Playwright matches, so they are not discovered as specs. Each file follows the
+1,000-line limit.
+
 ### Packaged login generation test organization
 
 `tests/extension/login-generation.spec.ts` is the discovered entry for the packaged
