@@ -90,27 +90,83 @@ test("validates origin before applying filters and resets the cursor on apply an
   await expect
     .poll(() => client.loginHistory.mock.calls.at(-1)?.[0])
     .toEqual({ beforeAt: AT, beforeId: ID });
-  await page.getByLabelText("Site", { exact: true }).fill("https://bank.example/login");
-  const count = client.loginHistory.mock.calls.length;
-  await page.getByRole("button", { name: "Apply filters" }).click();
   await expect
-    .element(page.getByLabelText("Site", { exact: true }))
-    .toHaveAttribute("aria-invalid", "true");
-  expect(client.loginHistory).toHaveBeenCalledTimes(count);
+    .element(page.getByText("Showing 1 older login record.", { exact: true }))
+    .toBeVisible();
+  const rejects = async (typed: string) => {
+    await page.getByLabelText("Site", { exact: true }).fill(typed);
+    const count = client.loginHistory.mock.calls.length;
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await expect
+      .element(page.getByLabelText("Site", { exact: true }))
+      .toHaveAttribute("aria-invalid", "true");
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent("Enter a site address such as https://example.com.");
+    expect(client.loginHistory).toHaveBeenCalledTimes(count);
+  };
+  await rejects("bank.example");
+  await rejects("ftp://bank.example");
+  // A trailing slash, a path or an uppercase host is reduced to the origin.
+  const appliesOrigin = async (typed: string) => {
+    await page.getByLabelText("Site", { exact: true }).fill(typed);
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await expect
+      .poll(() => client.loginHistory.mock.calls.at(-1)?.[0])
+      .toEqual({ origin: "https://bank.example" });
+    await page.getByRole("button", { name: "Clear filters" }).click();
+  };
+  await appliesOrigin("https://bank.example/");
+  await appliesOrigin("https://Bank.Example/login?next=1");
   await page.getByLabelText("Site", { exact: true }).fill(" https://bank.example ");
   await page.getByRole("combobox", { name: "Result", exact: true }).selectOptions("timeout");
   await page.getByRole("button", { name: "Apply filters" }).click();
   await expect
     .poll(() => client.loginHistory.mock.calls.at(-1)?.[0])
     .toEqual({ origin: "https://bank.example", outcome: "timeout" });
+  await expect
+    .element(page.getByRole("status").filter({ hasText: "Showing" }))
+    .toHaveTextContent(
+      "Showing the 1 newest login record. Filtered by https://bank.example, Timed out.",
+    );
+  // Typed but not applied: the list still says which filters it follows.
+  await page.getByLabelText("Site", { exact: true }).fill("https://draft.example");
+  await page.getByRole("combobox", { name: "Result", exact: true }).selectOptions("");
   await page.getByRole("button", { name: "Older", exact: true }).click();
   await expect
     .poll(() => client.loginHistory.mock.calls.at(-1)?.[0])
     .toEqual({ origin: "https://bank.example", outcome: "timeout", beforeAt: AT, beforeId: ID });
+  await expect
+    .element(page.getByRole("status").filter({ hasText: "Showing" }))
+    .toHaveTextContent(
+      "Showing 1 older login record. Filtered by https://bank.example, Timed out.",
+    );
   await page.getByRole("button", { name: "Clear filters" }).click();
   await expect.element(page.getByLabelText("Site", { exact: true })).toHaveValue("");
   await expect.element(page.getByRole("combobox", { name: "Result", exact: true })).toHaveValue("");
   await expect.poll(() => client.loginHistory.mock.calls.at(-1)?.[0]).toEqual({});
+  await expect
+    .element(page.getByText("Showing the 1 newest login record.", { exact: true }))
+    .toBeVisible();
+});
+
+test("offers Older when every record on a page was left out by the service", async () => {
+  const client = mockClient();
+  client.loginHistory.mockResolvedValueOnce({ ...first, entries: [] });
+  await mount(client);
+  await expect
+    .element(
+      page.getByText(
+        "None of the login records on this page can be shown. Choose Older for earlier ones.",
+        { exact: true },
+      ),
+    )
+    .toBeVisible();
+  await page.getByRole("button", { name: "Older", exact: true }).click();
+  await expect
+    .poll(() => client.loginHistory.mock.calls.at(-1)?.[0])
+    .toEqual({ beforeAt: AT, beforeId: ID });
+  await expect.element(page.getByRole("list", { name: "Login records" })).toBeVisible();
 });
 
 test("shows loading, empty older pages, and returns to newest without losing filters", async () => {

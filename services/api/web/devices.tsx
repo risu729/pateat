@@ -18,8 +18,10 @@ import {
 
 export const DEVICES_QUERY_KEY = ["devices"] as const;
 
-export function formatTime(milliseconds: number) {
-  return `${new Date(milliseconds).toISOString().replace("T", " ").slice(0, 16)} UTC`;
+/** A UTC time to the minute, or to the second where records can be seconds apart. */
+export function formatTime(milliseconds: number, { seconds = false } = {}) {
+  const time = new Date(milliseconds).toISOString().replace("T", " ");
+  return `${time.slice(0, seconds ? 19 : 16)} UTC`;
 }
 
 const IDLE_LIMIT_DAYS = DEVICE_IDLE_LIMIT_MS / (24 * 60 * 60 * 1000);

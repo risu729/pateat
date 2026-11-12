@@ -11,6 +11,7 @@ import { useState } from "react";
 import * as v from "valibot";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
+import { formatTime } from "./devices";
 import { Badge, ErrorNotice, KeyValues, Panel, ROW_CLASSES, RowList, RowMain } from "./ui";
 
 export const LOGIN_HISTORY_QUERY_KEY = ["login-history"] as const;
@@ -42,6 +43,13 @@ const duration = (ms: number) =>
     ? `${ms} ms`
     : `${new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(ms / 1000)} s`;
 
+function showing(count: number, older: boolean) {
+  const s = count === 1 ? "" : "s";
+  return older
+    ? `Showing ${count} older login record${s}.`
+    : `Showing the ${count} newest login record${s}.`;
+}
+
 /** Browse only retained login metadata, independently of the request-log delete control. */
 export function LoginHistory({ client }: { client: ManageClient }) {
   const [site, setSite] = useState("");
@@ -62,6 +70,10 @@ export function LoginHistory({ client }: { client: ManageClient }) {
     // Refresh even when the owner is already on the newest page.
     if (!cursor) void history.refetch();
   };
+  // The list follows the applied filters, which inputs typed since may not match.
+  const applied = [filters.origin, filters.outcome && OUTCOME_LABELS[filters.outcome]]
+    .filter(Boolean)
+    .join(", ");
   return (
     <Panel id="login-history-heading" title="Login history">
       <p>
@@ -73,8 +85,11 @@ export function LoginHistory({ client }: { client: ManageClient }) {
         className="flex flex-wrap items-end gap-3"
         onSubmit={(event) => {
           event.preventDefault();
+          // A pasted address keeps only its origin, which URL also lowercases.
+          const raw = site.trim();
+          const origin = URL.canParse(raw) ? new URL(raw).origin : raw;
           const parsed = v.safeParse(manageLoginHistoryFiltersSchema, {
-            ...(site.trim() ? { origin: site.trim() } : {}),
+            ...(origin ? { origin } : {}),
             ...(outcome ? { outcome } : {}),
           });
           if (!parsed.success) {
@@ -135,11 +150,11 @@ export function LoginHistory({ client }: { client: ManageClient }) {
         </Button>
       </form>
       <p id="login-history-site-hint" className="text-sm text-ink-muted">
-        Use a site address without a path, such as https://example.com.
+        Records match the site&apos;s origin, such as https://example.com; any path is ignored.
       </p>
       {filterError && (
         <ErrorNotice id="login-history-filter-error">
-          Use a site address without a path, such as https://example.com.
+          Enter a site address such as https://example.com.
         </ErrorNotice>
       )}
       {history.isPending ? (
@@ -148,24 +163,23 @@ export function LoginHistory({ client }: { client: ManageClient }) {
         <ErrorNotice id="login-history-error">{describeError(history.error)}</ErrorNotice>
       ) : history.data.entries.length === 0 ? (
         <output className="block">
-          {cursor
-            ? "No older login records match these filters."
-            : "No login records match these filters."}
+          {history.data.next
+            ? "None of the login records on this page can be shown. Choose Older for earlier ones."
+            : cursor
+              ? "No older login records match these filters."
+              : "No login records match these filters."}
+          {applied && ` Filtered by ${applied}.`}
         </output>
       ) : (
         <>
           <output className="block">
-            Showing {history.data.entries.length} login record
-            {history.data.entries.length === 1 ? "" : "s"}
-            {cursor ? ", older than the previous page" : ", newest first"}.
+            {showing(history.data.entries.length, cursor !== undefined)}
+            {applied && ` Filtered by ${applied}.`}
           </output>
           <RowList aria-label="Login records">
             {history.data.entries.map((entry) => (
               <li key={entry.id} className={ROW_CLASSES}>
-                <RowMain
-                  title={entry.origin}
-                  sub={`${new Date(entry.at).toISOString().replace("T", " ").slice(0, 19)} UTC`}
-                />
+                <RowMain title={entry.origin} sub={formatTime(entry.at, { seconds: true })} />
                 <Badge tone={entry.outcome === "authenticated" ? "accent" : "muted"}>
                   {OUTCOME_LABELS[entry.outcome]}
                 </Badge>
