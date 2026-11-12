@@ -1,9 +1,8 @@
 import { expect, it } from "vitest";
 import { completionInstructions } from "../../src/completion";
 import type { CompletionFixtures } from "../../src/completion.test";
+import type { Candidate, Judge } from "./context";
 
-type Candidate = Record<string, unknown>;
-type Judge = ReturnType<CompletionFixtures["judgeReturning"]>["judge"];
 type CodeContext = {
   signedIn: CompletionFixtures["signedIn"];
   request: CompletionFixtures["request"];

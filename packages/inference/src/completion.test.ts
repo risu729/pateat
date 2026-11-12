@@ -52,7 +52,6 @@ function judgeReturning(result: unknown) {
 
 export type CompletionFixtures = {
   signedIn: typeof signedIn;
-  limits: typeof limits;
   request: typeof request;
   judgeReturning: typeof judgeReturning;
 };
