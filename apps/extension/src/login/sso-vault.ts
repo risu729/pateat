@@ -5,7 +5,12 @@ import {
   type VaultConnectionMetadata,
 } from "@pateat/contracts";
 import type { ConnectionRuntime } from "../connections/runtime";
-import type { SsoMethod, SsoMethodRef, SsoMethods } from "../crypto/sso-wire";
+import {
+  SSO_CANDIDATE_LIMIT,
+  type SsoMethod,
+  type SsoMethodRef,
+  type SsoMethods,
+} from "../crypto/sso-wire";
 
 type AccountRef = { connectionId: string; itemId: string };
 type Snapshot = Extract<SettingsResponse, { ok: true }>;
@@ -155,26 +160,28 @@ export function createVaultSsoSource(
       // oxlint-disable-next-line no-await-in-loop -- each vault has a bounded native lane
       const vault = await managerFor(connection);
       if (!vault) return refused("vault-unavailable");
-      // oxlint-disable-next-line no-await-in-loop -- never run a second job on the same vault
-      const matched = await vault.manager.ssoCandidates(vault.handle, {
-        usernameProof: method.usernameProof,
-        candidates: inputs,
-      });
-      if (!matched.ok) return refused(matched.error.code);
       touched.push(connection);
-      for (const candidate of matched.data.candidates) {
-        if (candidate.unavailable) return refused(candidate.unavailable);
-        const origins = candidate.origins.filter(
-          (origin) =>
-            (method.origin === undefined || origin === method.origin) &&
-            (selected === undefined || origin === selected.origin),
-        );
-        if (origins.length)
-          candidates.push({
-            account: { connectionId: connection.id, itemId: candidate.itemId },
-            snapshotId: matched.data.snapshotId,
-            origins,
-          });
+      for (let start = 0; start < inputs.length; start += SSO_CANDIDATE_LIMIT) {
+        // oxlint-disable-next-line no-await-in-loop -- never run a second job on the same vault
+        const matched = await vault.manager.ssoCandidates(vault.handle, {
+          usernameProof: method.usernameProof,
+          candidates: inputs.slice(start, start + SSO_CANDIDATE_LIMIT),
+        });
+        if (!matched.ok) return refused(matched.error.code);
+        for (const candidate of matched.data.candidates) {
+          if (candidate.unavailable) return refused(candidate.unavailable);
+          const origins = candidate.origins.filter(
+            (origin) =>
+              (method.origin === undefined || origin === method.origin) &&
+              (selected === undefined || origin === selected.origin),
+          );
+          if (origins.length)
+            candidates.push({
+              account: { connectionId: connection.id, itemId: candidate.itemId },
+              snapshotId: matched.data.snapshotId,
+              origins,
+            });
+        }
       }
     }
     if (!(await unchanged(saved, touched))) return refused("scope-changed");
