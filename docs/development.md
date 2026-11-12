@@ -172,8 +172,7 @@ levels and limits; `log-fields.ts` owns the stored-value schemas; `log-format.ts
 owns URL filtering and the pure export, problem-line and recent-log projections.
 The writer uses those same schemas and projections, so values written, downloaded
 and sent to the service share their checks. Existing callers keep importing from
-`log.ts`; its browser test suite stays in one file with its assertions and tables
-unchanged.
+`log.ts`.
 
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
@@ -678,6 +677,19 @@ vault locking and status. `context.ts` owns their type-only shared-helper contra
 The challenge registrar reads the registered-connection fixture, which the entry
 initializes after the call, through a getter inside its test callback. The entry owns
 cleanup and mock restoration. Each file follows the 1,000-line limit.
+
+### Diagnostics log test organization
+
+`apps/extension/src/diagnostics/log.test.ts` is the discovered Chromium entry for the
+diagnostics log suite. It owns the describe scopes, the shared `setup` helper, which
+names a fresh database on each call, and the shared fixtures. Plain modules in
+`apps/extension/test/diagnostics/` export synchronous registration functions for
+contiguous case groups: stored fields, background, vault, event, login and page
+reports, retention, export, recent logs and problem lines. The entry calls them
+inside its describe scopes with the same helper and fixture references; importing a
+module registers no cases. `context.ts` holds the shared types. The modules sit
+outside `src/`, so they stay outside the production coverage root. Each file follows
+the 1,000-line limit.
 
 ### Login wire contracts
 
