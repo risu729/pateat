@@ -48,6 +48,14 @@ account-option and rule decisions; `site-policy-rows.tsx` owns the reusable site
 component and default-account editor. Existing controls, keys, focus behavior and
 public exports are preserved.
 
+The popup keeps selection, busy/notice state, focus refs and conditional composition in
+`popup/site-app.tsx`. `site-queries.ts` owns the existing query sequence and settings
+subscription; `site-actions.ts` creates explicitly supplied per-render action closures.
+Account cards, personal-detail controls, re-prompt rules and the status line live in
+focused view modules. Moving the query hooks into one unconditionally called hook
+preserves their order and subscription cleanup; no stateful component boundary,
+control key or action/refetch sequence changes. Existing popup tests stay in place.
+
 The extension's `service/transport.ts` retains endpoint contracts and response mapping.
 `service-call.ts` owns bounded JSON fetching, credential and redirect rules,
 cancellation and request timing. `service-timing.ts` owns pure timing parsing and
