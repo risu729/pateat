@@ -6,6 +6,7 @@ import { storage } from "wxt/utils/storage";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createChoiceClient } from "../../src/login/choice-wire";
 import { createManualClient } from "../../src/login/manual-wire";
+import { createSsoClient } from "../../src/login/sso-wire";
 import { createDetailClient } from "../../src/login/detail-wire";
 import { createBindingReviewClient } from "../../src/login/binding-review-wire";
 import { sendMessage } from "../../src/messaging/protocol";
@@ -36,6 +37,7 @@ createRoot(root).render(
       choices={createChoiceClient((message) => sendMessage("login", message))}
       manual={createManualClient((message) => sendMessage("login", message))}
       details={createDetailClient((message) => sendMessage("login", message))}
+      sso={createSsoClient((message) => sendMessage("login", message))}
       bindingReviews={createBindingReviewClient((message) => sendMessage("login", message))}
       host={{
         async currentTab() {

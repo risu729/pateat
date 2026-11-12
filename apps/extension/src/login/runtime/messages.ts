@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { ssoPopupMessage } from "./sso-popup";
 import { authorizeConfirmation } from "./confirm-fill";
 import { cancelConfirm, confirmBusy, forgetConfirmTab } from "./confirm-state";
 import {
@@ -205,6 +206,8 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     return undefined;
   }
   if (fromPopup(rt, sender)) {
+    const sso = ssoPopupMessage(rt, message);
+    if (sso) return sso;
     const manualGet = v.safeParse(manualOfferRequestSchema, message);
     if (manualGet.success) return manualOffer(rt, manualGet.output.tabId);
     const manualRun = v.safeParse(manualStartRequestSchema, message);
@@ -471,6 +474,7 @@ export async function operationRun(
  * stops only when they no longer plan its account (ADR 0027).
  */
 export function settingsChanged(rt: Runtime, source: "synced" | "saved"): void {
+  rt.ssoChoices?.invalidateAll("settings-changed");
   // A confirmation's document asks again before it fills, so stopping the work is enough;
   // its content script keeps reading the page (ADR 0035 delivery 3).
   cancelConfirm(rt);
@@ -611,6 +615,7 @@ export async function incognitoClosed(rt: Runtime): Promise<void> {
  * goes on in the new tab, which its record moved to first.
  */
 export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
+  rt.ssoChoices?.invalidateTab(tabId, "page-changed");
   forgetConfirmTab(rt, tabId);
   clearBindingReview(rt, tabId);
   endManual(rt, tabId, "page-changed");

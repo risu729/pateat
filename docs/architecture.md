@@ -3452,9 +3452,9 @@ generation request sends only selected account/method labels and a value-free pa
 description; no IdP origin, account, username or mapping is sent. New labels join the
 newest SSO layout, each family is repaired once a UTC day apart, and the retry window
 follows the stored SSO entries rather than the requested labels or the recipe's
-revision. The
-method chooser, local mapping, same-tab coordinator and IdP behavior still must
-integrate those contracts before any SSO entry executes.
+revision. The method chooser and local mappings exist
+([local SSO choice](#local-sso-choice-boundary)); the same-tab coordinator and IdP
+behavior still must integrate those contracts before any SSO entry executes.
 
 Split inference into independently configured recipe generation/repair and
 finite selection/classification roles. Adapters may share an underlying provider
@@ -4609,3 +4609,23 @@ evaluation fields once the page reports its first step shown. The popup says whe
 the fill changed a field. Existing page-kind evaluation fields and
 person-submitted tracking remain. A fill acknowledgement is not authentication,
 submission or success of the action guarded by the verification page.
+
+## Local SSO choice boundary
+
+The local SSO discovery wrapper, mapping store and method-choice controller implement
+the metadata and popup boundary of
+[ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#amendment-2026-11-12-local-mapping-and-method-choice).
+They do not yet start an SSO login, and nothing calls them yet. The account is chosen
+first. A coordinator requests a method choice for that account and consumes a one-use
+opaque receipt that is validated again; it still owns same-tab navigation, exact
+document and origin checks and credential release.
+
+The trusted device-local mapping record (`pateat.login.sso-mappings`, never synced, as
+ADR 0085 keeps the mapping local) holds only source references, encrypted-source
+evidence, the selected account and origin, and the provider, server and user of both
+connections, so a vault sync keeps it. Popup choices are memory-only, bounded to ten
+minutes and withdrawn on cancellation or scope changes. Every enabled method is checked
+before a choice can run, so two methods cannot name the same IdP account through
+different connections. A URL-form choice names an observed entry by opaque ID and
+checks it again locally; no mapping or exact target goes to inference. Native credential
+origin checks are unchanged.
