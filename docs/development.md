@@ -584,6 +584,18 @@ expanded test count. The owner approved this organization with the runtime split
 on 2026-10-30. Compare the full Verify job as well as test counts when changing the
 suite layout, since each file loads the runtime and harness separately.
 
+### API sync test organization
+
+`services/api/test/sync.test.ts` remains the sole discovered entry for the sync
+suite. Plain modules in `services/api/test/sync/` export synchronous registration
+functions, called by that entry in the original describe order; importing a leaf
+registers no cases. `harness.ts` holds the shared synthetic owners, devices,
+settings and recipe helpers once. The existing describe nesting, registration
+order, callbacks, parameter tables and migration SQL remain unchanged. Each file
+follows the 1,000-line limit. The API coverage configuration covers production
+`src/` only, so these test helpers remain outside it. Compare expanded collection
+names and counts as well as the local Worker tests when changing this layout.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
