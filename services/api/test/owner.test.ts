@@ -26,9 +26,9 @@ import {
   type Owner,
 } from "./access-helpers";
 import { profileDocument } from "../src/settings-store";
-import { registerOwnerWebUiCases } from "./owner/web-ui";
-import { registerOwnerRecipeCases } from "./owner/recipes";
-import { registerOwnerRequestLogCases } from "./owner/request-log";
+import { registerOwnerWebUiCases } from "./owner/web-ui-cases";
+import { registerOwnerRecipeCases } from "./owner/recipe-cases";
+import { registerOwnerRequestLogCases } from "./owner/request-log-cases";
 
 // Synthetic Access keys, identities and extension IDs only. Every test uses fresh
 // subjects so results never depend on rows written by another test.

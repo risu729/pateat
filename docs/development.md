@@ -650,22 +650,6 @@ follows the 1,000-line limit. The API coverage configuration covers production
 `src/` only, so these test helpers remain outside it. Compare expanded collection
 names and counts as well as the local Worker tests when changing this layout.
 
-### API owner test organization
-
-`services/api/test/owner.test.ts` remains the sole discovered entry for the owner
-suite. It owns the Access-key installation, shared request and pairing helpers,
-and all existing describe scopes. Plain modules in `services/api/test/owner/`
-export synchronous registration functions for the web UI, recipes and request-log
-groups; the entry calls each inside its original describe callback. The recipe
-and request-log registrars retain their local helpers with every use, initialized
-once at the same registration point. Importing a module registers no cases.
-Shared helper references are passed unchanged, and their context uses erased
-`typeof` aliases from the entry. Describe nesting, callbacks, tables, comments,
-registration order and fixture lifetimes stay unchanged. Each file follows the
-1,000-line limit. These modules remain outside the production `src/` coverage
-root; compare expanded collection names and counts as well as the local Worker
-tests when changing the layout.
-
 ### Observation reader test organization
 
 `apps/extension/src/observation/extract.test.ts` remains the discovered Chromium
