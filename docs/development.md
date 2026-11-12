@@ -488,6 +488,20 @@ a module registers no tests. The case callbacks, tables, titles, hooks and regis
 order stay unchanged. These test modules live outside `src/` so they do not enter the
 production coverage denominator.
 
+### Inference plan test organization
+
+`packages/inference/src/plan.test.ts` remains the sole discovered entry for plan
+validation. It owns all describe scopes and shared and suite-local fixtures and
+helpers. Passive synchronous registrars in `packages/inference/test/plan/` register
+contiguous custom-slot naming, saved-binding, identifier-set, passkey-entry and
+action-purpose cases at their original positions. The custom-slot and saved-binding
+scopes call separate registrars around their local helper and fixture initialization.
+The entry passes the same initialized helper and object references; importing a leaf
+registers no cases. Its exported fixture contract is type-only, so leaves create no
+runtime import cycle. Callbacks, tables, comments and registration order stay
+unchanged. Each file follows the 1,000-line limit, and the leaves remain outside the
+production coverage root without discovery or coverage configuration changes.
+
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
