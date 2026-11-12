@@ -23,9 +23,9 @@ export function recordFor(
   if (parent && !parent.ended && parent.account.origin === documentOrigin && parent.parent)
     return parent.parent;
   const run = rt.attempts.get(tabId);
-  return run?.metadata.account.origin === documentOrigin
-    ? run.metadata
-    : rt.persisted.get(recordKey(tabId, documentOrigin));
+  if (run?.metadata.account.origin === documentOrigin) return run.metadata;
+  const stored = rt.persisted.get(recordKey(tabId, documentOrigin));
+  return stored?.ssoChild?.released === true ? undefined : stored;
 }
 
 /**
@@ -108,7 +108,9 @@ export function showHeld(rt: Runtime, tabId: number): void {
 export function tabAttempt(rt: Runtime, tabId: number): LoginAttemptMetadata | undefined {
   const run = rt.attempts.get(tabId);
   if (run) return run.metadata;
-  const records = [...rt.persisted.values()].filter((entry) => entry.document.tabId === tabId);
+  const records = [...rt.persisted.values()].filter(
+    (entry) => entry.document.tabId === tabId && entry.ssoChild?.released !== true,
+  );
   return records.find((entry) => !terminal(entry)) ?? records.at(-1);
 }
 

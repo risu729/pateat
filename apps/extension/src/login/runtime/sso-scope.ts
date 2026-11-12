@@ -1,3 +1,4 @@
+import { heldElsewhere } from "./hold";
 import { pausedInPrivate } from "../pause";
 import {
   getItemEligibility,
@@ -20,7 +21,15 @@ export const ssoCurrent = (rt: Runtime, work: SsoWork, live = work.live) =>
   !work.abort.signal.aborted &&
   rt.sso.healthy() &&
   rt.vars.storageHealthy &&
+  !rt.manualStarts.get(live.document.tabId)?.pick &&
+  !rt.switchesRunning.has(live.document.tabId) &&
+  !rt.bindingReviews.has(live.document.tabId) &&
+  (!rt.picked?.get(live.document.tabId) ||
+    rt.picked.get(live.document.tabId) === work.chosen.pick ||
+    rt.picked.get(live.document.tabId)?.attemptId === work.id) &&
   Date.now() - work.startedAt < 600_000 &&
+  !heldElsewhere(rt, live.document.tabId, work.account.origin) &&
+  !heldElsewhere(rt, live.document.tabId, work.selected.origin) &&
   live.document.frameId === 0 &&
   rt.documents.get(frameKey(live.document)) === live &&
   (live.document.origin === work.account.origin || live.document.origin === work.selected.origin);
@@ -92,7 +101,8 @@ export async function ssoScope(
       found.item.inactive ||
       connection?.quarantinedItemIds?.includes(account.itemId) ||
       !connection?.snapshotId ||
-      rt.options.bindingSnapshotCurrent?.(connection.id, connection.snapshotId) === false
+      (connection.provider === "bitwarden" &&
+        rt.options.bindingSnapshotCurrent?.(connection.id, connection.snapshotId) !== true)
     )
       return false;
   }
@@ -128,7 +138,8 @@ export async function ssoScope(
       );
       return (
         !!connection?.snapshotId &&
-        rt.options.bindingSnapshotCurrent?.(connection.id, connection.snapshotId) !== false
+        (connection.provider !== "bitwarden" ||
+          rt.options.bindingSnapshotCurrent?.(connection.id, connection.snapshotId) === true)
       );
     });
   const current = () =>

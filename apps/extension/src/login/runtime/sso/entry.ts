@@ -17,7 +17,7 @@ import { frameKey, acceptedObservation } from "../steps";
 import { send } from "../attempt";
 import { itemFacts } from "../plan";
 import { listedBrowserSite, pauseOf } from "../pause";
-import { endManual } from "../manual-scope";
+import { endManual, manualAuthorizationCurrent } from "../manual-scope";
 import { tabAttempt, heldForLogin } from "../hold";
 import { terminal } from "../attempt-state";
 import { askFor } from "../choice";
@@ -166,6 +166,8 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     },
   });
   const result = await requested.result;
+  if (ctx.manual && !manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
+    return ctx.refuse("manual-request-ended");
   if (!result.ok || rt.documents.get(ctx.key) !== ctx.live)
     return ctx.refuse(result.ok ? "stale-document" : result.reason);
   const receipt = await rt.ssoChoices.consume(result.choiceId);
@@ -185,6 +187,8 @@ export async function offerSso(rt: Runtime, ctx: AdmitContext) {
     return undefined;
   }
   if (ctx.manual) {
+    if (!manualAuthorizationCurrent(rt, ctx.live, ctx.manual))
+      return ctx.refuse("manual-request-ended");
     // A one-page grant cannot authorize a hop. Existing auto permission on both sites can.
     if (
       resolvePagePermission(saved.snapshot.settings, ctx.live.url, "sign-in")?.permission !==

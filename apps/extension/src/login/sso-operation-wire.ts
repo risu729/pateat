@@ -54,6 +54,7 @@ export type SsoInspection = v.InferOutput<typeof ssoInspectResultSchema>;
 export const ssoAuthorizeSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.sso.authorize"),
+  phase: v.picklist(["pointer", "click"]),
   token: id,
   flowId: id,
   operationId: id,
