@@ -1,7 +1,8 @@
 # ADR 0026: Signing in to a site through an identity provider
 
 Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; the scoped
-coordinator is implemented with synthetic verification in progress, following account
+coordinator is implemented on a branch, with synthetic verification recorded in
+[the implementation PR](https://github.com/risu729/pateat/pull/1532), following account
 choice and the local discovery / declarative generation foundations
 ([2026-11-12 amendment](#amendment-2026-11-12-declarative-sso-entry-generation)). The
 owner initially set it as low priority; the current implementation is described in the
@@ -265,11 +266,12 @@ releases its IdP origin hold while retaining submission diagnostics; it supplies
 ordinary IdP recent success, default or authentication proof. Native fill-only and
 confirmation flows start no SSO effect.
 
-The first packaged synthetic password flow has exercised popup mapping, the actual RP
-entry, exact encrypted IdP credentials, and confirmed original-RP completion without
-changing the IdP default or creating an IdP authentication proof. Full negative-matrix,
-passkey, service-generation, cloud and independent review checks are still in progress.
-No real-account or installed-user-browser compatibility is claimed.
+Packaged synthetic checks exercise popup mapping, the actual RP entry, encrypted IdP
+passwords and passkeys, finite intermediate pages, service generation/cache and original
+RP completion. They also check interruption and refusal without changing the IdP default
+or creating an IdP authentication proof. Exact revisions, results and independent review
+are recorded in [the implementation PR](https://github.com/risu729/pateat/pull/1532).
+This evidence does not establish real-account or installed-user-browser compatibility.
 
 ## Review hardening 2026-11-12: finite IdP actions and local labels
 

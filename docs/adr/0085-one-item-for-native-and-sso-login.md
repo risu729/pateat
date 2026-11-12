@@ -3,7 +3,8 @@
 Status: accepted by the owner on 2026-11-07 (12:51 UTC:
 「これはそのまま反映していいです」, the proposal of
 [#1380](https://github.com/risu729/pateat/issues/1380) applied as written); not verified
-on real accounts; the scoped route is implemented with synthetic checks in progress.
+on real accounts; the scoped route is implemented on a branch, with synthetic evidence
+recorded in [the implementation PR](https://github.com/risu729/pateat/pull/1532).
 Amended on 2026-11-12 by the local discovery
 [implementation note](#amendment-2026-11-12-local-method-discovery-and-mapping-validation);
 the
@@ -21,8 +22,8 @@ implementation details and were accepted with it. Amends
 used, field rules and item-wide exclusions) and
 [ADR 0027](0027-per-account-login-routes.md) (the `sso` fact, the route order, the
 custom-field offers and what the model receives), each in a dated amendment section. The
-`sso` route is now implemented with synthetic verification and independent review gates
-still open (ADR 0027 delivery 5); the reserved field names are implemented
+`sso` route is now implemented (ADR 0027 delivery 5), with real-account compatibility
+still open; the reserved field names are implemented
 ([amendment](#amendment-2026-11-07-the-reserved-field-names-implemented)).
 
 Date: 2026-11-07
@@ -327,6 +328,7 @@ selection. Only the chosen method's public label and redacted RP candidates reac
 generation. Malformed, unavailable or unresolved preferred methods never silently choose
 a native password. Completion stores only the RP's confirmed account choice and proof.
 
-Synthetic packaged execution is being validated with encrypted fixtures. The owning
-plan retains the remaining gates; implementation does not establish real-account
-compatibility, migrate an account, create an account, or authorize a new grant.
+Synthetic packaged execution uses encrypted fixtures; its results and independent review
+are recorded in [the implementation PR](https://github.com/risu729/pateat/pull/1532).
+The owning plan retains installed-user-browser and real-account gates. Implementation
+does not migrate an account, create an account, or authorize a new grant.
