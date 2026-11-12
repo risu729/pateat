@@ -302,6 +302,7 @@ describe("production login document admission", () => {
         const h = await refused();
         expect(await pick(h)).toEqual({ ok: true });
         expect(fake.state.session).toEqual({
+          "pateat.login-binding-reviews.v1": [],
           "pateat.login-picks.v1": [
             {
               tabId: 1,
@@ -336,6 +337,7 @@ describe("production login document admission", () => {
         for (const listener of fake.state.removed) listener(1);
         await vi.waitFor(() =>
           expect(fake.state.session).toEqual({
+            "pateat.login-binding-reviews.v1": [],
             "pateat.login-noted.v1": [],
             "pateat.login-picks.v1": [],
             "pateat.login-choices.v1": [],

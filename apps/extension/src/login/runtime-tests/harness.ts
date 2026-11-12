@@ -178,6 +178,7 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
       /** A hostname chosen "Always for this site" whose write still waits (ADR 0007). */
       pendingBrowserSite?: (origin: string) => boolean;
+      bindingScope?: Parameters<typeof createLoginRuntime>[1]["bindingScope"];
       /** Automatic vault sync (ADR 0025). */
       vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
       /** Receives the runtime's reports for the local log, without page URLs unless `urls`. */
@@ -250,9 +251,21 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
           expected: number | undefined,
           _cause: SettingsChangeCause,
           mutate: (value: SettingsSnapshot) => SettingsSnapshot,
+          authorize?: Parameters<
+            NonNullable<Parameters<typeof createLoginRuntime>[0]["update"]>
+          >[3],
         ) => {
           if (expected !== undefined && expected !== snapshot.revision)
             throw new Error("revision-conflict");
+          if (
+            authorize &&
+            !(await authorize(structuredClone(snapshot), async () => {
+              const value = await store.handle();
+              if (!value.ok) throw new Error("catalog-unavailable");
+              return value.catalog;
+            }))
+          )
+            throw new Error("settings-authorization-failed");
           const next = mutate(structuredClone(snapshot));
           Object.assign(snapshot, next, { revision: snapshot.revision + 1 });
           return structuredClone(snapshot);
@@ -399,6 +412,7 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
       ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
       ...(live.pendingBrowserSite ? { pendingBrowserSite: live.pendingBrowserSite } : {}),
       ...(live.vault ? { vault: live.vault } : {}),
+      ...(live.bindingScope ? { bindingScope: live.bindingScope } : {}),
       ...(live.signedIn ? { signedIn: live.signedIn } : {}),
       ...(live.logout ? { logout: live.logout } : {}),
       ...(live.pauses ? { pauses: live.pauses } : {}),
