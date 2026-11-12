@@ -640,6 +640,31 @@ follows the 1,000-line limit. The API coverage configuration covers production
 `src/` only, so these test helpers remain outside it. Compare expanded collection
 names and counts as well as the local Worker tests when changing this layout.
 
+### Observation reader test organization
+
+`apps/extension/src/observation/extract.test.ts` remains the discovered Chromium
+suite and owns its hoisted shadow-root mock, the shared `page`, `shadow`, `observe`,
+`summary` and `signedIn` helpers, the root setup and cleanup, and the original
+describe nesting. Plain registration modules under `apps/extension/test/observation/`
+own the contiguous login reader, locator, candidate, visibility, known-field and
+shadow/redaction groups, and the signed-in reader, nearby-button text and candidate
+groups. The entry calls each registrar synchronously at the original position and
+passes the same helper functions; modules do not register tests when imported. Each
+file follows the 1,000-line limit. These modules sit outside the production coverage
+root and keep the same callbacks, assertions and parameter tables without changing
+test discovery, test ordering or runner configuration.
+
+### Passkey runtime test organization
+
+`apps/extension/src/passkeys/runtime.test.ts` is the discovered entry for the passkey
+runtime suite. It owns the describe scopes, the shared fixtures and the timer cleanup
+of the immediate-request cases. Plain modules in `apps/extension/test/passkeys/`
+export synchronous registration functions for contiguous case groups, which the entry
+calls inside those scopes with the same fixture and helper references; importing a
+module registers no cases. `runtime-context.ts` holds the fixture types. The modules
+sit outside `src/`, so they stay outside the production coverage root without an
+exclude. Each file follows the 1,000-line limit.
+
 ### Connection settings test organization
 
 The options connection suite keeps `tests/options/connection-setup.test.tsx` as its
@@ -650,10 +675,9 @@ contiguous scenarios in the original root order, without their own hooks or suit
 The modules own adding and verification, challenge lifetimes, catalog saves and
 reloads, connection management and recovery, policy and limits, keyboard focus, and
 vault locking and status. `context.ts` owns their type-only shared-helper contract.
-The challenge registrar reads the later-initialized registered-connection fixture
-through a getter inside its test callback, preserving the original lookup lifetime.
-Registration, fixture initialization, DOM queries and focus changes keep their
-original ordering; the entry remains responsible for cleanup and mock restoration.
+The challenge registrar reads the registered-connection fixture, which the entry
+initializes after the call, through a getter inside its test callback. The entry owns
+cleanup and mock restoration. Each file follows the 1,000-line limit.
 
 ### Login wire contracts
 
