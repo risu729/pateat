@@ -35,9 +35,14 @@ export function confirmCurrent(rt: Runtime, work: ConfirmWork): boolean {
     latest.account.itemId === parent.account.itemId &&
     (!running || terminal(running)) &&
     !manualPending(rt, live) &&
+    !rt.manualStarts.get(live.document.tabId)?.pick &&
     !rt.switchesRunning.has(live.document.tabId) &&
     !switchingElsewhere(rt, live.document.tabId, siteOf(live.document.origin)) &&
-    !rt.accountPicks.switchingHere(live.document.tabId, undefined, live.incognito) &&
+    !rt.accountPicks.switchingHere(
+      live.document.tabId,
+      siteOf(live.document.origin),
+      live.incognito,
+    ) &&
     (live.document.frameId === 0 || top?.document.documentId === work.topDocumentId)
   );
 }
