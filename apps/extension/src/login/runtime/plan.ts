@@ -272,7 +272,14 @@ export async function bindingFor(
   slotMap: () => Promise<LoginBindingTemplate | undefined>,
   fillGaps: boolean,
 ): Promise<
-  | { ok: true; binding: LoginAccountBinding; synced: SavedLoginBinding; saved: boolean }
+  | {
+      ok: true;
+      binding: LoginAccountBinding;
+      synced: SavedLoginBinding;
+      saved: boolean;
+      /** The settings entry read, as a popup repair's override replaced it. */
+      stored?: SavedLoginBinding;
+    }
   | { ok: false; reason: string; repair?: BindingIssue }
 > {
   const connection = catalog.connections.find((entry) => entry.id === choice.connectionId);
@@ -350,6 +357,7 @@ export async function bindingFor(
     // too. The stored binding itself is only ever widened, keeping its entries.
     synced: saved ? { ...binding, accountName: connection.label } : binding,
     saved: saved !== undefined && !widened,
+    ...(saved ? { stored: saved } : {}),
   };
 }
 
@@ -522,6 +530,7 @@ export async function planFor(
     let policy = snapshot.snapshot;
     let binding: LoginAccountBinding;
     let choice: UnsavedChoice | undefined;
+    let stored: SavedLoginBinding | undefined;
     if (!chosen) binding = probeBinding(recipe, rt.vars.account, slots);
     else {
       let named: SavedLoginBinding | LoginChoiceAccount;
@@ -558,6 +567,7 @@ export async function planFor(
           };
         binding = bound.binding;
         named = bound.synced;
+        stored = bound.stored;
         unsaved = !chosen.saved || !bound.saved;
       }
       if (!chosen.saved) {
@@ -633,6 +643,7 @@ export async function planFor(
           }
         : {}),
       ...(choice ? { choice } : {}),
+      ...(stored ? { stored } : {}),
       ...(chosen?.fillOnly ? { fillOnly: true as const, asked: chosen.asked ?? [] } : {}),
     };
   };

@@ -1,9 +1,33 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import { Button } from "../options/button";
 import type { BindingReviewClient } from "../login/binding-review-wire";
+
+export type { BindingReviewClient };
+
+/** The section for the popup's tab, once it shows a page. */
+export function PopupBindingReview({
+  client,
+  tabId,
+  origin,
+  host,
+}: {
+  client: BindingReviewClient | undefined;
+  tabId: number | undefined;
+  origin: string | undefined;
+  host: { openSettings(section?: string): void };
+}) {
+  if (!client || tabId === undefined || !origin) return null;
+  return (
+    <BindingReviewSection
+      client={client}
+      tabId={tabId}
+      onOpenSettings={() => host.openSettings("bitwarden")}
+    />
+  );
+}
 
 /** Names only: no vault field values are requested to review a failed binding. */
 export function BindingReviewSection({
@@ -19,9 +43,16 @@ export function BindingReviewSection({
   const [picks, setPicks] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  // Only the first read may ask the page to announce again; the polls that follow only
+  // read what the worker already knows.
+  const read = useRef(false);
   const query = useQuery({
     queryKey: ["popup", "binding-review", tabId],
-    queryFn: () => client.get(tabId),
+    queryFn: () => {
+      const first = !read.current;
+      read.current = true;
+      return client.get(tabId, first);
+    },
     refetchInterval: 1000,
     staleTime: 0,
     gcTime: 0,
@@ -39,12 +70,19 @@ export function BindingReviewSection({
         reviewId: repair.reviewId,
         picks: repair.slots.map(({ slot }) => ({ slot, fieldId: picks[keyFor(slot)]! })),
       });
-      setMessage(
-        result.ok
-          ? t(
-              "Pateat is retrying this login. The repaired fields are saved only after sign-in succeeds.",
-            )
-          : result.reason === "not-a-candidate"
+      if (result.ok)
+        setMessage(
+          result.waiting === "master-password"
+            ? t(
+                "This item asks for the master password first. Enter it in the window Pateat opens to retry with these fields. They are saved only after sign-in succeeds.",
+              )
+            : t(
+                "Pateat is retrying this login. The repaired fields are saved only after sign-in succeeds.",
+              ),
+        );
+      else
+        setMessage(
+          result.reason === "not-a-candidate"
             ? t("Choose a current allowed field for every input, then try again.")
             : result.reason === "stale-review"
               ? t(
@@ -53,7 +91,7 @@ export function BindingReviewSection({
               : t(
                   "Pateat could not restart this login. No repaired fields were saved. Try again from the page.",
                 ),
-      );
+        );
       await query.refetch();
     } catch {
       setMessage(t("The field review could not be read. Try again."));

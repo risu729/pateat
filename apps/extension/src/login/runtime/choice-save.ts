@@ -45,7 +45,8 @@ export async function remember(rt: Runtime, run: Execution): Promise<void> {
   const choice = run.choice;
   delete run.choice;
   const { account: used } = run.metadata;
-  if (!choice || !rt.settings.update) return;
+  // A repaired binding is saved only by `settleBindingReview`, inside its fences.
+  if (!choice || run.bindingRepair || !rt.settings.update) return;
   const outcome = (value: Extract<LoginReport, { type: "choice" }>["outcome"]) =>
     report(rt, run.metadata.document, {
       type: "choice",

@@ -214,7 +214,8 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     const switched = v.safeParse(switchRequestSchema, message);
     if (switched.success) return switchFor(rt, switched.output);
     const review = v.safeParse(bindingReviewRequestSchema, message);
-    if (review.success) return popupBindingReview(rt, review.output.tabId);
+    if (review.success)
+      return popupBindingReview(rt, review.output.tabId, review.output.reconnect === true);
     const repair = v.safeParse(bindingRepairRequestSchema, message);
     if (repair.success) return pickBindingReview(rt, repair.output);
     const detail = v.safeParse(detailRequestSchema, message);

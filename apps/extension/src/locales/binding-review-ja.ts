@@ -16,6 +16,8 @@ export const bindingReviewJa = {
   "Review fields in settings": "設定でフィールドを確認",
   "Pateat is retrying this login. The repaired fields are saved only after sign-in succeeds.":
     "ログインを再試行しています。修正したフィールドはログインの成功後にだけ保存します。",
+  "This item asks for the master password first. Enter it in the window Pateat opens to retry with these fields. They are saved only after sign-in succeeds.":
+    "このアイテムは使う前にマスターパスワードの入力が必要です。Pateat が開くウィンドウで入力すると、選んだフィールドでログインを再試行します。フィールドはログインの成功後にだけ保存します。",
   "Choose a current allowed field for every input, then try again.":
     "すべての入力欄について、現在使用を許可されているフィールドを選び、再試行してください。",
   "The page, vault or settings changed. Reload the page to review its fields again.":

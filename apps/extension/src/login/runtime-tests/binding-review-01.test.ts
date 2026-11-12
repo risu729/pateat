@@ -73,6 +73,24 @@ describe("popup binding repair through the production runtime", () => {
     expect(first.fields).not.toHaveBeenCalled();
   });
 
+  it("asks the page to announce again only on the popup's first read, never on a poll", async () => {
+    const first = start();
+    const review = await offer(first);
+    const restarted = start();
+    fake.state.onReconnect = () => restarted.hello();
+    // The restarted worker does not know the document; a poll only reads what it knows.
+    expect(await get(restarted, true)).toEqual({ ok: true, blocked: [] });
+    expect(await get(restarted, true)).toEqual({ ok: true, blocked: [] });
+    expect(fake.state.reconnects).toEqual([]);
+    expect(fake.state.session["pateat.login-binding-reviews.v1"]).toMatchObject([
+      { id: review.reviewId },
+    ]);
+    expect((await get(restarted)).repair?.reviewId).toBe(review.reviewId);
+    expect(fake.state.reconnects).toHaveLength(1);
+    expect((await get(restarted, true)).repair?.reviewId).toBe(review.reviewId);
+    expect(fake.state.reconnects).toHaveLength(1);
+  });
+
   it("serializes concurrent picks into one start and one authenticated update", async () => {
     const h = start();
     const review = await offer(h);

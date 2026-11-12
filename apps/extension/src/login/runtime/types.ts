@@ -254,6 +254,11 @@ export type Execution = {
   /** Saved only once this attempt reaches confirmed `authenticated`. */
   choice?: UnsavedChoice;
   /**
+   * The login took a popup binding repair (ADR 0023): only its fenced save may write the
+   * rewritten binding, so no `choice` is kept or derived again for it.
+   */
+  bindingRepair?: true;
+  /**
    * The step index of a held click this document performed (ADR 0027): a handler's click
    * or the `passkey` route's. Its page is not judged while the clicked button still shows.
    */

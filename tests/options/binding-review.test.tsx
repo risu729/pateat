@@ -93,7 +93,28 @@ test("shows field names and requires every stale slot before retry, with one in-
     .toHaveTextContent(
       "Pateat is retrying this login. The repaired fields are saved only after sign-in succeeds.",
     );
-  expect(client.get).toHaveBeenCalledWith(7);
+  // Only the first read may ask the page to announce again; later reads only poll.
+  expect(client.get.mock.calls[0]).toEqual([7, true]);
+  expect(client.get.mock.calls.slice(1)).not.toEqual([]);
+  expect(client.get.mock.calls.slice(1).every(([, reconnect]) => reconnect === false)).toBe(true);
+});
+
+test("tells the owner to enter the master password when the retry waits for it", async () => {
+  const { client } = mount({
+    ok: true,
+    blocked: [],
+    repair: { ...repair, slots: [repair.slots[0]!] },
+  });
+  client.pick.mockResolvedValue({ ok: true, waiting: "master-password" });
+  await page
+    .getByRole("combobox", { name: "Input 1: Old branch", exact: true })
+    .selectOptions("custom.branch");
+  await page.getByRole("button", { name: "Use these fields and retry", exact: true }).click();
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent(
+      "This item asks for the master password first. Enter it in the window Pateat opens to retry with these fields. They are saved only after sign-in succeeds.",
+    );
 });
 
 test("keeps retry disabled with no candidate and links to the existing settings review", async () => {

@@ -66,9 +66,15 @@ export function bindingReviewFixture(fake: ReturnType<typeof createBrowserFake>)
     h.recipes.recipe.mockResolvedValue(repairedRecipe);
     return h;
   };
-  const get = async (h: ReturnType<typeof start>) =>
+  /** The popup's first read by default; `poll` reads as its interval does. */
+  const get = async (h: ReturnType<typeof start>, poll = false) =>
     (await h.login.handle(
-      { version: 1, type: "login.binding-review.get", tabId: 1 },
+      {
+        version: 1,
+        type: "login.binding-review.get",
+        tabId: 1,
+        ...(poll ? {} : { reconnect: true }),
+      },
       popup,
     )) as BindingReviewResponse;
   const offer = async (h: ReturnType<typeof start>) => {

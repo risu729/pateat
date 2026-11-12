@@ -64,6 +64,18 @@ describe("binding review wire", () => {
       await client.pick({ tabId: 1, reviewId: "synthetic-review", picks: valid.picks }),
     ).toEqual({ ok: false, reason: "stale-review" });
     expect(send).toHaveBeenLastCalledWith(valid);
+    send.mockResolvedValueOnce({ ok: true, waiting: "master-password" });
+    expect(
+      await client.pick({ tabId: 1, reviewId: "synthetic-review", picks: valid.picks }),
+    ).toEqual({ ok: true, waiting: "master-password" });
+    send.mockResolvedValueOnce({ ok: true, blocked: [] });
+    await client.get(1, true);
+    expect(send).toHaveBeenLastCalledWith({
+      version: 1,
+      type: "login.binding-review.get",
+      tabId: 1,
+      reconnect: true,
+    });
     send.mockResolvedValueOnce({ ok: true, blocked: [], secret: "synthetic-secret" });
     await expect(client.get(1)).rejects.toThrow();
   });

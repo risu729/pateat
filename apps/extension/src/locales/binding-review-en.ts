@@ -15,6 +15,8 @@ export const bindingReviewEn = {
   "Review fields in settings": "Review fields in settings",
   "Pateat is retrying this login. The repaired fields are saved only after sign-in succeeds.":
     "Pateat is retrying this login. The repaired fields are saved only after sign-in succeeds.",
+  "This item asks for the master password first. Enter it in the window Pateat opens to retry with these fields. They are saved only after sign-in succeeds.":
+    "This item asks for the master password first. Enter it in the window Pateat opens to retry with these fields. They are saved only after sign-in succeeds.",
   "Choose a current allowed field for every input, then try again.":
     "Choose a current allowed field for every input, then try again.",
   "The page, vault or settings changed. Reload the page to review its fields again.":

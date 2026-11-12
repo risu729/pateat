@@ -6,6 +6,8 @@ export const bindingReviewRequestSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.binding-review.get"),
   tabId,
+  /** Only the popup's first read may ask a document the worker forgot to announce again. */
+  reconnect: v.optional(v.literal(true)),
 });
 export const bindingRepairRequestSchema = v.strictObject({
   version: v.literal(1),
@@ -38,7 +40,8 @@ export const bindingReviewResponseSchema = v.strictObject({
   ),
 });
 export const bindingRepairResponseSchema = v.variant("ok", [
-  v.strictObject({ ok: v.literal(true) }),
+  // A re-prompt item's restart waits for its master password, with the choice kept.
+  v.strictObject({ ok: v.literal(true), waiting: v.optional(v.literal("master-password")) }),
   v.strictObject({
     ok: v.literal(false),
     reason: v.picklist(["stale-review", "not-a-candidate", "unavailable"]),
@@ -48,17 +51,22 @@ export type BindingReviewResponse = v.InferOutput<typeof bindingReviewResponseSc
 export type BindingRepairRequest = v.InferOutput<typeof bindingRepairRequestSchema>;
 export type BindingRepairResponse = v.InferOutput<typeof bindingRepairResponseSchema>;
 export interface BindingReviewClient {
-  get(tabId: number): Promise<BindingReviewResponse>;
+  get(tabId: number, reconnect?: boolean): Promise<BindingReviewResponse>;
   pick(request: Omit<BindingRepairRequest, "version" | "type">): Promise<BindingRepairResponse>;
 }
 export function createBindingReviewClient(
   send: (message: unknown) => Promise<unknown>,
 ): BindingReviewClient {
   return {
-    get: async (tab) =>
+    get: async (tab, reconnect) =>
       v.parse(
         bindingReviewResponseSchema,
-        await send({ version: 1, type: "login.binding-review.get", tabId: tab }),
+        await send({
+          version: 1,
+          type: "login.binding-review.get",
+          tabId: tab,
+          ...(reconnect ? { reconnect: true } : {}),
+        }),
       ),
     pick: async (request) =>
       v.parse(

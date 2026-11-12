@@ -68,6 +68,44 @@ export function clearBindingReview(rt: Runtime, tabId: number) {
   void quietly(rt, () => saveSession(rt));
 }
 
+/**
+ * Forget a chosen override that no attempt took yet, as one waiting for the master
+ * password, once its document is gone or the owner did not give the password.
+ */
+export function dropPendingBindingReview(rt: Runtime, tabId: number, documentId?: string) {
+  const review = rt.bindingReviews.get(tabId);
+  if (
+    review?.replacement &&
+    !review.attemptId &&
+    (documentId === undefined || review.document.documentId === documentId)
+  )
+    clearBindingReview(rt, tabId);
+}
+
+/**
+ * The reconnected document was refused only for its item's master password re-prompt:
+ * its window decides, and the reconnect after it plans with the kept override.
+ */
+function waitsForPassword(rt: Runtime, review: BindingReviewState) {
+  const live = rt.documents.get(frameKey(review.document));
+  if (
+    !live ||
+    !sameLoginDocument(live.document, review.document) ||
+    live.reason !== "master-password-reprompt"
+  )
+    return false;
+  const key = `${review.document.tabId} ${review.document.documentId}`;
+  const waiting = rt.repromptWaiting.get(review.document.tabId);
+  const grant = rt.repromptGrants.get(key);
+  return (
+    (waiting?.document.documentId === review.document.documentId &&
+      waiting.account.connectionId === review.connectionId &&
+      waiting.account.itemId === review.binding.itemId) ||
+    rt.passwordAsks.get(key)?.connectionId === review.connectionId ||
+    (grant?.connectionId === review.connectionId && grant.itemId === review.binding.itemId)
+  );
+}
+
 /** Capture only a fresh start's final refusal, after route/layout alternatives were tried. */
 export async function offerBindingReview(
   rt: Runtime,
@@ -169,9 +207,9 @@ async function currentReview(rt: Runtime, review: BindingReviewState, snapshot: 
 }
 
 /** The stopped document must still be the one shown, including a frame's top page. */
-async function shownReview(rt: Runtime, review: BindingReviewState) {
+async function shownReview(rt: Runtime, review: BindingReviewState, reconnect = true) {
   let live = rt.documents.get(frameKey(review.document));
-  if (!live) {
+  if (!live && reconnect) {
     await browser.tabs
       .sendMessage(
         review.document.tabId,
@@ -244,17 +282,24 @@ function reviewCandidates(
   }));
 }
 
-export async function popupBindingReview(
-  rt: Runtime,
-  tabId: number,
-): Promise<BindingReviewResponse> {
-  await rt.vars.sessionLoaded;
-  const snapshot = await rt.settings
-    .handle({ version: 1, type: "settings.get" })
-    .catch(() => undefined);
+/** The popup polls; items are computed again only for other settings or vault snapshots. */
+const blockedCache = new WeakMap<
+  Runtime,
+  { key: string; blocked: BindingReviewResponse["blocked"] }
+>();
+
+function blockedItems(rt: Runtime, snapshot: Snapshot) {
+  const { settingsSyncPending, connections } = snapshot.catalog;
+  // A snapshot ID names one accepted vault snapshot, and so its items.
+  const key = JSON.stringify([
+    snapshot.snapshot.revision,
+    settingsSyncPending,
+    connections.map(({ items, ...connection }) => [connection, connection.snapshotId ? [] : items]),
+  ]);
+  const cached = blockedCache.get(rt);
+  if (cached?.key === key) return cached.blocked;
   const blocked: BindingReviewResponse["blocked"] = [];
-  if (!snapshot?.ok) return { ok: true, blocked };
-  for (const connection of snapshot.catalog.connections)
+  for (const connection of connections)
     for (const item of connection.items) {
       const eligibility = getItemEligibility(
         snapshot.snapshot.settings,
@@ -272,11 +317,28 @@ export async function popupBindingReview(
           item: item.label,
         });
     }
-  const answer = { ok: true as const, blocked };
+  blockedCache.set(rt, { key, blocked });
+  return blocked;
+}
+
+export async function popupBindingReview(
+  rt: Runtime,
+  tabId: number,
+  reconnect = false,
+): Promise<BindingReviewResponse> {
+  await rt.vars.sessionLoaded;
+  const snapshot = await rt.settings
+    .handle({ version: 1, type: "settings.get" })
+    .catch(() => undefined);
+  if (!snapshot?.ok) return { ok: true, blocked: [] };
+  const answer = { ok: true as const, blocked: [...blockedItems(rt, snapshot)] };
   const review = rt.bindingReviews.get(tabId);
   if (!review || review.replacement || review.attemptId) return answer;
+  // Only the popup's first read asks a document the worker does not know to announce
+  // again, as after a worker restart; a poll waits for that announcement.
+  if (!reconnect && !rt.documents.get(frameKey(review.document))) return answer;
   const found = await currentReview(rt, review, snapshot);
-  const live = found && (await shownReview(rt, review));
+  const live = found && (await shownReview(rt, review, reconnect));
   if (
     !found ||
     !live ||
@@ -363,6 +425,12 @@ async function pickReview(
     );
     await rt.admitting.get(`${request.tabId}:${review.document.frameId}`)?.catch(() => undefined);
     if (review.attemptId) return { ok: true };
+    // Bitwarden's re-prompt holds the start until the master password is typed. The
+    // recorded override stays with this document, so the reconnect after the password
+    // plans with it; a gone document or an unanswered window drops it (`dropReprompt`,
+    // `askMasterPassword`).
+    if (rt.bindingReviews.get(request.tabId) === review && waitsForPassword(rt, review))
+      return { ok: true, waiting: "master-password" };
   } catch {
     /* A failed session write or reconnect cannot authorize another document. */
   } finally {
@@ -386,7 +454,10 @@ export async function bindingReviewSnapshot(
     !review?.replacement ||
     rt.bindingActivating.has(live.document.tabId) ||
     review.recipeId !== recipe.id ||
-    review.recipeRevision !== recipe.revision
+    review.recipeRevision !== recipe.revision ||
+    // Another frame's plan neither uses nor ends a document's override that no attempt
+    // took yet, as one waiting for the master password.
+    (!review.attemptId && live.document.frameId !== review.document.frameId)
   )
     return snapshot;
   const record = recordFor(rt, live.document.tabId, review.document.origin);
@@ -417,25 +488,47 @@ export async function bindingReviewSnapshot(
   };
 }
 
-/** Bind one override to the exact admitted attempt; ordinary choice saving stays separate. */
-export function attachBindingReview(rt: Runtime, run: Execution) {
+/**
+ * Bind one override to the exact admitted attempt, planned with the replacement itself;
+ * ordinary choice saving stays separate. True when the attempt newly took it.
+ */
+export function attachBindingReview(
+  rt: Runtime,
+  run: Execution,
+  stored: SavedLoginBinding | undefined,
+) {
   const review = rt.bindingReviews.get(run.live.document.tabId);
+  if (!review?.replacement) return false;
+  // The normal account saver never saves a repair, on this or a later document.
+  const own = () => {
+    run.bindingRepair = true;
+    delete run.choice;
+  };
+  if (review.attemptId) {
+    if (review.attemptId === run.metadata.id) own();
+    return false;
+  }
   if (
-    !review?.replacement ||
+    rt.bindingActivating.has(run.live.document.tabId) ||
     review.recipeId !== run.recipe.id ||
     review.binding.itemId !== run.metadata.account.itemId ||
-    review.connectionId !== run.metadata.account.connectionId
+    review.connectionId !== run.metadata.account.connectionId ||
+    !sameLoginDocument(review.document, run.live.document) ||
+    !same(stored, review.replacement)
   )
     return false;
-  if (
-    review.attemptId
-      ? review.attemptId !== run.metadata.id
-      : !sameLoginDocument(review.document, run.live.document)
-  )
-    return false;
+  own();
   review.attemptId = run.metadata.id;
-  delete run.choice;
   return true;
+}
+
+/** The attempt's session write failed: it goes on without a repair that could be saved. */
+export function detachBindingReview(rt: Runtime, run: Execution) {
+  const review = rt.bindingReviews.get(run.live.document.tabId);
+  if (review?.attemptId !== run.metadata.id) return;
+  delete review.attemptId;
+  delete review.replacement;
+  clearBindingReview(rt, run.live.document.tabId);
 }
 
 /** A repaired binding becomes synced settings only after this attempt authenticates. */

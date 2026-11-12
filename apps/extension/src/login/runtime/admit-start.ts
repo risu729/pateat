@@ -42,7 +42,7 @@ import { addAskFill, reloginLimited } from "./relogin";
 import { noteChoice } from "./choice-save";
 import { reviewRequests, parkedFor, restartForRequest, retryAfterPasskey } from "./passkey";
 import { startsFor } from "./generation-scope";
-import { offerBindingReview, attachBindingReview } from "./binding-review";
+import { offerBindingReview, attachBindingReview, detachBindingReview } from "./binding-review";
 import { repairUnfit, repairChooser } from "./repair-run";
 import { planFor } from "./plan";
 import { drive } from "./run-steps";
@@ -758,8 +758,11 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   // The choice, pick and ask markers form one session update. Snapshot only once they
   // all name the started login, rather than relying on a deferred save callback.
   let sessionChanged = false;
-  const bindingReviewAttached = attachBindingReview(rt, run);
-  if (bindingReviewAttached) sessionChanged = true;
+  const bindingReviewAttached = attachBindingReview(
+    rt,
+    run,
+    "stored" in plan ? plan.stored : undefined,
+  );
 
   const pick = rt.picked.get(ctx.document.tabId);
 
@@ -794,7 +797,9 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   }
 
   // clearChoice saves the completed update before notifying a badge that may reenter.
-  if (bindingReviewAttached) await saveSession(rt);
+  // A repair's attempt is recorded before its first step. Without that record the repair
+  // is dropped: its first step then plans without the override and stops unfilled.
+  if (bindingReviewAttached) await saveSession(rt).catch(() => detachBindingReview(rt, run));
   else if (!rt.pending.has(ctx.document.tabId) && sessionChanged)
     void quietly(rt, () => saveSession(rt));
 

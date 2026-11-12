@@ -13,6 +13,7 @@ import { frameKey } from "./steps";
 import { quietly } from "./session-store";
 import { saveSession } from "./attempt";
 import { tabAttempt } from "./hold";
+import { dropPendingBindingReview } from "./binding-review";
 import type { Runtime } from "./state";
 
 export const holdPassword = (rt: Runtime, attemptId: string, connectionId: string) => {
@@ -53,6 +54,7 @@ export function dropReprompt(rt: Runtime, tabId: number, documentId?: string): v
   const waiting = rt.repromptWaiting.get(tabId);
   if (waiting && (documentId === undefined || waiting.document.documentId === documentId))
     rt.repromptWaiting.delete(tabId);
+  dropPendingBindingReview(rt, tabId, documentId);
 }
 
 /**
@@ -107,6 +109,19 @@ export async function askMasterPassword(
   connection: VaultConnectionMetadata,
   item: VaultItemMetadata,
 ): Promise<RepromptResponse> {
+  const answer = await askLoginPassword(rt, asking, connection, item);
+  // A popup binding repair waiting for this password ends with a window closed or
+  // refused, or a document gone; its fields are chosen again (ADR 0023).
+  if (!answer.ok) dropPendingBindingReview(rt, asking.document.tabId, asking.document.documentId);
+  return answer;
+}
+
+async function askLoginPassword(
+  rt: Runtime,
+  asking: { document: LoginDocument; account: LoginAccount; pick?: PickedAccount },
+  connection: VaultConnectionMetadata,
+  item: VaultItemMetadata,
+): Promise<RepromptResponse> {
   const { document, account: login } = asking;
   const key = `${document.tabId} ${document.documentId}`;
   if (!rt.options.askMasterPassword) return { ok: false, reason: "unavailable" };
@@ -133,7 +148,7 @@ export async function askMasterPassword(
     return { ok: false, reason: "document-gone" };
   // The document may have started another login meanwhile, as after a pick in the popup.
   if (live.reason !== "master-password-reprompt") return { ok: false, reason: "not-waiting" };
-  if (other) return askMasterPassword(rt, asking, connection, item);
+  if (other) return askLoginPassword(rt, asking, connection, item);
   rt.repromptGrants.set(key, {
     connectionId: login.connectionId,
     itemId: login.itemId,

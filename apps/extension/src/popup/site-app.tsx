@@ -57,8 +57,7 @@ import {
 } from "../login/detail-wire";
 import { pauseSite } from "../login/pause";
 import { hostnameOf, PageStatusSection } from "./page-status";
-import type { BindingReviewClient } from "../login/binding-review-wire";
-import { BindingReviewSection } from "./binding-review";
+import { PopupBindingReview, type BindingReviewClient } from "./binding-review";
 import {
   PAUSE_CHOICES,
   PauseControl,
@@ -1695,13 +1694,7 @@ export function SiteApp({
         </p>
       )}
       {body}
-      {bindingReviews && tabId !== undefined && origin && (
-        <BindingReviewSection
-          client={bindingReviews}
-          tabId={tabId}
-          onOpenSettings={() => host.openSettings("bitwarden")}
-        />
-      )}
+      <PopupBindingReview client={bindingReviews} tabId={tabId} origin={origin} host={host} />
     </main>
   );
 }
