@@ -10398,7 +10398,7 @@ describe("label-only declarative SSO generation", () => {
 
   it("relays SSO calls through a paired device with no service credential or model call", async () => {
     const device = await owner({ claude: false });
-    const offered = await sso(device, { deviceModel: { responses: [] } });
+    const offered = await sso(device, { deviceModel: { provider: "anthropic", responses: [] } });
     expect(offered).toMatchObject({ status: "model-call", call: { index: 0 } });
     if (offered.status !== "model-call") throw new Error(offered.status);
     const modelInput = JSON.parse(JSON.parse(offered.call.body).messages[0].content[0].text);
@@ -10417,6 +10417,7 @@ describe("label-only declarative SSO generation", () => {
     expect(
       await sso(device, {
         deviceModel: {
+          provider: "anthropic",
           responses: [
             {
               kind: "response",

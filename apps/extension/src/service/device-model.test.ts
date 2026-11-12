@@ -771,10 +771,11 @@ describe("paired device SSO relay", () => {
       result: RECIPE,
     });
     expect(calls).toEqual([
-      { ...request, deviceModel: { responses: [] } },
+      { ...request, deviceModel: { provider: "anthropic", responses: [] } },
       {
         ...request,
         deviceModel: {
+          provider: "anthropic",
           responses: [
             {
               kind: "response",
