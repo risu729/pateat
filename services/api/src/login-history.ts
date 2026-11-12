@@ -1,22 +1,26 @@
 import {
   INFERENCE_LOG_RETENTION_MS,
   MANAGE_LOGIN_HISTORY_LIMIT,
+  manageLoginHistoryEntrySchema,
   type ManageLoginHistory,
   type ManageLoginHistoryQuery,
 } from "@pateat/contracts";
-import { and, desc, eq, gte, lt, or } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
+import * as v from "valibot";
 import { loginTimings } from "./db/schema";
 
-/** A bounded owner-only projection; request bodies and vault values are never selected. */
-export async function readLoginHistory(
+/**
+ * One page of an owner's login records, newest first, with one extra row that says
+ * whether an older page exists. Request bodies and vault values are never selected.
+ */
+export function loginHistoryQuery(
   binding: D1Database,
-  ownerId: string | null,
+  ownerId: string,
   query: ManageLoginHistoryQuery,
   now: number,
-): Promise<ManageLoginHistory> {
-  if (!ownerId) return { version: 1, entries: [], next: null };
-  const rows = await drizzle(binding)
+) {
+  return drizzle(binding)
     .select({
       id: loginTimings.id,
       at: loginTimings.createdAt,
@@ -41,20 +45,48 @@ export async function readLoginHistory(
         query.outcome === undefined ? undefined : eq(loginTimings.outcome, query.outcome),
         query.beforeAt === undefined || query.beforeId === undefined
           ? undefined
-          : or(
-              lt(loginTimings.createdAt, query.beforeAt),
-              and(eq(loginTimings.createdAt, query.beforeAt), lt(loginTimings.id, query.beforeId)),
+          : and(
+              // Bounds the (owner_id, created_at) index from above, so an older page
+              // seeks to the cursor instead of scanning every newer row.
+              lte(loginTimings.createdAt, query.beforeAt),
+              or(
+                lt(loginTimings.createdAt, query.beforeAt),
+                and(
+                  eq(loginTimings.createdAt, query.beforeAt),
+                  lt(loginTimings.id, query.beforeId),
+                ),
+              ),
             ),
       ),
     )
     .orderBy(desc(loginTimings.createdAt), desc(loginTimings.id))
     .limit(MANAGE_LOGIN_HISTORY_LIMIT + 1);
-  const entries = rows.slice(0, MANAGE_LOGIN_HISTORY_LIMIT);
-  const last = entries.at(-1);
+}
+
+/** A bounded owner-only projection of the retained login records. */
+export async function readLoginHistory(
+  binding: D1Database,
+  ownerId: string | null,
+  query: ManageLoginHistoryQuery,
+  now: number,
+): Promise<ManageLoginHistory> {
+  if (!ownerId) return { version: 1, entries: [], next: null };
+  const rows = await loginHistoryQuery(binding, ownerId, query, now);
+  const page = rows.slice(0, MANAGE_LOGIN_HISTORY_LIMIT);
+  const last = page.at(-1);
+  // A row whose codes the current contract no longer accepts, such as a renamed
+  // result, is left out rather than failing the whole page in the strict client.
+  const entries = page.filter((row) => v.is(manageLoginHistoryEntrySchema, row));
+  if (entries.length < page.length) {
+    // IDs only, so stale codes get noticed without logging the records themselves.
+    console.warn("login history: left out rows the contract rejects", {
+      ids: page.filter((row) => !v.is(manageLoginHistoryEntrySchema, row)).map((row) => row.id),
+    });
+  }
   return {
     version: 1,
-    // Database codes were validated on receipt; only this fixed projection leaves the service.
-    entries: entries as ManageLoginHistory["entries"],
+    entries,
+    // From the last row read, not the last one kept, so left-out rows are passed over.
     next: rows.length > MANAGE_LOGIN_HISTORY_LIMIT && last ? { at: last.at, id: last.id } : null,
   };
 }

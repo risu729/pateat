@@ -4226,8 +4226,8 @@ field exclusions and custom-field review, which need the device's vault catalog
     form the owner chose on 2026-10-11 to try WIF before the web UI existed, and the
     separate Models tab.
   - Request log (`/manage/request-log`): how many requests the
-    [request log](adr/0012-inference-request-log.md) holds for the owner
-    (requests answered without Claude included), and how many
+    [request log](adr/0012-inference-request-log.md) holds for the owner (requests
+    answered without Claude included), and how many
     [login result codes](#first-login-results-on-the-service) and
     [login records](#login-records-on-the-service), since when, that each is kept one
     year, and Delete all, which after a confirmation naming the counts deletes every one
@@ -4235,15 +4235,20 @@ field exclusions and custom-field review, which need the device's vault catalog
     recipe (ADR 0060). Recipes, settings, judged pages and the spend the limits count
     stay. Its Login history section browses the already retained login records, newest
     first, 50 at a time, with exact site-origin and result filters applied before the
-    limit. Older advances by the last record's time and ID; Newest returns to the first
-    page and refreshes it. Each row shows the site, time and result, with the recipe and
-    revision, extension build, result code and cause, and recorded durations in Details.
-    Network time is a lower bound within service time, not an additional duration.
-    Records beyond the one-year retention boundary are not listed, even before the
-    next purge. This owner-only metadata view neither reads request bodies nor sends
-    logs back to devices. Deleting the log refreshes the list; filter input stays as
-    typed while it loads. This browsing UI is implemented; hosted and real-account
-    verification remain separate from synthetic checks.
+    limit. The Site filter keeps only the origin of what is typed, so a trailing slash,
+    a path or an uppercase host still matches, and the count names the applied filters,
+    which inputs typed since may not match. Older advances by the last record's time and
+    ID, a cursor that also bounds the owner and time index from above; Newest returns to
+    the first page and refreshes it. A row whose codes the current contract no longer
+    accepts is left out of its page, and the cursor still advances past it. Each row
+    shows the site, time and result, with the recipe and revision, extension build,
+    result code and cause, and recorded durations in Details. Network time is a lower
+    bound within service time, not an additional duration. Records beyond the one-year
+    retention boundary are not listed, even before the next purge. This owner-only
+    metadata view neither reads request bodies nor sends logs back to devices. Deleting
+    the log refreshes the list; filter input stays as typed while it loads. This
+    browsing UI is implemented; hosted and real-account verification remain separate
+    from synthetic checks.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
     count, its default account ("<item> in <account>") and its binding count, and
