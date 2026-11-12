@@ -665,6 +665,20 @@ module registers no cases. `runtime-context.ts` holds the fixture types. The mod
 sit outside `src/`, so they stay outside the production coverage root without an
 exclude. Each file follows the 1,000-line limit.
 
+### Connection settings test organization
+
+The options connection suite keeps `tests/options/connection-setup.test.tsx` as its
+only discovered entry. It owns the options stylesheet import, shared synthetic
+clients and fixtures, mount/query helpers, timer and focus helpers, and root cleanup.
+Its synchronous registrar modules under `tests/options/connection-setup/` register
+contiguous scenarios in the original root order, without their own hooks or suites.
+The modules own adding and verification, challenge lifetimes, catalog saves and
+reloads, connection management and recovery, policy and limits, keyboard focus, and
+vault locking and status. `context.ts` owns their type-only shared-helper contract.
+The challenge registrar reads the registered-connection fixture, which the entry
+initializes after the call, through a getter inside its test callback. The entry owns
+cleanup and mock restoration. Each file follows the 1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
