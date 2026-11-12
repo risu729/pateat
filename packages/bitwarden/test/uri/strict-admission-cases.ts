@@ -1,16 +1,17 @@
-import type { UriTestBindings } from "../../src/uri.test";
+import { expect, it } from "vitest";
+import {
+  createBitwardenUriMatcher,
+  matchBitwardenLoginUris,
+  maxTargetUrlLength,
+} from "../../src/uri";
+import type { StrictAdmissionContext } from "./context";
 
 export function registerStrictAdmission({
-  expect,
-  it,
-  matchBitwardenLoginUris,
-  createBitwardenUriMatcher,
-  maxTargetUrlLength,
   emptyResult,
   saved,
   target,
   userDomains,
-}: UriTestBindings) {
+}: StrictAdmissionContext) {
   it.each(["ssh:123/path.with.dot", "ssh:123?x=path.with.dot"])(
     "does not reinterpret a nonweb scheme as a bare host because its path/query contains a dot: %s",
     (uri) => {

@@ -792,20 +792,6 @@ import `vitest` and the production exports they use directly. The entry exports 
 `import type`. The modules sit outside `src/`, so they stay outside the production
 coverage root. Each file follows the 1,000-line limit.
 
-### Bitwarden URI test organization
-
-`packages/bitwarden/src/uri.test.ts` is the discovered entry for URI matching. It
-owns the shared fixtures and helpers, the original import bindings and its seven
-describe scopes. Plain modules in `packages/bitwarden/test/uri/` export synchronous
-registration functions for ordinary semantics and equivalent domains, retained
-context, strict admission, caller-supplied Regex answers, and destination-grant and
-SDK integration cases. The entry calls them inside the original scopes with the
-same references; importing a module registers no cases. Describe-local helpers
-and initializers stay together with their cases in the registrar called at their
-original scope. The entry exports types derived from its bindings, imported only
-with `import type`. The modules sit outside `src/`, so they stay outside the
-production coverage root. Each file follows the 1,000-line limit.
-
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.

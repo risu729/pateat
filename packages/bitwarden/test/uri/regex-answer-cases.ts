@@ -1,16 +1,12 @@
-import type {
-  UriTestBindings,
-  UriMatchContext as BitwardenUriMatchContext,
-} from "../../src/uri.test";
-
-export function registerRegex({
-  expect,
-  it,
-  vi,
+import { expect, it, vi } from "vitest";
+import {
   createBitwardenUriMatcher,
   matchBitwardenLoginUris,
-  target,
-}: UriTestBindings) {
+  type BitwardenUriMatchContext,
+} from "../../src/uri";
+import type { RegexAnswerContext } from "./context";
+
+export function registerRegex({ target }: RegexAnswerContext) {
   const context: BitwardenUriMatchContext = { equivalentDomains: [], defaultMatch: 0 };
   const evaluator = (answer: (pattern: string) => boolean | undefined, options = context) => {
     const regex = vi.fn(answer);

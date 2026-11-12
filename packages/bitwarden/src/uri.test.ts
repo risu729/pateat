@@ -1,38 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
-import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
-import {
-  createDefaultSettings,
-  DUMMY_VAULT_CATALOG,
-  resolveSiteAccount,
-} from "../../contracts/src/settings";
-import {
-  admitBitwardenUriMatchContext,
-  createBitwardenUriMatchContext,
-  createBitwardenUriMatcher,
-  matchBitwardenLoginUris,
-  maxTargetUrlLength,
-  type BitwardenUriMatchContext,
-} from "./uri";
-import { createLocalCryptoSession } from "./local-crypto";
-import { uriMatchCases } from "./__fixtures__/uri";
-import {
-  legacyCipher,
-  uriCiphertexts,
-  v1Email,
-  v1Kdf,
-  v1Password,
-  v1PrivateKey,
-  v1WrappedUserKey,
-} from "./__fixtures__/crypto";
-
-import {
-  registerOrdinarySemantics,
-  registerEquivalentDomains,
-} from "../test/uri/ordinary-semantics";
-import { registerRetainedContext } from "../test/uri/retained-context";
-import { registerStrictAdmission } from "../test/uri/strict-admission";
-import { registerRegex } from "../test/uri/regex";
-import { registerDestinationGrant, registerAuthenticatedSdk } from "../test/uri/integration";
+import { describe } from "vitest";
+import { registerOrdinarySemantics } from "../test/uri/ordinary-semantics-cases";
+import { registerEquivalentDomains } from "../test/uri/equivalent-domain-cases";
+import { registerRetainedContext } from "../test/uri/retained-context-cases";
+import { registerStrictAdmission } from "../test/uri/strict-admission-cases";
+import { registerRegex } from "../test/uri/regex-answer-cases";
+import { registerDestinationGrant } from "../test/uri/destination-grant-cases";
+import { registerAuthenticatedSdk } from "../test/uri/authenticated-sdk-cases";
 
 const target = "https://example.com/login";
 const saved = (uri = target, match: number | null = 0) => [{ uri, match }];
@@ -50,61 +23,37 @@ const userDomains = (equivalentDomains: string[][]) => ({
   globalEquivalentDomains: [],
 });
 
-const bindings = {
-  expect,
-  it,
-  vi,
-  sdk,
-  createDefaultSettings,
-  DUMMY_VAULT_CATALOG,
-  resolveSiteAccount,
-  admitBitwardenUriMatchContext,
-  createBitwardenUriMatchContext,
-  createBitwardenUriMatcher,
-  matchBitwardenLoginUris,
-  maxTargetUrlLength,
-  createLocalCryptoSession,
-  uriMatchCases,
-  legacyCipher,
-  uriCiphertexts,
-  v1Email,
-  v1Kdf,
-  v1Password,
-  v1PrivateKey,
-  v1WrappedUserKey,
-  target,
-  saved,
-  emptyResult,
-  userDomains,
+export type UriTestFixtures = {
+  target: typeof target;
+  saved: typeof saved;
+  emptyResult: typeof emptyResult;
+  userDomains: typeof userDomains;
 };
 
-export type UriTestBindings = typeof bindings;
-export type UriMatchContext = BitwardenUriMatchContext;
-
 describe("pinned ordinary Bitwarden URI semantics", () => {
-  registerOrdinarySemantics(bindings);
+  registerOrdinarySemantics({ emptyResult, saved, target });
 });
 
 describe("same-account supplied equivalent domains", () => {
-  registerEquivalentDomains(bindings);
+  registerEquivalentDomains({ emptyResult, saved, target, userDomains });
 });
 
 describe("retained account URI context", () => {
-  registerRetainedContext(bindings);
+  registerRetainedContext({ emptyResult, saved, target, userDomains });
 });
 
 describe("strict destination and unsupported rule admission", () => {
-  registerStrictAdmission(bindings);
+  registerStrictAdmission({ emptyResult, saved, target, userDomains });
 });
 
 describe("Regex URIs answered by the caller (ADR 0056)", () => {
-  registerRegex(bindings);
+  registerRegex({ target });
 });
 
 describe("URI candidate matching is separate from the existing destination grant", () => {
-  registerDestinationGrant(bindings);
+  registerDestinationGrant();
 });
 
 describe("real SDK authenticated URI to local matching", () => {
-  registerAuthenticatedSdk(bindings);
+  registerAuthenticatedSdk();
 });

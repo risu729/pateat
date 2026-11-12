@@ -1,17 +1,18 @@
-import type { UriTestBindings } from "../../src/uri.test";
-
-export function registerRetainedContext({
-  expect,
-  it,
-  createBitwardenUriMatchContext,
+import { expect, it } from "vitest";
+import {
   admitBitwardenUriMatchContext,
+  createBitwardenUriMatchContext,
   createBitwardenUriMatcher,
   matchBitwardenLoginUris,
+} from "../../src/uri";
+import type { RetainedContextContext } from "./context";
+
+export function registerRetainedContext({
   emptyResult,
   saved,
   target,
   userDomains,
-}: UriTestBindings) {
+}: RetainedContextContext) {
   const groups = [["example.com", "example.net"]];
   it("normalizes received sync domains once and matches with the retained groups", () => {
     const context = createBitwardenUriMatchContext(

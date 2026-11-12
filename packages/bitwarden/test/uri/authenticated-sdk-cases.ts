@@ -1,47 +1,8 @@
-import type { UriTestBindings } from "../../src/uri.test";
-
-export function registerDestinationGrant({
-  expect,
-  it,
-  matchBitwardenLoginUris,
-  createDefaultSettings,
-  DUMMY_VAULT_CATALOG,
-  resolveSiteAccount,
-}: UriTestBindings) {
-  it.each([
-    { uri: "https://bank.example", match: 2, target: "https://bank.example.evil.test/login" },
-    { uri: "https://bank.example", match: 0, target: "http://bank.example/login" },
-    { uri: "https://bank.example", match: 0, target: "https://bank.example:8443/login" },
-  ])(
-    "a permissive provider match cannot change the allowed origin case %#",
-    ({ uri, match, target: targetUrl }) => {
-      expect(matchBitwardenLoginUris([{ uri, match }], targetUrl)).toMatchObject({
-        ok: true,
-        data: { matched: true },
-      });
-      const settings = createDefaultSettings();
-      // Even an explicit site selection cannot expand this item's allowed origin.
-      settings.siteDefaults.push({
-        origin: new URL(targetUrl).origin,
-        provider: "dummy",
-        server: "cloud-us",
-        userId: "demo-personal-account",
-        itemId: "primary",
-      });
-      expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, targetUrl)).toEqual({
-        ok: false,
-        reason: "item-origin-mismatch",
-      });
-    },
-  );
-}
-
-export function registerAuthenticatedSdk({
-  expect,
-  it,
-  vi,
-  createLocalCryptoSession,
-  sdk,
+import { expect, it, vi } from "vitest";
+import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
+import { matchBitwardenLoginUris } from "../../src/uri";
+import { createLocalCryptoSession } from "../../src/local-crypto";
+import {
   legacyCipher,
   uriCiphertexts,
   v1Email,
@@ -49,8 +10,9 @@ export function registerAuthenticatedSdk({
   v1Password,
   v1PrivateKey,
   v1WrappedUserKey,
-  matchBitwardenLoginUris,
-}: UriTestBindings) {
+} from "../../src/__fixtures__/crypto";
+
+export function registerAuthenticatedSdk() {
   it("uses the actual decrypted URI and mode without network discovery", async () => {
     const fetch = vi
       .spyOn(globalThis, "fetch")
