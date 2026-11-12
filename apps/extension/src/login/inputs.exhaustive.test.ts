@@ -88,7 +88,7 @@ const roles: Record<string, ObservedCandidate["role"]> = {
   "select-one": "select",
 };
 
-/** The input as the page's description shows it (observation/extract.ts). */
+/** The input as the page's description shows it (observation/extract-candidates.ts). */
 function described(input: Input): ObservedCandidate {
   const role = roles[input.type]!;
   const tokens = (input.getAttribute("autocomplete") ?? "")
