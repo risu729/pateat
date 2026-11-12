@@ -489,6 +489,14 @@ a module registers no tests. The case callbacks, tables, titles, hooks and regis
 order stay unchanged. These test modules live outside `src/` so they do not enter the
 production coverage denominator.
 
+The connection setup tests retain `apps/extension/src/connections/setup.test.ts`
+as their only discovered entry, with the original shared harness, root cleanup and
+describe-local helpers. Plain modules in `apps/extension/test/connections/setup/`
+register each existing case group synchronously at its original describe position,
+using the same fixture and helper references. Importing a module registers no tests.
+The callbacks, tables, assertions, comments and registration order stay unchanged,
+and these modules remain outside the production coverage roots.
+
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
