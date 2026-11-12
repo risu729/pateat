@@ -117,15 +117,27 @@ describe("optionFor", () => {
     },
   );
 
-  it("never treats a negative placeholder as January or trusts the remaining month codes", () => {
+  it("never treats a negative placeholder as January but trusts the remaining month codes", () => {
     const mixed = select(
       `<option value="-1">Choose month</option><option value="4">April</option>
        <option value="5">５月</option>`,
     );
     expect(at(mixed, month("1"))).toBeUndefined();
-    expect(at(mixed, month("4"))).toBeUndefined();
-    // Visible positive text still decides even when the values cannot say months.
+    expect(optionFor(mixed, month("4"))?.text).toBe("April");
     expect(optionFor(mixed, month("5"))?.text).toBe("５月");
+  });
+
+  it("fills every month by value after a -1 placeholder, never the placeholder", () => {
+    const named = select(
+      `<option value="-1">Month</option>${monthNames
+        .map((name, index) => `<option value="${index + 1}">${name}</option>`)
+        .join("")}`,
+    );
+    expect(optionFor(named, month("4"))?.text).toBe("April");
+    expect(optionFor(named, month("1"))?.text).toBe("January");
+    expect(optionFor(named, month("01"))?.text).toBe("January");
+    for (let wanted = 1; wanted <= 12; wanted += 1)
+      expect(optionFor(named, month(String(wanted)))?.value).not.toBe("-1");
   });
 
   it.each([
@@ -142,11 +154,47 @@ describe("optionFor", () => {
     { label: "day", value: "-1", wanted: day("31") },
     { label: "birth year", value: "－１９８０", wanted: year("1990") },
     { label: "short expiry year", value: "− 26", wanted: expiryYear("2031") },
-  ])("does not trust mixed negative and positive $label values", ({ value, wanted }) => {
+  ])("skips a negative $label value and trusts the positive ones", ({ value, wanted }) => {
     const mixed = select(
       `<option value="${value}">Choose date</option><option value="${wanted.value}">Date</option>`,
     );
-    expect(at(mixed, wanted)).toBeUndefined();
+    expect(at(mixed, wanted)).toBe(2);
+  });
+
+  it.each([
+    { text: "April - 04", wanted: month("4") },
+    { text: "Apr-04", wanted: month("4") },
+    { text: "April\n-\n4", wanted: month("4") },
+    { text: "-- 4 --", wanted: month("4") },
+    { text: "- 4 -", wanted: month("4") },
+    { text: "Apr – 4", wanted: month("4") },
+    { text: "Apr — 4", wanted: month("4") },
+    { text: "Day-7", wanted: day("7") },
+    { text: "日-7", wanted: day("7") },
+    { text: "Year - 1990", wanted: year("1990") },
+    { text: "Exp - 31", wanted: expiryYear("2031") },
+  ])("reads a hyphen or dash in $text as a separator, not a minus", ({ text, wanted }) => {
+    const separated = select(`<option value="x">${text}</option>`);
+    expect(at(separated, wanted)).toBe(1);
+  });
+
+  it.each([
+    { label: "m-04", code: (number: number) => `m-${String(number).padStart(2, "0")}` },
+    { label: "month-4", code: (number: number) => `month-${number}` },
+  ])("reads month names valued as $label by the number after the hyphen", ({ code }) => {
+    const named = select(
+      monthNames
+        .map((name, index) => `<option value="${code(index + 1)}">${name}</option>`)
+        .join(""),
+    );
+    expect(optionFor(named, month("4"))?.text).toBe("April");
+    expect(optionFor(named, month("1"))?.text).toBe("January");
+  });
+
+  it("refuses a text with a hyphen between two numbers", () => {
+    const dated = select(`<option>2024-01</option><option>2024-04</option>`);
+    expect(at(dated, month("4"))).toBeUndefined();
+    expect(at(select(`<option>1-15</option><option>16-31</option>`), day("1"))).toBeUndefined();
   });
 
   it.each([

@@ -24,17 +24,25 @@ export type WantedOption = {
 
 /**
  * The digits a select option's value or visible text says: the one run of ASCII digits it
- * holds after NFKC and trimming, as in `4`, `04`, `4月`, `31`, `2031` or `2031年`. A minus
- * sign immediately before that run, with optional whitespace, is kept as `-`, including
- * U+2212, so a negative number never matches a positive part. A text with no digits, such
- * as a placeholder or a month's name, or with two runs, as `2031 (13)`, says none.
+ * holds after NFKC and trimming, as in `4`, `04`, `4月`, `31`, `2031` or `2031年`. A text
+ * that starts with one minus sign (`-`, or U+2212), then optional whitespace and that run,
+ * with no other minus sign or hyphen after it, says the run with `-` before it (`-4`, `- 4`,
+ * `−1990`), so a negative number never matches a positive part. A hyphen anywhere else, as
+ * in `Apr-04`, `April - 04`, `m-04` or `-- 4 --`, is a separator and leaves the run
+ * positive. A text with no digits, such as a placeholder or a month's name, or with two
+ * runs, as `2031 (13)` or `2024-01`, says none.
  */
 function optionDigits(text: string): string | undefined {
-  const runs = text
-    .normalize("NFKC")
-    .trim()
-    .match(/(?:[-\u2212]\s*)?[0-9]+/gu);
-  return runs?.length === 1 ? runs[0]?.replace(/\s/gu, "").replace("\u2212", "-") : undefined;
+  const normalized = text.normalize("NFKC").trim();
+  const runs = normalized.match(/[0-9]+/gu);
+  if (runs?.length !== 1) return undefined;
+  return /^[-\u2212]\s*[0-9]+[^-\u2212]*$/u.test(normalized) ? `-${runs[0]}` : runs[0];
+}
+
+/** The digits an option's value says, or undefined for a negative one, which says none. */
+function valueDigits(option: HTMLOptionElement): string | undefined {
+  const digits = optionDigits(option.value);
+  return digits?.startsWith("-") ? undefined : digits;
 }
 
 /** The options a person could choose: enabled, shown, and not in a disabled group. */
@@ -52,20 +60,21 @@ function choosableOptions(select: HTMLSelectElement): HTMLOptionElement[] {
 /**
  * Whether the numbers a select's option values say lie in `wanted`'s part's own range: 1
  * to 12 for a month, 1 to 31 for a day, four digits for a year (or two for a card expiry
- * year), and never 0 or negative, so values that count from 0 or stand for something
- * else are never read as the part's number.
+ * year), and never 0, so values that count from 0 or stand for something else are never
+ * read as the part's number. A negative value, such as a placeholder's `-1`, says no
+ * number (`valueDigits`) and is left out.
  */
 function valuesInRange(options: readonly HTMLOptionElement[], wanted: WantedOption): boolean {
   if (wanted.part === undefined) return false;
   const numbers = options.flatMap((option) => {
-    const digits = optionDigits(option.value);
+    const digits = valueDigits(option);
     return digits === undefined ? [] : [digits];
   });
   return (
     numbers.length > 0 &&
     numbers.every((digits) => {
       const number = Number(digits);
-      if (number <= 0) return false;
+      if (number === 0) return false;
       if (wanted.part === "month") return number <= 12;
       if (wanted.part === "day") return number <= 31;
       return digits.length === 4 || (wanted.shortYear === true && digits.length === 2);
@@ -90,10 +99,12 @@ export function optionFor(
   const trusted = valuesInRange(options, wanted);
   const says = options.map((option) => ({
     option,
-    digits: optionDigits(option.text) ?? (trusted ? optionDigits(option.value) : undefined),
+    digits: optionDigits(option.text) ?? (trusted ? valueDigits(option) : undefined),
   }));
   const matching = (fits: (digits: string) => boolean) =>
-    says.flatMap(({ option, digits }) => (digits !== undefined && fits(digits) ? [option] : []));
+    says.flatMap(({ option, digits }) =>
+      digits !== undefined && !digits.startsWith("-") && fits(digits) ? [option] : [],
+    );
   let found = matching((digits) => Number(digits) === Number(wanted.value));
   if (found.length === 0 && wanted.shortYear && wanted.part === "year")
     found =
