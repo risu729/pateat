@@ -19,6 +19,7 @@ import { pauseOf, pausedUntil, usedAndSwitch } from "./pause";
 import { type LoginReport } from "./report";
 import { routesOf } from "./generation-scope";
 import { terminal } from "./attempt-state";
+import { confirmBusy } from "./confirm-state";
 import type { Runtime } from "./state";
 
 /**
@@ -410,7 +411,8 @@ export async function defaultChosenFor(rt: Runtime, tabId: number): Promise<Defa
     return { ok: false, reason: "no-default" };
   // A login the save did not stop, as a watched one, goes on (ADR 0027).
   const run = rt.attempts.get(tabId);
-  if (run && !terminal(run.metadata)) return { ok: false, reason: "login-running" };
+  if (confirmBusy(rt, tabId) || (run && !terminal(run.metadata)))
+    return { ok: false, reason: "login-running" };
   const waiting = rt.pending.get(tabId);
   if (waiting && waiting.document.origin === origin && !waiting.ask && !waiting.paused)
     clearChoice(rt, tabId);
