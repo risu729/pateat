@@ -299,8 +299,8 @@ owner, 2026-10-23 21:50 UTC).
   and then offers no "Add account". Pateat does not cap connections; with more than 5,
   the options page warns that the official extension allows 5 accounts and that each
   unlocked vault uses more memory (`BITWARDEN_ACCOUNT_LIMIT` in
-  `apps/extension/src/options/bitwarden-setup.tsx`, owner's choice 2026-10-23 at 12:31
-  UTC). Each connection with an open vault keeps its own Worker with the SDK.
+  `apps/extension/src/options/bitwarden-setup-view.tsx`, owner's choice 2026-10-23 at
+  12:31 UTC). Each connection with an open vault keeps its own Worker with the SDK.
 - The official clients run a key derivation without a time limit. Pateat runs it in a
   Worker it stops after 30 seconds, or 60 seconds for Argon2id (`ARGON2ID_JOB_BUDGET_MS`
   in `apps/extension/src/crypto/wire.ts`, owner's choice 2026-10-23), so a stuck Worker
