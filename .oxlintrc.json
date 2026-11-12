@@ -55,7 +55,6 @@
         "packages/bitwarden/src/local-crypto.test.ts",
         "packages/bitwarden/src/uri.test.ts",
         "packages/contracts/src/login-attempt.test.ts",
-        "packages/contracts/src/login-attempt.ts",
         "packages/contracts/src/login.test.ts",
         "packages/contracts/src/recipes.test.ts",
         "packages/contracts/src/vault-policy.test.ts",

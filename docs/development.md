@@ -100,6 +100,15 @@ owners directly without a runtime cycle. Schema construction order, aliases,
 validation messages and helper behavior are preserved; existing test files and
 assertions stay in place.
 
+The shared login attempt keeps creation, event application and recovery in
+`packages/contracts/src/login-attempt.ts`, preserving its public exports. Its
+`login-attempt/` modules own schema primitives, metadata admission, event admission,
+pure transition policy, context recording, the XState machine, timing and recipe
+operation planning. Internal modules import their owners directly; metadata types
+introduce no runtime cycle. Schema and machine initialization order, transition
+semantics, validation messages and operation checks are preserved. Existing test
+files and assertions stay in place.
+
 `apps/extension/src/crypto/host.ts` keeps the crypto broker, its session lifecycle,
 request lanes and cancellation effects. `host-result.ts` owns pure operation-result
 admission, including account binding, requested item coverage and passkey signature
