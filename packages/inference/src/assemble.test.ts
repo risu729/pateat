@@ -10,7 +10,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { registerGeneratedCases } from "../test/assemble/generated";
 import { registerReplacedAdvanceCases } from "../test/assemble/replaced-advance";
-import { registerCompletionCases } from "../test/assemble/completion";
+import { registerCompletionCases } from "../test/assemble/completion-markers";
 import { registerCompletionSwitchCases } from "../test/assemble/completion-switch";
 import { registerPasskeyHandlerCases } from "../test/assemble/passkey-handler";
 import { registerAuthenticatorHandlerCases } from "../test/assemble/authenticator-handler";

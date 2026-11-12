@@ -1,4 +1,4 @@
-import { type LoginRecipe } from "@pateat/contracts";
+import type { LoginRecipe } from "@pateat/contracts";
 import { expect, it } from "vitest";
 import { addCompletion, addHandler } from "../../src/assemble";
 import type { TotpProbesContext } from "./context";

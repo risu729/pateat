@@ -77,7 +77,10 @@ export type TotpProbesContext = Pick<AssembleFixtures, "target" | "candidate"> &
   verify: TextTarget;
   key: TextTarget;
   recipe: Recipe;
-  code: (id: string, extra?: Partial<Omit<ObservedCandidate, "target">>) => Candidate;
+  code: (
+    id: string,
+    extra?: Partial<Omit<ObservedCandidate, "target">>,
+  ) => Candidate & Pick<ObservedCandidate, "inputMode" | "maxLength">;
   at: (path: string, ...candidates: Candidate[]) => CandidatePage;
   totp: (
     field?: LoginAttributeTarget,
