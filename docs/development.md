@@ -779,6 +779,35 @@ its `CompletionFixtures` type, and the modules and `context.ts` import it with
 `import type`. The modules sit outside `src/`, so they stay outside the production
 coverage root. Each file follows the 1,000-line limit.
 
+### Recipe assembly test organization
+
+`packages/inference/src/assemble.test.ts` is the discovered entry for the main
+recipe assembly cases. It owns the describe scopes, the shared helpers and the
+suite-local fixtures, and keeps the judged password, TOTP and detail handler suites
+inline. Plain modules in `packages/inference/test/assemble/` export synchronous
+registration functions for the generated recipe, replaced advance, completion marker,
+account switch, passkey and authenticator handler, password and passkey route, and
+independent TOTP probe groups, which the entry calls inside those scopes with the same
+helper and fixture references; importing a module registers no cases. The modules
+import `vitest` and the production exports they use directly. The entry exports its
+`AssembleFixtures` type, and `context.ts` builds the module contexts from it with
+`import type`. The modules sit outside `src/`, so they stay outside the production
+coverage root. Each file follows the 1,000-line limit.
+
+### Inference plan test organization
+
+`packages/inference/src/plan.test.ts` is the discovered entry for the main plan
+validation suites. It owns all describe scopes and the shared and suite-local fixtures
+and helpers. Synchronous registrar modules in `packages/inference/test/plan/` hold the
+custom-slot naming, saved-binding, identifier-set, passkey sign-in button and
+action-purpose cases, and the entry calls each registrar inside its describe scope.
+The custom-slot and saved-binding scopes each call two registrars, with local helpers
+and fixtures defined between them. Importing a module registers no cases. The
+entry's exported `PlanTestFixtures` and `Candidate` types are type-only imports, so
+the modules create no runtime import cycle. The modules sit outside `src/`, so they
+stay outside the coverage root and are not discovered as test files. Each file follows
+the 1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
