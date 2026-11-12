@@ -56,6 +56,8 @@ export const serviceStateSchema = v.variant("kind", [
     rejected: v.optional(v.literal(true)),
     /** Recipes outgrew the local cache or settings their limits; newer changes wait. */
     cacheFull: v.optional(v.literal(true)),
+    /** A shared settings write would overflow a live profile on the service. */
+    settingsLimited: v.optional(v.literal(true)),
   }),
 ]);
 

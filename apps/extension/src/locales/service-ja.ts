@@ -131,4 +131,6 @@ export const serviceJa = {
   "Each ended login's result and times, and the diagnostics log's warnings, errors and reasons Pateat did nothing on a page. Off: none are sent, and what was logged while off is never sent. Applies on all your devices.":
     "終わったログインの結果とかかった時間、診断ログの警告とエラー、ページで Pateat が何もしなかった理由を送ります。オフにすると何も送らず、オフの間に記録したものも後から送りません。すべてのデバイスに適用されます。",
   "Reports to the service": "サービスへの報告",
+  "The service could not save your settings because shared account bindings and personal-detail links would make a settings profile too large. Your changes stay on this device, and changes from your other devices are not applied here either. Remove some entries from the affected profiles to resume sync.":
+    "共有のアカウント関連付けや個人情報のリンクと組み合わせると、設定プロファイルの容量を超えるためサービスに保存できませんでした。変更はこのデバイスに残っています。ほかのデバイスでの変更も、ここにはまだ反映されません。該当するプロファイルの項目を減らすと同期を再開できます。",
 } satisfies Record<keyof typeof serviceEn, string>;

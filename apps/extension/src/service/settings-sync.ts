@@ -208,6 +208,7 @@ export type SettingsSyncOutcome =
   | "busy"
   /** The merge exceeds the settings limits; it was not applied. */
   | "too-large"
+  | "settings-limit"
   | "storage-unavailable"
   | TransportFailure;
 
@@ -755,6 +756,7 @@ export function createSettingsSync(options: {
           writeId,
         });
         timed?.(saved.timing);
+        if (saved.kind === "limited") return "settings-limit";
         if (saved.kind === "rejected") return "rejected";
         if (saved.kind === "failed") return saved.error;
         if (saved.kind === "conflict") {

@@ -323,4 +323,6 @@ export const settingsEn = {
   "Tell sites that you were verified": "Tell sites that you were verified",
   "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on all your devices.":
     "Pateat does no check of its own: an unlocked vault and the account chosen for the site are all it asks. Off: a request made without a click, or one that requires verification, goes to the browser or another extension, so Pateat cannot log in with a passkey by itself there. Applies on all your devices.",
+  "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.":
+    "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.",
 } as const;

@@ -48,6 +48,7 @@ export function createProfileEditorRoutes(missingOwnerError: "not_found" | "not_
         if (!(await hasProfile(c.env.DB, ownerId, profileId)))
           return apiError(c, 404, { error: "not_found" });
         const result = await writeSettings(c.env.DB, ownerId, profileId, c.req.valid("json"), null);
+        if (!result.ok && "error" in result) return apiError(c, 413, { error: result.error });
         if (!result.ok && !result.current) return apiError(c, 404, { error: "not_found" });
         return result.ok
           ? c.json(result.state)

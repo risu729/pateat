@@ -96,6 +96,7 @@ export const diagnosticsEn = {
     "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}; of the logins, sealed {{sealed}}: their TOTP and passkeys are not counted) + {{unsupported}} unsupported",
   " (rejected)": " (rejected)",
   " (recipe cache full)": " (recipe cache full)",
+  " (settings profile too large)": " (settings profile too large)",
   granted: "granted",
   withheld: "withheld",
   "unavailable ({{error}})": "unavailable ({{error}})",

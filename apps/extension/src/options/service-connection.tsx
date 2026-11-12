@@ -323,7 +323,8 @@ export function ServiceConnection({
     state?.kind === "connected" &&
     state.syncedAt === undefined &&
     !state.rejected &&
-    !state.cacheFull;
+    !state.cacheFull &&
+    !state.settingsLimited;
   useEffect(() => {
     if (!awaitingSync) return;
     const timer = setInterval(() => {
@@ -732,27 +733,35 @@ export function ServiceConnection({
                             "The service no longer accepts this device. Logins keep using the recipes synced before; disconnect and pair again to sync.",
                           ),
                         }
-                      : state.cacheFull
+                      : state.settingsLimited
                         ? {
                             tone: "warn",
                             icon: TriangleAlert,
                             text: t(
-                              "Your recipes or settings no longer fit on this device, so newer changes are not applied. Logins keep using what was synced before.",
+                              "The service could not save your settings because shared account bindings and personal-detail links would make a settings profile too large. Your changes stay on this device, and changes from your other devices are not applied here either. Remove some entries from the affected profiles to resume sync.",
                             ),
                           }
-                        : state.syncedAt === undefined
+                        : state.cacheFull
                           ? {
-                              tone: "idle",
-                              icon: Clock,
-                              text: t("Recipes and settings not synced yet"),
+                              tone: "warn",
+                              icon: TriangleAlert,
+                              text: t(
+                                "Your recipes or settings no longer fit on this device, so newer changes are not applied. Logins keep using what was synced before.",
+                              ),
                             }
-                          : {
-                              tone: "ok",
-                              icon: CircleCheck,
-                              text: t("Recipes and settings synced {{time}}", {
-                                time: syncTime(state.syncedAt),
-                              }),
-                            },
+                          : state.syncedAt === undefined
+                            ? {
+                                tone: "idle",
+                                icon: Clock,
+                                text: t("Recipes and settings not synced yet"),
+                              }
+                            : {
+                                tone: "ok",
+                                icon: CircleCheck,
+                                text: t("Recipes and settings synced {{time}}", {
+                                  time: syncTime(state.syncedAt),
+                                }),
+                              },
                   ]}
                 />
               </>

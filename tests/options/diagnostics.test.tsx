@@ -172,6 +172,26 @@ test("the Items row leaves out the sealed count when no item is sealed", async (
   await expect.element(row).not.toHaveTextContent("sealed");
 });
 
+test("the Pairing row names a full recipe cache and a settings profile over the limit", async () => {
+  await show(
+    client(status({ service: { kind: "connected", cacheFull: true, settingsLimited: true } })),
+  );
+  const row = () => page.getByRole("definition").filter({ hasText: /recipe cache full|容量超過/u });
+  await expect
+    .element(row())
+    .toHaveTextContent("connected (recipe cache full) (settings profile too large)");
+  try {
+    await i18n.changeLanguage("ja");
+    await expect
+      .element(row())
+      .toHaveTextContent(
+        "接続済み（connected）（レシピの保存容量超過）（設定プロファイルの容量超過）",
+      );
+  } finally {
+    await i18n.changeLanguage("en");
+  }
+});
+
 test("debug logging shows when it ends and turns off at once", async () => {
   const debugUntil = NOW + 24 * 60 * 60_000;
   const value = client(

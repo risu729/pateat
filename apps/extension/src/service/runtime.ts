@@ -26,6 +26,8 @@ const recordSchema = v.strictObject({
   rejected: v.optional(v.literal(true)),
   /** Recipes outgrew the local cache or settings their limits; cleared by a complete sync. */
   cacheFull: v.optional(v.literal(true)),
+  /** A shared settings write would overflow a live profile on the service. */
+  settingsLimited: v.optional(v.literal(true)),
   /**
    * A settings sync has completed since this pairing; until then no vault item is used
    * (ADR 0023), so a reinstall never runs on settings it has not merged yet.
@@ -39,6 +41,7 @@ export type RecipeSyncRecord =
   | { syncedAt: number }
   | { rejected: true }
   | { cacheFull: true }
+  | { settingsLimited: true }
   | { settingsSynced: true };
 
 /** What the background sync needs; never sent to the options page. */
@@ -124,6 +127,7 @@ export function createServiceRuntime(options: {
       ...(record.syncedAt === undefined ? {} : { syncedAt: record.syncedAt }),
       ...(record.rejected ? { rejected: true } : {}),
       ...(record.cacheFull ? { cacheFull: true } : {}),
+      ...(record.settingsLimited ? { settingsLimited: true } : {}),
     };
   }
 
@@ -302,7 +306,7 @@ export function createServiceRuntime(options: {
         const record = await current();
         if (record?.deviceId !== deviceId) return;
         // A complete sync means the cache fits again.
-        const { cacheFull: _, ...rest } = record;
+        const { cacheFull: _, settingsLimited: _settingsLimited, ...rest } = record;
         await save("syncedAt" in outcome ? { ...rest, ...outcome } : { ...record, ...outcome });
       });
     },
