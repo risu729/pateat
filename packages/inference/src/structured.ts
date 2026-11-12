@@ -14,6 +14,7 @@ import {
   type InferenceOutcome,
   type OutputSchemaIssue,
 } from "./outcome";
+import { normalizeOpenAIUsage } from "./providers/openai-rates";
 import type { GeneratedPageRejection } from "./plan";
 
 /**
@@ -71,10 +72,12 @@ export async function runStructuredRole<O, T>(config: {
           const result = await raceAbort(doGenerate(), signal);
           lastMetadata = result.providerMetadata;
           meter.record(
-            normalizeUsage({
-              inputTokens: result.usage.inputTokens.total,
-              outputTokens: result.usage.outputTokens.total,
-            }),
+            config.model.provider.startsWith("openai.")
+              ? normalizeOpenAIUsage(result.usage.raw)
+              : normalizeUsage({
+                  inputTokens: result.usage.inputTokens.total,
+                  outputTokens: result.usage.outputTokens.total,
+                }),
           );
           return result;
         } catch (error) {

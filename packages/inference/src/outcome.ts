@@ -6,6 +6,8 @@ import type { GeneratedPageRejection } from "./plan";
 export type InferenceUsage = {
   inputTokens: number | null;
   outputTokens: number | null;
+  /** OpenAI's disjoint cached reads and writes, counted within inputTokens; null is unknown. */
+  openaiCache?: { read: number | null; write30m: number | null; write12h: number | null };
 };
 
 export type InferenceErrorCode =
@@ -117,7 +119,7 @@ export function normalizeUsage(
  */
 export function createUsageMeter() {
   const attempts: InferenceUsage[] = [];
-  const sum = (key: keyof InferenceUsage) =>
+  const sum = (key: "inputTokens" | "outputTokens") =>
     attempts.reduce<number | null>(
       (total, attempt) => (total === null || attempt[key] === null ? null : total + attempt[key]),
       0,
@@ -129,6 +131,21 @@ export function createUsageMeter() {
     total: (): InferenceUsage => ({
       inputTokens: sum("inputTokens"),
       outputTokens: sum("outputTokens"),
+      ...(attempts.some((attempt) => attempt.openaiCache !== undefined)
+        ? {
+            openaiCache: Object.fromEntries(
+              (["read", "write30m", "write12h"] as const).map((key) => [
+                key,
+                attempts.reduce<number | null>((total, attempt) => {
+                  const value = attempt.openaiCache?.[key];
+                  return total === null || value === undefined || value === null
+                    ? null
+                    : total + value;
+                }, 0),
+              ]),
+            ) as NonNullable<InferenceUsage["openaiCache"]>,
+          }
+        : {}),
     }),
   };
 }

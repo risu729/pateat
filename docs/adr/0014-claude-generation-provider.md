@@ -11,6 +11,10 @@ credentials instead of one operator key. Amended by
 the calls itself. Amended by [ADR 0083](0083-clef-first-for-sign-in-forms.md): Clef
 answers a sign-in form first, and Claude answers when Clef abstains.
 
+Amended by [ADR 0087](0087-openai-inference-on-service-and-device.md): OpenAI is an
+additional text provider on the service and the device; the existing Anthropic
+defaults and per-owner billing remain.
+
 Date: 2026-10-10
 
 ## Context
@@ -154,3 +158,10 @@ an owner decision on that evidence.
   covers the initial path.
 - Calling the Anthropic SDK directly instead of the AI SDK provider: would bypass the
   harness's existing structured-output and outcome handling.
+
+## Amendment 2026-11-11: OpenAI support
+
+[ADR 0087](0087-openai-inference-on-service-and-device.md) records the owner-authorized
+addition of OpenAI on both execution paths, provider-specific credentials and
+accounting, and deferred real-API verification. This extends the available text
+providers; earlier Anthropic behavior remains unless the owner selects OpenAI.

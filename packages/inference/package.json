@@ -7,10 +7,12 @@
   "exports": {
     ".": "./src/index.ts",
     "./claude-rates": "./src/providers/claude-rates.ts",
-    "./clef-models": "./src/providers/clef-models.ts"
+    "./clef-models": "./src/providers/clef-models.ts",
+    "./openai-rates": "./src/providers/openai-rates.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.99",
+    "@ai-sdk/openai": "4.0.111",
     "@ai-sdk/valibot": "3.0.76",
     "@pateat/contracts": "workspace:*",
     "@valibot/to-json-schema": "1.8.0",

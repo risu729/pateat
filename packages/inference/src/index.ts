@@ -90,3 +90,24 @@ export {
   type ClaudeModelChoice,
   type ClaudeRates,
 } from "./providers/claude";
+
+export {
+  createOpenAIGenerationModel,
+  openAIGeneration,
+  openAIResponsesUrl,
+  type OpenAIModelChoice,
+} from "./providers/openai";
+export {
+  openAIModelRates,
+  openAIPricedModels,
+  estimateOpenAICostUsd,
+  normalizeOpenAIUsage,
+  openAIWorstCaseRates,
+  type OpenAIRates,
+} from "./providers/openai-rates";
+export {
+  modelRates,
+  modelWorstCaseRates,
+  estimateModelCostUsd,
+  type ModelRates,
+} from "./providers/model-rates";

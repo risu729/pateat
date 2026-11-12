@@ -18,6 +18,10 @@ Web Store question when the extension is submitted. Amends
 [ADR 0014](0014-claude-generation-provider.md) and
 [ADR 0015](0015-per-owner-claude-credentials.md).
 
+Amended by [ADR 0087](0087-openai-inference-on-service-and-device.md): OpenAI is an
+additional text provider on the service and the device; the existing Anthropic
+defaults and per-owner billing remain.
+
 Date: 2026-10-23
 
 ## Context
@@ -308,3 +312,10 @@ How it works (chosen by an agent unless noted):
   key on the service.
 - **A model picker per device**: rejected with the editors (12:38 UTC); the owner's
   choices on the service apply while paired, and the defaults otherwise.
+
+## Amendment 2026-11-11: OpenAI support
+
+[ADR 0087](0087-openai-inference-on-service-and-device.md) records the owner-authorized
+addition of OpenAI on both execution paths, provider-specific credentials and
+accounting, and deferred real-API verification. This extends the available text
+providers; earlier Anthropic behavior remains unless the owner selects OpenAI.

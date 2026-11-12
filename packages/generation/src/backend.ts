@@ -56,12 +56,13 @@ export type PageJudgementVerdict = (typeof pageJudgementVerdicts)[number];
 export const recipeUnitOrigins = ["generated", "judged", "device"] as const;
 export type RecipeUnitOrigin = (typeof recipeUnitOrigins)[number];
 
-export type ClaudeModel = ReturnType<typeof createClaudeGenerationModel>;
+export type GenerationModel = ReturnType<typeof createClaudeGenerationModel>;
+export type ClaudeModel = GenerationModel;
 
 /** The model a call asked, as the request log keeps it, for the route that made the call. */
 export type ServedModel =
   | {
-      provider: "anthropic";
+      provider: "anthropic" | "openai";
       model: string;
       effort: ClaudeModelChoice["effort"];
       speed: "standard" | "fast";
@@ -130,7 +131,7 @@ export type GenerationCall<T> = {
    * at the same time, took what `gate` found free (ADR 0018).
    */
   beforeSend?: (now: number) => Promise<GenerationUnavailableReason | void>;
-  invoke: (model: ClaudeModel) => Promise<InferenceOutcome<T>>;
+  invoke: (model: GenerationModel) => Promise<InferenceOutcome<T>>;
   /**
    * Asked before `invoke` where the backend can call Clef (ADR 0083): an `ok` outcome
    * answers the request, and any other leaves it to `invoke` with the owner's model

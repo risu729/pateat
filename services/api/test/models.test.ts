@@ -8,6 +8,7 @@ import * as v from "valibot";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveWifCredential } from "../src/claude/credentials";
 import { roleChoices } from "@pateat/generation";
+import { fastFailingModels } from "../src/claude/models";
 import {
   deviceApi,
   installAccessKeys,
@@ -261,6 +262,31 @@ describe("owner model configuration", () => {
     ]);
     expect([get.status, write.status]).toEqual([401, 401]);
   });
+
+  it("keeps fast-failure identities qualified by provider and credential source", async () => {
+    const by = await pairedOwner();
+    const now = Date.now();
+    const rows = [
+      ["anthropic", "claude-opus-5-5", "service"],
+      ["openai", "gpt-6.1-sol", "service"],
+      ["openai", "gpt-6.1-terra", "device"],
+    ] as const;
+    await env.DB.batch(
+      rows.flatMap(([provider, model, source]) =>
+        [0, 1, 2].map((index) =>
+          env.DB.prepare(
+            "INSERT INTO inference_log (id, owner_id, role, provider, model_id, speed, source, origin, path, request, outcome, cost_micro_usd, created_at) VALUES (?, ?, 'generate', ?, ?, 'fast', ?, 'https://a.test', '/', '{}', 'rate-limited', 0, ?)",
+          ).bind(crypto.randomUUID(), by.ownerId, provider, model, source, now - index * 1000),
+        ),
+      ),
+    );
+    expect(await fastFailingModels(env.DB, by.ownerId, now)).toEqual(
+      new Set(["anthropic:claude-opus-5-5", "openai:gpt-6.1-sol"]),
+    );
+    expect(await fastFailingModels(env.DB, by.ownerId, now, "device")).toEqual(
+      new Set(["openai:gpt-6.1-terra"]),
+    );
+  });
 });
 
 describe("roleChoices", () => {
@@ -278,14 +304,16 @@ describe("roleChoices", () => {
     );
     expect(choices).toEqual([
       {
+        provider: "anthropic",
         modelId: "claude-sonnet-5-5",
         effort: "medium",
         rates: { input: 2, output: 10 },
         speed: "standard",
       },
     ]);
-    expect(warn).toHaveBeenCalledWith("Configured Claude model has no price", {
+    expect(warn).toHaveBeenCalledWith("Configured model has no price", {
       role: "generate",
+      provider: "anthropic",
       model: "claude-opus-9",
       speed: "standard",
     });
