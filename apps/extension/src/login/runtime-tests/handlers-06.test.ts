@@ -839,6 +839,43 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       ]);
       expect(await detailOf(h)).toEqual({ ok: true, origin, links: [] });
     });
+    it("replaces a confirmed question only on its own server and preserves the other server's answer", async () => {
+      const { h } = await stoppedAtQuestion([pairing]);
+      expect(await fill(h)).toEqual({ ok: true });
+      const previous: DetailLink = {
+        origin,
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId,
+        itemId,
+        detail: "secret-answer",
+        source: { itemId, field: { custom: "Previous answer" } },
+        question: "母親の旧姓は",
+      };
+      const otherServer = { ...previous, server: "cloud-eu" };
+      // Another device's links arrive while this popup's fill waits for confirmation.
+      h.settings.settings.detailLinks = [previous, otherServer];
+      fake.state.pageUrl = `${origin}/home`;
+      fake.state.observedPath = "/home";
+      fake.state.present = new Set(["logout"]);
+      fake.state.extracted = { "signed-in": homePage };
+      await h.hello({ documentId: "document-home" }, false);
+      await until(settled("authenticated"), 60_000);
+      await until(
+        () =>
+          h.settings.settings.detailLinks?.some(
+            (entry) =>
+              typeof entry.source.field !== "string" &&
+              entry.source.field.custom === "お母さんの旧姓",
+          ) === true,
+        10_000,
+      );
+      expect(h.settings.settings.detailLinks).toEqual([
+        otherServer,
+        { ...previous, source: { itemId, field: { custom: "お母さんの旧姓" } } },
+      ]);
+    });
+
     it("stores the confirmed question with the link once signed in, and later logins match it literally", async () => {
       const { h, service } = await stoppedAtQuestion([pairing]);
       expect(await fill(h)).toEqual({ ok: true });

@@ -6,6 +6,7 @@ import {
   type LoginRecipeDocument,
   type SettingsSnapshot,
   type StoredLoginRecipe,
+  type DetailLink,
 } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { createDeviceRecipes, type DeviceRecipeStorage } from "./device-recipes";
@@ -149,6 +150,26 @@ async function exported(device: ReturnType<typeof setup>) {
 }
 
 describe("export and import", () => {
+  it("imports a copied login's links without replacing the other server's links", async () => {
+    const localLink: DetailLink = {
+      origin: SITE,
+      ...owner,
+      itemId: "item-1",
+      detail: "secret-answer",
+      source: { itemId: "item-1", field: { custom: "Answer" } },
+      question: "name of your first pet",
+    };
+    const importedLink = { ...localLink, server: "cloud-eu" };
+    const file = await exported(setup({ settings: settingsOf({ detailLinks: [importedLink] }) }));
+    const device = setup({ settings: settingsOf({ detailLinks: [localLink] }) });
+    expect(await device.transfer.handle(importRequest(file))).toMatchObject({
+      ok: true,
+      type: "settings.import",
+    });
+    expect(device.snapshot()?.settings.detailLinks).toEqual([importedLink, localLink]);
+    expect(device.imported).toHaveBeenCalledOnce();
+  });
+
   it("exports what a pairing shares and nothing of this device's own", async () => {
     const device = setup({
       settings: settingsOf({

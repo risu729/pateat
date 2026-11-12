@@ -1,4 +1,6 @@
 import {
+  detailLinkKey,
+  detailQuestionKey,
   deviceIdSchema,
   profileIdSchema,
   localSettingsSchema,
@@ -224,31 +226,6 @@ const accountKey = (entry: AccountPolicy) =>
   JSON.stringify([entry.provider, entry.server, entry.userId]);
 const itemKey = (entry: ItemPolicy | CustomFieldReview) =>
   JSON.stringify([entry.provider, entry.server, entry.userId, entry.itemId]);
-/**
- * The settings' duplicate check for detail links, so a merge never pairs two links the
- * schema refuses together: one per field for an answer (ADR 0061).
- */
-const detailLinkKey = (link: DetailLink) =>
-  JSON.stringify([
-    link.origin,
-    link.provider,
-    link.userId,
-    link.itemId,
-    link.detail,
-    link.detail === "secret-answer" ? link.source.field : null,
-  ]);
-/** A stored question belongs to one answer of a login item (ADR 0061), as the schema checks. */
-const detailQuestionKey = (link: DetailLink) =>
-  link.question === undefined
-    ? undefined
-    : JSON.stringify([
-        link.origin,
-        link.provider,
-        link.server,
-        link.userId,
-        link.itemId,
-        link.question,
-      ]);
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
 /** What each side last agreed to: the service's copy and the local copy it accounts for. */

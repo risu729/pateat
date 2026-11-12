@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { detailLinkKey, detailQuestionKey } from "./detail-link-identity";
 import {
   hostnameSchema,
   savedLoginBindingSchema,
@@ -143,21 +144,7 @@ export const localSettingsSchema = v.pipe(
         v.array(detailLinkSchema),
         v.maxLength(1000),
         v.check(
-          (links) =>
-            new Set(
-              // A secret question's answer is linked per field, one per question.
-              links.map((link) =>
-                JSON.stringify([
-                  link.origin,
-                  link.provider,
-                  link.server,
-                  link.userId,
-                  link.itemId,
-                  link.detail,
-                  link.detail === "secret-answer" ? link.source.field : null,
-                ]),
-              ),
-            ).size === links.length,
+          (links) => new Set(links.map(detailLinkKey)).size === links.length,
           "Duplicate detail links",
         ),
         v.check(
@@ -167,20 +154,10 @@ export const localSettingsSchema = v.pipe(
         // A stored question belongs to one of the login item's answers, so a page that
         // shows it never matches two of them.
         v.check((links) => {
-          const questions = links.flatMap((link) =>
-            link.question === undefined
-              ? []
-              : [
-                  JSON.stringify([
-                    link.origin,
-                    link.provider,
-                    link.server,
-                    link.userId,
-                    link.itemId,
-                    link.question,
-                  ]),
-                ],
-          );
+          const questions = links.flatMap((link) => {
+            const key = detailQuestionKey(link);
+            return key === undefined ? [] : [key];
+          });
           return new Set(questions).size === questions.length;
         }, "Duplicate detail questions"),
       ),

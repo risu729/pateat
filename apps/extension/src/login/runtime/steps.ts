@@ -44,7 +44,6 @@ import { newId } from "@pateat/contracts/ids";
 import {
   type UnsavedChoice,
   type LiveDocument,
-  type DetailSourceField,
   type KeypadPress,
   type GenerationScope,
 } from "./types";
@@ -154,12 +153,6 @@ export function pairedQuestions(
 /** Whether two fields' inputs are the same, in the same order. */
 export const sameInputs = (left: readonly LoginFieldTarget[], right: readonly LoginFieldTarget[]) =>
   left.length === right.length && left.every((target, at) => sameLoginTarget(target, right[at]!));
-
-/** A link's source field as a key, the same whatever order its properties came in. */
-export const sourceFieldKey = (field: DetailSourceField) =>
-  typeof field === "string"
-    ? field
-    : JSON.stringify([field.custom, field.position ?? null, field.count ?? null]);
 
 /** Names a popup choice by its document and the accounts it offers. */
 export const choiceKey = (choice: {

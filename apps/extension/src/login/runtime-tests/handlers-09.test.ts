@@ -352,6 +352,36 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       }, 10_000);
     });
     describe("a refused value", () => {
+      it("rejects only the filled server's link when another server has the same login IDs", async () => {
+        vi.useFakeTimers();
+        onClick({ login: toConfirm, confirm: toRejected });
+        const otherServer = { ...birthLink, server: "cloud-eu" };
+        const { h, report } = start([birthLink, otherServer, phoneLink], birthValue, rejecting);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(settled("blocked", "credential-rejected"), 10_000);
+        await until(() => savedLinks(h)?.length === 2, 10_000);
+        expect(savedLinks(h)).toEqual([otherServer, phoneLink]);
+        expect(handlerReports(report)).toEqual([
+          [0, "detail", "entered", 2],
+          [0, "detail", "detail-forgotten", 2],
+        ]);
+      });
+
+      it("restores a refusal for another server without blocking this server's linked detail", async () => {
+        vi.useFakeTimers();
+        const otherServer = { ...birthLink, server: "cloud-eu" };
+        fake.state.session[refusedKey] = [{ ...birthRefusal, server: "cloud-eu" }];
+        onClick({ login: toConfirm, confirm: toHome });
+        const { h } = start([birthLink, otherServer]);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(settled("authenticated"), 10_000);
+        await until(() => savedLinks(h)?.length === 1, 10_000);
+        expect(savedLinks(h)).toEqual([birthLink]);
+        expect(detailFills()).toHaveLength(1);
+        expect(reads(h)).toContainEqual([identityId, birthField]);
+        expect(fake.state.session[refusedKey]).toEqual([]);
+      });
+
       it("removes the filled link when the login is rejected, keeping the others", async () => {
         onClick({ login: toConfirm, confirm: toRejected });
         const { h, report } = start([birthLink, phoneLink], birthValue, rejecting);
@@ -889,6 +919,30 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(savedLinks(h)).toEqual([phoneLink, other]);
         expect(await remove(h, "card-code")).toEqual({ ok: false, reason: "no-link" });
       });
+      it.each(["birth-date", "secret-answer"])(
+        "popup removal of %s keeps the copied login's links on another server",
+        async (detail) => {
+          vi.useFakeTimers();
+          onClick({ login: toConfirm, confirm: toHome });
+          const first = linkTo("secret-answer", { itemId, field: { custom: "First pet" } });
+          const second = linkTo("secret-answer", { itemId, field: { custom: "Birth town" } });
+          const otherBirth = { ...birthLink, server: "cloud-eu" };
+          const otherFirst = { ...first, server: "cloud-eu" };
+          const otherSecond = { ...second, server: "cloud-eu" };
+          const { h } = start([birthLink, first, second, otherBirth, otherFirst, otherSecond]);
+          expect(await h.hello()).toEqual({ ok: true });
+          await until(settled("authenticated"), 10_000);
+          expect(await remove(h, detail)).toEqual({ ok: true });
+          expect(savedLinks(h)).toEqual(
+            detail === "birth-date"
+              ? [first, second, otherBirth, otherFirst, otherSecond]
+              : [birthLink, otherBirth, otherFirst, otherSecond],
+          );
+          // Without a field reference, Remove clears every answer of this server's item.
+          if (detail === "secret-answer")
+            expect(await remove(h, detail)).toEqual({ ok: false, reason: "no-link" });
+        },
+      );
       it("does not remove a saved link while a login is in progress", async () => {
         onClick({ login: toConfirm, confirm: "hang" });
         const { h } = start([birthLink]);
