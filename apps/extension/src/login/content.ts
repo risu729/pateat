@@ -59,6 +59,7 @@ import { nextFrame } from "../page/frames";
 import { watchFrameShown } from "../page/frame-shown";
 import { pageChange } from "../page/page-change";
 import { documentLoaded } from "../page/document-load";
+import { breaksQuiet, pageWatch, settled } from "../page/quiet";
 import {
   extractAccountListObservation,
   extractEntryObservation,
@@ -453,39 +454,6 @@ const fillSettleMs = 500;
 const offerQuietMs = 1000;
 const offerWaitMs = 5000;
 /**
- * What the page watch observes, in the document and in each shadow tree: only attributes
- * that can change whether a target matches, shows or accepts input.
- */
-const pageWatch: MutationObserverInit = {
-  subtree: true,
-  childList: true,
-  // Button text locators also depend on text, `value`, `alt` and hidden subtrees.
-  characterData: true,
-  attributes: true,
-  attributeFilter: [
-    "id",
-    "name",
-    "data-testid",
-    "data-test",
-    "type",
-    "autocomplete",
-    "hidden",
-    "style",
-    "class",
-    "open",
-    "disabled",
-    "readonly",
-    "value",
-    "alt",
-    "aria-hidden",
-    "aria-disabled",
-    "inert",
-    "role",
-    "onclick",
-    "href",
-  ],
-};
-/**
  * A fill compared with the account the page shows, while the page shows no identifier
  * to compare with, waits until the document has loaded and its DOM has had no change for
  * `accountQuietMs`, or `accountWaitMs` while it keeps changing: Duolingo's sign-in shows its remembered account's address after the password
@@ -497,38 +465,47 @@ const accountWaitMs = 5000;
 const accountReserveMs = 2000;
 
 /**
- * Resolves once `document` has loaded and its DOM, shadow trees included, has had no
- * change for `quietMs`, or at `until` (a time in ms since the epoch), whichever comes
- * first.
+ * Calls `look` at the page's next frame after a DOM change in `document` or in a shadow
+ * tree an earlier look found (ADR 0070), however many changes come before it and at most
+ * once per `checkGapMs` (ADR 0082). `later` asks for a look as a change does; after
+ * `stop`, no look runs.
  */
-function settled(document: Document, quietMs: number, until: number): Promise<void> {
-  return new Promise((resolve) => {
-    const view = document.defaultView;
-    let quiet: ReturnType<typeof setTimeout> | undefined;
-    const restart = () => {
-      clearTimeout(quiet);
-      if (document.readyState === "complete") quiet = setTimeout(done, quietMs);
-    };
-    const observer = new MutationObserver(restart);
-    const cap = setTimeout(done, Math.max(0, until - Date.now()));
-    function done(): void {
-      observer.disconnect();
-      clearTimeout(quiet);
-      clearTimeout(cap);
-      view?.removeEventListener("load", restart);
-      resolve();
-    }
-    // The shadow trees the page holds now change the page too (ADR 0070).
-    for (const tree of [document, ...shadowRoots(document)])
-      observer.observe(tree, {
-        childList: true,
-        subtree: true,
-        characterData: true,
-        attributes: true,
-      });
-    view?.addEventListener("load", restart);
-    restart();
-  });
+function lookOnChange(
+  document: Document,
+  look: () => void,
+): { later: () => void; stop: () => void } {
+  let pending = false;
+  let stopped = false;
+  let lookedAt = Number.NEGATIVE_INFINITY;
+  const observed = new WeakSet<ShadowRoot>();
+  const run = () => {
+    pending = false;
+    if (stopped) return;
+    lookedAt = Date.now();
+    // Shadow trees attached since the last look are watched too.
+    for (const root of shadowRoots(document))
+      if (!observed.has(root)) {
+        observed.add(root);
+        changes.observe(root, pageWatch);
+      }
+    look();
+  };
+  const later = () => {
+    if (pending || stopped) return;
+    pending = true;
+    const gap = lookedAt + checkGapMs - Date.now();
+    if (gap <= 0) void nextFrame().then(run);
+    else setTimeout(() => void nextFrame().then(run), gap);
+  };
+  const changes = new MutationObserver(later);
+  changes.observe(document, pageWatch);
+  return {
+    later,
+    stop: () => {
+      stopped = true;
+      changes.disconnect();
+    },
+  };
 }
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
@@ -703,6 +680,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     clearTimeout(offerQuiet);
     offerQuiet = setTimeout(decideOffer, offerQuietMs);
   };
+  // Every DOM change checks the starts; only some restart a pending decision's quiet wait
+  // (`breaksQuiet`).
+  const domChanged = (records: MutationRecord[]) => {
+    if (offerCap !== undefined && records.some(breaksQuiet)) pageChanged();
+    else schedule();
+  };
   function unwatch(): void {
     clearOffer();
     clearTimeout(shownTimer);
@@ -815,7 +798,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       return;
     }
     if (!observer) {
-      observer = new MutationObserver(pageChanged);
+      observer = new MutationObserver(domChanged);
       observer.observe(document, pageWatch);
       observedRoots = new WeakSet();
       watchShadowRoots();
@@ -2831,23 +2814,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let lateWatch: (() => void) | undefined;
   function watchLate(): void {
     if (lateWatch || cancelled || !mayOffer || !offered || submitPath !== undefined) return;
-    let pending = false;
-    let stopped = false;
-    let lookedAt = Number.NEGATIVE_INFINITY;
-    const observed = new WeakSet<ShadowRoot>();
-    const look = () => {
-      pending = false;
-      if (stopped) return;
+    const { later, stop: unlook } = lookOnChange(document, () => {
       // A submitted sign-in form signed the page in: its later forms, as a re-entry of
       // the password on a settings page, are not sent.
       if (cancelled || !mayOffer || !offered || submitPath !== undefined) return stop();
-      lookedAt = Date.now();
-      // Shadow trees attached since the last look are watched too (ADR 0070).
-      for (const root of shadowRoots(document))
-        if (!observed.has(root)) {
-          observed.add(root);
-          changes.observe(root, pageWatch);
-        }
       // An open window, after a load or a URL change, offers the input itself.
       if (offerWindow !== undefined || urlWatch) return;
       const path = pagePath();
@@ -2861,21 +2831,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return;
       offeredPaths.add(path);
       void announce(false, true, undefined, false, false, true).catch(() => undefined);
-    };
-    // One look per frame of the page, at most once per `checkGapMs` (ADR 0082).
-    const later = () => {
-      if (pending) return;
-      pending = true;
-      const gap = lookedAt + checkGapMs - Date.now();
-      if (gap <= 0) void nextFrame().then(look);
-      else setTimeout(() => void nextFrame().then(look), gap);
-    };
-    const changes = new MutationObserver(later);
-    changes.observe(document, pageWatch);
+    });
     frameLooks.add(later);
     function stop(): void {
-      stopped = true;
-      changes.disconnect();
+      unlook();
       frameLooks.delete(later);
       if (lateWatch === stop) lateWatch = undefined;
     }
@@ -2894,30 +2853,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     offerUrl = pageUrl();
     if (!mayOffer || !offered || offerWindow !== undefined) return;
     urlWatch?.();
-    // One look per frame of the page, however many changes come before it (ADR 0082).
-    let pending = false;
-    let stopped = false;
-    const look = () => {
-      pending = false;
-      if (stopped) return;
+    const { later, stop: unlook } = lookOnChange(document, () => {
       if (cancelled || !mayOffer) return stop();
       if (!showsSignIn() || !inTab.shown() || starts.some(ready) || afterSubmitted()) return;
       stop();
       offeredPaths.add(pagePath());
       void announce(false, true, undefined, false, false, true).catch(() => undefined);
-    };
-    const later = () => {
-      if (pending) return;
-      pending = true;
-      void nextFrame().then(look);
-    };
-    const changes = new MutationObserver(later);
-    changes.observe(document, pageWatch);
+    });
     frameLooks.add(later);
     const end = setTimeout(stop, LOGIN_STEP_WAIT_MS);
     function stop(): void {
-      stopped = true;
-      changes.disconnect();
+      unlook();
       frameLooks.delete(later);
       clearTimeout(end);
       if (urlWatch === stop) urlWatch = undefined;
