@@ -1045,9 +1045,12 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           return run(async () => {
             if (waiting()) return error("resource-limit");
             const { connectionId, password } = input;
+            const capturedEpoch = connectionEpoch.get(connectionId) ?? 0;
             releaseAuto = await excludeAuto(connectionId, false);
             const configuration = await deps.registry.get(connectionId);
             if (!configuration) return error("invalid-request");
+            if ((connectionEpoch.get(connectionId) ?? 0) !== capturedEpoch)
+              return error("cancelled");
             if (closed || disabling.has(connectionId) || active.has(connectionId))
               return error("resource-limit");
             const unlocked = await deps.vaultFor(configuration.profile).manager.unlock(password);
@@ -1060,14 +1063,23 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         async lock(connectionId: string): Promise<SetupReply> {
           if (closed || disabling.has(connectionId)) return error("resource-limit");
           disabling.add(connectionId);
+          connectionEpoch.set(connectionId, (connectionEpoch.get(connectionId) ?? 0) + 1);
           try {
             const configuration = await deps.registry.get(connectionId);
             if (!configuration) return error("invalid-request");
+            const current = active.get(connectionId);
+            if (current) {
+              clear(current);
+              if (owned === current) owned = undefined;
+              await current.retirement;
+            }
             stopAuto(connectionId);
             const locked = await deps.vaultFor(configuration.profile).manager.lockVault();
             handles.delete(connectionId);
             return locked.ok ? { ok: true, kind: "locked", connectionId } : locked;
           } finally {
+            // Work admitted during the lock must not resume after its guard is released.
+            connectionEpoch.set(connectionId, (connectionEpoch.get(connectionId) ?? 0) + 1);
             disabling.delete(connectionId);
           }
         },

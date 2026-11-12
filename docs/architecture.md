@@ -406,6 +406,11 @@ validates the saved encrypted context without depending on expired online tokens
 Disabled records retain verified identity and security floors; an ordinary
 refresh must not re-enable automatic unlock. Atomic expected-revision writes
 prevent a stale operation from undoing a newer disable after worker restart.
+Lock cancels that connection's pending sign-in or manual sync and waits for any
+already-started cancellation cleanup before locking. Sign-in and offline-unlock
+admissions that began before or during the lock cannot reopen it afterward; another
+explicit unlock or sign-in is needed. The encrypted cache and provider sync sign-in
+stay, and work on other connections is unaffected.
 Uncertain commits invalidate both candidate and old live sessions until a fresh
 read and SDK verification. Immutable records preserve snapshot identity across
 restart, while replacement data receives a fresh snapshot and requires policy
