@@ -1,4 +1,5 @@
 export const ssoEn = {
+  Continue: "Continue",
   "Remove provider mapping": "Remove provider mapping",
   "SSO field: {{field}}. ": "SSO field: {{field}}. ",
   "The SSO fields have invalid syntax, duplicate methods or mixed formats. Correct the vault item and sync it.":

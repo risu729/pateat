@@ -1,4 +1,5 @@
 export const ssoJa = {
+  Continue: "続ける",
   "Remove provider mapping": "プロバイダーの対応付けを削除",
   "SSO field: {{field}}. ": "SSO フィールド: {{field}}。",
   "The SSO fields have invalid syntax, duplicate methods or mixed formats. Correct the vault item and sync it.":
