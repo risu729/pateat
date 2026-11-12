@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { LOGIN_BADGE_KEY } from "../../../src/login/badge";
-import type { BadgeTestFixtures } from "../../../src/login/badge.test";
+import type { PersistenceContext } from "./context";
 
 export function registerPersistenceCases({
   harness,
@@ -11,10 +11,7 @@ export function registerPersistenceCases({
   NONE,
   FAILED,
   SUCCEEDED,
-}: Pick<
-  BadgeTestFixtures,
-  "harness" | "attempt" | "start" | "origin" | "tabId" | "NONE" | "FAILED" | "SUCCEEDED"
->) {
+}: PersistenceContext) {
   it("persists results and spinning tabs", async () => {
     const h = harness();
     expect(LOGIN_BADGE_KEY).toMatch(/^session:/);

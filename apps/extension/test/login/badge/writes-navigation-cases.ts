@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { BUSY_FRAMES, BUSY_FRAME_MS, NOTICE_MS } from "../../../src/login/badge";
-import type { BadgeTestFixtures } from "../../../src/login/badge.test";
+import type { WritesNavigationContext } from "./context";
 
 export function registerWritesNavigationCases({
   harness,
@@ -16,22 +16,7 @@ export function registerWritesNavigationCases({
   FAILED,
   SUCCEEDED,
   UNSETTLED,
-}: Pick<
-  BadgeTestFixtures,
-  | "harness"
-  | "attempt"
-  | "start"
-  | "origin"
-  | "tabId"
-  | "NONE"
-  | "OTHER_TAB"
-  | "choose"
-  | "CHOICE"
-  | "BUSY"
-  | "FAILED"
-  | "SUCCEEDED"
-  | "UNSETTLED"
->) {
+}: WritesNavigationContext) {
   it("keeps tabs apart", async () => {
     const h = harness();
     h.badge.observe(attempt({ outcome: "timeout" }));

@@ -769,17 +769,18 @@ the 1,000-line limit.
 
 ### Login badge test organization
 
-`apps/extension/src/login/badge.test.ts` remains the sole discovered badge test
-entry. It owns the hoisted browser mock, root hooks, original describe scopes, shared
-fixtures and harness, and describe-local helpers at their original initialization
-positions. Plain modules under `apps/extension/test/login/badge/` export passive
-synchronous registrars for presentation, writes and navigation, persistence, and
-page-status recording. The entry calls each registrar at the original position with
-the same helper and fixture references; importing a module registers no cases. Erased
-fixture types in the entry describe those references without a runtime import cycle.
-The modules stay outside the production coverage root, and every file follows the
-1,000-line limit. Callbacks, assertions, parameter tables and registration order stay
-unchanged.
+`apps/extension/src/login/badge.test.ts` is the discovered entry for the main login
+badge cases; `badge.exhaustive.test.ts` is a separate entry. It owns the hoisted
+`wxt/browser` mock, the root timer hooks, the describe scopes, the shared fixtures and
+harness, and each scope's local helpers. Plain modules in
+`apps/extension/test/login/badge/` export synchronous registration functions for the
+presentation, writes and navigation, persistence and page-status recording groups.
+The entry calls them inside the `login badge` and `page status` scopes with the same
+fixture and helper references; importing a module registers no cases. The modules
+import `vitest` and the production exports they use directly. The entry exports its
+`BadgeTestFixtures` type, and `context.ts` builds the module contexts from it with
+`import type`. The modules sit outside `src/`, so they stay outside the production
+coverage root. Each file follows the 1,000-line limit.
 
 ### Login wire contracts
 

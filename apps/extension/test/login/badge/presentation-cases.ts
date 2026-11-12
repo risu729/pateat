@@ -8,7 +8,7 @@ import {
   PAUSED_TEXT,
 } from "../../../src/login/badge";
 import { localClock } from "../../../src/time";
-import type { BadgeTestFixtures } from "../../../src/login/badge.test";
+import type { PresentationContext } from "./context";
 
 export function registerPresentationCases({
   harness,
@@ -23,21 +23,7 @@ export function registerPresentationCases({
   FAILED,
   SUCCEEDED,
   UNSETTLED,
-}: Pick<
-  BadgeTestFixtures,
-  | "harness"
-  | "attempt"
-  | "start"
-  | "origin"
-  | "tabId"
-  | "NONE"
-  | "choose"
-  | "CHOICE"
-  | "BUSY"
-  | "FAILED"
-  | "SUCCEEDED"
-  | "UNSETTLED"
->) {
+}: PresentationContext) {
   it("writes its tooltips in the extension's language, again when it changes (ADR 0043)", async () => {
     const h = harness();
     h.badge.choice(tabId, { count: 2 });

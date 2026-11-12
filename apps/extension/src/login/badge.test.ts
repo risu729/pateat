@@ -1,7 +1,3 @@
-import { registerPresentationCases } from "../../test/login/badge/presentation";
-import { registerWritesNavigationCases } from "../../test/login/badge/writes-navigation";
-import { registerPersistenceCases } from "../../test/login/badge/persistence";
-import { registerStatusRecordingCases } from "../../test/login/badge/status-recording";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n";
 import {
@@ -14,9 +10,12 @@ import {
   setActionBadge,
   type BadgeDetails,
 } from "./badge";
-
 import type { LoginReport } from "./runtime/report";
 import type { SiteCount } from "./site-count";
+import { registerPersistenceCases } from "../../test/login/badge/persistence-cases";
+import { registerPresentationCases } from "../../test/login/badge/presentation-cases";
+import { registerStatusRecordingCases } from "../../test/login/badge/status-recording-cases";
+import { registerWritesNavigationCases } from "../../test/login/badge/writes-navigation-cases";
 
 const action = vi.hoisted(() => ({
   setBadgeText: vi.fn(async (_details: unknown) => undefined),
@@ -105,6 +104,23 @@ function harness(
   const flush = () => vi.advanceTimersByTimeAsync(0);
   return { badge, calls, storage, setValue, setBadge, view, flush };
 }
+
+export type BadgeTestFixtures = {
+  harness: typeof harness;
+  attempt: typeof attempt;
+  start: typeof start;
+  origin: typeof origin;
+  tabId: typeof tabId;
+  NONE: typeof NONE;
+  choose: typeof choose;
+  CHOICE: typeof CHOICE;
+  BUSY: typeof BUSY;
+  FAILED: typeof FAILED;
+  SUCCEEDED: typeof SUCCEEDED;
+  UNSETTLED: typeof UNSETTLED;
+  OTHER_TAB: typeof OTHER_TAB;
+  refused: typeof refused;
+};
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -787,20 +803,3 @@ describe("site count", () => {
     expect(h.calls.filter((call) => call.tabId === 8)).toHaveLength(1);
   });
 });
-
-export type BadgeTestFixtures = {
-  harness: typeof harness;
-  attempt: typeof attempt;
-  start: typeof start;
-  origin: typeof origin;
-  tabId: typeof tabId;
-  NONE: typeof NONE;
-  choose: typeof choose;
-  CHOICE: typeof CHOICE;
-  BUSY: typeof BUSY;
-  FAILED: typeof FAILED;
-  SUCCEEDED: typeof SUCCEEDED;
-  UNSETTLED: typeof UNSETTLED;
-  OTHER_TAB: typeof OTHER_TAB;
-  refused: typeof refused;
-};

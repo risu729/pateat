@@ -1,8 +1,5 @@
 import { expect, it } from "vitest";
-import type { BadgeTestFixtures } from "../../../src/login/badge.test";
-import type { LoginReport } from "../../../src/login/runtime/report";
-
-type Generation = Extract<LoginReport, { type: "generation" }>;
+import type { StatusRecordingContext } from "./context";
 
 export function registerStatusRecordingCases({
   harness,
@@ -12,9 +9,7 @@ export function registerStatusRecordingCases({
   origin,
   tabId,
   report,
-}: Pick<BadgeTestFixtures, "harness" | "attempt" | "start" | "refused" | "origin" | "tabId"> & {
-  report: (fields: Partial<Generation> & Pick<Generation, "outcome">) => Generation;
-}) {
+}: StatusRecordingContext) {
   it("records a login's start, then each state, outcome and cause", () => {
     const h = harness();
     expect(h.badge.status(tabId)).toBeUndefined();
