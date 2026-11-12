@@ -479,6 +479,16 @@ file on GitHub Releases, loaded with **Load unpacked**. `apps/docs/package.json`
 `license` field, like `services/api`, until the owner decides whether
 [LICENSING.md](../LICENSING.md)'s installation material covers the site.
 
+### Login contract test organization
+
+The login contract tests keep `packages/contracts/src/login.test.ts` as their only
+discovered entry. It owns the shared fixture factories and the second-factor suite's
+local helpers. Plain modules under `packages/contracts/test/login/` export synchronous
+registration functions called at the original positions and describe nesting; importing
+a module registers no tests. The case callbacks, tables, titles, hooks and registration
+order stay unchanged. These test modules live outside `src/` so they do not enter the
+production coverage denominator.
+
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
@@ -617,6 +627,18 @@ Harness modules are excluded from coverage. Test files and helpers follow the
 expanded test count. The owner approved this organization with the runtime split
 on 2026-10-30. Compare the full Verify job as well as test counts when changing the
 suite layout, since each file loads the runtime and harness separately.
+
+### API sync test organization
+
+`services/api/test/sync.test.ts` remains the sole discovered entry for the sync
+suite. Plain modules in `services/api/test/sync/` export synchronous registration
+functions, called by that entry in the original describe order; importing a leaf
+registers no cases. `harness.ts` holds the shared synthetic owners, devices,
+settings and recipe helpers once. The existing describe nesting, registration
+order, callbacks, parameter tables and migration SQL remain unchanged. Each file
+follows the 1,000-line limit. The API coverage configuration covers production
+`src/` only, so these test helpers remain outside it. Compare expanded collection
+names and counts as well as the local Worker tests when changing this layout.
 
 ### Observation reader test organization
 
