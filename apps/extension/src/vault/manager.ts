@@ -19,26 +19,28 @@ import {
 } from "./record";
 import type { DurableVaultStore } from "./storage";
 import { memorySessionKeyStore, type SessionKey, type SessionKeyStore } from "./session-key";
+import { ssoManagerOperations, type SsoCryptoHost } from "./sso";
 import { newId } from "@pateat/contracts/ids";
 
-export type VaultCryptoHost = Pick<
-  CryptoHost,
-  | "open"
-  | "verifyReceivedCiphers"
-  | "exportUnlockMaterial"
-  | "lock"
-  | "isOpen"
-  | "listFields"
-  | "resolveField"
-  | "catalog"
-  | "matchUris"
-  | "loginUsernames"
-  | "customFieldDigests"
-  | "findPasskeys"
-  | "passkeyRpIds"
-  | "signPasskey"
-  | "verifyMasterPassword"
->;
+export type VaultCryptoHost = SsoCryptoHost &
+  Pick<
+    CryptoHost,
+    | "open"
+    | "verifyReceivedCiphers"
+    | "exportUnlockMaterial"
+    | "lock"
+    | "isOpen"
+    | "listFields"
+    | "resolveField"
+    | "catalog"
+    | "matchUris"
+    | "loginUsernames"
+    | "customFieldDigests"
+    | "findPasskeys"
+    | "passkeyRpIds"
+    | "signPasskey"
+    | "verifyMasterPassword"
+  >;
 export type LocalVaultHandle = {
   managerGeneration: string;
   handleId: string;
@@ -962,6 +964,7 @@ export function createLocalVaultManager(options: {
         disabling = false;
       }
     },
+    ...ssoManagerOperations(options.host, withLiveVault),
     async listFields(handle: LocalVaultHandle, itemId: string, signal?: AbortSignal) {
       try {
         handle = structuredClone(handle);

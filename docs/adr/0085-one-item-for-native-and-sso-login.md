@@ -3,10 +3,12 @@
 Status: accepted by the owner on 2026-11-07 (12:51 UTC:
 「これはそのまま反映していいです」, the proposal of
 [#1380](https://github.com/risu729/pateat/issues/1380) applied as written); not
-implemented. The owner asked for the format itself: keep the SSO-only format, keep a
-mixed account's own credentials, one readable value such as `[GitHub] github-user` per
-SSO method, and no separate provider and username fields or JSON. The selection and
-validation rules below were written in
+implemented as a complete route. Amended on 2026-11-12 by the local discovery
+[implementation note](#amendment-2026-11-12-local-method-discovery-and-mapping-validation);
+execution remains unimplemented. The owner asked for the format itself: keep the
+SSO-only format, keep a mixed account's own credentials, one readable value such as
+`[GitHub] github-user` per SSO method, and no separate provider and username fields or
+JSON. The selection and validation rules below were written in
 [#1380](https://github.com/risu729/pateat/issues/1380) as proposed implementation
 details and were accepted with it. Amends
 [ADR 0026](0026-sign-in-through-identity-providers.md) (item format, which IdP item is
@@ -203,3 +205,59 @@ when, after NFKC normalization and trimming surrounding white space, it is `SSO`
 - A binding saved before this that names such a field now refuses `sso-field` on every
   login of a one-variant recipe; revoking the recipe in the web UI has it generated
   again without the field (ADR 0027).
+
+## Amendment 2026-11-12: local method discovery and mapping validation
+
+Implementation details chosen by an agent within the accepted format; these do not
+change the owner's item format or authorize a real-account operation. This foundation
+implements local discovery only. The SSO route, generation, popup choice and coordinator
+remain unimplemented until their dependent delivery; native route selection is
+unchanged.
+
+- Reserved field recognition uses `isSsoFieldName`; `ssoMethodName` interprets the same
+  NFKC-normalized, trimmed, case-insensitive field name. Unsuffixed `SSO` is method 1;
+  numbered alternatives are 2 through 1,000,000. Leading zeroes denote the same number,
+  so `SSO 02` and `SSO 2` are duplicates. Reserved suffixes 0 and 1 are invalid methods.
+- Values are trimmed around the whole value. Bracket syntax is exactly
+  `[label] username`, with white space separating the closing bracket and username; each
+  part is trimmed. Labels retain their spelling, up to 128 UTF-16 units. Usernames are
+  compared after trimming and `toLowerCase()`, without Unicode compatibility
+  normalization or aliases, up to 1,024 units. Brackets, line breaks and control
+  characters in either part refuse. Controls, including tab and line separators, refuse
+  anywhere in the raw value, before trimming; surrounding non-control white space is
+  trimmed. A value is at most 4,096 units, and an item has at most 32 enabled methods.
+- The URL form is one unsuffixed enabled method with an empty stored password and a
+  usable built-in username. Its absolute HTTP(S) URL is reduced to its origin. URL
+  credentials, backslashes, white space and control characters refuse. No host is
+  inferred from a label, item name, username or URI order. Concrete IdP origins are
+  enumerated from that IdP item's own non-Regex, non-Never URI rules; unavailable rules
+  are reported, never silently treated as no match.
+- Methods are read from decrypted items for one call, then discarded. No new decrypted
+  field cache is added to ADR 0080. The source operation returns an opaque username
+  comparison proof under the existing offscreen document's HMAC key, domain-separated
+  for SSO. Another connection's Worker compares that proof locally. Proofs are
+  transient, are invalid when that offscreen key changes, and never go to storage, a
+  popup or the service. A full decrypted native username confirms the cache's shortlist
+  so a truncated display username cannot identify a different account.
+- Public method descriptors contain only method number, form, automatic status and
+  optional bracket label. A source reference contains the account, method number and
+  SHA-256 of the encrypted source item; it contains no decrypted field value. The
+  encrypted-source hash conservatively invalidates a saved mapping on any source change.
+  Snapshot-bound field IDs and comparison proofs are not persistent method references.
+- `createVaultSsoSource` checks current settings eligibility, exclusions, quarantine,
+  timeout, durable vault state and snapshots. Discovery does not count as vault use.
+  Validation rereads the source and exact chosen IdP item, compares usernames, checks
+  that the chosen origin is in that item's own concrete URIs, then checks policy and
+  snapshot continuity. A candidate URI is no credential-release grant. Unknown mappings
+  still need the future local chooser; a label alone never selects an IdP account.
+  This foundation validates one method at a time. The dependent mapping layer must
+  refuse when two enabled methods resolve to the same IdP account, before any click.
+- A partly unreadable custom field can hide even the preferred method's name. Discovery
+  conservatively refuses such a source rather than treating it as having no SSO. Errors
+  contain field names and fixed reason codes, never field values.
+
+The URL form has no label to send to generation. Its future executor first looks for an
+unambiguous local entry whose observed destination is the selected origin. Otherwise the
+local popup must explicitly choose an observed entry and its displayed label, including
+JavaScript-only buttons. Neither the origin nor the local mapping is sent to the
+service. This is an agent's implementation detail, not a new owner decision.

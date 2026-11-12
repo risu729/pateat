@@ -26,8 +26,8 @@ export function startCryptoOffscreen() {
   const port = browser.runtime.connect({ name: CRYPTO_PORT });
   let connected = true;
   let generation: string | undefined;
-  // One custom-field digest key for this document's lifetime: digests from two sessions
-  // here are comparable, but the background never sees the key to test guesses with.
+  // One comparison key for this document's lifetime: custom digests and domain-separated
+  // SSO proofs compare across sessions, but the background never sees the key.
   const digestKey = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
   const sessions = new Map<string, { worker: Worker; ref: HostSessionRef; openedBy: string }>();
   const jobs = new Map<
