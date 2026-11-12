@@ -45,6 +45,7 @@ export type SsoWork = {
   parent?: LoginAttemptMetadata;
   choice?: UnsavedChoice;
   childId?: string;
+  childRecord?: LoginAttemptMetadata;
   reprompted?: boolean;
   generation?: boolean;
   completionTried?: boolean;
@@ -52,7 +53,7 @@ export type SsoWork = {
     id: string;
     handle: string;
     live: LiveDocument;
-    stage: "prepared" | "intent" | "spent";
+    stage: "prepared" | "intent" | "pointer" | "spent";
     destinations: string[];
   };
   used: Set<string>;
@@ -138,14 +139,15 @@ export function registerSsoChild(
     return false;
   metadata.ssoChild = { parentId: work.id, attemptId: metadata.id };
   work.childId = metadata.id;
+  work.childRecord = metadata;
   state.children.set(metadata.id, { parentId: work.id, account: { ...metadata.account } });
   return true;
 }
 export const ssoChild = (state: SsoState, metadata: LoginAttemptMetadata) => {
-  if (metadata.ssoChild?.attemptId === metadata.id) return true;
   const child = state.children.get(metadata.id);
+  if (!child) return metadata.ssoChild?.attemptId === metadata.id;
   return (
-    !!child &&
+    child !== undefined &&
     child.account.origin === metadata.account.origin &&
     child.account.connectionId === metadata.account.connectionId &&
     child.account.itemId === metadata.account.itemId

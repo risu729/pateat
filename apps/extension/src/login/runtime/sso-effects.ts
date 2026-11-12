@@ -131,7 +131,7 @@ export async function authorizeSso(
     !work ||
     !document ||
     !operation ||
-    operation.stage !== "intent" ||
+    operation.stage !== (request.phase === "pointer" ? "intent" : "pointer") ||
     work.id !== request.flowId ||
     operation.id !== request.operationId ||
     operation.handle !== request.handle ||
@@ -143,19 +143,20 @@ export async function authorizeSso(
     return { ok: false };
   if (
     work.operation !== operation ||
-    operation.stage !== "intent" ||
+    operation.stage !== (request.phase === "pointer" ? "intent" : "pointer") ||
     !ssoCurrent(rt, work, operation.live) ||
     !work.deliveryFence?.()
   )
     return { ok: false };
-  operation.stage = "spent";
+  const next = request.phase === "pointer" ? "pointer" : "spent";
+  operation.stage = next;
   await rt.sso.write();
   const scoped = await ssoScope(rt, work, operation.live);
   return {
     ok:
       scoped &&
       work.operation === operation &&
-      operation.stage === "spent" &&
+      operation.stage === next &&
       work.deliveryFence?.() === true,
   };
 }

@@ -131,7 +131,13 @@ export const attemptMetadataSchema = v.pipe(
     /** Explicit parent metadata never enters the native transition engine. */
     ssoParent: v.optional(v.literal(true)),
     /** Durable exclusion only: an IdP child never restores parent authority. */
-    ssoChild: v.optional(v.strictObject({ parentId: identifier, attemptId: identifier })),
+    ssoChild: v.optional(
+      v.strictObject({
+        parentId: identifier,
+        attemptId: identifier,
+        released: v.optional(v.literal(true)),
+      }),
+    ),
     /**
      * The password route's variant chosen with it: 0 for the recipe's own steps. A
      * `passkey` route that answers the start page's own request keeps the variant it falls

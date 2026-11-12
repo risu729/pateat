@@ -68,6 +68,7 @@ export function signedInElsewhere(
       entry.account.origin === siteOrigin &&
       entry.document.tabId !== tabId &&
       sharesCookies(incognitoTabs, entry.document.tabId, tabId) &&
+      entry.ssoChild?.attemptId !== entry.id &&
       entry.state === "authenticated" &&
       age >= 0 &&
       age < SIGNED_IN_ELSEWHERE_MS

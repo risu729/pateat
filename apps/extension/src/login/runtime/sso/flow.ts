@@ -193,10 +193,15 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
           if (!fence?.()) return snapshot;
           return { ...snapshot, settings: withChoice(snapshot.settings, choice) };
         },
-        async (snapshot) =>
-          snapshot.revision === work.saved.snapshot.revision &&
-          (await ssoScope(rt, work, live)) &&
-          !!work.deliveryFence?.(),
+        async (snapshot, catalog) => {
+          // This callback runs inside the settings queue: never re-enter settings.handle.
+          const latestCatalog = await catalog();
+          return (
+            snapshot.revision === work.saved.snapshot.revision &&
+            JSON.stringify(latestCatalog) === JSON.stringify(work.saved.catalog) &&
+            !!fence?.()
+          );
+        },
       )
       .catch(() => undefined);
   }
@@ -206,22 +211,32 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
   await publish(rt, live, ended);
   return true;
 }
-async function releaseChild(rt: Runtime, work: SsoWork) {
+async function pauseNativeChild(rt: Runtime, work: SsoWork) {
   const child = rt.attempts.get(work.rpLive.document.tabId);
   if (!child || child.metadata.id !== work.childId || !ssoChild(rt.sso, child.metadata)) return;
-  // The native child has no authority outside its IdP document. This is not RP proof.
-  if (child.metadata.state !== "authenticated" && child.metadata.state !== "blocked") {
-    child.metadata = parseAttemptMetadata({
-      ...child.metadata,
-      state: "blocked",
-      outcome: "cancelled",
-      watch: undefined,
-      settled: undefined,
-    });
-    await keep(rt, child.metadata);
-  }
+  work.childRecord =
+    child.metadata.state === "authenticated"
+      ? child.metadata
+      : parseAttemptMetadata({
+          ...child.metadata,
+          state: "blocked",
+          outcome: "cancelled",
+          watch: undefined,
+          settled: undefined,
+        });
+  await keep(rt, work.childRecord);
   rt.attempts.delete(work.rpLive.document.tabId);
   void send(rt, child.live, { type: "login.cancel" }).catch(() => undefined);
+}
+async function releaseChild(rt: Runtime, work: SsoWork) {
+  await pauseNativeChild(rt, work);
+  const metadata = work.childRecord;
+  if (!metadata || metadata.id !== work.childId || !ssoChild(rt.sso, metadata)) return;
+  work.childRecord = parseAttemptMetadata({
+    ...metadata,
+    ssoChild: { parentId: work.id, attemptId: metadata.id, released: true },
+  });
+  await keep(rt, work.childRecord);
 }
 async function ssoEntryShown(
   rt: Runtime,
@@ -568,12 +583,6 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
   }
   work.phase = "at-idp";
   const child = rt.attempts.get(ctx.document.tabId);
-  if (
-    child &&
-    ssoChild(rt.sso, child.metadata) &&
-    !["authenticated", "blocked"].includes(child.metadata.state)
-  )
-    return undefined;
   if (!(await ssoReprompt(rt, work, ctx.live, true))) {
     cancelSso(rt, ctx.document.tabId, "sso-reprompt-required");
     return ctx.refuse("sso-reprompt-required");
@@ -593,16 +602,23 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     return ctx.refuse("sso-idp-unreadable");
   }
   if (
-    (parsed.output.kind === "native" ||
-      (parsed.output.kind === "unknown" && ctx.signIn?.passkey)) &&
-    !work.childId
-  )
-    return undefined;
+    parsed.output.kind === "native" ||
+    (parsed.output.kind === "unknown" && ctx.signIn?.passkey)
+  ) {
+    if (
+      !work.childId ||
+      (child &&
+        child.metadata.id === work.childId &&
+        !["authenticated", "blocked"].includes(child.metadata.state))
+    )
+      return undefined;
+  }
   if (
     parsed.output.kind === "account" ||
     parsed.output.kind === "continue" ||
     parsed.output.kind === "stay-signed-in"
   ) {
+    await pauseNativeChild(rt, work);
     if (!(await ssoPress(rt, work, ctx.live, parsed.output.target, `idp-${parsed.output.kind}`)))
       cancelSso(rt, ctx.document.tabId, "sso-idp-stopped");
     return { ok: false as const, reason: "sso-in-progress" };
@@ -614,6 +630,7 @@ export function ssoChildChanged(rt: Runtime, run: Execution) {
   if (!ssoChild(rt.sso, run.metadata)) return;
   const work = rt.sso.flows.get(run.metadata.document.tabId);
   if (!work || work.childId !== run.metadata.id || work.ended) return;
+  work.childRecord = run.metadata;
   if (run.metadata.state === "blocked" || run.metadata.state === "watching" || run.metadata.settled)
     cancelSso(rt, run.metadata.document.tabId, "sso-idp-child-stopped");
   else if (run.metadata.state === "authenticated") {

@@ -588,7 +588,7 @@ export function markLayoutUsed(
             eq(recipeHeads.ownerId, ownerId),
             eq(recipeHeads.recipeId, recipeId),
             eq(recipeHeads.state, "active"),
-            sql`(${hasLayout("$.layouts", layout)} OR ${hasLayout("$.chooser.layouts", layout)})`,
+            sql`(${hasLayout("$.layouts", layout)} OR ${hasLayout("$.chooser.layouts", layout)} OR ${hasLayout("$.sso.layouts", layout)})`,
           ),
         ),
     )

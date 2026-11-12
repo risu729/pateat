@@ -5,8 +5,12 @@ import { visible } from "../page/code-submission";
 import { clickable } from "../page/target-state";
 import { findTargets } from "../page/targets";
 import { closestAcross, queryAll } from "../page/shadow";
-import { pressElement } from "../page/script-url-click";
-import { extractSignedInObservation, extractEntryObservation } from "../observation/extract";
+import { pressPointer } from "../page/pointer-press";
+import {
+  extractSignedInObservation,
+  extractEntryObservation,
+  extractPasskeyObservation,
+} from "../observation/extract";
 import { showsSignUp } from "../page/entry";
 import type { SsoContentCommand, SsoInspection, SsoIdpReading } from "./sso-operation-wire";
 
@@ -94,6 +98,7 @@ export function readSsoIdp(document: Document, username: string): SsoIdpReading 
   let observation = extractSignedInObservation(document);
   if (!observation.ok) observation = extractEntryObservation(document);
   if (!observation.ok || !observation.observation.complete) return { kind: "unknown" };
+  if (extractPasskeyObservation(document).ok) return { kind: "native" };
   const page = observation.observation;
   if (
     page.candidates.some((candidate) =>
@@ -184,7 +189,12 @@ export function createSsoContent(
   document: Document,
   options: {
     cancelled: () => boolean;
-    authorize: (input: { flowId: string; operationId: string; handle: string }) => Promise<boolean>;
+    authorize: (input: {
+      flowId: string;
+      operationId: string;
+      handle: string;
+      phase: "pointer" | "click";
+    }) => Promise<boolean>;
   },
 ) {
   const prepared = new Map<
@@ -214,7 +224,8 @@ export function createSsoContent(
       prepared.delete(command.handle);
       if (!held || held.flowId !== command.flowId || held.operationId !== command.operationId)
         return { ok: false, reason: "operation-gone" };
-      if (!(await options.authorize(command))) return { ok: false, reason: "not-authorized" };
+      if (!(await options.authorize({ ...command, phase: "pointer" })))
+        return { ok: false, reason: "not-authorized" };
       const current = () => {
         if (options.cancelled() || document.URL !== held.url) return false;
         const latest = inspected(document, held.target);
@@ -225,8 +236,12 @@ export function createSsoContent(
         );
       };
       if (!current()) return { ok: false, reason: "target-changed" };
-      const pressed = await pressElement(held.element, current);
-      return { ok: pressed === "clicked" };
+      const pressed = await pressPointer(held.element, current);
+      if (pressed !== "pressed" || !current()) return { ok: false, reason: "target-changed" };
+      if (!(await options.authorize({ ...command, phase: "click" })) || !current())
+        return { ok: false, reason: "not-authorized" };
+      HTMLElement.prototype.click.call(held.element);
+      return { ok: true };
     }
     const found = inspected(document, command.target);
     if ("reason" in found) return { ok: false, reason: found.reason };

@@ -255,10 +255,15 @@ SSO entry provenance and rechecked locally. A cached verdict alone is insufficie
 
 Each effect rechecks policy, pauses/private-window settings, source and selected item,
 vault snapshots, session and exact document, recipe epochs and observed destinations.
+Pointer events and the final click have separate single-use authorizations; policy,
+vault and recipe epochs are checked again after the pointer's awaited page tasks.
 Unknown acknowledgements and worker restart never replay an entry. Persisted intents
 become interrupted holds. Cancellation withdraws authority, while the child association
-remains available to suppress late callbacks. Native fill-only and confirmation flows
-start no SSO effect.
+remains available to suppress late callbacks. Its opaque parent/attempt exclusion tag is
+durable without restoring authority. An allowed RP return detaches that child and
+releases its IdP origin hold while retaining submission diagnostics; it supplies no
+ordinary IdP recent success, default or authentication proof. Native fill-only and
+confirmation flows start no SSO effect.
 
 The first packaged synthetic password flow has exercised popup mapping, the actual RP
 entry, exact encrypted IdP credentials, and confirmed original-RP completion without

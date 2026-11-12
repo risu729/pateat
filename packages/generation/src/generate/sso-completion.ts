@@ -1,3 +1,4 @@
+import { markWritten } from "./layout";
 import {
   deviceModelRequestHash,
   isSsoDocument,
@@ -218,6 +219,7 @@ export async function judgeSsoCompletion(
   );
   if (!written.ok) return unavailable("recipe-conflict");
   await backend.keepLogRevision(call.logId, written.change.revision, layout.key);
+  await markWritten(backend, recipeId, layout.key);
   const change = answerable(written.change);
   return change ? { version: 1, status: "signed-in", change } : unavailable("recipe-conflict");
 }

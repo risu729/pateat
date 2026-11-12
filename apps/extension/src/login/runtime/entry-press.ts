@@ -55,7 +55,12 @@ export function siteRecorded(rt: Runtime, tabId: number, site: string): boolean 
     (run !== undefined && siteOf(run.metadata.account.origin) === site) ||
     rt.persisted
       .values()
-      .some((entry) => entry.document.tabId === tabId && siteOf(entry.account.origin) === site)
+      .some(
+        (entry) =>
+          entry.document.tabId === tabId &&
+          entry.ssoChild?.released !== true &&
+          siteOf(entry.account.origin) === site,
+      )
   );
 }
 

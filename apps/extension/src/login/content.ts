@@ -521,10 +521,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let cancelled = false;
   const ssoContent = createSsoContent(document, {
     cancelled: () => cancelled,
-    authorize: async ({ flowId, operationId, handle }) => {
+    authorize: async ({ flowId, operationId, handle, phase }) => {
       const answer: unknown = await sendMessage("login", {
         version: 1,
         type: "login.sso.authorize",
+        phase,
         token,
         flowId,
         operationId,
