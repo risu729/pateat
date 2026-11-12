@@ -31,6 +31,7 @@ import {
   type PartialItem,
   type UnusableItem,
 } from "./wire";
+import type { SsoSourceInput, SsoCandidateInput, SsoMethods, SsoCandidates } from "./sso-wire";
 import type { PasskeyMatches, PasskeySignRequest, PasskeySignature } from "./passkey";
 import { newId } from "@pateat/contracts/ids";
 import { resultCodes, unique, validHostResult, type OpenedHostSession } from "./host-result";
@@ -492,6 +493,11 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       return fail("account-mismatch");
     if ("session" in operation && operation.kind !== "lock" && !validSession(operation.session))
       return fail("crypto-locked");
+    if (
+      operation.kind === "sso-candidates" &&
+      !unique(operation.candidates.map((item) => item.itemId))
+    )
+      return fail("invalid-request");
     const destructive = operation.kind === "lock" || operation.kind === "close";
     if (
       pending.size >= (destructive ? 16 : 8) ||
@@ -704,6 +710,21 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       return request<CustomDigests>(
         session.connectionId,
         { kind: "custom-digest", session, itemIds: [...itemIds] },
+        signal,
+      );
+    },
+    /** Values remain in the Worker; username proofs are ephemeral local comparisons only. */
+    ssoMethods(session: HostSessionRef, input: SsoSourceInput, signal?: AbortSignal) {
+      return request<SsoMethods>(
+        session.connectionId,
+        { kind: "sso-methods", session, ...input },
+        signal,
+      );
+    },
+    ssoCandidates(session: HostSessionRef, input: SsoCandidateInput, signal?: AbortSignal) {
+      return request<SsoCandidates>(
+        session.connectionId,
+        { kind: "sso-candidates", session, ...input },
         signal,
       );
     },

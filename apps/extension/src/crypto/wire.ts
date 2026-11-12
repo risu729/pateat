@@ -8,6 +8,13 @@ import {
   type PreparedBitwardenAccount,
 } from "@pateat/bitwarden";
 
+import {
+  ssoSourceInputSchema,
+  ssoCandidateInputSchema,
+  type SsoSourceInput,
+  type SsoCandidateInput,
+} from "./sso-wire";
+
 export const CRYPTO_PORT = "pateat.crypto-host.v1";
 /**
  * The checks a `crypto-failed` reply may name: the library's strict decryption checks, and
@@ -79,6 +86,8 @@ export type HostOperation =
   | { kind: "match-uris"; session: HostSessionRef; targetUrl: string }
   | { kind: "verify-password"; session: HostSessionRef; password: string }
   | { kind: "custom-digest"; session: HostSessionRef; itemIds: readonly string[] }
+  | ({ kind: "sso-methods"; session: HostSessionRef } & SsoSourceInput)
+  | ({ kind: "sso-candidates"; session: HostSessionRef } & SsoCandidateInput)
   | { kind: "login-usernames"; session: HostSessionRef; itemIds: readonly string[] }
   | { kind: "passkey-find"; session: HostSessionRef; rpId: string }
   | { kind: "passkey-rp-ids"; session: HostSessionRef; itemId: string }
@@ -161,6 +170,18 @@ export const commandSchema = v.strictObject({
       kind: v.literal("login-usernames"),
       session: sessionSchema,
       itemIds: v.pipe(v.array(uuid), v.maxLength(LOGIN_USERNAMES_PER_REQUEST)),
+    }),
+    v.strictObject({
+      kind: v.literal("sso-methods"),
+      session: sessionSchema,
+      ...ssoSourceInputSchema.entries,
+      key: v.optional(base64Url(43, 43)),
+    }),
+    v.strictObject({
+      kind: v.literal("sso-candidates"),
+      session: sessionSchema,
+      ...ssoCandidateInputSchema.entries,
+      key: v.optional(base64Url(43, 43)),
     }),
     v.strictObject({ kind: v.literal("passkey-find"), session: sessionSchema, rpId }),
     v.strictObject({ kind: v.literal("passkey-rp-ids"), session: sessionSchema, itemId: uuid }),

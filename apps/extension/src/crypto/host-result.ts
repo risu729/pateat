@@ -15,6 +15,7 @@ import {
   type PartialItem,
   type UnusableItem,
 } from "./wire";
+import { validSsoResult } from "./sso-result";
 import { fromBase64Url } from "../passkeys/encoding";
 
 export type OpenedHostSession = {
@@ -78,6 +79,8 @@ export function validHostResult(
   data: unknown,
   generation: string,
 ): boolean {
+  if (operation.kind === "sso-methods" || operation.kind === "sso-candidates")
+    return validSsoResult(operation, data);
   if (operation.kind === "verify-received-ciphers") {
     const checked = v.safeParse(
       v.strictObject({

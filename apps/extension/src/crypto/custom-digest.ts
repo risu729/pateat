@@ -45,12 +45,12 @@ export async function customFieldsDigest(
   return toBase64Url(new Uint8Array(mac));
 }
 
-/** The offscreen relay's copy of a command: a digest request always carries its own key. */
+/** The offscreen relay supplies its key for custom digests and transient SSO comparisons. */
 export function withDigestKey<T extends { operation: { kind: string } }>(
   command: T,
   key: string,
 ): T {
-  return command.operation.kind === "custom-digest"
+  return ["custom-digest", "sso-methods", "sso-candidates"].includes(command.operation.kind)
     ? { ...command, operation: { ...command.operation, key } }
     : command;
 }
