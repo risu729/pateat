@@ -2,7 +2,7 @@ import { expect, it, vi } from "vitest";
 import { createDefaultSettings } from "@pateat/contracts";
 import { createDiagnosticsLog } from "../../src/diagnostics/background";
 import { TRUNCATED } from "../../src/diagnostics/log";
-import type { LogTestContext } from "./log-context";
+import type { LogTestContext } from "./context";
 
 export function registerFieldCases({ NOW, setup }: Pick<LogTestContext, "NOW" | "setup">) {
   it("keeps only allowlisted fields and names only configured sites", async () => {

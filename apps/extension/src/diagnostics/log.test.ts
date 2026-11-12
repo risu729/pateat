@@ -1,16 +1,16 @@
 import { describe, expect } from "vitest";
 import { createLogger, type KnownSites, type LogEntry, type LoggerDependencies } from "./log";
 import { createPseudonyms } from "./pseudonym";
-import { registerFieldCases } from "../../test/diagnostics/log-fields";
-import { registerBackgroundReportCases } from "../../test/diagnostics/log-reports";
-import { registerRetentionCases } from "../../test/diagnostics/log-retention";
-import { registerExportCases } from "../../test/diagnostics/log-export";
-import { registerRecentCases } from "../../test/diagnostics/log-recent";
-import { registerVaultReportCases } from "../../test/diagnostics/log-vault-reports";
-import { registerEventReportCases } from "../../test/diagnostics/log-event-reports";
-import { registerLoginReportCases } from "../../test/diagnostics/log-login-reports";
-import { registerPageReportCases } from "../../test/diagnostics/log-page-reports";
-import { registerProblemCases } from "../../test/diagnostics/log-problems";
+import { registerFieldCases } from "../../test/diagnostics/fields-cases";
+import { registerBackgroundReportCases } from "../../test/diagnostics/background-report-cases";
+import { registerRetentionCases } from "../../test/diagnostics/retention-cases";
+import { registerExportCases } from "../../test/diagnostics/export-cases";
+import { registerRecentCases } from "../../test/diagnostics/recent-cases";
+import { registerVaultReportCases } from "../../test/diagnostics/vault-report-cases";
+import { registerEventReportCases } from "../../test/diagnostics/event-report-cases";
+import { registerLoginReportCases } from "../../test/diagnostics/login-report-cases";
+import { registerPageReportCases } from "../../test/diagnostics/page-report-cases";
+import { registerProblemCases } from "../../test/diagnostics/problem-cases";
 
 // Runs in Chromium (vitest browser mode) for IndexedDB and WebCrypto.
 const NOW = Date.UTC(2026, 9, 11, 10, 35);

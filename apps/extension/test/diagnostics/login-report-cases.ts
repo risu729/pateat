@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { createDiagnosticsLog } from "../../src/diagnostics/background";
 import { problemLine } from "../../src/diagnostics/log";
-import type { LogTestContext } from "./log-context";
+import type { LogTestContext } from "./context";
 
 export function registerLoginReportCases({ readSummary }: Pick<LogTestContext, "readSummary">) {
   it("logs a pressed sign-in entry, refused ones and blocked revisions at ADR 0019's levels", async () => {

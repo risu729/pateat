@@ -12,7 +12,7 @@ import {
   recentLog,
   type LogEventName,
 } from "../../src/diagnostics/log";
-import type { LogTestContext } from "./log-context";
+import type { LogTestContext } from "./context";
 
 export function registerRetentionCases({
   NOW,

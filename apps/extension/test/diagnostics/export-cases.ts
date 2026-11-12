@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { formatLogExport, type LogEntry } from "../../src/diagnostics/log";
-import type { LogTestContext } from "./log-context";
+import type { LogTestContext } from "./context";
 
 export function registerExportCases({
   NOW,

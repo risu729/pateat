@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { TRUNCATED, recentLog } from "../../src/diagnostics/log";
 import { recentLogSchema } from "../../src/diagnostics/wire";
 import * as v from "valibot";
-import type { LogTestContext } from "./log-context";
+import type { LogTestContext } from "./context";
 
 export function registerRecentCases({
   NOW,

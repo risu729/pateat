@@ -2,7 +2,7 @@ import { expect, it, vi } from "vitest";
 import { createDefaultSettings } from "@pateat/contracts";
 import { createDiagnosticsLog } from "../../src/diagnostics/background";
 import { LOG_EVENTS, problemLine } from "../../src/diagnostics/log";
-import type { LogTestContext } from "./log-context";
+import type { LogTestContext } from "./context";
 
 export function registerVaultReportCases({ EXTENSION }: Pick<LogTestContext, "EXTENSION">) {
   it("keep the class name, extension positions and only Pateat's own codes", async () => {

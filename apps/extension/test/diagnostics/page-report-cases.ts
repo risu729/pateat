@@ -7,7 +7,7 @@ import {
   sentToService,
   stackPositions,
 } from "../../src/diagnostics/log";
-import type { LogTestContext } from "./log-context";
+import type { LogTestContext } from "./context";
 
 export function registerPageReportCases({
   NOW,

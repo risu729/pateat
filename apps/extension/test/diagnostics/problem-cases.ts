@@ -14,7 +14,7 @@ import {
   type LogEventName,
 } from "../../src/diagnostics/log";
 import * as v from "valibot";
-import type { LogTestContext } from "./log-context";
+import type { LogTestContext } from "./context";
 
 export function registerProblemCases({ setup }: Pick<LogTestContext, "setup">) {
   it("tells of each stored entry that goes to the service only", async () => {
