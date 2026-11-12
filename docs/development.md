@@ -616,6 +616,17 @@ that result to its existing shared map and saves the session; tab queries and
 closed-site cleanup remain outside the policy. Tests cover window boundaries,
 clock rollback, popup picks, normal/private partitions and the 256-site cap.
 
+### Login-attempt contract test organization
+
+`packages/contracts/src/login-attempt.test.ts` is the discovered entry for the
+login-attempt contract suite and initializes the shared fixtures and helpers. Plain
+modules in `packages/contracts/test/login-attempt/` export synchronous registration
+functions for contiguous case groups, which the entry calls inside its describe
+scopes; the submission and missing-password describes call their focused registrars
+inside their own scopes. `context.ts` holds the fixture and helper types, and
+importing a module registers no cases. The modules sit outside `src/`, so they stay
+outside the contract coverage include. Each file follows the 1,000-line limit.
+
 ### Login runtime test organization
 
 The production login suites live in `apps/extension/src/login/runtime-tests/`.
