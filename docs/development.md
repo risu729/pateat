@@ -488,6 +488,21 @@ a module registers no tests. The case callbacks, tables, titles, hooks and regis
 order stay unchanged. These test modules live outside `src/` so they do not enter the
 production coverage denominator.
 
+### Local crypto test organization
+
+`packages/bitwarden/src/local-crypto.test.ts` remains the discovered entry for the local
+crypto suite. It owns the synthetic account and SDK helpers, the shared sessions array,
+root disposal and mock cleanup, and the original three describe scopes. Plain modules in
+`packages/bitwarden/test/local-crypto/` export synchronous registration functions for
+account initialization, cipher isolation and item repair. The entry calls them inside
+those scopes with the same initialized helper, session and constant references;
+importing a module registers no cases. The modules import the production, SDK and
+fixture values they use from the original owners. The entry keeps the original
+dependency evaluation order and passes the imported TOTP constant; its fixture type is
+imported only with `import type`. Case callbacks, tables, assertions, order and cleanup
+stay unchanged. The modules sit outside `src/`, so they stay outside the production
+coverage root. Each file follows the 1,000-line limit.
+
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
