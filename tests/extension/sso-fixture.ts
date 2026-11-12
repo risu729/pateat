@@ -41,7 +41,8 @@ export type SsoScenario =
   | "passkey"
   | "selected-origin"
   | "rp-marker"
-  | "intermediate";
+  | "intermediate"
+  | "same-document";
 export type SsoEvidence = {
   entries: number;
   posts: number;
@@ -67,6 +68,7 @@ export async function configureSso(
   if (!controls.holdIdp) releaseIdp();
   const passkeyResults: Record<string, unknown>[] = [];
   const idpEvents: string[] = [];
+  const sameDocumentTokens: string[] = [];
   const evidence: SsoEvidence = {
     entries: 0,
     posts: 0,
@@ -134,10 +136,19 @@ export async function configureSso(
           : scenario === "selected-origin"
             ? "https://submit.idp.synthetic.example.test/session"
             : "/session";
+      const inPlaceBody =
+        "<h1 id=idp-authenticated>Provider authenticated</h1><p>test_username</p><button id=continue>Continue</button>";
+      const inPlace =
+        scenario === "same-document"
+          ? '<script>window.syntheticDocumentToken=crypto.randomUUID();document.querySelector("form").addEventListener("submit",async event=>{event.preventDefault();const data=new URLSearchParams(new FormData(event.target));data.set("documentToken",window.syntheticDocumentToken);const response=await fetch("/same-document-session",{method:"POST",body:data});if(response.ok){history.replaceState(null,"","/continue-in-place");document.body.innerHTML=' +
+            JSON.stringify(inPlaceBody) +
+            ';document.querySelector("#continue").onclick=()=>fetch("/continue-effect",{method:"POST",body:window.syntheticDocumentToken}).then(()=>location.replace("/stay"));}});</script>'
+          : "";
       return respond(
         '<h1>Sign in to Example</h1><form method=POST action="' +
           action +
-          '"><label>Username<input id=username name=username autocomplete=username></label><label>Password<input id=password name=password type=password autocomplete=current-password></label><button id=login>Log in</button></form>',
+          '"><label>Username<input id=username name=username autocomplete=username></label><label>Password<input id=password name=password type=password autocomplete=current-password></label><button id=login>Log in</button></form>' +
+          inPlace,
       );
     }
     if (
@@ -147,6 +158,8 @@ export async function configureSso(
       )
     ) {
       idpEvents.push(url.pathname);
+      if (scenario === "same-document" && url.pathname === "/continue-effect")
+        sameDocumentTokens.push(route.request().postData() ?? "");
       return route.fulfill({ status: 204, body: "" });
     }
     if (url.origin === origins.idp && url.pathname === "/stay") {
@@ -155,6 +168,14 @@ export async function configureSso(
           JSON.stringify(origins.rp + "/complete") +
           '));document.querySelector("#stay-no").onclick=()=>fetch("/stay-no",{method:"POST"});</script>',
       );
+    }
+    if (url.origin === origins.idp && url.pathname === "/same-document-session") {
+      evidence.posts++;
+      const values = new URLSearchParams(route.request().postData() ?? "");
+      evidence.matched &&=
+        values.get("username") === "test_username" && values.get("password") === "test_password";
+      sameDocumentTokens.push(values.get("documentToken") ?? "");
+      return route.fulfill({ status: 204, body: "" });
     }
     if (url.origin === origins.idp && url.pathname === "/passkey-session") {
       evidence.posts++;
@@ -341,6 +362,7 @@ export async function configureSso(
     recipes,
     passkeyResults,
     idpEvents,
+    sameDocumentTokens,
   };
 }
 
