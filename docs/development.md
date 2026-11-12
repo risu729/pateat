@@ -665,6 +665,19 @@ module registers no cases. `runtime-context.ts` holds the fixture types. The mod
 sit outside `src/`, so they stay outside the production coverage root without an
 exclude. Each file follows the 1,000-line limit.
 
+### Service settings sync test organization
+
+`apps/extension/src/service/settings-sync.test.ts` remains the sole discovered entry
+for settings sync. It owns the shared fixture factories, the original describe
+scopes and each suite's local fixtures. Plain modules under
+`apps/extension/test/service/settings-sync/` export synchronous registrars for the
+contiguous after-first-sync, vault-policy and personal-detail-link cases. The entry
+calls them at the original positions with the same fixture and helper references;
+importing a module registers no tests. The callbacks, assertions, parameter tables,
+titles and registration order stay unchanged. The context module contains only
+types. Every file follows the 1,000-line limit, and the modules remain outside the
+production coverage root without changing test discovery or runner configuration.
+
 ### Connection settings test organization
 
 The options connection suite keeps `tests/options/connection-setup.test.tsx` as its
