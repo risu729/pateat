@@ -7,9 +7,10 @@ type Listener = (
   sender: { id: string },
   respond: (value: unknown) => void,
 ) => boolean | undefined;
-const { sent, listeners } = vi.hoisted(() => ({
+const { sent, listeners, onDestination } = vi.hoisted(() => ({
   sent: [] as Record<string, unknown>[],
   listeners: [] as Listener[],
+  onDestination: { run: undefined as (() => void) | undefined },
 }));
 vi.mock("wxt/browser", () => ({
   browser: {
@@ -25,6 +26,10 @@ vi.mock("wxt/browser", () => ({
 vi.mock("../messaging/protocol", () => ({
   sendMessage: async (_channel: string, message: Record<string, unknown>) => {
     sent.push(message);
+    if (message["type"] === "login.destination.check") {
+      onDestination.run?.();
+      return { ok: true };
+    }
     return message["type"] === "login.operation.authorize"
       ? true
       : { ok: false, reason: "stale-document" };
@@ -37,6 +42,7 @@ beforeEach(() => {
   sent.length = 0;
   listeners.length = 0;
   operations = 0;
+  onDestination.run = undefined;
   vi.useFakeTimers();
 });
 afterEach(() => {
@@ -80,8 +86,11 @@ async function execute(kind: "fill" | "click") {
   return answer.value;
 }
 
-async function formWith(names: string[], { invalid = false, noValidate = false } = {}) {
-  document.body.innerHTML = `<form ${noValidate ? "novalidate" : ""}>
+async function formWith(
+  names: string[],
+  { invalid = false, noValidate = false, action = "" } = {},
+) {
+  document.body.innerHTML = `<form ${noValidate ? "novalidate" : ""} ${action ? `action="${action}"` : ""}>
     <input id="password" type="password" required>
     ${names.map((name) => `<input type="hidden" name="${name}" value="synthetic">`).join("")}
   </form>`;
@@ -98,7 +107,7 @@ async function formWith(names: string[], { invalid = false, noValidate = false }
 }
 
 describe("Enter submission with form properties shadowed by named controls", () => {
-  it.each(["checkValidity", "requestSubmit", "noValidate"])(
+  it.each(["checkValidity", "requestSubmit", "noValidate", "contains", "isConnected"])(
     "submits a valid filled form with a hidden control named %s",
     async (name) => {
       const { form, submitted } = await formWith([name]);
@@ -137,5 +146,28 @@ describe("Enter submission with form properties shadowed by named controls", () 
     expect(HTMLFormElement.prototype.checkValidity.call(form)).toBe(false);
     expect(await execute("click")).toMatchObject({ ok: true, mutation: "possible" });
     expect(submitted).toHaveBeenCalledOnce();
+  });
+
+  it("submits through a default button added after filling despite a control named contains", async () => {
+    const { form, submitted } = await formWith(["contains", "isConnected"]);
+    form.insertAdjacentHTML("beforeend", '<button type="submit">Sign in</button>');
+    expect(Reflect.get(form, "contains")).toBeInstanceOf(HTMLInputElement);
+    expect(await execute("click")).toMatchObject({ ok: true, mutation: "possible" });
+    expect(submitted).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a form removed while its destination is checked despite a control named isConnected", async () => {
+    const { form, submitted } = await formWith(["isConnected"], {
+      action: "https://elsewhere.example/sign-in",
+    });
+    onDestination.run = () => form.remove();
+    expect(await execute("click")).toMatchObject({
+      ok: false,
+      reason: "structural-mismatch",
+      detail: "form-changed",
+      mutation: "none",
+    });
+    expect(Reflect.get(form, "isConnected")).toBeInstanceOf(HTMLInputElement);
+    expect(submitted).not.toHaveBeenCalled();
   });
 });

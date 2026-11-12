@@ -1228,11 +1228,14 @@ time: only one input has focus, and typing two at once would move focus, and run
 page's blur and focus checks, at every character; one task apart, a field's characters
 take a few milliseconds, so typing the fields in turn costs little (owner, 2026-10-13).
 
-Native inputs and buttons must be enabled under the browser's `:disabled` rule before
+Native inputs and buttons must not match the browser's `:disabled` pseudo-class before
 being filled, entered through a software keypad or clicked. A disabled fieldset disables
 its descendants too, except controls inside its first legend, as HTML defines. Selects
-use the same enabled-state rule. Visibility, input read-only state and the existing
-click restrictions still apply.
+use the same enabled-state rule, and so do a software keypad's keys and the read-only
+field they enter, the sign-in state's reading of fields and forms, and the page
+observation's disabled fields: a control's own `disabled` property misses a disabled
+fieldset. Visibility, input read-only state and the existing click restrictions still
+apply.
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to blindly
 replay a submit. Input and change handlers can submit without a click. Declare whether a
@@ -2748,9 +2751,17 @@ with that field as its target: the executor then submits the field's form as Ent
 through the form's default button or `requestSubmit()`, never through a default button
 that showed when the fill began, is disabled or sits outside the form
 ([ADR 0064](adr/0064-enter-in-a-form-without-a-button.md)).
-Constraint validation, the form's `novalidate` attribute and the fallback submission
-are accessed through platform prototypes, so controls named `checkValidity`,
-`noValidate` or `requestSubmit` do not replace the form APIs used for this step.
+A form exposes each named control as a property that hides the form's own member of that
+name, inherited ones such as `contains`, `isConnected` or `getAttribute` too, and a
+document does the same with its named images, forms, embeds, objects and frames. So code
+that reads a form, or a node a walk of the page may meet, goes through the platform's
+prototypes: this step's constraint validation, `novalidate` attribute, fallback
+submission and checks that the form is still connected and holds its button, and
+elsewhere the shadow-tree queries and walks (the document's members included), the check
+that an element shows, the rendered-text reader, the reading behind an open modal and
+every read of a form's attributes, document, fields or connection. A control or element
+named after any of them changes nothing there; other reads of the document outside those
+helpers still use its members directly.
 
 A stored recipe is either a login recipe, with `pageKind`, `slots`, `steps`,
 `maxSubmissions` and the optional route members, or an entry recipe

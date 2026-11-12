@@ -183,7 +183,7 @@ const fieldNames: ReadonlySet<string> = new Set([
 ]);
 
 function writable(input: HTMLInputElement): boolean {
-  return visible(input) && !input.disabled && !input.readOnly;
+  return visible(input) && !input.matches(":disabled") && !input.readOnly;
 }
 
 /** A search box, by its type, its landmark or its words. */
