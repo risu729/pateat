@@ -7,7 +7,7 @@ import { closestAcross, containsAcross, formOf, inputsOf, queryAll, treeOf } fro
 
 export { visible };
 
-/** The input types a page's description shows as fill fields (observation/extract.ts). */
+/** The input types a page's description shows as fill fields (observation/extract-controls.ts). */
 const describedTypes = new Set(["text", "email", "tel", "number", "password"]);
 /** The input's `autocomplete` as the page's description shows it (`autocomplete`). */
 const describedAutocomplete = (input: HTMLInputElement) => {

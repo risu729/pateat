@@ -34,6 +34,12 @@ Amended on 2026-11-11 by the owner (12:46 UTC, on My Digital Connect's phone num
 page): the popup proposes an identity item's fields before any other item's
 ([Guess, propose, confirm](#guess-propose-confirm)).
 
+Clarified on 2026-11-12 by an agent: a split-date select option whose text or value
+starts with a minus sign says a negative number
+([clarification](#clarification-signed-select-option-numbers-2026-11-12)). Such text
+never matches, and such a value is left out of the range check; both are small new rules
+the owner has not yet reviewed.
+
 Date: 2026-10-23
 
 ## Context
@@ -668,6 +674,19 @@ runs; it is dropped), `detail-forgotten` (a refused value's link was removed) an
 `detail-kept` (that removal could not be written now). The judge's log keeps `details`
 with each ID that is not a candidate replaced by `?`, and a pairing's slot index (`-1`
 for one not sent) and question. Never a value or an item name.
+
+## Clarification: Signed select-option numbers (2026-11-12)
+
+The split-date select rule above reads a number as negative only when the option's
+text or value, after NFKC and trimming, starts with one minus sign (ASCII or fullwidth,
+or U+2212), then optional whitespace and its one run of digits, with no other `-` or
+U+2212 after it: `-4`, `- 4`, `－４` and `−1990`. Negative visible text never matches
+a positive date part, and its value is not read instead. A negative option value, such
+as a placeholder's `-1`, says no number: it is never matched and is left out of the
+range check, so the select's other values can still say the part. A value of 0 still
+makes that check fail. A hyphen or dash anywhere else is a separator, as before:
+`April - 04`, `Apr-04`, `Day-7`, `m-04`, `-- 4 --` and `- 4 -` say a positive number,
+and `2024-01` or `1-15`, with two runs, says none.
 
 ## Delivery
 
