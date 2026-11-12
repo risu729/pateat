@@ -538,3 +538,48 @@ test("the exact IdP chooser, native password, continue and stay-signed-in sequen
     await unchangedIdpDefault(options);
   });
 });
+
+test("a native IdP submit can continue in the same document without cancelling its finite SSO controls", async () => {
+  test.setTimeout(45_000);
+  await withVaultProfile(async (open) => {
+    const browser = await open();
+    const { options, evidence, idpEvents, sameDocumentTokens } = await configureSso(
+      browser,
+      "same-document",
+    );
+    const page = await browser.context.newPage();
+    await page.goto(origins.rp + "/login");
+    await chooseExample(await openSsoPopup(browser, options, page));
+    try {
+      await expect(page.locator("#authenticated")).toBeVisible({ timeout: 25_000 });
+    } catch (error) {
+      throw new Error(
+        "Synthetic same-document IdP continuation failed: " +
+          JSON.stringify({
+            url: page.url(),
+            evidence,
+            idpEvents,
+            sameDocumentTokens,
+            status: await ssoStatus(options),
+          }),
+        { cause: error },
+      );
+    }
+    await expect
+      .poll(
+        async () =>
+          (await ssoStatus(options)).attempts.find((attempt) => attempt.route === "sso")?.state,
+      )
+      .toBe("authenticated");
+    expect(sameDocumentTokens).toHaveLength(2);
+    expect(sameDocumentTokens[0]).not.toBe("");
+    expect(sameDocumentTokens[1]).toBe(sameDocumentTokens[0]);
+    expect(idpEvents).toEqual(["/continue-effect", "/stay-yes"]);
+    expect(evidence).toEqual({ entries: 1, posts: 1, matched: true, returns: 1, unsafeClicks: 0 });
+    expect(
+      (await confirmationProofs(browser))?.proofs?.some((proof) => proof.origin === origins.idp) ??
+        false,
+    ).toBe(false);
+    await unchangedIdpDefault(options);
+  });
+});
