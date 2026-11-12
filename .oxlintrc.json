@@ -50,8 +50,7 @@
         "tests/extension/login-generation.spec.ts",
         "tests/extension/login-server.ts",
         "tests/extension/passkeys.spec.ts",
-        "tests/options/popup.test.tsx",
-        "tests/options/settings-app.test.tsx"
+        "tests/options/popup.test.tsx"
       ],
       "rules": { "max-lines": "off" }
     }
