@@ -63,7 +63,6 @@
         "services/api/test/owner.test.ts",
         "tests/extension/login-generation.spec.ts",
         "tests/extension/login-server.ts",
-        "tests/extension/login.spec.ts",
         "tests/extension/passkeys.spec.ts",
         "tests/options/connection-setup.test.tsx",
         "tests/options/popup.test.tsx",

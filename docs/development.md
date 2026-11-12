@@ -640,6 +640,20 @@ follows the 1,000-line limit. The API coverage configuration covers production
 `src/` only, so these test helpers remain outside it. Compare expanded collection
 names and counts as well as the local Worker tests when changing this layout.
 
+### Packaged login test organization
+
+`tests/extension/login.spec.ts` remains the sole packaged login spec entry and owns
+its shared helpers and constants. It calls the passive synchronous registrars in
+`tests/extension/login-cases/` at the original registration positions. These plain
+`.ts` leaves own contiguous input-effect, primary-login, method-choice, code,
+form, lifecycle and failure-sign cases; `context.ts` owns their forwarding types.
+The entry passes the original test API, fixtures and helper identities directly.
+The registrars add no suites, hooks or fixture scopes, preserving root titles,
+registration order and round-robin shard units. Each case still starts and closes
+its own synthetic fixture and browser profile. Splits keep assertions, parameter
+tables and per-test annotations unchanged, with every file within the 1,000-line
+limit; actual Playwright collection and shard comparisons verify the layout.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
