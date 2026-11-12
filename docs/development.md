@@ -584,6 +584,20 @@ expanded test count. The owner approved this organization with the runtime split
 on 2026-10-30. Compare the full Verify job as well as test counts when changing the
 suite layout, since each file loads the runtime and harness separately.
 
+### Packaged passkey test organization
+
+`tests/extension/passkeys.spec.ts` remains the only discovered passkey suite and owns
+its existing fixture imports, shared helpers and credential initialization. Adjacent
+plain `.ts` registrars group request admission and cancellation, chooser behavior,
+provider coexistence, and vault/production bridge cases. They register only when the
+entrypoint calls them, receiving existing values through typed arguments without
+runtime imports. The entrypoint calls them in the original test order, retaining the
+second-credential and vault constants at their original initialization boundaries.
+Callbacks, assertions, timeouts and cleanup stay with their cases; all files follow
+the 1,000-line limit. Compare the collected test identities, order and all six shard
+memberships, as well as the full Verify and packaged-extension jobs, when changing
+this layout.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.

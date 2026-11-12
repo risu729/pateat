@@ -32,7 +32,12 @@ import { withLoginExtension } from "./login-fixture";
 import { passkeyPageHtml, startPasskeyRelyingParty as startRelyingParty } from "./passkey-server";
 import { withVaultProfile } from "./vault-fixture";
 
-type Serialized =
+import { registerPasskeyRequestTests } from "./passkey-requests-tests";
+import { registerPasskeyChooserTests } from "./passkey-chooser-tests";
+import { registerPasskeyProviderTests } from "./passkey-providers-tests";
+import { registerPasskeyVaultTests } from "./passkey-vault-tests";
+
+export type Serialized =
   | { error: string }
   | {
       instance: boolean;
@@ -91,7 +96,7 @@ async function openRelyingParty(context: BrowserContext, origin: string, path = 
   return page;
 }
 
-type Spec = {
+export type Spec = {
   challenge: string;
   rpId?: string;
   userVerification?: string;
@@ -218,204 +223,19 @@ async function probeControls(context: BrowserContext, extensionId: string) {
   };
 }
 
-test("discoverable, allow-listed, unattended and UV-required requests get UP and UV assertions", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure();
-      const page = await openRelyingParty(context, origin);
-      const discoverable = challengeHex();
-      expectPateatAssertion(
-        await clickRequest(page, { challenge: discoverable }),
-        origin,
-        discoverable,
-      );
-      // The manual-run status agrees with the independent verifier.
-      await expect(page.locator("#result")).toHaveText("Pateat, flags 0x1d, signature verified");
-      const allowListed = challengeHex();
-      expectPateatAssertion(
-        await clickRequest(page, {
-          challenge: allowListed,
-          rpId: "localhost",
-          userVerification: "required",
-          allow: [PROBE_PASSKEY.credentialId],
-        }),
-        origin,
-        allowListed,
-      );
-      // No transient activation: the page starts this request on load, because Playwright's
-      // evaluate would itself grant a user gesture.
-      const unattended = await openRelyingParty(context, origin, "/?unattended");
-      expectPateatAssertion(
-        await unattended.evaluate(
-          () => (window as unknown as { pending: Promise<Serialized> }).pending,
-        ),
-        origin,
-        "00".repeat(32),
-      );
-      expect(await probe.signatures()).toBe(3);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("unclaimed requests reach the browser's own authenticator unchanged", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure({ counter: 3 });
-      const page = await openRelyingParty(context, origin);
-      const counted = challengeHex();
-      expectNativeAssertion(await clickRequest(page, { challenge: counted }), origin, counted);
-      await probe.configure({ enabled: false });
-      const unconfigured = challengeHex();
-      expectNativeAssertion(
-        await clickRequest(page, { challenge: unconfigured }),
-        origin,
-        unconfigured,
-      );
-      await probe.configure();
-      // Neither authenticator holds this credential, so the browser's own rejection surfaces.
-      expect(await clickRequest(page, { challenge: challengeHex(), allow: ["00112233"] })).toEqual({
-        error: "NotAllowedError",
-      });
-      await expect(page.locator("#result")).toHaveText("error NotAllowedError");
-      // A page whose permissions policy denies passkey requests keeps the browser's rejection.
-      const denied = await openRelyingParty(context, origin, "/denied");
-      expect(await clickRequest(denied, { challenge: challengeHex() })).toEqual({
-        error: "NotAllowedError",
-      });
-      expect(await probe.signatures()).toBe(0);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("a ceremony policy delegates unattended and UV-required requests and clears UV", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure({ presence: "activation", verification: "never" });
-      const unattended = await openRelyingParty(context, origin, "/?unattended");
-      expectNativeAssertion(
-        await unattended.evaluate(
-          () => (window as unknown as { pending: Promise<Serialized> }).pending,
-        ),
-        origin,
-        "00".repeat(32),
-      );
-      const page = await openRelyingParty(context, origin);
-      const required = challengeHex();
-      expectNativeAssertion(
-        await clickRequest(page, { challenge: required, userVerification: "required" }),
-        origin,
-        required,
-      );
-      const activated = challengeHex();
-      expectPateatAssertion(
-        await clickRequest(page, { challenge: activated }),
-        origin,
-        activated,
-        0x19,
-      );
-      expect(await probe.signatures()).toBe(1);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("abort rejects with the caller's reason and a slow bridge delegates", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure({ signDelayMs: 3000 });
-      const page = await openRelyingParty(context, origin);
-      await page.evaluate(
-        (value) => {
-          (window as unknown as { nextSpec: Spec }).nextSpec = value;
-        },
-        { challenge: challengeHex() },
-      );
-      await page.getByRole("button", { name: "Sign in with a passkey" }).click();
-      // Exercise cancellation during signing, after the asynchronous permission checks.
-      await expect.poll(probe.delayed).toBe(1);
-      await page.evaluate(() => {
-        const scope = window as unknown as { controller: AbortController; abortReason: unknown };
-        scope.abortReason = { synthetic: "abort" };
-        scope.controller.abort(scope.abortReason);
-      });
-      expect(
-        await page.evaluate(() => (window as unknown as { pending: Promise<Serialized> }).pending),
-      ).toEqual({ error: "caller-reason" });
-
-      await probe.configure({ signDelayMs: 3000, timeoutMs: 300 });
-      const slow = challengeHex();
-      expectNativeAssertion(await clickRequest(page, { challenge: slow }), origin, slow);
-      // Cancellation and the deadline stopped both delayed signatures, so neither signs, and
-      // no signature started again after its stop.
-      await expect.poll(probe.stopped).toBe(2);
-      expect(await probe.delayed()).toBe(2);
-      expect(await probe.signatures()).toBe(0);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("a document navigated away from while Pateat signs gets nothing, and the tab's next document is answered without asking again", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure({ signDelayMs: 3000 });
-      const page = await openRelyingParty(context, origin);
-      await page.evaluate(
-        (value) => {
-          (window as unknown as { nextSpec: Spec }).nextSpec = value;
-        },
-        { challenge: challengeHex() },
-      );
-      await page.getByRole("button", { name: "Sign in with a passkey" }).click();
-      // Leave only once the background is waiting on the delayed signature.
-      await expect.poll(probe.delayed).toBe(1);
-      await page.goto(`${origin}/?after`);
-      // The replaced document's cancel stopped the signature that was running.
-      await expect.poll(probe.stopped).toBe(1);
-      expect(await probe.signatures()).toBe(0);
-
-      // Nothing was recorded as a sign-in in this tab, so the single match signs silently.
-      await probe.configure();
-      const opened: Page[] = [];
-      const track = (added: Page) => opened.push(added);
-      context.on("page", track);
-      const next = challengeHex();
-      expectPateatAssertion(await clickRequest(page, { challenge: next }), origin, next);
-      context.off("page", track);
-      // No chooser window, which a recorded sign-in would have opened.
-      expect(opened).toEqual([]);
-      expect(await probe.signatures()).toBe(1);
-
-      // Navigating away from a request whose chooser window is open closes the window; without
-      // the cancel it would stay open. The counts below are sanity checks only.
-      await probe.configure({ count: 2 });
-      const fresh = await openRelyingParty(context, origin);
-      const waiting = await requestWithChooser(context, fresh, { challenge: challengeHex() });
-      const closed = waiting.chooser.waitForEvent("close");
-      await fresh.goto(`${origin}/?left`);
-      await closed;
-      expect(await probe.signatures()).toBe(1);
-      expect(await probe.remembered()).toEqual([]);
-    });
-  } finally {
-    server.close();
-  }
+registerPasskeyRequestTests({
+  test,
+  expect,
+  startRelyingParty,
+  withLoginExtension,
+  probeControls,
+  openRelyingParty,
+  challengeHex,
+  expectPateatAssertion,
+  clickRequest,
+  PROBE_PASSKEY,
+  expectNativeAssertion,
+  requestWithChooser,
 });
 
 /** Starts a request and returns the chooser window it opens; `settle` reads the page's result. */
@@ -449,433 +269,38 @@ const secondCredentialId = Buffer.from(`${PROBE_PASSKEY.credentialId}01`, "hex")
   "base64url",
 );
 
-test("several matching passkeys open Pateat's chooser window", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure({ count: 2 });
-      const page = await openRelyingParty(context, origin);
-
-      // Choosing the second passkey signs with it and saves it as the default afterwards.
-      const chosen = challengeHex();
-      const first = await requestWithChooser(context, page, { challenge: chosen });
-      const list = first.chooser.getByRole("list", { name: "Matching passkeys" });
-      await expect(list.getByRole("button")).toHaveText([
-        "synthetic-user-1Synthetic passkey 1 in Probe",
-        "synthetic-user-2Synthetic passkey 2 in Probe",
-      ]);
-      await expect(
-        first.chooser.getByRole("checkbox", { name: "Use this account for localhost" }),
-      ).toBeChecked();
-      await choose(list.getByRole("button", { name: /Synthetic passkey 2/u }));
-      const result = await first.settle();
-      if ("error" in result) throw new Error(`Expected an assertion, got ${result.error}`);
-      expect(result.id).toBe(secondCredentialId);
-      await expect.poll(() => probe.remembered()).toEqual([secondCredentialId]);
-
-      // A one-time choice is not saved.
-      const onceChallenge = challengeHex();
-      const once = await requestWithChooser(context, page, { challenge: onceChallenge });
-      await once.chooser.getByRole("checkbox").uncheck();
-      await choose(once.chooser.getByRole("button", { name: /Synthetic passkey 1/u }));
-      expectPateatAssertion(await once.settle(), origin, onceChallenge);
-      expect(await probe.remembered()).toEqual([secondCredentialId]);
-
-      // "Use the browser" just once and closing the window both hand the request to the
-      // browser.
-      const browserChallenge = challengeHex();
-      const toBrowser = await requestWithChooser(context, page, { challenge: browserChallenge });
-      await toBrowser.chooser
-        .getByRole("button", { name: "Use the browser or another extension" })
-        .click();
-      await choose(toBrowser.chooser.getByRole("menuitem", { name: "Just once" }));
-      expectNativeAssertion(await toBrowser.settle(), origin, browserChallenge);
-      const closedChallenge = challengeHex();
-      const closed = await requestWithChooser(context, page, { challenge: closedChallenge });
-      await closed.chooser.close();
-      expectNativeAssertion(await closed.settle(), origin, closedChallenge);
-
-      // The page aborting its request closes the window.
-      const aborted = await requestWithChooser(context, page, { challenge: challengeHex() });
-      const abortedClosed = aborted.chooser.waitForEvent("close");
-      await page.evaluate(() => {
-        const scope = window as unknown as { controller: AbortController; abortReason: unknown };
-        scope.abortReason = { synthetic: "abort" };
-        scope.controller.abort(scope.abortReason);
-      });
-      expect(await aborted.settle()).toEqual({ error: "caller-reason" });
-      await abortedClosed;
-    });
-  } finally {
-    server.close();
-  }
+registerPasskeyChooserTests({
+  test,
+  expect,
+  startRelyingParty,
+  withLoginExtension,
+  probeControls,
+  openRelyingParty,
+  challengeHex,
+  expectPateatAssertion,
+  expectNativeAssertion,
+  clickRequest,
+  PROBE_PASSKEY,
+  requestWithChooser,
+  choose,
+  secondCredentialId,
+  settingsRequest,
 });
 
-test('"Always for this site" hands the host\'s later requests to the browser until removed (ADR 0007)', async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure({ count: 2 });
-      const page = await openRelyingParty(context, origin);
-      const options = await context.newPage();
-      await options.goto(`chrome-extension://${extensionId}/options.html`);
-      const listed = async () =>
-        (await settingsRequest(options)).snapshot.settings.passkeyBrowserSites;
-
-      const first = challengeHex();
-      const always = await requestWithChooser(context, page, { challenge: first });
-      await always.chooser
-        .getByRole("button", { name: "Use the browser or another extension" })
-        .click();
-      await choose(always.chooser.getByRole("menuitem", { name: /^Always for this site/u }));
-      expectNativeAssertion(await always.settle(), origin, first);
-      await expect.poll(listed).toEqual([{ hostname: "localhost" }]);
-
-      // The next request goes to the browser at once, without a window or a signature.
-      const later = challengeHex();
-      expectNativeAssertion(await clickRequest(page, { challenge: later }), origin, later);
-      expect(await probe.signatures()).toBe(0);
-
-      // Removed on the settings page, the next request of the same page asks again.
-      await options.reload();
-      await options.getByRole("button", { name: "Remove localhost from this list" }).click();
-      await expect.poll(listed).toEqual([]);
-      const again = challengeHex();
-      const asked = await requestWithChooser(context, page, { challenge: again });
-      await choose(asked.chooser.getByRole("button", { name: /Synthetic passkey 1/u }));
-      expectPateatAssertion(await asked.settle(), origin, again);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("Immediate UI requests are answered like other requests, chooser included (ADR 0052)", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure();
-      const page = await openRelyingParty(context, origin);
-      // The page passes its own signal, as most sites do; one match signs without a window.
-      const single = challengeHex();
-      expectPateatAssertion(
-        await clickRequest(page, { challenge: single, uiMode: "immediate" }),
-        origin,
-        single,
-      );
-
-      // Several matches open the chooser window, as for any other request.
-      await probe.configure({ count: 2 });
-      const fresh = await openRelyingParty(context, origin);
-      const chosen = challengeHex();
-      const several = await requestWithChooser(context, fresh, {
-        challenge: chosen,
-        uiMode: "immediate",
-      });
-      await choose(several.chooser.getByRole("button", { name: /Synthetic passkey 2/u }));
-      const result = await several.settle();
-      if ("error" in result) throw new Error(`Expected an assertion, got ${result.error}`);
-      expect(result.id).toBe(secondCredentialId);
-      expect(await probe.signatures()).toBe(2);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("after Pateat signed in a tab, the next username-less request there signs again (ADR 0062)", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure();
-      const page = await openRelyingParty(context, origin);
-      const first = challengeHex();
-      expectPateatAssertion(await clickRequest(page, { challenge: first }), origin, first);
-
-      // The single match signs again without a window, as after a logout (#833).
-      const again = challengeHex();
-      expectPateatAssertion(await clickRequest(page, { challenge: again }), origin, again);
-
-      // A named request, as in a re-authentication, and a new tab sign silently too.
-      const named = challengeHex();
-      expectPateatAssertion(
-        await clickRequest(page, { challenge: named, allow: [PROBE_PASSKEY.credentialId] }),
-        origin,
-        named,
-      );
-      const other = await openRelyingParty(context, origin);
-      const fresh = challengeHex();
-      expectPateatAssertion(await clickRequest(other, { challenge: fresh }), origin, fresh);
-      expect(await probe.signatures()).toBe(4);
-      expect(await probe.remembered()).toEqual([]);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("the chooser keeps the request open past the page's 15-second backstop and a settings change", async () => {
-  test.setTimeout(60_000);
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure({ count: 2 });
-      const page = await openRelyingParty(context, origin);
-      const challenge = challengeHex();
-      // Without a heartbeat, the page would give up after 15 seconds and the background after 10.
-      const waiting = await requestWithChooser(context, page, { challenge, timeout: 60_000 });
-      await page.waitForTimeout(8_000);
-      // A settings save, as a sync from the server also makes, leaves the window open.
-      const options = await context.newPage();
-      await options.goto(`chrome-extension://${extensionId}/options.html`);
-      const current = await settingsRequest(options);
-      await settingsRequest(options, {
-        version: 1,
-        type: "settings.save",
-        expectedRevision: current.snapshot.revision,
-        settings: current.snapshot.settings,
-      });
-      await options.close();
-      await page.waitForTimeout(9_000);
-      expect(waiting.chooser.isClosed()).toBe(false);
-      await choose(waiting.chooser.getByRole("button", { name: /Synthetic passkey 1/u }));
-      expectPateatAssertion(await waiting.settle(), origin, challenge);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("an unanswered chooser fails the request when the site's timeout runs out", async () => {
-  test.setTimeout(60_000);
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure({ count: 2 });
-      const page = await openRelyingParty(context, origin);
-      // Chrome's own prompt rejects with NotAllowedError; the browser is not asked instead.
-      const waiting = await requestWithChooser(context, page, {
-        challenge: challengeHex(),
-        timeout: 12_000,
-      });
-      const closed = waiting.chooser.waitForEvent("close", { timeout: 20_000 });
-      expect(await waiting.settle()).toEqual({ error: "NotAllowedError" });
-      await closed;
-      expect(await probe.signatures()).toBe(0);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("Pateat answers first when another provider wraps get later or restores it", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure();
-      const page = await openRelyingParty(context, origin, "/provider");
-      const providerCalls = (target: Page) =>
-        target.evaluate(() => (window as unknown as { providerCalls: number }).providerCalls);
-      const plain = challengeHex();
-      expectPateatAssertion(await clickRequest(page, { challenge: plain }), origin, plain);
-      // Named, so Pateat signs again in this tab without asking (ADR 0021 D).
-      const named = [PROBE_PASSKEY.credentialId];
-      const required = challengeHex();
-      expectPateatAssertion(
-        await clickRequest(page, {
-          challenge: required,
-          userVerification: "required",
-          allow: named,
-        }),
-        origin,
-        required,
-      );
-      expect(await providerCalls(page)).toBe(0);
-
-      // An unclaimed request goes to the provider, which rejects it as Bitwarden does.
-      await probe.configure({ enabled: false });
-      expect(await clickRequest(page, { challenge: challengeHex() })).toEqual({ error: "Error" });
-      expect(await providerCalls(page)).toBe(1);
-
-      // Restoring the provider's saved function leaves Pateat outermost.
-      await probe.configure();
-      await page.evaluate(() =>
-        (window as unknown as { restoreProvider(): void }).restoreProvider(),
-      );
-      const restored = challengeHex();
-      expectPateatAssertion(
-        await clickRequest(page, {
-          challenge: restored,
-          userVerification: "required",
-          allow: named,
-        }),
-        origin,
-        restored,
-      );
-
-      // A provider fallback reaches the browser's own authenticator exactly once.
-      const fallback = await openRelyingParty(context, origin, "/provider?fallback");
-      await probe.configure({ enabled: false });
-      const delegated = challengeHex();
-      expectNativeAssertion(
-        await clickRequest(fallback, { challenge: delegated }),
-        origin,
-        delegated,
-      );
-      expect(await providerCalls(fallback)).toBe(1);
-      expect(await probe.signatures()).toBe(3);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("a page wrapper cloning request options preserves native fallback and caller cancellation", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure();
-      const page = await context.newPage();
-      const { session, authenticatorId } = await addVirtualAuthenticator(context, page);
-      await page.goto(`${origin}/page-wrapper`);
-      const calls = () =>
-        page.evaluate(() => (window as unknown as { pageWrapperCalls: number }).pageWrapperCalls);
-      const claimed = challengeHex();
-      expectPateatAssertion(await clickRequest(page, { challenge: claimed }), origin, claimed);
-      expect(await probe.signatures()).toBe(1);
-      expect(await calls()).toBe(0);
-
-      await probe.configure({ enabled: false });
-      const fallback = challengeHex();
-      expectNativeAssertion(await clickRequest(page, { challenge: fallback }), origin, fallback);
-      expect(await calls()).toBe(1);
-
-      // Hold native user presence so the request stays pending after delegation.
-      // An unknown allowlist would let Chromium reject before the caller can abort.
-      await session.send("WebAuthn.setAutomaticPresenceSimulation", {
-        authenticatorId,
-        enabled: false,
-      });
-      await page.evaluate(
-        (spec) => {
-          (window as unknown as { nextSpec: Spec }).nextSpec = spec;
-        },
-        {
-          challenge: challengeHex(),
-          allow: [virtualCredentialId.toString("hex")],
-          timeout: 30_000,
-        },
-      );
-      await page.getByRole("button", { name: "Sign in with a passkey" }).click();
-      await expect.poll(calls).toBe(2);
-      await page.evaluate(() => {
-        const state = window as unknown as { controller: AbortController; abortReason: object };
-        state.abortReason = { source: "synthetic caller" };
-        state.controller.abort(state.abortReason);
-      });
-      expect(
-        await page.evaluate(() => (window as unknown as { pending: Promise<Serialized> }).pending),
-      ).toEqual({ error: "caller-reason" });
-      expect(await calls()).toBe(2);
-      expect(await probe.signatures()).toBe(1);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("a locked provider holding an unclaimed request does not divert later requests", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure();
-      const page = await openRelyingParty(context, origin, "/provider?locked");
-      const claimed = challengeHex();
-      expectPateatAssertion(
-        await clickRequest(page, { challenge: claimed, userVerification: "required" }),
-        origin,
-        claimed,
-      );
-
-      // The provider holds an unclaimed request, as Bitwarden's locked-vault window does.
-      await probe.configure({ enabled: false });
-      await page.evaluate(
-        (spec) => {
-          (window as unknown as { nextSpec: Spec }).nextSpec = spec;
-        },
-        { challenge: challengeHex() },
-      );
-      await page.getByRole("button", { name: "Sign in with a passkey" }).click();
-      await page.evaluate(() => {
-        const scope = window as unknown as { pending: unknown; held: unknown };
-        scope.held = scope.pending;
-      });
-      await expect
-        .poll(() =>
-          page.evaluate(() => (window as unknown as { providerCalls: number }).providerCalls),
-        )
-        .toBe(1);
-
-      await probe.configure();
-      // Named, so Pateat signs again in this tab without asking (ADR 0021 D).
-      const meanwhile = challengeHex();
-      expectPateatAssertion(
-        await clickRequest(page, { challenge: meanwhile, allow: [PROBE_PASSKEY.credentialId] }),
-        origin,
-        meanwhile,
-      );
-
-      // Unlocking ends the held request with the provider's own rejection, never Pateat's.
-      await page.evaluate(() => (window as unknown as { unlockProvider(): void }).unlockProvider());
-      expect(
-        await page.evaluate(() => (window as unknown as { held: Promise<Serialized> }).held),
-      ).toEqual({ error: "Error" });
-      expect(await probe.signatures()).toBe(2);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("a provider's conditional request reaches the browser once and leaves sign-in to Pateat", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure();
-      const page = await openRelyingParty(context, origin, "/provider");
-      // Autofill-style requests start without a gesture and stay pending.
-      await page.evaluate((challenge) => {
-        const scope = window as unknown as {
-          request(spec: Spec): Promise<unknown>;
-          conditional: Promise<unknown>;
-        };
-        scope.conditional = scope.request({ challenge, mediation: "conditional" });
-      }, challengeHex());
-      await expect
-        .poll(() =>
-          page.evaluate(() => (window as unknown as { providerCalls: number }).providerCalls),
-        )
-        .toBe(1);
-      const modal = challengeHex();
-      expectPateatAssertion(await clickRequest(page, { challenge: modal }), origin, modal);
-      expect(
-        await page.evaluate(() => (window as unknown as { providerCalls: number }).providerCalls),
-      ).toBe(1);
-      expect(await probe.signatures()).toBe(1);
-    });
-  } finally {
-    server.close();
-  }
+registerPasskeyProviderTests({
+  test,
+  expect,
+  startRelyingParty,
+  withLoginExtension,
+  probeControls,
+  openRelyingParty,
+  challengeHex,
+  expectPateatAssertion,
+  clickRequest,
+  PROBE_PASSKEY,
+  expectNativeAssertion,
+  addVirtualAuthenticator,
+  virtualCredentialId,
 });
 
 // The synthetic Bitwarden login stores one FIDO2 credential for this RP ID. Tests serve the
@@ -883,137 +308,72 @@ test("a provider's conditional request reaches the browser once and leaves sign-
 const vaultOrigin = "https://synthetic.example.test";
 const vaultCredentialId = "EjRWeBI0QjSCNBI0VniavA";
 
-test("a passkey stored in the synthetic Bitwarden vault signs inside the crypto Worker", async () => {
-  await withVaultProfile(async (open) => {
-    const browser = await open();
-    await setupProbe(browser.page, { action: "configure", variant: "passkey" });
-    const options = await browser.context.newPage();
-    await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
-    const accepted = await setupRequest(options, {
-      type: "connection.begin",
-      input: beginInput(),
-    });
-    if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
-    await browser.context.route(`${vaultOrigin}/**`, (route) =>
-      route.fulfill({ contentType: "text/html; charset=utf-8", body: passkeyPageHtml }),
-    );
-    // The probe build's demo connections hold no snapshot, so they would count as unsearched
-    // and block a single match. The owner turning them off leaves only the synthetic account.
-    const initial = await settingsRequest(options);
-    const enabled = useOnly(initial.snapshot.settings, initial.catalog, accepted.connectionId);
-    await settingsRequest(options, {
-      version: 1,
-      type: "settings.save",
-      expectedRevision: initial.snapshot.revision,
-      settings: enabled,
-    });
-    const page = await openRelyingParty(browser.context, vaultOrigin);
-    const challenge = challengeHex();
-    const result = await clickRequest(page, { challenge });
-    if ("error" in result) throw new Error(`Expected an assertion, got ${result.error}`);
-    expect(result).toMatchObject({
-      instance: true,
-      id: vaultCredentialId,
-      rawId: vaultCredentialId,
-      userHandle: Buffer.from("synthetic-user-id").toString("base64url"),
-    });
-    const clientData = Buffer.from(result.clientDataJSON, "base64url");
-    expect(JSON.parse(clientData.toString("utf8"))).toEqual({
-      type: "webauthn.get",
-      challenge: Buffer.from(challenge, "hex").toString("base64url"),
-      origin: vaultOrigin,
-      crossOrigin: false,
-    });
-    const authenticatorData = Buffer.from(result.authenticatorData, "base64url");
-    expect(authenticatorData.subarray(0, 32)).toEqual(
-      createHash("sha256").update("synthetic.example.test").digest(),
-    );
-    expect(authenticatorData[32]).toBe(0x1d);
-    expect(authenticatorData.readUInt32BE(33)).toBe(0);
-    const key = createPublicKey(
-      createPrivateKey({
-        key: Buffer.from(fidoPrivateKey, "base64"),
-        format: "der",
-        type: "pkcs8",
-      }),
-    );
-    expect(
-      verify(
-        "sha256",
-        Buffer.concat([authenticatorData, createHash("sha256").update(clientData).digest()]),
-        { key, dsaEncoding: "der" },
-        Buffer.from(result.signature, "base64url"),
-      ),
-    ).toBe(true);
-
-    // Excluding the item in Pateat's settings leaves the request to the browser.
-    const saved = await settingsRequest(options);
-    const settings = saved.snapshot.settings;
-    const item = saved.catalog.connections.find((entry) => entry.id === accepted.connectionId)!
-      .items[0]!;
-    settings.itemPolicies.push({
-      ...catalogAccount(saved.catalog, accepted.connectionId),
-      itemId: item.id,
-      itemName: item.label,
-      selected: false,
-      excluded: true,
-      excludedFields: [],
-    });
-    await settingsRequest(options, {
-      version: 1,
-      type: "settings.save",
-      expectedRevision: saved.snapshot.revision,
-      settings,
-    });
-    // The browser's virtual authenticator then answers with its own credential.
-    const nativeChallenge = challengeHex();
-    expectNativeAssertion(
-      await clickRequest(page, { challenge: nativeChallenge }),
-      vaultOrigin,
-      nativeChallenge,
-    );
-  });
+registerPasskeyVaultTests({
+  test,
+  expect,
+  withVaultProfile,
+  setupProbe,
+  setupRequest,
+  beginInput,
+  vaultOrigin,
+  passkeyPageHtml,
+  settingsRequest,
+  useOnly,
+  openRelyingParty,
+  challengeHex,
+  clickRequest,
+  vaultCredentialId,
+  createHash,
+  createPublicKey,
+  createPrivateKey,
+  fidoPrivateKey,
+  verify,
+  catalogAccount,
+  expectNativeAssertion,
+  fileURLToPath,
+  mkdtemp,
+  resolve,
+  tmpdir,
+  chromium,
+  rm,
 });
 
-test("the production build installs the bridge on HTTPS pages and leaves unclaimed requests to the browser", async () => {
-  const directory = fileURLToPath(
-    new URL("../../apps/extension/.output/chrome-mv3", import.meta.url),
-  );
-  const profile = await mkdtemp(resolve(tmpdir(), "pateat-passkey-production-"));
-  let context: BrowserContext | undefined;
-  try {
-    context = await chromium.launchPersistentContext(profile, {
-      channel: "chromium",
-      headless: true,
-      args: [`--disable-extensions-except=${directory}`, `--load-extension=${directory}`],
-    });
-    if (context.serviceWorkers().length === 0) await context.waitForEvent("serviceworker");
-    await context.route(`${vaultOrigin}/**`, (route) =>
-      route.fulfill({ contentType: "text/html; charset=utf-8", body: passkeyPageHtml }),
-    );
-    await context.addInitScript(() => {
-      const scope = window as unknown as { pageMessages: unknown[] };
-      scope.pageMessages = [];
-      // Content-script posts to the page carry the page's own origin.
-      window.addEventListener("message", (event) => {
-        if (event.origin === location.origin) scope.pageMessages.push(event.data);
-      });
-    });
-    // No vault is connected, so the background claims nothing and the browser answers.
-    const page = await openRelyingParty(context, vaultOrigin);
-    const challenge = challengeHex();
-    expectNativeAssertion(await clickRequest(page, { challenge }), vaultOrigin, challenge);
-    // No content script announces itself, or the extension ID, to the page.
-    const messages = await page.evaluate(
-      () => (window as unknown as { pageMessages: unknown[] }).pageMessages,
-    );
-    expect(JSON.stringify(messages)).not.toMatch(/content-script-started|contentScriptName/u);
-    // The page sees that Pateat delegated, never why.
-    expect(messages).toContainEqual(
-      expect.objectContaining({ type: "result", result: { kind: "delegate" } }),
-    );
-  } finally {
-    await context?.close();
-    await rm(profile, { recursive: true, force: true });
-  }
-});
+export type PasskeyTestContext = {
+  test: typeof test;
+  expect: typeof expect;
+  startRelyingParty: typeof startRelyingParty;
+  withLoginExtension: typeof withLoginExtension;
+  probeControls: typeof probeControls;
+  openRelyingParty: typeof openRelyingParty;
+  challengeHex: typeof challengeHex;
+  expectPateatAssertion: typeof expectPateatAssertion;
+  clickRequest: typeof clickRequest;
+  PROBE_PASSKEY: typeof PROBE_PASSKEY;
+  expectNativeAssertion: typeof expectNativeAssertion;
+  requestWithChooser: typeof requestWithChooser;
+  choose: typeof choose;
+  secondCredentialId: typeof secondCredentialId;
+  settingsRequest: typeof settingsRequest;
+  addVirtualAuthenticator: typeof addVirtualAuthenticator;
+  virtualCredentialId: typeof virtualCredentialId;
+  withVaultProfile: typeof withVaultProfile;
+  setupProbe: typeof setupProbe;
+  setupRequest: typeof setupRequest;
+  beginInput: typeof beginInput;
+  vaultOrigin: typeof vaultOrigin;
+  passkeyPageHtml: typeof passkeyPageHtml;
+  useOnly: typeof useOnly;
+  vaultCredentialId: typeof vaultCredentialId;
+  createHash: typeof createHash;
+  createPublicKey: typeof createPublicKey;
+  createPrivateKey: typeof createPrivateKey;
+  fidoPrivateKey: typeof fidoPrivateKey;
+  verify: typeof verify;
+  catalogAccount: typeof catalogAccount;
+  fileURLToPath: typeof fileURLToPath;
+  mkdtemp: typeof mkdtemp;
+  resolve: typeof resolve;
+  tmpdir: typeof tmpdir;
+  chromium: typeof chromium;
+  rm: typeof rm;
+};
