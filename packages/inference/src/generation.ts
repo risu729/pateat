@@ -8,16 +8,8 @@ import {
   type SemanticSlot,
 } from "@pateat/contracts";
 import { toJsonSchema } from "@valibot/to-json-schema";
-import type { LanguageModel } from "ai";
 import * as v from "valibot";
-import {
-  noUsage,
-  promptVersionOf,
-  requestBytes,
-  roleLimitsSchema,
-  type InferenceOutcome,
-  type RoleLimits,
-} from "./outcome";
+import { noUsage, promptVersionOf, type InferenceOutcome } from "./outcome";
 import { redactAccountList, validateAccountList, type ValidatedAccountList } from "./account-list";
 import {
   MAX_PAGE_ALTERNATIVES,
@@ -28,7 +20,8 @@ import {
   type ValidatedEntry,
   type ValidatedGeneratedPage,
 } from "./plan";
-import { described, runStructuredRole, type Interpreted } from "./structured";
+import { described, type Interpreted } from "./structured";
+import { createStructuredRole, type StructuredRoleConfig } from "./structured-role";
 
 const reference = v.pipe(v.string(), v.maxLength(64));
 
@@ -289,13 +282,6 @@ export type GenerationRequest = {
 /** A request for a page's sign-in entry (ADR 0031): an observation and no slots. */
 export type EntryGenerationRequest = { observation: unknown; abortSignal?: AbortSignal };
 
-type GenerationConfig = {
-  model: Exclude<LanguageModel, string>;
-  limits: RoleLimits;
-  maxOutputTokens: number;
-  /** Reads the provider's refusal category code from the last attempt's metadata. */
-  refusalCategory?: (providerMetadata: unknown) => string | undefined;
-};
 type GeneratedOutput = v.InferOutput<typeof generatedPlanSchema>;
 type PlanOutput = Extract<GeneratedOutput["result"], { decision: "plan" }>;
 
@@ -333,50 +319,16 @@ function loggedAnswer(
 }
 
 /**
- * One call of the generation role with its response format, after the request bound;
- * shared by page and entry requests.
- */
-function generationCall(config: GenerationConfig) {
-  // A string would resolve through the SDK's global default provider.
-  if (typeof config.model !== "object" || config.model === null)
-    throw new TypeError("Pass a configured model instance");
-  const limits = v.parse(roleLimitsSchema, config.limits);
-  const maxOutputTokens = v.parse(
-    v.pipe(v.number(), v.integer(), v.minValue(16), v.maxValue(16_384)),
-    config.maxOutputTokens,
-  );
-  return async <T>(call: {
-    instructions: string;
-    prompt: string;
-    abortSignal: AbortSignal | undefined;
-    interpret: (output: GeneratedOutput) => Interpreted<T>;
-    answer: (output: GeneratedOutput) => unknown;
-  }): Promise<InferenceOutcome<T>> => {
-    if (requestBytes([call.instructions, call.prompt, outputSchemaJson]) > limits.maxInputBytes)
-      return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
-    return runStructuredRole({
-      model: config.model,
-      instructions: call.instructions,
-      prompt: call.prompt,
-      schema: generatedPlanSchema,
-      name: "login_page_plan",
-      limits,
-      maxOutputTokens,
-      abortSignal: call.abortSignal,
-      refusalCategory: config.refusalCategory,
-      interpret: call.interpret,
-      answer: call.answer,
-    });
-  };
-}
-
-/**
  * Recipe generation role, which also answers a repair's page as a first page or a
  * continuation (ADR 0041): the stale steps never reach the model. Uses exactly the
  * configured model: errors are returned, never retried on another provider or model.
  */
-export function createRecipeGenerator(config: GenerationConfig) {
-  const call = generationCall(config);
+export function createRecipeGenerator(config: StructuredRoleConfig) {
+  const call = createStructuredRole(config, {
+    schema: generatedPlanSchema,
+    schemaJson: outputSchemaJson,
+    name: "login_page_plan",
+  });
 
   return async function generate(
     request: GenerationRequest,
@@ -477,8 +429,12 @@ export function createRecipeGenerator(config: GenerationConfig) {
  * opens sign-in to an existing account, or abstains. A plan or an account list fails
  * `invalid-output`, as an entry does for a request with slots.
  */
-export function createEntryGenerator(config: GenerationConfig) {
-  const call = generationCall(config);
+export function createEntryGenerator(config: StructuredRoleConfig) {
+  const call = createStructuredRole(config, {
+    schema: generatedPlanSchema,
+    schemaJson: outputSchemaJson,
+    name: "login_page_plan",
+  });
 
   return async function generateEntry(
     request: EntryGenerationRequest,

@@ -1309,6 +1309,14 @@ retry/timeout limits explicitly and account for every attempt. Disable raw
 input/output/header telemetry and sanitize errors. No automatic model/provider
 fallback is introduced by a library.
 
+The form, entry, completion and logout structured roles share their configuration and
+request-size checks in `packages/inference/src/structured-role.ts`. Configuration is
+validated when the role is created; each role still validates its request before the
+shared check counts the UTF-8 bytes of its instructions, prompt and serialized response
+schema. A request over the bound returns `input-too-large` without a model call or
+usage. The roles keep their own prompts, schemas, request checks and output validation;
+`structured.ts` continues to own execution, retries, cancellation and usage accounting.
+
 `packages/inference` passes configured model instances only; a model ID string would
 resolve through the SDK's global default provider and is rejected. The finite-choice
 role uses `experimental_decide` from the approved AI SDK (no added dependency or
