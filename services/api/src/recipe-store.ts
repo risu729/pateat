@@ -678,7 +678,8 @@ export async function readFirstPageSources(
  * The stored recipe without its layouts unused since `unusedBefore` (ADR 0060): a layout
  * counts as used when it was created and at its last reported use. A recipe whose layouts
  * were generated as `confirm` or `unclear` never runs, so never reports use, and keeps them
- * all (ADR 0035): every layout of a recipe has its kind. A chooser's layouts are `sign-in`.
+ * all (ADR 0035): every native form layout of a recipe has its kind. Chooser and SSO
+ * layouts are sign-in routes and age independently.
  * `undefined` when none is unused, or every one is, which the recipe's own idle check
  * revokes instead.
  */
@@ -689,20 +690,26 @@ export function withoutUnusedLayouts(
 ): StoredLoginRecipe | undefined {
   if ("entry" in recipe || "logout" in recipe) return undefined;
   const idle = new Set(
-    [...(recipe.layouts ?? []).filter(runsLogin), ...(recipe.chooser?.layouts ?? [])]
+    [
+      ...(recipe.layouts ?? []).filter(runsLogin),
+      ...(recipe.chooser?.layouts ?? []),
+      ...(recipe.sso?.layouts ?? []),
+    ]
       .filter((layout) => Math.max(layout.createdAt, uses.get(layout.key) ?? 0) < unusedBefore)
       .map((layout) => layout.key),
   );
   if (!idle.size || idle.size === storedLayouts(recipe).length) return undefined;
-  // A recipe's sign-in form and its list each keep their used layouts; a kind none of whose
-  // layouts is used any more goes, and the other stays alone (ADR 0058 B).
+  // Native forms, account lists and SSO each keep their used layouts. An idle family
+  // goes while any other family remains (ADR 0058 B).
   const layouts = recipe.layouts?.filter((layout) => !idle.has(layout.key));
   const choosers = recipe.chooser?.layouts.filter((layout) => !idle.has(layout.key));
-  const { layouts: _layouts, chooser: _chooser, ...rest } = recipe;
+  const sso = recipe.sso?.layouts.filter((layout) => !idle.has(layout.key));
+  const { layouts: _layouts, chooser: _chooser, sso: _sso, ...rest } = recipe;
   return {
     ...rest,
     revision: recipe.revision + 1,
     ...(layouts?.length ? { layouts } : {}),
+    ...(recipe.sso && sso?.length ? { sso: { ...recipe.sso, layouts: sso } } : {}),
     ...(recipe.chooser && choosers?.length
       ? { chooser: { ...recipe.chooser, layouts: choosers } }
       : {}),
@@ -779,7 +786,7 @@ async function removeUnusedLayouts(db: D1Database, ownerId: string, unusedBefore
     ownerId,
     eq(recipeHeads.state, "active"),
     gte(recipeHeads.lastUsedAt, unusedBefore),
-    sql`(${idleLayout("$.layouts")} OR ${idleLayout("$.chooser.layouts")})`,
+    sql`(${idleLayout("$.layouts")} OR ${idleLayout("$.chooser.layouts")} OR ${idleLayout("$.sso.layouts")})`,
   )
     .orderBy(asc(recipeHeads.lastUsedAt))
     .limit(MAX_IDLE_REVOCATIONS);

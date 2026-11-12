@@ -184,7 +184,7 @@ export async function generateSso(
     );
     if (written.ok) {
       // oxlint-disable-next-line no-await-in-loop -- keep the revision actually written
-      await backend.keepLogRevision(call.logId, written.change.revision);
+      await backend.keepLogRevision(call.logId, written.change.revision, key);
       const change = covers(written.change);
       return change ? { version: 1, status: "recipe", change } : unavailable("recipe-conflict");
     }

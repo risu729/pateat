@@ -188,11 +188,15 @@ request log and generation retry/repair windows. This is a generation call, not 
 post-login judgement; it does not consume a judgement quota. SSO and native writes keep
 each other's siblings, with one bounded conditional rebase when only the other family
 changed. A native-only update does not discard a pending SSO repair. Layout-key
-collisions are renamed together with the generated provenance; the winning document
-must still match the requested recipe ID, origin and start path. SSO targets cannot
-overlap native form, chooser or handler controls. SSO layouts have their own provenance
-units and participate in layout keys,
-removal and start-path validation. They never acquire fill slots or a native submission.
+collisions are renamed together with the generated provenance and the successful call's
+inference-log layout; ordinary native and repair log scope remains unchanged. The
+winning document must still match the requested recipe ID, origin and start path. SSO
+targets cannot overlap native form, chooser or handler controls. SSO layouts have their
+own provenance units and participate in layout keys, removal and start-path validation.
+Individual SSO layouts age under the same idle retention as native forms and account
+lists: an idle family is removed while another family remains, and the whole recipe
+retains its existing last-layout revocation rule. They never acquire fill slots or a
+native submission.
 
 The method chooser, local mapping UI, same-tab RP/IdP coordinator, IdP intermediate-page
 handling and final RP authentication remain the next required implementation. This

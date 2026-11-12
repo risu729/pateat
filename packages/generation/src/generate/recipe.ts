@@ -436,6 +436,7 @@ export async function generateRecipe(
   ): Promise<RecipeGenerationResult> => {
     let next = recipe;
     let expectedRevision = baseRevision;
+    let remappedLogLayout: string | undefined;
     for (let tries = 0; ; tries += 1) {
       // eslint-disable-next-line no-await-in-loop
       const written = await backend.writeRecipe(
@@ -445,7 +446,9 @@ export async function generateRecipe(
       );
       if (written.ok) {
         // eslint-disable-next-line no-await-in-loop
-        await backend.keepLogRevision(logId, written.change.revision);
+        await (remappedLogLayout === undefined
+          ? backend.keepLogRevision(logId, written.change.revision)
+          : backend.keepLogRevision(logId, written.change.revision, remappedLogLayout));
         // eslint-disable-next-line no-await-in-loop
         if (branch !== undefined) await markWritten(backend, recipeId, branch);
         const change = answerable(written.change);
@@ -473,6 +476,9 @@ export async function generateRecipe(
                 unit.layout === null ? null : (sibling.renamed.get(unit.layout) ?? unit.layout),
             }));
             if (copied) copied = { ...copied, to: sibling.renamed.get(copied.to) ?? copied.to };
+            // Only a new native first page originally logged meta.key. Repairs and
+            // continuations retain their existing branch/layout logging semantics.
+            if (!base && !repair) remappedLogLayout = sibling.renamed.get(meta.key);
           }
         }
       }

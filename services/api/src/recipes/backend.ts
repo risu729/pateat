@@ -161,7 +161,8 @@ export function d1Backend(
 
     call: (call) => callClaude(env, ownerId, trace, call),
     logUnsent: (unsent, code) => logUnsent(env.DB, ownerId, unsent, code, trace),
-    keepLogRevision: (logId, revision) => keepLogRevision(env.DB, ownerId, logId, revision),
+    keepLogRevision: (logId, revision, layout) =>
+      keepLogRevision(env.DB, ownerId, logId, revision, layout),
     logPageSample: (sample) => logPageSample(env.DB, ownerId, sample, trace),
   };
 }
