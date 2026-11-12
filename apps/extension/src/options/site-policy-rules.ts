@@ -2,6 +2,7 @@ import {
   getItemEligibility,
   normalizeHostname,
   siteDefaultConnection,
+  siteRuleCovers,
   type LocalSettings,
   type SiteAccountsResponse,
   type SiteDefault,
@@ -147,10 +148,7 @@ export function hostOf(origin: string): string {
 }
 
 export function ruleMatches(rule: ExcludedSite, origin: string): boolean {
-  const hostname = hostOf(origin);
-  return (
-    hostname === rule.hostname || (rule.includeSubdomains && hostname.endsWith(`.${rule.hostname}`))
-  );
+  return siteRuleCovers(rule, hostOf(origin));
 }
 
 /** The rule a default is listed under: the most specific of the rules that exclude it. */

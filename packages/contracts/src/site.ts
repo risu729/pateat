@@ -1,4 +1,6 @@
 import { parse } from "tldts";
+import { normalizeHostname, type SiteRule } from "./settings/schema";
+import { siteRuleCovers } from "./settings/site-policy";
 
 /**
  * The registrable domain of an origin's host, as Bitwarden's Domain match compares it:
@@ -47,4 +49,30 @@ export function loginMoveFits(
  */
 export function registrableSite(origin: string): string | undefined {
   return siteKey(origin);
+}
+
+/**
+ * The permanent pause of a validated HTTP(S) origin (ADR 0062). A pause covers its
+ * registrable site and subdomains; Resume removes only covering rules within that
+ * site. Broader rules also cover other sites, so they stay for the settings page.
+ * Transforms take the latest list, which may have changed since the policy was shown.
+ */
+export function sitePauseRules(excludedSites: readonly SiteRule[], origin: string) {
+  const url = new URL(origin);
+  const hostname = normalizeHostname(url.hostname) ?? url.hostname;
+  const site = registrableSite(origin) ?? hostname;
+  const covers = (rule: SiteRule) => siteRuleCovers(rule, hostname);
+  const within = (rule: SiteRule) => rule.hostname === site || rule.hostname.endsWith(`.${site}`);
+  const rules = excludedSites.filter(covers);
+  return {
+    site,
+    rules,
+    shared: rules.filter((rule) => !within(rule)),
+    pause: (latest: readonly SiteRule[]): SiteRule[] => [
+      ...latest.filter((rule) => rule.hostname !== site),
+      { hostname: site, includeSubdomains: true },
+    ],
+    resume: (latest: readonly SiteRule[]): SiteRule[] =>
+      latest.filter((rule) => !(covers(rule) && within(rule))),
+  };
 }
