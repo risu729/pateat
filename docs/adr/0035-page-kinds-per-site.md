@@ -464,6 +464,11 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
   inference and retry limits. A recognised text-answer page can be offered in this
   authenticated context too. Setting filling to `off` still permits classification
   once; a pause or withheld site access stops observation and generation.
+  A durable generation claim permits only one automatic classification attempt for
+  that authenticated document and path, including failed or unknown requests and
+  worker restart. A returned `confirm` or `unclear` recipe can still fill; a
+  `sign-in` result does not replace the authenticated record, start another login or
+  start a classification loop. An explicit manual login retains its separate scope.
   A returned recipe re-admits the current document rather than executing a stale
   result directly.
 - Every delivery rechecks the original authentication, exact document and top-page
@@ -481,6 +486,6 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
   succeeded. `confirm-unsupported` remains for a page without an eligible confirmed
   context, and `page-off` for a disabled verification page.
 
-The session store holds at most 100 authentication proofs and 512 fill claims.
+The session store holds at most 100 authentication proofs and 512 generation/fill claims.
 A full, corrupt or unavailable store refuses further confirmation filling. Closing a
 tab removes its entries. No vault value or page text is written to this store.

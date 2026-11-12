@@ -7,6 +7,9 @@ import { pageOff } from "./sign-in-fill";
 import { confirmPage } from "./markers";
 import {
   cancelConfirm,
+  claimConfirm,
+  confirmationGenerationKey,
+  hasConfirmClaim,
   confirmBusy,
   hasConfirmAuthentication,
   type ConfirmWork,
@@ -25,6 +28,13 @@ export async function admitConfirm(rt: Runtime, ctx: AdmitContext): Promise<Read
   if (!parent || !hasConfirmAuthentication(rt, parent) || manualPending(rt, ctx.live)) return;
   const recipe = await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+  const generationKey = confirmationGenerationKey(parent, ctx.live);
+  // Classification is not a new login or logout signal. In particular, a generated
+  // sign-in result must not release this authenticated record on its reconnect.
+  if (!recipe && hasConfirmClaim(rt, generationKey)) {
+    ctx.notStarted("logged-in");
+    return { ok: false, reason: "logged-in" };
+  }
   const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
   if (!snapshot.ok) return ctx.refuse("settings-unavailable");
@@ -74,6 +84,7 @@ export async function admitConfirm(rt: Runtime, ctx: AdmitContext): Promise<Read
       if (account.scope !== undefined) work.scopeMark = account.scope;
       if (recipe) await fillConfirmation(rt, work, recipe);
       else {
+        if (!(await claimConfirm(rt, work, generationKey)) || !confirmCurrent(rt, work)) return;
         const scope = await generationSlotsFor(rt, ctx.live, undefined, false, parent.account);
         if (!scope || !confirmCurrent(rt, work) || !(await confirmAccount(rt, work))) return;
         ctx.live.state = "generating";

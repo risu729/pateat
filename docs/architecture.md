@@ -4544,8 +4544,13 @@ Generation retains existing budgets and redaction, and a returned recipe re-admi
 the current page. An off setting still permits classification; paused or unadmitted
 pages are not sent.
 
-The bounded `session:pateat.confirm-fills.v1` record holds authentication proofs and
-mutation claims, never values. A claim is written before vault reads and delivery.
+The bounded `session:pateat.confirm-fills.v1` record holds authentication proofs,
+generation claims and mutation claims, never values. Automatic classification is
+claimed once per original authenticated attempt, document and path before dispatch;
+failure, an unknown result or worker restart cannot repeat it. A generated
+`sign-in` result preserves the original authenticated record and starts no login.
+The separate manual-login action keeps its own authority. A claim is written before
+vault reads and delivery.
 It suppresses repeat work after unknown delivery or acknowledgement and a worker
 restart; the document-start edit recorder also fences repeated or edited inputs.
 The session permits at most 100 proofs and 512 claims and fails closed on corruption,

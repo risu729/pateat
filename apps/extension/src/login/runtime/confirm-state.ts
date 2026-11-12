@@ -132,6 +132,13 @@ export function hasConfirmAuthentication(rt: Runtime, metadata: LoginAttemptMeta
   );
 }
 
+/** One automatic classification attempt per authenticated document and path. */
+export const confirmationGenerationKey = (parent: LoginAttemptMetadata, live: LiveDocument) =>
+  JSON.stringify(["generation", parent.id, live.document, live.path]);
+
+export const hasConfirmClaim = (rt: Runtime, key: string): boolean =>
+  rt.confirmFill.claims.some((entry) => entry.key === key);
+
 /** Claim before any read/delivery; an unknown acknowledgement is never replayed. */
 export async function claimConfirm(rt: Runtime, work: ConfirmWork, key: string): Promise<boolean> {
   const state = rt.confirmFill;

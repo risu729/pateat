@@ -723,7 +723,7 @@ export function createRecipeSync(options: {
     const stored = documentOf(cache, origin, recipeId);
     if (!stored) return undefined;
     if (layout === undefined) return newestLayout(loginLayoutCandidates(stored))?.recipe;
-    // A layout generated as `confirm` or `unclear` never runs (ADR 0035).
+    // A layout generated as `confirm` or `unclear` never resumes a login (ADR 0035).
     const found = findLayoutRecipe(stored, layout);
     return found && runsLogin(found) ? found : undefined;
   }
@@ -751,7 +751,14 @@ export function createRecipeSync(options: {
       const device = options.device?.fence?.();
       if (!stable || !paired) return undefined;
       const cache = await current(false);
-      const held = cache && resumedRecipe(cache, recipe.origin, recipe.id, recipe.layout);
+      if (!cache) return undefined;
+      // A fence protects a projection's identity, including confirmation autofill.
+      // Login resumption still uses the login-only helper below.
+      const stored = documentOf(cache, recipe.origin, recipe.id);
+      const held =
+        stored && recipe.layout !== undefined
+          ? findLayoutRecipe(stored, recipe.layout)
+          : resumedRecipe(cache, recipe.origin, recipe.id, recipe.layout);
       if (!held || JSON.stringify(held) !== JSON.stringify(recipe) || (cache.local && !device))
         return undefined;
       const unchanged = () =>
