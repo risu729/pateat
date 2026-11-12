@@ -1,10 +1,11 @@
 # ADR 0026: Signing in to a site through an identity provider
 
 Status: accepted by the owner on 2026-10-11 (12:20 UTC) as policy; not implemented apart
-from the account choice in the last section (2026-11-07). The owner set it as low
-priority: this record fixes the direction, and implementation waits. Builds on
-[ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11 by
-[ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
+from account choice and the local discovery / declarative generation foundations
+([2026-11-12 amendment](#amendment-2026-11-12-declarative-sso-entry-generation)). The
+owner set it as low priority: this record fixes the direction, and implementation waits.
+Builds on [ADR 0022](0022-login-attempts-per-tab-and-origin.md). Amended on 2026-10-11
+by [ADR 0027](0027-per-account-login-routes.md): SSO is one of a recipe's start-page
 routes, chosen after a passkey route and before a password route. Amended on 2026-10-12
 by [ADR 0033](0033-no-site-specific-features.md) (owner, 13:46 UTC): no fixed list of
 identity providers or of their pages; the IdP's origin comes from the item and its pages
@@ -163,3 +164,32 @@ later or a paused site offers, hidden usernames and the chooser's comparisons st
 every match. Until the `sso` route exists, a pick or the only match of such an item runs
 the password route, which stops with `no-route` when the item holds no password and no
 passkey.
+
+## Amendment 2026-11-12: declarative SSO entry generation
+
+Implementation detail chosen by an agent within ADR 0085. A recipe document now accepts
+an `sso` sibling holding its start path and up to three layouts of `{label, target}`
+entries. A document may hold SSO alone or beside its native form and chooser layouts.
+These entries are not `LoginStep` clicks, native route projections or credential grants.
+The existing executor cannot act on them. Native route selection is unchanged.
+
+A dedicated `kind: "sso"` generation request contains a value-free page observation and
+labels for the chosen RP account/method, never a vault-wide label inventory, IdP
+username, IdP origin, item reference, comparison proof or local mapping. The role
+returns only requested labels and observation-local candidate references. Local checks
+require one observed button or link per label, reject duplicate targets, and retain no
+invented label or candidate in the request log. Generic registration/permission evidence
+and the role's page classification refuse consent, sharing, account creation and unclear
+pages, even when a matching provider button shows. The later coordinator must check
+these boundaries again on the live document.
+
+The service stores entries with the existing conditional revision write, spend limits,
+request log and generation retry/repair windows. This is a generation call, not a
+post-login judgement; it does not consume a judgement quota. SSO and native writes keep
+each other's siblings, with one bounded conditional rebase when only the other family
+changed. SSO layouts have their own provenance units and participate in layout keys,
+removal and start-path validation. They never acquire fill slots or a native submission.
+
+The method chooser, local mapping UI, same-tab RP/IdP coordinator, IdP intermediate-page
+handling and final RP authentication remain the next required implementation. This
+amendment does not claim end-to-end, packaged-browser or real-account compatibility.

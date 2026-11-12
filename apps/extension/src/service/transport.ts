@@ -2,6 +2,9 @@ import { createServiceCall } from "./service-call";
 import type { ServiceTiming } from "./service-timing";
 export { serverTimings, serviceTiming, addTimings, type ServiceTiming } from "./service-timing";
 import {
+  ssoGenerationResultSchema,
+  type SsoGenerationRequest,
+  type SsoGenerationResult,
   devicePairResultSchema,
   profileSchema,
   recipeCompletionResultSchema,
@@ -351,6 +354,15 @@ export interface ServiceTransport {
   ): Promise<PageSampleResult>;
 }
 
+/** The dedicated SSO role shares transport policy but never accepts local mapping data. */
+export interface SsoTransport {
+  generateSso(
+    origin: string,
+    credential: string,
+    request: SsoGenerationRequest,
+  ): Promise<InferenceResult<SsoGenerationResult>>;
+}
+
 const errorSchema = v.object({ error: v.string() });
 /** A full page of recipes; the service accepts each recipe write up to 128 KiB. */
 const MAX_RECIPE_PAGE_BYTES = 16 * 1024 * 1024;
@@ -386,7 +398,7 @@ export function createServiceTransport(
     inferenceTimeoutMs?: number;
     now?: () => number;
   } = {},
-): ServiceTransport {
+): ServiceTransport & SsoTransport {
   const call = createServiceCall(options);
   const timeoutMs = options.timeoutMs ?? 15_000;
   // The service allows the model 60 seconds after exchanging the owner's token.
@@ -536,6 +548,9 @@ export function createServiceTransport(
           { limit: MAX_SETTINGS_BYTES },
         ),
       );
+    },
+    generateSso(origin, credential, request) {
+      return infer(origin, credential, "/v1/recipes/generate", request, ssoGenerationResultSchema);
     },
     generateRecipe(origin, credential, request) {
       return infer(

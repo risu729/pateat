@@ -1,4 +1,5 @@
 import {
+  ssoGenerationRequestSchema,
   DEFAULT_MODEL_CONFIG,
   DEFAULT_OPENAI_MODEL_CONFIG,
   OPENAI_DEVICE_MODEL_URL,
@@ -28,6 +29,7 @@ import {
   utcDayStart,
   CLEF_MODEL,
   generateEntry,
+  generateSso,
   generateRecipe,
   generateLogout,
   judgeCompletion,
@@ -736,10 +738,8 @@ export function createDeviceGenerationBackend(options: {
   };
 }
 
-type Requests = Pick<
-  ServiceTransport,
-  "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion"
->;
+type Requests = import("./transport").SsoTransport &
+  Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion">;
 
 /**
  * The generation routes' answers for this device's own requests, as the transport gives
@@ -759,6 +759,11 @@ export function createDeviceGeneration(backend: GenerationBackend): Requests {
     }
   }
   return {
+    generateSso: (_origin, _credential, request) =>
+      run(async () => {
+        const parsed = v.safeParse(ssoGenerationRequestSchema, request);
+        return parsed.success ? generateSso(backend, parsed.output) : undefined;
+      }),
     generateRecipe: (_origin, _credential, request) =>
       run(async () => {
         const parsed = v.safeParse(recipeGenerationRequestSchema, request);

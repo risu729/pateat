@@ -24,3 +24,5 @@ export { buildLoginLayout, type LayoutPage } from "./generate/layout";
 export { generateRecipe } from "./generate/recipe";
 export { generateEntry } from "./generate/entry";
 export { judgeCompletion, judgedInputs, samplePage } from "./generate/completion";
+
+export { generateSso } from "./generate/sso";
