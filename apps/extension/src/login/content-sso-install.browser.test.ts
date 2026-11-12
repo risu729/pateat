@@ -41,7 +41,9 @@ vi.mock("../messaging/protocol", () => ({
 }));
 let uninstall: (() => void) | undefined;
 let stopRecording: (() => void) | undefined;
+let originalHref: string;
 beforeEach(() => {
+  originalHref = location.href;
   wire.sent.length = 0;
   wire.nativeAuthorize.mockReset().mockResolvedValue(true);
   wire.authorize.mockReset().mockResolvedValue({ ok: true });
@@ -58,6 +60,8 @@ afterEach(() => {
   delete (window as unknown as Record<symbol, unknown>)[Symbol.for("pateat.fillEdits")];
   uninstall = undefined;
   document.body.innerHTML = "";
+  history.replaceState(null, "", originalHref);
+  vi.useRealTimers();
 });
 async function command(message: Record<string, unknown>): Promise<unknown> {
   if (!wire.listener) throw new Error("No installed content listener");
@@ -204,6 +208,61 @@ describe("installed content narrowly withdraws one native attempt", () => {
       expect(
         wire.sent.filter(({ message }) => message["type"] === "login.sso.authorize"),
       ).toHaveLength(2);
+    },
+  );
+});
+
+describe("installed IdP content preserves its existing login namespace on path changes", () => {
+  it.each(["authenticated", "blocked", "stale-token", "non-sso", "cancelled"])(
+    "reports a path after %s only while this exact content carries SSO",
+    async (state) => {
+      vi.useFakeTimers();
+      const prepared = await installAndPrepare();
+      if (state !== "non-sso") {
+        const idp = {
+          version: 1,
+          type: "login.sso.idp",
+          token: state === "stale-token" ? "old-content-token" : prepared.token,
+          username: "synthetic-local-user",
+        };
+        if (state === "stale-token")
+          await expect(command(idp)).rejects.toThrow("Command was not accepted");
+        else await command(idp);
+      }
+      expect(
+        await command({
+          version: 1,
+          type: "login.status",
+          token: prepared.token,
+          state: state === "blocked" ? "blocked" : "authenticated",
+          stepIndex: 1,
+        }),
+      ).toEqual({ ok: true });
+      if (state === "cancelled")
+        expect(await command({ version: 1, type: "login.cancel", token: prepared.token })).toEqual({
+          ok: true,
+        });
+      const route = "/sso-native-finished-" + state;
+      history.pushState(null, "", route);
+      await vi.advanceTimersByTimeAsync(150);
+      const moved = wire.sent.filter(({ message }) => message["type"] === "login.document.moved");
+      if (state === "authenticated" || state === "blocked")
+        expect(moved).toEqual([
+          {
+            channel: "login",
+            message: { version: 1, type: "login.document.moved", token: prepared.token },
+          },
+        ]);
+      else expect(moved).toEqual([]);
+      history.pushState(null, "", route + "?query=1#fragment");
+      await vi.advanceTimersByTimeAsync(150);
+      expect(
+        wire.sent.filter(({ message }) => message["type"] === "login.document.moved"),
+      ).toHaveLength(moved.length);
+      expect(wire.raw).not.toHaveBeenCalled();
+      expect(wire.sent.filter(({ message }) => message["type"] === "login.sso.authorize")).toEqual(
+        [],
+      );
     },
   );
 });
