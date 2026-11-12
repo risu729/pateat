@@ -5,7 +5,7 @@ import {
   recoverLoginAttempt,
   transitionLoginAttempt,
 } from "../../src/login-attempt";
-import { type LoginRecipe } from "../../src/login";
+import type { LoginRecipe } from "../../src/login";
 import type { LoginAttemptTestContext } from "./context";
 
 export function registerLayoutChanges({

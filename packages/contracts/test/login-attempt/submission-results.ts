@@ -8,7 +8,7 @@ import {
   transitionLoginAttempt,
   withdrawAccountSwitch,
 } from "../../src/login-attempt";
-import { type LoginDocument, type LoginRecipe } from "../../src/login";
+import type { LoginDocument, LoginRecipe } from "../../src/login";
 import type { LoginAttemptTestContext } from "./context";
 
 export function registerSubmissionResults({

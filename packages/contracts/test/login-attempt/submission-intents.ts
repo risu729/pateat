@@ -7,7 +7,7 @@ import {
   transitionLoginAttempt,
   validateLoginOperation,
 } from "../../src/login-attempt";
-import { type LoginRecipe } from "../../src/login";
+import type { LoginRecipe } from "../../src/login";
 import type { LoginAttemptTestContext } from "./context";
 
 export function registerSubmissionIntents({

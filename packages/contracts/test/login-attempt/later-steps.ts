@@ -5,7 +5,7 @@ import {
   nextLoginOperation,
   transitionLoginAttempt,
 } from "../../src/login-attempt";
-import { type LoginRecipe, type LoginStep } from "../../src/login";
+import type { LoginRecipe, LoginStep } from "../../src/login";
 import type { LoginAttemptTestContext } from "./context";
 
 export function registerLaterSteps({

@@ -10,7 +10,7 @@ import {
   recoverLoginAttempt,
   transitionLoginAttempt,
 } from "../../src/login-attempt";
-import { type LoginDocument } from "../../src/login";
+import type { LoginDocument } from "../../src/login";
 import type { LoginAttemptTestContext } from "./context";
 
 export function registerAttemptTiming({

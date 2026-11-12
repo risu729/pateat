@@ -337,14 +337,6 @@ lines and comments included (owner, 2026-10-23). Files that were already longer 
 listed in the last override of `.oxlintrc.json` with the rule off until each is split;
 remove a file from that list when its split lands, and do not add new ones.
 
-The login-attempt contract suite keeps `packages/contracts/src/login-attempt.test.ts`
-as its sole discovered entry, with shared fixtures and helpers initialized there.
-Synchronous registrars in `packages/contracts/test/login-attempt/` preserve the
-original describe scopes and registration order; the submission and missing-password
-wrappers call focused registrars inside their original scopes. Typed contexts pass
-the same fixture and helper references. These support files stay outside `src` and
-the contract source-coverage include.
-
 Focused tasks are available for diagnosis:
 
 | Task | Purpose |
@@ -614,6 +606,17 @@ time explicitly and leaves the input map and records unchanged. The runtime appl
 that result to its existing shared map and saves the session; tab queries and
 closed-site cleanup remain outside the policy. Tests cover window boundaries,
 clock rollback, popup picks, normal/private partitions and the 256-site cap.
+
+### Login-attempt contract test organization
+
+`packages/contracts/src/login-attempt.test.ts` is the discovered entry for the
+login-attempt contract suite and initializes the shared fixtures and helpers. Plain
+modules in `packages/contracts/test/login-attempt/` export synchronous registration
+functions for contiguous case groups, which the entry calls inside its describe
+scopes; the submission and missing-password describes call their focused registrars
+inside their own scopes. `context.ts` holds the fixture and helper types, and
+importing a module registers no cases. The modules sit outside `src/`, so they stay
+outside the contract coverage include. Each file follows the 1,000-line limit.
 
 ### Login runtime test organization
 

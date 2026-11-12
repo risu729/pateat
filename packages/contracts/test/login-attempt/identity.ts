@@ -5,8 +5,8 @@ import {
   transitionLoginAttempt,
   validateLoginOperation,
 } from "../../src/login-attempt";
-import { type LoginRecipe } from "../../src/login";
-import type { LoginAttemptTestContext } from "./context";
+import type { LoginRecipe } from "../../src/login";
+import type { LoginAttemptMetadataLike, LoginAttemptTestContext } from "./context";
 
 export function registerAttemptIdentity({
   document,
@@ -206,7 +206,7 @@ export function registerAttemptIdentity({
       const ready = transitionLoginAttempt(detected(keypadRecipe), { type: "RESOLVE" });
       const operation = nextLoginOperation(ready, keypadRecipe, document, "fill-one", 1000)!;
       expect(operation).toMatchObject({ step: { kind: "fill" } });
-      const intent = (start: LoginAttemptMetadata) =>
+      const intent = (start: LoginAttemptMetadataLike) =>
         transitionLoginAttempt(
           transitionLoginAttempt(start, {
             type: "PREPARE",

@@ -23,7 +23,6 @@ export interface PasswordStopTestContext extends LoginAttemptTestContext {
   top: LoginDocument;
   id: (value: string) => { by: "id"; value: string };
   emailFirst: LoginRecipe;
-  keyOnly: LoginAttemptTestContext["facts"];
   create: (
     change?: Partial<Parameters<typeof createAttemptMetadata>[0]>,
     stopAt?: number | null,
