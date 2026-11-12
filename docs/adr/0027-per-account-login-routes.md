@@ -1934,6 +1934,7 @@ actual judgements and a separate check could race with another page.
   most the remainder of one UTC day. New IDs are unaffected. A nonempty standalone
   record that the new format cannot read similarly closes its cutover day's quota;
   clearing obsolete page answers preserves daily usage.
+
 ## Amendment 2026-11-12: SSO entry contracts and generation
 
 Implementation detail chosen by an agent. SSO entry layouts are a separate declarative
