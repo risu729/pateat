@@ -5,6 +5,7 @@ import type {
   LoginHandler,
   LoginRouteBody,
   LoginTarget,
+  loginMarkerTargetSchema,
   loginPathSchema,
   loginTargetSchema,
   RecipeDocument,
@@ -60,6 +61,7 @@ export const ssoTargetKey = (path: string, target: unknown) => `${path}\n${canon
 export function createSsoRoutesSchema(schemas: {
   path: typeof loginPathSchema;
   target: typeof loginTargetSchema;
+  marker: typeof loginMarkerTargetSchema;
   key: typeof recipeLayoutKeySchema;
   language: typeof recipeLanguageSchema;
   layouts: number;
@@ -85,6 +87,19 @@ export function createSsoRoutesSchema(schemas: {
           createdAt: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
           language: v.optional(schemas.language),
           entries,
+          completion: v.optional(
+            v.pipe(
+              v.array(v.strictObject({ target: schemas.marker })),
+              v.minLength(1),
+              v.maxLength(4),
+              v.check(
+                (markers) =>
+                  new Set(markers.map((entry) => canonicalJson(entry.target))).size ===
+                  markers.length,
+                "Duplicate SSO completion markers",
+              ),
+            ),
+          ),
         }),
       ),
       v.minLength(1),

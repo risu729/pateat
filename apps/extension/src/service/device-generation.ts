@@ -8,7 +8,7 @@ import {
   deviceModelHeaderNames,
   entryGenerationRequestSchema,
   logoutGenerationRequestSchema,
-  recipeCompletionRequestSchema,
+  completionRequestSchema,
   recipeGenerationRequestSchema,
   storedLayouts,
   syncRecipeIdSchema,
@@ -567,7 +567,7 @@ export function createDeviceGeneration(backend: GenerationBackend): Requests {
       }),
     judgeCompletion: (_origin, _credential, recipeId, request) =>
       run(async () => {
-        const parsed = v.safeParse(recipeCompletionRequestSchema, request);
+        const parsed = v.safeParse(completionRequestSchema, request);
         return parsed.success ? judgeCompletion(backend, recipeId, parsed.output) : undefined;
       }),
   };

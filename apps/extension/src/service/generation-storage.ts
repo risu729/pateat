@@ -1,6 +1,5 @@
 import {
   customSlotIdSchema,
-  loginRouteSchema,
   recipeBranchSchema,
   PAGE_SAMPLE_INTERVAL_MS,
   recipeLayoutKeySchema,
@@ -170,7 +169,7 @@ const replacementsSchema = v.strictObject({
         service: v.pipe(v.string(), v.maxLength(2048)),
         deviceId: v.pipe(v.string(), v.maxLength(200)),
         recipeId: syncRecipeIdSchema,
-        route: loginRouteSchema,
+        route: v.picklist(["passkey", "password", "sso"]),
         at: v.pipe(v.number(), v.integer(), v.minValue(0)),
       }),
     ),

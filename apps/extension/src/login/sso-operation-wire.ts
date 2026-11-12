@@ -5,6 +5,12 @@ const url = v.pipe(v.string(), v.minLength(1), v.maxLength(2 * 1024 * 1024));
 export const ssoCommandSchemas = [
   v.strictObject({
     version: v.literal(1),
+    type: v.literal("login.sso.return"),
+    token: id,
+    username: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(1024))),
+  }),
+  v.strictObject({
+    version: v.literal(1),
     type: v.literal("login.sso.inspect"),
     token: id,
     target: loginTargetSchema,
@@ -63,3 +69,8 @@ export const ssoIdpResultSchema = v.variant("kind", [
   }),
 ]);
 export type SsoIdpReading = v.InferOutput<typeof ssoIdpResultSchema>;
+
+export const ssoReturnResultSchema = v.variant("ok", [
+  v.strictObject({ ok: v.literal(false), reason: id }),
+  v.strictObject({ ok: v.literal(true), identity: v.picklist(["match", "different", "absent"]) }),
+]);

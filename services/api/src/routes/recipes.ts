@@ -5,7 +5,7 @@ import {
   loginRecordSchema,
   logoutGenerationRequestSchema,
   parseRecipeBranch,
-  recipeCompletionRequestSchema,
+  completionRequestSchema,
   recipeUseReportSchema,
   recipePageSampleRequestSchema,
   syncRecipeIdSchema,
@@ -124,7 +124,7 @@ export const recipeRoutes = new Hono<ApiEnv>()
     "/:recipeId/completion",
     recipeParam,
     requireJsonBody,
-    jsonBody(recipeCompletionRequestSchema),
+    jsonBody(completionRequestSchema),
     async (c) => {
       const { recipeId } = c.req.valid("param");
       const result = await judgeCompletion(
