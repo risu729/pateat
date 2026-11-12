@@ -2500,8 +2500,9 @@ and `error` entries, pruned at worker start and every 500 writes.
 Each diagnostics refresh reads and admits the stored log once, then derives its size,
 problem counts and recent lines from that same snapshot and reference time. A failed
 entry read makes both projections unavailable, rather than trying separate reads that
-could describe different logs. A failed debug-deadline read counts as debug logging off;
-it changes neither the summary's counts nor the recent lines. The snapshot changes no
+could describe different logs. A failed debug-deadline read counts as debug logging off,
+and a failed write that keeps it on (while debug logging stays on) as on until turned
+off; neither changes the summary's counts or the recent lines. The snapshot changes no
 log fields, retention or export redaction.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),

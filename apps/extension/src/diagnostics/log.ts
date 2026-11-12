@@ -601,7 +601,8 @@ export function createLogger(deps: LoggerDependencies) {
     setProblemCursor: (cursor: unknown) => serial(() => putMeta(PROBLEM_CURSOR_KEY, cursor)),
     /** Reads the log once for both diagnostics projections; metadata cannot hide recent lines. */
     async snapshot(): Promise<LogSnapshot> {
-      // debugDeadline never rejects: a failed read counts as debug logging off.
+      // debugDeadline never rejects: a failed metadata read counts as off, a failed keep-on
+      // write as on until turned off.
       const [all, until] = await Promise.all([serial(entries), debugDeadline()]);
       const at = now();
       const since = at - 24 * HOUR_MS;

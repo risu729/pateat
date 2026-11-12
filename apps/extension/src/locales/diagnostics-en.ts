@@ -92,8 +92,8 @@ export const diagnosticsEn = {
   "{{version}} ({{revision}}) {{mode}} build": "{{version}} ({{revision}}) {{mode}} build",
   "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported":
     "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported",
-  "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}, sealed {{sealed}}: TOTP and passkey not counted) + {{unsupported}} unsupported":
-    "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}, sealed {{sealed}}: TOTP and passkey not counted) + {{unsupported}} unsupported",
+  "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}; of the logins, sealed {{sealed}}: their TOTP and passkeys are not counted) + {{unsupported}} unsupported":
+    "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}; of the logins, sealed {{sealed}}: their TOTP and passkeys are not counted) + {{unsupported}} unsupported",
   " (rejected)": " (rejected)",
   " (recipe cache full)": " (recipe cache full)",
   granted: "granted",

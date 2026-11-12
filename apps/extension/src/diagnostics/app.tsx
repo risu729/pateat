@@ -194,7 +194,7 @@ function Connections({ status }: { status: DiagnosticsStatus }) {
             <Row term="Items">
               {entry.items.sealed > 0
                 ? t(
-                    "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}, sealed {{sealed}}: TOTP and passkey not counted) + {{unsupported}} unsupported",
+                    "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}; of the logins, sealed {{sealed}}: their TOTP and passkeys are not counted) + {{unsupported}} unsupported",
                     entry.items,
                   )
                 : t(

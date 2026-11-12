@@ -323,7 +323,7 @@ describe("diagnostics status", () => {
     expect(report).toContain("Permissions: storage, offscreen, https://*/* + 1 granted site\n");
     expect(report).toContain("warn clock 95 s behind the service");
     expect(report).toContain(
-      "5 items (login 3, TOTP 1, passkey 1, sealed 1: TOTP and passkey not counted) + 1 unsupported",
+      "5 items (login 3, TOTP 1, passkey 1; of the logins, sealed 1: their TOTP and passkeys are not counted) + 1 unsupported",
     );
     // The KDF family is copied; its parameters stay on the page.
     expect(report).toContain("· KDF PBKDF2 ·");
