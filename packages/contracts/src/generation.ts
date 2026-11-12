@@ -87,6 +87,7 @@ const activeLogoutChange = v.pipe(
 /** Reasons the service did not call the model at all. */
 export const generationUnavailableReasonSchema = v.picklist([
   "credentials-not-configured",
+  "credentials-unavailable",
   "credentials-rejected",
   "issuer-unavailable",
   /** The token exchange did not complete: network, timeout or an Anthropic error. */

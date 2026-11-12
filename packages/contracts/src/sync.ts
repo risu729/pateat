@@ -208,6 +208,7 @@ export const syncDeviceStateSchema = v.strictObject({
   generation: v.picklist([
     "ok",
     "credentials-not-configured",
+    "credentials-unavailable",
     "issuer-unavailable",
     "monthly-limit",
     "daily-limit",

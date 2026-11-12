@@ -239,6 +239,13 @@
       "when": 1793999563986,
       "tag": "0037_page_judgement_inputs",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1794398845440,
+      "tag": "0038_openai_credentials",
+      "breakpoints": true
     }
   ]
 }

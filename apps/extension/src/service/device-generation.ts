@@ -218,7 +218,12 @@ export function createDeviceGenerationBackend(options: {
           const value = outbound.headers.get(name);
           if (value !== null) headers[name] = value;
         }
-        const sent = { index: 0, headers, body: await outbound.text() };
+        const sent = {
+          provider: "anthropic" as const,
+          index: 0,
+          headers,
+          body: await outbound.text(),
+        };
         const checked = deviceModelCallBody(sent);
         if (!checked) throw new TypeError("Unexpected model request");
         // A reason stops the request unsent (ADR 0018); the loop below answers with it.

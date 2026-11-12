@@ -3,13 +3,49 @@
 This Worker is the optional private settings/recipe sync service with device pairing,
 deployed at `pateat.takuk.me` and released automatically from main
 ([delivery](../../docs/delivery.md)). It has no vault implementation. It generates
-recipes with the owner's own Claude credentials
+recipes with the owner's configured Anthropic or OpenAI credentials
 ([recipe generation](#recipe-generation)). The `pateat` D1 database was bootstrapped on
 2026-10-11, and `cloudflare.config.ts` records its ID. cf deploy provisions declared
 bindings that lack an ID, so the release artifact refuses a build without one; a routine
 release never creates the database implicitly. The release applies the committed
 migrations to that database before activation
 ([delivery](../../docs/delivery.md)).
+
+## OpenAI credentials
+
+The owner saves an OpenAI API key on `/manage/openai`, then chooses OpenAI models
+for generation and judgement in the model picker. Anthropic WIF remains available,
+and the existing defaults remain Anthropic. Each role's ordered choices can mix
+providers; only a refusal moves to the next choice. A paired device using its own
+key receives only choices for its selected provider, or that provider's defaults
+when the owner's list has none.
+
+The operator configures the optional `INFERENCE_CREDENTIAL_KEY` Worker secret as
+64 hexadecimal characters representing 32 cryptographically random bytes. This
+separate encryption key protects owner keys in the `openai_credentials` D1 table
+using AES-GCM, a fresh 12-byte nonce per save, and owner-bound authenticated data.
+The table never stores plaintext provider keys. Keep this operator secret for as
+long as its stored credentials are needed: replacing it makes existing rows
+unreadable until their owners save their keys again.
+
+Without a valid encryption secret, OpenAI key writes answer 503
+`credential_storage_unavailable`, and OpenAI inference fails closed. Anthropic
+continues to work. Owners can still remove a stored OpenAI key. The status API
+returns only whether a key is configured, whether credential storage is ready,
+and whether a saved row could not be opened; it returns neither a key nor
+ciphertext. Owner identity, same-origin and JSON/body guards are the management
+API's existing guards.
+
+Saving a key, removing it and choosing OpenAI models make no OpenAI API request.
+The OpenAI model catalogue is the committed priced list, rather than live account
+discovery. Model calls use the fixed Responses API endpoint through the shared
+structured-output role adapter, with the same safety checks, local limits,
+provider/source attribution and combined owner spend stops as Anthropic calls.
+Keys never enter device responses or request logs.
+
+Real credentials, operator-secret configuration, deployment, model access, billing
+and live output behavior remain unverified. They are tracked in
+[the live OpenAI verification task](https://github.com/risu729/pateat/issues/1465).
 
 ## Routes
 
@@ -68,6 +104,7 @@ and `generation.ts`.
 | `GET /manage/api/request-log` | How many request log rows (`entries`), login result codes (`outcomes`), login records (`logins`) and problem lines (`problems`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
 | `DELETE /manage/api/request-log` | Delete every request log row, login result code, login record and problem line of the owner, and clear `device_id` and `log_id` of the owner's `recipe_unit_sources` rows, and nothing else; answers how many (`deleted`, `outcomes`, `logins`, `problems`) |
 | `GET /manage/api/problems` | The owner's newest 200 problem lines, newest first, with each device's label (ADR 0066) |
+| `GET`, `PUT`, `DELETE /manage/api/openai` | Read key status, replace the owner's encrypted OpenAI key, or remove it; no provider call, and no key is returned |
 | `GET /manage/api/claude` | The Claude Console values for this owner and their saved WIF identifiers; 404 `not_paired` without a paired device |
 | `PUT /manage/api/claude` | Replace the owner's four WIF identifiers |
 | `POST /manage/api/claude/test` | Exchange one assertion and return only the outcome, never the token |
@@ -744,11 +781,22 @@ FROM problem_log ORDER BY created_at DESC, seq DESC LIMIT 50;
 [ADR 0040](../../docs/adr/0040-running-without-the-service.md), in
 `src/claude/calls.ts`. `POST /v1/recipes/generate` (recipes and entry requests) and
 `POST /v1/recipes/:recipeId/completion` take an optional
-`deviceModel: { responses }` (at most 6) from a device that holds its own Anthropic API
-key. The route runs as usual, but where it would call the model it answers 200
-`{ version: 1, status: "model-call", call: { index, headers, body } }`: the Messages
-request body (at most 160 KiB) and its `anthropic-version`, `anthropic-beta` and
-`content-type` headers. The device sends it to Anthropic and sends the request again
+`deviceModel: { provider, responses, clef? }` (at most 8 responses) from a device
+that holds its own Anthropic or OpenAI API key. The required `provider` is
+`anthropic` or `openai`; the service uses only that provider's configured role
+choices, or its defaults when none match. The route runs as usual, but where it
+would call the model it answers 200
+`{ version: 1, status: "model-call", call: { index, provider, headers, body } }`.
+An Anthropic call carries the Messages body and its allowed `anthropic-version`,
+`anthropic-beta` and `content-type` headers. An OpenAI call carries the Responses
+body with only `content-type`. Bodies are at most 160 KiB. The device validates
+the provider-specific body and sends it only to its locally pinned endpoint:
+`https://api.anthropic.com/v1/messages` or
+`https://api.openai.com/v1/responses`. It adds only that provider's local key;
+a mismatched provider or unsupported body is refused. Optional Clef calls use
+`provider: "cloudflare"` and the device's independently configured Cloudflare token.
+The two Clef calls can precede the three text-model choices, each fast then standard,
+within the eight-response bound. The device sends the route request again
 with one more response: `{ kind: "response", request, status, body }` (body at most
 16 KiB), `{ kind: "timeout", request }` or `{ kind: "unreachable", request }`, where
 `request` is the hex SHA-256 of the body it answers. The service takes response `index`

@@ -97,6 +97,14 @@ function mockClient(saveError?: ManageApiError) {
     renameProfile: vi.fn<ManageClient["renameProfile"]>(),
     deleteProfile: vi.fn<ManageClient["deleteProfile"]>(),
     assignProfile: vi.fn<ManageClient["assignProfile"]>(),
+    openai: vi.fn<ManageClient["openai"]>(async () => ({
+      version: 1,
+      configured: false,
+      storage: "ready",
+      storedInvalid: false,
+    })),
+    saveOpenAI: vi.fn<ManageClient["saveOpenAI"]>(),
+    deleteOpenAI: vi.fn<ManageClient["deleteOpenAI"]>(),
     problems: vi.fn<ManageClient["problems"]>(),
   } satisfies ManageClient;
 }
@@ -127,16 +135,16 @@ test("shows each role's models in order, with the fallbacks after a refusal", as
     .element(page.getByRole("heading", { name: "Recipe generation", level: 3 }))
     .toBeVisible();
   await expect.element(page.getByText("These are the defaults.")).toBeVisible();
-  expect(select("models-generate-0-model").value).toBe("claude-opus-5-5");
-  expect(select("models-generate-1-model").value).toBe("claude-sonnet-5-5");
+  expect(select("models-generate-0-model").value).toBe("anthropic:claude-opus-5-5");
+  expect(select("models-generate-1-model").value).toBe("anthropic:claude-sonnet-5-5");
   await expect.element(page.getByText("Fallback 1 after a refusal").first()).toBeVisible();
   // A model without a price, and fast mode that keeps failing, cannot be chosen.
   const unpriced = [...select("models-generate-0-model").options].find(
-    (option) => option.value === "claude-opus-9",
+    (option) => option.value === "anthropic:claude-opus-9",
   )!;
   expect([unpriced.disabled, unpriced.textContent]).toEqual([
     true,
-    "Claude Opus 9 (no published price yet)",
+    "Anthropic / Claude Opus 9 (no published price yet)",
   ]);
   const fast = [...select("models-generate-0-speed").options].find(
     (option) => option.value === "fast",

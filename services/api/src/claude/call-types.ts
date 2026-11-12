@@ -6,6 +6,7 @@ import { type DrizzleD1Database } from "drizzle-orm/d1";
 export type Db = DrizzleD1Database<Record<string, never>>;
 export type CallEnv = {
   DB: D1Database;
+  INFERENCE_CREDENTIAL_KEY?: string;
   OIDC_ISSUER?: string;
   OIDC_SIGNING_KEYS?: string;
   /** The Workers AI binding Clef is called through (ADR 0083); absent, Claude answers alone. */

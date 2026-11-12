@@ -103,6 +103,14 @@ function mockClient(initial: Listed) {
     claude: vi.fn<ManageClient["claude"]>(),
     saveClaude: vi.fn<ManageClient["saveClaude"]>(),
     testClaude: vi.fn<ManageClient["testClaude"]>(),
+    openai: vi.fn<ManageClient["openai"]>(async () => ({
+      version: 1,
+      configured: false,
+      storage: "ready",
+      storedInvalid: false,
+    })),
+    saveOpenAI: vi.fn<ManageClient["saveOpenAI"]>(),
+    deleteOpenAI: vi.fn<ManageClient["deleteOpenAI"]>(),
     problems: vi.fn<ManageClient["problems"]>(),
     replace(next: Listed) {
       current = { unreadable: [], ...next };

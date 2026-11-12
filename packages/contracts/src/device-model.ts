@@ -1,14 +1,16 @@
 import * as v from "valibot";
+import { openAIModelIds } from "./models";
 
-// A paired device that holds its own Anthropic API key makes the model calls of the
+// A paired device that holds its own text-model API key makes the model calls of the
 // service's generation and judge routes itself (ADR 0040). The service keeps every other
 // step of the route: its checks and limits, the input it builds, the checks of the answer
 // and the write. It answers a request that needs a model call with that call, the device
 // sends it with its key and sends the request again with the provider's response, and the
 // service runs the route again with the responses given so far.
 
-/** The only URL a device sends a model call to; never one the service names. */
+/** Fixed provider URLs; the service never supplies an outbound URL. */
 export const DEVICE_MODEL_URL = "https://api.anthropic.com/v1/messages";
+export const OPENAI_DEVICE_MODEL_URL = "https://api.openai.com/v1/responses";
 /**
  * The most model calls one request makes: Clef's two (ADR 0083), then three model choices,
  * each fast and then at the standard speed (`CLAUDE_CALL_LIMITS.lockMs` in the service).
@@ -58,6 +60,7 @@ export const deviceModelResponseSchema = v.variant("kind", [
  * with its own key, and `responses` are those it made for this request so far.
  */
 export const deviceModelSchema = v.strictObject({
+  provider: v.picklist(["anthropic", "openai"]),
   responses: v.pipe(v.array(deviceModelResponseSchema), v.maxLength(MAX_DEVICE_MODEL_CALLS)),
   /**
    * The device also holds a Cloudflare token for Clef (ADR 0083), so the service may ask it
@@ -78,7 +81,7 @@ export const deviceModelCallSchema = v.strictObject({
   status: v.literal("model-call"),
   call: v.strictObject({
     index: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(MAX_DEVICE_MODEL_CALLS - 1)),
-    provider: v.optional(v.literal("cloudflare")),
+    provider: v.picklist(["anthropic", "openai", "cloudflare"]),
     headers: v.record(
       v.picklist(deviceModelHeaderNames),
       v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
@@ -138,7 +141,7 @@ const deviceModelBodySchema = v.strictObject({
  * given twice never reaches Anthropic with the value the check did not see.
  */
 export function deviceModelCallBody(call: DeviceModelCall["call"]): string | undefined {
-  if (call.provider !== undefined) return undefined;
+  if (call.provider !== "anthropic") return undefined;
   const betas = call.headers["anthropic-beta"]?.split(",").map((beta) => beta.trim()) ?? [];
   if (!betas.every((beta) => (deviceModelBetas as readonly string[]).includes(beta)))
     return undefined;
@@ -154,6 +157,66 @@ export function deviceModelCallBody(call: DeviceModelCall["call"]): string | und
     return undefined;
   }
   return v.is(deviceModelBodySchema, body) ? JSON.stringify(body) : undefined;
+}
+
+/** Text-only Responses requests emitted by the generation adapter. */
+const deviceOpenAIModelBodySchema = v.strictObject({
+  model: v.picklist(openAIModelIds),
+  input: v.pipe(
+    v.array(
+      v.union([
+        v.strictObject({ role: v.literal("developer"), content: v.string() }),
+        v.strictObject({
+          role: v.literal("user"),
+          content: v.pipe(
+            v.array(v.strictObject({ type: v.literal("input_text"), text: v.string() })),
+            v.minLength(1),
+          ),
+        }),
+      ]),
+    ),
+    v.minLength(1),
+  ),
+  max_output_tokens: v.pipe(
+    v.number(),
+    v.integer(),
+    v.minValue(1),
+    v.maxValue(MAX_DEVICE_MODEL_OUTPUT_TOKENS),
+  ),
+  text: v.strictObject({
+    format: v.strictObject({
+      type: v.literal("json_schema"),
+      strict: v.boolean(),
+      name: v.string(),
+      description: v.optional(v.string()),
+      schema: v.record(v.string(), v.unknown()),
+    }),
+  }),
+  store: v.literal(false),
+  service_tier: v.picklist(["default", "fast"]),
+  include: v.tuple([v.literal("reasoning.encrypted_content")]),
+  reasoning: v.strictObject({ effort: v.picklist(["low", "medium", "high", "xhigh", "max"]) }),
+});
+
+/**
+ * Only the adapter's text-only Responses body may use a device's OpenAI key. Storage,
+ * tools, streaming, remote inputs and conversation references cannot be requested.
+ */
+export function deviceOpenAIModelCallBody(call: DeviceModelCall["call"]): string | undefined {
+  if (call.provider !== "openai") return undefined;
+  if (Object.keys(call.headers).some((name) => name !== "content-type")) return undefined;
+  if (
+    call.headers["content-type"] !== undefined &&
+    call.headers["content-type"] !== "application/json"
+  )
+    return undefined;
+  let body: unknown;
+  try {
+    body = JSON.parse(call.body);
+  } catch {
+    return undefined;
+  }
+  return v.is(deviceOpenAIModelBodySchema, body) ? JSON.stringify(body) : undefined;
 }
 
 /** Text, or the structured description of an element, as the Clef questions give them. */

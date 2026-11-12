@@ -54,7 +54,12 @@ const BODY = JSON.stringify({
 const CALL: DeviceModelCall = {
   version: 1,
   status: "model-call",
-  call: { index: 0, headers: { "anthropic-version": "2023-06-01" }, body: BODY },
+  call: {
+    provider: "anthropic",
+    index: 0,
+    headers: { "anthropic-version": "2023-06-01" },
+    body: BODY,
+  },
 };
 const RECIPE = { version: 1, status: "abstained", reason: "no-login-form" } as const;
 const ANSWER = JSON.stringify({ usage: { input_tokens: 1_000_000, output_tokens: 0 } });
@@ -152,8 +157,9 @@ describe("model calls with this device's own key (ADR 0040)", () => {
     expect(init.body).toBe(BODY);
     expect(init.credentials).toBe("omit");
     expect(sent).toEqual([
-      { responses: [] },
+      { provider: "anthropic", responses: [] },
       {
+        provider: "anthropic",
         responses: [
           {
             kind: "response",
@@ -207,8 +213,9 @@ describe("model calls with this device's own key (ADR 0040)", () => {
     });
     expect(fetch).toHaveBeenCalledOnce();
     expect(sent).toEqual([
-      { responses: [] },
+      { provider: "anthropic", responses: [] },
       {
+        provider: "anthropic",
         responses: [
           {
             kind: "response",
@@ -550,7 +557,7 @@ describe("Clef calls a paired service hands this device (ADR 0083)", () => {
       fetch: async () => new Response(clefAnswer, { status: 200 }),
     });
     await transport.generateRecipe(ORIGIN, CREDENTIAL, REQUEST);
-    expect(sent[0]).toEqual({ responses: [], clef: true });
+    expect(sent[0]).toEqual({ provider: "anthropic", responses: [], clef: true });
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe(
       "https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/run/@cf/cloudflare/clef",
@@ -559,6 +566,7 @@ describe("Clef calls a paired service hands this device (ADR 0083)", () => {
     expect(headers.get("authorization")).toBe("Bearer synthetic-cloudflare-token");
     expect(headers.get("x-api-key")).toBeNull();
     expect(sent[1]).toEqual({
+      provider: "anthropic",
       responses: [
         {
           kind: "response",

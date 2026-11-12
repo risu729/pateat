@@ -1,4 +1,10 @@
-import { type DeviceModel, type DeviceModelCall } from "@pateat/contracts";
+import {
+  DEFAULT_MODEL_CONFIG,
+  DEFAULT_OPENAI_MODEL_CONFIG,
+  type DeviceModel,
+  type DeviceModelCall,
+  type ModelConfig,
+} from "@pateat/contracts";
 import {
   choiceAttempts,
   CLEF_LIMITS,
@@ -14,24 +20,25 @@ import {
   type RoleChoice,
 } from "@pateat/generation";
 import {
-  claudeWorstCaseRates,
+  modelWorstCaseRates,
   clefModels,
-  createClaudeGenerationModel,
   createClefBindingModel,
-  estimateClaudeCostUsd,
+  estimateModelCostUsd,
   estimateClefCostUsd,
   outputRejection,
   unknownUsage,
-  type ClaudeCredential,
-  type ClaudeModelChoice,
   type FiniteChoiceModel,
   type InferenceOutcome,
 } from "@pateat/inference";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { inferenceLocks, inferenceLog } from "../db/schema";
-import { readWifCredential, resolveClaudeCredential } from "./credentials";
-import { readIssuerConfig } from "./issuer";
+import {
+  providerUnavailable,
+  resolveModelCredential,
+  type ModelCredential,
+} from "./provider-credentials";
+import { providerModel } from "./provider-model";
 import { deviceClefRelay, deviceRelay, reserveOnce, Unsent, type Reservation } from "./call-relays";
 import { fastFailingModels, readModelConfig } from "./models";
 import { newId } from "@pateat/contracts/ids";
@@ -50,23 +57,16 @@ import type { Db, CallEnv } from "./call-types";
  * What a call is charged when the provider reports no usage: its upper bound at its
  * model's rates, since a request holds at most `maxInputBytes` tokens (ADR 0003).
  */
-const worstCaseMicroUsd = ({ rates }: ClaudeModelChoice) => {
-  const { input, output } = claudeWorstCaseRates(rates, ROLE_LIMITS.maxInputBytes);
+const worstCaseMicroUsd = ({ provider, rates }: RoleChoice) => {
+  const { input, output } = modelWorstCaseRates(provider, rates, ROLE_LIMITS.maxInputBytes);
   return ROLE_LIMITS.maxInputBytes * input + MAX_OUTPUT_TOKENS * output;
 };
-
-const credentialUnavailable = {
-  not_configured: "credentials-not-configured",
-  rejected: "credentials-rejected",
-  issuer_unavailable: "issuer-unavailable",
-  failed: "token-exchange-failed",
-} as const;
 
 type Called<T> = Extract<GenerationCallResult<T>, { status: "called" }>;
 
 /** Whose key a request's calls use: the owner's credential, or the device's (ADR 0040). */
 type CallerKey =
-  | { credential: ClaudeCredential }
+  | { credential: ModelCredential }
   /** `index` is the call's place among the request's calls, so its response's. */
   | { device: DeviceModel; index: number };
 
@@ -92,18 +92,29 @@ export async function runCall<T>(
       if (refused) throw new Unsent(refused);
     });
 
+    const [{ config }, fastFailing] = await Promise.all([
+      readModelConfig(env.DB, ownerId),
+      fastFailingModels(env.DB, ownerId, Date.now(), device ? "device" : "service"),
+    ]);
+    // A device authorizes only its selected provider's key. If none of the owner's
+    // choices use it, use that provider's defaults instead of requesting another key.
+    const defaults =
+      device?.provider === "openai" ? DEFAULT_OPENAI_MODEL_CONFIG : DEFAULT_MODEL_CONFIG;
+    const configured: ModelConfig = device
+      ? {
+          generate: config.generate.filter((choice) => choice.provider === device.provider),
+          judge: config.judge.filter((choice) => choice.provider === device.provider),
+        }
+      : config;
+    const choices = roleChoices(configured, call.role, fastFailing, defaults);
+    const firstProvider = choices[0]?.provider;
+    if (!firstProvider) return { status: "unavailable", reason: "credentials-not-configured" };
+
     // Clef answers first where it can (ADR 0083). A device with its own key calls the
     // models itself, so the service's binding takes no part in its requests.
     if (call.firstChoice && !device && env.AI) {
-      // Only an owner who set up Claude is served (chosen by an agent): an owner without a
-      // credential gets no Clef call the operator pays for, as before. A service that cannot
-      // sign the credential's token request stops here too, before the request takes its
-      // attempt, as it did before Clef. A token exchange that fails after Clef abstained
-      // still ends the request with its attempt taken and Clef's calls charged.
-      if (!(await readWifCredential(env.DB, ownerId)))
-        return { status: "unavailable", reason: credentialUnavailable.not_configured };
-      if (!readIssuerConfig(env))
-        return { status: "unavailable", reason: credentialUnavailable.issuer_unavailable };
+      const missing = await providerUnavailable(env, ownerId, firstProvider);
+      if (missing) return { status: "unavailable", reason: missing };
       let first: Awaited<ReturnType<typeof sendClefCall<T>>>;
       try {
         first = await sendClefCall(
@@ -180,34 +191,15 @@ export async function runCall<T>(
       }
     }
 
-    let caller: CallerKey;
-    let tokenMs = 0;
-    if (device) caller = { device, index: claudeIndex };
-    else {
-      const tokenStart = Date.now();
-      const credential = await resolveClaudeCredential(env, ownerId);
-      tokenMs = Date.now() - tokenStart;
-      if (credential.status !== "ready")
-        return { status: "unavailable", reason: credentialUnavailable[credential.status], tokenMs };
-      caller = { credential: credential.credential };
-    }
-
-    const [{ config }, fastFailing] = await Promise.all([
-      readModelConfig(env.DB, ownerId),
-      fastFailingModels(env.DB, ownerId, Date.now(), device ? "device" : "service"),
-    ]);
-    const choices = roleChoices(config, call.role, fastFailing);
-
+    const credentials = new Map<string, ModelCredential>();
     // The role's choices in order (owner decision, 2026-10-23 11:31 UTC): a refusal asks
     // the next choice; fast mode that failed asks the same model at the standard speed; any
     // other failure ends the request. Each call first checks the spend stops. The calls
     // depend on each other's outcome, so they run in turn. A `dry` run writes and logs
     // nothing: it only finds whether the device still has a call to make (ADR 0040).
-    const run = async (
-      dry: boolean,
-    ): Promise<Called<T> | Extract<GenerationCallResult<T>, { status: "device-call" }>> => {
+    const run = async (dry: boolean): Promise<GenerationCallResult<T>> => {
       let last: Called<T> | undefined;
-      let key = caller;
+      let index = claudeIndex;
       for (const attempt of choices.flatMap(choiceAttempts)) {
         if (last !== undefined) {
           const next = nextAttempt(last, attempt);
@@ -217,22 +209,42 @@ export async function runCall<T>(
             break;
           }
         }
-        // Later calls' time before the model includes the calls before; they run no exchange.
+        let key: CallerKey;
+        let tokenMs = 0;
+        if (device) key = { device, index };
+        else {
+          let credential = credentials.get(attempt.provider);
+          if (!credential) {
+            const tokenStart = Date.now();
+            // oxlint-disable-next-line no-await-in-loop
+            const resolved = await resolveModelCredential(env, ownerId, attempt.provider);
+            tokenMs = Date.now() - tokenStart;
+            if (resolved.status !== "ready")
+              return { status: "unavailable", reason: resolved.reason, tokenMs };
+            credential = resolved.credential;
+            credentials.set(attempt.provider, credential);
+          }
+          key = { credential };
+        }
         // oxlint-disable-next-line no-await-in-loop
         const sent = await sendCall(
           db,
           ownerId,
           call,
           { choice: attempt, caller: key, reservation, dry },
-          { startedAt, tokenMs: last === undefined ? tokenMs : 0 },
+          { startedAt, tokenMs },
         );
         if ("deviceCall" in sent) return { status: "device-call", call: sent.deviceCall };
-        if ("device" in key) key = { ...key, index: key.index + 1 };
+        if (device) index += 1;
         last = {
           status: "called",
           ...sent,
           timings: last
-            ? { ...last.timings, modelMs: last.timings.modelMs + sent.timings.modelMs }
+            ? {
+                ...last.timings,
+                tokenMs: last.timings.tokenMs + sent.timings.tokenMs,
+                modelMs: last.timings.modelMs + sent.timings.modelMs,
+              }
             : sent.timings,
           served: servedModel(attempt),
         };
@@ -243,7 +255,7 @@ export async function runCall<T>(
     // so a request it answers in several runs reserves its attempt and logs its calls once.
     if (device) {
       const probe = await run(true);
-      if (probe.status === "device-call") return probe;
+      if (probe.status !== "called") return probe;
     }
     try {
       // Clef's calls the device made are logged once, as Claude's are, before Claude's.
@@ -307,14 +319,11 @@ async function sendCall<T>(
   const relay = "device" in caller ? deviceRelay(caller, dry ? undefined : reservation) : undefined;
   try {
     outcome = await call.invoke(
-      "device" in caller
-        ? // No key is sent: the relay hands the request to the device instead.
-          createClaudeGenerationModel({ apiKey: "device", choice, fetch: relay!.fetch })
-        : createClaudeGenerationModel({
-            ...caller.credential,
-            choice,
-            beforeRequest: reservation.run,
-          }),
+      providerModel(
+        choice,
+        "device" in caller ? { apiKey: "device" } : caller.credential,
+        "device" in caller ? { fetch: relay!.fetch } : { beforeRequest: reservation.run },
+      ),
     );
   } catch {
     // The roles return their errors; this only guards the spend and the log row.
@@ -337,7 +346,7 @@ async function sendCall<T>(
     tokenMs: time.tokenMs,
     modelMs: Date.now() - modelStart - reservedMs,
   };
-  const estimate = estimateClaudeCostUsd(outcome.usage, choice.rates);
+  const estimate = estimateModelCostUsd(choice.provider, outcome.usage, choice.rates);
   if (outcome.calls === 0) return { outcome, timings };
   const source = relay ? "device" : "service";
   const micro =
@@ -360,7 +369,7 @@ async function sendCall<T>(
       id: logId,
       ownerId,
       role: call.role,
-      provider: "anthropic",
+      provider: choice.provider,
       source,
       modelId: choice.modelId,
       effort: choice.effort,

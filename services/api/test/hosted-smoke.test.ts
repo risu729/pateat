@@ -117,6 +117,12 @@ describe("hosted smoke checks", () => {
         "INSERT INTO settings (owner_id, revision, document, updated_at, updated_by_device_id) VALUES (?, 1, '{}', 1, ?)",
       ).bind(ownerId, deviceId),
     ]);
+    // A stored provider credential must be deleted before its synthetic owner too.
+    await env.DB.prepare(
+      "INSERT INTO openai_credentials (owner_id, nonce, ciphertext, updated_at) VALUES (?, 'synthetic-nonce', 'synthetic-ciphertext', 1)",
+    )
+      .bind(ownerId)
+      .run();
     const realOwner = crypto.randomUUID();
     await query("INSERT INTO owners (id, created_at) VALUES (?, ?)", [realOwner, "1"]);
 

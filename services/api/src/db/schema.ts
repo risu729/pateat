@@ -296,6 +296,16 @@ export const inferenceCredentials = sqliteTable(
   (table) => [check("inference_credentials_kind_check", sql`${table.kind} IN ('wif')`)],
 );
 
+/** Owner OpenAI keys encrypted under the operator's Worker secret, with owner-bound AAD. */
+export const openAICredentials = sqliteTable("openai_credentials", {
+  ownerId: text("owner_id")
+    .primaryKey()
+    .references(() => owners.id),
+  nonce: text("nonce").notNull(),
+  ciphertext: text("ciphertext").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 /**
  * Every generation and judgement request the service received and its local outcome (ADR
  * 0012), kept for one year (owner, 2026-10-18) unless the owner deletes them all from the

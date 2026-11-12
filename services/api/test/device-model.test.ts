@@ -61,7 +61,10 @@ let outbound = 0;
 beforeAll(() => {
   const originalFetch = globalThis.fetch;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    if (new Request(input, init).url.startsWith("https://api.anthropic.com/")) {
+    if (
+      new Request(input, init).url.startsWith("https://api.anthropic.com/") ||
+      new Request(input, init).url.startsWith("https://api.openai.com/")
+    ) {
       outbound += 1;
       throw new Error("The service sent a device's model call itself");
     }
@@ -116,7 +119,7 @@ async function generate(device: Device, responses: DeviceModelResponse[], clef =
       observation: loginPage,
       slots,
       signedIn: false,
-      deviceModel: { responses, ...(clef ? { clef: true } : {}) },
+      deviceModel: { provider: "anthropic", responses, ...(clef ? { clef: true } : {}) },
     }),
   });
   expect(response.status).toBe(200);
@@ -141,7 +144,7 @@ async function logout(device: Device, responses: DeviceModelResponse[]) {
           { id: "c2", role: "button", target: { by: "text", value: "Sign out" } },
         ],
       } satisfies LoginObservation,
-      deviceModel: { responses },
+      deviceModel: { provider: "anthropic", responses },
     }),
   });
   expect(response.status).toBe(200);
@@ -360,7 +363,10 @@ describe("model calls a paired device makes with its own key (ADR 0040)", () => 
         observation: loginPage,
         slots,
         signedIn: false,
-        deviceModel: { responses: Array.from({ length: 9 }, () => response) },
+        deviceModel: {
+          provider: "anthropic",
+          responses: Array.from({ length: 9 }, () => response),
+        },
       }),
     });
     expect(sent.status).toBe(400);
@@ -465,7 +471,7 @@ describe("Clef calls a paired device makes with its Cloudflare token (ADR 0083)"
     }
     const claude = modelCall(await generate(device, responses, true));
     expect(claude.index).toBe(2);
-    expect(claude.provider).toBeUndefined();
+    expect(claude.provider).toBe("anthropic");
     responses.push(await answered(claude.body, { text: plan }));
     expect((await generate(device, responses, true)).status).toBe("recipe");
     const logged = await logOf(device.ownerId);
@@ -483,6 +489,6 @@ describe("Clef calls a paired device makes with its Cloudflare token (ADR 0083)"
     const device = await owner();
     const call = modelCall(await generate(device, []));
     expect(call.index).toBe(0);
-    expect(call.provider).toBeUndefined();
+    expect(call.provider).toBe("anthropic");
   });
 });

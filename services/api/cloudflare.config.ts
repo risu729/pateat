@@ -26,6 +26,8 @@ export default defineConfig({
       // owners trust for Claude Workload Identity Federation. Unset values fail closed.
       OIDC_ISSUER: bindings.secret(),
       OIDC_SIGNING_KEYS: bindings.secret(),
+      // Optional 32-byte hexadecimal encryption key for owner OpenAI credentials.
+      INFERENCE_CREDENTIAL_KEY: bindings.secret(),
       // Extension IDs allowed to pair (ADR 0020). Not a secret; a self-hosted extension
       // build with its own key lists its ID here instead. The contracts subpath export is
       // dependency-free, so loading this config does not pull in every schema.

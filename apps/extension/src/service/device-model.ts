@@ -453,7 +453,11 @@ export function createDeviceModel(options: {
     // request needs.
     for (let made = 0; ; made += 1) {
       // oxlint-disable-next-line no-await-in-loop -- each call depends on the answer before
-      const answer = await request({ responses: [...responses], ...(clef ? { clef: true } : {}) });
+      const answer = await request({
+        provider: "anthropic",
+        responses: [...responses],
+        ...(clef ? { clef: true } : {}),
+      });
       if (answer.kind !== "result" || answer.result.status !== "model-call") return answer;
       const { call } = answer.result as unknown as DeviceModelCall;
       // A call the routes never make (tools, streaming, a larger answer, another beta) is

@@ -127,6 +127,7 @@ const deviceSchema = v.variant("ok", [
     generation: v.picklist([
       "ok",
       "credentials-not-configured",
+      "credentials-unavailable",
       "issuer-unavailable",
       "monthly-limit",
       "daily-limit",
