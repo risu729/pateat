@@ -283,7 +283,7 @@ function openAICallCostMicroUsd(body: string, response: DeviceModelResponse): nu
 type DeviceModelRequests = Partial<import("./transport").SsoTransport> &
   Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion">;
 const timed = ({ timing }: { timing?: ServiceTiming }) => (timing ? { timing } : {});
-/** Every answer of the four routes can say the service did not call the model. */
+/** Every generation or judge route can say the service did not call the model. */
 type Unavailable = { version: 1; status: "unavailable"; reason: GenerationUnavailableReason };
 
 /**
@@ -625,7 +625,7 @@ export function createDeviceModel(options: {
       sendClef,
       charge,
     },
-    /** The four requests, made with this device's key when one is saved. */
+    /** Generation and judge requests, made with this device's key when one is saved. */
     wrap(transport: DeviceModelRequests): DeviceModelRequests {
       const sso = transport.generateSso;
       return {
