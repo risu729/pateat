@@ -584,6 +584,13 @@ expanded test count. The owner approved this organization with the runtime split
 on 2026-10-30. Compare the full Verify job as well as test counts when changing the
 suite layout, since each file loads the runtime and harness separately.
 
+The vault manager suite keeps its single discovered entry at
+`apps/extension/src/vault/manager.test.ts`, including the shared synthetic harness,
+manager cleanup, nested helpers and parameter tables. Passive synchronous case
+registrars under `apps/extension/test/vault/manager/` receive the same scoped
+helpers and fixtures at the original registration positions. These plain TypeScript
+modules sit outside production coverage and preserve the case order and assertions.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
