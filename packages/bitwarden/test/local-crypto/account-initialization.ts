@@ -2,7 +2,7 @@ import { expect, it, vi } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
 import { createLocalCryptoSession } from "../../src/local-crypto";
 import { v1PrivateKey } from "../../src/__fixtures__/crypto";
-import type { LocalCryptoTestFixtures } from "../../src/local-crypto.test";
+import type { AccountInitializationContext } from "./context";
 
 export function registerAccountInitializationTests({
   sessions,
@@ -13,17 +13,7 @@ export function registerAccountInitializationTests({
   securityStateWithVersion,
   verifiedAsRecordedSdk,
   session,
-}: Pick<
-  LocalCryptoTestFixtures,
-  | "sessions"
-  | "v1Input"
-  | "v2Input"
-  | "organizationInput"
-  | "corrupt"
-  | "securityStateWithVersion"
-  | "verifiedAsRecordedSdk"
-  | "session"
->) {
+}: AccountInitializationContext) {
   it.each(
     (["security_state", "signed_public_key"] as const).flatMap((field) =>
       // Valid base64 with malformed COSE is not checked locally: it would strand the SDK's

@@ -1,12 +1,8 @@
 import { expect, it } from "vitest";
 import { fidoCredential, legacyCipher, uriCiphertexts } from "../../src/__fixtures__/crypto";
-import type { LocalCryptoTestFixtures } from "../../src/local-crypto.test";
+import type { ItemRepairContext } from "./context";
 
-export function registerItemRepairTests({
-  connectionId,
-  corrupt,
-  session,
-}: Pick<LocalCryptoTestFixtures, "connectionId" | "corrupt" | "session">) {
+export function registerItemRepairTests({ connectionId, corrupt, session }: ItemRepairContext) {
   it("leaves out only the fields that do not decrypt and keeps the rest", async () => {
     const active = await session();
     const original = legacyCipher();

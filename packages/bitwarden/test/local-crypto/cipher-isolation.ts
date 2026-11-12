@@ -14,10 +14,10 @@ import {
   v1WrappedUserKey,
   v2WrappedBlobKey,
 } from "../../src/__fixtures__/crypto";
-import type { LocalCryptoTestFixtures } from "../../src/local-crypto.test";
+import { bitwardenTotpSecret } from "../../src/__fixtures__/totp";
+import type { CipherIsolationContext } from "./context";
 
 export function registerCipherIsolationTests({
-  bitwardenTotpSecret,
   connectionId,
   sessions,
   v1Input,
@@ -31,23 +31,7 @@ export function registerCipherIsolationTests({
   corrupt,
   viewOverrideSdk,
   session,
-}: Pick<
-  LocalCryptoTestFixtures,
-  | "bitwardenTotpSecret"
-  | "connectionId"
-  | "sessions"
-  | "v1Input"
-  | "v2Input"
-  | "blobInput"
-  | "blobCipher"
-  | "organizationInput"
-  | "unopenedOrganizationId"
-  | "organizationCipher"
-  | "expectOrganizationLeftOut"
-  | "corrupt"
-  | "viewOverrideSdk"
-  | "session"
->) {
+}: CipherIsolationContext) {
   it.each([
     "2024-04-31T00:00:00Z",
     "2024-13-01T00:00:00Z",

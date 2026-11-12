@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, vi } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
 import { createLocalCryptoSession, type LocalCryptoSession } from "./local-crypto";
-import { bitwardenTotpSecret } from "./__fixtures__/totp";
 import {
   blobPrivateKey,
   blobWrappingKey,
@@ -236,7 +235,6 @@ afterEach(() => {
 });
 
 export type LocalCryptoTestFixtures = {
-  bitwardenTotpSecret: typeof bitwardenTotpSecret;
   connectionId: typeof connectionId;
   sessions: typeof sessions;
   v1Input: typeof v1Input;
@@ -269,7 +267,6 @@ describe("strict account initialization and metadata", () => {
 
 describe("strict cipher isolation and disposal", () => {
   registerCipherIsolationTests({
-    bitwardenTotpSecret,
     connectionId,
     sessions,
     v1Input,
