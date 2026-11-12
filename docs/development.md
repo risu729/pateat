@@ -479,7 +479,7 @@ file on GitHub Releases, loaded with **Load unpacked**. `apps/docs/package.json`
 `license` field, like `services/api`, until the owner decides whether
 [LICENSING.md](../LICENSING.md)'s installation material covers the site.
 
-### Test organization
+### Login contract test organization
 
 The login contract tests keep `packages/contracts/src/login.test.ts` as their only
 discovered entry. It owns the shared fixture factories and the second-factor suite's
