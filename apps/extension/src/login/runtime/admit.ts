@@ -1,3 +1,4 @@
+import { ssoRefresh } from "./sso/moved";
 import { cancelSso, ssoAdmit } from "./sso/flow";
 import { offerSso } from "./sso/entry";
 import {
@@ -354,10 +355,12 @@ export async function admit(
         rt.documents.get(frameKey(page.document)) === page &&
         page.url === topUrl &&
         !page.leftUnread));
+  const refreshingSso = ssoRefresh(rt, oldLive, document, token, url);
   const duplicate =
     sameDocument &&
     (oldLive.token !== token ||
       (carried?.live === oldLive &&
+        !refreshingSso &&
         !(
           document.frameId === 0 &&
           (finishedLogin(carried.metadata) ||
