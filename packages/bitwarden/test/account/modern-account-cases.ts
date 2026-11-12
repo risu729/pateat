@@ -1,29 +1,9 @@
-import type { AccountTestContext } from "../../src/account.test";
+import { expect, it } from "vitest";
+import { rawModernV1Account, rawV1Account, rawV2Account } from "../../src/__fixtures__/account";
+import { v1PrivateKey, v1WrappedUserKey } from "../../src/__fixtures__/crypto";
+import type { ModernAccountContext } from "./context";
 
-export function registerModernAccountCases({
-  expect,
-  it,
-  rawModernV1Account,
-  rawV1Account,
-  rawV2Account,
-  v1PrivateKey,
-  v1WrappedUserKey,
-  known,
-  setAt,
-  mapRaw,
-}: Pick<
-  AccountTestContext,
-  | "expect"
-  | "it"
-  | "rawModernV1Account"
-  | "rawV1Account"
-  | "rawV2Account"
-  | "v1PrivateKey"
-  | "v1WrappedUserKey"
-  | "known"
-  | "setAt"
-  | "mapRaw"
->) {
+export function registerModernAccountCases({ known, setAt, mapRaw }: ModernAccountContext) {
   it.each([
     ["sync", "profile", "accountKeys", "signatureKeyPair"],
     ["sync", "profile", "accountKeys", "securityState"],

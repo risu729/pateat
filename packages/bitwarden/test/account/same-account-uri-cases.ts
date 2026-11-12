@@ -1,12 +1,9 @@
-import type { AccountTestContext, AccountTestRaw as Raw } from "../../src/account.test";
+import { expect, it } from "vitest";
+import { rawV1Account, rawV2Account } from "../../src/__fixtures__/account";
+import type { AccountTestRaw as Raw } from "../../src/account.test";
+import type { SameAccountUriContext } from "./context";
 
-export function registerUriContextCases({
-  expect,
-  it,
-  rawV1Account,
-  rawV2Account,
-  mapRaw,
-}: Pick<AccountTestContext, "expect" | "it" | "rawV1Account" | "rawV2Account" | "mapRaw">) {
+export function registerSameAccountUriCases({ mapRaw }: SameAccountUriContext) {
   const organizationId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const otherOrganizationId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const policy = (organizationIdValue: string, detection: unknown, enabled: unknown = true) => ({

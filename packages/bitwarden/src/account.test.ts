@@ -16,24 +16,14 @@ import {
   rawOrganizationAccount,
   rawV1Account,
   rawV2Account,
-  syntheticJwt,
 } from "./__fixtures__/account";
-import {
-  TEST_ORGANIZATION_ID,
-  TEST_ORGANIZATION_KEY,
-  fidoCredential,
-  fidoPrivateKey,
-  v1Email,
-  v1Password,
-  v1PrivateKey,
-  v1WrappedUserKey,
-} from "./__fixtures__/crypto";
+import { v1Email, v1Password, v1WrappedUserKey } from "./__fixtures__/crypto";
 import { jsonResponse } from "./__fixtures__/transport";
 import { v2ContainedKeyId, v2UnlockSalt } from "./__fixtures__/account-generated";
-import { registerAccountAdmissionCases } from "../test/account/account-admission-cases";
+import { registerBindingAdmissionCases } from "../test/account/binding-admission-cases";
 import { registerModernAccountCases } from "../test/account/modern-account-cases";
 import { registerItemMappingCases } from "../test/account/item-mapping-cases";
-import { registerUriContextCases } from "../test/account/uri-context-cases";
+import { registerSameAccountUriCases } from "../test/account/same-account-uri-cases";
 
 const sessions: Array<{ dispose(): void }> = [];
 const bootstrap = { kind: "bootstrap", email: v1Email };
@@ -202,6 +192,19 @@ function rawWithCollection(fields: Record<string, unknown>) {
   });
   return raw;
 }
+
+export type AccountTestRaw = Raw;
+export type AccountTestFixtures = {
+  bootstrap: typeof bootstrap;
+  known: typeof known;
+  setAt: typeof setAt;
+  authenticated: typeof authenticated;
+  mapper: typeof mapper;
+  mapRaw: typeof mapRaw;
+  expectLeftOut: typeof expectLeftOut;
+  received: typeof received;
+  rawWithCollection: typeof rawWithCollection;
+};
 
 describe("raw provider account through native local crypto", () => {
   it("maps ordinary full legacy Data and password-unlocks the independent V1 login", async () => {
@@ -560,100 +563,17 @@ describe("raw provider account through native local crypto", () => {
 });
 
 describe("account and provider binding admission", () => {
-  registerAccountAdmissionCases({
-    expect,
-    it,
-    createBitwardenAccountMapper,
-    accountNow,
-    accountProfile,
-    rawV1Account,
-    rawV2Account,
-    syntheticJwt,
-    v1Email,
-    bootstrap,
-    known,
-    setAt,
-    authenticated,
-    mapper,
-    mapRaw,
-  });
+  registerBindingAdmissionCases({ bootstrap, known, setAt, authenticated, mapper, mapRaw });
 });
 
 describe("strict modern data without legacy alias fallback", () => {
-  registerModernAccountCases({
-    expect,
-    it,
-    rawModernV1Account,
-    rawV1Account,
-    rawV2Account,
-    v1PrivateKey,
-    v1WrappedUserKey,
-    known,
-    setAt,
-    mapRaw,
-  });
+  registerModernAccountCases({ known, setAt, mapRaw });
 });
 
 describe("received-envelope item mapping", () => {
-  registerItemMappingCases({
-    expect,
-    it,
-    admitPreparedBitwardenAccount,
-    accountProfile,
-    rawLoginCipher,
-    rawOrganizationAccount,
-    rawV1Account,
-    rawV2Account,
-    TEST_ORGANIZATION_ID,
-    TEST_ORGANIZATION_KEY,
-    fidoCredential,
-    fidoPrivateKey,
-    setAt,
-    mapRaw,
-    expectLeftOut,
-    received,
-    rawWithCollection,
-  });
+  registerItemMappingCases({ setAt, mapRaw, expectLeftOut, received, rawWithCollection });
 });
 
 describe("same-account URI match context", () => {
-  registerUriContextCases({
-    expect,
-    it,
-    rawV1Account,
-    rawV2Account,
-    mapRaw,
-  });
+  registerSameAccountUriCases({ mapRaw });
 });
-
-export type AccountTestRaw = Raw;
-export type AccountTestContext = {
-  expect: typeof expect;
-  it: typeof it;
-  createBitwardenAccountMapper: typeof createBitwardenAccountMapper;
-  accountNow: typeof accountNow;
-  accountProfile: typeof accountProfile;
-  rawV1Account: typeof rawV1Account;
-  rawV2Account: typeof rawV2Account;
-  syntheticJwt: typeof syntheticJwt;
-  v1Email: typeof v1Email;
-  bootstrap: typeof bootstrap;
-  known: typeof known;
-  setAt: typeof setAt;
-  authenticated: typeof authenticated;
-  mapper: typeof mapper;
-  mapRaw: typeof mapRaw;
-  rawModernV1Account: typeof rawModernV1Account;
-  v1PrivateKey: typeof v1PrivateKey;
-  v1WrappedUserKey: typeof v1WrappedUserKey;
-  admitPreparedBitwardenAccount: typeof admitPreparedBitwardenAccount;
-  rawLoginCipher: typeof rawLoginCipher;
-  rawOrganizationAccount: typeof rawOrganizationAccount;
-  TEST_ORGANIZATION_ID: typeof TEST_ORGANIZATION_ID;
-  TEST_ORGANIZATION_KEY: typeof TEST_ORGANIZATION_KEY;
-  fidoCredential: typeof fidoCredential;
-  fidoPrivateKey: typeof fidoPrivateKey;
-  expectLeftOut: typeof expectLeftOut;
-  received: typeof received;
-  rawWithCollection: typeof rawWithCollection;
-};

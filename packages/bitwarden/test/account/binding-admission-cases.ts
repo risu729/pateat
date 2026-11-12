@@ -1,39 +1,23 @@
-import type { AccountTestContext } from "../../src/account.test";
-
-export function registerAccountAdmissionCases({
-  expect,
-  it,
-  createBitwardenAccountMapper,
+import { expect, it } from "vitest";
+import { createBitwardenAccountMapper } from "../../src/account";
+import {
   accountNow,
   accountProfile,
   rawV1Account,
   rawV2Account,
   syntheticJwt,
-  v1Email,
+} from "../../src/__fixtures__/account";
+import { v1Email } from "../../src/__fixtures__/crypto";
+import type { BindingAdmissionContext } from "./context";
+
+export function registerBindingAdmissionCases({
   bootstrap,
   known,
   setAt,
   authenticated,
   mapper,
   mapRaw,
-}: Pick<
-  AccountTestContext,
-  | "expect"
-  | "it"
-  | "createBitwardenAccountMapper"
-  | "accountNow"
-  | "accountProfile"
-  | "rawV1Account"
-  | "rawV2Account"
-  | "syntheticJwt"
-  | "v1Email"
-  | "bootstrap"
-  | "known"
-  | "setAt"
-  | "authenticated"
-  | "mapper"
-  | "mapRaw"
->) {
+}: BindingAdmissionContext) {
   it.each([
     ["tokenType", "MAC"],
     ["expiresIn", 0],

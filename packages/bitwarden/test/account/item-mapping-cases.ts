@@ -1,43 +1,27 @@
-import type { AccountTestContext } from "../../src/account.test";
-
-export function registerItemMappingCases({
-  expect,
-  it,
-  admitPreparedBitwardenAccount,
+import { expect, it } from "vitest";
+import { admitPreparedBitwardenAccount } from "../../src/account";
+import {
   accountProfile,
   rawLoginCipher,
   rawOrganizationAccount,
   rawV1Account,
   rawV2Account,
-  TEST_ORGANIZATION_ID,
-  TEST_ORGANIZATION_KEY,
+} from "../../src/__fixtures__/account";
+import {
   fidoCredential,
   fidoPrivateKey,
+  TEST_ORGANIZATION_ID,
+  TEST_ORGANIZATION_KEY,
+} from "../../src/__fixtures__/crypto";
+import type { ItemMappingContext } from "./context";
+
+export function registerItemMappingCases({
   setAt,
   mapRaw,
   expectLeftOut,
   received,
   rawWithCollection,
-}: Pick<
-  AccountTestContext,
-  | "expect"
-  | "it"
-  | "admitPreparedBitwardenAccount"
-  | "accountProfile"
-  | "rawLoginCipher"
-  | "rawOrganizationAccount"
-  | "rawV1Account"
-  | "rawV2Account"
-  | "TEST_ORGANIZATION_ID"
-  | "TEST_ORGANIZATION_KEY"
-  | "fidoCredential"
-  | "fidoPrivateKey"
-  | "setAt"
-  | "mapRaw"
-  | "expectLeftOut"
-  | "received"
-  | "rawWithCollection"
->) {
+}: ItemMappingContext) {
   it.each([5, 6, 7, 8, 99])(
     "reports unsupported type%d without forwarding encrypted secrets or blocking login",
     (type) => {
