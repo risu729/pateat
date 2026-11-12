@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
+import { commandSchema } from "./wire";
 import {
   ssoAuthorizeSchema,
   ssoCommandSchema,
@@ -157,4 +158,60 @@ it("requires an explicit finite authorization phase without changing the prepare
       phase: "click",
     }),
   ).toBe(false);
+});
+
+describe("ephemeral selected IdP expectation on preparation only", () => {
+  const prepare = { ...base, type: "login.sso.prepare", ...operation, target };
+  const idp = { username: "Synthetic.Exact@example.test", kind: "continue" };
+  it.each(["account", "continue", "stay-signed-in"])(
+    "accepts the exact local %s identity expectation",
+    (kind) => {
+      expect(accepted(ssoCommandSchema, { ...prepare, idp: { ...idp, kind } })).toBe(true);
+    },
+  );
+  it.each([
+    { ...idp, username: "" },
+    { ...idp, username: "x".repeat(1025) },
+    { ...idp, username: null },
+    { username: idp.username },
+    { kind: "continue" },
+    { ...idp, kind: "native" },
+    { ...idp, kind: "unsafe" },
+    { ...idp, origin: "https://forged.example.test" },
+    { ...idp, account: "forged" },
+    { ...idp, password: "secret" },
+    { ...idp, target },
+    null,
+  ])("rejects malformed or authority-bearing expectation %#", (expectation) => {
+    expect(accepted(ssoCommandSchema, { ...prepare, idp: expectation })).toBe(false);
+  });
+  it("does not permit a prepared expectation on commits, inspection, return, or authorization", () => {
+    for (const command of [
+      { ...base, type: "login.sso.commit", ...operation, handle: "handle" },
+      { ...base, type: "login.sso.inspect", target },
+      { ...base, type: "login.sso.return" },
+      { ...base, type: "login.sso.idp", username: idp.username },
+    ])
+      expect(accepted(ssoCommandSchema, { ...command, idp })).toBe(false);
+    expect(
+      accepted(ssoAuthorizeSchema, {
+        ...base,
+        type: "login.sso.authorize",
+        ...operation,
+        handle: "handle",
+        phase: "pointer",
+        idp,
+      }),
+    ).toBe(false);
+  });
+});
+
+it("binds the narrow native cancellation to a bounded exact attempt and document token", () => {
+  const cancel = { ...base, type: "login.native.cancel", attemptId: "old-native" };
+  expect(accepted(commandSchema, cancel)).toBe(true);
+  for (const field of ["token", "attemptId"])
+    for (const value of ["", "x".repeat(129), null, 1])
+      expect(accepted(commandSchema, { ...cancel, [field]: value })).toBe(false);
+  for (const field of ["origin", "document", "tabId", "target", "username", "all"])
+    expect(accepted(commandSchema, { ...cancel, [field]: true })).toBe(false);
 });

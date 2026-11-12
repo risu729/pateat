@@ -338,3 +338,50 @@ describe("single-use SSO mutation intents", () => {
     expect(h.write).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("IdP expectation remains a local prepared-content comparison", () => {
+  const idpExpectation = { username: "exact.private@example.test", kind: "continue" as const };
+  it("passes the exact expectation to selected IdP prepare but keeps it out of the operation journal and commit", async () => {
+    const h = harness();
+    h.live.document.origin = idp;
+    h.live.url = idp + "/signin";
+    h.write.mockImplementation(async () => {
+      expect(JSON.stringify(h.work.operation)).not.toContain(idpExpectation.username);
+      expect(h.work.operation).not.toHaveProperty("idp");
+    });
+    expect(await ssoPress(h.rt, h.work, h.live, target, "idp-continue", idpExpectation)).toBe(true);
+    expect(seams.send.mock.calls[0]![2]).toMatchObject({
+      type: "login.sso.prepare",
+      idp: idpExpectation,
+    });
+    expect(seams.send.mock.calls[1]![2]).not.toHaveProperty("idp");
+    expect(JSON.stringify(seams.send.mock.calls[1]![2])).not.toContain(idpExpectation.username);
+  });
+  it.each([rp, "https://unselected.example.test"])(
+    "refuses an IdP expectation on nonselected origin %s before any delivery",
+    async (origin) => {
+      const h = harness();
+      h.live.document.origin = origin;
+      h.live.url = origin + "/signin";
+      expect(await ssoPress(h.rt, h.work, h.live, target, "idp-continue", idpExpectation)).toBe(
+        false,
+      );
+      expect(seams.send).not.toHaveBeenCalled();
+      expect(h.write).not.toHaveBeenCalled();
+    },
+  );
+  it("requires an exact bounded identity expectation before preparing any selected IdP operation", async () => {
+    const h = harness();
+    h.live.document.origin = idp;
+    h.live.url = idp + "/signin";
+    expect(await ssoPress(h.rt, h.work, h.live, target, "idp-continue")).toBe(false);
+    expect(
+      await ssoPress(h.rt, h.work, h.live, target, "idp-continue", {
+        ...idpExpectation,
+        username: "",
+      }),
+    ).toBe(false);
+    expect(seams.send).not.toHaveBeenCalled();
+    expect(h.write).not.toHaveBeenCalled();
+  });
+});
