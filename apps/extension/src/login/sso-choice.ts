@@ -95,7 +95,6 @@ export function createSsoChoiceController(options: {
     );
   }
   function finish(offer: Offer, outcome: SsoChoiceOutcome) {
-    if (!outcome.ok) offer.releaseAbort();
     offer.settled = true;
     offer.done(outcome);
   }
@@ -155,6 +154,7 @@ export function createSsoChoiceController(options: {
     return (await current(offer)) ? undefined : "scope-changed";
   }
   function resolve(offer: Offer, selection: SsoResolvedChoice) {
+    if (!retained(offer) || offer.settled) return failure("offer-gone");
     const choiceId = newId();
     receipts.set(choiceId, { offer, selection });
     finish(offer, { ok: true, choiceId });
@@ -202,6 +202,7 @@ export function createSsoChoiceController(options: {
         const removed = await store.remove(method.source, () => retained(offer)).catch(() => false);
         if (!removed || !(await current(offer))) return failure("scope-changed");
         delete method.selectedId;
+        offer.reason = "mapping-required";
         return { ok: true };
       }
       if (selection.kind !== "native") {
@@ -211,7 +212,13 @@ export function createSsoChoiceController(options: {
         if (!method) return failure("method-unavailable");
         const refused = await mapping(offer, method, selection.candidateId);
         if (refused) return failure(refused);
-        if (selection.kind === "mapping") return { ok: true };
+        if (selection.kind === "mapping") {
+          const reason = await validateAll(offer);
+          if (!retained(offer)) return failure("scope-changed");
+          if (reason) offer.reason = reason;
+          else delete offer.reason;
+          return { ok: true };
+        }
       }
       const refused = await validateAll(offer);
       if (refused) return failure(refused);
@@ -385,8 +392,8 @@ export function createSsoChoiceController(options: {
       const offer = offers.get(tabId);
       if (!offer || (!offer.ready && !offer.settled) || (offer.settled && !offer.reason))
         return { ok: true };
-      if (!(await current(offer))) {
-        invalidateTab(tabId);
+      if (!(await current(offer)) || !retained(offer)) {
+        if (offers.get(tabId) === offer) invalidateTab(tabId);
         return failure("scope-changed");
       }
       const connection = connectionFor(offer.saved, offer.input.account);
@@ -446,6 +453,7 @@ export function createSsoChoiceController(options: {
         )
           return failure("entry-changed");
       }
+      if (!retained(offer)) return failure("scope-changed");
       invalidateTab(offer.input.document.tabId, "consumed");
       return { ok: true, document: offer.input.document, account: offer.input.account, selection };
     },
