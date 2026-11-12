@@ -294,15 +294,26 @@ Session storage records the stopped document, frame, path, top page, account, va
 snapshot, settings revision, service/device/profile identity, recipe revision/layout,
 original binding and chosen override, without field values. The override stays inactive
 while its session write is pending and is dropped if that write fails. It restarts only
-that document, then follows only its exact admitted attempt. Origin, destination,
-eligibility, field exclusions, SSO and master-password re-prompt checks still run.
+that document, then follows only its exact admitted attempt, whose plan read the
+override itself. If the session write naming that attempt fails, the override is
+dropped and the attempt stops at its first step without filling. Origin, destination,
+eligibility, field exclusions and SSO checks still run, and so does Bitwarden's master
+password re-prompt: the override stays with the document while the window asks, and
+the restart after the password uses it without a second pick. A window closed or
+unable to open, another document in that frame or a closed tab drops it. The popup's
+polls never ask a page to announce again; only its first read does, as after a worker
+restart.
 
-Only confirmed `authenticated` saves the rewritten binding. Filling alone, a challenge,
-an unknown outcome or rejection saves nothing. A vault replacement hold and the settings
-store's optional authorization guard keep the final check inside the mutation queue:
-the profile, recipe and live catalog must still match before the original binding is
-replaced at its expected settings revision. Existing three-argument mutations keep
-their behavior. The normal account saver cannot save a repair through another path.
+Only confirmed `authenticated` saves the rewritten binding. Filling alone, an unknown
+outcome or a rejection saves nothing, and a challenge saves nothing until a confirmed
+sign-in of the same attempt. After a fill-only or settled-unknown result, the used
+review stays in session storage until the tab plans that recipe again, the settings
+change or the tab closes. A vault replacement hold and the settings store's optional
+authorization guard keep the final check inside the mutation queue: the profile,
+recipe and live catalog must still match before the original binding is replaced at
+its expected settings revision. Existing three-argument mutations keep their behavior.
+The normal account saver cannot save a repair through another path: an attempt that
+took a repair keeps no account choice, and derives none again.
 The recipe cache, device recipes and pairing record supply mutation-epoch fences
 captured before their reads. The final authorization and the synchronous mutator check
 those fences and the provider's currently open snapshot, so a later recipe replacement,

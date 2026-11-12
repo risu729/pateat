@@ -63,8 +63,10 @@ If a login stops because a saved custom-field name is missing or ambiguous, open
 popup's **Review vault fields** section. Choose the current field for each input and
 press **Use these fields and retry**. The list shows only names of allowed custom
 fields. Pateat retries that page and saves the repaired choice only after sign-in is
-confirmed. If the page, vault, settings or profile changes, reload the page and review
-again. Missing built-in fields and changed recipe inputs are not repaired here.
+confirmed. For an item that asks for the master password, enter it in the window Pateat
+opens; the login then retries with your choice. If the page, vault, settings or profile
+changes, reload the page and review again. Missing built-in fields and changed recipe
+inputs are not repaired here.
 
 These limits apply to Pateat only and do not change anything in Bitwarden.
 
