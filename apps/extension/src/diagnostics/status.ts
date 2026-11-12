@@ -8,7 +8,7 @@ import type { SetupReply } from "../connections/types";
 import type { DeviceStateResult } from "../service/transport";
 import type { VaultEntry, VaultResult } from "../vault/record";
 import type { VaultTimeoutSetting } from "../vault/timeout";
-import type { LogSummary, RecentLog } from "./log";
+import type { LogSnapshot } from "./log";
 import type { Pseudonyms } from "./pseudonym";
 import {
   age,
@@ -72,8 +72,7 @@ export type DiagnosticsDependencies = {
   serviceDevice(origin: string): Promise<DeviceStateResult | undefined>;
   fetch: typeof fetch;
   settings(): Promise<LocalSettings>;
-  logs(): Promise<LogSummary>;
-  recentLog(): Promise<RecentLog>;
+  logs(): Promise<LogSnapshot>;
   storage: {
     localBytes(): Promise<number>;
     recipeCache(): Promise<unknown>;
@@ -504,8 +503,7 @@ export async function collectDiagnostics(
     setup,
     settings,
     localBytes,
-    logs,
-    recent,
+    logSnapshot,
     vaultTimeout,
   ] = await Promise.all([
     deps.platform().catch(() => ({ os: "unknown", arch: "unknown" })),
@@ -515,9 +513,10 @@ export async function collectDiagnostics(
     deps.settings().catch(() => undefined),
     deps.storage.localBytes().catch(() => undefined),
     deps.logs().catch(() => undefined),
-    deps.recentLog().catch(() => undefined),
     deps.vaultTimeout?.().catch(() => undefined),
   ]);
+  const logs = logSnapshot?.summary;
+  const recent = logSnapshot?.recent;
   const listed = setup?.ok && setup.kind === "status" ? setup.connections : [];
   // Network reads run together; each has its own timeout. Neither promise may reject,
   // since a failing store read below would leave them unawaited.

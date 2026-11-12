@@ -64,6 +64,13 @@ function setup(overrides: Partial<LoggerDependencies> = {}) {
   };
 }
 
+/** Existing summary assertions still require an available summary in the combined read. */
+async function readSummary(logger: ReturnType<typeof createLogger>) {
+  const { summary } = await logger.snapshot();
+  expect(summary).toBeDefined();
+  return summary!;
+}
+
 describe("diagnostics log", () => {
   it("keeps only allowlisted fields and names only configured sites", async () => {
     const { logger } = setup();
@@ -794,11 +801,11 @@ describe("diagnostics log", () => {
       "log.debug",
       "service.sync",
     ]);
-    expect((await restarted.summary()).debugUntil).toBe(NOW + DEBUG_LOGGING_MS);
+    expect((await readSummary(restarted)).debugUntil).toBe(NOW + DEBUG_LOGGING_MS);
     advance(DEBUG_LOGGING_MS);
     await restarted.log("service.sync", { outcome: "synced" }, { level: "debug" });
     expect(await restarted.entries()).toHaveLength(2);
-    expect((await restarted.summary()).debugUntil).toBeUndefined();
+    expect((await readSummary(restarted)).debugUntil).toBeUndefined();
   });
 
   it("keeps debug logging on until turned off before publishing, across workers", async () => {
@@ -811,11 +818,11 @@ describe("diagnostics log", () => {
       "log.debug",
       "service.sync",
     ]);
-    expect((await restarted.summary()).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
+    expect((await readSummary(restarted)).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
     await restarted.disableDebug();
     await createLogger(deps).log("service.sync", { outcome: "synced" }, { level: "debug" });
     expect(await createLogger(deps).entries()).toHaveLength(3);
-    expect((await createLogger(deps).summary()).debugUntil).toBeUndefined();
+    expect((await readSummary(createLogger(deps))).debugUntil).toBeUndefined();
   });
 
   it("keeps a 24-hour window still open on until turned off once debug stays on", async () => {
@@ -823,17 +830,17 @@ describe("diagnostics log", () => {
     await logger.enableDebug();
     advance(DEBUG_LOGGING_MS / 2);
     const staying = { ...deps, debugStaysOn: true };
-    expect((await createLogger(staying).summary()).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
+    expect((await readSummary(createLogger(staying))).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
     advance(DEBUG_LOGGING_MS);
-    expect((await createLogger(staying).summary()).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
+    expect((await readSummary(createLogger(staying))).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
     // A published build turns it off.
-    expect((await createLogger(deps).summary()).debugUntil).toBeUndefined();
+    expect((await readSummary(createLogger(deps))).debugUntil).toBeUndefined();
     // A window that already ended stays off.
     const ended = setup();
     await ended.logger.enableDebug();
     ended.advance(DEBUG_LOGGING_MS);
     expect(
-      (await createLogger({ ...ended.deps, debugStaysOn: true }).summary()).debugUntil,
+      (await readSummary(createLogger({ ...ended.deps, debugStaysOn: true }))).debugUntil,
     ).toBeUndefined();
   });
 
@@ -844,7 +851,7 @@ describe("diagnostics log", () => {
     await logger.log("service.sync", { outcome: "synced" }, { level: "debug" });
     const restarted = createLogger(deps);
     await restarted.log("service.sync", { outcome: "synced" }, { level: "debug" });
-    expect((await restarted.summary()).debugUntil).toBeUndefined();
+    expect((await readSummary(restarted)).debugUntil).toBeUndefined();
     expect((await restarted.entries()).map((entry) => [entry.event, entry.fields])).toEqual([
       ["log.debug", { enabled: true, until: NOW + DEBUG_LOGGING_MS }],
       ["log.debug", { enabled: false }],
@@ -1076,7 +1083,7 @@ describe("diagnostics log", () => {
     advance(25 * 60 * 60 * 1000);
     await logger.log("error.unhandled", { name: "TypeError" });
     await logger.log("service.sync", { outcome: "rejected" }, { level: "warn" });
-    const summary = await logger.summary();
+    const summary = await readSummary(logger);
     expect(summary).toMatchObject({ entries: 3, recentErrors: 1, recentWarnings: 1 });
     expect(summary.bytes).toBeGreaterThan(0);
   });
@@ -2415,7 +2422,7 @@ describe("unhandled errors", () => {
       ["login.attempt", "info", undefined],
     ]);
     expect(entries[2]?.fields).toMatchObject({ reason: "tab-busy", frame: true });
-    expect((await log.logger.summary()).recentWarnings).toBe(1);
+    expect((await readSummary(log.logger)).recentWarnings).toBe(1);
     vi.restoreAllMocks();
   });
 

@@ -130,6 +130,9 @@ export type LogSummary = {
   debugUntil?: number;
 };
 
+/** The diagnostics page's projections from one admitted log and one reference time. */
+export type LogSnapshot = { summary?: LogSummary; recent: RecentLog };
+
 const KNOWN_SITES_TTL_MS = MINUTE_MS;
 const MAX_WINDOWS = 500;
 const OVERFLOW_WINDOW = "overflow";
@@ -599,22 +602,30 @@ export function createLogger(deps: LoggerDependencies) {
     /** Where sending problem entries got to; kept in `meta`, so a log clear keeps it. */
     problemCursor: () => serial(() => meta(PROBLEM_CURSOR_KEY, v.unknown())),
     setProblemCursor: (cursor: unknown) => serial(() => putMeta(PROBLEM_CURSOR_KEY, cursor)),
-    /** The log's lines for a bug report. */
-    async recent(): Promise<RecentLog> {
-      return recentLog(await serial(entries), now());
-    },
-    async summary(): Promise<LogSummary> {
-      const [all, until] = await Promise.all([serial(entries), debugDeadline()]);
-      const since = now() - 24 * HOUR_MS;
+    /** Reads the log once for both diagnostics projections; metadata cannot hide recent lines. */
+    async snapshot(): Promise<LogSnapshot> {
+      const [all, until] = await Promise.all([
+        serial(entries),
+        debugDeadline().catch(() => undefined),
+      ]);
+      const at = now();
+      const recent = recentLog(all, at);
+      if (until === undefined) return { recent };
+      const since = at - 24 * HOUR_MS;
       return {
-        entries: all.length,
-        bytes: all.reduce(
-          (total, entry) => total + new TextEncoder().encode(JSON.stringify(entry)).byteLength,
-          0,
-        ),
-        recentErrors: all.filter((entry) => entry.level === "error" && entry.time >= since).length,
-        recentWarnings: all.filter((entry) => entry.level === "warn" && entry.time >= since).length,
-        ...(until > now() ? { debugUntil: until } : {}),
+        recent,
+        summary: {
+          entries: all.length,
+          bytes: all.reduce(
+            (total, entry) => total + new TextEncoder().encode(JSON.stringify(entry)).byteLength,
+            0,
+          ),
+          recentErrors: all.filter((entry) => entry.level === "error" && entry.time >= since)
+            .length,
+          recentWarnings: all.filter((entry) => entry.level === "warn" && entry.time >= since)
+            .length,
+          ...(until > at ? { debugUntil: until } : {}),
+        },
       };
     },
     /** Deletes every entry and starts a new pseudonym key. */

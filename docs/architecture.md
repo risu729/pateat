@@ -2429,6 +2429,13 @@ them, and a stored "until turned off" deadline reads as off. Either change is lo
 14,000 `debug` and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn`
 and `error` entries, pruned at worker start and every 500 writes.
 
+Each diagnostics refresh reads and admits the stored log once, then derives its size,
+problem counts and recent lines from that same snapshot and reference time. A failed
+entry read makes both projections unavailable, rather than trying separate reads that
+could describe different logs. Debug-deadline metadata does not determine whether
+recent lines are available; if its lookup unexpectedly fails, only the summary is
+unavailable. The snapshot changes no log fields, retention or export redaction.
+
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
 `diagnostics.logs.clear` and `diagnostics.logs.debug` (with `enabled`), accepted from
 the same page URL only. Turning debug logging on or off updates the page in place
