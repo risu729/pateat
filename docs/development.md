@@ -488,6 +488,21 @@ a module registers no tests. The case callbacks, tables, titles, hooks and regis
 order stay unchanged. These test modules live outside `src/` so they do not enter the
 production coverage denominator.
 
+### Vault policy contract test organization
+
+`packages/contracts/src/vault-policy.test.ts` is the discovered entry for the vault
+policy contracts. It owns all ten describe scopes, the shared synthetic fixtures
+and factories, and the storage helper and late settings-save message initializer.
+The plain module `packages/contracts/test/vault-policy/settings-page-saves.ts`
+exports a synchronous registration function for settings-page-save reconciliation,
+which the entry calls inside the original final scope with the same fixture and
+production function references. The registrar initializes that scope's local
+helpers at the same point; importing the module registers no cases. Its context
+uses the entry's exported `SettingsPageSaveTestContext` through `import type`, so
+helper signatures follow their original definitions without a runtime cycle. The
+module sits outside `src/`, so it stays outside the production coverage root. Each
+file follows the 1,000-line limit.
+
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
