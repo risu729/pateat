@@ -109,6 +109,56 @@ describe("optionFor", () => {
     expect(optionFor(shifted, month("4"))?.text).toBe("4");
   });
 
+  it.each(["-4", "－４", "−4", "- 4", "－　４", "−\t4"])(
+    "never reads the negative coded month value %j as April",
+    (value) => {
+      const coded = select(`<option value="${value}">April</option>`);
+      expect(at(coded, month("4"))).toBeUndefined();
+    },
+  );
+
+  it("never treats a negative placeholder as January or trusts the remaining month codes", () => {
+    const mixed = select(
+      `<option value="-1">Choose month</option><option value="4">April</option>
+       <option value="5">５月</option>`,
+    );
+    expect(at(mixed, month("1"))).toBeUndefined();
+    expect(at(mixed, month("4"))).toBeUndefined();
+    // Visible positive text still decides even when the values cannot say months.
+    expect(optionFor(mixed, month("5"))?.text).toBe("５月");
+  });
+
+  it.each([
+    { label: "month", value: "4", text: "-4", wanted: month("4") },
+    { label: "day", value: "31", text: "－３１", wanted: day("31") },
+    { label: "birth year", value: "1990", text: "−1990", wanted: year("1990") },
+    { label: "short expiry year", value: "31", text: "− 31", wanted: expiryYear("2031") },
+  ])("lets negative visible $label text override a positive value", ({ value, text, wanted }) => {
+    const signed = select(`<option value="${value}">${text}</option>`);
+    expect(at(signed, wanted)).toBeUndefined();
+  });
+
+  it.each([
+    { label: "day", value: "-1", wanted: day("31") },
+    { label: "birth year", value: "－１９８０", wanted: year("1990") },
+    { label: "short expiry year", value: "− 26", wanted: expiryYear("2031") },
+  ])("does not trust mixed negative and positive $label values", ({ value, wanted }) => {
+    const mixed = select(
+      `<option value="${value}">Choose date</option><option value="${wanted.value}">Date</option>`,
+    );
+    expect(at(mixed, wanted)).toBeUndefined();
+  });
+
+  it.each([
+    { text: "Month - April ４月", wanted: month("4") },
+    { text: "Day: ０７日", wanted: day("7") },
+    { text: "Year (1990年)", wanted: year("1990") },
+    { text: "Expires: ３１年", wanted: expiryYear("2031") },
+  ])("keeps matching the positive date text $text", ({ text, wanted }) => {
+    const positive = select(`<option value="unrelated">${text}</option>`);
+    expect(optionFor(positive, wanted)?.text).toBe(text);
+  });
+
   it("never takes an era year or a two-digit option for a birth year", () => {
     // Japanese era years with their own codes as values: no option says 1980.
     const era = select(
