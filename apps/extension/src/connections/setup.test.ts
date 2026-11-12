@@ -2449,7 +2449,7 @@ describe("vault lock and offline unlock (ADR 0075)", () => {
         }),
         verifyReceivedCiphers: vi.fn<VaultCryptoHost["verifyReceivedCiphers"]>(async () => ({
           ok: true,
-          data: { verifiedCipherCount: 1 },
+          data: { verifiedCipherCount: 1, unusableItems: [], partialItems: [] },
         })),
         exportUnlockMaterial: vi.fn<VaultCryptoHost["exportUnlockMaterial"]>(async (session) => ({
           ok: true,

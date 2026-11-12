@@ -406,8 +406,9 @@ validates the saved encrypted context without depending on expired online tokens
 Disabled records retain verified identity and security floors; an ordinary
 refresh must not re-enable automatic unlock. Atomic expected-revision writes
 prevent a stale operation from undoing a newer disable after worker restart.
-Lock cancels that connection's pending sign-in or manual sync and waits for any
-already-started cancellation cleanup before locking. Sign-in and offline-unlock
+Lock cancels that connection's pending sign-in or manual sync and waits for that
+sign-in's cleanup, such as undoing a half-finished acceptance, before locking. A first
+sign-in that has not finished is undone as if cancelled. Sign-in and offline-unlock
 admissions that began before or during the lock cannot reopen it afterward; another
 explicit unlock or sign-in is needed. The encrypted cache and provider sync sign-in
 stay, and work on other connections is unaffected.
@@ -727,13 +728,13 @@ The extension's settings page can edit another profile with its own vault catalo
 through `/extension/profiles`, behind the same host-wide Access application as pairing
 and management; that does not move its device. The management API and extension
 editor share the profile list and revision-checked settings handlers, with separate
-access and origin middleware. An unpaired owner sees an empty profile list; settings
-requests answer `404 not_paired` in management and `404 not_found` in the extension
-editor. When a device's profile changes, the extension replaces its exclusions,
-saved accounts and vault policy with the new
-profile's and drops its merge base for them, while bindings and personal-detail links
-keep merging. Chrome use access to these pages is not assumed. Keep settings and
-execution operations independent of their UI.
+access and origin middleware. An identity that has not paired a device sees an empty
+profile list; settings requests answer `404 not_paired` in management and
+`404 not_found` in the extension editor. When a device's profile changes, the extension
+replaces its exclusions, saved accounts and vault policy with the new profile's and
+drops its merge base for them, while bindings and personal-detail links keep merging.
+Chrome use access to these pages is not assumed. Keep settings and execution operations
+independent of their UI.
 
 Each provider account (provider, server and user ID, synced in `accountPolicies`) is
 either used or not, and supports all items except exclusions or selected
@@ -3580,15 +3581,15 @@ A sealed blob keeps its passkeys inside its authenticated envelope, so its metad
 be decrypted before deciding whether it holds any; legacy items without an encrypted
 passkey list are skipped. The same rule applies when listing an item's RP IDs for
 related origin requests. Every build registers the bridge on top-level `https://*/*`
-documents, and production also on `http://localhost/*`
-as Bitwarden does ([ADR 0050](adr/0050-http-pages-for-http-items.md)): `passkey-main.js`
-in the MAIN world and `passkey-isolated.js` in the isolated world, both at document
-start, under the install-time access of
-[ADR 0009](adr/0009-install-time-https-site-access.md). The background answers them from
-the vault-backed passkey source, which applies the item selection. The crypto Worker
-signs with the stored vault passkey, keeping the private key inside the Worker and
-signing only zero-counter assertion data for that credential's RP ID. The probe build
-adds `http://localhost/*` scripts and a synthetic test-vector key for that origin.
+documents, and production also on `http://localhost/*` as Bitwarden does
+([ADR 0050](adr/0050-http-pages-for-http-items.md)): `passkey-main.js` in the MAIN world
+and `passkey-isolated.js` in the isolated world, both at document start, under the
+install-time access of [ADR 0009](adr/0009-install-time-https-site-access.md). The
+background answers them from the vault-backed passkey source, which applies the item
+selection. The crypto Worker signs with the stored vault passkey, keeping the private
+key inside the Worker and signing only zero-counter assertion data for that credential's
+RP ID. The probe build adds `http://localhost/*` scripts and a synthetic test-vector key
+for that origin.
 
 When several signable passkeys match and none is the site default, the background opens
 the chooser window `passkey-picker.html`
@@ -3634,7 +3635,7 @@ and a stored record that neither ends, settles nor resumes keeps scoping its tab
 origin to the same item until the tab closes. When that item holds no single signable
 match, or its search is incomplete, the request is delegated, so Pateat never signs in
 as another account. Looking up that running login, including waiting for its records to
-load after a worker restart, stays inside the passkey request's lookup deadline. A page
+load after a worker restart, counts against the request's own 10-second budget. A page
 cancellation or a settings change also ends that wait and releases the request's vault
 hold; a lookup that finishes later cannot continue to signing. The separate lookup for
 the value-free request report does not delay or change the answer.
