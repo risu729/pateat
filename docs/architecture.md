@@ -661,17 +661,17 @@ store ([ADR 0021](adr/0021-account-choice-outside-settings.md),
 "Pateat on this site" switch, pauses automatic login of the tab's registrable site for
 10 minutes or an hour on this device, or "Until turned back on", which adds the
 exclusion rule `{hostname: <registrable site>, includeSubdomains: true}`; Resume ends a
-timed pause or removes the site's own covering rules. The popup and owner web UI use
-one pure pause-rule policy (`sitePauseRules` in `packages/contracts/src/site.ts`): it
-identifies those rules and broader shared rules, and transforms the latest exclusion
-list when an edit is applied, so changes made while an edit waits are kept. When a rule
-for a parent of the site covers it, the row links each such rule to the settings page,
-and in a private window while automatic login is off there it links that setting. While
-the allowed sites
-are on ([ADR 0077](adr/0077-allowed-sites.md)) and leave the tab's site out, the site is
-paused as by a rule: the popup lists its accounts, and its pause row says "Paused, as
-this is not an allowed site" and offers "Allow <registrable site>", which adds the allow
-rule `{hostname: <registrable site>, includeSubdomains: true}`. While the tab's page
+timed pause or removes the site's own covering rules. The popup, the extension's
+settings page and the owner web UI use one pure pause-rule policy (`sitePauseRules` in
+`packages/contracts/src/site.ts`): it identifies those rules and broader shared rules,
+and transforms the latest exclusion list when an edit is applied, so changes made while
+an edit waits are kept. When a rule for a parent of the site covers it, the row links
+each such rule to the settings page, and in a private window while automatic login is
+off there it links that setting. While the allowed sites are on
+([ADR 0077](adr/0077-allowed-sites.md)) and leave the tab's site out, the site is paused
+as by a rule: the popup lists its accounts, and its pause row says "Paused, as this is
+not an allowed site" and offers "Allow <registrable site>", which adds the allow rule
+`{hostname: <registrable site>, includeSubdomains: true}`. While the tab's page
 waits for an account choice, the choice is the popup's only list (the owner asked for
 one list on 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the
 default" checkbox makes the picked account the default once that login succeeds (a pick
@@ -1739,12 +1739,13 @@ last four digits of a phone number, with each input's detail and the button that
 them. The owner's settings link the login item, per site and detail, to the identity or
 card item's field that holds the value (`detailLinks`, synced as the owner's like the
 bindings). Every link, confirmed question and refused detail is scoped to the site's
-origin, provider, server, vault user and login item. Accounts copied to another server
-keep independent links: syncing, replacing or removing one server's link leaves the
-other's intact. The shared contract identities govern validation, sync and runtime
-matching; secret-question links additionally name their source field. A login fills the
-first input with a usable link that is writable, checking
-the radio button that chooses it first, and clicks the button; the value is made in the
+origin, provider, server, vault user and login item. The same user and item IDs on
+another server keep their own links: syncing, replacing or removing one server's link
+leaves the other's intact. One identity
+(`packages/contracts/src/settings/detail-link-identity.ts`) is used for validation, sync
+and runtime matching; secret-question links additionally name their source field. A
+login fills the first input with a usable link that is writable, checking the radio
+button that chooses it first, and clicks the button; the value is made in the
 service worker from the vault read (the date or card expiry date in the input's format,
 the last four digits, a card code, a whole card number or a PIN, read only from the
 login item or a card item, as its digits; every linked value is filled, a whole card
