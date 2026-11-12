@@ -10,8 +10,8 @@ implemented ([delivery 1](#implementation-of-delivery-1),
 [delivery 2](#implementation-of-delivery-2),
 [delivery 3](#implementation-of-delivery-3)); personal-data autofill in delivery 4 is
 not. Deliveries 2 and 3 conservatively leave code inputs and software keyboards to the
-person. Delivery 3's session scope and conservative input limits are recorded below. Amends
-[ADR 0012](0012-inference-request-log.md) (retention of evaluation rows) and
+person. Delivery 3's session scope and conservative input limits are recorded below.
+Amends [ADR 0012](0012-inference-request-log.md) (retention of evaluation rows) and
 [ADR 0024](0024-settings-profiles.md) (two more profile parts). Amended on 2026-10-18 by
 [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)
 ([below](#amendment-2026-10-18-request-log-rows)): the request log's recipe ID and
@@ -434,7 +434,6 @@ place. A cached confirmation set to `off` may be re-evaluated through the same r
 path, but is never executed or relabelled by the click itself. The handoff and its
 stale-operation fences are described in ADR 0088's interaction section.
 
-
 ## Implementation of delivery 3
 
 Implemented on a branch in November 2026. Independent synthetic verification and PR
@@ -486,6 +485,6 @@ same-tab, authenticated-account and never-press rules, not new owner decisions:
   succeeded. `confirm-unsupported` remains for a page without an eligible confirmed
   context, and `page-off` for a disabled verification page.
 
-The session store holds at most 100 authentication proofs and 512 generation/fill claims.
-A full, corrupt or unavailable store refuses further confirmation filling. Closing a
-tab removes its entries. No vault value or page text is written to this store.
+The session store holds at most 100 authentication proofs and 512 generation/fill
+claims. A full, corrupt or unavailable store refuses further confirmation filling.
+Closing a tab removes its entries. No vault value or page text is written to this store.
