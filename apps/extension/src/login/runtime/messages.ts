@@ -612,6 +612,7 @@ export async function choiceDefaults(rt: Runtime): Promise<void> {
 export async function incognitoClosed(rt: Runtime): Promise<void> {
   const windows = await browser.windows.getAll().catch(() => undefined);
   if (!windows || windows.some((window) => window.incognito)) return;
+  rt.sso.pauseIntents.clearPrivate();
   await rt.vars.sessionLoaded;
   let changed = false;
   for (const [key, entry] of rt.relogins)

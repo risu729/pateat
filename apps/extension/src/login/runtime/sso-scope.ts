@@ -21,6 +21,8 @@ export const ssoCurrent = (rt: Runtime, work: SsoWork, live = work.live) =>
   !work.abort.signal.aborted &&
   rt.sso.healthy() &&
   rt.vars.storageHealthy &&
+  !rt.sso.pauseIntents.blocked(work.rpLive.url, work.rpLive.incognito) &&
+  !rt.sso.pauseIntents.blocked(work.selected.origin, work.rpLive.incognito) &&
   !rt.manualStarts.get(live.document.tabId)?.pick &&
   !rt.switchesRunning.has(live.document.tabId) &&
   !rt.bindingReviews.has(live.document.tabId) &&

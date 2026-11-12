@@ -295,3 +295,14 @@ cancelling SSO inspection or clicks; a different document can still be fully can
 Scope checks both the original RP pause and selected IdP pause in the original cookie
 partition. A pause request withdraws affected SSO flows before awaiting persistence or
 popup/badge work, so a later native or SSO grant cannot slip through that interval.
+
+## Review hardening 2026-11-12: pause intents during method choice
+
+A pending method choice has no parent flow to cancel yet. Before awaiting a pause
+write, the runtime therefore installs a bounded local SSO intent guard for the site's
+cookie partition. Both original RP and selected IdP guards participate in the final
+synchronous authority fence. A successful write hands enforcement to the persisted
+pause; a failed write keeps SSO blocked until a successful explicit resume or retry.
+The guard is memory-only and ordinary native pause-store behavior is unchanged.
+Concurrent writes retain their own pending tokens, so one completed write cannot
+release another pending intent. These guards carry no credentials or mappings.

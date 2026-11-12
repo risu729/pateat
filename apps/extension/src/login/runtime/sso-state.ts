@@ -1,3 +1,4 @@
+import { createSsoPauseIntents } from "./sso-pause";
 import * as v from "valibot";
 import { storage } from "wxt/utils/storage";
 import {
@@ -116,7 +117,16 @@ export function createSsoState() {
       throw error;
     }
   };
-  return { flows, native, children, interrupted, loaded, write, healthy: () => healthy };
+  return {
+    flows,
+    native,
+    pauseIntents: createSsoPauseIntents(),
+    children,
+    interrupted,
+    loaded,
+    write,
+    healthy: () => healthy,
+  };
 }
 export type SsoState = ReturnType<typeof createSsoState>;
 export function registerSsoChild(
