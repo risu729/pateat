@@ -34,7 +34,6 @@
       "files": [
         "apps/extension/src/crypto/host.test.ts",
         "apps/extension/src/login/content.ts",
-        "apps/extension/src/passkeys/page.test.ts",
         "apps/extension/src/popup/site-app.tsx",
         "apps/extension/src/service/generation.test.ts",
         "apps/extension/src/service/transport.test.ts",
@@ -42,8 +41,6 @@
         "apps/extension/src/vault/manager.ts",
         "packages/contracts/src/login-attempt.ts",
         "packages/contracts/src/login.ts",
-        "packages/contracts/src/recipes.test.ts",
-        "packages/contracts/src/vault-policy.test.ts",
         "services/api/test/generation.test.ts",
         "tests/extension/login-generation.spec.ts",
         "tests/extension/login-server.ts",
