@@ -150,7 +150,7 @@ export function LoginHistory({ client }: { client: ManageClient }) {
         </Button>
       </form>
       <p id="login-history-site-hint" className="text-sm text-ink-muted">
-        Records match the site&apos;s origin, such as https://example.com; any path is ignored.
+        Records match the site&apos;s origin, such as https://example.com; a path is ignored.
       </p>
       {filterError && (
         <ErrorNotice id="login-history-filter-error">
@@ -166,8 +166,12 @@ export function LoginHistory({ client }: { client: ManageClient }) {
           {history.data.next
             ? "None of the login records on this page can be shown. Choose Older for earlier ones."
             : cursor
-              ? "No older login records match these filters."
-              : "No login records match these filters."}
+              ? applied
+                ? "No older login records match these filters."
+                : "No older login records are held."
+              : applied
+                ? "No login records match these filters."
+                : "No login records are held yet."}
           {applied && ` Filtered by ${applied}.`}
         </output>
       ) : (

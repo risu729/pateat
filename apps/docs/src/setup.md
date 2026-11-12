@@ -102,7 +102,7 @@ values or keys. Its pages are **Dashboard**, **Sites**, **Profiles**, **Devices*
 **Claude** (its Claude credentials and which models to use), **Problems** (the warnings,
 errors and reasons for doing nothing that devices reported) and **Request log**. On
 **Request log**, **Login history** lists the login records already held by your service.
-Filter by **Site** (such as `https://example.com`; any path is ignored) and **Result**,
+Filter by **Site** (such as `https://example.com`; a path is ignored) and **Result**,
 then choose **Apply filters**; the count above the list names the filters it follows.
 **Older** shows earlier records and **Newest** returns to the latest ones. Open a
 record's **Details** for its recipe, result code and recorded times. Network time is

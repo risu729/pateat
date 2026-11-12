@@ -74,11 +74,18 @@ export async function readLoginHistory(
   const rows = await loginHistoryQuery(binding, ownerId, query, now);
   const page = rows.slice(0, MANAGE_LOGIN_HISTORY_LIMIT);
   const last = page.at(-1);
+  // A row whose codes the current contract no longer accepts, such as a renamed
+  // result, is left out rather than failing the whole page in the strict client.
+  const entries = page.filter((row) => v.is(manageLoginHistoryEntrySchema, row));
+  if (entries.length < page.length) {
+    // IDs only, so stale codes get noticed without logging the records themselves.
+    console.warn("login history: left out rows the contract rejects", {
+      ids: page.filter((row) => !v.is(manageLoginHistoryEntrySchema, row)).map((row) => row.id),
+    });
+  }
   return {
     version: 1,
-    // A row whose codes the current contract no longer accepts, such as a renamed
-    // result, is left out rather than failing the whole page in the strict client.
-    entries: page.filter((row) => v.is(manageLoginHistoryEntrySchema, row)),
+    entries,
     // From the last row read, not the last one kept, so left-out rows are passed over.
     next: rows.length > MANAGE_LOGIN_HISTORY_LIMIT && last ? { at: last.at, id: last.id } : null,
   };

@@ -186,7 +186,7 @@ test("shows loading, empty older pages, and returns to newest without losing fil
   client.loginHistory.mockResolvedValueOnce(empty);
   await page.getByRole("button", { name: "Older", exact: true }).click();
   await expect
-    .element(page.getByText("No older login records match these filters.", { exact: true }))
+    .element(page.getByText("No older login records are held.", { exact: true }))
     .toBeVisible();
   await expect.element(page.getByRole("button", { name: "Older", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Newest", exact: true }).click();
@@ -226,7 +226,7 @@ test("preserves dirty inputs across refetch and invalidates login history after 
   await page.getByRole("button", { name: "Delete all", exact: true }).click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect
-    .element(page.getByText("No login records match these filters.", { exact: true }))
+    .element(page.getByText("No login records are held yet.", { exact: true }))
     .toBeVisible();
   expect(client.deleteRequestLog).toHaveBeenCalledOnce();
   await expect
