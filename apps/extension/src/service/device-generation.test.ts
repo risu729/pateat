@@ -744,3 +744,100 @@ describe("the connection generation runs under (ADR 0040)", () => {
     ).toBeUndefined();
   });
 });
+
+describe("standalone label-only SSO generation", () => {
+  const ssoRequest = {
+    version: 1 as const,
+    kind: "sso" as const,
+    labels: ["Example"],
+    observation: {
+      ...page,
+      candidates: [
+        ...page.candidates,
+        {
+          id: "provider",
+          role: "button" as const,
+          label: "Continue with Example",
+          target: { by: "id" as const, value: "provider" },
+        },
+      ],
+    },
+  };
+  const ssoPlan = JSON.stringify({
+    result: {
+      decision: "plan",
+      page: "sign-in",
+      entries: [{ label: "Example", candidate: "provider" }],
+    },
+  });
+
+  it("keeps SSO and native siblings with no SSO slot mapping", async () => {
+    const { generation, recipes, sent } = setup({ replies: [ssoPlan, plan] });
+    const sso = await generation.generateSso(DEVICE_GENERATION_ORIGIN, "", ssoRequest);
+    expect(sso).toMatchObject({
+      kind: "result",
+      result: { status: "recipe", change: { revision: 1 } },
+    });
+    expect(sso).not.toHaveProperty("result.slots");
+    expect(sso).not.toHaveProperty("result.slotMap");
+    const native = await generation.generateRecipe(DEVICE_GENERATION_ORIGIN, "", request);
+    expect(native).toMatchObject({
+      kind: "result",
+      result: { status: "recipe", change: { revision: 2 } },
+    });
+    expect(await recipes.list()).toEqual([
+      expect.objectContaining({
+        layouts: expect.any(Array),
+        sso: {
+          path: "/login",
+          layouts: [
+            expect.objectContaining({
+              entries: [{ label: "Example", target: { by: "id", value: "provider" } }],
+            }),
+          ],
+        },
+      }),
+    ]);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("validates label-only requests before making a call or writing an attempt", async () => {
+    const { generation, sent, record } = setup();
+    expect(
+      await generation.generateSso(DEVICE_GENERATION_ORIGIN, "", {
+        ...ssoRequest,
+        slots: request.slots,
+      } as typeof ssoRequest),
+    ).toMatchObject({ kind: "failed", error: "unexpected-response" });
+    expect(sent).toHaveLength(0);
+    expect(record()).toBeUndefined();
+  });
+
+  it("keeps credential and spending gates for SSO-only pages", async () => {
+    const missing = setup({ setting: undefined });
+    expect(
+      await missing.generation.generateSso(DEVICE_GENERATION_ORIGIN, "", ssoRequest),
+    ).toMatchObject({
+      kind: "result",
+      result: { status: "unavailable", reason: "credentials-not-configured" },
+    });
+    expect(missing.sent).toHaveLength(0);
+    const day = new Date().toISOString().slice(0, 10);
+    const limited = setup({
+      spend: {
+        version: 1,
+        day,
+        dayMicroUsd: 5_000_000,
+        month: day.slice(0, 7),
+        monthMicroUsd: 5_000_000,
+      },
+    });
+    expect(
+      await limited.generation.generateSso(DEVICE_GENERATION_ORIGIN, "", ssoRequest),
+    ).toMatchObject({
+      kind: "result",
+      result: { status: "unavailable", reason: "daily-limit" },
+    });
+    expect(limited.sent).toHaveLength(0);
+  });
+});
