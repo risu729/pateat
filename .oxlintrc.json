@@ -50,7 +50,6 @@
         "packages/contracts/src/login.ts",
         "packages/contracts/src/recipes.test.ts",
         "packages/contracts/src/vault-policy.test.ts",
-        "packages/inference/src/assemble.test.ts",
         "packages/inference/src/completion.test.ts",
         "packages/inference/src/plan.test.ts",
         "services/api/test/generation.test.ts",

@@ -740,6 +740,19 @@ references; importing a module registers no cases. The modules sit outside `src/
 so they stay outside the production coverage root. Each file follows the 1,000-line
 limit.
 
+### Recipe assembly test organization
+
+`packages/inference/src/assemble.test.ts` remains the only discovered entry for
+recipe assembly. It owns the original describe scopes, shared helpers, and suite-local
+fixtures, initialized in their original order. Plain modules under
+`packages/inference/test/assemble/` synchronously register contiguous groups for
+generated recipes, replaced advances, completion markers, passkey and authenticator
+handlers, password and passkey routes, and independent TOTP probes. The entry calls
+them in the original scopes with the same helper and fixture references; importing
+a module registers no cases. `context.ts` holds their type-only fixture contracts.
+The modules live outside `src/`, so they stay outside the production coverage root.
+Each file follows the 1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
