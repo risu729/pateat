@@ -173,16 +173,7 @@ interface SamplesContext {
   accountSlots: SemanticSlot[];
   sampleSetup: (paired?: boolean | ServiceConnection) => {
     generation: LoginGeneration;
-    samplePage: Mock<
-      (
-        origin: string,
-        credential: string,
-        recipeId: string,
-        request: import("@pateat/contracts").RecipePageSampleRequest,
-      ) => Promise<
-        import("/home/risu/work/pateat-security-20261111/service-generation-tests/apps/extension/src/service/transport").PageSampleResult
-      >
-    >;
+    samplePage: Mock<ServiceTransport["samplePage"]>;
     sampleStorage: {
       read: Mock<() => Promise<unknown>>;
       write: Mock<(value: unknown) => Promise<void>>;
