@@ -607,6 +607,29 @@ than in this repository.
     npmjs.com: a judged code page adds the handler and the
     same login types one code. It needs a paid judge call and a real account's code, so
     it waits for the owner's approval.
+- SBI VC Trade: an owner-requested browser handoff reported the route on 2026-11-11
+  (about 17:23–17:26 UTC). In ordinary Chrome, the password form at
+  [the sign-in page](https://simple.sbivc.co.jp/login) advanced to
+  `/login#verifyGa`, which named an authenticator app and asked for its code. The
+  person completed that step, after which `/trade-home` and the transaction-history
+  and report navigation were observed. This was not a Pateat login invocation:
+  Pateat's password, TOTP-handler and completion behavior on this route remain
+  unverified, and no Pateat failure or cause is established by this report. The
+  existing [TOTP-handler scope](adr/0027-per-account-login-routes.md) is the relevant
+  implementation to check when this site is next tested with separate approval for
+  real-account use; no site-specific rule is inferred.
+  A further owner-requested report on the same date described a different route in
+  trader mode: after the normal login click, no authentication request was observed,
+  and the public `login.bundle.js` raised a null `focus` error at
+  `window.open("", "FX_BOARD_WINDOW").focus()`. The person opened a separate Chrome
+  window and completed login, reaching the ordinary trading tool. This is a reported
+  popup-startup problem, distinct from the simple mode's authenticator-code step;
+  the report did not invoke Pateat or establish a defect in Pateat. The authenticated
+  browser session was left untouched by this follow-up.
+- MyJCB: an owner-requested report on 2026-11-11 said the ordinary login page moved
+  to an authenticated page before a password was entered. The mechanism responsible
+  was not identified. This is route context, not verification of Pateat's login or
+  evidence attributing the transition to Pateat; the existing session was left alone.
 - A login form whose fields only per-load IDs name, such as 外資就活ドットコム's
   (Mantine), was generated again on every visit (2026-10-13). Such fields are now
   located by their visible name ([ADR 0037](adr/0037-fields-by-visible-name.md), owner,
