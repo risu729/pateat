@@ -170,12 +170,13 @@ describe("popup binding repair through the production runtime", () => {
       reviewId: review.reviewId,
       picks: [{ slot: "branch", fieldId: `custom.${snapshotId}.0` }],
     };
-    for (const from of [
-      sender(),
-      { id: "other-extension", url: "chrome-extension://synthetic-extension/popup.html" },
-    ]) {
-      expect(await h.login.handle(request, from as never)).toBeUndefined();
-    }
+    const refused = await Promise.all(
+      [
+        sender(),
+        { id: "other-extension", url: "chrome-extension://synthetic-extension/popup.html" },
+      ].map((from) => h.login.handle(request, from as never)),
+    );
+    expect(refused).toEqual([undefined, undefined]);
     expect(await h.login.handle({ ...request, grant: true }, popup)).toBeUndefined();
     expect(await h.login.handle({ ...request, tabId: -1 }, popup)).toBeUndefined();
     expect(h.fields).not.toHaveBeenCalled();
