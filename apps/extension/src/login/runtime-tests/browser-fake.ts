@@ -1,3 +1,4 @@
+import { createBrowserEvent } from "./browser-event";
 export function createBrowserFake() {
   const state = {
     storage: {} as Record<string, unknown>,
@@ -194,6 +195,11 @@ export function createBrowserFake() {
       },
     },
     tabs: {
+      onUpdated:
+        createBrowserEvent<
+          [number, { url?: string; status?: string }, { id?: number; url?: string }]
+        >(),
+      onCreated: createBrowserEvent<[{ id?: number; openerTabId?: number; url?: string }]>(),
       query: async () =>
         (state.openTabs ?? []).map((id) => ({
           id,
@@ -394,5 +400,17 @@ export function createBrowserFake() {
   };
   // WXT storage reads `chrome` when it loads.
   Object.assign(globalThis, { chrome: browser });
-  return { state, browser };
+  return {
+    state,
+    browser,
+    emitUpdated: (tabId: number, change: { url?: string; status?: string }) => {
+      if (change.url) state.tabUrls[tabId] = change.url;
+      browser.tabs.onUpdated.emit(tabId, change, {
+        id: tabId,
+        url: state.tabUrls[tabId] ?? state.pageUrl,
+      });
+    },
+    emitCreated: (tab: { id?: number; openerTabId?: number; url?: string }) =>
+      browser.tabs.onCreated.emit(tab),
+  };
 }

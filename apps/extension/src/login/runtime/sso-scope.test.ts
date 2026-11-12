@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createDefaultSettings,
+  parseAttemptMetadata,
   type SettingsResponse,
   type VaultConnectionMetadata,
 } from "@pateat/contracts";
@@ -86,6 +87,10 @@ function harness() {
     vars: { storageHealthy: true },
     documents: new Map([["7:0", live]]),
     manualStarts: new Map(),
+    incognitoTabs: new Map([[7, false]]),
+    persisted: new Map(),
+    accountPicks: { switchingElsewhere: () => false },
+    picked: new Map(),
     switchesRunning: new Set(),
     bindingReviews: new Map(),
     settings: { handle: read },
@@ -416,6 +421,111 @@ describe("SSO live scope", () => {
         currentRecipe = false;
         return structuredClone(h.current());
       });
+    expect(await ssoScope(h.rt, h.work)).toBe(false);
+  });
+  it("a single-page RP pick never overrides RP or IdP fill policy for an SSO hop", async () => {
+    const h = harness();
+    h.work.chosen.source = "pick";
+    h.current().snapshot.settings.sitePagePermissions = [
+      { hostname: "rp.example.test", includeSubdomains: false, permissions: { "sign-in": "fill" } },
+    ];
+    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(h.validate).not.toHaveBeenCalled();
+    h.current().snapshot.settings.sitePagePermissions!.push({
+      hostname: "idp.example.test",
+      includeSubdomains: false,
+      permissions: { "sign-in": "fill" },
+    });
+    expect(await ssoScope(h.rt, h.work)).toBe(false);
+  });
+  it("does not turn an automatic RP match into the account-pick policy exception", async () => {
+    const h = harness();
+    h.current().snapshot.settings.sitePagePermissions = [
+      { hostname: "rp.example.test", includeSubdomains: false, permissions: { "sign-in": "fill" } },
+    ];
+    expect(await ssoScope(h.rt, h.work)).toBe(false);
+  });
+  it("withdraws a flow when a newly different popup account pick supersedes it", async () => {
+    const h = harness();
+    h.rt.picked.set(7, { attemptId: "another-login" } as never);
+    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(h.validate).not.toHaveBeenCalled();
+  });
+});
+
+describe("SSO final scope preserves real origin-busy and cookie partition rules", () => {
+  const otherNative = (tabId = 8) =>
+    parseAttemptMetadata({
+      version: 1,
+      id: "other-native",
+      recipeId: "native-idp",
+      recipeRevision: 1,
+      policyRevision: 3,
+      account: { origin: idp, connectionId: "idp", itemId: idpItem },
+      route: "password",
+      variant: 0,
+      facts: { password: true, totp: false, passkey: false, discoverablePasskey: false },
+      handlers: [],
+      document: { origin: idp, tabId, frameId: 0, documentId: "other-native-document" },
+      state: "awaiting-result",
+      stepIndex: 0,
+      stepCount: 1,
+      submissions: 1,
+      maxSubmissions: 1,
+      retries: 0,
+      maxRetries: 2,
+      usedOperationIds: ["native-submit"],
+      operationId: "native-submit",
+      operationKind: "click",
+      changedAt: Date.now(),
+      timing: { since: Date.now(), serviceMs: 0, networkMs: 0, personMs: 0, pageMs: 0 },
+    });
+  it.each(["rp", "idp"])("refuses another live SSO flow holding the %s origin", async (scope) => {
+    const h = harness();
+    const other = {
+      ...h.work,
+      id: "other-flow",
+      account: { ...h.work.account, origin: scope === "rp" ? rp : "https://other-rp.example.test" },
+      selected: {
+        ...h.work.selected,
+        origin: scope === "idp" ? idp : "https://other-idp.example.test",
+      },
+      rpLive: { ...h.live, document: { ...h.live.document, tabId: 8 } },
+    };
+    h.rt.sso.flows.set(8, other);
+    h.rt.incognitoTabs.set(8, false);
+    expect(await ssoScope(h.rt, h.work)).toBe(false);
+    expect(h.validate).not.toHaveBeenCalled();
+  });
+  it("refuses an existing native IdP submission in another ordinary tab", async () => {
+    const h = harness();
+    h.rt.persisted.set("8 " + idp, otherNative());
+    h.rt.incognitoTabs.set(8, false);
+    expect(await ssoScope(h.rt, h.work)).toBe(false);
+  });
+  it("keeps another tab's native hold conservative when its private-window state is unknown", async () => {
+    const h = harness();
+    h.rt.persisted.set("8 " + idp, otherNative());
+    expect(await ssoScope(h.rt, h.work)).toBe(false);
+  });
+  it("does not conflate separate ordinary and private cookie partitions", async () => {
+    const h = harness();
+    h.rt.persisted.set("8 " + idp, otherNative());
+    h.rt.incognitoTabs.set(8, true);
+    expect(await ssoScope(h.rt, h.work)).toBe(true);
+  });
+  it("does not mistake the same tab's own IdP child for another login", async () => {
+    const h = harness();
+    h.rt.persisted.set("7 " + idp, otherNative(7));
+    expect(await ssoScope(h.rt, h.work)).toBe(true);
+  });
+  it("withdraws a choice if a native IdP submission starts during the awaited URI check", async () => {
+    const h = harness();
+    seams.match.mockImplementationOnce(async () => {
+      h.rt.persisted.set("8 " + idp, otherNative());
+      h.rt.incognitoTabs.set(8, false);
+      return {};
+    });
     expect(await ssoScope(h.rt, h.work)).toBe(false);
   });
 });

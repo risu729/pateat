@@ -510,6 +510,8 @@ export function createRuntimeTestHarness(fake: ReturnType<typeof createBrowserFa
     vi.setTimerTickMode("nextTimerAsync");
   });
   afterEach(() => {
+    fake.browser.tabs.onUpdated.clear();
+    fake.browser.tabs.onCreated.clear();
     vi.useRealTimers();
   });
   const realTime = () => void vi.useRealTimers();

@@ -48,7 +48,8 @@ function harness() {
       : { ok: true },
   );
   seams.tab.mockResolvedValue({ id: 7, url: live.url });
-  const authorization = () => ({
+  const authorization = (phase: "pointer" | "click" = "click") => ({
+    phase,
     version: 1,
     type: "login.sso.authorize",
     token: live.token,
@@ -62,7 +63,7 @@ function harness() {
       handle: "prepared-handle",
       live,
       destinations: [idp + "/signin"],
-      stage: "intent",
+      stage: "pointer",
     };
   };
   return { rt, work, live, write, authorization, intent };
@@ -179,7 +180,7 @@ describe("single-use SSO mutation intents", () => {
         ok: false,
       });
       expect(h.write).not.toHaveBeenCalled();
-      expect(h.work.operation?.stage).toBe("intent");
+      expect(h.work.operation?.stage).toBe("pointer");
     },
   );
   it.each(["tabId", "frameId", "documentId", "origin"] as const)(
@@ -297,5 +298,43 @@ describe("single-use SSO mutation intents", () => {
     expect(await authorizeSso(h.rt, h.authorization(), sender)).toEqual({ ok: false });
     expect(h.work.operation?.stage).toBe("spent");
     expect(await authorizeSso(h.rt, h.authorization(), sender)).toEqual({ ok: false });
+  });
+  it("requires a pointer grant before a separately durable final click grant", async () => {
+    const h = harness();
+    h.intent();
+    h.work.operation!.stage = "intent";
+    expect(await authorizeSso(h.rt, h.authorization("click"), sender)).toEqual({ ok: false });
+    expect(h.write).not.toHaveBeenCalled();
+    expect(await authorizeSso(h.rt, h.authorization("pointer"), sender)).toEqual({ ok: true });
+    expect(h.work.operation?.stage).toBe("pointer");
+    expect(await authorizeSso(h.rt, h.authorization("pointer"), sender)).toEqual({ ok: false });
+    expect(await authorizeSso(h.rt, h.authorization("click"), sender)).toEqual({ ok: true });
+    expect(h.work.operation?.stage).toBe("spent");
+    expect(await authorizeSso(h.rt, h.authorization("click"), sender)).toEqual({ ok: false });
+    expect(h.write).toHaveBeenCalledTimes(2);
+  });
+  it.each(["pointer", "click"] as const)(
+    "atomically grants the %s phase once under concurrent requests",
+    async (phase) => {
+      const h = harness();
+      h.intent();
+      h.work.operation!.stage = phase === "pointer" ? "intent" : "pointer";
+      const replies = await Promise.all([
+        authorizeSso(h.rt, h.authorization(phase), sender),
+        authorizeSso(h.rt, h.authorization(phase), sender),
+      ]);
+      expect(replies.filter((reply) => reply.ok)).toHaveLength(1);
+      expect(h.write).toHaveBeenCalledTimes(1);
+    },
+  );
+  it("withdraws click authority when background scope changed after the pointer grant", async () => {
+    const h = harness();
+    h.intent();
+    h.work.operation!.stage = "intent";
+    expect(await authorizeSso(h.rt, h.authorization("pointer"), sender)).toEqual({ ok: true });
+    seams.scope.mockResolvedValue(false);
+    expect(await authorizeSso(h.rt, h.authorization("click"), sender)).toEqual({ ok: false });
+    expect(h.work.operation?.stage).toBe("pointer");
+    expect(h.write).toHaveBeenCalledTimes(1);
   });
 });
