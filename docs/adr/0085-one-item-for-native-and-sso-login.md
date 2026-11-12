@@ -222,7 +222,9 @@ remain unimplemented until their dependent delivery; native route selection is u
   Labels retain their spelling, up to 128 UTF-16 units. Usernames are compared after
   trimming and `toLowerCase()`, without Unicode compatibility normalization or aliases,
   up to 1,024 units. Brackets, line breaks and control characters in either part refuse.
-  A value is at most 4,096 units, and an item has at most 32 enabled methods.
+  Controls, including tab and line separators, refuse anywhere in the raw value,
+  before trimming; surrounding non-control white space is trimmed. A value is at most
+  4,096 units, and an item has at most 32 enabled methods.
 - The URL form is one unsuffixed enabled method with an empty stored password and a
   usable built-in username. Its absolute HTTP(S) URL is reduced to its origin. URL
   credentials, backslashes, white space and control characters refuse. No host is
