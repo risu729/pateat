@@ -34,8 +34,8 @@ Amended on 2026-11-11 by the owner (12:46 UTC, on My Digital Connect's phone num
 page): the popup proposes an identity item's fields before any other item's
 ([Guess, propose, confirm](#guess-propose-confirm)).
 
-Clarified on 2026-11-12 by an agent: the positive-number range for split-date selects
-preserves minus signs
+Clarified on 2026-11-12 by an agent: a split-date select option whose text or value
+starts with a minus sign says a negative number
 ([clarification](#clarification-signed-select-option-numbers-2026-11-12)); this corrects
 the implementation of the existing range, with no new owner decision.
 
@@ -676,14 +676,16 @@ for one not sent) and question. Never a value or an item name.
 
 ## Clarification: Signed select-option numbers (2026-11-12)
 
-The split-date select rule above reads a minus immediately before a digit run, with
-optional whitespace, as part of its number. ASCII and fullwidth minus signs (after
-NFKC), and U+2212, keep that number negative in both visible text and option values.
-Negative text therefore cannot match a positive date part or fall back to its value;
-a negative option value, like zero, makes value-based range inference unavailable for
-the select. Positive visible text still decides independently of those values. Other
-prefixes and suffixes around a single digit run, and the refusal of multiple digit
-runs, keep their existing behavior.
+The split-date select rule above reads a number as negative only when the option's
+text or value, after NFKC and trimming, starts with one minus sign (ASCII or fullwidth,
+or U+2212), then optional whitespace and its one run of digits, with no other `-` or
+U+2212 after it: `-4`, `- 4`, `－４` and `−1990`. Negative visible text never matches
+a positive date part, and its value is not read instead. A negative option value, such
+as a placeholder's `-1`, says no number: it is never matched and is left out of the
+range check, so the select's other values can still say the part. A value of 0 still
+makes that check fail. A hyphen or dash anywhere else is a separator, as before:
+`April - 04`, `Apr-04`, `Day-7`, `m-04`, `-- 4 --` and `- 4 -` say a positive number,
+and `2024-01` or `1-15`, with two runs, says none.
 
 ## Delivery
 
