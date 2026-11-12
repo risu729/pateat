@@ -1,13 +1,10 @@
-import type { SettingsAppTestContext } from "../settings-app.test";
+import { expect, test, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
+import { SITE_ACCOUNTS_DELAY_MS } from "../../../apps/extension/src/options/site-policy";
 import type { SettingsResponse } from "../../../packages/contracts/src/index";
+import type { SitePolicyContext } from "./context";
 
 export function registerSitePolicy({
-  expect,
-  test,
-  vi,
-  page,
-  userEvent,
-  SITE_ACCOUNTS_DELAY_MS,
   saved,
   demoSiteAccounts,
   mockClient,
@@ -15,22 +12,7 @@ export function registerSitePolicy({
   mount,
   addSite,
   deferred,
-}: Pick<
-  SettingsAppTestContext,
-  | "expect"
-  | "test"
-  | "vi"
-  | "page"
-  | "userEvent"
-  | "SITE_ACCOUNTS_DELAY_MS"
-  | "saved"
-  | "demoSiteAccounts"
-  | "mockClient"
-  | "control"
-  | "mount"
-  | "addSite"
-  | "deferred"
->) {
+}: SitePolicyContext) {
   test("edits during a pending save are saved after it, and reloads cannot overlap it", async () => {
     const client = mockClient();
     const write = deferred<SettingsResponse>();

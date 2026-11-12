@@ -1,20 +1,17 @@
-import type { SettingsAppTestContext } from "../settings-app.test";
+import { expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+import { createSettingsClient } from "../../../apps/extension/src/options/client";
 import type { SettingsResponse } from "../../../packages/contracts/src/index";
+import type { ReloadAndDraftContext, SaveConflictContext } from "./context";
 
 export function registerReloadAndDraft({
-  expect,
-  test,
-  page,
   saved,
   mockClient,
   control,
   mount,
   addSite,
   deferred,
-}: Pick<
-  SettingsAppTestContext,
-  "expect" | "test" | "page" | "saved" | "mockClient" | "control" | "mount" | "addSite" | "deferred"
->) {
+}: ReloadAndDraftContext) {
   test("a reload of clean settings that is refused claims no unsaved changes", async () => {
     const client = mockClient();
     await mount(client);
@@ -113,11 +110,6 @@ export function registerReloadAndDraft({
 }
 
 export function registerSaveConflicts({
-  expect,
-  test,
-  vi,
-  page,
-  createSettingsClient,
   saved,
   demoSiteAccounts,
   mockClient,
@@ -127,23 +119,7 @@ export function registerSaveConflicts({
   deferred,
   conflict,
   written,
-}: Pick<
-  SettingsAppTestContext,
-  | "expect"
-  | "test"
-  | "vi"
-  | "page"
-  | "createSettingsClient"
-  | "saved"
-  | "demoSiteAccounts"
-  | "mockClient"
-  | "control"
-  | "mount"
-  | "addSite"
-  | "deferred"
-  | "conflict"
-  | "written"
->) {
+}: SaveConflictContext) {
   test("a save conflict after an automatic vault sync saves the edits again on the newer revision (ADR 0025)", async () => {
     const client = mockClient();
     const write = deferred<SettingsResponse>();

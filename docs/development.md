@@ -689,21 +689,6 @@ The challenge registrar reads the registered-connection fixture, which the entry
 initializes after the call, through a getter inside its test callback. The entry owns
 cleanup and mock restoration. Each file follows the 1,000-line limit.
 
-### Settings app test organization
-
-`tests/options/settings-app.test.tsx` remains the only discovered settings app
-suite. It owns the original imports, locator augmentation and extension, shared
-synthetic clients and helpers, and root cleanup. Plain modules in
-`tests/options/settings-app/` export synchronous registration functions for settings
-changes, vault policy, site policy, saving and conflicts, and navigation and
-preferences. The entry calls them in the original root order, leaving the conflict
-and navigation helpers between the same case groups. Importing a registrar registers
-no tests and adds no hooks or suites. Erased context types follow the entry bindings
-through `typeof`; the registrars receive the same function and imported-value
-references without new fixture lifetimes or runtime imports back to the entry. All
-callbacks, assertions, tables and cleanup remain unchanged, and each file follows
-the 1,000-line limit.
-
 ### Diagnostics log test organization
 
 `apps/extension/src/diagnostics/log.test.ts` is the discovered Chromium entry for the

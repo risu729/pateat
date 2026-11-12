@@ -1,34 +1,18 @@
-import type { SettingsAppTestContext } from "../settings-app.test";
+import { focusManager } from "@tanstack/react-query";
+import { expect, test, vi } from "vitest";
+import { page } from "vitest/browser";
+import { SETTINGS_QUERY_KEY } from "../../../apps/extension/src/options/client";
 import type { SettingsResponse } from "../../../packages/contracts/src/index";
+import type { SettingsChangeContext } from "./context";
 
 export function registerSettingsChanges({
-  focusManager,
-  expect,
-  test,
-  vi,
-  page,
-  SETTINGS_QUERY_KEY,
   saved,
   mockClient,
   control,
   mount,
   addSite,
   deferred,
-}: Pick<
-  SettingsAppTestContext,
-  | "focusManager"
-  | "expect"
-  | "test"
-  | "vi"
-  | "page"
-  | "SETTINGS_QUERY_KEY"
-  | "saved"
-  | "mockClient"
-  | "control"
-  | "mount"
-  | "addSite"
-  | "deferred"
->) {
+}: SettingsChangeContext) {
   test("each change is saved at once and refreshes never replace a pending draft", async () => {
     const client = mockClient();
     const write = deferred<SettingsResponse>();

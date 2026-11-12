@@ -1,43 +1,19 @@
-import type { SettingsAppTestContext } from "../settings-app.test";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { expect, onTestFinished, test, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
+import { cleanup, render } from "vitest-browser-react";
+import { createMetadataQueryClient } from "../../../apps/extension/src/options/client";
+import { SettingsApp } from "../../../apps/extension/src/options/settings-app";
+import type { NavigationPreferenceContext } from "./context";
 
 export function registerNavigationAndPreferences({
-  QueryClientProvider,
-  expect,
-  onTestFinished,
-  test,
-  vi,
-  page,
-  userEvent,
-  cleanup,
-  render,
-  createMetadataQueryClient,
-  SettingsApp,
   saved,
   mockClient,
   control,
   mount,
   navLink,
   disconnectedService,
-}: Pick<
-  SettingsAppTestContext,
-  | "QueryClientProvider"
-  | "expect"
-  | "onTestFinished"
-  | "test"
-  | "vi"
-  | "page"
-  | "userEvent"
-  | "cleanup"
-  | "render"
-  | "createMetadataQueryClient"
-  | "SettingsApp"
-  | "saved"
-  | "mockClient"
-  | "control"
-  | "mount"
-  | "navLink"
-  | "disconnectedService"
->) {
+}: NavigationPreferenceContext) {
   test("the section nav marks the section scrolled into view after settings load", async () => {
     await page.viewport(400, 300);
     try {

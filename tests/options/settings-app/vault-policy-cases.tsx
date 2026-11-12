@@ -1,18 +1,14 @@
-import type { SettingsAppTestContext } from "../settings-app.test";
+import { expect, test } from "vitest";
+import { page } from "vitest/browser";
+import type { VaultPolicyContext } from "./context";
 
 export function registerVaultPolicy({
-  expect,
-  test,
-  page,
   saved,
   mockClient,
   control,
   mount,
   expand,
-}: Pick<
-  SettingsAppTestContext,
-  "expect" | "test" | "page" | "saved" | "mockClient" | "control" | "mount" | "expand"
->) {
+}: VaultPolicyContext) {
   test("vault-wide lists start collapsed and summarize their selections", async () => {
     const client = mockClient();
     const response = saved();

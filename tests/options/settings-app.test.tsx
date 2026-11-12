@@ -1,26 +1,23 @@
 import { QueryClientProvider, focusManager } from "@tanstack/react-query";
-import { afterEach, expect, onTestFinished, test, vi } from "vitest";
-import { locators, page, userEvent, type Locator } from "vitest/browser";
+import { afterEach, expect, vi } from "vitest";
+import { locators, page, type Locator } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 import {
   createMetadataQueryClient,
-  createSettingsClient,
-  SETTINGS_QUERY_KEY,
   type SettingsClient,
 } from "../../apps/extension/src/options/client";
 import type { ServiceClient } from "../../apps/extension/src/options/service-client";
 import { SettingsApp } from "../../apps/extension/src/options/settings-app";
-import { SITE_ACCOUNTS_DELAY_MS } from "../../apps/extension/src/options/site-policy";
 import {
   createDefaultSettings,
   DUMMY_VAULT_CATALOG,
   type SettingsResponse,
 } from "../../packages/contracts/src/index";
-import { registerSettingsChanges } from "./settings-app/changes";
-import { registerVaultPolicy } from "./settings-app/vault-policy";
-import { registerSitePolicy } from "./settings-app/site-policy";
-import { registerReloadAndDraft, registerSaveConflicts } from "./settings-app/saving";
-import { registerNavigationAndPreferences } from "./settings-app/navigation-preferences";
+import { registerSettingsChanges } from "./settings-app/settings-change-cases";
+import { registerVaultPolicy } from "./settings-app/vault-policy-cases";
+import { registerSitePolicy } from "./settings-app/site-policy-cases";
+import { registerReloadAndDraft, registerSaveConflicts } from "./settings-app/saving-cases";
+import { registerNavigationAndPreferences } from "./settings-app/navigation-preference-cases";
 
 function saved(revision = 0, hostname?: string): Extract<SettingsResponse, { ok: true }> {
   const settings = createDefaultSettings();
@@ -125,59 +122,28 @@ afterEach(async () => {
   focusManager.setFocused(undefined);
 });
 
-registerSettingsChanges({
-  focusManager,
-  expect,
-  test,
-  vi,
-  page,
-  SETTINGS_QUERY_KEY,
-  saved,
-  mockClient,
-  control,
-  mount,
-  addSite,
-  deferred,
-});
+export type SettingsAppTestFixtures = {
+  saved: typeof saved;
+  demoSiteAccounts: typeof demoSiteAccounts;
+  mockClient: typeof mockClient;
+  control: typeof control;
+  mount: typeof mount;
+  addSite: typeof addSite;
+  expand: typeof expand;
+  deferred: typeof deferred;
+  conflict: typeof conflict;
+  written: typeof written;
+  navLink: typeof navLink;
+  disconnectedService: typeof disconnectedService;
+};
 
-registerVaultPolicy({
-  expect,
-  test,
-  page,
-  saved,
-  mockClient,
-  control,
-  mount,
-  expand,
-});
+registerSettingsChanges({ saved, mockClient, control, mount, addSite, deferred });
 
-registerSitePolicy({
-  expect,
-  test,
-  vi,
-  page,
-  userEvent,
-  SITE_ACCOUNTS_DELAY_MS,
-  saved,
-  demoSiteAccounts,
-  mockClient,
-  control,
-  mount,
-  addSite,
-  deferred,
-});
+registerVaultPolicy({ saved, mockClient, control, mount, expand });
 
-registerReloadAndDraft({
-  expect,
-  test,
-  page,
-  saved,
-  mockClient,
-  control,
-  mount,
-  addSite,
-  deferred,
-});
+registerSitePolicy({ saved, demoSiteAccounts, mockClient, control, mount, addSite, deferred });
+
+registerReloadAndDraft({ saved, mockClient, control, mount, addSite, deferred });
 
 function conflict(
   ...causes: NonNullable<Extract<SettingsResponse, { ok: false }>["error"]["causes"]>
@@ -206,11 +172,6 @@ function written(
 }
 
 registerSaveConflicts({
-  expect,
-  test,
-  vi,
-  page,
-  createSettingsClient,
   saved,
   demoSiteAccounts,
   mockClient,
@@ -243,17 +204,6 @@ function disconnectedService(): ServiceClient {
 }
 
 registerNavigationAndPreferences({
-  QueryClientProvider,
-  expect,
-  onTestFinished,
-  test,
-  vi,
-  page,
-  userEvent,
-  cleanup,
-  render,
-  createMetadataQueryClient,
-  SettingsApp,
   saved,
   mockClient,
   control,
@@ -261,33 +211,3 @@ registerNavigationAndPreferences({
   navLink,
   disconnectedService,
 });
-
-export type SettingsAppTestContext = {
-  QueryClientProvider: typeof QueryClientProvider;
-  focusManager: typeof focusManager;
-  expect: typeof expect;
-  onTestFinished: typeof onTestFinished;
-  test: typeof test;
-  vi: typeof vi;
-  page: typeof page;
-  userEvent: typeof userEvent;
-  cleanup: typeof cleanup;
-  render: typeof render;
-  createMetadataQueryClient: typeof createMetadataQueryClient;
-  createSettingsClient: typeof createSettingsClient;
-  SETTINGS_QUERY_KEY: typeof SETTINGS_QUERY_KEY;
-  SettingsApp: typeof SettingsApp;
-  SITE_ACCOUNTS_DELAY_MS: typeof SITE_ACCOUNTS_DELAY_MS;
-  saved: typeof saved;
-  demoSiteAccounts: typeof demoSiteAccounts;
-  mockClient: typeof mockClient;
-  control: typeof control;
-  mount: typeof mount;
-  addSite: typeof addSite;
-  expand: typeof expand;
-  deferred: typeof deferred;
-  conflict: typeof conflict;
-  written: typeof written;
-  navLink: typeof navLink;
-  disconnectedService: typeof disconnectedService;
-};
