@@ -103,6 +103,7 @@ function harness(entry = record()) {
     },
     documents,
     picked,
+    manualStarts: new Map(),
     switchStates: new Map(),
     persisted: new Map(),
     attempts: new Map(),
