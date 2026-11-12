@@ -324,7 +324,22 @@ export async function admit(
   // the document, changed in place, announces itself as a new page (ADR 0078).
   const carried = rt.attempts.get(document.tabId);
 
-  if (
+  // Only confirmation handling may revisit an authenticated frame's own document
+  // or another frame of that tab. A valid current top page remains mandatory.
+  const frameConfirmation =
+    !manual &&
+    owner !== undefined &&
+    (document.frameId !== 0 || owner.document.frameId !== 0) &&
+    owner.account.origin === document.origin &&
+    hasConfirmAuthentication(rt, owner) &&
+    recordFor(rt, document.tabId, document.origin)?.id === owner.id &&
+    !rt.manualStarts.get(document.tabId)?.pick &&
+    (document.frameId === 0 ||
+      (page !== undefined &&
+        rt.documents.get(frameKey(page.document)) === page &&
+        page.url === topUrl &&
+        !page.leftUnread));
+  const duplicate =
     sameDocument &&
     (oldLive.token !== token ||
       (carried?.live === oldLive &&
@@ -337,8 +352,8 @@ export async function admit(
             (carried.metadata.watch !== undefined &&
               start?.path === observedPath(new URL(url).pathname) &&
               document.documentId !== carried.metadata.watch.documentId))
-        )))
-  ) {
+        )));
+  if (duplicate && (!frameConfirmation || oldLive.token !== token)) {
     note(rt, document, url, "duplicate-document");
     return { ok: false, reason: "duplicate-document" };
   }
@@ -520,27 +535,32 @@ export async function admit(
     ? ctx.list || !ctx.entryHello
     : ctx.shown || ctx.list || ctx.unoffered;
 
-  // A later frame may fill a confirmation using the top-level login's authenticated
-  // account. Only that confirmation path bypasses frame ownership: ordinary login
-  // admission, manual starts and active attempts retain the existing busy rule.
+  // Try only confirmation handling before a deferred duplicate/frame-owner refusal.
+  // A refusal to classify/fill must not turn this exception into ordinary login.
+  const currentTop = rt.documents.get(frameKey({ tabId: ctx.document.tabId, frameId: 0 }));
   if (
-    busy &&
+    (busy || duplicate) &&
+    frameConfirmation &&
     rt.vars.storageHealthy &&
-    !ctx.manual &&
-    owner?.document.frameId === 0 &&
-    ctx.document.frameId !== 0 &&
-    owner.account.origin === ctx.document.origin &&
+    owner !== undefined &&
     hasConfirmAuthentication(rt, owner) &&
     recordFor(rt, ctx.document.tabId, ctx.document.origin)?.id === owner.id &&
-    page !== undefined &&
-    rt.documents.get(frameKey(page.document)) === page &&
-    page.url === ctx.live.topUrl &&
-    !page.leftUnread
+    !rt.manualStarts.get(ctx.document.tabId)?.pick &&
+    (ctx.document.frameId === 0
+      ? currentTop === ctx.live
+      : currentTop === page &&
+        page !== undefined &&
+        page.url === ctx.live.topUrl &&
+        !page.leftUnread)
   ) {
     ctx.recorded = owner;
     const confirmation = await admitConfirm(rt, ctx);
     if (confirmation) return confirmation;
     ctx.recorded = undefined;
+  }
+  if (duplicate) {
+    note(rt, document, url, "duplicate-document");
+    return { ok: false, reason: "duplicate-document" };
   }
 
   if (busy)

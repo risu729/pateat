@@ -4533,7 +4533,12 @@ under `confirm: fill`. Nonempty or edited inputs, codes, software keyboards,
 effectful fields and buttons are left to the person. No judge, logout detection,
 handler learning, account remembering or binding save runs. The normal
 master-password requirement, item/field policy, URI matching and form destination
-checks still apply. `confirm: off` fills nothing; passkey verification remains
+checks still apply. Passive sign-in and confirmation fills also check every form
+submitter's destination, including hidden/default buttons and external form-associated
+button/image controls. The destination snapshot must remain unchanged after awaited
+authorization and before each field mutation or typing continuation. Passive fills
+recheck operation authority after DOM/account readiness, before the first mutation.
+`confirm: off` fills nothing; passkey verification remains
 delegated in either setting.
 
 A new eligible page is offered for ordinary recipe generation before admission would
