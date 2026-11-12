@@ -172,8 +172,13 @@ levels and limits; `log-fields.ts` owns the stored-value schemas; `log-format.ts
 owns URL filtering and the pure export, problem-line and recent-log projections.
 The writer uses those same schemas and projections, so values written, downloaded
 and sent to the service share their checks. Existing callers keep importing from
-`log.ts`; its browser test suite stays in one file with its assertions and tables
-unchanged.
+`log.ts`. Its Chromium test suite keeps its discovered entry point in
+`apps/extension/src/diagnostics/log.test.ts`, with the original describe scopes,
+shared setup and fixture initialization. Contiguous log, report, retention and privacy
+cases register synchronously from plain modules in `apps/extension/test/diagnostics/`,
+outside production coverage roots. Registrars receive the same helper and fixture
+references; database allocation stays inside setup. Test discovery, registration order,
+assertions and parameter tables are unchanged.
 
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
