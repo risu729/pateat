@@ -1,4 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { registerSignInCases } from "../test/completion/sign-in";
+import {
+  registerCodeFieldCases,
+  registerUnboundedCodeCases,
+  registerCodeGroupingCases,
+  registerSplitCodeCases,
+  registerSubmitlessCodeCases,
+  registerUnboundedSplitCodeCases,
+  registerSplitCodeFormCases,
+  registerCodeAnswerValidationCases,
+} from "../test/completion/code-answers";
+import {
+  registerPersonalDetailCases,
+  registerSplitPersonalDetailCases,
+} from "../test/completion/personal-details";
+import { registerAccountSlotCases } from "../test/completion/account-slots";
 import {
   completionBesideInstructions,
   completionInstructions,
@@ -34,210 +50,15 @@ function judgeReturning(result: unknown) {
   return { sent, judge: createCompletionJudge({ model, limits, maxOutputTokens: 512 }) };
 }
 
+export type CompletionFixtures = {
+  signedIn: typeof signedIn;
+  limits: typeof limits;
+  request: typeof request;
+  judgeReturning: typeof judgeReturning;
+};
+
 describe("sign-in judge", () => {
-  it("resolves a signed-in marker to the page's path and locator", async () => {
-    const { judge, sent } = judgeReturning({ decision: "signed-in", marker: "logout" });
-    expect(await judge(request)).toMatchObject({
-      status: "ok",
-      calls: 1,
-      value: { decision: "signed-in", target: { by: "id", value: "logout" } },
-    });
-    expect(sent).toEqual([
-      {
-        task: "judge-sign-in",
-        loginPaths: ["/login"],
-        slots: [],
-        stepElements: [],
-        observation: signedIn,
-      },
-    ]);
-  });
-
-  it("names the candidates the recipe's own steps use, which are never a marker", async () => {
-    const { judge, sent } = judgeReturning({ decision: "signed-in", marker: "help" });
-    expect(
-      await judge({
-        ...request,
-        // The sign-in button's id, which the signed-in page's Sign out shares, and an
-        // element the page does not show.
-        recipeElements: [
-          { by: "id", value: "logout" },
-          { by: "id", value: "email" },
-        ],
-      }),
-    ).toMatchObject({ status: "ok", value: { target: { by: "id", value: "help" } } });
-    expect(sent).toEqual([
-      {
-        task: "judge-sign-in",
-        loginPaths: ["/login"],
-        slots: [],
-        stepElements: ["logout"],
-        observation: signedIn,
-      },
-    ]);
-    expect(completionInstructions).toContain("stepElements");
-    // A malformed list is refused before any call.
-    expect(
-      await judgeReturning({ decision: "unclear" }).judge({
-        ...request,
-        recipeElements: [{ by: "css", value: "#x" }],
-      }),
-    ).toMatchObject({ status: "failed", error: "invalid-request", calls: 0 });
-  });
-
-  it("passes rejection and challenge through and abstains when unclear", async () => {
-    expect(await judgeReturning({ decision: "rejected" }).judge(request)).toMatchObject({
-      status: "ok",
-      value: { decision: "rejected" },
-    });
-    expect(await judgeReturning({ decision: "challenge" }).judge(request)).toMatchObject({
-      status: "ok",
-      value: { decision: "challenge" },
-    });
-    expect(await judgeReturning({ decision: "unclear" }).judge(request)).toMatchObject({
-      status: "abstained",
-      reason: "insufficient-evidence",
-    });
-  });
-
-  it("accepts a link or text-located marker", async () => {
-    expect(
-      await judgeReturning({ decision: "signed-in", marker: "help" }).judge(request),
-    ).toMatchObject({ status: "ok", value: { target: { by: "id", value: "help" } } });
-    const textMarker = {
-      ...signedIn,
-      candidates: [
-        { id: "out", role: "button", target: { by: "text", value: "Sign out" }, label: "Sign out" },
-      ],
-    };
-    expect(
-      await judgeReturning({ decision: "signed-in", marker: "out" }).judge({
-        ...request,
-        observation: textMarker,
-      }),
-    ).toMatchObject({ status: "ok", value: { target: { by: "text", value: "Sign out" } } });
-  });
-
-  it("accepts a link located by its path as the marker (ADR 0029)", async () => {
-    const account = {
-      ...signedIn,
-      candidates: [{ id: "my", role: "link", target: { by: "href", value: "/my" }, label: "Nick" }],
-    };
-    expect(
-      await judgeReturning({ decision: "signed-in", marker: "my" }).judge({
-        ...request,
-        observation: account,
-      }),
-    ).toMatchObject({ status: "ok", value: { target: { by: "href", value: "/my" } } });
-  });
-
-  // Owner, 2026-10-18: the request log keeps the model's own answer beside the result.
-  it("keeps every decision as the answer, with IDs the page lacks as ?", async () => {
-    const answerOf = async (result: unknown) =>
-      (await judgeReturning(result).judge(request)).answer;
-    expect(await answerOf({ decision: "unclear" })).toEqual({ decision: "unclear" });
-    expect(await answerOf({ decision: "rejected" })).toEqual({ decision: "rejected" });
-    expect(await answerOf({ decision: "signed-in", marker: "logout" })).toEqual({
-      decision: "signed-in",
-      marker: "logout",
-    });
-    // A marker the page lacks fails closed, and its answer keeps no page text.
-    const refused = await judgeReturning({ decision: "signed-in", marker: "Sign out" }).judge(
-      request,
-    );
-    expect(refused).toMatchObject({
-      status: "failed",
-      error: "invalid-output",
-      answer: { decision: "signed-in", marker: "?" },
-    });
-    // A challenge whose named elements fail the checks keeps them as named.
-    expect(
-      await answerOf({
-        decision: "challenge",
-        passkeyButton: "help",
-        passwordButton: "Use your password",
-        code: { field: "search", submit: "Verify", source: "email" },
-      }),
-    ).toEqual({
-      decision: "challenge",
-      passkeyButton: "help",
-      passwordButton: "?",
-      code: { field: "search", submit: "?", source: "email" },
-    });
-  });
-
-  it("fails closed on an unknown or non-clickable marker", async () => {
-    expect(
-      await judgeReturning({ decision: "signed-in", marker: "missing" }).judge(request),
-    ).toMatchObject({ status: "failed", error: "invalid-output" });
-    expect(
-      await judgeReturning({ decision: "signed-in", marker: "search" }).judge(request),
-    ).toMatchObject({ status: "failed", error: "invalid-output" });
-  });
-
-  it.each([
-    { role: "password" },
-    { role: "text", autocomplete: "username" },
-    { role: "text", autocomplete: "one-time-code" },
-    { role: "text", autocomplete: "current-password" },
-  ])("fails closed when the page still has a sign-in field: %o", async (field) => {
-    const stillLogin = {
-      ...signedIn,
-      candidates: [
-        ...signedIn.candidates,
-        { id: "field", target: { by: "id", value: "f" }, ...field },
-      ],
-    };
-    expect(
-      await judgeReturning({ decision: "signed-in", marker: "logout" }).judge({
-        ...request,
-        observation: stillLogin,
-      }),
-    ).toMatchObject({ status: "failed", error: "invalid-output" });
-  });
-
-  it("allows a registration password field on a signed-in page", async () => {
-    const changePassword = {
-      ...signedIn,
-      candidates: [
-        ...signedIn.candidates,
-        {
-          id: "new",
-          role: "password",
-          autocomplete: "new-password",
-          target: { by: "id", value: "new" },
-        },
-      ],
-    };
-    expect(
-      await judgeReturning({ decision: "signed-in", marker: "logout" }).judge({
-        ...request,
-        observation: changePassword,
-      }),
-    ).toMatchObject({ status: "ok", value: { decision: "signed-in" } });
-  });
-
-  it("rejects incomplete, invalid and oversized requests before any model call", async () => {
-    const { judge, sent } = judgeReturning({ decision: "rejected" });
-    expect(await judge({ ...request, observation: { ...signedIn, complete: false } })).toEqual({
-      status: "failed",
-      error: "incomplete-observation",
-      calls: 0,
-      usage: { inputTokens: 0, outputTokens: 0 },
-    });
-    const invalid = await Promise.all(
-      [[], ["login"], ["/a/../b"]].map((loginPaths) => judge({ ...request, loginPaths })),
-    );
-    for (const outcome of invalid)
-      expect(outcome).toMatchObject({ status: "failed", error: "invalid-request" });
-    const small = createCompletionJudge({
-      model: textModel(async () => textResult("{}")),
-      limits: { timeoutMs: 1_000, maxInputBytes: 256 },
-      maxOutputTokens: 512,
-    });
-    expect(await small(request)).toMatchObject({ status: "failed", error: "input-too-large" });
-    expect(sent).toEqual([]);
-  });
+  registerSignInCases({ signedIn, request, judgeReturning });
 });
 
 describe("passkey button on a challenge page (ADR 0027)", () => {
@@ -692,33 +513,16 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
   const hasTotp = (outcome: Awaited<ReturnType<typeof judged>>) =>
     outcome.status === "ok" && "totp" in outcome.value;
 
-  it.each([
-    ["exactly six characters", { maxLength: 6 }],
-    ["eight characters", { maxLength: 8 }],
-    ["a tel input of ten", { role: "tel", inputMode: undefined, maxLength: 10 }],
-    ["a name locator", { target: { by: "name", value: "otp" } }],
-  ])("keeps an authenticator app code in a field of %s", async (_label, extra) => {
-    const outcome = await judged([field(extra), submit()], answer());
-    expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
-    expect(hasTotp(outcome)).toBe(true);
-  });
-
-  it("sends the text near the code field with the page, as it is", async () => {
-    const observation = {
-      ...signedIn,
-      path: "/auth/mfa",
-      title: "Two-factor authentication",
-      headings: [],
-      nearCode: ["Enter the code from your authenticator app"],
-      candidates: [field(), submit()],
-    };
-    const { judge, sent } = judgeReturning(answer());
-    expect(await judge({ ...request, observation })).toMatchObject({
-      value: { decision: "challenge", totp: kept },
-    });
-    expect(sent).toEqual([
-      { task: "judge-sign-in", loginPaths: ["/login"], slots: [], stepElements: [], observation },
-    ]);
+  registerCodeFieldCases({
+    signedIn,
+    request,
+    judgeReturning,
+    field,
+    submit,
+    judged,
+    answer,
+    kept,
+    hasTotp,
   });
 
   describe("a text input without a maxlength (ADR 0027 amendments of 2026-11-07 and 2026-11-08)", () => {
@@ -726,154 +530,10 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
     // `inputmode="numeric"`, `autocomplete="off"`, no `maxlength`, "Enter your one-time code".
     const hcp = field({ maxLength: undefined, autocomplete: "off" });
 
-    it("keeps the code in it when the judge names it", async () => {
-      expect(await judged([hcp, submit()], answer())).toMatchObject({
-        status: "ok",
-        value: { decision: "challenge", totp: kept },
-      });
-      expect(await judged([field({ maxLength: undefined }), submit()], answer())).toMatchObject({
-        value: { totp: kept },
-      });
-    });
-
-    it.each([
-      [
-        "a tel input",
-        field({ role: "tel", inputMode: undefined, maxLength: undefined }),
-        "not-code-field",
-      ],
-      [
-        "a text input with inputmode tel",
-        field({ inputMode: "tel", maxLength: undefined }),
-        "not-code-field",
-      ],
-      [
-        "a text input with inputmode none",
-        field({ inputMode: "none", maxLength: undefined }),
-        "not-code-field",
-      ],
-      [
-        "an email input",
-        field({ role: "email", inputMode: undefined, maxLength: undefined }),
-        "not-code-field",
-      ],
-      [
-        "a text input marked as a username",
-        field({ inputMode: undefined, maxLength: undefined, autocomplete: "username" }),
-        "not-code-field",
-      ],
-    ])("drops %s without a maxlength", async (_label, candidate, why) => {
-      expect(await judged([candidate, submit()], answer())).toMatchObject({
-        value: { totpDropped: why },
-      });
-    });
-
-    it("keeps the code in a text input without inputmode when the judge names it", async () => {
-      // Supabase's /dashboard/sign-in-mfa (2026-11-08 03:28 UTC, issue #1409): one text
-      // input `#code`, `autocomplete="off"`, placeholder "XXXXXX", no `inputmode` or
-      // `maxlength`, under "Enter the authentication code from your two-factor
-      // authentication app" (ADR 0027 amendment of 2026-11-08).
-      const supabase = field({
-        inputMode: undefined,
-        maxLength: undefined,
-        autocomplete: "off",
-        placeholder: "XXXXXX",
-      });
-      expect(await judged([supabase, submit()], answer())).toMatchObject({
-        status: "ok",
-        value: { decision: "challenge", totp: kept },
-      });
-      expect(
-        await judged([field({ inputMode: "text", maxLength: undefined }), submit()], answer()),
-      ).toMatchObject({ value: { totp: kept } });
-    });
-
-    it("drops a text input without inputmode beside another text input of its form", async () => {
-      const code = field({ inputMode: undefined, maxLength: undefined });
-      const other = field({
-        id: "other",
-        target: { by: "id", value: "name" },
-        inputMode: undefined,
-        maxLength: undefined,
-      });
-      expect(await judged([code, other, submit()], answer())).toMatchObject({
-        value: { totpDropped: "several-code-fields" },
-      });
-    });
-
-    it("drops a code input outside any form beside a plain text input outside any form", async () => {
-      // Inputs outside any form count as one form (ADR 0027 amendment of 2026-11-08).
-      const code = field({ maxLength: undefined, group: undefined });
-      const search = field({
-        id: "q",
-        target: { by: "id", value: "q" },
-        inputMode: undefined,
-        maxLength: undefined,
-        group: undefined,
-      });
-      expect(await judged([code, search, submit({ group: undefined })], answer())).toMatchObject({
-        value: { totpDropped: "several-code-fields" },
-      });
-    });
-
-    it("drops it beside another such input of its form", async () => {
-      const other = field({
-        id: "other",
-        target: { by: "id", value: "pin" },
-        maxLength: undefined,
-      });
-      expect(await judged([hcp, other, submit()], answer())).toMatchObject({
-        value: { totpDropped: "several-code-fields" },
-      });
-    });
-
-    it("still keeps a marked code field beside one", async () => {
-      // Only a field taken as the judge named it counts such inputs as code inputs.
-      const other = field({
-        id: "other",
-        target: { by: "id", value: "pin" },
-        maxLength: undefined,
-      });
-      expect(await judged([field(), other, submit()], answer())).toMatchObject({
-        value: { totp: kept },
-      });
-    });
+    registerUnboundedCodeCases({ field, submit, judged, answer, kept, hcp });
   });
 
-  it("drops a field limited to five characters", async () => {
-    expect(hasTotp(await judged([field({ maxLength: 5 }), submit()], answer()))).toBe(false);
-  });
-
-  it("keeps the code when another code field sits in a different form", async () => {
-    const other = field({ id: "other", target: { by: "id", value: "sms" }, group: "form-9" });
-    expect(await judged([field(), submit(), other], answer())).toMatchObject({
-      status: "ok",
-      value: { decision: "challenge", totp: kept },
-    });
-  });
-
-  it("treats elements outside any form as one form", async () => {
-    const loose = [field({ group: undefined }), submit({ group: undefined })];
-    expect(await judged(loose, answer())).toMatchObject({ value: { totp: kept } });
-    // Two loose code fields are two code fields in one form.
-    const split = [
-      ...loose,
-      field({ id: "d2", target: { by: "id", value: "d2" }, group: undefined }),
-    ];
-    expect(hasTotp(await judged(split, answer()))).toBe(false);
-    // A loose button is not the button of a form.
-    expect(hasTotp(await judged([field(), submit({ group: undefined })], answer()))).toBe(false);
-  });
-
-  it.each([
-    ["an unknown field ID", { field: "missing" }],
-    ["an unknown submit ID", { submit: "missing" }],
-    ["a submit that is the field itself", { submit: "code" }],
-  ])("drops %s", async (_label, code) => {
-    const outcome = await judged([field(), submit()], answer(code));
-    expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
-    expect(hasTotp(outcome)).toBe(false);
-  });
+  registerCodeGroupingCases({ field, submit, judged, answer, kept, hasTotp });
 
   describe("a code split into one input per digit (owner decision 2026-10-12)", () => {
     const boxes = (count: number, extra: Record<string, unknown> = {}) =>
@@ -888,67 +548,7 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
       );
     const first = { field: { by: "id", value: "otp-1" }, target: { by: "id", value: "verify" } };
 
-    it.each([
-      [6, "d1"],
-      [6, "d6"],
-      [7, "d4"],
-      [8, "d8"],
-    ])("keeps the first of %i one-digit inputs when %s is named", async (count, named) => {
-      expect(await judged([...boxes(count), submit()], answer({ field: named }))).toMatchObject({
-        status: "ok",
-        value: { decision: "challenge", totp: first },
-      });
-    });
-
-    it("keeps the first input of a split code whose source the page does not say", async () => {
-      // As on ニコニコ's split code page, where nothing near the code says its source.
-      expect(
-        await judged([...boxes(6), submit()], answer({ field: "d4", source: "unknown" })),
-      ).toMatchObject({ status: "ok", value: { decision: "challenge", totp: first } });
-    });
-
-    it("keeps one-digit inputs marked only as one-time codes or as tel inputs", async () => {
-      const hinted = boxes(6, { inputMode: undefined, autocomplete: "one-time-code" });
-      expect(await judged([...hinted, submit()], answer({ field: "d1" }))).toMatchObject({
-        value: { totp: first },
-      });
-      const tel = boxes(6, { inputMode: undefined, role: "tel" });
-      expect(await judged([...tel, submit()], answer({ field: "d1" }))).toMatchObject({
-        value: { totp: first },
-      });
-    });
-
-    it.each([
-      ["five inputs", boxes(5)],
-      ["nine inputs", boxes(9)],
-      [
-        "an input taking two characters",
-        [...boxes(5), field({ id: "d6", target: { by: "id", value: "otp-6" }, maxLength: 2 })],
-      ],
-      [
-        "a six-character code input beside them",
-        [...boxes(6), field({ id: "whole", target: { by: "id", value: "whole" } })],
-      ],
-      ["inputs that are no code fields", boxes(6, { inputMode: undefined })],
-      [
-        "inputs in two forms",
-        [
-          ...boxes(3),
-          ...boxes(6)
-            .slice(3)
-            .map((box) => ({ ...box, group: "form-2" })),
-        ],
-      ],
-    ])("drops a code split into %s", async (_label, candidates) => {
-      expect(hasTotp(await judged([...candidates, submit()], answer({ field: "d1" })))).toBe(false);
-    });
-
-    it("keeps a split code outside any form with a button outside any form", async () => {
-      const loose = boxes(6, { group: undefined });
-      expect(
-        await judged([...loose, submit({ group: undefined })], answer({ field: "d3" })),
-      ).toMatchObject({ value: { totp: first } });
-    });
+    registerSplitCodeCases({ field, submit, judged, answer, hasTotp, boxes, first });
 
     // Slack's two-factor page (#916): six one-digit inputs and no button; the page submits
     // the code once its last digit is in.
@@ -958,43 +558,7 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
         return { decision: "challenge", code: rest };
       };
 
-      it("keeps the code's first input without a button outside any form", async () => {
-        const loose = boxes(6, { group: undefined });
-        // Exactly: the handler has no button.
-        expect(await judged(loose, noSubmit({ field: "d3" }))).toEqual(
-          expect.objectContaining({
-            status: "ok",
-            value: { decision: "challenge", totp: { field: { by: "id", value: "otp-1" } } },
-          }),
-        );
-      });
-
-      it("keeps one code input of a form that shows no button", async () => {
-        expect(await judged([field()], noSubmit())).toMatchObject({
-          value: { totp: { field: { by: "id", value: "otp" } } },
-        });
-      });
-
-      it("drops a code without a button in a form that shows one", async () => {
-        const outcome = await judged([...boxes(6), submit()], noSubmit({ field: "d1" }));
-        expect(hasTotp(outcome)).toBe(false);
-        expect(outcome).toMatchObject({ value: { totpDropped: "submit-unnamed" } });
-        // A button outside the form does not keep the form's code from submitting itself.
-        expect(
-          await judged([...boxes(6), submit({ group: undefined })], noSubmit({ field: "d1" })),
-        ).toMatchObject({ value: { totp: { field: { by: "id", value: "otp-1" } } } });
-      });
-
-      it("still drops a code sent to the person", async () => {
-        const outcome = await judged(boxes(6, { group: undefined }), noSubmit({ source: "sms" }));
-        expect(hasTotp(outcome)).toBe(false);
-      });
-
-      it("tells the model when to leave submit out", () => {
-        expect(completionInstructions).toContain(
-          "left out only when no button on the page submits",
-        );
-      });
+      registerSubmitlessCodeCases({ field, submit, judged, hasTotp, boxes, noSubmit });
     });
 
     describe("inputs that declare no maxlength (ADR 0027 amendment of 2026-11-07)", () => {
@@ -1003,117 +567,23 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
       // with a `maxlength`.
       const epic = boxes(6, { maxLength: undefined, autocomplete: "one-time-code" });
 
-      it.each(["d1", "d4"])(
-        "keeps the first of six such inputs when %s is named",
-        async (named) => {
-          expect(await judged([...epic, submit()], answer({ field: named }))).toMatchObject({
-            status: "ok",
-            value: { decision: "challenge", totp: first },
-          });
-        },
-      );
-
-      it("keeps them when only the first is marked, as on Notion's page", async () => {
-        const notion = epic.map((box, index) =>
-          index === 0 ? box : { ...box, autocomplete: "off" },
-        );
-        expect(await judged([...notion, submit()], answer({ field: "d3" }))).toMatchObject({
-          value: { totp: first },
-        });
-      });
-
-      it.each([
-        [
-          "the first is not marked as a one-time code",
-          epic.map((box, index) => (index === 0 ? { ...box, autocomplete: undefined } : box)),
-        ],
-        [
-          "the first declares a maxlength of 6",
-          epic.map((box, index) => (index === 0 ? { ...box, maxLength: 6 } : box)),
-        ],
-        [
-          "one is an input without a numeric keyboard",
-          epic.map((box, index) =>
-            index === 3 ? { ...box, inputMode: undefined, autocomplete: undefined } : box,
-          ),
-        ],
-        [
-          "an email input sits in their form",
-          [...epic, field({ id: "mail", role: "email", target: { by: "id", value: "mail" } })],
-        ],
-        ["there are five", epic.slice(0, 5)],
-      ])("drops them when %s", async (_label, candidates) => {
-        expect(hasTotp(await judged([...candidates, submit()], answer({ field: "d1" })))).toBe(
-          false,
-        );
-      });
+      registerUnboundedSplitCodeCases({ field, submit, judged, answer, hasTotp, first, epic });
     });
 
-    it("drops a split code whose button is in another form", async () => {
-      expect(
-        hasTotp(await judged([...boxes(6), submit({ group: "form-2" })], answer({ field: "d1" }))),
-      ).toBe(false);
-    });
+    registerSplitCodeFormCases({ submit, judged, answer, hasTotp, boxes });
   });
 
-  it.each(["text", "checkbox"])("drops a submit that is a %s input", async (role) => {
-    expect(hasTotp(await judged([field(), submit({ role })], answer()))).toBe(false);
-  });
-
-  it("never learns a code field located by its text: such a page is no valid request", async () => {
-    // Observations locate inputs by attributes only, so the judge's own text check is a
-    // second guard that a valid request never reaches.
-    const { judge, sent } = judgeReturning(answer());
-    expect(
-      await judge({
-        ...request,
-        observation: {
-          ...signedIn,
-          path: "/two-factor",
-          candidates: [field({ target: { by: "text", value: "Code" } }), submit()],
-        },
-      }),
-    ).toMatchObject({ status: "failed", error: "invalid-request" });
-    expect(sent).toEqual([]);
-  });
-
-  it("returns a passkey button and a code together", async () => {
-    expect(
-      await judged([field(), submit(), key], { ...answer(), passkeyButton: "key" }),
-    ).toMatchObject({
-      status: "ok",
-      value: {
-        decision: "challenge",
-        passkey: { by: "text", value: "Use security key" },
-        totp: kept,
-      },
-    });
-    // Either survives the other's failing its checks.
-    const sms = await judged([field(), submit(), key], {
-      ...answer({ source: "sms" }),
-      passkeyButton: "key",
-    });
-    expect(sms).toMatchObject({ value: { passkey: { by: "text", value: "Use security key" } } });
-    expect(hasTotp(sms)).toBe(false);
-    const noKey = await judged([field(), submit(), key], { ...answer(), passkeyButton: "code" });
-    expect(noKey).toMatchObject({ value: { totp: kept } });
-    expect(noKey.status === "ok" && "passkey" in noKey.value).toBe(false);
-  });
-
-  it("fails closed on an unknown source or a code beside another decision", async () => {
-    expect(await judged([field(), submit()], answer({ source: "push" }))).toMatchObject({
-      status: "failed",
-      error: "invalid-output",
-    });
-    expect(
-      await judged([field(), submit()], {
-        decision: "rejected",
-        code: { field: "code", submit: "verify", source: "authenticator-app" },
-      }),
-    ).toMatchObject({ status: "failed", error: "invalid-output" });
-    expect(
-      await judged([field(), submit()], { decision: "challenge", code: { field: "code" } }),
-    ).toMatchObject({ status: "failed", error: "invalid-output" });
+  registerCodeAnswerValidationCases({
+    signedIn,
+    request,
+    judgeReturning,
+    field,
+    submit,
+    key,
+    judged,
+    answer,
+    kept,
+    hasTotp,
   });
 });
 
@@ -1328,347 +798,16 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
   const hasDetail = (outcome: Awaited<ReturnType<typeof judged>>) =>
     outcome.status === "ok" && "detail" in outcome.value;
 
-  it("names each input, the detail it asks for, and the button that submits them", async () => {
-    const outcome = await judged([birth, phone, next], answer());
-    expect(outcome).toEqual(
-      expect.objectContaining({
-        status: "ok",
-        value: {
-          decision: "challenge",
-          detail: { fields: [kept, keptPhone], target: { by: "id", value: "next" } },
-        },
-      }),
-    );
-    // The answer is logged as the model gave it.
-    expect(outcome.answer).toEqual(answer());
-  });
-
-  it("keeps a card's whole number, its expiry date and a PIN in the inputs their rules admit", async () => {
-    const number = {
-      id: "number",
-      role: "password",
-      target: { by: "name", value: "card_no" },
-      label: "Card number",
-      maxLength: 16,
-      group: "form-1",
-    };
-    const expiry = {
-      id: "expiry",
-      role: "tel",
-      target: { by: "name", value: "exp" },
-      label: "MM/YY",
-      maxLength: 5,
-      group: "form-1",
-    };
-    const pin = {
-      id: "pin",
-      role: "password",
-      target: { by: "name", value: "pin" },
-      label: "PIN",
-      maxLength: 4,
-      group: "form-1",
-    };
-    expect(
-      await judged(
-        [number, expiry, pin, next],
-        answer([
-          { field: "number", value: "card-number" },
-          { field: "expiry", value: "card-expiry", format: "mm/yy" },
-          { field: "pin", value: "pin" },
-        ]),
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        status: "ok",
-        value: {
-          decision: "challenge",
-          detail: {
-            fields: [
-              { detail: "card-number", target: number.target },
-              { detail: "card-expiry", format: "mm/yy", target: expiry.target },
-              { detail: "pin", target: pin.target },
-            ],
-            target: { by: "id", value: "next" },
-          },
-        },
-      }),
-    );
-    // An expiry date without a format of its own, or one written as mm/yyyy in 5
-    // characters, is dropped.
-    expect(
-      await judged(
-        [number, expiry, pin, next],
-        answer([
-          { field: "expiry", value: "card-expiry", format: "yyyymm" },
-          { field: "number", value: "card-number" },
-        ]),
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        value: {
-          decision: "challenge",
-          detail: {
-            fields: [{ detail: "card-number", target: number.target }],
-            target: { by: "id", value: "next" },
-          },
-          detailsDropped: ["format"],
-        },
-      }),
-    );
-    expect(
-      await judged(
-        [number, expiry, pin, next],
-        answer([
-          { field: "expiry", value: "card-expiry", format: "mm/yyyy" },
-          { field: "pin", value: "pin" },
-        ]),
-      ),
-    ).toEqual(
-      expect.objectContaining({
-        value: {
-          decision: "challenge",
-          detail: {
-            fields: [{ detail: "pin", target: pin.target }],
-            target: { by: "id", value: "next" },
-          },
-          detailsDropped: ["too-short"],
-        },
-      }),
-    );
-  });
-
-  it("keeps a detail beside a code and a passkey button", async () => {
-    const code = {
-      id: "code",
-      role: "text",
-      target: { by: "id", value: "otp" },
-      autocomplete: "one-time-code",
-      group: "form-2",
-    };
-    const verify = {
-      ...next,
-      id: "verify",
-      target: { by: "id", value: "verify" },
-      group: "form-2",
-    };
-    const key = { id: "key", role: "button", target: { by: "id", value: "key" }, label: "Key" };
-    expect(
-      await judged([birth, phone, next, code, verify, key], {
-        ...answer([both[1]]),
-        passkeyButton: "key",
-        code: { field: "code", submit: "verify", source: "authenticator-app" },
-      }),
-    ).toMatchObject({
-      status: "ok",
-      value: {
-        decision: "challenge",
-        passkey: { by: "id", value: "key" },
-        totp: { field: { by: "id", value: "otp" }, target: { by: "id", value: "verify" } },
-        detail: { fields: [keptPhone], target: { by: "id", value: "next" } },
-      },
-    });
-  });
-
-  it("drops the input the page's code is typed into, even a code sent to the person", async () => {
-    expect(
-      await judged([birth, phone, next], {
-        ...answer(),
-        code: { field: "phone", submit: "next", source: "sms" },
-      }),
-    ).toEqual(
-      expect.objectContaining({
-        status: "ok",
-        value: {
-          decision: "challenge",
-          totpDropped: "source-sms",
-          detail: { fields: [kept], target: { by: "id", value: "next" } },
-          detailsDropped: ["code-field"],
-        },
-      }),
-    );
-  });
-
-  it.each([
-    [
-      "an input the page lacks",
-      [birth, phone, next],
-      answer([{ field: "missing", value: "phone-last-4" }, both[0]]),
-      ["unknown-field"],
-      [kept],
-    ],
-    [
-      "a birth date without a format",
-      [birth, phone, next],
-      answer([{ field: "birth", value: "birth-date" }, both[1]]),
-      ["format"],
-      [keptPhone],
-    ],
-    [
-      "another detail with a format",
-      [birth, phone, next],
-      answer([both[0], { field: "phone", value: "phone-last-4", format: "mmdd" }]),
-      ["format"],
-      [kept],
-    ],
-    [
-      "an input named twice",
-      [birth, phone, next],
-      answer([...both, { field: "phone", value: "card-last-4" }]),
-      ["duplicate"],
-      [kept, keptPhone],
-    ],
-    [
-      "an input shorter than its value",
-      [birth, { ...phone, maxLength: 3 }, next],
-      answer(),
-      ["too-short"],
-      [kept],
-    ],
-    [
-      "a sign-in field",
-      [birth, { ...phone, autocomplete: "one-time-code" }, next],
-      answer(),
-      ["sign-in-field"],
-      [kept],
-    ],
-    [
-      "a card's security code in a text input without a length",
-      [birth, { ...phone, role: "text", maxLength: undefined }, next],
-      answer([both[0], { field: "phone", value: "card-code" }]),
-      ["not-input"],
-      [kept],
-    ],
-    [
-      "an input of another form",
-      [birth, { ...phone, group: "form-2" }, next],
-      answer(),
-      ["submit-other-form"],
-      [kept],
-    ],
-  ])("drops %s, saying why", async (_label, candidates, result, why, fields) => {
-    expect(await judged(candidates, result)).toEqual(
-      expect.objectContaining({
-        status: "ok",
-        value: {
-          decision: "challenge",
-          detail: { fields, target: { by: "id", value: "next" } },
-          detailsDropped: why,
-        },
-      }),
-    );
-  });
-
-  it.each([
-    ["a button the page lacks", [birth, phone, next], answer(both, "missing"), "unknown-submit"],
-    [
-      "a button named by its accessible name",
-      [
-        birth,
-        phone,
-        { ...next, target: { by: "accessible-name", value: "Next, confirm the details." } },
-      ],
-      answer(),
-      "step-locator",
-    ],
-    [
-      "a link as the button",
-      [birth, phone, { ...next, role: "link" }],
-      answer(),
-      "submit-not-button",
-    ],
-    [
-      "the input as its own button",
-      [birth, phone, next],
-      answer(both, "phone"),
-      "submit-not-button",
-    ],
-  ])("keeps no detail for %s", async (_label, candidates, result, why) => {
-    const outcome = await judged(candidates, result);
-    expect(outcome).toEqual(
-      expect.objectContaining({
-        status: "ok",
-        value: { decision: "challenge", detailsDropped: [why, why] },
-      }),
-    );
-    expect(hasDetail(outcome)).toBe(false);
-  });
-
-  it("keeps a plain challenge for details without a button, or a button without details", async () => {
-    for (const [result, dropped] of [
-      [{ decision: "challenge", details: both }, ["unknown-submit", "unknown-submit"]],
-      [{ decision: "challenge", detailSubmit: "next" }, undefined],
-      [{ decision: "challenge", details: [], detailSubmit: "next" }, undefined],
-    ] as const) {
-      // oxlint-disable-next-line no-await-in-loop -- Each answer is judged on its own.
-      const outcome = await judged([birth, phone, next], result);
-      expect(outcome).toEqual(
-        expect.objectContaining({
-          status: "ok",
-          value: { decision: "challenge", ...(dropped ? { detailsDropped: dropped } : {}) },
-        }),
-      );
-      expect(hasDetail(outcome)).toBe(false);
-    }
-  });
-
-  it("fails closed on an unknown detail, format or part, more than twelve inputs, or details beside another decision", async () => {
-    for (const result of [
-      answer([{ field: "phone", value: "password" }]),
-      answer([{ field: "birth", value: "birth-date", format: "ddmmyyyy" }]),
-      answer([{ field: "birth", value: "birth-date", format: "yyyy", part: "week" }]),
-      answer([{ field: "phone", value: "card-number", part: "7" }]),
-      answer(Array.from({ length: 13 }, () => both[1])),
-      { decision: "rejected", details: both, detailSubmit: "next" },
-      { decision: "signed-in", marker: "next", detailSubmit: "next" },
-    ])
-      // oxlint-disable-next-line no-await-in-loop -- Each answer is judged on its own.
-      expect(await judged([birth, phone, next], result)).toMatchObject({
-        status: "failed",
-        error: "invalid-output",
-      });
-  });
-
-  it("logs the answer with IDs the page lacks as ?", async () => {
-    const outcome = await judged(
-      [birth, phone, next],
-      answer(
-        [
-          { field: "birth", value: "birth-date", format: "yyyymm" },
-          { field: "Phone number", value: "phone-last-4" },
-        ],
-        "Next",
-      ),
-    );
-    expect(outcome.answer).toEqual({
-      decision: "challenge",
-      details: [
-        { field: "birth", value: "birth-date", format: "yyyymm" },
-        { field: "?", value: "phone-last-4" },
-      ],
-      detailSubmit: "?",
-    });
-  });
-
-  it("tells the model the nine details, their formats, and that a security code is never code", () => {
-    expect(completionInstructions).toMatch(
-      /A challenge that asks for a fact about the person instead of a code fills details and detailSubmit\./u,
-    );
-    expect(completionInstructions).toMatch(
-      /value is birth-date for a birth date asked in one input, whole or as its year and month or its month and day, with format yyyymmdd, yyyymm, yyyy-mm-dd, yyyy\/mm\/dd or mmdd as the page says or shows; a birth date written in a form none of these formats match, such as a two-digit or era year or a separator the format lacks, is no detail; phone-last-4 for the last four digits of a phone number; card-last-4 for the last four digits of a card number; card-code for a card's security code; card-number for a card's whole number; card-expiry for a card's expiry month and year, in one input with format mmyy, mm\/yy, mmyyyy or mm\/yyyy as the page says or shows; pin for a PIN or passcode made of digits, such as a card's or an account's, never the account's password; secret-answer for the answer to a secret question the page shows; member-id for a member, customer or contract number that is not the account's sign-in ID\./u,
-    );
-    // A value split over several inputs is a detail now (owner, 2026-10-23 12:26 UTC).
-    expect(completionInstructions).not.toMatch(/split over several inputs(?:,| is) no detail/u);
-    expect(completionInstructions).toMatch(
-      /A value split over several inputs or selects lists each of them with the same value and its part\. A birth date's year, month and day \(all three, the year and month, or the month and day\) and a card expiry date's month and year are part year, month and day\. Every date part also names its format: yyyy for a year, or yy for a card expiry year written with two digits; mm or m for a month and dd or d for a day, m and d when the page writes them without a leading zero; a select, whose options are not shown here, takes yyyy, mm and dd\. A card number's or PIN's boxes are part 1, 2 and so on in the order the digits go, with no format\. A birth year asked with two digits or as an era year is no detail\./u,
-    );
-    // A whole card number and a PIN are details now (owner, 2026-10-23 11:41 UTC); a
-    // password and a code sent to the person are still none.
-    expect(completionInstructions).toMatch(
-      /Any other fact, a whole phone number, a password or a code sent to the person is no detail\. A card's security code is a detail, never code\./u,
-    );
-    expect(completionInstructions).not.toMatch(/a PIN, a password/u);
-    // The stop's instructions extend them.
-    expect(completionStopInstructions.startsWith(completionInstructions)).toBe(true);
+  registerPersonalDetailCases({
+    birth,
+    phone,
+    next,
+    judged,
+    both,
+    answer,
+    kept,
+    keptPhone,
+    hasDetail,
   });
 
   describe("a value split over several inputs (owner, 2026-10-23 12:26 UTC)", () => {
@@ -1702,312 +841,23 @@ describe("personal-detail inputs on a challenge page (ADR 0061)", () => {
     }));
     const name = (value: string) => ({ by: "name", value });
 
-    it("keeps a birth date in three selects as one field in place of its first part", async () => {
-      const outcome = await judged(datePage, answer([...dateAnswer, both[1]]));
-      expect(outcome).toEqual(
-        expect.objectContaining({
-          status: "ok",
-          value: {
-            decision: "challenge",
-            detail: {
-              fields: [
-                {
-                  detail: "birth-date",
-                  parts: [
-                    { part: "year", format: "yyyy", target: name("year") },
-                    { part: "month", format: "m", target: name("month") },
-                    { part: "day", format: "dd", target: name("day") },
-                  ],
-                },
-                keptPhone,
-              ],
-              target: { by: "id", value: "next" },
-            },
-          },
-        }),
-      );
-      // The answer is logged with its parts.
-      expect(outcome.answer).toEqual(answer([...dateAnswer, both[1]]));
-    });
-
-    it("gives a date part named without a format a four-digit year and a padded month and day", async () => {
-      // The judge often leaves a part's format out (paid run, 2026-10-23).
-      const unformatted = dateAnswer.map(({ format: _format, ...rest }) => rest);
-      const outcome = await judged(datePage, answer(unformatted));
-      expect(outcome).toMatchObject({
-        status: "ok",
-        value: {
-          detail: {
-            fields: [
-              {
-                detail: "birth-date",
-                parts: [
-                  { part: "year", format: "yyyy", target: name("year") },
-                  { part: "month", format: "mm", target: name("month") },
-                  { part: "day", format: "dd", target: name("day") },
-                ],
-              },
-            ],
-          },
-        },
-      });
-      const unnamed = (ids: string[], value: string, parts: string[]) =>
-        parts.map((part, at) => ({ field: ids[at]!, value, part }));
-      // A text input's maxlength must hold the part so made.
-      const short = await judged(
-        [box("y", 2), box("m", 2), box("d", 2), next],
-        answer(unnamed(["y", "m", "d"], "birth-date", ["year", "month", "day"])),
-      );
-      expect(short).toMatchObject({
-        status: "ok",
-        value: { detailsDropped: ["too-short", "parts", "parts"] },
-      });
-      // A card expiry year in a two-character box is written with two digits.
-      const expiry = await judged(
-        [box("em", 2), box("ey", 2), next],
-        answer(unnamed(["em", "ey"], "card-expiry", ["month", "year"])),
-      );
-      expect(expiry).toMatchObject({
-        status: "ok",
-        value: {
-          detail: {
-            fields: [
-              {
-                detail: "card-expiry",
-                parts: [
-                  { part: "month", format: "mm", target: name("em") },
-                  { part: "year", format: "yy", target: name("ey") },
-                ],
-              },
-            ],
-          },
-        },
-      });
-      // A four-character box takes four digits.
-      const long = await judged(
-        [box("em", 2), box("ey", 4), next],
-        answer(unnamed(["em", "ey"], "card-expiry", ["month", "year"])),
-      );
-      expect(long).toMatchObject({
-        status: "ok",
-        value: {
-          detail: {
-            fields: [
-              {
-                parts: [
-                  { part: "month", format: "mm" },
-                  { part: "year", format: "yyyy" },
-                ],
-              },
-            ],
-          },
-        },
-      });
-      // A box that declares no length gives no hint which the page wants: the year is not
-      // filled unless the judge names its format, and the month goes with it.
-      const open = await judged(
-        [box("em", 2), box("ey"), next],
-        answer(unnamed(["em", "ey"], "card-expiry", ["month", "year"])),
-      );
-      expect(open).toMatchObject({
-        status: "ok",
-        value: { detailsDropped: ["format", "parts"] },
-      });
-      expect(open.status === "ok" && open.value).not.toHaveProperty("detail");
-      const named = await judged(
-        [box("em", 2), box("ey"), next],
-        answer([
-          { field: "em", value: "card-expiry", part: "month" },
-          { field: "ey", value: "card-expiry", part: "year", format: "yy" },
-        ]),
-      );
-      expect(named).toMatchObject({
-        status: "ok",
-        value: {
-          detail: {
-            fields: [{ parts: [{ part: "month" }, { part: "year", format: "yy" }] }],
-          },
-        },
-      });
-    });
-
-    it("matches a year in a select by its four digits whatever format the judge names", async () => {
-      const outcome = await judged(
-        datePage,
-        answer(
-          dateAnswer.map((entry) => (entry.part === "year" ? { ...entry, format: "yy" } : entry)),
-        ),
-      );
-      expect(outcome).toMatchObject({
-        status: "ok",
-        value: {
-          detail: {
-            fields: [
-              {
-                detail: "birth-date",
-                parts: [{ part: "year", format: "yyyy", target: name("year") }, {}, {}],
-              },
-            ],
-          },
-        },
-      });
-    });
-
-    it("keeps a card number's boxes in their numbers' order, each as long as its maxlength", async () => {
-      const outcome = await judged(
-        [...boxes, next],
-        // Named out of order: the numbers decide.
-        answer([cardAnswer[2], cardAnswer[0], cardAnswer[3], cardAnswer[1]]),
-      );
-      expect(outcome).toEqual(
-        expect.objectContaining({
-          status: "ok",
-          value: {
-            decision: "challenge",
-            detail: {
-              fields: [
-                {
-                  detail: "card-number",
-                  parts: boxes.map((entry, at) => ({
-                    part: at + 1,
-                    length: 4,
-                    target: name(entry.id),
-                  })),
-                },
-              ],
-              target: { by: "id", value: "next" },
-            },
-          },
-        }),
-      );
-    });
-
-    it("keeps a card expiry date in month and year selects and a PIN in four boxes of one digit", async () => {
-      const pinBoxes = [1, 2, 3, 4].map((at) => box(`p${at}`, 1));
-      const outcome = await judged(
-        [select("exp_m"), select("exp_y"), ...pinBoxes, next],
-        answer([
-          { field: "exp_m", value: "card-expiry", part: "month", format: "mm" },
-          { field: "exp_y", value: "card-expiry", part: "year", format: "yy" },
-          ...pinBoxes.map((entry, at) => ({ field: entry.id, value: "pin", part: String(at + 1) })),
-        ]),
-      );
-      expect(outcome).toEqual(
-        expect.objectContaining({
-          value: {
-            decision: "challenge",
-            detail: {
-              fields: [
-                {
-                  detail: "card-expiry",
-                  parts: [
-                    { part: "month", format: "mm", target: name("exp_m") },
-                    // A select's year is matched by its four digits, though named `yy`.
-                    { part: "year", format: "yyyy", target: name("exp_y") },
-                  ],
-                },
-                {
-                  detail: "pin",
-                  parts: pinBoxes.map((entry, at) => ({
-                    part: at + 1,
-                    length: 1,
-                    target: name(entry.id),
-                  })),
-                },
-              ],
-              target: { by: "id", value: "next" },
-            },
-          },
-        }),
-      );
-    });
-
-    it.each([
-      [
-        "a birth date without its day's select, which a year and month alone would not miss",
-        datePage,
-        [dateAnswer[0], dateAnswer[2]],
-        ["parts", "parts"],
-      ],
-      [
-        "a birth date with its month named twice",
-        [...datePage, select("month2")],
-        [...dateAnswer, { ...dateAnswer[1], field: "month2" }],
-        ["parts", "parts", "parts", "parts"],
-      ],
-      [
-        // A select's year is matched by its four digits instead, whatever the judge names.
-        "a two-digit birth year in a box",
-        [box("year", 2), box("month", 2), box("day", 2), next],
-        [{ ...dateAnswer[0], format: "yy" }, dateAnswer[1], dateAnswer[2]],
-        ["format", "parts", "parts"],
-      ],
-      [
-        // A box left out of a number that still has 12 digits is caught at the fill, where
-        // the card's digits must fill the boxes exactly.
-        "card number boxes of fewer than 12 digits",
-        [box("c1", 3), box("c2", 3), box("c3", 3), next],
-        cardAnswer.slice(0, 3),
-        ["parts", "parts", "parts"],
-      ],
-      [
-        "a card number's box without a maxlength",
-        [...boxes.slice(0, 3), box("c4"), next],
-        cardAnswer,
-        ["no-length", "parts", "parts", "parts"],
-      ],
-      [
-        "a card number's box that is a select",
-        [...boxes.slice(0, 3), select("c4"), next],
-        cardAnswer,
-        ["not-input", "parts", "parts", "parts"],
-      ],
-      [
-        "a phone's last four digits split over two boxes",
-        [box("t1", 2), box("t2", 2), next],
-        [
-          { field: "t1", value: "phone-last-4", part: "1" },
-          { field: "t2", value: "phone-last-4", part: "2" },
-        ],
-        ["part", "part"],
-      ],
-      [
-        "a card expiry month without its part, which no one-input format names",
-        [select("exp_m"), next],
-        [{ field: "exp_m", value: "card-expiry", format: "mm" }],
-        ["format"],
-      ],
-      [
-        "a select asked for a whole birth date",
-        [select("dob"), next],
-        [{ field: "dob", value: "birth-date", format: "yyyymmdd" }],
-        ["not-input"],
-      ],
-    ])("keeps no handler for %s", async (_label, candidates, details, why) => {
-      const outcome = await judged(candidates, answer(details));
-      expect(outcome).toEqual(
-        expect.objectContaining({
-          status: "ok",
-          value: { decision: "challenge", detailsDropped: why },
-        }),
-      );
-      expect(hasDetail(outcome)).toBe(false);
-    });
-
-    it("keeps three fields at most", async () => {
-      const outcome = await judged(
-        [...dateSelects, ...boxes, birth, phone, next],
-        answer([...dateAnswer, ...cardAnswer, both[0], both[1]]),
-      );
-      expect(outcome).toEqual(
-        expect.objectContaining({
-          value: expect.objectContaining({ detailsDropped: ["too-many"] }),
-        }),
-      );
-      const value = outcome.status === "ok" ? outcome.value : undefined;
-      expect(
-        value?.decision === "challenge" && value.detail?.fields.map((field) => field.detail),
-      ).toEqual(["birth-date", "card-number", "birth-date"]);
+    registerSplitPersonalDetailCases({
+      birth,
+      phone,
+      next,
+      judged,
+      both,
+      answer,
+      keptPhone,
+      hasDetail,
+      select,
+      box,
+      dateSelects,
+      datePage,
+      dateAnswer,
+      boxes,
+      cardAnswer,
+      name,
     });
   });
 });
@@ -2079,126 +929,5 @@ describe("the account's slots for the judge (owner 2026-10-23)", () => {
   };
   const answerTarget = { by: "name", value: "answer" };
 
-  it("sends the slots with the page, as generation sends them", async () => {
-    const { sent, outcome } = judgedWith({ decision: "unclear" });
-    await outcome;
-    expect(sent).toEqual([
-      { task: "judge-sign-in", loginPaths: ["/login"], slots, stepElements: [], observation: page },
-    ]);
-  });
-
-  it("refuses slots that fail the generation request's bounds", async () => {
-    for (const bad of [
-      [{ ...slots[3], valueShape: { length: 3, classes: ["ascii-digit"], email: false } }],
-      [slots[2], slots[2]],
-      Array.from({ length: 21 }, (_, index) => ({ ...slots[1], id: `slot-${index}` })),
-    ]) {
-      const { sent, outcome } = judgedWith({ decision: "unclear" }, bad);
-      // oxlint-disable-next-line no-await-in-loop -- Each request is refused on its own.
-      expect(await outcome).toMatchObject({ status: "failed", error: "invalid-request" });
-      expect(sent).toEqual([]);
-    }
-  });
-
-  it("pairs a kept secret answer's input with the slot the model named, apart from the handler", async () => {
-    const { outcome } = judgedWith(
-      answered([
-        { field: "answer", value: "secret-answer", slot: 3, shown: "母親の旧姓は？" },
-        { field: "member", value: "member-id" },
-      ]),
-    );
-    expect(await outcome).toEqual(
-      expect.objectContaining({
-        status: "ok",
-        value: {
-          decision: "challenge",
-          // The handler names only the details and the inputs, never a field name.
-          detail: {
-            fields: [
-              { detail: "secret-answer", target: answerTarget },
-              { detail: "member-id", target: { by: "name", value: "member" } },
-            ],
-            target: { by: "id", value: "next" },
-          },
-          questions: [{ field: answerTarget, slot: "custom-2", shown: "母親の旧姓は？" }],
-        },
-      }),
-    );
-  });
-
-  it.each([
-    ["no slot", { shown: "母親の旧姓は？" }],
-    ["no question", { slot: 3 }],
-    ["a slot the request lacks", { slot: 7, shown: "母親の旧姓は？" }],
-    ["a built-in slot", { slot: 0, shown: "母親の旧姓は？" }],
-    ["the password", { slot: 1, shown: "母親の旧姓は？" }],
-    ["a question with a control character", { slot: 3, shown: "母親の\u0007旧姓は？" }],
-  ])("keeps the answer's input but no pairing for %s", async (_label, pairing) => {
-    const { outcome } = judgedWith(
-      answered([{ field: "answer", value: "secret-answer", ...pairing }]),
-    );
-    expect(await outcome).toEqual(
-      expect.objectContaining({
-        status: "ok",
-        value: {
-          decision: "challenge",
-          detail: {
-            fields: [{ detail: "secret-answer", target: answerTarget }],
-            target: { by: "id", value: "next" },
-          },
-        },
-      }),
-    );
-  });
-
-  it("pairs no other detail, and no input it dropped", async () => {
-    const { outcome } = judgedWith(
-      answered([
-        { field: "member", value: "member-id", slot: 2, shown: "Member number" },
-        { field: "missing", value: "secret-answer", slot: 3, shown: "母親の旧姓は？" },
-      ]),
-    );
-    const result = await outcome;
-    expect(result).toMatchObject({ status: "ok", value: { detailsDropped: ["unknown-field"] } });
-    expect(result.status === "ok" && "questions" in result.value).toBe(false);
-  });
-
-  it("fails closed on a slot that is no index", async () => {
-    for (const slot of [-1, 1.5, 20, "custom-2"]) {
-      const { outcome } = judgedWith(
-        answered([{ field: "answer", value: "secret-answer", slot, shown: "母親の旧姓は？" }]),
-      );
-      // oxlint-disable-next-line no-await-in-loop -- Each answer is judged on its own.
-      expect(await outcome).toMatchObject({ status: "failed", error: "invalid-output" });
-    }
-  });
-
-  it("logs the pairing as the model gave it, with an index the request lacks as -1", async () => {
-    const { outcome } = judgedWith(
-      answered([
-        { field: "answer", value: "secret-answer", slot: 9, shown: "母親の旧姓は？" },
-        { field: "member", value: "member-id" },
-      ]),
-    );
-    expect((await outcome).answer).toEqual({
-      decision: "challenge",
-      details: [
-        { field: "answer", value: "secret-answer", slot: -1, shown: "母親の旧姓は？" },
-        { field: "member", value: "member-id" },
-      ],
-      detailSubmit: "next",
-    });
-  });
-
-  it("tells the model what the slots are and how to pair an answer with one", () => {
-    expect(completionInstructions).toMatch(
-      /Use only candidate IDs and slot indexes from the input\./u,
-    );
-    expect(completionInstructions).toMatch(
-      /A slot with fieldName offers one of the user's vault fields, and fieldPosition tells apart the user's fields of the same name: compare its name and valueShape with element labels, descriptions and constraints to name details and to tell a member-id from the account's sign-in ID, the username slot\./u,
-    );
-    expect(completionInstructions).toMatch(
-      /For a secret-answer, slot is the index in slots of the identifier or hidden slot with fieldName that holds the answer to the question the page shows, even when its name words the question otherwise, and shown is the whole question sentence copied exactly as the page shows it, without a label before it such as "Security question:" and never a part of it; leave both out when no slot is for that question, and for every other detail\./u,
-    );
-  });
+  registerAccountSlotCases({ page, slots, answered, judgedWith, answerTarget });
 });

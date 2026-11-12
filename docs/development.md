@@ -488,6 +488,18 @@ a module registers no tests. The case callbacks, tables, titles, hooks and regis
 order stay unchanged. These test modules live outside `src/` so they do not enter the
 production coverage denominator.
 
+### Completion judge test organization
+
+`packages/inference/src/completion.test.ts` remains the completion judge tests' only
+discovered entry. It keeps the original suite nesting and all shared and suite-local
+fixtures and helpers. Passive modules under `packages/inference/test/completion/`
+register the sign-in, code-answer, personal-detail and account-slot case runs
+synchronously at their original positions, using those same fixture references.
+Importing a module registers no tests. Case callbacks, tables, titles, comments and
+registration order stay unchanged. The modules live outside `src/` so they do not
+enter the production coverage denominator; test discovery and coverage settings stay
+unchanged.
+
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
