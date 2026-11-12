@@ -158,6 +158,13 @@ the original effects and stale-document checks. Every runtime module stays withi
 1,000-line limit. Cross-tab holds, admission record phases and the relogin guard use
 pure decisions with separate tests; see [policy inputs](#login-runtime-policy-inputs).
 
+The synthetic login fixture keeps HTTP routing, run evidence and server lifetime in
+`tests/extension/login-server.ts`. Its identifier and password-progression page builders
+live in `login-identity-pages.ts`, including the code calculation used by the kept
+identifier page; `login-page.ts` owns the shared HTML wrapper. The builders return
+the same page strings at the original route positions, without owning requests,
+responses or run state.
+
 The synthetic judged-page corpus keeps its public `judgeCorpus` in
 `packages/inference/src/corpus/judge.ts`, which re-exports the `JudgeCase` and
 `JudgeExpected` types. Its companion `judge-builders.ts` defines those types and owns
