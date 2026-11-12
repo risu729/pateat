@@ -323,7 +323,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       if (conditional) return await waitForLogin(signal);
       await hold(signal);
       // A failed lookup fails closed: the catch below delegates.
-      const login = await options.loginAccount?.(context.tabId, origin);
+      const login = await abortable(
+        Promise.try(() => options.loginAccount?.(context.tabId, origin)),
+        signal,
+      );
       return await answer(login, signal);
     };
     try {
