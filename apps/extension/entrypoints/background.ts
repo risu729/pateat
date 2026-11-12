@@ -1,3 +1,4 @@
+import { createVaultSsoSource } from "../src/login/sso-vault";
 import { BITWARDEN_READ_PROTOCOL } from "@pateat/bitwarden";
 import { accountPolicy } from "@pateat/contracts";
 import { browser } from "wxt/browser";
@@ -139,6 +140,7 @@ export default defineBackground(() => {
   const syntheticSetup =
     import.meta.env.MODE === "probe" ? createConnectionProbeTransport() : undefined;
   const vaultSyncRecords = createVaultSyncRecords(createBrowserVaultSyncStorage());
+  let invalidateSsoChoices = () => undefined;
   const connections = createConnectionRuntime(cryptoHost, {
     revisions: vaultSyncRecords,
     ...(catalog ? { baseCatalog: catalog } : {}),
@@ -152,6 +154,7 @@ export default defineBackground(() => {
       void actionIcon.refresh();
       void siteCounter.refresh();
       diagnosticsLog.vaultStateMayChange();
+      invalidateSsoChoices();
     },
     // A sync or a restore serves its snapshot only after the record write notified.
     onVaultOpened: () => void siteCounter.refresh(),
@@ -479,7 +482,11 @@ export default defineBackground(() => {
     void signIns.add(tabId, { origin, ...(rpId === undefined ? {} : { rpId }) }).catch(() => {});
   let siteWaitAwake: ReturnType<typeof setInterval> | undefined;
   let passkeyActive: ((documentId: string) => boolean) | undefined;
+  const ssoSource = createVaultSsoSource(connections, () =>
+    settings.handle({ version: 1, type: "settings.get" }),
+  );
   const login = createLoginRuntime(loginSettings, {
+    sso: ssoSource,
     bindingScope: async (snapshot) =>
       bindingProfileScope(await settingsBaseStorage.read(), snapshot, await service.connection()),
     bindingSnapshotCurrent: connections.snapshotCurrent,
@@ -583,6 +590,9 @@ export default defineBackground(() => {
         )
         .catch(() => undefined),
   });
+  invalidateSsoChoices = () => {
+    login.vaultStateMayChange();
+  };
   // A tab that moved to a page of a paused site shows `II` (ADR 0062); the badge drops the
   // pause first once the site changed.
   browser.tabs.onUpdated.addListener((_tabId, change, tab) => {

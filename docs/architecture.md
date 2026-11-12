@@ -4581,3 +4581,21 @@ Value-free `not-started` details `confirm-fill` and `confirm-fill-stopped` descr
 the autofill check and its refusal. Existing page-kind evaluation fields and
 person-submitted tracking remain. A fill acknowledgement is not authentication,
 submission or success of the action guarded by the verification page.
+
+## Local SSO choice boundary
+
+The local SSO discovery wrapper, mapping store and method-choice controller implement
+the metadata and popup boundary of
+[ADR 0085](adr/0085-one-item-for-native-and-sso-login.md#implementation-2026-11-12-local-mapping-and-method-choice).
+They do not yet start an SSO login. Account selection remains first. A coordinator can
+request a method choice for that account and consume a fresh-validated, one-use opaque
+receipt; it still owns same-tab navigation, exact document/origin checks and credential
+release. No current native admission calls this seam.
+
+Only source references, encrypted-source evidence, selected account/origin and provider
+continuity metadata are written to the trusted local mapping record. Popup choices
+are memory-only, bounded to ten minutes and withdrawn on cancellation or scope changes.
+Every enabled method is checked before an executable choice, so two methods cannot name
+the same underlying IdP account through different connections. A URL-form choice names
+an observed entry by opaque ID and rechecks it locally; no mapping or exact target goes
+to inference. Existing native credential origin checks remain unchanged.

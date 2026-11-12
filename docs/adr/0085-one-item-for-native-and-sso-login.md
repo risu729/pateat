@@ -5,7 +5,9 @@ Status: accepted by the owner on 2026-11-07 (12:51 UTC:
 [#1380](https://github.com/risu729/pateat/issues/1380) applied as written); not
 implemented as a complete route. Amended on 2026-11-12 by the local discovery
 [implementation note](#amendment-2026-11-12-local-method-discovery-and-mapping-validation);
-execution remains unimplemented. Also amended by the
+the
+[local mapping and method chooser](#implementation-2026-11-12-local-mapping-and-method-choice)
+adds the popup boundary; execution remains unimplemented. Also amended by the
 [label-only generation implementation](#amendment-2026-11-12-label-only-declarative-route-generation).
 The owner asked for the format itself: keep the SSO-only format, keep a mixed account's
 own credentials, one readable value such as `[GitHub] github-user` per SSO method, and
@@ -273,3 +275,39 @@ proof or mapping. The label is the permitted exception; a native route never rec
 an SSO custom field as a fill slot. Automatic route selection remains unchanged until
 the mapping chooser and same-tab coordinator integrate this foundation. No live vault
 format has been migrated and no real-account compatibility has been established.
+
+## Implementation 2026-11-12: local mapping and method choice
+
+The extension now has a local chooser controller, strict popup messages and a popup
+section for one already chosen site account. This is a coordinator seam, not an
+enabled SSO login: existing account cards and native admission keep their behavior.
+A coordinator requests a choice and awaits an opaque, one-use choice ID, then consumes
+it with fresh validation before its own document-scoped operation.
+
+Mappings are trusted-only device records containing the source account, method number,
+encrypted-source evidence and the selected IdP account and concrete origin, with both
+provider/server/user/snapshot identities. They contain no username, comparison proof,
+field ID or decrypted label. Unknown mappings require an explicit saved-account and
+origin choice; the popup can replace or remove them. Every enabled method is validated
+before an executable choice, including duplicate IdP identities across two connections
+to the same provider account. A changed source, policy, snapshot or provider identity
+withdraws reuse. Validation is never a stored credential-release grant.
+
+Automatic selection uses a passkey, then the enabled unsuffixed SSO method, then the
+native password route. A malformed or unresolved preferred method never silently
+falls back. Numbered alternatives and explicit native choices apply only to this
+sign-in and save no site or IdP default. An IdP-hop request offers only native routes,
+and the site's account or origin cannot become its own IdP hop.
+
+The URL form has no inferred provider label. The coordinator supplies locally observed
+entries by opaque ID and a freshness check; the popup chooses an entry and its displayed
+label. Its exact target remains with the coordinator. Every URL-form receipt rechecks
+that observed entry when chosen and consumed.
+
+Offers and receipts contain no credentials and remain in worker memory for at most
+ten minutes. Cancellation, settings changes, vault state changes, tab closure and
+document/path changes withdraw them. A worker restart discards them; nothing restored
+from session storage is authority to continue. The mapping store survives, but reuse
+always repeats source and IdP validation. This layer performs no click, navigation,
+credential release, service request or real-account operation. Full SSO execution and
+real-site compatibility remain open.

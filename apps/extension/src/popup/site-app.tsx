@@ -1,3 +1,5 @@
+import { PopupSsoChoice } from "./sso-choice";
+import type { SsoClient } from "../login/sso-wire";
 import { PopupPagePermissions } from "./page-permissions";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -559,6 +561,7 @@ export function SiteApp({
   manual,
   details,
   bindingReviews,
+  sso,
   host,
   listingWaitMs = SITE_ACCOUNTS_WAIT_MS,
 }: {
@@ -567,6 +570,7 @@ export function SiteApp({
   manual?: ManualClient;
   details: DetailClient;
   bindingReviews?: BindingReviewClient;
+  sso?: SsoClient;
   host: PopupHost;
   listingWaitMs?: number;
 }) {
@@ -1720,6 +1724,7 @@ export function SiteApp({
         />
       )}
       {body}
+      <PopupSsoChoice client={sso} tabId={tabId} origin={origin} />
       <PopupBindingReview client={bindingReviews} tabId={tabId} origin={origin} host={host} />
     </main>
   );

@@ -133,6 +133,9 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
       return undefined;
     },
     handle: (message: unknown, sender: Sender) => handle(rt, message, sender),
+    /** Local chooser seam for the SSO coordinator; it never executes a login. */
+    ssoChoices: rt.ssoChoices,
+    vaultStateMayChange: () => rt.ssoChoices?.invalidateAll("vault-changed"),
     settingsChanged: (source: "synced" | "saved") => settingsChanged(rt, source),
     siteCount,
     /** A site default was saved outside the settings page, as by the passkey chooser. */
@@ -217,6 +220,7 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
      * (ADR 0062).
      */
     tabLoaded: (tab: Browser.tabs.Tab) => {
+      if (tab.id !== undefined) rt.ssoChoices?.invalidateTab(tab.id, "page-changed");
       void frameLeftInPlace(rt, tab).catch(() => undefined);
       return showTabPause(rt, tab).catch(() => undefined);
     },
