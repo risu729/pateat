@@ -296,3 +296,10 @@ login page, with
 the account it would use for an automatic login. To stay logged out, pause the site
 first. If Pateat logged in to a site twice in the last 10 minutes, it asks for an
 account instead of logging in a third time.
+
+SSO sign-in is still being implemented. Its local chooser can select a method only
+after the site account has been chosen. Provider account and origin mappings stay on
+this device and can be replaced or removed there; method selection applies only to
+that sign-in. A locked or changed vault, an invalid SSO field or an unresolved mapping
+stops the choice. The chooser does not yet start an SSO login, and no new permission,
+account creation or consent page is approved by a mapping.

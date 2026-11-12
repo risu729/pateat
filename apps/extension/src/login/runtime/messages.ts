@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { ssoGetRequestSchema, ssoChooseRequestSchema, ssoCancelRequestSchema } from "../sso-wire";
 import { authorizeConfirmation } from "./confirm-fill";
 import { cancelConfirm, confirmBusy, forgetConfirmTab } from "./confirm-state";
 import { manualOfferRequestSchema, manualStartRequestSchema } from "../manual-wire";
@@ -201,6 +202,19 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     return undefined;
   }
   if (fromPopup(rt, sender)) {
+    const ssoGet = v.safeParse(ssoGetRequestSchema, message);
+    if (ssoGet.success) return rt.ssoChoices?.get(ssoGet.output.tabId) ?? { ok: true };
+    const ssoChoose = v.safeParse(ssoChooseRequestSchema, message);
+    if (ssoChoose.success)
+      return rt.ssoChoices?.choose(ssoChoose.output) ?? { ok: false, reason: "unavailable" };
+    const ssoCancel = v.safeParse(ssoCancelRequestSchema, message);
+    if (ssoCancel.success)
+      return (
+        rt.ssoChoices?.cancel(ssoCancel.output.tabId, ssoCancel.output.offerId) ?? {
+          ok: false,
+          reason: "offer-gone",
+        }
+      );
     const manualGet = v.safeParse(manualOfferRequestSchema, message);
     if (manualGet.success) return manualOffer(rt, manualGet.output.tabId);
     const manualRun = v.safeParse(manualStartRequestSchema, message);
@@ -465,6 +479,7 @@ export async function operationRun(
  * stops only when they no longer plan its account (ADR 0027).
  */
 export function settingsChanged(rt: Runtime, source: "synced" | "saved"): void {
+  rt.ssoChoices?.invalidateAll("settings-changed");
   for (const work of rt.confirmFill.work.values())
     void send(rt, work.live, { type: "login.cancel" }).catch(() => undefined);
   cancelConfirm(rt);
@@ -605,6 +620,7 @@ export async function incognitoClosed(rt: Runtime): Promise<void> {
  * goes on in the new tab, which its record moved to first.
  */
 export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
+  rt.ssoChoices?.invalidateTab(tabId, "page-changed");
   forgetConfirmTab(rt, tabId);
   clearBindingReview(rt, tabId);
   endManual(rt, tabId, "page-changed");

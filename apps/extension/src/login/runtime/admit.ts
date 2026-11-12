@@ -226,6 +226,7 @@ export async function admit(
     for (const [index, [other]] of frames.entries())
       if (!answers[index]) {
         rt.documents.delete(other);
+        rt.ssoChoices?.invalidateTab(document.tabId, "document-gone");
         // A choice that waited in a frame of the old page ends with it, badge and all.
         const framed = rt.pending.get(document.tabId);
         if (framed && frameKey(framed.document) === other) clearChoice(rt, document.tabId);
@@ -426,6 +427,8 @@ export async function admit(
   if (oldLive && !sameDocument)
     dropReprompt(rt, oldLive.document.tabId, oldLive.document.documentId);
 
+  if (oldLive && (!sameDocument || oldLive.path !== path))
+    rt.ssoChoices?.invalidateTab(document.tabId, "page-changed");
   rt.documents.set(key, live);
 
   // The tab's next page after a page Pateat does not fill (ADR 0035).

@@ -3,6 +3,8 @@ import {
   type LoginAttemptMetadata,
   type LoginDocument,
 } from "@pateat/contracts";
+import { frameKey } from "./steps";
+import { createSsoChoiceController } from "../sso-choice";
 import { createConfirmState } from "./confirm-state";
 import { sessionValue, trustedRecord } from "../../storage";
 import { createLoginBadge, memoryBadgeStorage, setActionBadge } from "../badge";
@@ -62,6 +64,19 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   let probeStepWaitMs: number | undefined = undefined;
 
   const documents = new Map<string, LiveDocument>();
+  const ssoChoices =
+    options.sso &&
+    createSsoChoiceController({
+      source: options.sso,
+      readSettings: () => settings.handle({ version: 1, type: "settings.get" }),
+      currentDocument: (document) => {
+        const live = documents.get(frameKey(document));
+        return (
+          live?.document.documentId === document.documentId &&
+          live.document.origin === document.origin
+        );
+      },
+    });
 
   /** Pending popup fills only; no values, persistence or authority after their reply. */
   const detailFills = new Map<string, DetailFillGrant>();
@@ -466,6 +481,7 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     badge,
     pauses,
     documents,
+    ssoChoices,
     attempts,
     keypadPresses,
     begunIn,
