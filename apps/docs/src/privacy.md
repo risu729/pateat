@@ -62,11 +62,27 @@ read it, and removing the extension deletes it.
   includes; filtering does not delete entries.
 
 Vault values are decrypted only on your device, by the official Bitwarden SDK running in
-the extension. A value leaves the extension only into a login page of a site where that
-item may be used: a site that matches the item's website in your vault, or one you chose
-the item for. A personal detail from an identity or card item, such as a card number,
-which has no website, goes only into the site of the login item you linked it to, after
-you confirmed the link in the popup.
+the extension. Apart from the SSO provider labels described below, a value leaves the
+extension only into a login page of a site where that item may be used: a site that
+matches the item's website in your vault, or one you chose the item for. A personal
+detail from an identity or card item, such as a card number, which has no website, goes
+only into the site of the login item you linked it to, after you confirmed the link in
+the popup.
+
+## SSO methods
+
+Saved SSO mappings stay on this device. They contain references to the chosen site and
+provider items, the provider's sign-in origin and evidence used to detect a changed
+item. They do not store decrypted SSO fields, labels, usernames or username-comparison
+proofs. Interrupted operations leave a session record with opaque account/document
+references and operation identifiers; that record does not restore permission to act.
+
+To write or repair an SSO entry recipe, Pateat sends the selected method's bracketed
+provider label with the sanitized site-page description to the paired service and
+Anthropic, or directly to Anthropic when you use your own key without a pairing.
+The service retains that request under the request-log rules below. The rest of the
+SSO field, the provider username, comparison proofs and saved mapping are not sent.
+The provider account's credentials are used only on its permitted sign-in origin.
 
 ## Your Bitwarden server
 
@@ -222,8 +238,8 @@ With a key and no service paired, the extension writes the request itself and se
 to Anthropic with your key, using Claude Opus 5.5 and, when it declines, Claude Sonnet
 5.5. The recipe stays on your device, and nothing about the request is logged.
 
-Pateat never sends Anthropic vault values, login records, problem reports or the
-signed-in pages sent once every 30 days.
+Apart from SSO provider labels, Pateat never sends Anthropic vault values, login
+records, problem reports or the signed-in pages sent once every 30 days.
 
 ## The websites you log in to
 
@@ -282,9 +298,9 @@ requirements. In particular:
   personal details, other vault fields and passkey signatures to the site you log in
   to; settings, page descriptions, login records and problem reports to the Pateat
   service you paired with, which runs on Cloudflare; and page descriptions, with the
-  names of custom fields and the shape of usernames and text fields, to Anthropic,
-  through that service or, with your own Anthropic API key, directly from your
-  device.
+  names of custom fields, the shape of usernames and text fields and selected SSO
+  provider labels, to Anthropic, through that service or, with your own Anthropic API
+  key, directly from your device.
 - It does not sell user data, does not use or transfer it for advertising, and does not
   use or transfer it to determine creditworthiness or for lending.
 - The developer receives and reads no data from other people's use of Pateat. A Pateat

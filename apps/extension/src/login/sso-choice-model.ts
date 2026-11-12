@@ -18,6 +18,8 @@ export type SsoChoiceInput = {
   /** URL-form entries come from a local observation, never from a guessed provider label. */
   entries?: { id: string; label: string }[];
   entryCurrent?: (entryId: string) => Promise<boolean>;
+  /** A fresh explicit HTTP destination of the entry matches this selected origin; never a label guess. */
+  entryOrigin?: (entryId: string, selectedOrigin: string) => Promise<boolean>;
   signal?: AbortSignal;
 };
 export type SsoResolvedChoice =
