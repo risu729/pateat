@@ -73,7 +73,7 @@ a poll adds half its interval on average to every wait.
 | 50 ms polls of `login.await` and a `wait` step | `login/content.ts` | Decision 3 |
 | 100 ms polls of the entry inspect and check and the switch's control and reaction | `login/content.ts` | Decision 3 |
 | 100 ms poll of the URL after an entry press (`watchPressedUrl`) | `login/content.ts` | `popstate`, `hashchange`, `currententrychange` |
-| 100 ms debounce of the look after a same-document route (`urlChanged`) | `login/content.ts` | Next frame after a change |
+| 100 ms debounce of the look after a same-document route (`urlChanged`) | `login/content.ts` | Next frame after a change; since 2026-11-12 at most once per 100 ms, as the page watch |
 | 50 ms and 25 ms polls of a software keypad's keys and field | `page/keypad-typing.ts` | Decision 3 for the keys; each rendered frame for the field, as a keypad's script may write it with no event or DOM change |
 
 Their bounds stay: `LOGIN_STEP_WAIT_MS`, each step's `timeoutMs`, `KEYPAD_OPEN_MS` and

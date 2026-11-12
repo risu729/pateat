@@ -76,3 +76,17 @@ ended the window in which a page that shows a sign-in input is sent.
   waits 10 seconds.
 - The card's own limit of 10 seconds for a page that keeps changing: replaced by the
   owner's 5 seconds.
+
+## Note 2026-11-12: the page watch sees every attribute
+
+Not an owner decision; the decision above stays as it is. Since 2026-11-12 the page
+watch observes every attribute
+([#1481](https://github.com/risu729/pateat/pull/1481)), because any attribute can change
+a target's name, as `aria-label` or a label's `for` do, or, through the page's CSS
+selectors, whether it shows. Each change checks the recipe's first steps, at most once
+per 100 ms ([ADR 0082](0082-waits-on-signals.md)). The quiet second still counts only
+the changes the decision lists: added or removed nodes, text changes, and the attributes
+the watch observed before, now `quietAttributes` in `login/content.ts`. Counting every
+attribute would keep a page whose only movement is an attribute animation, as an SVG's
+`transform` or a progress bar's `aria-valuenow` each frame, from ever being quiet, so
+every such page would wait the full 5 seconds.

@@ -158,26 +158,79 @@ describe("the page watch after only an attribute changes", () => {
     expect(starts()).toEqual([]);
   });
 
-  it("restarts the one-second quiet wait for unrelated attributes", async () => {
+  const passkeyOffer = expect.objectContaining({
+    signIn: { path: location.pathname, passkey: true },
+  });
+
+  it("decides a page whose only movement is an attribute animation after a quiet second (ADR 0057)", async () => {
+    document.body.innerHTML = `<main><button>Sign in with a passkey</button>
+      <div role="progressbar" aria-valuenow="0"></div>
+      <svg width="10" height="10"><rect width="5" height="5"></rect></svg></main>`;
+    watch.generate = true;
+    const bar = document.querySelector("[role=progressbar]")!;
+    const rect = document.querySelector("rect")!;
+    let tick = 0;
+    // Every frame, for longer than the five-second cap.
+    const animation = setInterval(() => {
+      tick += 1;
+      bar.setAttribute("aria-valuenow", String(tick % 100));
+      rect.setAttribute("transform", `rotate(${tick % 360})`);
+      rect.setAttribute("opacity", String((tick % 10) / 10));
+    }, 16);
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(900);
+    expect(offers()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(offers()).toEqual([passkeyOffer]);
+    clearInterval(animation);
+  });
+
+  it("still checks the starts during such an animation", async () => {
+    document.body.innerHTML =
+      '<div role="progressbar" aria-valuenow="0"></div><input id="field" aria-label="Not ready">';
+    startAt({ by: "label", value: "Password" });
+    watch.generate = true;
+    let tick = 0;
+    const animation = setInterval(
+      () =>
+        document.querySelector("[role=progressbar]")!.setAttribute("aria-valuenow", String(++tick)),
+      16,
+    );
+    await install();
+    document.querySelector("#field")!.setAttribute("aria-label", "Password");
+    await vi.advanceTimersByTimeAsync(150);
+    clearInterval(animation);
+    expect(starts()).toEqual([expect.objectContaining({ start: { path: location.pathname } })]);
+  });
+
+  it("restarts the one-second quiet wait for a listed attribute", async () => {
+    document.body.innerHTML = "<main><button>Sign in with a passkey</button></main>";
+    watch.generate = true;
+    await install();
+    await vi.advanceTimersByTimeAsync(400);
+    document.querySelector("main")!.setAttribute("class", "rendered");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(offers()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(offers()).toEqual([passkeyOffer]);
+  });
+
+  it("does not restart it for an attribute outside the list", async () => {
     document.body.innerHTML = "<main><button>Sign in with a passkey</button></main>";
     watch.generate = true;
     await install();
     await vi.advanceTimersByTimeAsync(400);
     document.querySelector("main")!.setAttribute("data-render", "finished");
     await vi.advanceTimersByTimeAsync(600);
-    expect(offers()).toEqual([]);
-    await vi.advanceTimersByTimeAsync(500);
-    expect(offers()).toEqual([
-      expect.objectContaining({ signIn: { path: location.pathname, passkey: true } }),
-    ]);
+    expect(offers()).toEqual([passkeyOffer]);
   });
 
-  it("retains the five-second cap while unrelated attributes never become quiet", async () => {
+  it("retains the five-second cap while listed attributes never become quiet", async () => {
     document.body.innerHTML = "<main><button>Sign in with a passkey</button></main>";
     watch.generate = true;
     let tick = 0;
     const animation = setInterval(
-      () => document.querySelector("main")!.setAttribute("data-clock", String(++tick)),
+      () => document.querySelector("main")!.setAttribute("class", `frame-${++tick}`),
       200,
     );
     uninstall = installLoginContent();
@@ -185,8 +238,7 @@ describe("the page watch after only an attribute changes", () => {
     expect(offers()).toEqual([]);
     await vi.advanceTimersByTimeAsync(200);
     clearInterval(animation);
-    expect(offers()).toHaveLength(1);
-    expect(offers()[0]).toMatchObject({ signIn: { path: location.pathname, passkey: true } });
+    expect(offers()).toEqual([passkeyOffer]);
   });
 
   it.each(["cancel", "uninstall"])(

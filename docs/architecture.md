@@ -980,18 +980,24 @@ then the tab's next page is checked ([ADR 0031](adr/0031-sign-in-entry-pages.md)
 [Declarative recipes and AI](#declarative-recipes-and-ai)).
 
 The page watch observes every node, text and attribute change in the document and its
-shadow trees, since any attribute can affect a locator's name or visibility through
-CSS. Its first-step checks stay limited to one per 100 ms. Even unrelated attribute
-changes restart the pending one-second quiet wait; on a page that keeps changing, the
-same five-second cap decides it. This uses one DOM-change rule rather than a separate
-list of attributes to maintain.
+shadow trees, since any attribute can change a target's name, as `aria-label` or a
+label's `for` do, or, through the page's CSS selectors, whether it shows. Its
+first-step checks stay limited to one per 100 ms. The pending one-second quiet wait
+counts only node and text changes and changes of the attributes that can change whether
+a target matches, shows or accepts input (`quietAttributes` in `login/content.ts`, such
+as `class`, `style`, `hidden` or `value`), as ADR 0057 defines a DOM change (note of
+2026-11-12): a page whose only movement is an attribute animation, as an SVG's
+`transform` or a progress bar's `aria-valuenow` each frame, is still decided after a
+quiet second rather than at the five-second cap. The looks for a sign-in input shown
+later, in place or after a same-document URL change, read the page at most once per
+frame and once per 100 ms too.
 
 A page that shows no input but an enabled button naming a passkey or security key, not
-a registration, is decided
-in the same wait (ADR 0057) and sent with `passkeyOnly: true` and no slots, only when
-one of the URI-matching items holds a discoverable, usable passkey for the page's RP ID;
-its recipe has only the `passkey` route, so a password-only item never presses the
-button ([ADR 0053](adr/0053-passkey-only-generation.md)). Beside a sign-in entry the
+a registration, is decided in the same wait (ADR 0057) and sent with `passkeyOnly: true`
+and no slots, only when one of the URI-matching items holds a discoverable, usable
+passkey for the page's RP ID; its recipe has only the `passkey` route, so a
+password-only item never presses the button
+([ADR 0053](adr/0053-passkey-only-generation.md)). Beside a sign-in entry the
 button is used only when every matching item holds such a passkey, since the page's
 recipe is shared; otherwise the entry is handled as without it (owner, 2026-10-19 22:44
 UTC). Beside a list of accounts the page is sent as a list, whose observation carries

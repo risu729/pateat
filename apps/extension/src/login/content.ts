@@ -454,8 +454,9 @@ const offerQuietMs = 1000;
 const offerWaitMs = 5000;
 /**
  * What the page watch observes, in the document and in each shadow tree: every node,
- * text and attribute change. Any attribute can affect a target's name or visibility,
- * including through the page's CSS selectors; checks keep their existing throttle.
+ * text and attribute change. Any attribute can change a target's name, as `aria-label`
+ * or a label's `for` do, or, through the page's CSS selectors, whether it shows; checks
+ * keep their throttle (`checkGapMs`).
  */
 const pageWatch: MutationObserverInit = {
   subtree: true,
@@ -463,6 +464,39 @@ const pageWatch: MutationObserverInit = {
   characterData: true,
   attributes: true,
 };
+/**
+ * The attributes whose change restarts the offer's quiet wait (ADR 0057): those that most
+ * often change whether a target matches, shows or accepts input. Button text locators
+ * also depend on text, `value`, `alt` and hidden subtrees. Other attributes are still
+ * checked, but a page whose only movement is an attribute animation, as an SVG's
+ * `transform` or a progress bar's `aria-valuenow` every frame, counts as quiet, so it is
+ * decided after a second rather than at the five-second cap.
+ */
+const quietAttributes: ReadonlySet<string> = new Set([
+  "id",
+  "name",
+  "data-testid",
+  "data-test",
+  "type",
+  "autocomplete",
+  "hidden",
+  "style",
+  "class",
+  "open",
+  "disabled",
+  "readonly",
+  "value",
+  "alt",
+  "aria-hidden",
+  "aria-disabled",
+  "inert",
+  "role",
+  "onclick",
+  "href",
+]);
+/** Whether a page watch record restarts the offer's quiet wait: see `quietAttributes`. */
+const breaksQuiet = (record: MutationRecord): boolean =>
+  record.type !== "attributes" || quietAttributes.has(record.attributeName ?? "");
 /**
  * A fill compared with the account the page shows, while the page shows no identifier
  * to compare with, waits until the document has loaded and its DOM has had no change for
@@ -681,6 +715,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     clearTimeout(offerQuiet);
     offerQuiet = setTimeout(decideOffer, offerQuietMs);
   };
+  // Every DOM change checks the starts; only some restart the quiet wait (`breaksQuiet`).
+  const domChanged = (records: MutationRecord[]) => {
+    if (records.some(breaksQuiet)) pageChanged();
+    else schedule();
+  };
   function unwatch(): void {
     clearOffer();
     clearTimeout(shownTimer);
@@ -793,7 +832,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       return;
     }
     if (!observer) {
-      observer = new MutationObserver(pageChanged);
+      observer = new MutationObserver(domChanged);
       observer.observe(document, pageWatch);
       observedRoots = new WeakSet();
       watchShadowRoots();
@@ -2872,13 +2911,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     offerUrl = pageUrl();
     if (!mayOffer || !offered || offerWindow !== undefined) return;
     urlWatch?.();
-    // One look per frame of the page, however many changes come before it (ADR 0082).
+    // One look per frame of the page, at most once per `checkGapMs` (ADR 0082).
     let pending = false;
     let stopped = false;
+    let lookedAt = Number.NEGATIVE_INFINITY;
     const look = () => {
       pending = false;
       if (stopped) return;
       if (cancelled || !mayOffer) return stop();
+      lookedAt = Date.now();
       if (!showsSignIn() || !inTab.shown() || starts.some(ready) || afterSubmitted()) return;
       stop();
       offeredPaths.add(pagePath());
@@ -2887,7 +2928,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     const later = () => {
       if (pending) return;
       pending = true;
-      void nextFrame().then(look);
+      const gap = lookedAt + checkGapMs - Date.now();
+      if (gap <= 0) void nextFrame().then(look);
+      else setTimeout(() => void nextFrame().then(look), gap);
     };
     const changes = new MutationObserver(later);
     changes.observe(document, pageWatch);

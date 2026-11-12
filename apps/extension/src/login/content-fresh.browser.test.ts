@@ -203,3 +203,29 @@ describe("a form shown in place after the page's window to be sent closed", () =
     expect(offers()).toEqual([]);
   });
 });
+
+describe("the look after a same-document URL change once the window closed", () => {
+  it("reads a page that changes every frame at most once per 100 ms (ADR 0082)", async () => {
+    document.body.innerHTML = `${accountList}<input id="late" type="password" readonly>`;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(LOGIN_STEP_WAIT_MS + 500);
+    const input = document.querySelector("input")!;
+    const rects = input.getClientRects.bind(input);
+    const reads: number[] = [];
+    // Keep the real layout check and record when a look reads the input.
+    vi.spyOn(input, "getClientRects").mockImplementation(() => {
+      reads.push(Date.now());
+      return rects();
+    });
+    history.pushState(null, "", "/pateat-moved");
+    let tick = 0;
+    const animation = setInterval(() => input.setAttribute("data-clock", String(++tick)), 10);
+    await vi.advanceTimersByTimeAsync(450);
+    clearInterval(animation);
+    const looked = [...new Set(reads)];
+    expect(looked.length).toBeGreaterThanOrEqual(3);
+    expect(looked.length).toBeLessThanOrEqual(5);
+    expect(looked.slice(1).every((time, index) => time - looked[index]! >= 100)).toBe(true);
+    expect(offers()).toEqual([]);
+  });
+});
