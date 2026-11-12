@@ -767,6 +767,20 @@ fixture type, and `context.ts` picks from it with `import type`. The modules sit
 outside `src/`, so they stay outside the production coverage root. Each file follows
 the 1,000-line limit.
 
+### Login badge test organization
+
+`apps/extension/src/login/badge.test.ts` remains the sole discovered badge test
+entry. It owns the hoisted browser mock, root hooks, original describe scopes, shared
+fixtures and harness, and describe-local helpers at their original initialization
+positions. Plain modules under `apps/extension/test/login/badge/` export passive
+synchronous registrars for presentation, writes and navigation, persistence, and
+page-status recording. The entry calls each registrar at the original position with
+the same helper and fixture references; importing a module registers no cases. Erased
+fixture types in the entry describe those references without a runtime import cycle.
+The modules stay outside the production coverage root, and every file follows the
+1,000-line limit. Callbacks, assertions, parameter tables and registration order stay
+unchanged.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.

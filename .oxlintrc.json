@@ -33,7 +33,6 @@
       // the limit; never add one.
       "files": [
         "apps/extension/src/crypto/host.test.ts",
-        "apps/extension/src/login/badge.test.ts",
         "apps/extension/src/login/content.ts",
         "apps/extension/src/passkeys/page.test.ts",
         "apps/extension/src/popup/site-app.tsx",
