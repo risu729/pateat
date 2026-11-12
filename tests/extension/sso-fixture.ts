@@ -42,7 +42,8 @@ export type SsoScenario =
   | "selected-origin"
   | "rp-marker"
   | "intermediate"
-  | "same-document";
+  | "same-document"
+  | "same-document-dom";
 export type SsoEvidence = {
   entries: number;
   posts: number;
@@ -138,12 +139,15 @@ export async function configureSso(
             : "/session";
       const inPlaceBody =
         "<h1 id=idp-authenticated>Provider authenticated</h1><p>test_username</p><button id=continue>Continue</button>";
-      const inPlace =
-        scenario === "same-document"
-          ? '<script>window.syntheticDocumentToken=crypto.randomUUID();document.querySelector("form").addEventListener("submit",async event=>{event.preventDefault();const data=new URLSearchParams(new FormData(event.target));data.set("documentToken",window.syntheticDocumentToken);const response=await fetch("/same-document-session",{method:"POST",body:data});if(response.ok){history.replaceState(null,"","/continue-in-place");document.body.innerHTML=' +
-            JSON.stringify(inPlaceBody) +
-            ';document.querySelector("#continue").onclick=()=>fetch("/continue-effect",{method:"POST",body:window.syntheticDocumentToken}).then(()=>location.replace("/stay"));}});</script>'
-          : "";
+      const inPlace = scenario.startsWith("same-document")
+        ? '<script>window.syntheticDocumentToken=crypto.randomUUID();document.querySelector("form").addEventListener("submit",async event=>{event.preventDefault();const data=new URLSearchParams(new FormData(event.target));data.set("documentToken",window.syntheticDocumentToken);const response=await fetch("/same-document-session",{method:"POST",body:data});if(response.ok){' +
+          (scenario === "same-document"
+            ? 'history.replaceState(null,"","/continue-in-place");'
+            : "") +
+          "document.body.innerHTML=" +
+          JSON.stringify(inPlaceBody) +
+          ';document.querySelector("#continue").onclick=()=>fetch("/continue-effect",{method:"POST",body:window.syntheticDocumentToken}).then(()=>location.replace("/stay"));}});</script>'
+        : "";
       return respond(
         '<h1>Sign in to Example</h1><form method=POST action="' +
           action +
@@ -158,7 +162,7 @@ export async function configureSso(
       )
     ) {
       idpEvents.push(url.pathname);
-      if (scenario === "same-document" && url.pathname === "/continue-effect")
+      if (scenario.startsWith("same-document") && url.pathname === "/continue-effect")
         sameDocumentTokens.push(route.request().postData() ?? "");
       return route.fulfill({ status: 204, body: "" });
     }
