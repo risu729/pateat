@@ -6,6 +6,7 @@ import { storage } from "wxt/utils/storage";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createChoiceClient } from "../../src/login/choice-wire";
 import { createDetailClient } from "../../src/login/detail-wire";
+import { createBindingReviewClient } from "../../src/login/binding-review-wire";
 import { sendMessage } from "../../src/messaging/protocol";
 import { SiteApp } from "../../src/popup/site-app";
 import { SETTINGS_STORAGE_KEY } from "../../src/settings";
@@ -33,6 +34,7 @@ createRoot(root).render(
       client={createSettingsClient((message) => sendMessage("settings", message))}
       choices={createChoiceClient((message) => sendMessage("login", message))}
       details={createDetailClient((message) => sendMessage("login", message))}
+      bindingReviews={createBindingReviewClient((message) => sendMessage("login", message))}
       host={{
         async currentTab() {
           const [tab] = await browser.tabs.query({ active: true, currentWindow: true });

@@ -715,8 +715,14 @@ settled as unknown (`settled`), and the last login and model request the badge k
 from the log reports, with the badge's lifetime: a top page of another origin or the
 tab's closing drops them, and `chrome.storage.session` keeps them across a worker
 restart. Item selection, field exclusions and custom-field review are synced and stay on
-the extension's settings page ([ADR 0023](adr/0023-synced-vault-policy.md)); the popup
-does not report items waiting for review or repair bindings yet. The service keeps
+the extension's settings page ([ADR 0023](adr/0023-synced-vault-policy.md)). The popup
+lists items waiting for field review and opens that settings review. A stopped saved
+custom-field binding can be repaired by choosing allowed named custom fields, without
+their values, for every broken input. A document-scoped session override retries the
+login and follows only its admitted attempt; confirmed authentication alone saves the
+rewrite. The original binding, account, vault snapshot, profile, settings revision and
+recipe must still match. Broken built-in fields and changed recipe slots stay outside
+this repair. The service keeps
 excluded sites, allowed sites, site defaults and the synced vault policy per settings
 profile, and bindings and personal-detail links (`detailLinks`,
 [ADR 0061](adr/0061-personal-details-during-a-login.md)) per owner, under one owner

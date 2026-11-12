@@ -41,6 +41,8 @@ import { probeMode } from "./constants";
 import { choose } from "./choice-save";
 import { listedBrowserSite } from "./pause";
 import type { Runtime } from "./state";
+import { bindingReviewSnapshot } from "./binding-review";
+import type { BindingIssue } from "./binding-review-state";
 
 /**
  * Origin scope for the chosen account of this document. A live provider URI match for
@@ -271,7 +273,7 @@ export async function bindingFor(
   fillGaps: boolean,
 ): Promise<
   | { ok: true; binding: LoginAccountBinding; synced: SavedLoginBinding; saved: boolean }
-  | { ok: false; reason: string }
+  | { ok: false; reason: string; repair?: BindingIssue }
 > {
   const connection = catalog.connections.find((entry) => entry.id === choice.connectionId);
   const item = connection?.items.find((entry) => entry.id === choice.itemId);
@@ -313,7 +315,18 @@ export async function bindingFor(
     binding = built.binding;
   }
   const resolved = resolveBindingFields(binding, slots, fieldNames);
-  if (!resolved.ok) return { ok: false, reason: resolved.reason };
+  if (!resolved.ok) {
+    const broken =
+      "slot" in resolved ? saved?.slots.find((entry) => entry.slot === resolved.slot) : undefined;
+    const repair =
+      saved &&
+      broken &&
+      typeof broken.field !== "string" &&
+      ["field-missing", "field-ambiguous", "field-count-changed"].includes(resolved.reason)
+        ? { binding: saved, connectionId: connection.id, slots: [...slots] }
+        : undefined;
+    return { ok: false, reason: resolved.reason, ...(repair ? { repair } : {}) };
+  }
   // A TOTP key is never filled as text and a code is made only from a key, so such a
   // binding is refused before any step runs (ADR 0027, owner 2026-10-23).
   if (
@@ -454,6 +467,7 @@ export async function planFor(
     paused?: boolean;
   } = {},
 ) {
+  snapshot = await bindingReviewSnapshot(rt, snapshot, live, recipe, request.route !== undefined);
   let catalog: VaultCatalog;
   let chosen: Choice | undefined;
   let savedDefault = false;
@@ -536,7 +550,12 @@ export async function planFor(
           slotMap,
           fillGaps,
         );
-        if (!bound.ok) return { ok: false as const, reason: bound.reason };
+        if (!bound.ok)
+          return {
+            ok: false as const,
+            reason: bound.reason,
+            ...(bound.repair ? { repair: bound.repair } : {}),
+          };
         binding = bound.binding;
         named = bound.synced;
         unsaved = !chosen.saved || !bound.saved;
@@ -709,6 +728,7 @@ export async function planFor(
     const refusals: (string | undefined)[] = [];
     /** For a `no-route` refusal, which fact was missing (never a value). */
     const missing: (string | undefined)[] = [];
+    let repair: BindingIssue | undefined;
     /**
      * An item without a password, but with a passkey, goes on up to the step that fills
      * its password, or to the end of a route that fills none, in the tab's own page (ADR
@@ -744,6 +764,7 @@ export async function planFor(
     for (const [index, route] of routes.entries()) {
       const resolved = await resolveRoute(route, fillGaps);
       if (!resolved.ok) {
+        if (index === 0 && "repair" in resolved) repair = resolved.repair;
         if (!rt.variantRefusals.has(resolved.reason)) return resolved;
         if (resolved.reason === "binding-slots-mismatch") gap?.();
         refusals[index] = resolved.reason;
@@ -831,12 +852,14 @@ export async function planFor(
       ? {
           ok: false as const,
           reason: first,
+          ...(repair ? { repair } : {}),
           ...(detail && detail !== first ? { detail } : {}),
           ...marked,
         }
       : {
           ok: false as const,
           reason: "no-route" as const,
+          ...(repair ? { repair } : {}),
           ...(detail ? { detail } : {}),
           ...marked,
         };

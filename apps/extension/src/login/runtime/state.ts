@@ -35,6 +35,7 @@ import {
 
 import type { SettingsRuntime, LoginRuntimeOptions } from "./deps";
 import type { DetailFillGrant } from "./detail-popup";
+import type { BindingReviewState } from "./binding-review-state";
 
 export function createRuntimeState(settings: SettingsRuntime, options: LoginRuntimeOptions) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation, repairs } = options;
@@ -275,6 +276,9 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
   const repromptAsking = new Map<string, AbortController>();
 
   const pending = new Map<number, PendingChoice>();
+  const bindingReviews = new Map<number, BindingReviewState>();
+  /** Overrides being persisted cannot authorize an announcement that arrives meanwhile. */
+  const bindingActivating = new Set<number>();
 
   /** Reasons already logged, by tab, document and path; stored with the asks. */
   const noted = new Map<string, Set<string>>();
@@ -481,6 +485,8 @@ export function createRuntimeState(settings: SettingsRuntime, options: LoginRunt
     repromptWaiting,
     repromptAsking,
     pending,
+    bindingReviews,
+    bindingActivating,
     noted,
     stoppedAsks,
     rejectedAsks,

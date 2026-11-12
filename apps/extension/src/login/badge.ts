@@ -45,6 +45,9 @@ const FAILED = new Set([
  * asked, as on a site whose only item has neither a password nor a passkey.
  */
 const FAILED_REFUSALS = new Set([
+  "field-missing",
+  "field-ambiguous",
+  "field-count-changed",
   "no-route",
   "field-unavailable",
   "storage-unavailable",

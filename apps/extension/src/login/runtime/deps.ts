@@ -19,6 +19,7 @@ import {
   type SettingsSnapshot,
   type VaultConnectionMetadata,
   type VaultItemMetadata,
+  type VaultCatalog,
 } from "@pateat/contracts";
 import type { ServiceTiming } from "../../service/transport";
 import { type LoginBadge } from "../badge";
@@ -46,6 +47,10 @@ export type SettingsRuntime = {
     expectedRevision: number | undefined,
     cause: SettingsChangeCause,
     mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+    authorize?: (
+      snapshot: SettingsSnapshot,
+      catalog: () => Promise<VaultCatalog>,
+    ) => Promise<boolean>,
   ): Promise<SettingsSnapshot>;
 };
 
@@ -254,6 +259,8 @@ export interface LoginGeneration {
 
 export type LoginRuntimeOptions = {
   fields: LoginFieldSource;
+  /** Secret-free service/device/settings-profile identity for document-scoped binding repair. */
+  bindingScope?: (snapshot: Pick<SettingsSnapshot, "revision" | "changes">) => Promise<string>;
   sites?: LoginSites;
   recipes?: LoginRecipes;
   /** Live provider URI matching; without it only static `allowedOrigins` apply. */

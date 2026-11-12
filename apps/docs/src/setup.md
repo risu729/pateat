@@ -56,7 +56,15 @@ Each connection row also controls which items Pateat may use:
 
 When an item with excluded custom fields changes so that Pateat can no longer tell which
 field an exclusion meant, Pateat holds the item back until you review its fields on this
-page.
+page. The toolbar popup lists items waiting for review; **Review fields in settings**
+opens this page without approving or changing any exclusion.
+
+If a login stops because a saved custom-field name is missing or ambiguous, open the
+popup's **Review vault fields** section. Choose the current field for each input and
+press **Use these fields and retry**. The list shows only names of allowed custom
+fields. Pateat retries that page and saves the repaired choice only after sign-in is
+confirmed. If the page, vault, settings or profile changes, reload the page and review
+again. Missing built-in fields and changed recipe inputs are not repaired here.
 
 These limits apply to Pateat only and do not change anything in Bitwarden.
 

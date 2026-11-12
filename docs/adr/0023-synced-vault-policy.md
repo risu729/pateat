@@ -4,8 +4,9 @@ Status: accepted by the owner on 2026-10-11 (12:02 and 12:15 UTC). Amends
 [ADR 0013](0013-service-held-recipes-and-settings.md) (resolves its open item on
 settings that use device-local IDs, and keeps their editing in the extension) and
 [ADR 0021](0021-account-choice-outside-settings.md) (the popup may also repair one
-binding). Implemented on 2026-10-23, except the toolbar popup's part (reporting items
-that wait for review, and binding review), which follows in its own PR. The owner
+binding). Implemented on 2026-10-23, with the toolbar popup's reporting and binding
+review implemented on 2026-11-12
+([implementation notes](#popup-implementation-2026-11-12)). The owner
 approved the [implementation notes](#implementation-notes-2026-10-15) on 2026-10-23
 (12:43 UTC), with the first settings sync not applying to a device used without the
 service, and chose the read-only Vaults tab of the owner web UI (12:44 UTC). Amended the
@@ -275,3 +276,33 @@ details the decision above leaves open.
   profile, as [ADR 0024](0024-settings-profiles.md) assigns them: each profile has its
   own, and a device that takes an existing profile takes that profile's policy with its
   exclusions and saved accounts ([ADR 0076](0076-settings-profiles-delivered.md)).
+
+## Popup implementation (2026-11-12)
+
+The popup lists items waiting for custom-field exclusion review and opens the existing
+Bitwarden settings section. It never approves a review or changes exclusions itself.
+
+A fresh login stopped by `field-missing`, `field-ambiguous` or `field-count-changed`
+offers a repair of its saved custom references, with every broken slot chosen together.
+Candidates are named custom fields allowed by current fill rules: Text, Hidden and
+Linked fields whose source is allowed and text-like. Unnamed, excluded, empty, Boolean
+and reserved SSO fields are not offered. A TOTP seed is offered only for a code slot.
+Duplicate names show position and count. Broken built-in references, changed recipe
+slots and failures outside those three reasons stay outside this repair.
+
+Session storage records the stopped document, frame, path, top page, account, vault
+snapshot, settings revision, service/device/profile identity, recipe revision/layout,
+original binding and chosen override, without field values. The override stays inactive
+while its session write is pending and is dropped if that write fails. It restarts only
+that document, then follows only its exact admitted attempt. Origin, destination,
+eligibility, field exclusions, SSO and master-password re-prompt checks still run.
+
+Only confirmed `authenticated` saves the rewritten binding. Filling alone, a challenge,
+an unknown outcome or rejection saves nothing. A vault replacement hold and the settings
+store's optional authorization guard keep the final check inside the mutation queue:
+the profile, recipe and live catalog must still match before the original binding is
+replaced at its expected settings revision. Existing three-argument mutations keep
+their behavior. The normal account saver cannot save a repair through another path.
+The profile identity follows the settings-sync base's `localWrite` only when the local
+change history proves that exact `service-sync` revision landed. An uncertain profile
+identity refuses repair. Installed-Chrome and real-account checks remain separate gates.

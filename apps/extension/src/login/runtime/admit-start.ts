@@ -42,6 +42,7 @@ import { addAskFill, reloginLimited } from "./relogin";
 import { noteChoice } from "./choice-save";
 import { reviewRequests, parkedFor, restartForRequest, retryAfterPasskey } from "./passkey";
 import { startsFor } from "./generation-scope";
+import { offerBindingReview, attachBindingReview } from "./binding-review";
 import { repairUnfit, repairChooser } from "./repair-run";
 import { planFor } from "./plan";
 import { drive } from "./run-steps";
@@ -307,6 +308,10 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   }
 
   if (!plan.ok) {
+    if (!ctx.previous && !ctx.switched && "repair" in plan && plan.repair)
+      await offerBindingReview(rt, snapshot, ctx.live, ctx.recipe, plan.repair);
+    const candidates =
+      "candidates" in plan && Array.isArray(plan.candidates) ? plan.candidates : undefined;
     // An account the page's value picked for a login that did not start is dropped, so
     // a default saved or a logout later decides this document again.
     const site = rt.picked.get(ctx.document.tabId);
@@ -316,16 +321,16 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
     }
     // Only a fresh start can be restarted with a picked account (ADR 0021). The page
     // after an account switch belongs to that login, so it offers none.
-    if (!ctx.previous && !ctx.switched && "candidates" in plan && plan.candidates) {
+    if (!ctx.previous && !ctx.switched && candidates) {
       const asked = "ask" in plan && plan.ask === true ? ctx.ask : undefined;
       const pausedChoice = "paused" in plan && plan.paused === true;
-      offerChoice(rt, ctx.document, plan.candidates, asked, pausedChoice);
+      offerChoice(rt, ctx.document, candidates, asked, pausedChoice);
       // Outside an ask, the page's own conditional request may wait for the pick, on a
       // recipe without a passkey button (ADR 0034); a paused site hands it on (ADR 0062).
       noteChoice(
         rt,
         ctx.document,
-        plan.candidates,
+        candidates,
         !asked && !pausedChoice && ctx.document.frameId === 0 && passkeyAnswersRequest(ctx.recipe),
       );
     }
@@ -342,7 +347,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
             ? "no-uri-match"
             : undefined,
       undefined,
-      "candidates" in plan && plan.candidates ? plan.candidates.length : undefined,
+      candidates?.length,
     );
     // Asked while the page still holds vault replacement off, so a check started by
     // this page's announcement cannot apply before the miss is registered.
@@ -753,6 +758,8 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   // The choice, pick and ask markers form one session update. Snapshot only once they
   // all name the started login, rather than relying on a deferred save callback.
   let sessionChanged = false;
+  const bindingReviewAttached = attachBindingReview(rt, run);
+  if (bindingReviewAttached) sessionChanged = true;
 
   const pick = rt.picked.get(ctx.document.tabId);
 
@@ -787,7 +794,8 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
   }
 
   // clearChoice saves the completed update before notifying a badge that may reenter.
-  if (!rt.pending.has(ctx.document.tabId) && sessionChanged)
+  if (bindingReviewAttached) await saveSession(rt);
+  else if (!rt.pending.has(ctx.document.tabId) && sessionChanged)
     void quietly(rt, () => saveSession(rt));
 
   clearChoice(rt, ctx.document.tabId);
