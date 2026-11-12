@@ -143,7 +143,6 @@ export async function writeSettings(
   /** `current` is missing when the profile was deleted meanwhile. */
   | { ok: false; current: SyncSettingsState | undefined }
 > {
-  const settings = write.settings;
   // Both statements use the exact same compare-and-swap predicate. The profile write
   // runs first; changes() gates the revision write so losing writers update neither, and
   // the revision write's changes() gates the writing device's record of it (`written`).
@@ -172,7 +171,7 @@ export async function writeSettings(
       .bind(
         ownerId,
         write.expectedRevision + 1,
-        JSON.stringify(ownerDocument(settings)),
+        JSON.stringify(ownerDocument(write.settings)),
         Date.now(),
         writer,
       ),
@@ -203,7 +202,7 @@ export async function writeSettings(
       version: 1,
       profileId,
       revision: write.expectedRevision + 1,
-      settings,
+      settings: write.settings,
       ...(writer === null || write.writeId === undefined ? {} : { written: write.writeId }),
     },
   };
