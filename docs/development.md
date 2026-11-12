@@ -840,6 +840,56 @@ they sit outside `src/`, so they stay outside the production coverage root. Each
 follows the 1,000-line limit. When changing the layout, compare the expanded test
 names and counts and run the local Worker tests.
 
+### Local crypto test organization
+
+`packages/bitwarden/src/local-crypto.test.ts` is the discovered entry for the local
+crypto suite. It owns the synthetic account and SDK helpers, the shared `sessions`
+array, the root `afterEach` that disposes sessions and restores mocks, and the account
+initialization, cipher isolation and item repair describe scopes. Plain modules in
+`packages/bitwarden/test/local-crypto/` export synchronous registration functions for
+those three groups, which the entry calls inside the matching scope with the same
+helper, session and constant references; importing a module registers no cases. The
+modules import `vitest`, the SDK, the production exports and the fixture values they
+use directly. The entry exports its `LocalCryptoTestFixtures` type, and `context.ts`
+builds the module contexts from it with `import type`, so the modules create no
+runtime import cycle. The modules sit outside `src/`, so they stay outside the
+production coverage root and are not discovered as test files. Each file follows the
+1,000-line limit.
+
+### Bitwarden account test organization
+
+`packages/bitwarden/src/account.test.ts` is the discovered entry for the main account
+mapping cases; `connection-fixtures.test.ts` and `local-unlock.test.ts` also exercise
+the account mapper. It owns the shared mapper, transport and local-crypto session
+helpers, the session cleanup hook, all five describe scopes and the native local-crypto
+cases. Plain modules in `packages/bitwarden/test/account/` export synchronous
+registration functions for the provider binding admission, strict modern metadata,
+received-envelope item mapping and same-account URI context groups, which the entry
+calls inside those scopes with the same helper references; importing a module
+registers no cases. The same-account URI module defines its local constants and
+helpers inside its registration function. The modules import `vitest`, the production
+exports and the fixtures they use directly. The entry exports its `AccountTestFixtures`
+and `AccountTestRaw` types, and `context.ts` builds the module contexts from them with
+`import type`. The modules sit outside `src/`, so they stay outside the coverage root
+and are not discovered as test files. Each file follows the 1,000-line limit.
+
+### Bitwarden URI test organization
+
+`packages/bitwarden/src/uri.test.ts` is the discovered entry for the URI matcher's unit
+cases; the account and crypto Worker suites cover matching through their own entries.
+It owns the seven describe scopes and the shared `target`, `saved`, `emptyResult` and
+`userDomains` helpers. Plain modules in `packages/bitwarden/test/uri/` export
+synchronous registration functions for ordinary semantics, equivalent domains,
+retained context, strict admission, caller-answered Regex URIs, the destination grant
+and the authenticated SDK case. The entry calls each inside its describe scope with
+the helpers that scope uses; importing a module registers no cases. Each registrar
+holds its scope's local constants and helpers with its cases. The modules import
+`vitest`, the production exports and the `__fixtures__` values they use directly. The
+entry exports its `UriTestFixtures` type, and `context.ts` builds the module contexts
+from it with `import type`. The modules sit outside `src/`, so they stay outside the
+coverage root and are not discovered as test files. Each file follows the 1,000-line
+limit.
+
 ### Recipe contract test organization
 
 `packages/contracts/src/recipes.test.ts` is the discovered entry for the recipe
