@@ -10,6 +10,14 @@ until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
+The service's generation tests keep `services/api/test/generation.test.ts` as their
+single discovered entrypoint. It retains the original helper initialization, shared
+fetch interceptor and mock lifecycle. Plain `test/generation/*.ts` registrars own the
+existing ordered cases, called inside the original describe groups. Their context
+passes immutable helpers by reference and forwards mutable replies, hooks, delays and
+sent requests through getters and setters to the entrypoint's single state owner. The
+registrars stay outside `src` and the service coverage include pattern.
+
 `packages/bitwarden/src/local-crypto-admission.ts` owns structural context schemas,
 encrypted DTO admission and ciphertext framing checks. `local-crypto.ts` keeps native
 SDK initialization, session operations and cleanup, and re-exports the original
