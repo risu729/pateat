@@ -526,9 +526,11 @@ export function createDeviceModel(options: {
       if (judgement && responses.length === 0) {
         // This restores the previous page answer. The service conservatively retains
         // quota once it issued a provider body, even though this device did not send it.
-        await request({ provider: setting.provider, responses: [], judgement: { ...judgement, cancel: true } }).catch(
-          () => undefined,
-        );
+        await request({
+          provider: setting.provider,
+          responses: [],
+          judgement: { ...judgement, cancel: true },
+        }).catch(() => undefined);
       }
     };
     // A service that keeps asking for calls again is stopped after twice the most a
