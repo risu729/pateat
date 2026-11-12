@@ -26,8 +26,8 @@ import {
   type VaultCatalog,
   type VaultItemMetadata,
 } from "./settings";
-import { createSettingsStore, type SettingsStorage } from "./settings-store";
-import { registerSettingsPageSaveTests } from "../test/vault-policy/settings-page-saves";
+import type { SettingsStorage } from "./settings-store";
+import { registerSettingsPageSaveTests } from "../test/vault-policy/settings-page-save-cases";
 
 // Synced vault policy (ADR 0023): synthetic accounts, items and evidence only.
 const snapshotId = "11111111-1111-4111-8111-111111111111";
@@ -867,17 +867,14 @@ const save = (
   shownSnapshots: shown,
 });
 
-export type SettingsPageSaveTestContext = {
+export type VaultPolicyTestFixtures = {
   memoryStorage: typeof memoryStorage;
   settings: typeof settings;
   catalog: typeof catalog;
-  createSettingsStore: typeof createSettingsStore;
   itemPolicy: typeof itemPolicy;
   review: typeof review;
   evidence: typeof evidence;
   item: typeof item;
-  getItemEligibility: typeof getItemEligibility;
-  isFieldExcluded: typeof isFieldExcluded;
   custom: typeof custom;
   snapshotId: typeof snapshotId;
   save: typeof save;
@@ -888,13 +885,10 @@ describe("settings page saves and custom-field review (ADR 0023)", () => {
     memoryStorage,
     settings,
     catalog,
-    createSettingsStore,
     itemPolicy,
     review,
     evidence,
     item,
-    getItemEligibility,
-    isFieldExcluded,
     custom,
     snapshotId,
     save,

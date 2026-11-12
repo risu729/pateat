@@ -1,22 +1,25 @@
 import { expect, it } from "vitest";
-import type { CustomFieldReview, LocalSettings } from "../../src/settings";
-import type { SettingsPageSaveTestContext } from "../../src/vault-policy.test";
+import {
+  getItemEligibility,
+  isFieldExcluded,
+  type CustomFieldReview,
+  type LocalSettings,
+} from "../../src/settings";
+import { createSettingsStore } from "../../src/settings-store";
+import type { VaultPolicyTestFixtures } from "../../src/vault-policy.test";
 
 export function registerSettingsPageSaveTests({
   memoryStorage,
   settings,
   catalog,
-  createSettingsStore,
   itemPolicy,
   review,
   evidence,
   item,
-  getItemEligibility,
-  isFieldExcluded,
   custom,
   snapshotId,
   save,
-}: SettingsPageSaveTestContext) {
+}: VaultPolicyTestFixtures) {
   const pin = { custom: "PIN", position: 2, count: 3 } as const;
   const stored = (value: LocalSettings) =>
     memoryStorage({ version: 1, revision: 3, settings: value });
