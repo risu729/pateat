@@ -219,3 +219,84 @@ describe("offscreen Worker supervision", () => {
     expect(port.sent.at(-1)).toMatchObject({ type: "crypto.dispatched", requestId: derive });
   });
 });
+
+describe("offscreen private SSO comparison-key lifetime", () => {
+  function privateKeys() {
+    startCryptoOffscreen();
+    port.deliver({ version: 1, type: "crypto.reset", generation });
+    const refs = ["site", "idp"].map((owner, index) => ({
+      brokerGeneration: generation,
+      connectionId: owner,
+      userId: "50000000-0000-4000-8000-000000000001",
+      sessionId: `50000000-0000-4000-8000-00000000000${index + 2}`,
+      snapshotId: open.operation.snapshotId,
+    }));
+    const workers = refs.map((ref, index) => {
+      const opening = {
+        ...open,
+        connectionId: ref.connectionId,
+        requestId: `60000000-0000-4000-8000-00000000000${index + 1}`,
+      };
+      port.deliver(opening);
+      const worker = SilentWorker.created.at(-1)!;
+      worker.onmessage?.({
+        data: {
+          version: 1,
+          type: "crypto.result",
+          generation,
+          requestId: opening.requestId,
+          connectionId: ref.connectionId,
+          result: { ok: true, data: { session: ref } },
+        },
+      } as MessageEvent<unknown>);
+      return worker;
+    });
+    const itemId = "70000000-0000-4000-8000-000000000001";
+    refs.forEach((session, index) => {
+      const operation =
+        index === 0
+          ? {
+              kind: "sso-methods",
+              session,
+              itemId,
+              allowedFieldIds: ["login.username"],
+              key: "B".repeat(43),
+            }
+          : {
+              kind: "sso-candidates",
+              session,
+              usernameProof: "P".repeat(43),
+              candidates: [{ itemId, allowedFieldIds: ["login.username"] }],
+              key: "C".repeat(43),
+            };
+      port.deliver({
+        ...open,
+        connectionId: session.connectionId,
+        requestId: `80000000-0000-4000-8000-00000000000${index + 1}`,
+        operation,
+      });
+    });
+    const commands = workers.map(
+      (worker) => worker.posted.at(-1) as { operation: { kind: string; key: string } },
+    );
+    expect(commands.map((command) => command.operation.kind)).toEqual([
+      "sso-methods",
+      "sso-candidates",
+    ]);
+    return commands.map((command) => command.operation.key);
+  }
+  it("shares one private relay key across connections, replaces caller keys, and changes on document recreation", () => {
+    const keys = privateKeys();
+    expect(keys[0]).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[0]).not.toBe("B".repeat(43));
+    expect(keys[1]).not.toBe("C".repeat(43));
+    expect(JSON.stringify(port.sent)).not.toContain(keys[0]);
+    port.clear();
+    SilentWorker.created.length = 0;
+    const recreated = privateKeys();
+    expect(recreated[0]).toBe(recreated[1]);
+    expect(recreated[0]).not.toBe(keys[0]);
+    expect(JSON.stringify(port.sent)).not.toContain(recreated[0]);
+  });
+});

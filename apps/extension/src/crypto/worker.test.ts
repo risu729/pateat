@@ -879,3 +879,82 @@ describe("crypto Worker TOTP code grant", () => {
     expect(JSON.stringify(items.find((item) => item.id === itemId(2)))).not.toContain("totpSeed");
   });
 });
+
+describe("crypto Worker SSO discovery admission", () => {
+  const key = "A".repeat(43);
+  const fieldId = `custom.${snapshotId}.0`;
+  const sourceInput = () => ({
+    kind: "sso-methods" as const,
+    session,
+    itemId: itemId(1),
+    allowedFieldIds: [fieldId],
+    key,
+  });
+  it("refuses SSO discovery until the encrypted snapshot has been verified", async () => {
+    expect(await command(sourceInput())).toEqual(failed("invalid-request"));
+    expect(mocks.decrypt).not.toHaveBeenCalled();
+  });
+  it("requires a relay key and exact live session before reading any method", async () => {
+    expect(await command({ kind: "verify-received-ciphers", session })).toMatchObject({ ok: true });
+    mocks.decrypt.mockClear();
+    const { key: _key, ...input } = sourceInput();
+    expect(await command(input)).toEqual(failed("invalid-request"));
+    expect(
+      await command({ ...sourceInput(), session: { ...session, snapshotId: otherSnapshotId } }),
+    ).toEqual(failed("crypto-locked"));
+    expect(mocks.decrypt).not.toHaveBeenCalled();
+  });
+  it("dispatches transient source proofs to the candidate comparison lane without returning usernames", async () => {
+    await openWorker(
+      [
+        [{ uri: "https://site.example.test", match: 0 }],
+        [{ uri: "https://idp.example.test/login", match: 0 }],
+      ],
+      0,
+      false,
+      (item, index) => ({
+        ...item,
+        login: {
+          ...(item["login"] as object),
+          username: index === 1 ? "site-user" : "person@example.test",
+        },
+        ...(index === 1
+          ? {
+              fields: [
+                { name: "SSO", value: "[Provider] PERSON@EXAMPLE.TEST", type: 0, linkedId: null },
+              ],
+            }
+          : {}),
+      }),
+    );
+    expect(await command({ kind: "verify-received-ciphers", session })).toMatchObject({ ok: true });
+    mocks.decrypt.mockClear();
+    const described = (await command(sourceInput())) as {
+      ok: boolean;
+      data: { result: { status: string; methods: { usernameProof: string }[] } };
+    };
+    expect(described).toMatchObject({
+      ok: true,
+      data: { result: { status: "ready", methods: [{ form: "bracket", label: "Provider" }] } },
+    });
+    expect(mocks.decrypt).toHaveBeenCalledOnce();
+    const proof = described.data.result.methods[0]!.usernameProof;
+    const matched = await command({
+      kind: "sso-candidates",
+      session,
+      usernameProof: proof,
+      candidates: [{ itemId: itemId(2), allowedFieldIds: ["login.username"] }],
+      key,
+    });
+    expect(matched).toEqual({
+      ok: true,
+      data: {
+        snapshotId,
+        candidates: [{ itemId: itemId(2), origins: ["https://idp.example.test"] }],
+      },
+    });
+    expect(JSON.stringify(matched)).not.toContain("person@example.test");
+    expect(mocks.decrypt).toHaveBeenCalledTimes(2);
+    expectEverySnapshotDisposedOnce();
+  });
+});
