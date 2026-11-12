@@ -740,6 +740,43 @@ references; importing a module registers no cases. The modules sit outside `src/
 so they stay outside the production coverage root. Each file follows the 1,000-line
 limit.
 
+### Service recipe sync test organization
+
+`apps/extension/src/service/recipes.test.ts` is the discovered entry for the recipe
+sync and cached lookup cases. It owns the shared synthetic fixtures, cache builders
+and setup, its seven describe scopes, and the cached lookup suite's `signin` and
+`stored` initializers. Plain modules in `apps/extension/test/service/recipes/` export
+synchronous registration functions for the page sync, recovery, capacity, layout and
+cached lookup groups, which the entry calls inside those scopes with the same fixture
+and helper references; importing a module registers no cases. The entry exports its
+fixture type, and `context.ts` imports it with `import type`, so the type follows the
+helpers. The modules sit outside `src/`, so they stay outside the production coverage
+root. Each file follows the 1,000-line limit.
+
+### Service settings sync test organization
+
+`apps/extension/src/service/settings-sync.test.ts` is the discovered entry for the
+main settings sync cases; the lost-base and property suites are separate entries. It
+owns the shared fixture factories, its describe scopes and each scope's local
+fixtures. Plain modules in `apps/extension/test/service/settings-sync/` export
+synchronous registration functions for the after-first-sync, vault-policy and
+personal-detail-link groups, which the entry calls inside those scopes with the same
+fixture and helper references; importing a module registers no cases. The modules
+import `vitest` and the production exports they use directly. The entry exports its
+fixture type, and `context.ts` picks from it with `import type`. The modules sit
+outside `src/`, so they stay outside the production coverage root. Each file follows
+the 1,000-line limit.
+
+### Completion judge test organization
+
+`packages/inference/src/completion.test.ts` is the discovered entry for the main
+completion judge suites. It owns their describe nesting and the shared and
+suite-local fixtures and helpers. Plain modules in `packages/inference/test/completion/`
+export synchronous registration functions for the sign-in, code-answer,
+personal-detail and account-slot cases, which the entry calls inside those suites with
+the same fixture references; importing a module registers no cases. The entry exports
+its `CompletionFixtures` type, and the modules and `context.ts` import it with
+
 ### Recipe assembly test organization
 
 `packages/inference/src/assemble.test.ts` is the discovered entry for the main
