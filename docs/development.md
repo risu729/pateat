@@ -728,6 +728,18 @@ registers no cases. `context.ts` holds the harness and helper types. The modules
 outside `src/`, so they stay outside the production coverage root. Each file follows
 the 1,000-line limit.
 
+### Connection runtime test organization
+
+`apps/extension/src/connections/runtime.test.ts` is the discovered entry for the
+connection runtime suite. It owns the hoisted mocks, the shared stored entry and
+session keys, the cleanup and the local helpers. Plain modules in
+`apps/extension/test/connections/runtime/` export synchronous registration functions
+for settings-port admission, current-catalog restoration and pending settings-page
+requests, which the entry calls inside its describe scopes with the same live
+references; importing a module registers no cases. The modules sit outside `src/`,
+so they stay outside the production coverage root. Each file follows the 1,000-line
+limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.

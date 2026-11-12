@@ -32,7 +32,6 @@
       // Files already over max-lines. Remove a file from this list once it is split under
       // the limit; never add one.
       "files": [
-        "apps/extension/src/connections/runtime.test.ts",
         "apps/extension/src/crypto/host.test.ts",
         "apps/extension/src/login/badge.test.ts",
         "apps/extension/src/login/content.ts",

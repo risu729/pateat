@@ -15,6 +15,9 @@ import { legacyItemKey } from "../../../../packages/bitwarden/src/__fixtures__/c
 import { createConnectionRuntime } from "./runtime";
 import type { SetupReply } from "./types";
 import { SETUP_PORT } from "./wire";
+import { registerSettingsPortCases } from "../../test/connections/runtime/settings-port";
+import { registerCurrentCatalogCases } from "../../test/connections/runtime/current-catalog";
+import { registerPendingRequestCases } from "../../test/connections/runtime/pending-requests";
 
 const stored = vi.hoisted(() => ({
   entry: null as VaultEntry | null,
@@ -115,148 +118,11 @@ function settingsPort(
 }
 
 describe("settings-page setup port", () => {
-  it("is open to the settings page reloaded at a section link, and to no other page", () => {
-    const runtime = createConnectionRuntime({} as CryptoHost, {
-      registry: { list: async () => [], get: async () => undefined } as never,
-    });
-    const page = "chrome-extension://synthetic-extension";
-    const reloaded = settingsPort(() => undefined, `${page}/options.html#sync`);
-    expect(runtime.attach(reloaded as never)).toBe(true);
-    expect(reloaded.disconnect).not.toHaveBeenCalled();
-    for (const url of [`${page}/options.html?view=other`, `${page}/popup.html`]) {
-      const other = settingsPort(() => undefined, url);
-      expect(runtime.attach(other as never)).toBe(true);
-      expect(other.disconnect).toHaveBeenCalledOnce();
-    }
-  });
-
-  it("disconnects when a reply cannot be sent, so the page fails at once instead of waiting", async () => {
-    const runtime = createConnectionRuntime({} as CryptoHost, {
-      registry: { list: async () => [], get: async () => undefined } as never,
-    });
-    const port = settingsPort(() => {
-      throw new Error("Message length exceeded maximum allowed length.");
-    });
-    expect(runtime.attach(port as never)).toBe(true);
-    port.send({ requestId: crypto.randomUUID(), type: "connection.status" });
-    await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledOnce());
-    expect(port.disconnect).toHaveBeenCalledOnce();
-  });
-
-  it("answers the page's heartbeat on the same port, expired when this worker holds no flow", async () => {
-    const onVaultStateMayChange = vi.fn();
-    const onSignIn = vi.fn();
-    const runtime = createConnectionRuntime({} as CryptoHost, {
-      registry: { list: async () => [], get: async () => undefined } as never,
-      onVaultStateMayChange,
-      onSignIn,
-    });
-    const port = settingsPort(() => undefined);
-    expect(runtime.attach(port as never)).toBe(true);
-    const requestId = crypto.randomUUID();
-    port.send({ requestId, type: "connection.keep-alive", flowId: crypto.randomUUID() });
-    await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledOnce());
-    const expired = { ok: false, error: { code: "setup-expired" } };
-    expect(port.postMessage).toHaveBeenCalledWith({ requestId, result: expired });
-    // The local log gets the sign-in that ended while it waited for its code.
-    expect(onSignIn).toHaveBeenCalledExactlyOnceWith("keep-alive", expired);
-    expect(port.disconnect).not.toHaveBeenCalled();
-    // A heartbeat every 20 seconds changes no vault state, so it re-reads none.
-    expect(onVaultStateMayChange).not.toHaveBeenCalled();
-    // Each sign-in step is logged too; a status read is not.
-    const begin = crypto.randomUUID();
-    port.send({
-      requestId: begin,
-      type: "connection.begin",
-      input: {
-        kind: "existing",
-        connectionId: "synthetic-missing",
-        password: "synthetic-password",
-      },
-    });
-    port.send({ requestId: crypto.randomUUID(), type: "connection.status" });
-    await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledTimes(3));
-    expect(onSignIn).toHaveBeenCalledTimes(2);
-    expect(onSignIn).toHaveBeenLastCalledWith("begin", {
-      ok: false,
-      error: { code: "invalid-request" },
-    });
-  });
+  registerSettingsPortCases({ settingsPort });
 });
 
 describe("current vault catalog", () => {
-  it("restores a vault whose session the crypto host has ended", async () => {
-    const entry = activeEntry();
-    stored.entry = entry;
-    // Sessions the fake host still has; a Worker timeout or a lost offscreen document ends them.
-    const sessions = new Set<string>();
-    const host = {
-      open: vi.fn<CryptoHost["open"]>(async (request) => {
-        const session: HostSessionRef = {
-          brokerGeneration: "synthetic-generation",
-          connectionId: accountProfile.connectionId,
-          userId: request.prepared.binding.userId,
-          snapshotId: request.snapshotId,
-          sessionId: crypto.randomUUID(),
-        };
-        sessions.add(session.sessionId);
-        return {
-          ok: true,
-          data: {
-            session,
-            metadata: {
-              connectionId: accountProfile.connectionId,
-              userId: request.prepared.binding.userId,
-              accountVersion: request.prepared.binding.accountVersion,
-              securityVersion: 1,
-            },
-          },
-        };
-      }),
-      verifyReceivedCiphers: vi.fn<CryptoHost["verifyReceivedCiphers"]>(async () => ({
-        ok: true,
-        data: {
-          verifiedCipherCount: entry.accepted.prepared.ciphers.length,
-          unusableItems: [],
-          partialItems: [],
-        },
-      })),
-      catalog: vi.fn<CryptoHost["catalog"]>(async (session) =>
-        sessions.has(session.sessionId)
-          ? {
-              ok: true,
-              data: {
-                connectionId: session.connectionId,
-                userId: session.userId,
-                snapshotId: session.snapshotId,
-                groups: [],
-                items: [],
-              },
-            }
-          : { ok: false, error: { code: "crypto-locked" } },
-      ),
-      lock: vi.fn<CryptoHost["lock"]>(async (session) => {
-        sessions.delete(session.sessionId);
-        return { ok: true, data: null };
-      }),
-      isOpen: vi.fn((session: HostSessionRef) => sessions.has(session.sessionId)),
-    };
-    const configuration = {
-      profile: accountProfile,
-      label: "Synthetic",
-      email: "synthetic@example.com",
-      deviceIdentifier: crypto.randomUUID(),
-    };
-    const runtime = createConnectionRuntime(host as unknown as CryptoHost, {
-      registry: { list: async () => [configuration], get: async () => configuration } as never,
-    });
-    const id = accountProfile.connectionId;
-    expect((await runtime.current(id)).catalog.snapshotId).toBe(entry.accepted.snapshotId);
-    expect(host.open).toHaveBeenCalledOnce();
-    sessions.clear();
-    expect((await runtime.current(id)).catalog.snapshotId).toBe(entry.accepted.snapshotId);
-    expect(host.open).toHaveBeenCalledTimes(2);
-  });
+  registerCurrentCatalogCases({ stored });
 });
 
 describe("vault timeout and lock (ADR 0075)", () => {
@@ -748,102 +614,14 @@ describe("vault timeout and lock (ADR 0075)", () => {
       });
       return release;
     }
-    it("a retry leaves a vault being unlocked owed", async () => {
-      stored.entry = lockedEntry();
-      stored.writable = true;
-      const vaultTimeout = timeout();
-      const { host, runtime } = runtimeWith({ vaultTimeout });
-      const release = heldOpen(host);
-      const page = port();
-      runtime.attach(page as never);
-      const unlocking = page.request({
-        type: "connection.unlock",
-        input: { connectionId: id, password: "synthetic-password" },
-      });
-      await vi.waitFor(() => expect(host.open).toHaveBeenCalledOnce());
-      expect(await runtime.timeOut("log-out", undefined, {})).toEqual({ closed: 0, failed: [id] });
-      expect(await runtime.timeOut("log-out", [id], {})).toEqual({ closed: 0, failed: [id] });
-      expect(stored.entry).toEqual(lockedEntry());
-      release();
-      expect(await unlocking).toMatchObject({ ok: true, kind: "unlocked" });
-      await vi.waitFor(() => expect(vaultTimeout.used).toHaveBeenCalledWith(id));
-      // Once the unlock is recorded, a retry acts on the vault again.
-      await vi.waitFor(async () =>
-        expect(await runtime.timeOut("lock", undefined, {})).toEqual({ closed: 1, failed: [] }),
-      );
-    });
-    it("the timeout's own action still closes a vault being unlocked", async () => {
-      stored.entry = lockedEntry();
-      stored.writable = true;
-      const vaultTimeout = timeout();
-      const { host, runtime } = runtimeWith({ vaultTimeout, retention: async () => "session" });
-      const release = heldOpen(host);
-      const page = port();
-      runtime.attach(page as never);
-      const unlocking = page.request({
-        type: "connection.unlock",
-        input: { connectionId: id, password: "synthetic-password" },
-      });
-      await vi.waitFor(() => expect(host.open).toHaveBeenCalledOnce());
-      expect(await runtime.timeOut("lock")).toEqual({ closed: 0, failed: [] });
-      release();
-      expect(await unlocking).toMatchObject({ ok: false });
-      expect(sessionKeys.has(id)).toBe(false);
-      expect(stored.entry).toEqual(lockedEntry());
-    });
-    it("a vault stays out of the retries until its unlock is recorded as use", async () => {
-      stored.entry = lockedEntry();
-      stored.writable = true;
-      const vaultTimeout = timeout();
-      let record!: () => void;
-      vaultTimeout.used.mockImplementation(async (opened?: string) => {
-        if (opened)
-          await new Promise<void>((resolve) => {
-            record = resolve;
-          });
-      });
-      const { runtime } = runtimeWith({ vaultTimeout });
-      const page = port();
-      runtime.attach(page as never);
-      expect(
-        await page.request({
-          type: "connection.unlock",
-          input: { connectionId: id, password: "synthetic-password" },
-        }),
-      ).toMatchObject({ ok: true, kind: "unlocked" });
-      await vi.waitFor(() => expect(vaultTimeout.used).toHaveBeenCalledWith(id));
-      expect(await runtime.timeOut("lock", undefined, {})).toEqual({ closed: 0, failed: [id] });
-      record();
-      await vi.waitFor(async () =>
-        expect(await runtime.timeOut("lock", undefined, {})).toEqual({ closed: 1, failed: [] }),
-      );
-    });
-    it("a retry leaves a vault with a sign-in again in flight owed", async () => {
-      stored.entry = activeEntry();
-      stored.writable = true;
-      const vaultTimeout = timeout();
-      let started!: () => void;
-      vaultTimeout.used.mockImplementationOnce(
-        () =>
-          new Promise<void>((resolve) => {
-            started = resolve;
-          }),
-      );
-      const { runtime } = runtimeWith({ vaultTimeout });
-      const page = port();
-      runtime.attach(page as never);
-      const signingIn = page.request({
-        type: "connection.begin",
-        input: { kind: "existing", connectionId: id, password: "synthetic-password" },
-      });
-      await vi.waitFor(() => expect(vaultTimeout.used).toHaveBeenCalledOnce());
-      expect(await runtime.timeOut("lock", undefined, {})).toEqual({ closed: 0, failed: [id] });
-      expect(stored.entry).toEqual(activeEntry());
-      started();
-      await signingIn;
-      await vi.waitFor(async () =>
-        expect(await runtime.timeOut("lock", undefined, {})).toEqual({ closed: 1, failed: [] }),
-      );
+    registerPendingRequestCases({
+      stored,
+      sessionKeys,
+      id,
+      timeout,
+      runtimeWith,
+      port,
+      heldOpen,
     });
     describe("two-step sign-in", () => {
       const flowId = "70000000-0000-4000-8000-000000000001";
