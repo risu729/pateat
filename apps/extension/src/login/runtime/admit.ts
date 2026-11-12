@@ -29,7 +29,7 @@ import {
 } from "./types";
 import { leaveConfirm, previousPage, confirmSigns } from "./markers";
 import { noteUnadmitted, note, loginRelated } from "./generation";
-import { tabAttempt } from "./hold";
+import { tabAttempt, recordFor } from "./hold";
 import { terminal, siteWaitOver, watchOver } from "./attempt-state";
 import { dropReprompt } from "./master-password";
 import { type MoveMiss } from "./report";
@@ -47,7 +47,8 @@ import {
 } from "./moves";
 import { signedInAfterFrame, signedInByMove } from "./passkey";
 import type { Runtime } from "./state";
-import { cancelConfirm } from "./confirm-state";
+import { cancelConfirm, hasConfirmAuthentication } from "./confirm-state";
+import { admitConfirm } from "./confirm-admit";
 import { admitRecord } from "./admit-record";
 import type { AdmitContext } from "./admit-context";
 import { manualAuthorizationCurrent } from "./manual-scope";
@@ -79,6 +80,8 @@ export async function admit(
   await rt.vars.loaded;
 
   await rt.vars.sessionLoaded;
+
+  await rt.confirmFill.loaded;
 
   const document = await identify(rt, sender);
 
@@ -550,6 +553,29 @@ export async function admit(
   const quiet = ctx.signIn?.passkey
     ? ctx.list || !ctx.entryHello
     : ctx.shown || ctx.list || ctx.unoffered;
+
+  // A later frame may fill a confirmation using the top-level login's authenticated
+  // account. Only that confirmation path bypasses frame ownership: ordinary login
+  // admission, manual starts and active attempts retain the existing busy rule.
+  if (
+    busy &&
+    rt.vars.storageHealthy &&
+    !ctx.manual &&
+    owner?.document.frameId === 0 &&
+    ctx.document.frameId !== 0 &&
+    owner.account.origin === ctx.document.origin &&
+    hasConfirmAuthentication(rt, owner) &&
+    recordFor(rt, ctx.document.tabId, ctx.document.origin)?.id === owner.id &&
+    page !== undefined &&
+    rt.documents.get(frameKey(page.document)) === page &&
+    page.url === ctx.live.topUrl &&
+    !page.leftUnread
+  ) {
+    ctx.recorded = owner;
+    const confirmation = await admitConfirm(rt, ctx);
+    if (confirmation) return confirmation;
+    ctx.recorded = undefined;
+  }
 
   if (busy)
     return quiet && !ctx.start && (!ctx.signIn || ctx.signIn.passkey)
