@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it, type Mock, vi } from "vitest";
 import {
   createPasskeyRuntime,
   type PasskeyChoice,
@@ -6,7 +6,6 @@ import {
   type PasskeyItem,
   type PasskeySource,
 } from "../../src/passkeys/runtime";
-import type { Mock } from "vitest";
 import type { RuntimeFixtures } from "./runtime-context";
 
 type Stored = (RuntimeFixtures["candidate"] & { preferred?: boolean }) & { item: string };

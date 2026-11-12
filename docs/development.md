@@ -337,13 +337,6 @@ lines and comments included (owner, 2026-10-23). Files that were already longer 
 listed in the last override of `.oxlintrc.json` with the rule off until each is split;
 remove a file from that list when its split lands, and do not add new ones.
 
-The passkey runtime tests retain their discovered entrypoint in
-`apps/extension/src/passkeys/runtime.test.ts`, including the original describe scopes,
-fixture initialization and scoped timer cleanup. Contiguous case groups register
-synchronously from plain modules in `apps/extension/test/passkeys/`, outside production
-coverage roots, with the same fixture and helper references. Test discovery,
-registration order, assertions and tables are unchanged.
-
 Focused tasks are available for diagnosis:
 
 | Task | Purpose |
@@ -646,6 +639,17 @@ order, callbacks, parameter tables and migration SQL remain unchanged. Each file
 follows the 1,000-line limit. The API coverage configuration covers production
 `src/` only, so these test helpers remain outside it. Compare expanded collection
 names and counts as well as the local Worker tests when changing this layout.
+
+### Passkey runtime test organization
+
+`apps/extension/src/passkeys/runtime.test.ts` is the discovered entry for the passkey
+runtime suite. It owns the describe scopes, the shared fixtures and the timer cleanup
+of the immediate-request cases. Plain modules in `apps/extension/test/passkeys/`
+export synchronous registration functions for contiguous case groups, which the entry
+calls inside those scopes with the same fixture and helper references; importing a
+module registers no cases. `runtime-context.ts` holds the fixture types. The modules
+sit outside `src/`, so they stay outside the production coverage root without an
+exclude. Each file follows the 1,000-line limit.
 
 ### Login wire contracts
 

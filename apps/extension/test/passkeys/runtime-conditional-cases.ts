@@ -1,10 +1,9 @@
-import { expect, it, vi } from "vitest";
+import { expect, it, type Mock, vi } from "vitest";
 import {
   createPasskeyRuntime,
   type ConditionalDecision,
   type PasskeyItem,
 } from "../../src/passkeys/runtime";
-import type { Mock } from "vitest";
 import type { RuntimeFixtures, RuntimeGet } from "./runtime-context";
 
 type ConditionalInput = {

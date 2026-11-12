@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it, type Mock, vi } from "vitest";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "../../src/passkeys/policy";
 import {
   createPasskeyRuntime,
@@ -8,7 +8,6 @@ import {
 } from "../../src/passkeys/runtime";
 import type { PasskeyCandidates } from "../../src/passkeys/select";
 import { snapshotGetOptions } from "../../src/passkeys/page";
-import type { Mock } from "vitest";
 import type { RuntimeFixtures } from "./runtime-context";
 
 export function registerSenderBindingCases({

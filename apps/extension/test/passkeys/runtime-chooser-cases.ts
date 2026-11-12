@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it, type Mock, vi } from "vitest";
 import {
   chooserWaitMs,
   createPasskeyRuntime,
@@ -8,7 +8,6 @@ import {
 } from "../../src/passkeys/runtime";
 import type { PasskeyCandidates } from "../../src/passkeys/select";
 import { CHOOSER_MAX_WAIT_MS, CHOOSER_MIN_WAIT_MS } from "../../src/passkeys/wire";
-import type { Mock } from "vitest";
 import type { RuntimeFixtures } from "./runtime-context";
 
 type ChooserCandidate = RuntimeFixtures["candidate"] & {
