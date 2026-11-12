@@ -98,6 +98,17 @@ admission, including account binding, requested item coverage and passkey signat
 bounds. The public host exports remain available from `host.ts`; existing test files
 and assertions stay in place.
 
+The local vault manager keeps its public API in
+`apps/extension/src/vault/manager.ts`. `manager-session.ts` owns the shared epoch,
+live and staged sessions, retirement tracking and durable-authority guards. Snapshot
+acceptance, restoration and offline unlock live in `manager-snapshots.ts`; key
+retention, lock, log out and removal live in `manager-keys.ts`. Both use live accessors
+to the same mutable session bindings. `manager-capabilities.ts` owns field, URI,
+username and passkey operations through those guards; SSO keeps its existing guarded
+adapter. Public types live in `manager-types.ts` and remain exported by `manager.ts`.
+The split keeps initialization, cancellation, key lifetime, revision checks and effect
+ordering unchanged; existing tests and fixtures retain their files.
+
 The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
 `apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
