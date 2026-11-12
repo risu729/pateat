@@ -11,7 +11,7 @@ const { createRuntimeTestHarness } = await import("./harness");
 const { origin, connectionId, itemId, snapshotId, sender, target, recipe, userId, harness } =
   createRuntimeTestHarness(fake);
 
-describe("second-factor page handlers chosen per account (ADR 0027)", () => {
+describe("personal-detail popup fills (ADR 0061)", () => {
   afterEach(() => {
     vi.useRealTimers();
     for (const listener of fake.state.removed.splice(0))

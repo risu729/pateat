@@ -50,6 +50,7 @@ import { fillBaseline, fillRejection, inputValueMismatch, unreadyForm } from "..
 import {
   clickDestinations,
   formDestinations,
+  submitterDestinations,
   type FormDestination,
 } from "../page/form-destination";
 import { typeValue } from "../page/enter-value";
@@ -1273,14 +1274,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const form = formOf(controls[0] as Control);
         if (controls.some((control) => formOf(control as Control) !== form)) return { ok: false };
         if (new Set(controls).size !== controls.length) return { ok: false };
-        // A popup fill leaves submission to the person, so check its shown button's
-        // override too, before putting any value into the form (ADR 0051).
+        // A popup fill leaves submission to the person, so check every control that can
+        // submit the form too, the shown button and the default button a pressed Enter
+        // uses with their overrides, before putting any value into the form (ADR 0051).
         const buttons = matches(command.submit);
         const button = buttons.length === 1 ? buttons[0] : undefined;
         if (!button || targetState(document, command.submit, "shown") !== "unique")
           return { ok: false };
         const destinations = () => [
           ...controls.flatMap((control) => formDestinations(control as Control, "fill")),
+          ...controls.flatMap((control) => submitterDestinations(control as Control)),
           ...clickDestinations(button),
         ];
         const before = destinations();

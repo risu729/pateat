@@ -62,6 +62,25 @@ export function clickDestinations(element: Element): FormDestination[] {
 }
 
 /**
+ * Where each submit control of the forms `control`'s value may go with ({@link formsAround})
+ * sends them when it submits: a pressed Enter submits through the form's default button,
+ * the first submit control in tree order, even a hidden one, and through its `formaction`,
+ * so a `<button form="…" formaction="…">` injected anywhere in the page can take a value the
+ * person submits. Every one counts, a disabled one too, since the page may enable it. The
+ * form's `elements` are read through `HTMLFormElement.prototype`, as a control named
+ * `elements` replaces the property.
+ */
+export function submitterDestinations(
+  control: HTMLButtonElement | HTMLInputElement | HTMLSelectElement,
+): FormDestination[] {
+  return formsAround(control).flatMap((form) =>
+    [
+      ...(Reflect.get(HTMLFormElement.prototype, "elements", form) as HTMLFormControlsCollection),
+    ].flatMap((submitter) => (submitsForm(submitter) ? formDestinations(submitter, "click") : [])),
+  );
+}
+
+/**
  * Why a click on `element` may not run without the background's word: a control it
  * submits a form through would send that form off the document's origin.
  */

