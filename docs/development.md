@@ -753,6 +753,45 @@ fixture type, and `context.ts` imports it with `import type`, so the type follow
 helpers. The modules sit outside `src/`, so they stay outside the production coverage
 root. Each file follows the 1,000-line limit.
 
+### Service settings sync test organization
+
+`apps/extension/src/service/settings-sync.test.ts` is the discovered entry for the
+main settings sync cases; the lost-base and property suites are separate entries. It
+owns the shared fixture factories, its describe scopes and each scope's local
+fixtures. Plain modules in `apps/extension/test/service/settings-sync/` export
+synchronous registration functions for the after-first-sync, vault-policy and
+personal-detail-link groups, which the entry calls inside those scopes with the same
+fixture and helper references; importing a module registers no cases. The modules
+import `vitest` and the production exports they use directly. The entry exports its
+fixture type, and `context.ts` picks from it with `import type`. The modules sit
+outside `src/`, so they stay outside the production coverage root. Each file follows
+the 1,000-line limit.
+
+### Completion judge test organization
+
+`packages/inference/src/completion.test.ts` is the discovered entry for the main
+completion judge suites. It owns their describe nesting and the shared and
+suite-local fixtures and helpers. Plain modules in `packages/inference/test/completion/`
+export synchronous registration functions for the sign-in, code-answer,
+personal-detail and account-slot cases, which the entry calls inside those suites with
+the same fixture references; importing a module registers no cases. The entry exports
+its `CompletionFixtures` type, and the modules and `context.ts` import it with
+
+### Recipe assembly test organization
+
+`packages/inference/src/assemble.test.ts` is the discovered entry for the main
+recipe assembly cases. It owns the describe scopes, the shared helpers and the
+suite-local fixtures, and keeps the judged password, TOTP and detail handler suites
+inline. Plain modules in `packages/inference/test/assemble/` export synchronous
+registration functions for the generated recipe, replaced advance, completion marker,
+account switch, passkey and authenticator handler, password and passkey route, and
+independent TOTP probe groups, which the entry calls inside those scopes with the same
+helper and fixture references; importing a module registers no cases. The modules
+import `vitest` and the production exports they use directly. The entry exports its
+`AssembleFixtures` type, and `context.ts` builds the module contexts from it with
+`import type`. The modules sit outside `src/`, so they stay outside the production
+coverage root. Each file follows the 1,000-line limit.
+
 ### Inference plan test organization
 
 `packages/inference/src/plan.test.ts` is the discovered entry for the main plan
