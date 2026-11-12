@@ -41,6 +41,8 @@ import { signedInNow, countRelogin } from "./relogin";
 import { endPickedPause } from "./pause";
 import { reviewRequests } from "./passkey";
 import { remember } from "./choice-save";
+import { BINDING_REVIEWS_KEY, type BindingReviewState } from "./binding-review-state";
+import { settleBindingReview } from "./binding-review";
 import { settleDetails, forgetDetail, removeRefused } from "./detail-fill";
 import { askFor, offerChoice } from "./choice";
 import { DocumentGone } from "./document-gone";
@@ -146,8 +148,22 @@ export const stepWaitMs = (rt: Runtime) =>
 export const unsubmitted = (rt: Runtime, metadata: LoginAttemptMetadata) =>
   metadata.submissions === 0 && rt.begunIn.get(metadata.id) === metadata.document.documentId;
 
-export async function saveSession(rt: Runtime): Promise<void> {
+export async function saveSession(
+  rt: Runtime,
+  activatingReview?: BindingReviewState,
+): Promise<void> {
   await storage.setItems([
+    {
+      key: BINDING_REVIEWS_KEY,
+      value: [...rt.bindingReviews.values()].map((entry) => {
+        if (!rt.bindingActivating.has(entry.document.tabId) || entry === activatingReview)
+          return entry;
+        // An unrelated session save cannot make an unacknowledged pick durable. Only
+        // the explicit activation write may persist its chosen replacement.
+        const { replacement: _replacement, attemptId: _attemptId, ...offer } = entry;
+        return offer;
+      }),
+    },
     { key: PICKS_KEY, value: [...rt.picked.values()] },
     { key: CHOICES_KEY, value: [...rt.pending.values()] },
     { key: STOPPED_ASKS_KEY, value: scopes(rt, rt.stoppedAsks) },
@@ -496,6 +512,7 @@ export async function change(
   await timed(rt, run, "statusMs", () => publish(rt, run.live, run.metadata));
   // A conditional request of the page waits for how this login ends (ADR 0034).
   if (terminal(run.metadata) || idle(run.metadata)) reviewRequests(rt);
+  await settleBindingReview(rt, run);
   if (run.metadata.state === "authenticated" && !run.metadata.unconfirmed && run.choice)
     await remember(rt, run);
   // Links filled from the popup are saved once the login is confirmed, and links whose

@@ -67,6 +67,8 @@ import { leaveConfirm } from "./markers";
 import { rejectedElsewhere, recordFor } from "./hold";
 import { forgetClosedSites } from "./relogin";
 import type { Runtime } from "./state";
+import { bindingRepairRequestSchema, bindingReviewRequestSchema } from "../binding-review-wire";
+import { popupBindingReview, pickBindingReview, clearBindingReview } from "./binding-review";
 
 export const probeDocument = (rt: Runtime, url: URL) =>
   probeMode &&
@@ -211,6 +213,11 @@ export async function handle(rt: Runtime, message: unknown, sender: Sender): Pro
     if (pick.success) return pickFor(rt, pick.output);
     const switched = v.safeParse(switchRequestSchema, message);
     if (switched.success) return switchFor(rt, switched.output);
+    const review = v.safeParse(bindingReviewRequestSchema, message);
+    if (review.success)
+      return popupBindingReview(rt, review.output.tabId, review.output.reconnect === true);
+    const repair = v.safeParse(bindingRepairRequestSchema, message);
+    if (repair.success) return pickBindingReview(rt, repair.output);
     const detail = v.safeParse(detailRequestSchema, message);
     if (detail.success) return popupDetail(rt, detail.output.tabId);
     const fill = v.safeParse(detailFillRequestSchema, message);
@@ -437,6 +444,7 @@ export async function operationRun(
  * stops only when they no longer plan its account (ADR 0027).
  */
 export function settingsChanged(rt: Runtime, source: "synced" | "saved"): void {
+  for (const tabId of rt.bindingReviews.keys()) clearBindingReview(rt, tabId);
   const stopped = new Set<number>();
   for (const run of rt.attempts.values()) {
     if (terminal(run.metadata)) continue;
@@ -573,6 +581,7 @@ export async function incognitoClosed(rt: Runtime): Promise<void> {
  * goes on in the new tab, which its record moved to first.
  */
 export function forgetTab(rt: Runtime, tabId: number, closed = false): void {
+  clearBindingReview(rt, tabId);
   rt.switchStates.delete(tabId);
   void rt.accountPicks.endSwitch(tabId);
   const visit = rt.confirmVisits.get(tabId);

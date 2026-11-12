@@ -74,6 +74,8 @@ export function createDeviceRecipes(options: {
   const maxBytes = options.maxBytes ?? MAX_DEVICE_RECIPE_BYTES;
   // One change at a time, so keeping recipes cannot race an upload's cleanup.
   let queue: Promise<unknown> = Promise.resolve();
+  let mutation = 0;
+  let writing = 0;
   function enqueue<T>(task: () => Promise<T>): Promise<T> {
     const pending = queue.then(task);
     queue = pending.catch(() => undefined);
@@ -97,6 +99,8 @@ export function createDeviceRecipes(options: {
     const refused = store.refused?.filter((entry) =>
       store.recipes.some((recipe) => recipe.id === entry.id && recipe.revision === entry.revision),
     );
+    mutation += 1;
+    writing += 1;
     try {
       if (store.recipes.length === 0) await storage.clear();
       else
@@ -107,10 +111,18 @@ export function createDeviceRecipes(options: {
         });
     } catch {
       throw new DeviceRecipesUnavailable();
+    } finally {
+      writing -= 1;
     }
   }
 
   return {
+    /** A stable read's local mutation fence; reads alone never invalidate it. */
+    fence(): () => boolean {
+      const started = mutation;
+      const stable = writing === 0;
+      return () => stable && writing === 0 && mutation === started;
+    },
     /** The recipes kept here; rejects when they cannot be read. */
     async list(): Promise<readonly StoredLoginRecipe[]> {
       return (await load()).recipes;
@@ -226,10 +238,14 @@ export function createDeviceRecipes(options: {
     /** Deletes every recipe kept here, also a copy that cannot be read. */
     clear(): Promise<void> {
       return enqueue(async () => {
+        mutation += 1;
+        writing += 1;
         try {
           await storage.clear();
         } catch {
           throw new DeviceRecipesUnavailable();
+        } finally {
+          writing -= 1;
         }
       });
     },

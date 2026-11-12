@@ -4,6 +4,7 @@ import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
 import { createLoginRuntime, LOGIN_SITE_WAIT_ALARM } from "../src/login/runtime";
+import { bindingProfileScope } from "../src/login/runtime/binding-review-state";
 import { createRecipeRepairs } from "../src/login/repair";
 import { createLoginSites } from "../src/login/sites";
 import {
@@ -478,6 +479,9 @@ export default defineBackground(() => {
     void signIns.add(tabId, { origin, ...(rpId === undefined ? {} : { rpId }) }).catch(() => {});
   let siteWaitAwake: ReturnType<typeof setInterval> | undefined;
   const login = createLoginRuntime(loginSettings, {
+    bindingScope: async (snapshot) =>
+      bindingProfileScope(await settingsBaseStorage.read(), snapshot, await service.connection()),
+    bindingSnapshotCurrent: connections.snapshotCurrent,
     vault: vaultSync,
     // Wakes a stopped worker to end a login whose wait for the site or watch ran out
     // (ADR 0022).

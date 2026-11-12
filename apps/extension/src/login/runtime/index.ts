@@ -45,6 +45,7 @@ import {
   loginAccount,
 } from "./messages";
 import { saveSession } from "./attempt";
+import { BINDING_REVIEWS_KEY, bindingReviewStateSchema } from "./binding-review-state";
 import { revive } from "./choice";
 import { type Sender } from "./types";
 import { reloginLimited } from "./relogin";
@@ -179,6 +180,7 @@ function startRuntime(rt: Runtime) {
   // change to them happens after this load.
   rt.vars.sessionRead = quietly(rt, async () => {
     const items = await storage.getItems([
+      BINDING_REVIEWS_KEY,
       PICKS_KEY,
       CHOICES_KEY,
       STOPPED_ASKS_KEY,
@@ -192,6 +194,12 @@ function startRuntime(rt: Runtime) {
       REFUSED_DETAILS_KEY,
     ]);
     const stored = Object.fromEntries(items.map(({ key, value }) => [key, value]));
+    const repairs = v.safeParse(
+      v.pipe(v.array(bindingReviewStateSchema), v.maxLength(256)),
+      stored[BINDING_REVIEWS_KEY] ?? [],
+    );
+    if (repairs.success)
+      for (const entry of repairs.output) rt.bindingReviews.set(entry.document.tabId, entry);
     const picks = v.safeParse(v.array(pickedAccountSchema), stored[PICKS_KEY] ?? []);
     if (picks.success) for (const entry of picks.output) rt.picked.set(entry.tabId, entry);
     const choices = v.safeParse(v.array(pendingChoiceSchema), stored[CHOICES_KEY] ?? []);

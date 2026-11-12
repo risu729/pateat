@@ -1,9 +1,11 @@
 import { bitwardenEn } from "./bitwarden-en";
+import { bindingReviewEn } from "./binding-review-en";
 import { diagnosticsEn } from "./diagnostics-en";
 import { serviceEn } from "./service-en";
 import { settingsEn } from "./settings-en";
 export const en = {
   ...bitwardenEn,
+  ...bindingReviewEn,
   ...settingsEn,
   ...diagnosticsEn,
   ...serviceEn,

@@ -86,6 +86,8 @@ export function createServiceRuntime(options: {
   const hasSiteAccess = (origin: string) => options.hasSiteAccess(origin).catch(() => false);
   // One request at a time, so a second pairing cannot race the first or a disconnect.
   let queue: Promise<unknown> = Promise.resolve();
+  let mutation = 0;
+  let writing = 0;
   // An issued credential whose write failed; the service has already created the device.
   let unsaved: ServiceRecord | undefined;
 
@@ -103,17 +105,25 @@ export function createServiceRuntime(options: {
     return parsed.output;
   }
   async function save(record: ServiceRecord) {
+    mutation += 1;
+    writing += 1;
     try {
       await storage.write(record);
     } catch {
       throw new StorageUnavailable();
+    } finally {
+      writing -= 1;
     }
   }
   async function clear() {
+    mutation += 1;
+    writing += 1;
     try {
       await storage.clear();
     } catch {
       throw new StorageUnavailable();
+    } finally {
+      writing -= 1;
     }
   }
 
@@ -253,6 +263,12 @@ export function createServiceRuntime(options: {
   }
 
   return {
+    /** Secret-free synchronous invalidation when a pairing record changes during another read. */
+    fence(): () => boolean {
+      const started = mutation;
+      const stable = writing === 0;
+      return () => stable && writing === 0 && mutation === started;
+    },
     handle(input: unknown): Promise<ServiceResponse> {
       return enqueue(() =>
         run(input).then(withKeptRecipes, (error: unknown) => {

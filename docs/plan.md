@@ -1458,10 +1458,14 @@ names items the owner mentioned and gates still open on 2026-10-11.
     so Pateat can be used as autofill only) and `personal-details`. Its delivery 1 is in
     [phase 2](#phase-2-use-it-and-fix-what-comes-up); deliveries 2 to 4 (the settings
     and fill-only `sign-in`, filling `confirm` pages, personal details) are here.
+- The toolbar popup's part of synced vault policy is implemented (2026-11-12): it
+  reports items waiting for field review and repairs stopped custom-field bindings
+  through document-scoped choices, saving only after confirmed authentication
+  ([ADR 0023](adr/0023-synced-vault-policy.md#popup-implementation-2026-11-12)).
+  Synthetic validation and independent review accompany the implementation PR;
+  installed-Chrome and real-account checks remain open.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
-  sections, including the toolbar popup's part of synced vault policy (reporting items
-  that wait for review, and binding review;
-  [ADR 0023](adr/0023-synced-vault-policy.md)), profile inheritance
+  sections, including profile inheritance
   ([ADR 0076](adr/0076-settings-profiles-delivered.md)), the ADR 0025 later work and the
   ADR 0027 cases it does not handle. Generation for passkey-only start pages moved to
   [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.

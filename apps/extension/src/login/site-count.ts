@@ -270,13 +270,17 @@ export function recountingSettings<
       expectedRevision: number | undefined,
       cause: SettingsChangeCause,
       mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+      authorize?: (
+        snapshot: SettingsSnapshot,
+        catalog: () => Promise<VaultCatalog>,
+      ) => Promise<boolean>,
     ): Promise<SettingsSnapshot>;
   },
 >(settings: T, saved: () => void): T {
   return {
     ...settings,
-    update: (expectedRevision, cause, mutate) =>
-      settings.update(expectedRevision, cause, mutate).then((snapshot) => {
+    update: (expectedRevision, cause, mutate, authorize) =>
+      settings.update(expectedRevision, cause, mutate, authorize).then((snapshot) => {
         saved();
         return snapshot;
       }),

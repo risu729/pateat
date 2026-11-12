@@ -661,6 +661,7 @@ export async function fallBack(
   });
   if (
     current(rt, run) &&
+    !run.bindingRepair &&
     plan.ok &&
     plan.choice &&
     plan.account.connectionId === run.metadata.account.connectionId &&

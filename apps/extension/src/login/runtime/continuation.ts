@@ -260,7 +260,7 @@ export async function switchLayout(rt: Runtime, run: Execution): Promise<boolean
     // The recipe is replaced before the record that names its layout is written.
     run.recipe = sibling;
     // The account's choice is saved for the layout the login signs in on.
-    if (plan.choice) run.choice = plan.choice;
+    if (plan.choice && !run.bindingRepair) run.choice = plan.choice;
     else delete run.choice;
     delete run.inPlace;
     delete run.siblingsInPlace;
@@ -645,7 +645,7 @@ export async function continueWith(
   // The recipe is replaced before the record that names its revision is written.
   run.recipe = next;
   if (!isLoginRouteRecipe(answered)) run.chooser = answered;
-  if (plan.choice) run.choice = plan.choice;
+  if (plan.choice && !run.bindingRepair) run.choice = plan.choice;
   else delete run.choice;
   delete run.qualified;
   delete run.stopMiss;

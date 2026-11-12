@@ -153,6 +153,7 @@ export function createRecipeSync(options: {
   service: {
     /** Rejects when the connection cannot be read; undefined means no device is paired. */
     connection(): Promise<ServiceConnection | undefined>;
+    fence?(): () => boolean;
     recordSync(deviceId: string, outcome: RecipeSyncRecord): Promise<void>;
   };
   transport: Pick<ServiceTransport, "recipeChanges">;
@@ -173,6 +174,7 @@ export function createRecipeSync(options: {
    */
   device?: {
     list(): Promise<readonly StoredLoginRecipe[]>;
+    fence?(): () => boolean;
     upload(connection: ServiceConnection, stale: () => boolean): Promise<DeviceRecipeUpload>;
     forget(held: ReadonlySet<string>, stale: () => boolean): Promise<void>;
   };
@@ -198,6 +200,8 @@ export function createRecipeSync(options: {
   let memory: RecipeCache | undefined;
   // Bumped by clear(), so a sync or read that started before it cannot restore the cache.
   let generation = 0;
+  let mutation = 0;
+  let writing = 0;
   // clear() waits behind pending writes, so a late durable write cannot survive it.
   let storageWrites: Promise<void> = Promise.resolve();
   function persist(action: () => Promise<void>, started: number): Promise<boolean> {
@@ -401,11 +405,15 @@ export function createRecipeSync(options: {
       counts: { added: number; updated: number; removed: number },
     ): Promise<RecipeSyncOutcome | undefined> {
       if (generation !== started) return "not-connected";
+      mutation += 1;
+      writing += 1;
       try {
         memory = undefined;
         if (!(await persist(() => storage.write(next), started))) return "not-connected";
       } catch {
         return "storage-unavailable";
+      } finally {
+        writing -= 1;
       }
       if (generation !== started) return "not-connected";
       memory = next;
@@ -618,6 +626,8 @@ export function createRecipeSync(options: {
 
   /** Forgets the cache when its device is disconnected; a new pairing starts empty anyway. */
   async function clear() {
+    mutation += 1;
+    writing += 1;
     generation += 1;
     memory = undefined;
     const cleared = storageWrites.then(async () => {
@@ -629,7 +639,11 @@ export function createRecipeSync(options: {
       return undefined;
     });
     storageWrites = cleared;
-    await Promise.all([cleared, options.settings?.clear()]);
+    try {
+      await Promise.all([cleared, options.settings?.clear()]);
+    } finally {
+      writing -= 1;
+    }
   }
 
   /**
@@ -639,7 +653,7 @@ export function createRecipeSync(options: {
    */
   async function current(
     refresh: boolean,
-  ): Promise<{ recipes: readonly StoredLoginRecipe[] } | undefined> {
+  ): Promise<{ recipes: readonly StoredLoginRecipe[]; local?: true } | undefined> {
     let connection: ServiceConnection | undefined;
     try {
       connection = await service.connection();
@@ -648,7 +662,7 @@ export function createRecipeSync(options: {
     }
     if (!connection) {
       const held = await options.device?.list().catch(() => undefined);
-      return held ? { recipes: held } : undefined;
+      return held ? { recipes: held, local: true } : undefined;
     }
     if (refresh && !connection.rejected) refreshIfStale();
     return load(connection);
@@ -728,6 +742,22 @@ export function createRecipeSync(options: {
   // 0060). Without a layout named, it is the newest one; a new login chooses among
   // `layouts` (or `choosers`) itself.
   const recipes: LoginRecipes = {
+    async fence(recipe) {
+      // Take all epochs before the first awaited lookup. In-flight writes are refused,
+      // including one whose old durable copy could still be read during replacement.
+      const started = mutation;
+      const stable = writing === 0;
+      const paired = service.fence?.();
+      const device = options.device?.fence?.();
+      if (!stable || !paired) return undefined;
+      const cache = await current(false);
+      const held = cache && resumedRecipe(cache, recipe.origin, recipe.id, recipe.layout);
+      if (!held || JSON.stringify(held) !== JSON.stringify(recipe) || (cache.local && !device))
+        return undefined;
+      const unchanged = () =>
+        mutation === started && writing === 0 && paired() && (!cache.local || device!());
+      return unchanged() ? unchanged : undefined;
+    },
     async recipe(origin: string, path: string, recipeId?: string, layout?: string) {
       const cache = await current(true);
       if (!cache) return undefined;

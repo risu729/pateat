@@ -198,11 +198,19 @@ export function createSettingsStore(
     expectedRevision: number | undefined,
     cause: SettingsChangeCause,
     mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+    authorize?: (
+      snapshot: SettingsSnapshot,
+      catalog: () => Promise<VaultCatalog>,
+    ) => Promise<boolean>,
   ) {
     const current = await readSnapshot();
     if (expectedRevision !== undefined && expectedRevision !== current.revision)
       throw new Error("revision-conflict");
     if (current.revision >= Number.MAX_SAFE_INTEGER - 1) throw new Error("storage-corrupt");
+    // Authorization runs inside the same queue as the write. Callers holding provider
+    // replacement off may inspect fresh metadata without recursively entering this store.
+    if (authorize && !(await authorize(current, () => catalogFor(current))))
+      throw new Error("update-not-authorized");
     const next = v.parse(settingsSnapshotSchema, mutate(structuredClone(current)));
     next.revision = current.revision + 1;
     // The store owns the history; a mutation cannot rewrite or drop it.
@@ -228,8 +236,12 @@ export function createSettingsStore(
       expectedRevision: number | undefined,
       cause: SettingsChangeCause,
       mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+      authorize?: (
+        snapshot: SettingsSnapshot,
+        catalog: () => Promise<VaultCatalog>,
+      ) => Promise<boolean>,
     ): Promise<SettingsSnapshot> {
-      const pending = queue.then(() => executeUpdate(expectedRevision, cause, mutate));
+      const pending = queue.then(() => executeUpdate(expectedRevision, cause, mutate, authorize));
       queue = pending.then(
         () => undefined,
         () => undefined,

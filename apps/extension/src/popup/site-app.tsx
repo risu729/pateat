@@ -57,6 +57,7 @@ import {
 } from "../login/detail-wire";
 import { pauseSite } from "../login/pause";
 import { hostnameOf, PageStatusSection } from "./page-status";
+import { PopupBindingReview, type BindingReviewClient } from "./binding-review";
 import {
   PAUSE_CHOICES,
   PauseControl,
@@ -553,12 +554,14 @@ export function SiteApp({
   client,
   choices,
   details,
+  bindingReviews,
   host,
   listingWaitMs = SITE_ACCOUNTS_WAIT_MS,
 }: {
   client: SettingsClient;
   choices: ChoiceClient;
   details: DetailClient;
+  bindingReviews?: BindingReviewClient;
   host: PopupHost;
   listingWaitMs?: number;
 }) {
@@ -1691,6 +1694,7 @@ export function SiteApp({
         </p>
       )}
       {body}
+      <PopupBindingReview client={bindingReviews} tabId={tabId} origin={origin} host={host} />
     </main>
   );
 }

@@ -1,4 +1,5 @@
 import { bitwardenJa } from "./bitwarden-ja";
+import { bindingReviewJa } from "./binding-review-ja";
 import { diagnosticsJa } from "./diagnostics-ja";
 import { serviceJa } from "./service-ja";
 import type { en } from "./en";
@@ -6,6 +7,7 @@ import { settingsJa } from "./settings-ja";
 
 export const ja = {
   ...bitwardenJa,
+  ...bindingReviewJa,
   ...settingsJa,
   ...diagnosticsJa,
   ...serviceJa,
