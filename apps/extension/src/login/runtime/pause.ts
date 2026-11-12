@@ -286,6 +286,16 @@ export async function pauseFor(
   const url = tab?.url;
   if (!url || pauseSite(url) === undefined) return { ok: false, reason: "no-site" };
   const incognito = tab.incognito === true;
+  // Withdraw SSO authority before the pause write can resolve or await any UI work.
+  if (paused)
+    for (const flow of rt.sso.flows.values())
+      if (
+        (flow.live.incognito ?? incognito) === incognito &&
+        [flow.account.origin, flow.selected.origin].some(
+          (origin) => pauseSite(origin) === pauseSite(url),
+        )
+      )
+        cancelSso(rt, flow.rpLive.document.tabId, "sso-paused");
   let until: number | undefined;
   let resumed = false;
   try {
@@ -310,14 +320,6 @@ export async function pauseFor(
   await showPause(rt, url, incognito);
   const ids = await pausedTabs(rt, url, incognito);
   if (paused) {
-    for (const flow of rt.sso.flows.values())
-      if (
-        (flow.live.incognito ?? incognito) === incognito &&
-        [flow.account.origin, flow.selected.origin].some(
-          (origin) => pauseSite(origin) === pauseSite(url),
-        )
-      )
-        cancelSso(rt, flow.rpLive.document.tabId, "sso-paused");
     // Waiting conditional requests of the site's pages go to the browser at once.
     for (const parked of [...rt.parkedRequests])
       if (ids.has(parked.tabId) && pauseSite(parked.origin) === pauseSite(url))

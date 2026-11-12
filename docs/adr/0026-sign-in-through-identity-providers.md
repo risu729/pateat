@@ -270,3 +270,26 @@ entry, exact encrypted IdP credentials, and confirmed original-RP completion wit
 changing the IdP default or creating an IdP authentication proof. Full negative-matrix,
 passkey, service-generation, cloud and independent review checks are still in progress.
 No real-account or installed-user-browser compatibility is claimed.
+
+## Review hardening 2026-11-12: finite IdP actions and local labels
+
+A prepared finite IdP action carries the selected native username and action kind only
+in short-lived content-script memory. Preparation and every pointer/final-click guard
+repeat the exact account reading and target comparison. This evidence is never stored
+in a journal, diagnostic, mapping, service request or recipe. An IdP operation without
+that expectation is refused, and an RP entry cannot carry it.
+
+An observed URL-form entry label passes through the same local username redaction as the
+RP observation before cache lookup or generation. Only the selected target's safe
+redacted label is used, while the exact locally selected target remains bound through
+cached and repaired layout selection. Ambiguous or unredactable labels stop the flow.
+Bracket-form provider labels remain the explicitly approved public-label exception. A
+repaired layout executes only after current local inspection, newest first; an old
+retained layout or an uninspectable new target cannot win by array position.
+
+A native child detaches its execution authority before a finite IdP action. On the same
+document a narrow attempt cancellation withdraws pending native mutations without
+cancelling SSO inspection or clicks; a different document can still be fully cancelled.
+Scope checks both the original RP pause and selected IdP pause in the original cookie
+partition. A pause request withdraws affected SSO flows before awaiting persistence or
+popup/badge work, so a later native or SSO grant cannot slip through that interval.

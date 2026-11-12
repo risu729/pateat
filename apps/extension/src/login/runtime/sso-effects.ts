@@ -1,7 +1,12 @@
 import * as v from "valibot";
 import { sameLoginDocument, type LoginTarget } from "@pateat/contracts";
 import { newId } from "@pateat/contracts/ids";
-import { ssoAuthorizeSchema, ssoInspectResultSchema } from "../sso-operation-wire";
+import {
+  ssoAuthorizeSchema,
+  ssoInspectResultSchema,
+  ssoIdpExpectationSchema,
+  type SsoIdpExpectation,
+} from "../sso-operation-wire";
 import { browser } from "wxt/browser";
 import { send } from "./attempt";
 import { identify } from "./messages";
@@ -54,7 +59,10 @@ export async function ssoPress(
   live: LiveDocument,
   target: LoginTarget,
   purpose: string,
+  idp?: SsoIdpExpectation,
 ): Promise<boolean> {
+  const atIdp = live.document.origin === work.selected.origin;
+  if ((atIdp && !v.is(ssoIdpExpectationSchema, idp)) || (!atIdp && idp !== undefined)) return false;
   const key = JSON.stringify([purpose, live.document.documentId, live.path, target]);
   if (work.used.has(key)) {
     work.stopReason = "sso-entry-already-used";
@@ -70,9 +78,13 @@ export async function ssoPress(
   const operationId = newId();
   const prepared = v.safeParse(
     ssoInspectResultSchema,
-    await send(rt, live, { type: "login.sso.prepare", flowId: work.id, operationId, target }).catch(
-      () => undefined,
-    ),
+    await send(rt, live, {
+      type: "login.sso.prepare",
+      flowId: work.id,
+      operationId,
+      target,
+      ...(idp ? { idp } : {}),
+    }).catch(() => undefined),
   );
   if (
     !prepared.success ||

@@ -5,6 +5,10 @@ import {
   itemAsksForMasterPassword,
   parseAttemptMetadata,
   ssoEntryFor,
+  sameLoginTarget,
+  sameLoginDocument,
+  ssoLabelSchema,
+  type LoginObservation,
   type LoginTarget,
   type SettingsResponse,
 } from "@pateat/contracts";
@@ -211,9 +215,12 @@ async function completeSso(rt: Runtime, work: SsoWork, live: LiveDocument) {
   await publish(rt, live, ended);
   return true;
 }
-async function pauseNativeChild(rt: Runtime, work: SsoWork) {
+async function pauseNativeChild(rt: Runtime, work: SsoWork): Promise<boolean> {
   const child = rt.attempts.get(work.rpLive.document.tabId);
-  if (!child || child.metadata.id !== work.childId || !ssoChild(rt.sso, child.metadata)) return;
+  if (!child || child.metadata.id !== work.childId || !ssoChild(rt.sso, child.metadata))
+    return true;
+  // Withdraw background authority synchronously, before any storage or content await.
+  rt.attempts.delete(work.rpLive.document.tabId);
   work.childRecord =
     child.metadata.state === "authenticated"
       ? child.metadata
@@ -224,9 +231,24 @@ async function pauseNativeChild(rt: Runtime, work: SsoWork) {
           watch: undefined,
           settled: undefined,
         });
+  const sameDocument =
+    sameLoginDocument(child.live.document, work.live.document) &&
+    child.live.token === work.live.token;
+  const cancelled = await send(
+    rt,
+    child.live,
+    sameDocument
+      ? { type: "login.native.cancel", attemptId: child.metadata.id }
+      : { type: "login.cancel" },
+  ).catch(() => undefined);
   await keep(rt, work.childRecord);
-  rt.attempts.delete(work.rpLive.document.tabId);
-  void send(rt, child.live, { type: "login.cancel" }).catch(() => undefined);
+  return (
+    !sameDocument ||
+    (cancelled !== null &&
+      typeof cancelled === "object" &&
+      "ok" in cancelled &&
+      cancelled.ok === true)
+  );
 }
 async function releaseChild(rt: Runtime, work: SsoWork) {
   await pauseNativeChild(rt, work);
@@ -447,14 +469,49 @@ export async function beginSso(
       throw new Error("sso-source-changed");
     work.form = method.form;
     work.reprompted = true;
-    const label = selection.label ?? observed?.label;
+    let label = selection.label ?? observed?.label;
     let target = observed?.target;
+    let privatePage: LoginObservation | undefined;
+    if (method.form === "url") {
+      if (!observed) throw new Error("sso-entry-unresolved");
+      const page = await ssoObservation(rt, ctx.live);
+      if (!page) throw new Error("sso-observation-unavailable");
+      const rp = await username(rt, work, ctx.live, false);
+      const idp = await username(rt, work, ctx.live, true);
+      const hidden = hideUsernames(
+        rt,
+        page,
+        rp !== undefined && idp !== undefined ? [rp, idp] : undefined,
+        ctx.live,
+      );
+      if ("reason" in hidden || !(await ssoScope(rt, work)))
+        throw new Error("sso-observation-private");
+      const candidates = hidden.observation.candidates.filter((candidate) =>
+        sameLoginTarget(candidate.target, observed.target),
+      );
+      const sanitized = candidates.length === 1 && candidates[0]!.label?.trim();
+      if (!sanitized || !v.is(ssoLabelSchema, sanitized))
+        throw new Error("sso-entry-label-private");
+      const publicText = sanitized.replaceAll("[account]", "").normalize("NFKC").toLowerCase();
+      if (
+        [rp, idp].some(
+          (value) => value && publicText.includes(value.trim().normalize("NFKC").toLowerCase()),
+        )
+      )
+        throw new Error("sso-entry-label-private");
+      label = sanitized;
+      work.label = sanitized;
+      privatePage = hidden.observation;
+    }
     let heads = (await rt.recipes.sso?.(account.origin, ctx.live.path)) ?? [];
     const matches = heads
       .flatMap((head) =>
         head.sso.layouts.flatMap((layout) => {
           const entry = label && ssoEntryFor(layout, label);
-          return entry ? [{ head, layout, target: entry.target }] : [];
+          return entry &&
+            (method.form !== "url" || (observed && sameLoginTarget(entry.target, observed.target)))
+            ? [{ head, layout, target: entry.target }]
+            : [];
         }),
       )
       .sort((a, b) => b.layout.createdAt - a.layout.createdAt);
@@ -468,34 +525,52 @@ export async function beginSso(
       }
     }
     if (!work.recipe && label && rt.generation?.generateSso) {
-      const page = await ssoObservation(rt, ctx.live);
-      if (!page) throw new Error("sso-observation-unavailable");
-      const rp = await username(rt, work, ctx.live, false);
-      // The source and the selected account's native username are redacted locally.
-      const idp = await username(rt, work, ctx.live, true);
-      const hidden = hideUsernames(
-        rt,
-        page,
-        rp !== undefined && idp !== undefined ? [rp, idp] : undefined,
-        ctx.live,
-      );
-      if ("reason" in hidden || !(await ssoScope(rt, work)))
-        throw new Error("sso-observation-private");
+      if (!privatePage) {
+        const page = await ssoObservation(rt, ctx.live);
+        if (!page) throw new Error("sso-observation-unavailable");
+        const rp = await username(rt, work, ctx.live, false);
+        const idp = await username(rt, work, ctx.live, true);
+        const hidden = hideUsernames(
+          rt,
+          page,
+          rp !== undefined && idp !== undefined ? [rp, idp] : undefined,
+          ctx.live,
+        );
+        if ("reason" in hidden) throw new Error("sso-observation-private");
+        privatePage = hidden.observation;
+      }
+      if (!(await ssoScope(rt, work))) throw new Error("sso-scope-changed");
       const generated = await rt.generation.generateSso({
         version: 1,
         kind: "sso",
-        observation: hidden.observation,
+        observation: privatePage,
         labels: [label],
         ...(heads.length === 1
           ? { repair: { recipeId: heads[0]!.id, revision: heads[0]!.revision } }
           : {}),
       });
       if (generated.outcome !== "recipe") throw new Error("sso-generation-refused");
-      work.recipe = generated.recipe;
-      const layout = generated.recipe.sso.layouts.find((entry) => ssoEntryFor(entry, label));
-      if (!layout) throw new Error("sso-entry-missing");
-      work.layout = layout.key;
-      target = ssoEntryFor(layout, label)!.target;
+      const repaired = generated.recipe.sso.layouts
+        .flatMap((layout) => {
+          const entry = ssoEntryFor(layout, label);
+          return entry &&
+            (method.form !== "url" || (observed && sameLoginTarget(entry.target, observed.target)))
+            ? [{ layout, target: entry.target }]
+            : [];
+        })
+        .sort((a, b) => b.layout.createdAt - a.layout.createdAt);
+      let selected = false;
+      for (const candidate of repaired) {
+        // oxlint-disable-next-line no-await-in-loop -- only a currently observed repaired layout may execute
+        if (await inspectSsoTarget(rt, ctx.live, candidate.target)) {
+          work.recipe = generated.recipe;
+          work.layout = candidate.layout.key;
+          target = candidate.target;
+          selected = true;
+          break;
+        }
+      }
+      if (!selected) throw new Error("sso-entry-missing");
     }
     if (!target || !work.recipe || !work.layout) throw new Error("sso-entry-unresolved");
     work.parent = parseAttemptMetadata({
@@ -596,8 +671,8 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     ssoIdpResultSchema,
     await send(rt, ctx.live, { type: "login.sso.idp", username: value }).catch(() => undefined),
   );
-  value = undefined;
   if (!parsed.success || !(await ssoScope(rt, work))) {
+    value = undefined;
     cancelSso(rt, ctx.document.tabId);
     return ctx.refuse("sso-idp-unreadable");
   }
@@ -618,9 +693,21 @@ export async function ssoAdmit(rt: Runtime, ctx: AdmitContext) {
     parsed.output.kind === "continue" ||
     parsed.output.kind === "stay-signed-in"
   ) {
-    await pauseNativeChild(rt, work);
-    if (!(await ssoPress(rt, work, ctx.live, parsed.output.target, `idp-${parsed.output.kind}`)))
-      cancelSso(rt, ctx.document.tabId, "sso-idp-stopped");
+    if (!(await pauseNativeChild(rt, work))) {
+      value = undefined;
+      cancelSso(rt, ctx.document.tabId, "sso-native-detach-failed");
+      return ctx.refuse("sso-native-detach-failed");
+    }
+    const pressed = await ssoPress(
+      rt,
+      work,
+      ctx.live,
+      parsed.output.target,
+      `idp-${parsed.output.kind}`,
+      { username: value, kind: parsed.output.kind },
+    );
+    value = undefined;
+    if (!pressed) cancelSso(rt, ctx.document.tabId, "sso-idp-stopped");
     return { ok: false as const, reason: "sso-in-progress" };
   }
   cancelSso(rt, ctx.document.tabId, "sso-idp-stop");

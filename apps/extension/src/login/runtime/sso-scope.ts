@@ -63,7 +63,12 @@ export async function ssoScope(
     tab.incognito !== live.incognito
   )
     return false;
-  if (await pauseOf(rt, live)) return false;
+  const pauses = await Promise.all([
+    pauseOf(rt, live),
+    pauseOf(rt, { url: work.rpLive.url, incognito: work.rpLive.incognito }),
+    pauseOf(rt, { url: work.selected.origin, incognito: work.rpLive.incognito }),
+  ]);
+  if (pauses.some(Boolean)) return false;
   if (!ssoCurrent(rt, work, live)) return false;
   const saved = await rt.settings.handle({ version: 1, type: "settings.get" });
   if (
@@ -74,7 +79,6 @@ export async function ssoScope(
   )
     return false;
   if (pausedInPrivate(saved.snapshot.settings, live.incognito)) return false;
-  if (await pauseOf(rt, { url: work.selected.origin, incognito: live.incognito })) return false;
   for (const page of [work.rpLive.url, live.url, work.selected.origin]) {
     if (
       isSiteExcluded(saved.snapshot.settings, page) ||

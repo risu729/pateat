@@ -187,6 +187,13 @@ export const commandSchema = v.variant("type", [
     timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(LOGIN_STEP_WAIT_MS)),
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("login.cancel"), token: id }),
+  /** Withdraw one native attempt without cancelling same-document SSO inspection/effects. */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.native.cancel"),
+    token: id,
+    attemptId: id,
+  }),
   /**
    * The popup's **Fill** of a personal detail (ADR 0061): types each value into the one
    * writable input its `target` names on `path`, or chooses its option in a select for a
