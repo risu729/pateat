@@ -114,7 +114,11 @@ export async function describeSsoMethods(
     if (seen.has(parsedName.number)) return refused("duplicate-method", name);
     seen.add(parsedName.number);
     if (field.type !== 0 && field.type !== 1) return refused("field-type", name);
-    if (field.value && field.value.length > 4096) return refused("invalid-value", name);
+    if (
+      field.value &&
+      (field.value.length > 4096 || hasControl(field.value) || !field.value.isWellFormed())
+    )
+      return refused("invalid-value", name);
     const value = field.value?.trim();
     if (!value) return refused("invalid-value", name);
     let label: string | undefined;
