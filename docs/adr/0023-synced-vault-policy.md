@@ -303,6 +303,11 @@ store's optional authorization guard keep the final check inside the mutation qu
 the profile, recipe and live catalog must still match before the original binding is
 replaced at its expected settings revision. Existing three-argument mutations keep
 their behavior. The normal account saver cannot save a repair through another path.
+The recipe cache, device recipes and pairing record supply mutation-epoch fences
+captured before their reads. The final authorization and the synchronous mutator check
+those fences and the provider's currently open snapshot, so a later recipe replacement,
+pairing change or manual vault lock cannot hide behind an earlier awaited read. A
+missing fence refuses the repair save without changing other account-saving paths.
 The profile identity follows the settings-sync base's `localWrite` only when the local
 change history proves that exact `service-sync` revision landed. An uncertain profile
 identity refuses repair. Installed-Chrome and real-account checks remain separate gates.

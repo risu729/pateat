@@ -67,6 +67,8 @@ export type LoginRecipeStart = {
  * ADR 0013); neither carries values.
  */
 export interface LoginRecipes {
+  /** Capture before reading; the returned synchronous check fails on any intervening source mutation. */
+  fence?(recipe: LoginRecipe): Promise<(() => boolean) | undefined>;
   /**
    * The recipe for a document, or an attempt's own recipe by ID after navigation: one
    * layout of it (ADR 0060), the one named or else the newest.
@@ -261,6 +263,8 @@ export type LoginRuntimeOptions = {
   fields: LoginFieldSource;
   /** Secret-free service/device/settings-profile identity for document-scoped binding repair. */
   bindingScope?: (snapshot: Pick<SettingsSnapshot, "revision" | "changes">) => Promise<string>;
+  /** Exact already-open provider snapshot, checked synchronously at a repair's final mutation. */
+  bindingSnapshotCurrent?: (connectionId: string, snapshotId: string) => boolean;
   sites?: LoginSites;
   recipes?: LoginRecipes;
   /** Live provider URI matching; without it only static `allowedOrigins` apply. */

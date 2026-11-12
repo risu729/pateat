@@ -722,7 +722,9 @@ their values, for every broken input. A document-scoped session override retries
 login and follows only its admitted attempt; confirmed authentication alone saves the
 rewrite. The original binding, account, vault snapshot, profile, settings revision and
 recipe must still match. Broken built-in fields and changed recipe slots stay outside
-this repair. The service keeps
+this repair. Recipe and pairing mutation epochs and the vault's current open snapshot
+are checked synchronously at the final settings mutation, after its asynchronous
+authorization reads. The service keeps
 excluded sites, allowed sites, site defaults and the synced vault policy per settings
 profile, and bindings and personal-detail links (`detailLinks`,
 [ADR 0061](adr/0061-personal-details-during-a-login.md)) per owner, under one owner

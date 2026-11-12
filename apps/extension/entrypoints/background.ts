@@ -481,6 +481,7 @@ export default defineBackground(() => {
   const login = createLoginRuntime(loginSettings, {
     bindingScope: async (snapshot) =>
       bindingProfileScope(await settingsBaseStorage.read(), snapshot, await service.connection()),
+    bindingSnapshotCurrent: connections.snapshotCurrent,
     vault: vaultSync,
     // Wakes a stopped worker to end a login whose wait for the site or watch ran out
     // (ADR 0022).

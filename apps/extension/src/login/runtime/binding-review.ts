@@ -450,6 +450,9 @@ export async function settleBindingReview(rt: Runtime, run: Execution) {
   const leave = await rt.options.vault?.enter(false);
   const { promise: saving, resolve: finish } = Promise.withResolvers<void>();
   rt.savingChoices.add(saving);
+  let recipeCurrent: (() => boolean) | undefined;
+  const snapshotCurrent = () =>
+    rt.options.bindingSnapshotCurrent?.(review.connectionId, review.snapshotId) === true;
   try {
     const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
     if (
@@ -473,7 +476,9 @@ export async function settleBindingReview(rt: Runtime, run: Execution) {
         );
         if (
           !same(original, review.binding) ||
-          rt.bindingReviews.get(run.metadata.document.tabId) !== review
+          rt.bindingReviews.get(run.metadata.document.tabId) !== review ||
+          !recipeCurrent?.() ||
+          !snapshotCurrent()
         )
           throw new Error("binding-review-stale");
         return {
@@ -487,6 +492,10 @@ export async function settleBindingReview(rt: Runtime, run: Execution) {
         };
       },
       async (value, catalog) => {
+        // The source takes its epochs before any awaited recipe lookup. The closure
+        // remains checkable synchronously after the remaining reads and in the mutator.
+        recipeCurrent = await rt.recipes.fence?.(run.recipe).catch(() => undefined);
+        if (!recipeCurrent || !snapshotCurrent()) return false;
         if ((await scopeOf(rt, value).catch(() => undefined)) !== review.scope) return false;
         const recipe = await rt.recipes
           .recipe(review.binding.origin, review.path, review.recipeId, review.layout)
@@ -506,6 +515,8 @@ export async function settleBindingReview(rt: Runtime, run: Execution) {
           review.binding.itemId,
         );
         return (
+          recipeCurrent() &&
+          snapshotCurrent() &&
           rt.bindingReviews.get(run.metadata.document.tabId) === review &&
           connection?.snapshotId === review.snapshotId &&
           (connection.state === undefined ||

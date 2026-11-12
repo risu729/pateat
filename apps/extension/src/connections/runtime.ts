@@ -543,6 +543,13 @@ export function createConnectionRuntime(
   }
   return {
     settings,
+    /** No storage read or secret value: only the handle the provider currently serves. */
+    snapshotCurrent(connectionId: string, snapshotId: string): boolean {
+      const state = vaults.get(connectionId)?.manager.status();
+      return (
+        state?.ready === true && !state.storageUncertain && state.handle?.snapshotId === snapshotId
+      );
+    },
     service,
     registry,
     vaultFor,
