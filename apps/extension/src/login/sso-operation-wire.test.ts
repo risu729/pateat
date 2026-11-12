@@ -5,6 +5,7 @@ import {
   ssoCommandSchema,
   ssoIdpResultSchema,
   ssoInspectResultSchema,
+  ssoReturnResultSchema,
 } from "./sso-operation-wire";
 
 const target = { by: "id", value: "provider-entry" };
@@ -110,5 +111,30 @@ describe("SSO operation results", () => {
       expect(accepted(ssoIdpResultSchema, { kind: "native", [field]: "synthetic" })).toBe(false);
     expect(accepted(ssoIdpResultSchema, { kind: "native", target })).toBe(false);
     expect(accepted(ssoIdpResultSchema, { kind: "account" })).toBe(false);
+  });
+});
+
+describe("RP return identity messages", () => {
+  it("accepts only a document-bound local return read and an optional bounded username", () => {
+    const request = { ...base, type: "login.sso.return" };
+    expect(accepted(ssoCommandSchema, request)).toBe(true);
+    expect(accepted(ssoCommandSchema, { ...request, username: "synthetic@example.test" })).toBe(
+      true,
+    );
+    for (const username of ["", "x".repeat(1025), null])
+      expect(accepted(ssoCommandSchema, { ...request, username })).toBe(false);
+    for (const field of ["account", "origin", "target", "password", "proof", "authenticated"])
+      expect(accepted(ssoCommandSchema, { ...request, [field]: "page-supplied" })).toBe(false);
+  });
+  it("returns only finite local identity evidence and never account values or authentication proof", () => {
+    for (const identity of ["match", "different", "absent"])
+      expect(accepted(ssoReturnResultSchema, { ok: true, identity })).toBe(true);
+    expect(accepted(ssoReturnResultSchema, { ok: false, reason: "unsafe-return" })).toBe(true);
+    for (const identity of ["authenticated", "masked-match", "partial-match", "unknown"])
+      expect(accepted(ssoReturnResultSchema, { ok: true, identity })).toBe(false);
+    for (const field of ["username", "account", "proof", "authenticated", "url"])
+      expect(
+        accepted(ssoReturnResultSchema, { ok: true, identity: "match", [field]: "private" }),
+      ).toBe(false);
   });
 });

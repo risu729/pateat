@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LoginTarget } from "@pateat/contracts";
-import { createSsoContent, readSsoIdp, ssoUnsafePage } from "./content-sso";
+import { createSsoContent, readSsoIdp, readSsoReturn, ssoUnsafePage } from "./content-sso";
 import type { SsoContentCommand } from "./sso-operation-wire";
 
 const target: LoginTarget = { by: "id", value: "entry" };
@@ -391,4 +391,59 @@ describe("finite local IdP page reading", () => {
       });
     },
   );
+});
+
+describe("local RP return safety and identity", () => {
+  const username = "target@example.test";
+  it.each([
+    "<header><span>target@example.test</span></header>",
+    '<nav><a href="/account">TARGET@example.test</a></nav>',
+    '<div role="banner"><span data-username="target@example.test">target@example.test</span></div>',
+  ])("recognizes only the selected full header identity %#", (markup) => {
+    html(markup + '<div id="authenticated">Account</div>');
+    expect(readSsoReturn(document, username)).toEqual({ ok: true, identity: "match" });
+  });
+  it.each([
+    "<header><span>other@example.test</span></header>",
+    "<nav><span>target@example.test</span><span>other@example.test</span></nav>",
+    '<header><span data-username="other@example.test">target@example.test</span></header>',
+    "<header><span>t***@example.test</span></header>",
+  ])("reports an explicit conflicting or masked identity despite a generic marker %#", (markup) => {
+    html(markup + '<div id="authenticated">Account</div>');
+    expect(readSsoReturn(document, username)).toEqual({ ok: true, identity: "different" });
+  });
+  it("keeps absence distinct from a different identity and ignores footer contact addresses", () => {
+    html(
+      '<h1>Account</h1><div id="authenticated">Signed in</div><footer>support@example.test</footer>',
+    );
+    expect(readSsoReturn(document, username)).toEqual({ ok: true, identity: "absent" });
+    expect(readSsoReturn(document)).toEqual({ ok: true, identity: "absent" });
+  });
+  it("compares a full non-email header identity without a substring match", () => {
+    html("<header><span>synthetic-user</span></header>");
+    expect(readSsoReturn(document, "synthetic-user")).toEqual({ ok: true, identity: "match" });
+    expect(readSsoReturn(document, "synthetic")).toEqual({ ok: true, identity: "absent" });
+  });
+  it.each(["Consent", "Share email", "Create account"])(
+    "refuses an unsafe %s return even with the exact selected identity and a marker",
+    (heading) => {
+      html(
+        "<h1>" +
+          heading +
+          "</h1><header><span>" +
+          username +
+          '</span></header><div id="authenticated">Account</div>',
+      );
+      expect(readSsoReturn(document, username)).toEqual({ ok: false, reason: "unsafe-return" });
+      expect(readSsoReturn(document)).toEqual({ ok: false, reason: "unsafe-return" });
+    },
+  );
+  it("refuses a body-only sharing return before returning matching identity evidence", () => {
+    html(
+      "<header><span>" +
+        username +
+        '</span></header><p>Your email will be shared with this site.</p><div id="authenticated">Account</div>',
+    );
+    expect(readSsoReturn(document, username)).toEqual({ ok: false, reason: "unsafe-return" });
+  });
 });
