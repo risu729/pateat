@@ -767,6 +767,18 @@ fixture type, and `context.ts` picks from it with `import type`. The modules sit
 outside `src/`, so they stay outside the production coverage root. Each file follows
 the 1,000-line limit.
 
+### Completion judge test organization
+
+`packages/inference/src/completion.test.ts` is the discovered entry for the main
+completion judge suites. It owns their describe nesting and the shared and
+suite-local fixtures and helpers. Plain modules in `packages/inference/test/completion/`
+export synchronous registration functions for the sign-in, code-answer,
+personal-detail and account-slot cases, which the entry calls inside those suites with
+the same fixture references; importing a module registers no cases. The entry exports
+its `CompletionFixtures` type, and the modules and `context.ts` import it with
+`import type`. The modules sit outside `src/`, so they stay outside the production
+coverage root. Each file follows the 1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
