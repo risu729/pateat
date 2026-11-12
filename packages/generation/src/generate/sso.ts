@@ -64,7 +64,14 @@ export async function generateSso(
   if (repair && repair.recipeId !== recipeId) return unsent(unavailable("recipe-conflict"));
   const covers = (change: SyncRecipeChange | null) => {
     const head = answerable(change);
-    if (!head || !isSsoDocument(head.recipe)) return undefined;
+    if (
+      !head ||
+      !isSsoDocument(head.recipe) ||
+      head.recipe.id !== recipeId ||
+      head.recipe.origin !== origin ||
+      storedRecipeStartPath(head.recipe) !== path
+    )
+      return undefined;
     const sso = head.recipe.sso;
     return sso.layouts.some((layout) =>
       labels.every((label) =>
@@ -182,16 +189,20 @@ export async function generateSso(
       return change ? { version: 1, status: "recipe", change } : unavailable("recipe-conflict");
     }
     if (written.limited) return unavailable("recipe-limit");
-    const won = covers(written.current);
-    if (won) return { version: 1, status: "recipe", change: won };
     const current = answerable(written.current);
-    if (
-      !current ||
-      current.recipe.origin !== origin ||
-      storedRecipeStartPath(current.recipe) !== path ||
-      JSON.stringify(current.recipe.sso) !== JSON.stringify(before.document?.sso)
-    )
-      return unavailable("recipe-conflict");
+    const unchanged =
+      current &&
+      current.recipe.id === recipeId &&
+      current.recipe.origin === origin &&
+      storedRecipeStartPath(current.recipe) === path &&
+      !("entry" in current.recipe) &&
+      !("logout" in current.recipe) &&
+      JSON.stringify(current.recipe.sso) === JSON.stringify(before.document?.sso);
+    // A native-only write does not repair stale SSO entries: retain this paid answer.
+    if (!unchanged) {
+      const won = covers(written.current);
+      return won ? { version: 1, status: "recipe", change: won } : unavailable("recipe-conflict");
+    }
     document = current.recipe;
     expectedRevision = current.revision;
   }

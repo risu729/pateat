@@ -661,7 +661,7 @@ export async function readFirstPageSources(
       and(
         eq(recipeUnitSources.ownerId, ownerId),
         isNotNull(recipeUnitSources.layout),
-        inArray(recipeUnitSources.unit, [pageUnit(0), LIST_UNIT]),
+        inArray(recipeUnitSources.unit, [pageUnit(0), LIST_UNIT, "sso"]),
       ),
     );
   const sources = new Map<string, Map<string, ManageLayoutSource>>();

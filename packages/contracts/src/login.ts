@@ -1451,6 +1451,11 @@ export const recipeDocumentSchema = v.pipe(
         ),
       ]),
     );
+    for (const layout of recipe.chooser?.layouts ?? []) {
+      for (const target of [layout.other, layout.continue]) {
+        if (target) used.add(`${recipe.chooser!.path}\n${targetKey(target)}`);
+      }
+    }
     return recipe.sso.layouts.every((layout) =>
       layout.entries.every((entry) => !used.has(`${recipe.sso!.path}\n${targetKey(entry.target)}`)),
     );

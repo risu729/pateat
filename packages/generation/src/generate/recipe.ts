@@ -228,7 +228,9 @@ export async function generateRecipe(
       !isLoginRecipeDocument(current.recipe) &&
       !isChooserDocument(current.recipe)
     )
-      return { base: undefined, repaired: current.recipe };
+      return (await backend.hasRecipeByteRoom(MIN_GENERATION_RECIPE_ROOM_BYTES))
+        ? { base: undefined, repaired: current.recipe }
+        : { answer: unavailable("recipe-limit") };
     // An entry recipe (ADR 0031), a chooser for a form or a route recipe for a list of this
     // origin and path is no recipe to answer with.
     const answer = answerable(head);
@@ -456,15 +458,23 @@ export async function generateRecipe(
         };
       }
       if (written.limited) return unavailable("recipe-limit");
-      // eslint-disable-next-line no-await-in-loop
       const latest = active(written.current);
       let moved: StoredLoginRecipe | undefined;
       if (tries === 0) {
         // oxlint-disable-next-line no-await-in-loop -- at most one conditional sibling rebase
         moved = await rebase?.(written.current);
-        moved ??= latest
-          ? rebaseNativeOverSso(next, active(headAtStart)?.recipe, latest.recipe)
-          : undefined;
+        if (!moved && latest) {
+          const sibling = rebaseNativeOverSso(next, active(headAtStart)?.recipe, latest.recipe);
+          if (sibling) {
+            moved = sibling.recipe;
+            units = units.map((unit) => ({
+              ...unit,
+              layout:
+                unit.layout === null ? null : (sibling.renamed.get(unit.layout) ?? unit.layout),
+            }));
+            if (copied) copied = { ...copied, to: sibling.renamed.get(copied.to) ?? copied.to };
+          }
+        }
       }
       if (!moved) {
         // A write lost to another device answers with that device's recipe, as above.
