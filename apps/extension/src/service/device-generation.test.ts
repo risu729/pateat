@@ -6,7 +6,7 @@ import {
   type RecipeGenerationRequest,
   type SavedLoginBinding,
 } from "@pateat/contracts";
-import type { JudgementKey } from "@pateat/generation";
+import type { JudgementKey, JudgementReservation } from "@pateat/generation";
 import { describe, expect, it, vi } from "vitest";
 import {
   createDeviceGeneration,
@@ -127,6 +127,7 @@ function setup(
     /** Runs while a model call is in flight, before its answer. */
     during?: () => Promise<void>;
     writeSpend?: () => Promise<void>;
+    now?: () => number;
   } = {},
 ) {
   const replies = [...(options.replies ?? [])];
@@ -250,6 +251,7 @@ function setup(
     key: model.direct,
     bindings: async () => options.bindings ?? [],
     paired: async () => options.paired ?? false,
+    ...(options.now ? { now: options.now } : {}),
   });
   const generation = createDeviceGeneration(backend);
   return {
@@ -454,8 +456,8 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
     expect(await backend.bindingSlots(page.origin, "r1")).toEqual([{ slots: binding.slots }]);
   });
 
-  it("keeps judgements as the service's table does", async () => {
-    const { backend } = setup();
+  it("keeps claim-bound judgements and counts each replacement separately", async () => {
+    const { backend } = setup({ now: () => 2_000 });
     const key: JudgementKey = {
       recipeId: "gen_synthetic",
       branch: "1",
@@ -465,43 +467,30 @@ describe("generation on a device without a pairing (ADR 0040)", () => {
       promptVersion: "v2",
     };
     const stale = { expired: 1_000, versions: ["v2"] };
-    const inputs = "a1";
-    expect(await backend.recordJudgement({ ...key, revision: 1 }, 500, stale, inputs)).toBe(true);
-    expect(
-      await backend.recordJudgement({ ...key, promptVersion: "v1" }, 2_000, stale, inputs),
-    ).toBe(true);
-    expect(await backend.recordJudgement(key, 2_000, stale, inputs)).toBe(true);
-    // Another request's row being judged is not taken (ADR 0018), whatever its inputs.
-    expect(await backend.recordJudgement(key, 2_500, stale, "b2")).toBe(false);
-    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs });
-    // An older revision judged before the day started is forgotten; today's row stays.
-    expect(await backend.judgement({ ...key, revision: 1 })).toBeUndefined();
-    expect(await backend.judgement({ ...key, promptVersion: "v1" })).toEqual({
-      verdict: null,
-      inputs,
+    const claim = (): JudgementReservation => ({
+      id: crypto.randomUUID(),
+      startedAt: 2_000,
+      fingerprint: "synthetic",
     });
-    expect(await backend.judgementsSince(key.recipeId, 1_000)).toBe(2);
-
-    // A kept verdict stays; a `partial` one takes the slot again.
-    await backend.keepVerdict(key, "signed-in");
-    expect(await backend.recordJudgement(key, 3_000, stale, "b2")).toBe(false);
-    expect(await backend.judgement(key)).toEqual({ verdict: "signed-in", inputs });
-    await backend.keepVerdict(key, "partial");
-    expect(await backend.recordJudgement(key, 3_000, stale, inputs)).toBe(true);
-    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs });
-    // A `challenge` stays for the same inputs and takes the slot again for others (ADR
-    // 0029 amendment of 2026-11-06).
-    await backend.keepVerdict(key, "challenge");
-    expect(await backend.recordJudgement(key, 3_500, stale, inputs)).toBe(false);
-    expect(await backend.judgement(key)).toEqual({ verdict: "challenge", inputs });
-    expect(await backend.recordJudgement(key, 3_500, stale, "b2")).toBe(true);
+    const first = claim();
+    expect((await backend.reserveJudgement(key, 2_000, stale, "a1", first)).status).toBe("taken");
+    expect((await backend.reserveJudgement(key, 2_000, stale, "b2", claim())).status).toBe("held");
+    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs: "a1" });
+    await backend.keepVerdict(key, "partial", first.id);
+    await backend.finishJudgement(key, first);
+    const second = claim();
+    expect((await backend.reserveJudgement(key, 2_000, stale, "b2", second)).status).toBe("taken");
+    await backend.keepVerdict(key, "signed-in", first.id);
     expect(await backend.judgement(key)).toEqual({ verdict: null, inputs: "b2" });
-    // So does `unclear` (ADR 0029 amendment of 2026-11-11).
-    await backend.keepVerdict(key, "unclear");
-    expect(await backend.recordJudgement(key, 3_600, stale, "b2")).toBe(false);
-    expect(await backend.judgement(key)).toEqual({ verdict: "unclear", inputs: "b2" });
-    expect(await backend.recordJudgement(key, 3_600, stale, inputs)).toBe(true);
-    expect(await backend.judgement(key)).toEqual({ verdict: null, inputs });
+    await backend.keepVerdict(key, "challenge", second.id);
+    await backend.finishJudgement(key, second);
+    expect((await backend.reserveJudgement(key, 2_000, stale, "b2", claim())).status).toBe("held");
+    const third = claim();
+    expect((await backend.reserveJudgement(key, 2_000, stale, "a1", third)).status).toBe("taken");
+    await backend.keepVerdict(key, "unclear", third.id);
+    await backend.finishJudgement(key, third);
+    expect((await backend.reserveJudgement(key, 2_000, stale, "a1", claim())).status).toBe("held");
+    expect((await backend.reserveJudgement(key, 2_000, stale, "b2", claim())).status).toBe("taken");
   });
 
   it("keeps attempts and repairs within their windows", async () => {
@@ -621,7 +610,7 @@ describe("the device's model calls (ADR 0040)", () => {
   });
 
   it("forgets its judgements when the recipes they describe are replaced", async () => {
-    const { backend } = setup();
+    const { backend } = setup({ now: () => 2_000 });
     const key: JudgementKey = {
       recipeId: "gen_synthetic",
       branch: "1",
@@ -630,8 +619,9 @@ describe("the device's model calls (ADR 0040)", () => {
       path: "/account",
       promptVersion: "v2",
     };
-    await backend.recordJudgement(key, 2_000, { expired: 1_000, versions: ["v2"] }, "a1");
-    await backend.keepVerdict(key, "rejected");
+    const claim = { id: crypto.randomUUID(), startedAt: 2_000, fingerprint: "synthetic" };
+    await backend.reserveJudgement(key, 2_000, { expired: 1_000, versions: ["v2"] }, "a1", claim);
+    await backend.keepVerdict(key, "rejected", claim.id);
     await backend.forget();
     expect(await backend.judgement(key)).toBeUndefined();
   });
