@@ -52,7 +52,8 @@ import {
   generationSlotsFor,
   offersGeneration,
 } from "./generation-scope";
-import { repairChooserForm, repairStale } from "./repair-run";
+import { repairChooserForm, repairStale, sendRepair } from "./repair-run";
+import { manualPending, manualGenerating, endManual } from "./manual-scope";
 import type { Runtime } from "./state";
 import { admitStart } from "./admit-start";
 import type { AdmitContext, AdmitStartContext } from "./admit-context";
@@ -399,24 +400,34 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
             (candidate) => candidate.entry.path === ctx.live.path,
           );
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-    if (entryRecipe && !(await automaticFill(rt, ctx.live))) {
-      ctx.live.state = "watching";
-      delete ctx.live.reason;
-      await publish(rt, ctx.live);
-      void pressEntry(rt, ctx.live, entryRecipe).catch(() =>
-        refuseEntry(rt, ctx.live, entryRecipe, "exception"),
-      );
-      return { ok: false, reason: "entry", starts };
+    if (entryRecipe) {
+      if (manualPending(rt, ctx.live)) {
+        endManual(rt, ctx.document.tabId, "sign-in-page-required");
+        return ctx.refuse("sign-in-page-required");
+      }
+      if (!(await automaticFill(rt, ctx.live))) {
+        ctx.live.state = "watching";
+        delete ctx.live.reason;
+        await publish(rt, ctx.live);
+        void pressEntry(rt, ctx.live, entryRecipe).catch(() =>
+          refuseEntry(rt, ctx.live, entryRecipe, "exception"),
+        );
+        return { ok: false, reason: "entry", starts };
+      }
     }
     // A recipe generated as `confirm` or `unclear` starts on this path: a verification
     // while signed in, which Pateat does not fill yet. The page is neither logged in to
     // nor sent for generation again, and the page only watches (ADR 0035).
     const confirm =
-      ctx.recipe || ctx.document.frameId !== 0 || ctx.live.topUrl
+      ctx.recipe ||
+      ((ctx.document.frameId !== 0 || ctx.live.topUrl) && !manualPending(rt, ctx.live))
         ? undefined
         : await confirmRecipeOn(rt, ctx.document.origin, ctx.live.path);
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-    if (confirm) {
+    if (confirm && manualPending(rt, ctx.live)) {
+      return repairManualPage(rt, ctx, confirm);
+    }
+    if (confirm && ctx.document.frameId === 0 && !ctx.live.topUrl) {
       const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
       if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
       if (!snapshot.ok) return ctx.refuse("settings-unavailable");
@@ -453,7 +464,10 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
     if (otherShown && otherOffer === true) {
       // Nor is the page right after a sign-in, nor one of a paused site (ADR 0062).
       if (ctx.paused) skipGeneration(rt, ctx.live, "paused", "other");
-      else if (rt.afterSignIn.get(ctx.document.tabId) === ctx.document.documentId)
+      else if (
+        !manualPending(rt, ctx.live) &&
+        rt.afterSignIn.get(ctx.document.tabId) === ctx.document.documentId
+      )
         skipGeneration(rt, ctx.live, "after-sign-in", "other");
       // Nor a page whose list shows meanwhile: the login clicks there (ADR 0028).
       else if (await showsNow(rt, ctx.live, listReadiness(rt, otherShown))) {
@@ -522,7 +536,10 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       every = fallback,
     ): Promise<Readiness | undefined> => {
       // Nor is the page right after a sign-in sent as a passkey-only page.
-      if (rt.afterSignIn.get(ctx.document.tabId) === ctx.document.documentId) {
+      if (
+        !manualPending(rt, ctx.live) &&
+        rt.afterSignIn.get(ctx.document.tabId) === ctx.document.documentId
+      ) {
         if (!fallback) {
           skipGeneration(rt, ctx.live, "after-sign-in");
           offer = false;
@@ -563,7 +580,12 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
     if (shownList && !listing && !entryOffer) offer = false;
     // The page right after a sign-in is never sent as a list of accounts (ADR 0028) or as
     // a sign-in entry.
-    if (offer && listing && rt.afterSignIn.get(ctx.document.tabId) === ctx.document.documentId) {
+    if (
+      offer &&
+      listing &&
+      !manualPending(rt, ctx.live) &&
+      rt.afterSignIn.get(ctx.document.tabId) === ctx.document.documentId
+    ) {
       // Logged for a list with an email, one with a control for another account, or an
       // offered entry only: short texts alone are ordinary browsing.
       if (!listing.names || listing.other || entryOffer)
@@ -577,6 +599,7 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       offer &&
       listing &&
       !ctx.ask &&
+      !manualPending(rt, ctx.live) &&
       signedInElsewhere(rt, ctx.document.tabId, ctx.document.origin)
     ) {
       if (!listing.names || listing.other || entryOffer)
@@ -588,6 +611,7 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
     if (
       offer &&
       ctx.signIn?.identifier &&
+      !manualPending(rt, ctx.live) &&
       rt.afterSignIn.get(ctx.document.tabId) === ctx.document.documentId
     ) {
       skipGeneration(rt, ctx.live, "after-sign-in");
@@ -671,6 +695,10 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       if (listed?.inPath || !(listing?.names && entryOffer)) offer = false;
     }
     if (offer && entryOffer) {
+      if (manualPending(rt, ctx.live)) {
+        endManual(rt, ctx.document.tabId, "sign-in-page-required");
+        return ctx.refuse("sign-in-page-required");
+      }
       const offered = entryPage
         ? await entryOfferRefusal(rt, ctx.live)
         : { refusal: "no-return-target" };
@@ -729,6 +757,14 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       return ctx.refuse("recipe-not-found", undefined, true);
     // Only an origin with a recipe: elsewhere every sign-in page would be logged.
     if (starts.length) ctx.notStarted(ctx.recipe ? "first-step-missing" : "no-recipe-on-path");
+    if (manualPending(rt, ctx.live)) {
+      if (ctx.recipe && ctx.shown?.path === ctx.live.path)
+        return repairManualPage(rt, ctx, ctx.recipe);
+      if (ctx.unoffered?.path === ctx.live.path) {
+        endManual(rt, ctx.document.tabId, ctx.unoffered.why);
+        return ctx.refuse("form-not-ready");
+      }
+    }
     // A generated recipe's own start page that misses its first steps may be stale
     // (ADR 0041).
     if (
@@ -875,4 +911,40 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
   }
 
   return admitStart(rt, ctx as AdmitStartContext);
+}
+
+/** Re-evaluates a cached page kind through the ordinary repair route and its spending limits. */
+async function repairManualPage(
+  rt: Runtime,
+  ctx: AdmitContext,
+  recipe: { id: string; revision: number },
+): Promise<Readiness> {
+  const manual = manualPending(rt, ctx.live);
+  if (!manual) return ctx.refuse("stale-document");
+  if (manual.generated) {
+    endManual(rt, ctx.document.tabId, "not-a-login-page");
+    return ctx.refuse("form-not-ready");
+  }
+  manualGenerating(rt, ctx.live);
+  ctx.live.state = "generating";
+  delete ctx.live.reason;
+  await publish(rt, ctx.live);
+  if (!manualPending(rt, ctx.live)) return { ok: false, reason: "stale-document" };
+  void sendRepair(rt, ctx.live, recipe).then(
+    (outcome) => {
+      if (manualPending(rt, ctx.live) === manual && outcome?.outcome !== "recipe")
+        endManual(
+          rt,
+          ctx.document.tabId,
+          outcome && "reason" in outcome ? outcome.reason : "repair-not-due",
+          manual,
+        );
+      return undefined;
+    },
+    () => {
+      if (manualPending(rt, ctx.live) === manual)
+        endManual(rt, ctx.document.tabId, "unavailable", manual);
+    },
+  );
+  return { ok: false, reason: "generating" };
 }

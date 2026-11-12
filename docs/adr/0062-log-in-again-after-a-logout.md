@@ -57,6 +57,9 @@ Amended on 2026-11-03 by the
 within 30 seconds of the completion, is no logout. It corrects the result, and the tab
 asks for an account instead of logging in again.
 
+Amended on 2026-11-11 by [ADR 0088](0088-popup-manual-login.md) for the explicit
+one-time popup login.
+
 Date: 2026-10-23
 
 ## Context
@@ -310,3 +313,15 @@ recipe fit it. The page's own passkey requests outside a login are still handed 
 open the chooser as above, and an item without a password that cannot take the `passkey`
 route (no passkey button on the recipe, no discoverable passkey on the item, or the
 site's passkey requests going to the browser) is still refused `paused-no-password`.
+
+## Amendment 2026-11-11: explicit one-time login
+
+[ADR 0088](0088-popup-manual-login.md) implements the owner's request for a popup action
+that tries a login stopped by automatic conditions.
+
+The new **Log in now** action is a one-time login, distinct from the existing
+account-choice action. It may evaluate or generate a recipe for its selected
+page while automatic login is paused, including in a private window or on a
+site left out of the allowed list. Its successful login does not end a timed
+pause, change a site rule or retain the account for later logins. Ordinary
+popup picks keep the behavior described above.

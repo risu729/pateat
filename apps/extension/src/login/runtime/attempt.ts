@@ -173,7 +173,10 @@ export async function saveSession(
         return offer;
       }),
     },
-    { key: PICKS_KEY, value: [...rt.picked.values()] },
+    {
+      key: PICKS_KEY,
+      value: [...rt.picked.values()].filter((pick) => !pick.manual || pick.attemptId !== undefined),
+    },
     { key: CHOICES_KEY, value: [...rt.pending.values()] },
     { key: STOPPED_ASKS_KEY, value: scopes(rt, rt.stoppedAsks) },
     { key: REJECTED_ASKS_KEY, value: scopes(rt, rt.rejectedAsks) },
@@ -332,7 +335,7 @@ export async function keepPick(rt: Runtime, signedIn: LoginAttemptMetadata): Pro
   const live =
     rt.documents.get(frameKey(signedIn.document)) ??
     rt.documents.get(frameKey({ tabId, frameId: 0 }));
-  if (!pick || pick.attemptId !== signedIn.id || site === undefined || !live) return;
+  if (!pick || pick.manual || pick.attemptId !== signedIn.id || site === undefined || !live) return;
   if (pick.makeDefault) {
     await rt.accountPicks.stopAsking(site, live.incognito === true).catch(() => undefined);
     return;

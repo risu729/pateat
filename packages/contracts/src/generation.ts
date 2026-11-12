@@ -210,6 +210,8 @@ export const recipeGenerationRequestSchema = v.pipe(
      * `sign-in`.
      */
     signedIn: v.optional(v.boolean()),
+    /** An explicit popup request may retry its first page without the automatic 10-minute cooldown. */
+    manual: v.optional(v.literal(true)),
     repair: v.optional(
       v.pipe(
         v.strictObject({
@@ -227,6 +229,10 @@ export const recipeGenerationRequestSchema = v.pipe(
     /** The device makes the model calls with its own key (ADR 0040). */
     deviceModel: v.optional(deviceModelSchema),
   }),
+  v.check(
+    (request) => !request.manual || (!request.base && !request.repair),
+    "Only an explicit first page may bypass the automatic retry cooldown",
+  ),
   v.check(
     (request) =>
       (request.signedIn !== undefined) ===

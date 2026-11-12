@@ -147,6 +147,8 @@ export interface LoginGeneration {
     path: string,
     base?: RecipeGenerationRequest["base"],
     branch?: string,
+    /** Explicit first-page retry; an in-flight request still holds the page. */
+    manual?: boolean,
   ): Promise<true | GenerationHold>;
   /**
    * Sends one page: a recipe's first page, or with `base` the page after the final
@@ -297,6 +299,8 @@ export type LoginRuntimeOptions = {
    * write still waits (ADR 0007): the login treats it as listed already.
    */
   pendingBrowserSite?: (origin: string) => boolean;
+  /** A passkey request is reading, choosing or signing in this exact document. */
+  passkeyActive?: (documentId: string) => boolean;
   /** Receives each attempt state change, refusal and generation result. */
   report?: (report: LoginReport) => void;
   /**

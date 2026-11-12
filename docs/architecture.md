@@ -818,6 +818,31 @@ the completion is corrected to a failure, and that document is never filled
 A pick not made the default makes its site ask every time, filling nothing, until the
 browser closes or a default is set
 ([ADR 0063](adr/0063-switch-accounts-from-the-popup.md)).
+The popup's **Log in now** action starts one explicit login with an eligible matching
+account, including a single match, independently of the optional **This page** section
+([ADR 0088](adr/0088-popup-manual-login.md)). It lists the current admitted page and
+eligible embedded forms separately. Its offer fingerprints the exact document, URL,
+frame and containing page; the worker checks the offer again before using the account.
+The request can retry its own ended or settled-unknown login and bypass automatic
+pauses, the repeat-login guard and other tabs' ended-record cooldowns. Active logins,
+challenge watches and account switches still hold it. No other tab's record is removed.
+A cached non-login judgement is checked again through the normal recipe-repair route;
+it is never executed as a sign-in recipe. An explicit first-page generation bypasses
+the device's and service's automatic ten-minute retry cooldown; in-flight request
+deduplication, recipe revision checks, daily repair limits and spending limits remain.
+All site access, item eligibility,
+frame URI matching, vault unlock, master-password re-prompt, field policy and form
+destination checks still apply.
+
+Pending manual authority is held only in memory for the chosen page, for at most five
+minutes, including while its generation or master-password prompt waits. Navigation,
+failure, prompt closure, expiry or a worker restart ends it. A sibling frame's
+announcement cannot use or cancel it. Once an attempt starts, only the ordinary
+attempt-scoped account pick and its manual provenance persist. The popup distinguishes
+preparation and generation from a started login and displays actionable blockers.
+This action saves no default, keeps no session account, changes no ask-every-time
+policy and resumes no pause, including after a successful login.
+
 The popup's account switch logs the tab out, through the site's stored logout recipe, a
 logout control the page names in plain words, or the model, and then logs in with the
 picked item. Cookies may be shared across tabs even during initial login. Another tab's

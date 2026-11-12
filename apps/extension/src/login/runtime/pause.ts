@@ -358,7 +358,8 @@ export async function endPickedPause(
   live: LiveDocument | undefined,
 ): Promise<void> {
   const { tabId } = metadata.document;
-  if (rt.picked.get(tabId)?.attemptId !== metadata.id) return;
+  const picked = rt.picked.get(tabId);
+  if (picked?.attemptId !== metadata.id || picked.manual) return;
   const tab = await browser.tabs.get(tabId).catch(() => undefined);
   const incognito = live?.incognito ?? tab?.incognito;
   // A login whose window kind is not known ends no pause, since the other kind's pause is

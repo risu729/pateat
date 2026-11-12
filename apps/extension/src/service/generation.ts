@@ -213,6 +213,7 @@ export function createLoginGeneration(options: {
     repair: GenerationRepair | undefined,
     sent: (() => void) | undefined,
     call: (connection: ServiceConnection) => Promise<InferenceResult<Result>>,
+    manual = false,
   ): Promise<
     | { outcome: "skipped"; reason: string; retry?: true }
     | { connection: ServiceConnection; answer: InferenceResult<Result> }
@@ -224,11 +225,13 @@ export function createLoginGeneration(options: {
     let held: GenerationHold | undefined;
     const claimedAt = now();
     const stored = await remember((attempts) => {
-      held = attempts.find(same(origin, path, base, branch, repair))?.state;
+      const matches = same(origin, path, base, branch, repair);
+      held = attempts.find(matches)?.state;
+      if (manual && held === "sent") held = undefined;
       return held
         ? attempts
         : [
-            ...attempts,
+            ...attempts.filter((entry) => !matches(entry)),
             {
               origin,
               path,
@@ -286,11 +289,13 @@ export function createLoginGeneration(options: {
     path: string,
     base?: GenerationBase,
     branch?: string,
+    manual = false,
   ): Promise<true | GenerationHold> {
     if (!(await connected())) return "not-connected";
     await pendingAttempts();
     const attempts = await recent().catch(() => []);
-    return attempts.find(same(origin, path, base, branch))?.state ?? true;
+    const held = attempts.find(same(origin, path, base, branch))?.state;
+    return manual && held === "sent" ? true : (held ?? true);
   }
   /**
    * Claims a repair of a recipe the chosen item cannot run (ADR 0058 A, amended by ADR 0041):
@@ -336,8 +341,14 @@ export function createLoginGeneration(options: {
         return { outcome: "skipped", reason: "no-slots" };
       const request = { ...input, slots };
       const { base, branch, repair } = request;
-      const claim = await claimed(request.observation, base, branch, repair, sent, (connection) =>
-        transport.generateRecipe(connection.origin, connection.credential, request),
+      const claim = await claimed(
+        request.observation,
+        base,
+        branch,
+        repair,
+        sent,
+        (connection) => transport.generateRecipe(connection.origin, connection.credential, request),
+        request.manual === true,
       );
       if ("outcome" in claim) return claim;
       const { connection, answer } = claim;

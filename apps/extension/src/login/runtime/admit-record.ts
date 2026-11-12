@@ -15,6 +15,7 @@ import { nextRecordStep, type RecordPhase, type RecordSeen } from "./admit-recor
 import { addAskFill } from "./relogin";
 import { confirmRecipeOn, startsFor } from "./generation-scope";
 import type { Runtime } from "./state";
+import { manualPending } from "./manual-scope";
 import { pageOff } from "./sign-in-fill";
 import { admitRecipe } from "./admit-recipe";
 import type { AdmitContext } from "./admit-context";
@@ -26,11 +27,10 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
 
   ctx.askKey = recordKey(ctx.document.tabId, ctx.document.origin);
 
-  // Read no recipe before a stale caller is rejected. Only `off` needs an early
-  // confirmation lookup; the default `fill` keeps the existing latched record phases.
+  // A new page reaches its recipe before opening policy. An existing record needs an
+  // early off check; valid manual authority instead reaches the normal repair path.
   if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-  // Fresh admissions check this in admitRecipe after recipe and page readiness.
-  if (ctx.recorded) {
+  if (ctx.recorded && !manualPending(rt, ctx.live)) {
     const permissionSnapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
     if (!permissionSnapshot.ok) return ctx.refuse("settings-unavailable");

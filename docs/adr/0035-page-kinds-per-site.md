@@ -40,6 +40,9 @@ Amended on 2026-11-07 by [ADR 0086](0086-logins-in-frames-like-top-pages.md) (ow
 13:06 UTC; delivery 3): frames are sent for generation, so a frame is no longer counted
 as a page that looks like a verification but is not sent (`frame`).
 
+Amended on 2026-11-11 by [ADR 0088](0088-popup-manual-login.md) for the explicit
+one-time popup login.
+
 Date: 2026-10-12
 
 ## Context
@@ -412,3 +415,20 @@ The implementation and synthetic verification are split across the
 [settings foundation](https://github.com/risu729/pateat/pull/1504),
 [login execution](https://github.com/risu729/pateat/pull/1506) and
 [extension controls](https://github.com/risu729/pateat/pull/1505).
+
+## Amendment 2026-11-11: explicit one-time login
+
+[ADR 0088](0088-popup-manual-login.md) implements the owner's request for a popup action
+that tries a login stopped by automatic conditions.
+
+The explicit **Log in now** action can ask the normal start-page repair path to
+evaluate a cached `confirm` or `unclear` recipe again. It does not execute that
+recipe as a login, change its kind locally or bypass model-output validation.
+Automatic handling of these page kinds is unchanged.
+
+With delivery 2, the action can replace a passive sign-in only at its read-only wait,
+with no field, generation or passkey operation in flight. It starts a separate normal
+login for the selected account while the site's/profile's `fill` setting stays in
+place. A cached confirmation set to `off` may be re-evaluated through the same repair
+path, but is never executed or relabelled by the click itself. The handoff and its
+stale-operation fences are described in ADR 0088's interaction section.
