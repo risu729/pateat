@@ -984,13 +984,13 @@ shadow trees, since any attribute can change a target's name, as `aria-label` or
 label's `for` do, or, through the page's CSS selectors, whether it shows. Its
 first-step checks stay limited to one per 100 ms. The pending one-second quiet wait
 counts only node and text changes and changes of the attributes that can change whether
-a target matches, shows or accepts input (`quietAttributes` in `login/content.ts`, such
-as `class`, `style`, `hidden` or `value`), as ADR 0057 defines a DOM change (note of
-2026-11-12): a page whose only movement is an attribute animation, as an SVG's
-`transform` or a progress bar's `aria-valuenow` each frame, is still decided after a
-quiet second rather than at the five-second cap. The looks for a sign-in input shown
-later, in place or after a same-document URL change, read the page at most once per
-frame and once per 100 ms too.
+a target matches, shows or accepts input (`quietAttributes` in `page/quiet.ts`, such as
+`class`, `style`, `hidden` or `value`, without a namespace), as ADR 0057 defines a DOM
+change (note of 2026-11-12): a page whose only movement is an attribute animation, as
+an SVG's `transform` or a progress bar's `aria-valuenow` each frame, is still decided
+after a quiet second rather than at the five-second cap. The looks for a sign-in input
+shown later, in place or after a same-document URL change, read the page at most once
+per frame and once per 100 ms too, and watch the shadow trees they find.
 
 A page that shows no input but an enabled button naming a passkey or security key, not
 a registration, is decided in the same wait (ADR 0057) and sent with `passkeyOnly: true`
@@ -1344,7 +1344,9 @@ account the typed values are cleared and nothing is pressed
 ([ADR 0049](adr/0049-start-at-a-later-step.md#amendment-2026-11-03-the-shown-account-checked-at-the-click)).
 A fill-only login's, a software keyboard's or a code's fill, or one that may submit by
 itself, first waits until the document has loaded and its DOM has not changed for 1
-second, for at most 5 seconds and until 2 seconds before the operation expires. The
+second, for at most 5 seconds and until 2 seconds before the operation expires; this
+wait and the switch's below count DOM changes as the offer's quiet wait does, so an
+attribute animation alone does not hold them to 5 seconds. The
 content script compares the username with the account identifiers shown in the form, or
 the page when there is no form, and the first eight `h1`-`h3` headings; every element
 boundary but a `<wbr>` separates words, format characters are left out (so

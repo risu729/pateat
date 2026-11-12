@@ -228,4 +228,19 @@ describe("the look after a same-document URL change once the window closed", () 
     expect(looked.slice(1).every((time, index) => time - looked[index]! >= 100)).toBe(true);
     expect(offers()).toEqual([]);
   });
+
+  it("offers a form a route renders into a shadow root (ADR 0070)", async () => {
+    document.body.innerHTML = accountList;
+    uninstall = installLoginContent();
+    await vi.advanceTimersByTimeAsync(LOGIN_STEP_WAIT_MS + 500);
+    document.body.innerHTML = '<div id="host"></div>';
+    const root = document.querySelector("#host")!.attachShadow({ mode: "open" });
+    history.pushState(null, "", "/pateat-moved");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(offers()).toEqual([]);
+    // The route's form renders later into the shadow root found by the first look.
+    root.innerHTML = form;
+    await vi.advanceTimersByTimeAsync(200);
+    expect(offers()).toEqual([expect.objectContaining({ signIn: { path: "/pateat-moved" } })]);
+  });
 });

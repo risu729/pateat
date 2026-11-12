@@ -86,7 +86,10 @@ a target's name, as `aria-label` or a label's `for` do, or, through the page's C
 selectors, whether it shows. Each change checks the recipe's first steps, at most once
 per 100 ms ([ADR 0082](0082-waits-on-signals.md)). The quiet second still counts only
 the changes the decision lists: added or removed nodes, text changes, and the attributes
-the watch observed before, now `quietAttributes` in `login/content.ts`. Counting every
-attribute would keep a page whose only movement is an attribute animation, as an SVG's
-`transform` or a progress bar's `aria-valuenow` each frame, from ever being quiet, so
-every such page would wait the full 5 seconds.
+the watch observed before, now `quietAttributes` in `page/quiet.ts` (without a
+namespace, as the old filter matched). Counting every attribute would keep a page whose
+only movement is an attribute animation, as an SVG's `transform` or a progress bar's
+`aria-valuenow` each frame, from ever being quiet, so every such page would wait the
+full 5 seconds. The same rule now applies to the content script's other DOM-quiet wait
+(`settled`), before a fill compared with the shown account and after a switch in place,
+which observed every attribute before.

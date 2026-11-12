@@ -225,6 +225,19 @@ describe("the page watch after only an attribute changes", () => {
     expect(offers()).toEqual([passkeyOffer]);
   });
 
+  it("does not restart it for a namespaced attribute under a listed name, as SVG xlink:href", async () => {
+    document.body.innerHTML =
+      "<main><button>Sign in with a passkey</button><svg><use></use></svg></main>";
+    watch.generate = true;
+    await install();
+    await vi.advanceTimersByTimeAsync(400);
+    document
+      .querySelector("use")!
+      .setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "#icon");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(offers()).toEqual([passkeyOffer]);
+  });
+
   it("retains the five-second cap while listed attributes never become quiet", async () => {
     document.body.innerHTML = "<main><button>Sign in with a passkey</button></main>";
     watch.generate = true;
