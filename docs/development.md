@@ -489,14 +489,6 @@ a module registers no tests. The case callbacks, tables, titles, hooks and regis
 order stay unchanged. These test modules live outside `src/` so they do not enter the
 production coverage denominator.
 
-The connection setup tests retain `apps/extension/src/connections/setup.test.ts`
-as their only discovered entry, with the original shared harness, root cleanup and
-describe-local helpers. Plain modules in `apps/extension/test/connections/setup/`
-register each existing case group synchronously at its original describe position,
-using the same fixture and helper references. Importing a module registers no tests.
-The callbacks, tables, assertions, comments and registration order stay unchanged,
-and these modules remain outside the production coverage roots.
-
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
@@ -647,6 +639,18 @@ order, callbacks, parameter tables and migration SQL remain unchanged. Each file
 follows the 1,000-line limit. The API coverage configuration covers production
 `src/` only, so these test helpers remain outside it. Compare expanded collection
 names and counts as well as the local Worker tests when changing this layout.
+
+### Connection setup service test organization
+
+`apps/extension/src/connections/setup.test.ts` is the discovered entry for the
+connection setup service suite. It owns the shared harness, the root cleanup and the
+describe-local helpers. Plain modules in `apps/extension/test/connections/setup/`
+export synchronous registration functions for the composition, challenge, refresh,
+session, permission and lock/unlock case groups, which the entry calls inside its
+describe scopes with the same fixture and helper references; importing a module
+registers no cases. `context.ts` holds the harness and helper types. The modules sit
+outside `src/`, so they stay outside the production coverage root. Each file follows
+the 1,000-line limit.
 
 ### Login wire contracts
 

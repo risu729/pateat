@@ -18,14 +18,16 @@ import { activeEntry, lockedEntry } from "../vault/__fixtures__/vault";
 import type { VaultEntry } from "../vault/record";
 import { createProviderSessions } from "./sessions";
 import { memorySessionStore } from "./__fixtures__/sessions";
-import { registerCompositionCases } from "../../test/connections/setup/composition";
-import { registerChallengeCases } from "../../test/connections/setup/challenges";
-import { registerRefreshCases } from "../../test/connections/setup/refresh";
-import { registerSessionRestartCases } from "../../test/connections/setup/sessions";
-import { registerSessionRevisionCases } from "../../test/connections/setup/sessions";
-import { registerSessionLifecycleCases } from "../../test/connections/setup/sessions";
-import { registerPermissionCases } from "../../test/connections/setup/permissions";
-import { registerLockUnlockCases } from "../../test/connections/setup/lock-unlock";
+import { registerCompositionCases } from "../../test/connections/setup/composition-cases";
+import { registerChallengeCases } from "../../test/connections/setup/challenge-cases";
+import { registerRefreshCases } from "../../test/connections/setup/refresh-cases";
+import {
+  registerSessionLifecycleCases,
+  registerSessionRestartCases,
+  registerSessionRevisionCases,
+} from "../../test/connections/setup/session-cases";
+import { registerPermissionCases } from "../../test/connections/setup/permission-cases";
+import { registerLockUnlockCases } from "../../test/connections/setup/lock-unlock-cases";
 
 const authenticationHash = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
 function gate() {

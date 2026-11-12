@@ -4,9 +4,9 @@ import type { SetupBegin } from "../../../src/connections/types";
 import {
   accountNow,
   accountProfile,
+  rawV1Account,
 } from "../../../../../packages/bitwarden/src/__fixtures__/account";
 import { rawCustomAccount } from "../../../../../packages/bitwarden/src/__fixtures__/connection";
-import { rawV1Account } from "../../../../../packages/bitwarden/src/__fixtures__/account";
 import { v1Password } from "../../../../../packages/bitwarden/src/__fixtures__/crypto";
 import type { SetupTestContext } from "./context";
 

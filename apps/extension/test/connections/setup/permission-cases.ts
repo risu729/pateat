@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { type BitwardenProfile } from "@pateat/bitwarden";
+import type { BitwardenProfile } from "@pateat/bitwarden";
 import { createConnectionSetupService } from "../../../src/connections/setup";
 import {
   accountProfile,

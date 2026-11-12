@@ -1,19 +1,21 @@
 import { expect, it, vi } from "vitest";
-import { type VaultApplyHold } from "../../../src/connections/auto-sync";
+import type { VaultApplyHold } from "../../../src/connections/auto-sync";
 import { parseSetupReply } from "../../../src/connections/wire";
 import type { ConnectionSetupDependencies } from "../../../src/connections/types";
 import {
   accountNow,
   accountProfile,
 } from "../../../../../packages/bitwarden/src/__fixtures__/account";
-import { v1Password } from "../../../../../packages/bitwarden/src/__fixtures__/crypto";
+import {
+  legacyItemKey,
+  v1Password,
+} from "../../../../../packages/bitwarden/src/__fixtures__/crypto";
 import { activeEntry, lockedEntry } from "../../../src/vault/__fixtures__/vault";
 import type { VaultEntry } from "../../../src/vault/record";
 import { createLocalVaultManager, type VaultCryptoHost } from "../../../src/vault/manager";
 import type { DurableVaultStore } from "../../../src/vault/storage";
 import { memorySessionKeyStore } from "../../../src/vault/session-key";
 import type { HostSessionRef } from "../../../src/crypto/wire";
-import { legacyItemKey } from "../../../../../packages/bitwarden/src/__fixtures__/crypto";
 import type { SetupTestContext } from "./context";
 
 export function registerLockUnlockCases({
