@@ -753,6 +753,20 @@ fixture type, and `context.ts` imports it with `import type`, so the type follow
 helpers. The modules sit outside `src/`, so they stay outside the production coverage
 root. Each file follows the 1,000-line limit.
 
+### Service settings sync test organization
+
+`apps/extension/src/service/settings-sync.test.ts` is the discovered entry for the
+main settings sync cases; the lost-base and property suites are separate entries. It
+owns the shared fixture factories, its describe scopes and each scope's local
+fixtures. Plain modules in `apps/extension/test/service/settings-sync/` export
+synchronous registration functions for the after-first-sync, vault-policy and
+personal-detail-link groups, which the entry calls inside those scopes with the same
+fixture and helper references; importing a module registers no cases. The modules
+import `vitest` and the production exports they use directly. The entry exports its
+fixture type, and `context.ts` picks from it with `import type`. The modules sit
+outside `src/`, so they stay outside the production coverage root. Each file follows
+the 1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
