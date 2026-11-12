@@ -389,6 +389,120 @@ describe("stored passkey RP IDs of one item (ADR 0084)", () => {
   });
 });
 
+describe.each(["absent", "null"] as const)(
+  "sealed login with %s legacy login metadata",
+  (login) => {
+    const encrypted = {
+      data: "synthetic-sealed-ciphertext",
+      ...(login === "null" ? { login: null } : {}),
+    };
+    const source = {
+      verified: true,
+      ciphers: new Map([[itemId, encrypted]]),
+      loginUris: new Map([[itemId, []]]),
+    };
+    const stub = (result: unknown) => {
+      const decrypt = vi.fn(async () => result);
+      return {
+        decrypt,
+        active: { decryptFido2Credentials: decrypt } as unknown as LocalCryptoSession,
+      };
+    };
+
+    it("finds a matching passkey and exposes only its public metadata", async () => {
+      const { active, decrypt } = stub({ ok: true, data: [decryptedView] });
+      const found = await findStoredPasskeys(active, binding, source, rpId);
+      expect(found).toMatchObject({
+        ok: true,
+        data: {
+          ...binding,
+          rpId,
+          candidates: [{ itemId, rpId, credentialId }],
+          unavailableItemIds: [],
+        },
+      });
+      expect(decrypt).toHaveBeenCalledExactlyOnceWith({
+        connectionId: binding.connectionId,
+        cipher: encrypted,
+      });
+      expect(JSON.stringify(found)).not.toContain(decryptedView.keyValue);
+      expect(JSON.stringify(found)).not.toContain(encrypted.data);
+    });
+
+    it.each([
+      ["another RP", [{ ...decryptedView, rpId: "other.example.test" }]],
+      ["no credential", []],
+    ])(
+      "searches a sealed item with %s without declaring it unavailable",
+      async (_, credentials) => {
+        const { active, decrypt } = stub({ ok: true, data: credentials });
+        expect(await findStoredPasskeys(active, binding, source, rpId)).toEqual({
+          ok: true,
+          data: { ...binding, rpId, candidates: [], unavailableItemIds: [] },
+        });
+        expect(decrypt).toHaveBeenCalledOnce();
+      },
+    );
+
+    it.each([
+      ["a matching RP", [decryptedView], [rpId]],
+      ["another RP", [{ ...decryptedView, rpId: "other.example.test" }], ["other.example.test"]],
+      ["no credential", [], []],
+    ])("lists RP IDs after decrypting a sealed item with %s", async (_, credentials, rpIds) => {
+      const { active, decrypt } = stub({ ok: true, data: credentials });
+      const listed = await storedPasskeyRpIds(active, binding, source, itemId);
+      expect(listed).toEqual({ ok: true, data: { ...binding, itemId, rpIds } });
+      expect(decrypt).toHaveBeenCalledExactlyOnceWith({
+        connectionId: binding.connectionId,
+        cipher: encrypted,
+      });
+      expect(JSON.stringify(listed)).not.toContain(decryptedView.keyValue);
+    });
+
+    it("keeps an unreadable sealed item unavailable without retiring the session", async () => {
+      const { active } = stub({ ok: false, error: { code: "crypto-failed" } });
+      expect(await findStoredPasskeys(active, binding, source, rpId)).toEqual({
+        ok: true,
+        data: { ...binding, rpId, candidates: [], unavailableItemIds: [itemId] },
+      });
+      expect(await storedPasskeyRpIds(active, binding, source, itemId)).toEqual({
+        ok: false,
+        error: { code: "unsupported-crypto" },
+      });
+    });
+
+    it("propagates a genuinely locked session from both sealed-item searches", async () => {
+      const { active } = stub({ ok: false, error: { code: "crypto-locked" } });
+      const locked = { ok: false, error: { code: "crypto-locked" } };
+      expect(await findStoredPasskeys(active, binding, source, rpId)).toEqual(locked);
+      expect(await storedPasskeyRpIds(active, binding, source, itemId)).toEqual(locked);
+    });
+  },
+);
+
+it("skips legacy logins without passkeys in both searches without SDK decryption", async () => {
+  const decrypt = vi.fn();
+  const active = { decryptFido2Credentials: decrypt } as unknown as LocalCryptoSession;
+  for (const stored of [legacyCipher(), { data: "", login: null }, { login: null }]) {
+    const source = {
+      verified: true,
+      ciphers: new Map([[itemId, stored]]),
+      loginUris: new Map([[itemId, []]]),
+    };
+    // eslint-disable-next-line no-await-in-loop
+    expect(await findStoredPasskeys(active, binding, source, rpId)).toEqual({
+      ok: true,
+      data: { ...binding, rpId, candidates: [], unavailableItemIds: [] },
+    });
+    // eslint-disable-next-line no-await-in-loop
+    expect(await storedPasskeyRpIds(active, binding, source, itemId)).toEqual({
+      ok: true,
+      data: { ...binding, itemId, rpIds: [] },
+    });
+  }
+  expect(decrypt).not.toHaveBeenCalled();
+});
+
 describe("stored passkey signing", () => {
   it.each([0x1d, 0x19])(
     "signs a zero-counter assertion with flags %#x that verifies against the stored key",
