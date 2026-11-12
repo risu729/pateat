@@ -890,6 +890,41 @@ from it with `import type`. The modules sit outside `src/`, so they stay outside
 coverage root and are not discovered as test files. Each file follows the 1,000-line
 limit.
 
+### Recipe contract test organization
+
+`packages/contracts/src/recipes.test.ts` is the discovered entry for the recipe
+selection and account-binding suites; `layouts.exhaustive.test.ts` separately walks
+layout ranking. The entry owns the `recipe`, `stored` and `binding` factories, the
+`fields` catalog and its `resolve` helper, and all eight describe scopes. Plain
+modules in `packages/contracts/test/recipes/` export synchronous registration
+functions for the recipe selection, synced binding, automatic account choice,
+template binding, binding gap, and field reference and display name cases. The entry
+calls each registrar inside its describe scope, and `field-reference-cases.ts`
+supplies the registrars for three scopes. Each registrar defines its scope-local
+fixtures in its body. Importing a module registers no cases. The modules import
+`vitest`, `valibot` and the production exports they use directly. The entry exports
+its `RecipeTestContext` type, and `context.ts` builds the module contexts from it with
+`import type`, so there is no runtime import cycle. The modules lack the `.test.ts`
+suffix, so Vitest does not discover them, and they sit outside `src/`, so they stay
+outside the coverage root. Each file follows the 1,000-line limit.
+
+### Vault policy contract test organization
+
+`packages/contracts/src/vault-policy.test.ts` is the discovered entry for the synced
+vault policy cases; `settings.test.ts` also covers item eligibility and settings-store
+saves. It owns all ten describe scopes, the synthetic account, item, policy and
+evidence factories, the `memoryStorage` helper and the `save` message builder. The
+plain module `packages/contracts/test/vault-policy/settings-page-save-cases.ts`
+exports a synchronous registration function for the settings page save and
+custom-field review cases, which the entry calls inside that describe scope with the
+fixture and helper references it uses; importing the module registers no cases. The
+registrar defines the scope's local `pin`, `stored` and `storeFor` helpers with its
+cases. The module imports `vitest` and the production exports it uses directly. The
+entry exports its `VaultPolicyTestFixtures` type, and the module imports it with
+`import type`, so there is no runtime import cycle. The module sits outside `src/`, so
+it stays outside the coverage root and is not discovered as a test file. Each file
+follows the 1,000-line limit.
+
 ### Passkey page test organization
 
 `apps/extension/src/passkeys/page.test.ts` is the discovered entry for the MAIN-world
