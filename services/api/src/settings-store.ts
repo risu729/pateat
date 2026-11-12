@@ -224,6 +224,8 @@ export async function writeSettings(
     // either; it is skipped rather than failing every write. Its own next write is
     // checked in full.
     if (next === undefined || next <= MAX_SETTINGS_DOCUMENT_BYTES) return false;
+    // The written profile always stays within the limit, as the route schemas also ensure.
+    if (profile.id === profileId) return true;
     // When the stored parts no longer compose, the write must stay within the limit.
     const current = composedBytes(() => storedShared(profile.shared), stored) ?? 0;
     return next > current;

@@ -58,7 +58,7 @@ and `generation.ts`.
 | `DELETE /manage/api/profiles/:profileId` | Delete a profile; 204, or 409 `profile_in_use` with the labels of the devices using it, or 409 `last_profile` |
 | `POST /manage/api/devices/:deviceId/profile` | Assign an owned profile to an owned active device; advances the settings revision |
 | `GET /manage/api/profiles/:profileId/settings` | Selected owned profile with shared bindings and owner revision; 404 for a foreign profile |
-| `PUT /manage/api/profiles/:profileId/settings` | Replace them like `PUT /v1/settings`; a document with `connections` or over 120 KiB is 400 `bad_request`, and one that would grow any live profile's composition with the proposed shared data past 120 KiB is 413 `settings_limit` |
+| `PUT /manage/api/profiles/:profileId/settings` | Replace them like `PUT /v1/settings`; a document with `connections` or over 120 KiB is 400 `bad_request` (a body over 128 KiB is 413 `payload_too_large`), and one that would grow any live profile's composition with the proposed shared data past 120 KiB is 413 `settings_limit` |
 | `GET /manage/api/recipes` | Every recipe head with its document and each layout's last use and first page's source (`firstPage`: origin, model, time; ADR 0060), most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
 | `POST /manage/api/recipes/:recipeId/layouts/:layout/revoke` | Remove one layout as the next revision if `expectedRevision` is the head, revoking the recipe when it was the last; 404 for a layout the head lacks, otherwise 409 with the current head |
