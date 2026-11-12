@@ -3,16 +3,13 @@ import {
   type LoginRecipe,
   type SyncRecipeChange,
 } from "@pateat/contracts";
-import { type AttemptKey, type GenerationBackend } from "../backend";
+import { utcDayStart, type AttemptKey, type GenerationBackend } from "../backend";
 
 /** A page tried is not sent to the model again for this long (owner, 2026-10-12). */
 export const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
 /** Room required before paying for a new page's recipe generation. */
 export const MIN_GENERATION_RECIPE_ROOM_BYTES = 32 * 1024;
-const DAY_MS = 24 * 60 * 60 * 1000;
-/** Judgements per recipe per UTC day, whatever the path (owner, ADR 0027). */
-export const JUDGEMENTS_PER_RECIPE_DAY = 20;
-export const utcDayStart = (now: number) => now - (now % DAY_MS);
+export { JUDGEMENTS_PER_RECIPE_DAY, utcDayStart } from "../backend";
 
 /**
  * One generated recipe per origin and start path, so devices generating together

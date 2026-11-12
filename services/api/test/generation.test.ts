@@ -2976,6 +2976,31 @@ describe("page judgement (ADR 0027)", () => {
         )
         .run(),
     );
+  const seedUsage = async (
+    device: Device,
+    recipeId: string,
+    revision: number,
+    path: string,
+    at: number,
+  ) => {
+    await seed(device, recipeId, revision, path, at);
+    await env.DB.prepare(`INSERT INTO judgement_reservations
+      (owner_id, id, device_id, recipe_id, branch, revision, origin, path, prompt_version,
+       fingerprint, started_at, day, state)
+      VALUES (?, ?, ?, ?, '', ?, ?, ?, '', 'synthetic', ?, ?, 'finished')`)
+      .bind(
+        device.ownerId,
+        crypto.randomUUID(),
+        device.deviceId,
+        recipeId,
+        revision,
+        ORIGIN,
+        path,
+        at,
+        at - (at % DAY_MS),
+      )
+      .run();
+  };
   const spend = (device: Device) =>
     rows(
       "SELECT period, calls, cost_micro_usd FROM inference_spend WHERE owner_id = ? ORDER BY period",
@@ -3795,7 +3820,7 @@ describe("page judgement (ADR 0027)", () => {
     const calls = sent.length;
     for (let index = 0; index < 20; index++)
       // oxlint-disable-next-line no-await-in-loop -- Synthetic rows, inserted in order.
-      await seed(device, change.recipeId, 1, `/p${index}`, dayStart() + index);
+      await seedUsage(device, change.recipeId, 1, `/p${index}`, dayStart() + index);
     expect((await complete(device, change.recipeId, 2)).body).toEqual({
       version: 1,
       status: "unavailable",
@@ -3809,12 +3834,12 @@ describe("page judgement (ADR 0027)", () => {
     const change = await twoPageRecipe(device);
     for (let index = 0; index < 19; index++)
       // oxlint-disable-next-line no-await-in-loop -- Synthetic rows, inserted in order.
-      await seed(device, change.recipeId, 2, `/today-${index}`, dayStart() + index);
+      await seedUsage(device, change.recipeId, 2, `/today-${index}`, dayStart() + index);
     for (let index = 0; index < 5; index++) {
       // oxlint-disable-next-line no-await-in-loop -- Synthetic rows, inserted in order.
-      await seed(device, change.recipeId, 2, `/yesterday-${index}`, dayStart() - 1 - index);
+      await seedUsage(device, change.recipeId, 2, `/yesterday-${index}`, dayStart() - 1 - index);
       // oxlint-disable-next-line no-await-in-loop -- Synthetic rows, inserted in order.
-      await seed(device, "gen-other", 1, `/other-${index}`, dayStart() + index);
+      await seedUsage(device, "gen-other", 1, `/other-${index}`, dayStart() + index);
     }
     replies.push(judgeReply({ decision: "rejected" }));
     expect((await complete(device, change.recipeId, 2)).body).toEqual({
@@ -3826,6 +3851,159 @@ describe("page judgement (ADR 0027)", () => {
       (await complete(device, change.recipeId, 2, { ...homePage, path: "/welcome" })).body,
     ).toMatchObject({ reason: "judgement-limit" });
   });
+
+  it.each(["optional", "partial", "challenge", "unclear"] as const)(
+    "stops provider dispatch after twenty %s overwrites of one page",
+    async (kind) => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const calls = sent.length;
+      /* oxlint-disable no-await-in-loop -- Each login depends on the previous page verdict. */
+      for (let index = 0; index < 20; index++) {
+        const page = {
+          ...homePage,
+          candidates: [
+            ...homePage.candidates,
+            ...(kind === "challenge" || kind === "unclear"
+              ? [element(`extra-${index}`, "text", "Synthetic field")]
+              : []),
+          ],
+        };
+        replies.push(judgeReply({ decision: kind === "partial" ? "optional" : kind }));
+        expect(
+          (
+            await complete(
+              device,
+              change.recipeId,
+              2,
+              page,
+              kind === "partial" && index % 2 === 0 ? true : undefined,
+            )
+          ).body,
+        ).toMatchObject({ status: kind === "partial" ? "optional" : kind });
+      }
+      /* oxlint-enable no-await-in-loop */
+      expect(sent).toHaveLength(calls + 20);
+      expect(
+        (
+          await complete(device, change.recipeId, 2, {
+            ...homePage,
+            candidates: [...homePage.candidates, element("extra-next", "text", "Synthetic field")],
+          })
+        ).body,
+      ).toMatchObject({ status: "unavailable", reason: "judgement-limit" });
+      expect(sent).toHaveLength(calls + 20);
+      expect(
+        await rows(
+          "SELECT verdict FROM page_judgements WHERE owner_id = ? AND path = '/home'",
+          device.ownerId,
+        ),
+      ).toEqual([{ verdict: kind === "partial" ? "optional" : kind }]);
+      expect(
+        await rows(
+          "SELECT count(*) AS n FROM judgement_reservations WHERE owner_id = ? AND state != 'cancelled'",
+          device.ownerId,
+        ),
+      ).toEqual([{ n: 20 }]);
+    },
+  );
+
+  it("serves a cached judgement at the daily cap without charging or replacing it", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(judgeReply({ decision: "rejected" }));
+    expect((await complete(device, change.recipeId, 2)).body).toMatchObject({ status: "rejected" });
+    await Promise.all(
+      Array.from({ length: 19 }, (_, index) =>
+        seedUsage(device, change.recipeId, 1, `/quota-${index}`, dayStart() + index),
+      ),
+    );
+
+    const calls = sent.length;
+    expect((await complete(device, change.recipeId, 2)).body).toMatchObject({
+      status: "unavailable",
+      reason: "judged-rejected",
+    });
+    expect(sent).toHaveLength(calls);
+    expect(
+      await rows(
+        "SELECT verdict FROM page_judgements WHERE owner_id = ? AND path = '/home'",
+        device.ownerId,
+      ),
+    ).toEqual([{ verdict: "rejected" }]);
+    expect(
+      await rows(
+        "SELECT count(*) AS n FROM judgement_reservations WHERE owner_id = ? AND state != 'cancelled'",
+        device.ownerId,
+      ),
+    ).toEqual([{ n: 20 }]);
+  });
+
+  it.each(["provider-error", "invalid-output", "uncertain-send"] as const)(
+    "retains the daily debit after %s",
+    async (failure) => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const calls = sent.length;
+      replies.push(failure === "invalid-output" ? { text: "not valid JSON" } : 500);
+      if (failure === "uncertain-send")
+        during = async () => {
+          throw new TypeError("synthetic connection lost after send");
+        };
+      expect((await complete(device, change.recipeId, 2)).body).toMatchObject({ status: "failed" });
+      during = undefined;
+      expect(sent).toHaveLength(calls + 1);
+      expect(
+        await rows("SELECT state FROM judgement_reservations WHERE owner_id = ?", device.ownerId),
+      ).toEqual([{ state: "finished" }]);
+      expect((await complete(device, change.recipeId, 2)).body).toMatchObject({
+        reason: "judgement-unanswered",
+      });
+      expect(sent).toHaveLength(calls + 1);
+    },
+  );
+
+  it.each(["optional", "partial", "challenge", "unclear"] as const)(
+    "restores the previous %s cache answer after a charged replacement fails",
+    async (kind) => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const inputs = kind === "challenge" || kind === "unclear";
+      const first = {
+        ...homePage,
+        candidates: [
+          ...homePage.candidates,
+          ...(inputs ? [element("first-field", "text", "Synthetic field")] : []),
+        ],
+      };
+      const second = {
+        ...homePage,
+        candidates: [
+          ...homePage.candidates,
+          ...(inputs ? [element("second-field", "text", "Synthetic field")] : []),
+        ],
+      };
+      replies.push(judgeReply({ decision: kind === "partial" ? "optional" : kind }));
+      expect(
+        (await complete(device, change.recipeId, 2, first, kind === "partial" ? true : undefined))
+          .body,
+      ).toMatchObject({ status: kind === "partial" ? "optional" : kind });
+      replies.push(500);
+      expect((await complete(device, change.recipeId, 2, second)).body).toMatchObject({
+        status: "failed",
+        error: "provider-error",
+      });
+      expect(
+        await rows(
+          "SELECT verdict, inputs FROM page_judgements WHERE owner_id = ? AND path = '/home'",
+          device.ownerId,
+        ),
+      ).toEqual([{ verdict: kind, inputs: await judgedInputs(first) }]);
+      expect(
+        await rows("SELECT state FROM judgement_reservations WHERE owner_id = ?", device.ownerId),
+      ).toEqual([{ state: "finished" }, { state: "finished" }]);
+    },
+  );
 
   it("purges older revisions' and judges' judgements once their day is over", async () => {
     const device = await owner();
@@ -4950,7 +5128,7 @@ describe("page judgement (ADR 0027)", () => {
       // A stop's judgement counts toward the recipe's 20 a day.
       for (let index = 0; index < 18; index++)
         // oxlint-disable-next-line no-await-in-loop -- Synthetic rows, inserted in order.
-        await seed(device, change.recipeId, 3, `/p${index}`, dayStart() + index);
+        await seedUsage(device, change.recipeId, 3, `/p${index}`, dayStart() + index);
       const calls = sent.length;
       expect((await atStop(device, change.recipeId, 3)).body).toEqual({
         version: 1,
@@ -7276,8 +7454,19 @@ describe("requests answered without a model call (ADR 0012)", () => {
         await env.DB.batch(
           Array.from({ length: 20 }, (_, index) =>
             env.DB.prepare(
-              "INSERT INTO page_judgements (owner_id, recipe_id, revision, origin, path, prompt_version, judged_at) VALUES (?, ?, 1, ?, ?, '', ?)",
-            ).bind(device.ownerId, change.recipeId, ORIGIN, `/p${index}`, dayStart + index),
+              `INSERT INTO judgement_reservations
+                (owner_id, id, device_id, recipe_id, branch, revision, origin, path, prompt_version, fingerprint, started_at, day, state)
+                VALUES (?, ?, ?, ?, '', 1, ?, ?, '', 'synthetic', ?, ?, 'finished')`,
+            ).bind(
+              device.ownerId,
+              crypto.randomUUID(),
+              device.deviceId,
+              change.recipeId,
+              ORIGIN,
+              `/p${index}`,
+              dayStart + index,
+              dayStart,
+            ),
           ),
         );
         return (await complete(device, change.recipeId, 2)).body;

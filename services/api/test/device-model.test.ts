@@ -7,6 +7,7 @@ import {
   type LogoutGenerationResult,
   type ObservedCandidate,
   type RecipeGenerationResult,
+  type RecipeCompletionResult,
   type SemanticSlot,
 } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
@@ -152,7 +153,9 @@ async function logout(device: Device, responses: DeviceModelResponse[]) {
 }
 
 /** The model call a `model-call` answer names, which the test then answers. */
-function modelCall(answer: RecipeGenerationResult | LogoutGenerationResult) {
+function modelCall(
+  answer: RecipeGenerationResult | LogoutGenerationResult | RecipeCompletionResult,
+) {
   if (answer.status !== "model-call")
     throw new Error(`Expected a model call, got ${answer.status}`);
   // Every call the routes hand over is one a device sends with its key.
@@ -490,5 +493,260 @@ describe("Clef calls a paired device makes with its Cloudflare token (ADR 0083)"
     const call = modelCall(await generate(device, []));
     expect(call.index).toBe(0);
     expect(call.provider).toBe("anthropic");
+  });
+});
+
+describe("paired judge reservations before device provider dispatch", () => {
+  const branches = new Map<string, string>();
+  const identity = (): { id: string; startedAt?: number } => ({ id: crypto.randomUUID() });
+  async function recipeFor(device: Device) {
+    const first = modelCall(await generate(device, []));
+    const result = await generate(device, [await answered(first.body, { text: plan })]);
+    if (result.status !== "recipe") throw new Error(`Expected recipe, got ${result.status}`);
+    if (!("layouts" in result.change.recipe)) throw new Error("Expected a login layout");
+    const layout = result.change.recipe.layouts?.[0];
+    if (!layout) throw new Error("Expected a login layout");
+    branches.set(`${device.ownerId}:${result.change.recipeId}`, layout.key);
+    return result.change.recipeId;
+  }
+  async function judge(
+    device: Device,
+    recipeId: string,
+    judgement: { id: string; startedAt?: number; cancel?: true } | undefined,
+    responses: DeviceModelResponse[] = [],
+    path = "/home",
+    extra: Record<string, unknown> = {},
+  ) {
+    const response = await exports.default.fetch(
+      `https://pateat.invalid/v1/recipes/${recipeId}/completion`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${device.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: 1,
+          revision: 1,
+          route: "password",
+          branch: branches.get(`${device.ownerId}:${recipeId}`),
+          slots: [],
+          observation: { ...loginPage, path, candidates: [element("help", "link", "Help")] },
+          ...extra,
+          deviceModel: { provider: "anthropic", responses, ...(judgement ? { judgement } : {}) },
+        }),
+      },
+    );
+    expect(response.status).toBe(200);
+    const result = (await response.json()) as RecipeCompletionResult;
+    if (result.status === "model-call" && judgement) {
+      expect(result.judgement).toEqual({ id: judgement.id, startedAt: expect.any(Number) });
+      Object.assign(judgement, result.judgement);
+    }
+    return result;
+  }
+  const reservations = (device: Device) =>
+    rows(
+      "SELECT id, state, issued_count FROM judgement_reservations WHERE owner_id = ? AND state != 'cancelled'",
+      device.ownerId,
+    );
+
+  it("reserves before the first model-call answer and admits at most twenty unanswered calls", async () => {
+    const device = await owner();
+    const recipeId = await recipeFor(device);
+    const results: RecipeCompletionResult[] = [];
+    // Each batch fits the owner's five in-flight call slots; their completed
+    // handoffs accumulate against the independent twenty-per-recipe allowance.
+    /* oxlint-disable no-await-in-loop -- Owner call slots are released between batches. */
+    for (let batch = 0; batch < 5; batch++) {
+      results.push(
+        ...(await Promise.all(
+          Array.from({ length: 5 }, (_, index) =>
+            judge(device, recipeId, identity(), [], `/p${batch * 5 + index}`),
+          ),
+        )),
+      );
+    }
+    /* oxlint-enable no-await-in-loop */
+    expect(results.filter((result) => result.status === "model-call")).toHaveLength(20);
+    expect(
+      results.filter(
+        (result) => result.status === "unavailable" && result.reason === "judgement-limit",
+      ),
+    ).toHaveLength(5);
+    const ledger = await reservations(device);
+    expect(ledger).toHaveLength(20);
+    expect(ledger.every((row) => row["state"] === "active" && row["issued_count"] === 1)).toBe(
+      true,
+    );
+    expect(outbound).toBe(0);
+  });
+
+  it("rejects empty and mismatched replay, then completes the exact response once", async () => {
+    const device = await owner();
+    const recipeId = await recipeFor(device);
+    const operation = identity();
+    const first = modelCall(await judge(device, recipeId, operation));
+    expect(await reservations(device)).toHaveLength(1);
+    expect(await judge(device, recipeId, operation)).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    const wrong = await answered(`${first.body} `, {
+      text: JSON.stringify({ result: { decision: "optional" } }),
+    });
+    expect(await judge(device, recipeId, operation, [wrong])).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    const correct = await answered(first.body, {
+      text: JSON.stringify({ result: { decision: "optional" } }),
+    });
+    expect(await judge(device, recipeId, operation, [correct])).toMatchObject({
+      status: "optional",
+    });
+    expect(await judge(device, recipeId, operation, [correct])).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    expect(await judge(device, recipeId, operation, [], "/new")).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    expect(await reservations(device)).toHaveLength(1);
+    expect(outbound).toBe(0);
+  });
+
+  it("keeps refusal fallback and every relay round trip within one charged judgement", async () => {
+    const device = await owner();
+    const recipeId = await recipeFor(device);
+    const operation = identity();
+    const first = modelCall(await judge(device, recipeId, operation));
+    const refused = await answered(first.body, { refusal: "cyber" });
+    const second = modelCall(await judge(device, recipeId, operation, [refused]));
+    expect(second.index).toBe(1);
+    expect(await judge(device, recipeId, operation, [refused])).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    expect(
+      await judge(device, recipeId, operation, [
+        refused,
+        await answered(second.body, { text: JSON.stringify({ result: { decision: "optional" } }) }),
+      ]),
+    ).toMatchObject({ status: "optional" });
+    expect(await reservations(device)).toEqual([
+      { id: operation.id, state: "finished", issued_count: 2 },
+    ]);
+  });
+
+  it("binds outstanding permits to the issuing device and full input fingerprint", async () => {
+    const device = await owner();
+    const recipeId = await recipeFor(device);
+    const operation = identity();
+    const first = modelCall(await judge(device, recipeId, operation));
+    const response = await answered(first.body, {
+      text: JSON.stringify({ result: { decision: "optional" } }),
+    });
+    const otherToken = createDeviceToken();
+    await env.DB.prepare(
+      "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+      .bind(
+        crypto.randomUUID(),
+        device.ownerId,
+        device.ownerId,
+        await hashDeviceToken(otherToken),
+        Date.now(),
+        Date.now(),
+      )
+      .run();
+    expect(
+      await judge({ ...device, token: otherToken }, recipeId, operation, [response]),
+    ).toMatchObject({ status: "unavailable", reason: "judgement-unanswered" });
+    expect(await judge(device, recipeId, operation, [response], "/other")).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    expect(
+      await judge(device, recipeId, operation, [response], "/home", { partial: true }),
+    ).toMatchObject({ status: "unavailable", reason: "judgement-unanswered" });
+    expect(await judge(device, recipeId, operation, [response])).toMatchObject({
+      status: "optional",
+    });
+    expect(await reservations(device)).toHaveLength(1);
+  });
+
+  it("rejects missing, expired and future identities before handing over a provider call", async () => {
+    const device = await owner();
+    const recipeId = await recipeFor(device);
+    await Promise.all(
+      [
+        undefined,
+        { ...identity(), startedAt: Date.now() - 300_000 },
+        { ...identity(), startedAt: Date.now() + 60_000 },
+      ].map(async (operation) => {
+        expect(await judge(device, recipeId, operation)).toMatchObject({
+          status: "unavailable",
+          reason: "judgement-unanswered",
+        });
+      }),
+    );
+    expect(await reservations(device)).toEqual([]);
+    expect(outbound).toBe(0);
+  });
+
+  it("expires an issued server grant without resetting its charged slot", async () => {
+    const serverNow = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(serverNow);
+    try {
+      const device = await owner();
+      const recipeId = await recipeFor(device);
+      const operation = identity();
+      const first = modelCall(await judge(device, recipeId, operation));
+      expect(operation.startedAt).toBe(serverNow);
+      const response = await answered(first.body, {
+        text: JSON.stringify({ result: { decision: "optional" } }),
+      });
+      clock.mockReturnValue(serverNow + 300_000);
+      expect(await judge(device, recipeId, operation, [response])).toMatchObject({
+        status: "unavailable",
+        reason: "judgement-unanswered",
+      });
+      expect(await reservations(device)).toHaveLength(1);
+      expect(await judge(device, recipeId, { id: operation.id }, [], "/new")).toMatchObject({
+        status: "unavailable",
+        reason: "judgement-unanswered",
+      });
+      expect(await reservations(device)).toHaveLength(1);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("restores a previous answer after a locally refused device call while retaining its issued quota", async () => {
+    const device = await owner();
+    const recipeId = await recipeFor(device);
+    const firstOperation = identity();
+    const first = modelCall(await judge(device, recipeId, firstOperation));
+    expect(
+      await judge(device, recipeId, firstOperation, [
+        await answered(first.body, { text: JSON.stringify({ result: { decision: "optional" } }) }),
+      ]),
+    ).toMatchObject({ status: "optional" });
+    const nextOperation = identity();
+    modelCall(await judge(device, recipeId, nextOperation));
+    expect(await judge(device, recipeId, { ...nextOperation, cancel: true })).toMatchObject({
+      status: "unavailable",
+    });
+    expect(
+      await rows(
+        "SELECT verdict FROM page_judgements WHERE owner_id = ? AND path = '/home'",
+        device.ownerId,
+      ),
+    ).toEqual([{ verdict: "optional" }]);
+    expect(await reservations(device)).toHaveLength(2);
+    expect(await judge(device, recipeId, nextOperation)).toMatchObject({
+      status: "unavailable",
+      reason: "judgement-unanswered",
+    });
+    expect(await reservations(device)).toHaveLength(2);
   });
 });

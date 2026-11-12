@@ -696,6 +696,8 @@ export const pageJudgements = sqliteTable(
      */
     promptVersion: text("prompt_version").notNull().default(""),
     judgedAt: integer("judged_at").notNull(),
+    /** The logical operation allowed to write this row's answer. */
+    claimId: text("claim_id"),
     /**
      * The model's verdict once it answered (ADR 0029); empty while the page is being
      * judged, or when the request failed.
@@ -722,6 +724,54 @@ export const pageJudgements = sqliteTable(
     }),
     index("page_judgements_day").on(table.ownerId, table.recipeId, table.judgedAt),
   ],
+);
+
+/**
+ * Immutable daily reservations, separate from the overwritable page-answer cache.
+ * Completed and uncertain operations keep their slot; only explicit no-send cancels do not.
+ */
+export const judgementReservations = sqliteTable(
+  "judgement_reservations",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    id: text("id").notNull(),
+    deviceId: text("device_id").notNull(),
+    recipeId: text("recipe_id").notNull(),
+    branch: text("branch").notNull(),
+    revision: integer("revision").notNull(),
+    origin: text("origin").notNull(),
+    path: text("path").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    startedAt: integer("started_at").notNull(),
+    day: integer("day").notNull(),
+    state: text("state", { enum: ["active", "finished", "cancelled"] }).notNull(),
+    issuedCount: integer("issued_count").notNull().default(0),
+    responseHash: text("response_hash"),
+    processing: integer("processing", { mode: "boolean" }).notNull().default(true),
+    previousAt: integer("previous_at"),
+    previousVerdict: text("previous_verdict", { enum: pageJudgementVerdicts }),
+    previousInputs: text("previous_inputs"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ownerId, table.id] }),
+    index("judgement_reservations_day").on(table.ownerId, table.recipeId, table.day),
+  ],
+);
+
+/** Existing recipes conservatively use the cutover day's quota: history was lossy. */
+export const judgementQuotaCutovers = sqliteTable(
+  "judgement_quota_cutovers",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    recipeId: text("recipe_id").notNull(),
+    day: integer("day").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.ownerId, table.recipeId] })],
 );
 
 /**

@@ -33,6 +33,8 @@ export const OWNER_TABLES = [
   "settings",
   "generation_attempts",
   "page_judgements",
+  "judgement_reservations",
+  "judgement_quota_cutovers",
   "inference_locks",
   "inference_spend",
   "inference_log",

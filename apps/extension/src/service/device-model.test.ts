@@ -8,6 +8,8 @@ import {
   type LogoutGenerationResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
+  type RecipeCompletionRequest,
+  type RecipeCompletionResult,
 } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -605,5 +607,127 @@ describe("Clef calls a paired service hands this device (ADR 0083)", () => {
       expect(fetch).not.toHaveBeenCalled();
       expect(sent).toHaveLength(1);
     }
+  });
+});
+
+describe("paired judge client identity", () => {
+  const request: RecipeCompletionRequest = {
+    version: 1,
+    revision: 1,
+    route: "password",
+    branch: "1000",
+    observation: REQUEST.observation,
+    slots: [],
+  };
+  function judgeRelay(answers: RecipeCompletionResult[], spend?: DeviceModelSpend, clockSkew = 0) {
+    const requests: RecipeCompletionRequest[] = [];
+    let stored: unknown = spend;
+    const fetch = vi.fn(async () =>
+      Response.json({ usage: { input_tokens: 100, output_tokens: 10 } }),
+    );
+    const model = createDeviceModel({
+      storage: { read: async () => SETTING, write: async () => {}, clear: async () => {} },
+      spend: {
+        read: async () => stored,
+        write: async (value) => {
+          stored = value;
+        },
+      },
+      limits: async () => ({ dailyUsd: 5, monthlyUsd: 100 }),
+      fetch,
+      now: () => NOW + clockSkew,
+    });
+    const transport = model.wrap({
+      generateRecipe: vi.fn(),
+      generateEntry: vi.fn(),
+      generateLogout: vi.fn(),
+      judgeCompletion: vi.fn(
+        async (
+          _origin: string,
+          _credential: string,
+          _recipeId: string,
+          value: RecipeCompletionRequest,
+        ) => {
+          requests.push(structuredClone(value));
+          const result = answers.shift()!;
+          return {
+            kind: "result",
+            result:
+              result.status === "model-call"
+                ? { ...result, judgement: { id: value.deviceModel!.judgement!.id, startedAt: NOW } }
+                : result,
+          };
+        },
+      ),
+    } as unknown as Pick<
+      ServiceTransport,
+      "generateRecipe" | "generateEntry" | "generateLogout" | "judgeCompletion"
+    >);
+    return { transport, requests, fetch };
+  }
+
+  it.each([-3_600_000, 3_600_000])(
+    "uses the server grant with a client clock skew of %i ms",
+    async (clockSkew) => {
+      const optional = { version: 1, status: "optional" } as const;
+      const { transport, requests, fetch } = judgeRelay(
+        [CALL, optional, CALL, optional],
+        undefined,
+        clockSkew,
+      );
+      expect(
+        await transport.judgeCompletion(ORIGIN, CREDENTIAL, "gen_synthetic", request),
+      ).toMatchObject({ kind: "result", result: optional });
+      expect(
+        await transport.judgeCompletion(ORIGIN, CREDENTIAL, "gen_synthetic", request),
+      ).toMatchObject({ kind: "result", result: optional });
+      const first = requests[0]!.deviceModel!.judgement;
+      expect(first).toEqual({ id: expect.any(String) });
+      expect(requests[1]!.deviceModel!.judgement).toEqual({ ...first, startedAt: NOW });
+      expect(requests[1]!.deviceModel!.responses).toHaveLength(1);
+      expect(requests[2]!.deviceModel!.judgement!.id).not.toBe(first!.id);
+      expect(requests[3]!.deviceModel!.judgement).toEqual({
+        ...requests[2]!.deviceModel!.judgement,
+        startedAt: NOW,
+      });
+      expect(fetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("sends a matching no-send cancellation when the service returns an unsafe call", async () => {
+    const unsafe: RecipeCompletionResult = {
+      ...CALL,
+      call: { ...CALL.call, body: JSON.stringify({ ...JSON.parse(BODY), tools: [] }) },
+    };
+    const { transport, requests, fetch } = judgeRelay([
+      unsafe,
+      { version: 1, status: "unavailable", reason: "judgement-unanswered" },
+    ]);
+    expect(
+      await transport.judgeCompletion(ORIGIN, CREDENTIAL, "gen_synthetic", request),
+    ).toMatchObject({ kind: "failed", error: "unexpected-response" });
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.deviceModel).toEqual({
+      provider: "anthropic",
+      responses: [],
+      judgement: { ...requests[0]!.deviceModel!.judgement, startedAt: NOW, cancel: true },
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("checks the local spend stop before requesting a service reservation", async () => {
+    const day = new Date(NOW).toISOString().slice(0, 10);
+    const { transport, requests, fetch } = judgeRelay([], {
+      version: 1,
+      day,
+      dayMicroUsd: 5_000_000,
+      month: day.slice(0, 7),
+      monthMicroUsd: 5_000_000,
+    });
+    expect(
+      await transport.judgeCompletion(ORIGIN, CREDENTIAL, "gen_synthetic", request),
+    ).toMatchObject({ kind: "result", result: { status: "unavailable", reason: "daily-limit" } });
+    expect(requests).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 import type { GenerationBackend } from "@pateat/generation";
 import type { WorkersAiBinding } from "@pateat/inference";
-import { and, count, eq, gt, gte, inArray, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, gte, lt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { DeviceScope } from "../auth";
 import {
@@ -10,6 +10,7 @@ import {
   logUnsent,
   type RequestTrace,
 } from "../claude/calls";
+import { judgementQuota } from "./judgement-quota";
 import { generationAttempts, pageJudgements, recipeRepairs } from "../db/schema";
 import {
   hasRecipeByteRoom,
@@ -41,6 +42,7 @@ export function d1Backend(
 ): GenerationBackend {
   const { ownerId, deviceId } = scope;
   const db = drizzle(env.DB);
+  const quota = judgementQuota(env.DB, ownerId, deviceId);
   const judgementOf = (key: Parameters<GenerationBackend["judgement"]>[0]) =>
     and(
       eq(pageJudgements.ownerId, ownerId),
@@ -144,64 +146,17 @@ export function d1Backend(
         .limit(1);
       return judged;
     },
-    judgementsSince: async (recipeId, since) => {
-      const [judged] = await db
-        .select({ value: count() })
-        .from(pageJudgements)
-        .where(
-          and(
-            eq(pageJudgements.ownerId, ownerId),
-            eq(pageJudgements.recipeId, recipeId),
-            gte(pageJudgements.judgedAt, since),
-          ),
-        );
-      return judged?.value ?? 0;
-    },
-    recordJudgement: async (key, now, stale, inputs) => {
-      const [taken] = await db.batch([
-        db
-          .insert(pageJudgements)
-          .values({ ownerId, ...key, judgedAt: now, inputs })
-          .onConflictDoUpdate({
-            target: [
-              pageJudgements.ownerId,
-              pageJudgements.recipeId,
-              pageJudgements.branch,
-              pageJudgements.revision,
-              pageJudgements.origin,
-              pageJudgements.path,
-              pageJudgements.promptVersion,
-            ],
-            set: { judgedAt: now, verdict: null, inputs },
-            // `is not` holds for a row kept without inputs too.
-            setWhere: sql`${inArray(pageJudgements.verdict, ["partial", "optional"])} or (${inArray(
-              pageJudgements.verdict,
-              ["challenge", "unclear"],
-            )} and ${pageJudgements.inputs} is not ${inputs})`,
-          }),
-        db
-          .delete(pageJudgements)
-          .where(
-            and(
-              eq(pageJudgements.ownerId, ownerId),
-              eq(pageJudgements.recipeId, key.recipeId),
-              or(
-                lt(pageJudgements.revision, key.revision),
-                notInArray(pageJudgements.promptVersion, [...stale.versions]),
-              ),
-              lt(pageJudgements.judgedAt, stale.expired),
-            ),
-          ),
-      ]);
-      // An insert, or a retaken `partial` or `optional` row or a `challenge` or `unclear`
-      // one of other inputs; none while another request's row is there.
-      return taken.meta.changes === 1;
-    },
-    keepVerdict: async (key, verdict, inputs) => {
+    judgementReservation: quota.state,
+    reserveJudgement: quota.reserve,
+    continueJudgement: quota.continueCall,
+    dispatchJudgement: quota.dispatch,
+    finishJudgement: quota.finish,
+    cancelJudgement: quota.cancel,
+    keepVerdict: async (key, verdict, claimId, inputs) => {
       await db
         .update(pageJudgements)
         .set(inputs === undefined ? { verdict } : { verdict, inputs })
-        .where(judgementOf(key));
+        .where(and(judgementOf(key), eq(pageJudgements.claimId, claimId)));
     },
 
     call: (call) => callClaude(env, ownerId, trace, call),

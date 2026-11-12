@@ -1,5 +1,6 @@
 import {
   parseRecipeBranch,
+  deviceModelRequestHash,
   recipeHasRoute,
   routeFillTargets,
   routeSignInPaths,
@@ -38,6 +39,7 @@ import {
 import {
   type GenerationBackend,
   type JudgementKey,
+  type JudgementReservation,
   type KeptJudgement,
   type PageJudgementVerdict,
   type UnitSources,
@@ -54,7 +56,7 @@ import {
   modelCall,
   answerable,
 } from "./responses";
-import { JUDGEMENTS_PER_RECIPE_DAY, utcDayStart, staleHead } from "./policy";
+import { utcDayStart, staleHead } from "./policy";
 import { routeOf, stored, markWritten } from "./layout";
 
 /**
@@ -282,6 +284,27 @@ export async function judgeCompletion(
             ? "judged-signed-in"
             : "already-judged";
   };
+  // A direct request gets its identity here; a paired relay keeps the same identity
+  // while returning provider responses. Bind it to every judge input, never just a path.
+  const pairedOperation = request.deviceModel?.judgement;
+  if (request.deviceModel && !pairedOperation)
+    return unsent(unavailable("judgement-unanswered"), loginPaths);
+  const operation: JudgementReservation = {
+    id: pairedOperation?.id ?? crypto.randomUUID(),
+    startedAt: pairedOperation?.startedAt ?? 0,
+    fingerprint: await deviceModelRequestHash(
+      JSON.stringify({
+        ...request,
+        deviceModel: undefined,
+        promptVersion,
+      }),
+    ),
+  };
+  if (pairedOperation?.cancel) {
+    if (request.deviceModel?.responses.length === 0)
+      await backend.cancelJudgement(judgedPage, operation);
+    return unsent(unavailable("judgement-unanswered"), loginPaths);
+  }
   /**
    * The verdict of a row this request took for other inputs, `challenge` or `unclear`:
    * until the new verdict is written the row has none, so a request that ends without one
@@ -296,7 +319,7 @@ export async function judgeCompletion(
   // write only costs that.
   const keepVerdict = async (verdict: PageJudgementVerdict, keptInputs?: string | null) => {
     try {
-      await backend.keepVerdict(judgedPage, verdict, keptInputs);
+      await backend.keepVerdict(judgedPage, verdict, operation.id, keptInputs);
     } catch {
       console.warn("Page judgement verdict not kept", { recipeId, verdict });
     }
@@ -304,7 +327,23 @@ export async function judgeCompletion(
   // A retaken `challenge` or `unclear` row whose request failed keeps its verdict and its
   // earlier inputs, so a later login of the new ones judges the page again.
   const keepRetaken = async () => {
-    if (retaken) await keepVerdict(retaken, kept?.inputs ?? null);
+    if (kept?.verdict != null) await keepVerdict(kept.verdict, kept.inputs);
+  };
+  const reserve = async (now: number): Promise<GenerationUnavailableReason | undefined> => {
+    const result = await backend.reserveJudgement(
+      judgedPage,
+      now,
+      { expired: utcDayStart(now), versions: [usualVersion, stopVersion, besideVersion] },
+      inputs,
+      operation,
+    );
+    if (result.status === "limited") return "judgement-limit";
+    if (result.status === "held")
+      return judgedAnswer(await backend.judgement(judgedPage)) ?? "judgement-unanswered";
+    kept = result.previous;
+    retaken =
+      kept?.verdict === "challenge" || kept?.verdict === "unclear" ? kept.verdict : undefined;
+    return undefined;
   };
   const judging = backend.call({
     ...logged(loginPaths),
@@ -315,36 +354,37 @@ export async function judgeCompletion(
     gate: async (now) => {
       const stale = staleHead(await backend.readHead(recipeId), head.revision);
       if (stale) return stale;
-      kept = await backend.judgement(judgedPage);
-      const judged = judgedAnswer(kept);
-      if (judged) return judged;
-      return (await backend.judgementsSince(recipeId, utcDayStart(now))) >=
-        JUDGEMENTS_PER_RECIPE_DAY
-        ? "judgement-limit"
-        : undefined;
-    },
-    // A request the role refuses before sending gives the slot back, as a generation
-    // attempt does (ADR 0027); a `partial` or `optional` row judged again, or a
-    // `challenge` or `unclear` one of other inputs, takes today's slot and waits for its
-    // new verdict.
-    // Rows of older revisions or judges go once their day is over. A row another request
-    // wrote since the gate stops this one unsent, so a page is never judged twice at once
-    // (ADR 0018): it answers as that row does.
-    beforeSend: async (now) => {
-      if (
-        await backend.recordJudgement(
-          judgedPage,
-          now,
-          { expired: utcDayStart(now), versions: [usualVersion, stopVersion, besideVersion] },
-          inputs,
+      if (pairedOperation?.startedAt === undefined) operation.startedAt = now;
+      const reservation = await backend.judgementReservation(judgedPage, operation, now);
+      if (reservation.status === "invalid") return "judgement-unanswered";
+      if (reservation.status === "active") {
+        // A response is admitted only once, for the outstanding body and exact index.
+        // Empty/old replays cannot obtain another provider call under this quota slot.
+        if (
+          !request.deviceModel ||
+          !(await backend.continueJudgement(
+            judgedPage,
+            operation,
+            request.deviceModel.responses.map((response) => response.request),
+            now,
+          ))
         )
-      ) {
+          return "judgement-unanswered";
+        kept = reservation.previous;
         retaken =
           kept?.verdict === "challenge" || kept?.verdict === "unclear" ? kept.verdict : undefined;
         return undefined;
       }
-      return judgedAnswer(await backend.judgement(judgedPage)) ?? "judgement-unanswered";
+      // A timestamp is a service-issued grant, never authority to create a new one.
+      // Missing/expired grants with responses cannot restart an operation.
+      if (pairedOperation?.startedAt !== undefined || request.deviceModel?.responses.length)
+        return "judgement-unanswered";
+      kept = await backend.judgement(judgedPage);
+      return judgedAnswer(kept);
     },
+    // Local role refusals never reach this boundary. The backend atomically claims
+    // both the eligible page and the recipe's daily slot immediately before inference.
+    beforeSend: reserve,
     invoke: (model) =>
       createCompletionJudge({ model, ...roleConfig })({
         observation,
@@ -366,7 +406,27 @@ export async function judgeCompletion(
     await keepRetaken();
     return unsent(unavailable(call.reason), loginPaths);
   }
-  if (call.status === "device-call") return modelCall(call);
+  if (call.status === "device-call") {
+    // The generic paired runner probes without writes. A judge must claim its quota
+    // before handing any provider body to the device, rather than after it paid.
+    const refused = await reserve(Date.now());
+    if (refused) return unsent(unavailable(refused), loginPaths);
+    if (
+      !(await backend.dispatchJudgement(judgedPage, operation, {
+        index: call.call.index,
+        hash: await deviceModelRequestHash(call.call.body),
+      }))
+    )
+      return unsent(unavailable("judgement-unanswered"), loginPaths);
+    return {
+      ...modelCall(call),
+      judgement: { id: operation.id, startedAt: operation.startedAt },
+    };
+  }
+  await backend.finishJudgement(judgedPage, operation).catch(async (error: unknown) => {
+    await keepRetaken();
+    throw error;
+  });
   const { outcome } = call;
   /**
    * The provenance of the handlers or marker this judgement adds to the judged layout and

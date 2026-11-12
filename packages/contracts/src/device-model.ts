@@ -62,6 +62,15 @@ export const deviceModelResponseSchema = v.variant("kind", [
 export const deviceModelSchema = v.strictObject({
   provider: v.picklist(["anthropic", "openai"]),
   responses: v.pipe(v.array(deviceModelResponseSchema), v.maxLength(MAX_DEVICE_MODEL_CALLS)),
+  /** Completion only: a bounded identity for its pre-dispatch quota reservation. */
+  judgement: v.optional(
+    v.strictObject({
+      id: v.pipe(v.string(), v.uuid()),
+      startedAt: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+      /** Sent only when the device knows it never sent the first provider request. */
+      cancel: v.optional(v.literal(true)),
+    }),
+  ),
   /**
    * The device also holds a Cloudflare token for Clef (ADR 0083), so the service may ask it
    * for Clef's calls (`provider: "cloudflare"`) before Claude's.
@@ -79,6 +88,13 @@ export const deviceModelSchema = v.strictObject({
 export const deviceModelCallSchema = v.strictObject({
   version: v.literal(1),
   status: v.literal("model-call"),
+  /** Completion's server-issued reservation; the device echoes it verbatim. */
+  judgement: v.optional(
+    v.strictObject({
+      id: v.pipe(v.string(), v.uuid()),
+      startedAt: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    }),
+  ),
   call: v.strictObject({
     index: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(MAX_DEVICE_MODEL_CALLS - 1)),
     provider: v.picklist(["anthropic", "openai", "cloudflare"]),
