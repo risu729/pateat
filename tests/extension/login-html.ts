@@ -1,3 +1,4 @@
+/** Wraps a synthetic login fixture page body in the shared document, status line and script. */
 export function html(body: string, script = ""): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Synthetic login fixture</title></head><body>${body}<p id="fixture-status" aria-live="polite"></p><p>Close this tab and open /identity in a new tab to start another synthetic login.</p><script>
     function updateFixtureStatus() {

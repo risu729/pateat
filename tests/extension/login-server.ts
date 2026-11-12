@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
 import { credentialFailurePage } from "./credential-failure-fixture";
-import { html } from "./login-page";
+import { html } from "./login-html";
 import {
   identityPage,
   identifierFirstPage,

@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { bitwardenTotpSecret } from "../../packages/bitwarden/src/__fixtures__/totp";
-import { html } from "./login-page";
+import { html } from "./login-html";
 
 /**
  * The RFC 6238 codes (SHA-1, six digits, 30-second steps) of a Base32 TOTP key for the
@@ -22,9 +22,11 @@ function totpCodes(secret: string, now = Date.now()): string[] {
   });
 }
 
+/**
+ * The account number is a Hidden vault field, which fills only password or short
+ * numeric inputs; `?account-input=text` renders a plain text input instead.
+ */
 export function identityPage(fixtureUrl: URL, issuedRunId: string | undefined): string {
-  // The account number is a Hidden vault field, which fills only password or short
-  // numeric inputs; `?account-input=text` renders a plain text input instead.
   const groupSeparator =
     fixtureUrl.searchParams.get("group-account") === "space"
       ? " "
@@ -83,22 +85,24 @@ export function identityPage(fixtureUrl: URL, issuedRunId: string | undefined): 
   );
 }
 
+/**
+ * An identifier-first form (ADR 0013): Next hides the account form and, a moment
+ * later, shows the password form in the same document on the same path. `?push`
+ * also changes the URL with `history.pushState`, keeping the path, and `?shown` shows
+ * the password form from the start. `?unknown` shows the account form again with an
+ * unknown-account error instead, the password form still hidden. `?account` expects the
+ * `accountName` option instead and signs in to /account, as a generated recipe's site
+ * (ADR 0018). `?prefill` keeps a password input hidden from assistive technology and
+ * transparent in the account form for the browser to fill, and Next keeps the account
+ * form showing while it looks the account up for two and a half seconds before it
+ * swaps the password form in. Only those known flags are read, and the query is never
+ * written into the page.
+ */
 export function identifierFirstPage(
   fixtureUrl: URL,
   password: string,
   accountName: string | undefined,
 ): string {
-  // An identifier-first form (ADR 0013): Next hides the account form and, a moment
-  // later, shows the password form in the same document on the same path. `?push`
-  // also changes the URL with `history.pushState`, keeping the path, and `?shown` shows
-  // the password form from the start. `?unknown` shows the account form again with an
-  // unknown-account error instead, the password form still hidden. `?account` expects the
-  // `accountName` option instead and signs in to /account, as a generated recipe's site
-  // (ADR 0018). `?prefill` keeps a password input hidden from assistive technology and
-  // transparent in the account form for the browser to fill, and Next keeps the account
-  // form showing while it looks the account up for two and a half seconds before it
-  // swaps the password form in. Only those known flags are read, and the query is never
-  // written into the page.
   const push = fixtureUrl.searchParams.has("push");
   const shown = fixtureUrl.searchParams.has("shown");
   const unknown = fixtureUrl.searchParams.has("unknown");
@@ -132,22 +136,24 @@ export function identifierFirstPage(
   );
 }
 
+/**
+ * An identifier-first form that keeps its email input, filled and writable, above the
+ * password input it adds in the same document on the same path, as JetBrains Account
+ * does (issue #1413). Every input carries the same `data-test` value, and so does its
+ * one submit button, which reads "Continue" and then "Log in" beside a "Forgot
+ * password?" button without one. Its submit signs in to /account with the
+ * `accountName` option. With `?code` it instead swaps a two-factor view in, in place:
+ * the email and password inputs go, and a code input marked `one-time-code` with the
+ * same `data-test` shows beside the same "Log in" button. Its submit signs in to
+ * /account with the current code of the synthetic vault item's TOTP key
+ * (`bitwardenTotpSecret`) and otherwise shows an error. Only that flag is read, and
+ * the query is never written into the page.
+ */
 export function identifierKeptPage(
   fixtureUrl: URL,
   password: string,
   accountName: string | undefined,
 ): string {
-  // An identifier-first form that keeps its email input, filled and writable, above the
-  // password input it adds in the same document on the same path, as JetBrains Account
-  // does (issue #1413). Every input carries the same `data-test` value, and so does its
-  // one submit button, which reads "Continue" and then "Log in" beside a "Forgot
-  // password?" button without one. Its submit signs in to /account with the
-  // `accountName` option. With `?code` it instead swaps a two-factor view in, in place:
-  // the email and password inputs go, and a code input marked `one-time-code` with the
-  // same `data-test` shows beside the same "Log in" button. Its submit signs in to
-  // /account with the current code of the synthetic vault item's TOTP key
-  // (`bitwardenTotpSecret`) and otherwise shows an error. Only that flag is read, and
-  // the query is never written into the page.
   const code = fixtureUrl.searchParams.has("code");
   return html(
     `<h1>Log in</h1><form id="sign-in-form" novalidate><label><input id="email" name="email" autocomplete="username" inputmode="email" aria-label="Email" placeholder="Email" data-test="input__inner"></label><div id="password-slot"></div><button data-test="button" type="submit">Continue</button><div id="extra"></div></form>`,
@@ -191,15 +197,17 @@ export function identifierKeptPage(
   );
 }
 
+/**
+ * An identifier-first form that swaps its views in one document on one path (ADR
+ * 0013), as some identity providers do: the form fades in, and the email view keeps
+ * the password input for the browser to fill, transparent, small, fixed to a corner,
+ * hidden from assistive technology and out of the tab order. Its one button reads
+ * "Next"; half a second after it is pressed, as after a lookup request, the email
+ * input loses its id and becomes such a hidden input in turn, the password input
+ * shows as its view slides and fades in, and the same button, keeping its id, reads
+ * "Sign in". Pressing it then signs in to /authenticated. The query is never read.
+ */
 export function identifierSwapPage(password: string): string {
-  // An identifier-first form that swaps its views in one document on one path (ADR
-  // 0013), as some identity providers do: the form fades in, and the email view keeps
-  // the password input for the browser to fill, transparent, small, fixed to a corner,
-  // hidden from assistive technology and out of the tab order. Its one button reads
-  // "Next"; half a second after it is pressed, as after a lookup request, the email
-  // input loses its id and becomes such a hidden input in turn, the password input
-  // shows as its view slides and fades in, and the same button, keeping its id, reads
-  // "Sign in". Pressing it then signs in to /authenticated. The query is never read.
   return html(
     `<style>.kept{position:fixed;right:24px;bottom:24px;width:10px;height:13px;opacity:0}</style><div id="box"><h1 id="title">Sign in</h1><form id="sign-in-form" novalidate><div id="view"><label id="account-label">Account<input id="account" name="account" autocomplete="username"></label><input id="password" name="password" type="password" class="kept" tabindex="-1" aria-hidden="true" autocomplete="off"></div><input id="next" type="submit" value="Next"></form></div>`,
     `const box = document.getElementById('box');
@@ -250,24 +258,26 @@ export function identifierSwapPage(password: string): string {
   );
 }
 
+/**
+ * An identifier-first form whose Next asks how to confirm the sign-in (ADR 0048), in
+ * the same document on the same path: "Password" shows the password form, "Mobile"
+ * and Cancel do nothing here. `?skip` shows the password form right after Next, as a
+ * site that skips the choice; `?forgot` labels the button "Forgot password?"; `?dead`
+ * makes the button do nothing. Only those known flags are read, and the query is
+ * never written into the page. `/method-choice-named` shows the choice as row
+ * headings, each followed by a link to `#` that reads "Select", told apart only by its
+ * accessible name, with no id, name, test ID, `onclick` or role, whose click the page's
+ * script handles (ADR 0048 amendment of 2026-10-19). `?account` expects the
+ * `accountName` option instead and signs in to /account, as a generated recipe's site
+ * (ADR 0018); `?rerender` makes Next remove the account form from the document rather
+ * than hide it, as a sign-in widget that renders each view anew.
+ */
 export function methodChoicePage(
   fixtureUrl: URL,
   path: string,
   password: string,
   accountName: string | undefined,
 ): string {
-  // An identifier-first form whose Next asks how to confirm the sign-in (ADR 0048), in
-  // the same document on the same path: "Password" shows the password form, "Mobile"
-  // and Cancel do nothing here. `?skip` shows the password form right after Next, as a
-  // site that skips the choice; `?forgot` labels the button "Forgot password?"; `?dead`
-  // makes the button do nothing. Only those known flags are read, and the query is
-  // never written into the page. `/method-choice-named` shows the choice as row
-  // headings, each followed by a link to `#` that reads "Select", told apart only by its
-  // accessible name, with no id, name, test ID, `onclick` or role, whose click the page's
-  // script handles (ADR 0048 amendment of 2026-10-19). `?account` expects the
-  // `accountName` option instead and signs in to /account, as a generated recipe's site
-  // (ADR 0018); `?rerender` makes Next remove the account form from the document rather
-  // than hide it, as a sign-in widget that renders each view anew.
   const skip = fixtureUrl.searchParams.has("skip");
   const toAccount = fixtureUrl.searchParams.has("account");
   const rerender = fixtureUrl.searchParams.has("rerender");
@@ -304,20 +314,22 @@ export function methodChoicePage(
   );
 }
 
+/**
+ * An identifier page whose Next opens the password page as a new document (ADR 0018).
+ * `?again` opens /identifier/again instead, which shows the identifier form again
+ * with an unknown-account error, as a site that did not know the account. `?email`
+ * marks the account input for an email address and `?login` names it only `login`,
+ * without `autocomplete` and with a label that names no identifier (ADR 0016).
+ * `?no-button` shows no Next button until the account input has a value, as x.com's
+ * sign-in does, and only beside a "Use phone" trap: Pressing Enter submits the form
+ * (ADR 0064). Only these known flags are read, and the query is never written into
+ * the page.
+ */
 export function identifierPage(
   fixtureUrl: URL,
   path: string,
   accountName: string | undefined,
 ): string {
-  // An identifier page whose Next opens the password page as a new document (ADR 0018).
-  // `?again` opens /identifier/again instead, which shows the identifier form again
-  // with an unknown-account error, as a site that did not know the account. `?email`
-  // marks the account input for an email address and `?login` names it only `login`,
-  // without `autocomplete` and with a label that names no identifier (ADR 0016).
-  // `?no-button` shows no Next button until the account input has a value, as x.com's
-  // sign-in does, and only beside a "Use phone" trap: Pressing Enter submits the form
-  // (ADR 0064). Only these known flags are read, and the query is never written into
-  // the page.
   const again = fixtureUrl.searchParams.has("again");
   const noButton = fixtureUrl.searchParams.has("no-button");
   const account = fixtureUrl.searchParams.has("email")

@@ -158,13 +158,6 @@ the original effects and stale-document checks. Every runtime module stays withi
 1,000-line limit. Cross-tab holds, admission record phases and the relogin guard use
 pure decisions with separate tests; see [policy inputs](#login-runtime-policy-inputs).
 
-The synthetic login fixture keeps HTTP routing, run evidence and server lifetime in
-`tests/extension/login-server.ts`. Its identifier and password-progression page builders
-live in `login-identity-pages.ts`, including the code calculation used by the kept
-identifier page; `login-page.ts` owns the shared HTML wrapper. The builders return
-the same page strings at the original route positions, without owning requests,
-responses or run state.
-
 The synthetic judged-page corpus keeps its public `judgeCorpus` in
 `packages/inference/src/corpus/judge.ts`, which re-exports the `JudgeCase` and
 `JudgeExpected` types. Its companion `judge-builders.ts` defines those types and owns
@@ -879,6 +872,21 @@ exports and the fixtures they use directly. The entry exports its `AccountTestFi
 and `AccountTestRaw` types, and `context.ts` builds the module contexts from them with
 `import type`. The modules sit outside `src/`, so they stay outside the coverage root
 and are not discovered as test files. Each file follows the 1,000-line limit.
+
+### Synthetic login fixture organization
+
+`tests/extension/login-server.ts` is the synthetic login fixture's HTTP server. It owns
+routing, response status and headers, the `/effect/` and `/sign-in-submit` POST
+handling, run evidence, held results and server lifetime, and builds the remaining
+pages inline. `login-identity-pages.ts` exports pure, synchronous builders for the
+`/identity`, `/identifier-first`, `/identifier-kept`, `/identifier-swap`,
+`/method-choice`, `/method-choice-named`, `/identifier`, `/identifier/again` and
+`/identifier/password` pages; each takes the request URL and the fixture options it
+reads and returns the page HTML. It also owns the RFC 6238 code window that
+`/identifier-kept?code` accepts. `login-html.ts` owns the shared `html` wrapper, so the
+builders do not import the server. These modules lack the `.spec.ts` suffix that
+Playwright matches, so they are not discovered as specs. Each file follows the
+1,000-line limit.
 
 ### Login wire contracts
 
