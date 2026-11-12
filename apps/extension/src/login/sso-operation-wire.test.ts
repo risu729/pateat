@@ -46,6 +46,7 @@ describe("SSO document operation messages", () => {
         accepted(ssoAuthorizeSchema, {
           ...base,
           type: "login.sso.authorize",
+          phase: "pointer",
           ...operation,
           handle: "prepared-handle",
           [field]: value,
@@ -57,6 +58,7 @@ describe("SSO document operation messages", () => {
     const authorize = {
       ...base,
       type: "login.sso.authorize",
+      phase: "pointer",
       ...operation,
       handle: "prepared-handle",
     };
@@ -137,4 +139,22 @@ describe("RP return identity messages", () => {
         accepted(ssoReturnResultSchema, { ok: true, identity: "match", [field]: "private" }),
       ).toBe(false);
   });
+});
+
+it("requires an explicit finite authorization phase without changing the prepared commit command", () => {
+  const request = { ...base, type: "login.sso.authorize", ...operation, handle: "prepared-handle" };
+  expect(accepted(ssoAuthorizeSchema, request)).toBe(false);
+  for (const phase of ["pointer", "click"])
+    expect(accepted(ssoAuthorizeSchema, { ...request, phase })).toBe(true);
+  for (const phase of ["prepare", "spent", "", null])
+    expect(accepted(ssoAuthorizeSchema, { ...request, phase })).toBe(false);
+  expect(
+    accepted(ssoCommandSchema, {
+      ...base,
+      type: "login.sso.commit",
+      ...operation,
+      handle: "prepared-handle",
+      phase: "click",
+    }),
+  ).toBe(false);
 });

@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createAttemptMetadata,
   createDefaultSettings,
+  holdsOrigin,
   parseAttemptMetadata,
+  recoverLoginAttempt,
   transitionLoginAttempt,
   type LoginRecipe,
   type SettingsResponse,
@@ -20,9 +22,12 @@ const io = vi.hoisted(() => ({
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.mock("wxt/utils/storage", () => ({ storage: io }));
 const { createRuntimeState } = await import("../runtime/state");
-const { registerSsoChild } = await import("../runtime/sso-state");
+const { registerSsoChild, ssoChild } = await import("../runtime/sso-state");
 const { change } = await import("../runtime/attempt");
-const { ssoAdmit, beginSso } = await import("../runtime/sso/flow");
+const { keep } = await import("../runtime/session-store");
+const { heldElsewhere } = await import("../runtime/hold");
+const { allowed } = await import("../runtime/plan-2");
+const { ssoAdmit, beginSso, installSsoLifecycle } = await import("../runtime/sso/flow");
 const { createLoginBadge, memoryBadgeStorage } = await import("../badge");
 const rp = "https://rp.example.test";
 const idp = "https://idp.example.test";
@@ -167,6 +172,8 @@ beforeEach(() => {
   fake.state.storage = {};
   fake.state.session = {};
   fake.state.messages = [];
+  fake.browser.tabs.onUpdated.clear();
+  fake.browser.tabs.onCreated.clear();
 });
 
 describe("actual native-child completion callbacks", () => {
@@ -337,5 +344,129 @@ describe("SSO admission waits for diagnostic journal loading", () => {
     expect(await admission).toEqual({ ok: false, reason: "sso-scope-changed" });
     expect(h.rt.sso.flows.size).toBe(0);
     expect(io.setItem).not.toHaveBeenCalled();
+  });
+});
+
+describe("actual restored-child recovery has no RP or IdP authority", () => {
+  it.each(["awaiting-result", "authenticated"] as const)(
+    "keeps restored %s child metadata inert with an empty worker child map",
+    async (state) => {
+      const first = harness();
+      await Promise.all([first.rt.sso.loaded, first.rt.confirmFill.loaded]);
+      expect(registerSsoChild(first.rt.sso, first.flow, first.run.metadata)).toBe(true);
+      if (state === "authenticated")
+        await change(first.rt, first.run, { type: "OBSERVED", result: "authenticated" });
+      else await keep(first.rt, first.run.metadata);
+      const stored = structuredClone(
+        [...first.rt.persisted.values()].find((entry) => entry.account.origin === idp)!,
+      );
+      expect(stored.ssoChild).toEqual({ parentId: first.flow.id, attemptId: stored.id });
+      const restored = harness();
+      await Promise.all([restored.rt.sso.loaded, restored.rt.confirmFill.loaded]);
+      restored.rt.sso.flows.clear();
+      restored.rt.sso.children.clear();
+      restored.run.metadata = recoverLoginAttempt(stored);
+      expect(ssoChild(restored.rt.sso, restored.run.metadata)).toBe(true);
+      expect(await allowed(restored.rt, restored.run)).toBeUndefined();
+      expect(restored.rt.fields).not.toHaveBeenCalled();
+      await change(restored.rt, restored.run, { type: "OBSERVED", result: "authenticated" });
+      expect(restored.update).not.toHaveBeenCalled();
+      expect(restored.saved.snapshot.settings.siteDefaults).toEqual([]);
+      expect(restored.rt.confirmFill.proofs).toEqual([]);
+      expect(restored.rt.relogins.size).toBe(0);
+      expect(restored.signedIn).not.toHaveBeenCalled();
+      expect(restored.run.choice).toBeUndefined();
+      expect(restored.rt.sso.flows.size).toBe(0);
+      expect(restored.rt.sso.native.size).toBe(0);
+    },
+  );
+});
+
+describe("historical SSO-child holds keep evidence without blocking another login", () => {
+  it("retains an active parent hold for an unreleased child", async () => {
+    const h = harness();
+    await h.rt.sso.loaded;
+    expect(registerSsoChild(h.rt.sso, h.flow, h.run.metadata)).toBe(true);
+    await keep(h.rt, h.run.metadata);
+    expect(holdsOrigin(h.run.metadata)).toBe(true);
+    expect(heldElsewhere(h.rt, 8, idp)).toBe(true);
+  });
+  it("a released detached child retains mutation evidence but has no origin hold", async () => {
+    const h = harness();
+    await h.rt.sso.loaded;
+    expect(registerSsoChild(h.rt.sso, h.flow, h.run.metadata)).toBe(true);
+    h.run.metadata = parseAttemptMetadata({
+      ...h.run.metadata,
+      state: "blocked",
+      outcome: "cancelled",
+      mutationIntent: true,
+      ssoChild: { ...h.run.metadata.ssoChild!, released: true },
+    });
+    h.rt.sso.flows.clear();
+    h.rt.sso.children.clear();
+    h.rt.documents.set("7:0", h.rpLive);
+    await keep(h.rt, h.run.metadata);
+    expect(h.run.metadata).toMatchObject({
+      submissions: 1,
+      mutationIntent: true,
+      operationId: "submit",
+    });
+    expect(holdsOrigin(h.run.metadata)).toBe(false);
+    expect(heldElsewhere(h.rt, 8, idp)).toBe(false);
+  });
+  it("keeps the existing hold for ordinary native mutation evidence", async () => {
+    const h = harness();
+    await h.rt.sso.loaded;
+    h.rt.sso.flows.clear();
+    h.run.metadata = parseAttemptMetadata({
+      ...h.run.metadata,
+      state: "blocked",
+      outcome: "cancelled",
+      mutationIntent: true,
+    });
+    await keep(h.rt, h.run.metadata);
+    expect(holdsOrigin(h.run.metadata)).toBe(true);
+    expect(heldElsewhere(h.rt, 8, idp)).toBe(true);
+  });
+});
+
+describe("actual SSO lifecycle uses browser event delivery", () => {
+  it.each([rp + "/callback", idp + "/login"])(
+    "keeps an allowed same-tab origin update %s",
+    async (url) => {
+      const h = harness();
+      await h.rt.sso.loaded;
+      installSsoLifecycle(h.rt);
+      fake.emitUpdated(7, { url });
+      expect(h.rt.sso.flows.get(7)).toBe(h.flow);
+      expect(h.flow.abort.signal.aborted).toBe(false);
+    },
+  );
+  it("cancels a flow when the real onUpdated listener sees an unexpected origin", async () => {
+    const h = harness();
+    await h.rt.sso.loaded;
+    installSsoLifecycle(h.rt);
+    fake.emitUpdated(7, { url: "https://unexpected.example.test/continuation" });
+    expect(h.rt.sso.flows.has(7)).toBe(false);
+    expect(h.flow.abort.signal.aborted).toBe(true);
+    expect(h.rt.sso.interrupted.has(7)).toBe(true);
+    await h.rt.sso.write();
+  });
+  it("cancels the opener flow when onCreated delivers a new browsing context", async () => {
+    const h = harness();
+    await h.rt.sso.loaded;
+    installSsoLifecycle(h.rt);
+    fake.emitCreated({ id: 9, openerTabId: 7, url: idp + "/login" });
+    expect(h.rt.sso.flows.has(7)).toBe(false);
+    expect(h.flow.abort.signal.aborted).toBe(true);
+    await h.rt.sso.write();
+  });
+  it("does not cancel a flow for an unrelated newly created tab", async () => {
+    const h = harness();
+    await h.rt.sso.loaded;
+    installSsoLifecycle(h.rt);
+    fake.emitCreated({ id: 9, openerTabId: 8, url: idp + "/login" });
+    expect(h.rt.sso.flows.get(7)).toBe(h.flow);
+    expect(h.flow.abort.signal.aborted).toBe(false);
   });
 });

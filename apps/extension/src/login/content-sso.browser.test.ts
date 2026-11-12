@@ -64,12 +64,16 @@ describe("SSO prepared DOM operations", () => {
     h.authorize.mockImplementation(async (input) => {
       expect(input).toMatchObject(op);
       expect(input.handle).toBe(commit.handle);
-      expect(h.events).toEqual([]);
+      if (input.phase === "pointer") expect(h.events).toEqual([]);
+      else {
+        expect(h.events).toContain("pointerdown");
+        expect(h.events).not.toContain("click");
+      }
       return true;
     });
     expect(await h.run(commit)).toEqual({ ok: true });
     expect(h.events).toContain("click");
-    expect(h.authorize).toHaveBeenCalledTimes(1);
+    expect(h.authorize).toHaveBeenCalledTimes(2);
     expect(await h.run(commit)).toEqual({ ok: false, reason: "operation-gone" });
     expect(h.events.filter((event) => event === "click")).toHaveLength(1);
   });
@@ -100,7 +104,7 @@ describe("SSO prepared DOM operations", () => {
     expect(h.events).toEqual([]);
     allow(true);
     expect(await first).toEqual({ ok: true });
-    expect(h.authorize).toHaveBeenCalledTimes(1);
+    expect(h.authorize).toHaveBeenCalledTimes(2);
     expect(h.events.filter((event) => event === "click")).toHaveLength(1);
   });
   it.each(["flowId", "operationId", "handle"] as const)(
@@ -189,7 +193,7 @@ describe("SSO prepared DOM operations", () => {
       document.title = "Share account data";
     });
     const commit = await prepare(h.run);
-    expect(await h.run(commit)).toEqual({ ok: false });
+    expect(await h.run(commit)).toEqual({ ok: false, reason: "target-changed" });
     expect(h.events).toContain("pointerdown");
     expect(h.events).not.toContain("click");
     expect(await h.run(commit)).toEqual({ ok: false, reason: "operation-gone" });
@@ -219,7 +223,7 @@ describe("SSO prepared DOM operations", () => {
         if (change === "unsafe") document.title = "Share account data";
       });
       const commit = await prepare(h.run);
-      expect(await h.run(commit)).toEqual({ ok: false });
+      expect(await h.run(commit)).toEqual({ ok: false, reason: "target-changed" });
       expect(h.events).toContain(eventType);
       expect(h.events).not.toContain("click");
       expect(await h.run(commit)).toMatchObject({ ok: false });
@@ -446,4 +450,44 @@ describe("local RP return safety and identity", () => {
     );
     expect(readSsoReturn(document, username)).toEqual({ ok: false, reason: "unsafe-return" });
   });
+});
+
+describe("SSO final click authorization after pointer tasks", () => {
+  it("requires a new background grant after pointer dispatch and stops a revoked click", async () => {
+    const h = harness();
+    h.authorize.mockImplementation(async ({ phase }) => phase === "pointer");
+    const commit = await prepare(h.run);
+    expect(await h.run(commit)).toEqual({ ok: false, reason: "not-authorized" });
+    expect(h.authorize.mock.calls.map(([request]) => request.phase)).toEqual(["pointer", "click"]);
+    expect(h.events).toContain("pointerdown");
+    expect(h.events).not.toContain("click");
+    expect(await h.run(commit)).toEqual({ ok: false, reason: "operation-gone" });
+    expect(h.authorize).toHaveBeenCalledTimes(2);
+  });
+  it.each(["cancel", "replace", "path", "unsafe"])(
+    "rechecks local %s after the final click grant await",
+    async (change) => {
+      const h = harness();
+      h.authorize.mockImplementation(async ({ phase }) => {
+        if (phase === "click") {
+          const entry = document.getElementById("entry")!;
+          if (change === "cancel") h.cancel();
+          if (change === "replace") entry.replaceWith(entry.cloneNode(true));
+          if (change === "path") history.replaceState(null, "", location.pathname + "?after=click");
+          if (change === "unsafe") document.title = "Consent";
+        }
+        return true;
+      });
+      const commit = await prepare(h.run);
+      expect(await h.run(commit)).toEqual({ ok: false, reason: "not-authorized" });
+      expect(h.authorize.mock.calls.map(([request]) => request.phase)).toEqual([
+        "pointer",
+        "click",
+      ]);
+      expect(h.events).toContain("pointerdown");
+      expect(h.events).not.toContain("click");
+      expect(await h.run(commit)).toMatchObject({ ok: false });
+      expect(h.authorize).toHaveBeenCalledTimes(2);
+    },
+  );
 });

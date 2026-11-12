@@ -247,7 +247,7 @@ describe("memory-only SSO execution authority", () => {
     expect(registerSsoChild(state, { ...work(), id: "another-parent" }, metadata)).toBe(false);
     expect(state.children.size).toBe(1);
   });
-  it("does not persist child classification as execution authority on worker restart", async () => {
+  it("retains only inert child classification after a worker restart, never execution authority", async () => {
     const state = createSsoState();
     await state.loaded;
     const flow = work();
@@ -260,7 +260,8 @@ describe("memory-only SSO execution authority", () => {
     const restarted = createSsoState();
     await restarted.loaded;
     expect(restarted.children.size).toBe(0);
-    expect(ssoChild(restarted, metadata)).toBe(false);
+    expect(ssoChild(restarted, metadata)).toBe(true);
     expect(restarted.flows.size).toBe(0);
+    expect(restarted.native.size).toBe(0);
   });
 });

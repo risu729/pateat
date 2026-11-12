@@ -3,7 +3,8 @@ import type { SettingsResponse } from "@pateat/contracts";
 import type { LoginFieldSource } from "./vault";
 import type { LoginReport } from "./runtime/report";
 
-const fake = vi.hoisted(() => {
+const fake = await vi.hoisted(async () => {
+  const { createBrowserEvent } = await import("./runtime-tests/browser-event");
   const state = {
     storage: {} as Record<string, unknown>,
     session: {} as Record<string, unknown>,
@@ -55,6 +56,11 @@ const fake = vi.hoisted(() => {
       },
     },
     tabs: {
+      onUpdated:
+        createBrowserEvent<
+          [number, { url?: string; status?: string }, { id?: number; url?: string }]
+        >(),
+      onCreated: createBrowserEvent<[{ id?: number; openerTabId?: number; url?: string }]>(),
       query: async () => [{ id: 1, url: state.pageUrl }],
       get: async (id: number) => ({ id, url: state.pageUrl }),
       // A cooperative synthetic page: each fixed operation succeeds and completion is visible.
