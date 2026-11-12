@@ -2,6 +2,7 @@ import { observedAutocompleteTokens, type LoginTarget } from "@pateat/contracts"
 import { acceptsSecret } from "../login/inputs";
 import { observedPath } from "../observation/path";
 import { autocompleteTokens, findTargets, visible } from "./targets";
+import { nodeProperty } from "./form-native";
 import { closestAcross, containsAcross, formOf, inputsOf, queryAll, treeOf } from "./shadow";
 
 export { visible };
@@ -250,9 +251,10 @@ export function watchCodeSubmission(
       if (input.value === "") return true;
       if (
         form &&
-        (!form.isConnected ||
-          form.getAttribute("aria-busy") === "true" ||
-          form.getAttribute("aria-disabled") === "true" ||
+        // Through the prototypes, as the form's named controls hide its own members.
+        (!nodeProperty(form, "isConnected") ||
+          Element.prototype.getAttribute.call(form, "aria-busy") === "true" ||
+          Element.prototype.getAttribute.call(form, "aria-disabled") === "true" ||
           queryAll(form, busySelector).some(
             (element) =>
               !busyBefore.has(element) &&

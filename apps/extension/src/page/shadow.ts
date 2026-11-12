@@ -6,6 +6,7 @@
 // host and before the host's own children, as Bitwarden's tree walker visits them.
 
 import { browser } from "wxt/browser";
+import { elementProperty, nodeProperty } from "./form-native";
 
 /**
  * The elements besides custom elements that `attachShadow` accepts (DOM standard), the
@@ -57,8 +58,11 @@ function overlaysPage(host: Element): boolean {
  * page includes.
  */
 export function shadowRootOf(element: Element): ShadowRoot | null {
-  if (element.shadowRoot) return element.shadowRoot;
-  if (!element.localName.includes("-") && !hostNames.has(element.localName)) return null;
+  // Read through `Element`, as `element` may be a form (`form-native.ts`).
+  const open = elementProperty(element, "shadowRoot");
+  if (open) return open;
+  const name = elementProperty(element, "localName");
+  if (!name.includes("-") && !hostNames.has(name)) return null;
   if (overlaysPage(element)) return null;
   const cached = reading?.roots.get(element);
   if (cached !== undefined) return cached;
@@ -98,20 +102,31 @@ export function readingPage<Result>(read: () => Result): Result {
 
 const isHost = (element: Element) => shadowRootOf(element) !== null;
 
+/** `scope.querySelectorAll(selector)`, also for a form `scope` (`form-native.ts`). */
+function selectAll<E extends Element>(scope: Document | ShadowRoot | Element, selector: string) {
+  return [
+    ...(scope instanceof Element
+      ? (Element.prototype.querySelectorAll.call(scope, selector) as NodeListOf<E>)
+      : scope.querySelectorAll<E>(selector)),
+  ];
+}
+
 /**
  * The shadow hosts under `scope` in its own tree, in tree order, `scope` left out. Outside
  * {@link readingPage} only `scope`'s own elements are asked, so a query under one element
  * costs what that element holds.
  */
 function hostsUnder(scope: Document | ShadowRoot | Element): Element[] {
-  if (!reading) return [...scope.querySelectorAll("*")].filter(isHost);
-  const tree = scope instanceof Element ? (scope.getRootNode() as Document | ShadowRoot) : scope;
+  if (!reading) return selectAll(scope, "*").filter(isHost);
+  const tree = scope instanceof Element ? treeOf(scope) : scope;
   let hosts = reading.hosts.get(tree);
   if (!hosts) {
     hosts = [...tree.querySelectorAll("*")].filter(isHost);
     reading.hosts.set(tree, hosts);
   }
-  return scope === tree ? hosts : hosts.filter((host) => host !== scope && scope.contains(host));
+  return scope === tree
+    ? hosts
+    : hosts.filter((host) => host !== scope && Node.prototype.contains.call(scope, host));
 }
 
 const follows = (earlier: Node, later: Node) =>
@@ -140,7 +155,7 @@ function collect<E extends Element>(
   const own = scope instanceof Element ? shadowRootOf(scope) : null;
   if (own) collect(own, selector, found);
   const hosts = hostsUnder(scope);
-  const matches = [...scope.querySelectorAll<E>(selector)];
+  const matches = selectAll<E>(scope, selector);
   if (hosts.length === 0) {
     found.push(...matches);
     return;
@@ -183,14 +198,15 @@ export function shadowRoots(document: Document): ShadowRoot[] {
 
 /** The host of the shadow tree that holds `node`, or `null` in the document's own tree. */
 export function hostOf(node: Node): Element | null {
-  const root = node.getRootNode();
+  const root = Node.prototype.getRootNode.call(node);
   return root instanceof ShadowRoot ? root.host : null;
 }
 
 /** `node`'s parent element, or for the top of a shadow tree, its host. */
 export function composedParent(node: Node): Element | null {
-  if (node.parentElement) return node.parentElement;
-  const parent = node.parentNode;
+  const element = nodeProperty(node, "parentElement");
+  if (element) return element;
+  const parent = nodeProperty(node, "parentNode");
   return parent instanceof ShadowRoot ? parent.host : null;
 }
 
@@ -233,7 +249,7 @@ export function textWalker(
  */
 export function closestAcross(element: Element, selector: string): Element | null {
   for (let node: Element | null = element; node; node = hostOf(node)) {
-    const found = node.closest(selector);
+    const found = Element.prototype.closest.call(node, selector);
     if (found) return found;
   }
   return null;
@@ -241,12 +257,14 @@ export function closestAcross(element: Element, selector: string): Element | nul
 
 /** `ancestor.contains(node)` that also counts a node in a shadow tree below `ancestor`. */
 export function containsAcross(ancestor: Node, node: Node): boolean {
-  for (let at: Node | null = node; at; at = hostOf(at)) if (ancestor.contains(at)) return true;
+  for (let at: Node | null = node; at; at = hostOf(at))
+    if (Node.prototype.contains.call(ancestor, at)) return true;
   return false;
 }
 
 /** The tree that holds `element`, where the IDs it references resolve. */
-export const treeOf = (element: Element) => element.getRootNode() as Document | ShadowRoot;
+export const treeOf = (element: Element) =>
+  Node.prototype.getRootNode.call(element) as Document | ShadowRoot;
 
 /**
  * The form a control belongs to: its own form owner, else, for one in a shadow tree, the

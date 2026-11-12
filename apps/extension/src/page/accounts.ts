@@ -148,7 +148,7 @@ export function formAccounts(document: Document, form: HTMLFormElement | null): 
   const identifier = /user|mail|login|account|ident/iu;
   const submitted = inputsOf(form, document).flatMap((input) =>
     input.type !== "password" &&
-    (input.type === "hidden" || input.readOnly || input.disabled) &&
+    (input.type === "hidden" || input.readOnly || input.matches(":disabled")) &&
     input.value &&
     (input.type === "email" ||
       autocompleteTokens(input).some((token) => token === "username" || token === "email") ||

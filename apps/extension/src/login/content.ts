@@ -53,6 +53,7 @@ import {
   submitterDestinations,
   type FormDestination,
 } from "../page/form-destination";
+import { nodeProperty } from "../page/form-native";
 import { typeValue } from "../page/enter-value";
 import { askDefinitions, ELEMENT_DEFINED } from "../page/element-definitions";
 import { nextFrame } from "../page/frames";
@@ -2030,7 +2031,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             !containsAcross(form, button))
         )
           return fail("structural-mismatch", "target-missing");
-        // Named controls shadow a form's own properties, including these native methods.
+        // Named controls hide a form's own members, inherited ones too (`form-native.ts`).
         if (
           !Element.prototype.hasAttribute.call(form, "novalidate") &&
           !button?.formNoValidate &&
@@ -2046,7 +2047,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (pagePath() !== step.path) return fail("cancelled", "page-changed");
         // The page may have changed the form while the background answered.
         if (
-          !form.isConnected ||
+          !nodeProperty(form, "isConnected") ||
           formOf(field) !== form ||
           defaultButton() !== button ||
           button?.matches(":disabled")
