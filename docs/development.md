@@ -702,6 +702,20 @@ module registers no cases. `context.ts` holds the shared types. The modules sit
 outside `src/`, so they stay outside the production coverage root. Each file follows
 the 1,000-line limit.
 
+### Packaged login test organization
+
+`tests/extension/login.spec.ts` remains the sole packaged login spec entry and owns
+its shared helpers and constants. It calls the passive synchronous registrars in
+`tests/extension/login-cases/` at the original registration positions. These plain
+`.ts` leaves own contiguous input-effect, primary-login, method-choice, code,
+form, lifecycle and failure-sign cases; `context.ts` owns their forwarding types.
+The entry passes the original test API, fixtures and helper identities directly.
+The registrars add no suites, hooks or fixture scopes, so every test stays a root
+test of `login.spec.ts` and its own round-robin shard unit. Each case starts and
+closes its own synthetic fixture and browser profile, and keeps its per-test timeout.
+Each file follows the 1,000-line limit. Compare the `--list` output for each shard
+when changing this layout.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
