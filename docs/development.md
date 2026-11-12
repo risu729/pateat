@@ -61,6 +61,21 @@ and judge timing; its reporter receives the same logger without owning runtime o
 persistence state. The `createDiagnosticsLog` in `background.ts` is the public facade
 for both, with the same report methods.
 
+The observation extractor keeps its original public exports in
+`apps/extension/src/observation/extract.ts`. Its `extract-login.ts`,
+`extract-account-list.ts`, `extract-entry.ts`, `extract-logout.ts`,
+`extract-passkey.ts` and `extract-signed-in.ts` own the page readers.
+`extract-candidates.ts` owns control, keypad, select and marker collection;
+`extract-locators.ts` owns locator indexing and target selection;
+`extract-text.ts`, `extract-labels.ts` and `extract-near-text.ts` own redaction,
+labels and bounded surrounding text. `extract-observe.ts` assembles observations,
+including document ordering, candidate IDs and form groups, using the shared
+contracts in `extract-types.ts` and control primitives in `extract-controls.ts`.
+Internal modules import their owners directly, without importing the facade or
+forming runtime cycles. This source split preserves reader execution, visibility,
+locator precedence, candidate ordering, IDs, bounds and initialization; existing
+test files and discovery stay in place.
+
 The workspace uses one lockfile, `bun.lock`, which aube installs from
 ([ADR 0032](adr/0032-aube-package-manager.md)):
 
