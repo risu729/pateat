@@ -8,6 +8,7 @@ import {
 import { setAccountPolicy } from "../../vault/__fixtures__/policy";
 import type { Runtime } from "./state";
 import type { SsoWork } from "./sso-state";
+import { createSsoPauseIntents } from "./sso-pause";
 import { ssoChildOn, ssoCurrent, ssoScope } from "./sso-scope";
 
 const seams = vi.hoisted(() => ({
@@ -83,7 +84,11 @@ function harness() {
   const read = vi.fn(async () => structuredClone(current));
   const snapshot = vi.fn(() => true);
   const rt = {
-    sso: { flows: new Map([[7, work]]), healthy: () => true },
+    sso: {
+      flows: new Map([[7, work]]),
+      pauseIntents: createSsoPauseIntents(),
+      healthy: () => true,
+    },
     vars: { storageHealthy: true },
     documents: new Map([["7:0", live]]),
     manualStarts: new Map(),
