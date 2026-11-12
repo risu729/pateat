@@ -873,6 +873,23 @@ and `AccountTestRaw` types, and `context.ts` builds the module contexts from the
 `import type`. The modules sit outside `src/`, so they stay outside the coverage root
 and are not discovered as test files. Each file follows the 1,000-line limit.
 
+### Bitwarden URI test organization
+
+`packages/bitwarden/src/uri.test.ts` is the discovered entry for the URI matcher's unit
+cases; the account and crypto Worker suites cover matching through their own entries.
+It owns the seven describe scopes and the shared `target`, `saved`, `emptyResult` and
+`userDomains` helpers. Plain modules in `packages/bitwarden/test/uri/` export
+synchronous registration functions for ordinary semantics, equivalent domains,
+retained context, strict admission, caller-answered Regex URIs, the destination grant
+and the authenticated SDK case. The entry calls each inside its describe scope with
+the helpers that scope uses; importing a module registers no cases. Each registrar
+holds its scope's local constants and helpers with its cases. The modules import
+`vitest`, the production exports and the `__fixtures__` values they use directly. The
+entry exports its `UriTestFixtures` type, and `context.ts` builds the module contexts
+from it with `import type`. The modules sit outside `src/`, so they stay outside the
+coverage root and are not discovered as test files. Each file follows the 1,000-line
+limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.

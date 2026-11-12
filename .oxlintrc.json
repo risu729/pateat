@@ -40,7 +40,6 @@
         "apps/extension/src/service/transport.test.ts",
         "apps/extension/src/vault/manager.test.ts",
         "apps/extension/src/vault/manager.ts",
-        "packages/bitwarden/src/uri.test.ts",
         "packages/contracts/src/login-attempt.ts",
         "packages/contracts/src/login.ts",
         "packages/contracts/src/recipes.test.ts",
