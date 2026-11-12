@@ -716,6 +716,22 @@ closes its own synthetic fixture and browser profile, and keeps its per-test tim
 Each file follows the 1,000-line limit. Compare the `--list` output for each shard
 when changing this layout.
 
+### Packaged login generation test organization
+
+`tests/extension/login-generation.spec.ts` remains the sole packaged login-generation
+spec entry and owns the synthetic site constants, step-wait and settle bounds,
+synthetic Claude responder, connection and site-serving helpers, and original fixture
+imports. Passive synchronous registrars in `tests/extension/login-generation-cases/`
+own contiguous recipe-learning, continuation, entry-page and layout-repair cases.
+The entry calls them in the original order with the same test API, fixture and helper
+references; its exported context and recipe-result types are erased. Importing a leaf
+registers no tests. The registrars preserve all tables, callbacks, assertions, comments,
+timeouts and per-case cleanup without adding suites, hooks or shared fixture scopes.
+Every test remains a root test of the original spec and its own round-robin shard unit.
+Each file follows the 1,000-line limit. Compare test IDs, full titles, registration
+order, annotations, expected status and all six shard memberships when changing this
+layout.
+
 ### Connection setup service test organization
 
 `apps/extension/src/connections/setup.test.ts` is the discovered entry for the
