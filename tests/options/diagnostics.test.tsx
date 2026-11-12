@@ -7,6 +7,7 @@ import "../../apps/extension/entrypoints/options/style.css";
 import { DiagnosticsApp, type DiagnosticsClient } from "../../apps/extension/src/diagnostics/app";
 import type { DiagnosticsStatus } from "../../apps/extension/src/diagnostics/wire";
 import { DEBUG_UNTIL_TURNED_OFF } from "../../apps/extension/src/diagnostics/log";
+import { i18n } from "../../apps/extension/src/i18n";
 
 // The diagnostics page with a synthetic summary: icon-led checks, the panels and debug logging.
 
@@ -138,6 +139,37 @@ test("shows every panel's facts, with the build mode and no separators", async (
     .element(page.getByText(/^With site addresses included, a download names page paths/u))
     .toBeVisible();
   expect(document.querySelector("main")!.textContent).not.toContain("·");
+});
+
+test("the Items row says a sealed login item's TOTP and passkeys are not counted", async () => {
+  const [connection] = status().connections;
+  const items = { total: 5, login: 3, totp: 1, passkey: 1, sealed: 1, unsupported: 1 };
+  await show(client(status({ connections: [{ ...connection!, items }] })));
+  const row = () => page.getByRole("definition").filter({ hasText: /^5 /u });
+  await expect
+    .element(row())
+    .toHaveTextContent(
+      "5 (login 3, TOTP 1, passkey 1; of the logins, sealed 1: their TOTP and passkeys are not counted) + 1 unsupported",
+    );
+  try {
+    await i18n.changeLanguage("ja");
+    await expect
+      .element(row())
+      .toHaveTextContent(
+        "5 件（ログイン 3、TOTP 1、パスキー 1。ログインのうち一括暗号化 1：その TOTP とパスキーは数えていません）+ 未対応 1 件",
+      );
+  } finally {
+    await i18n.changeLanguage("en");
+  }
+});
+
+test("the Items row leaves out the sealed count when no item is sealed", async () => {
+  const [connection] = status().connections;
+  const items = { total: 2, login: 2, totp: 1, passkey: 0, sealed: 0, unsupported: 0 };
+  await show(client(status({ connections: [{ ...connection!, items }] })));
+  const row = page.getByRole("definition").filter({ hasText: /^2 /u });
+  await expect.element(row).toHaveTextContent("2 (login 2, TOTP 1, passkey 0) + 0 unsupported");
+  await expect.element(row).not.toHaveTextContent("sealed");
 });
 
 test("debug logging shows when it ends and turns off at once", async () => {

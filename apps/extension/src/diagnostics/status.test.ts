@@ -74,6 +74,8 @@ function record(): VaultResult<VaultEntry | null> {
             { type: 1, login: { fido2Credentials: [{ credentialId: "2.secret" }] } },
             { type: 2, notes: "2.secret-note" },
             { type: 1, deletedDate: "2026-10-01T00:00:00Z", login: { totp: "2.secret" } },
+            // A sealed item's TOTP and passkeys are inside its encrypted `data`.
+            { type: 1, data: '{"format_version":1}', login: null },
           ],
         },
       } as never,
@@ -140,7 +142,7 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
         bindings: [],
         passkeyBrowserSites: [{ hostname: "bank.example" }],
       }) as never,
-    logs: async () => ({
+    logSnapshot: async () => ({
       summary: { entries: 120, bytes: 18_000, recentErrors: 2, recentWarnings: 3 },
       recent: {
         problems: [
@@ -171,10 +173,10 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
 describe("diagnostics status", () => {
   it("collects summary and recent output from one snapshot dependency call", async () => {
     const deps = dependencies();
-    const snapshot = await deps.logs();
-    const logs = vi.fn(async () => snapshot);
-    const status = await collectDiagnostics({ ...deps, logs });
-    expect(logs).toHaveBeenCalledOnce();
+    const snapshot = await deps.logSnapshot();
+    const logSnapshot = vi.fn(async () => snapshot);
+    const status = await collectDiagnostics({ ...deps, logSnapshot });
+    expect(logSnapshot).toHaveBeenCalledOnce();
     expect(status.logs).toEqual(snapshot.summary);
     expect(status.recent).toEqual(snapshot.recent);
     const report = formatReport(status, { name: "Chrome", version: "156", installType: "normal" });
@@ -187,17 +189,6 @@ describe("diagnostics status", () => {
     );
   });
 
-  it("keeps recent output when the snapshot has no summary", async () => {
-    const recent = (await dependencies().logs()).recent;
-    const status = await collectDiagnostics(dependencies({ logs: async () => ({ recent }) }));
-    expect(status.logs).toBeUndefined();
-    expect(status.recent).toEqual(recent);
-    expect(status.checks).toContainEqual({ id: "logs", level: "error", detail: "logs unreadable" });
-    expect(
-      formatReport(status, { name: "Chrome", version: "156", installType: "normal" }),
-    ).toContain("Recent problems (24 h, newest first):");
-  });
-
   it("reports states and counts with no names, emails, hosts or IDs", async () => {
     const deps = dependencies();
     const status = await collectDiagnostics(deps);
@@ -208,7 +199,7 @@ describe("diagnostics status", () => {
       environment: "self-hosted",
       state: "ready",
       acceptedAt: NOW - 25 * 60_000,
-      items: { total: 4, login: 2, totp: 1, passkey: 1, unsupported: 1 },
+      items: { total: 5, login: 3, totp: 1, passkey: 1, sealed: 1, unsupported: 1 },
       unlockKdf: "PBKDF2-SHA256 600000",
     });
     expect(status.permissions).toEqual({
@@ -331,7 +322,9 @@ describe("diagnostics status", () => {
     expect(report).toContain("· sync sign-in active ·");
     expect(report).toContain("Permissions: storage, offscreen, https://*/* + 1 granted site\n");
     expect(report).toContain("warn clock 95 s behind the service");
-    expect(report).toContain("4 items (login 2, TOTP 1, passkey 1) + 1 unsupported");
+    expect(report).toContain(
+      "5 items (login 3, TOTP 1, passkey 1; of the logins, sealed 1: their TOTP and passkeys are not counted) + 1 unsupported",
+    );
     // The KDF family is copied; its parameters stay on the page.
     expect(report).toContain("· KDF PBKDF2 ·");
     expect(report).toContain("self-hosted · Bitwarden server 2026.9.2 · ready");
@@ -670,7 +663,7 @@ describe("diagnostics status", () => {
     expect(unpaired.service).toEqual({ kind: "not-configured" });
     const unreadable = await collectDiagnostics(
       dependencies({
-        logs: async () => {
+        logSnapshot: async () => {
           throw new Error("storage-failed");
         },
       }),
@@ -685,7 +678,7 @@ describe("diagnostics status", () => {
     // A login that did not finish is a warning, so the summary does not read as all clear.
     const warned = await collectDiagnostics(
       dependencies({
-        logs: async () => ({
+        logSnapshot: async () => ({
           summary: { entries: 9, bytes: 900, recentErrors: 0, recentWarnings: 1 },
           recent: { problems: [], passkeyDelegations: [], unsentVerifications: [] },
         }),

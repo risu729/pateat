@@ -72,7 +72,7 @@ export type DiagnosticsDependencies = {
   serviceDevice(origin: string): Promise<DeviceStateResult | undefined>;
   fetch: typeof fetch;
   settings(): Promise<LocalSettings>;
-  logs(): Promise<LogSnapshot>;
+  logSnapshot(): Promise<LogSnapshot>;
   storage: {
     localBytes(): Promise<number>;
     recipeCache(): Promise<unknown>;
@@ -91,6 +91,8 @@ function environment(
 const cipherSchema = v.looseObject({
   type: v.number(),
   deletedDate: v.optional(v.unknown()),
+  /** A sealed item's encrypted content; its `login` is null until it is decrypted. */
+  data: v.optional(v.unknown()),
   login: v.optional(
     v.nullable(
       v.looseObject({
@@ -117,11 +119,15 @@ const kdfSchema = v.union([
   }),
 ]);
 
-/** Counts from the stored, still encrypted record: types and presence, never contents. */
+/**
+ * Counts from the stored, still encrypted record: types and presence, never contents. A
+ * sealed login item keeps its TOTP and passkeys inside its encrypted `data`, so it counts
+ * as `sealed` and not toward `totp` or `passkey`; diagnostics decrypts nothing.
+ */
 function itemCounts(prepared: unknown): DiagnosticsConnection["items"] {
   const parsed = v.safeParse(preparedSchema, prepared);
   if (!parsed.success) return undefined;
-  const items = { total: 0, login: 0, totp: 0, passkey: 0, unsupported: 0 };
+  const items = { total: 0, login: 0, totp: 0, passkey: 0, sealed: 0, unsupported: 0 };
   for (const entry of parsed.output.ciphers) {
     const cipher = v.safeParse(cipherSchema, entry);
     // Items in the trash are not offered for login.
@@ -130,6 +136,8 @@ function itemCounts(prepared: unknown): DiagnosticsConnection["items"] {
     if (!cipher.success) continue;
     // CipherType.Login is 1 in the Bitwarden SDK.
     if (cipher.output.type === 1) items.login += 1;
+    const { data } = cipher.output;
+    if (cipher.output.type === 1 && typeof data === "string" && data.length > 0) items.sealed += 1;
     if (cipher.output.login?.totp) items.totp += 1;
     if (cipher.output.login?.fido2Credentials?.length) items.passkey += 1;
   }
@@ -512,7 +520,7 @@ export async function collectDiagnostics(
     deps.connections.status().catch(() => undefined),
     deps.settings().catch(() => undefined),
     deps.storage.localBytes().catch(() => undefined),
-    deps.logs().catch(() => undefined),
+    deps.logSnapshot().catch(() => undefined),
     deps.vaultTimeout?.().catch(() => undefined),
   ]);
   const logs = logSnapshot?.summary;
