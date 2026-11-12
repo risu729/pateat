@@ -654,6 +654,17 @@ file follows the 1,000-line limit. These modules sit outside the production cove
 root and keep the same callbacks, assertions and parameter tables without changing
 test discovery, test ordering or runner configuration.
 
+### Passkey runtime test organization
+
+`apps/extension/src/passkeys/runtime.test.ts` is the discovered entry for the passkey
+runtime suite. It owns the describe scopes, the shared fixtures and the timer cleanup
+of the immediate-request cases. Plain modules in `apps/extension/test/passkeys/`
+export synchronous registration functions for contiguous case groups, which the entry
+calls inside those scopes with the same fixture and helper references; importing a
+module registers no cases. `runtime-context.ts` holds the fixture types. The modules
+sit outside `src/`, so they stay outside the production coverage root without an
+exclude. Each file follows the 1,000-line limit.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
