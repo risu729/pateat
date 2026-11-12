@@ -640,6 +640,21 @@ follows the 1,000-line limit. The API coverage configuration covers production
 `src/` only, so these test helpers remain outside it. Compare expanded collection
 names and counts as well as the local Worker tests when changing this layout.
 
+### Connection settings test organization
+
+The options connection suite keeps `tests/options/connection-setup.test.tsx` as its
+only discovered entry. It owns the options stylesheet import, shared synthetic
+clients and fixtures, mount/query helpers, timer and focus helpers, and root cleanup.
+Its synchronous registrar modules under `tests/options/connection-setup/` register
+contiguous scenarios in the original root order, without their own hooks or suites.
+The modules own adding and verification, challenge lifetimes, catalog saves and
+reloads, connection management and recovery, policy and limits, keyboard focus, and
+vault locking and status. `context.ts` owns their type-only shared-helper contract.
+The challenge registrar reads the later-initialized registered-connection fixture
+through a getter inside its test callback, preserving the original lookup lifetime.
+Registration, fixture initialization, DOM queries and focus changes keep their
+original ordering; the entry remains responsible for cleanup and mock restoration.
+
 ### Login wire contracts
 
 The login message contracts live under `apps/extension/src/login/wire/`.
