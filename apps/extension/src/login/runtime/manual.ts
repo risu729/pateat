@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { confirmBusy } from "./confirm-state";
 import { sameLoginDocument, type LoginAttemptMetadata } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import {
@@ -66,6 +67,7 @@ async function pageRefusal(rt: Runtime, live: LiveDocument): Promise<string | un
 }
 
 function attemptRefusal(rt: Runtime, live: LiveDocument): string | undefined {
+  if (confirmBusy(rt, live.document.tabId)) return "login-running";
   const running = rt.attempts.get(live.document.tabId);
   if (
     rt.options.passkeyActive?.(live.document.documentId) ||

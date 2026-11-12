@@ -17,6 +17,7 @@ import { confirmRecipeOn, startsFor } from "./generation-scope";
 import type { Runtime } from "./state";
 import { manualPending } from "./manual-scope";
 import { pageOff } from "./sign-in-fill";
+import { admitConfirm } from "./confirm-admit";
 import { admitRecipe } from "./admit-recipe";
 import type { AdmitContext } from "./admit-context";
 
@@ -26,6 +27,9 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
   ctx.recorded = recordFor(rt, ctx.document.tabId, ctx.document.origin);
 
   ctx.askKey = recordKey(ctx.document.tabId, ctx.document.origin);
+
+  const confirmation = await admitConfirm(rt, ctx);
+  if (confirmation) return confirmation;
 
   // A new page reaches its recipe before opening policy. An existing record needs an
   // early off check; valid manual authority instead reaches the normal repair path.

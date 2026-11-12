@@ -63,8 +63,12 @@ const NOT_STARTED: Record<string, string> = {
   "relogin-limit":
     "Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again",
   "page-off": "verification filling is turned off for this site or profile",
+  "confirm-fill":
+    "verification autofill checked this page; review its fields and press the button yourself",
+  "confirm-fill-stopped":
+    "verification autofill stopped; check the page, vault and settings before continuing",
   "confirm-unsupported":
-    "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
+    "verification autofill needs a confirmed Pateat login in this tab and browser session; nothing is pressed",
   "account-ambiguous": "several accounts match; choose one to log in",
   paused: "automatic login is paused on this site; choose an account to log in",
   // In a private window whose automatic login is off (ADR 0062).

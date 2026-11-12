@@ -695,6 +695,12 @@ export function createRecipeSync(options: {
     );
   const documentOf = (cache: Held, origin: string, recipeId: string) =>
     loginRecipesForOrigin(cache.recipes, origin).find((recipe) => recipe.id === recipeId);
+  const projectedDocumentOf = (cache: Held, origin: string, recipeId: string) => {
+    const stored = cache.recipes.find(
+      (recipe) => recipe.origin === origin && recipe.id === recipeId,
+    );
+    return stored && isLoginRecipeDocument(stored) ? stored : undefined;
+  };
   /**
    * The chooser documents whose list shows on the path. The service keeps one generated
    * recipe per origin and start path; a path where several start, or where another
@@ -723,7 +729,7 @@ export function createRecipeSync(options: {
     const stored = documentOf(cache, origin, recipeId);
     if (!stored) return undefined;
     if (layout === undefined) return newestLayout(loginLayoutCandidates(stored))?.recipe;
-    // A layout generated as `confirm` or `unclear` never runs (ADR 0035).
+    // A layout generated as `confirm` or `unclear` never resumes a login (ADR 0035).
     const found = findLayoutRecipe(stored, layout);
     return found && runsLogin(found) ? found : undefined;
   }
@@ -751,7 +757,14 @@ export function createRecipeSync(options: {
       const device = options.device?.fence?.();
       if (!stable || !paired) return undefined;
       const cache = await current(false);
-      const held = cache && resumedRecipe(cache, recipe.origin, recipe.id, recipe.layout);
+      if (!cache) return undefined;
+      // A fence protects a projection's identity, including confirmation autofill.
+      // Login resumption still uses the login-only helper below.
+      const stored = projectedDocumentOf(cache, recipe.origin, recipe.id);
+      const held =
+        stored && recipe.layout !== undefined
+          ? findLayoutRecipe(stored, recipe.layout)
+          : resumedRecipe(cache, recipe.origin, recipe.id, recipe.layout);
       if (!held || JSON.stringify(held) !== JSON.stringify(recipe) || (cache.local && !device))
         return undefined;
       const unchanged = () =>
@@ -776,6 +789,9 @@ export function createRecipeSync(options: {
       // layouts beside its list, under keys unique over both.
       const chooser = choosersOf(cache, origin).find((recipe) => recipe.id === recipeId);
       if (chooser && (layout === undefined || findChooserLayout(chooser, layout))) return false;
+      const stored = projectedDocumentOf(cache, origin, recipeId);
+      // Confirmation projections remain present even though they cannot resume a login.
+      if (stored && layout !== undefined && findLayoutRecipe(stored, layout)) return false;
       return !resumedRecipe(cache, origin, recipeId, layout);
     },
     async layouts(origin: string, path: string) {

@@ -338,8 +338,8 @@ export const settingsEn = {
   "Use profile default ({{behavior}})": "Use profile default ({{behavior}})",
   "Auto fills and submits sign-in pages. Fill only leaves buttons, verification codes and software keyboards to you. Fields that advance or submit the page stay empty. Choosing an account in the popup logs in with presses.":
     "Auto fills and submits sign-in pages. Fill only leaves buttons, verification codes and software keyboards to you. Fields that advance or submit the page stay empty. Choosing an account in the popup logs in with presses.",
-  "Verification pages are not filled yet. Off leaves them alone; Fill only keeps that choice for when filling is available. Passkey verification after a Pateat login is left to the browser in either mode.":
-    "Verification pages are not filled yet. Off leaves them alone; Fill only keeps that choice for when filling is available. Passkey verification after a Pateat login is left to the browser in either mode.",
+  "Verification pages fill only after a confirmed Pateat login in the same tab, using that account. Off leaves them alone. Buttons, codes and passkey verification stay with you or the browser.":
+    "Verification pages fill only after a confirmed Pateat login in the same tab, using that account. Off leaves them alone. Buttons, codes and passkey verification stay with you or the browser.",
   "Filling personal details outside a login is not available yet. Its choices are saved for that feature. Personal details asked during a login follow the sign-in setting.":
     "Filling personal details outside a login is not available yet. Its choices are saved for that feature. Personal details asked during a login follow the sign-in setting.",
   "This site already has a rule. Edit it in the list.":
@@ -364,8 +364,8 @@ export const settingsEn = {
     "This host's saved rule also covers its subdomains. Edit it in Settings to keep its scope clear.",
   "Rule for {{hostname}}": "Rule for {{hostname}}",
   "Profile default": "Profile default",
-  "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages are not filled yet; Off leaves them alone. Other personal-detail forms are not filled yet.":
-    "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages are not filled yet; Off leaves them alone. Other personal-detail forms are not filled yet.",
+  "Fill only leaves buttons, verification codes and software keyboards to you. Verification pages use the account Pateat confirmed in this tab; Off leaves them alone. Other personal-detail forms are not filled yet.":
+    "Fill only leaves buttons, verification codes and software keyboards to you. Verification pages use the account Pateat confirmed in this tab; Off leaves them alone. Other personal-detail forms are not filled yet.",
   "Edit profile defaults and site rules": "Edit profile defaults and site rules",
   "Page behavior saved.": "Page behavior saved.",
   "Change another profile's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":

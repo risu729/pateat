@@ -350,8 +350,8 @@ export const settingsJa = {
   "Use profile default ({{behavior}})": "プロファイルの既定値を使う（{{behavior}}）",
   "Auto fills and submits sign-in pages. Fill only leaves buttons, verification codes and software keyboards to you. Fields that advance or submit the page stay empty. Choosing an account in the popup logs in with presses.":
     "「自動」はログインページに入力し、送信します。「入力のみ」では、ボタン操作、認証コードの入力、画面上のキーボード操作を本人に任せます。入力だけでページが進んだり送信されたりする項目は空欄のままにします。ポップアップでアカウントを選ぶと、ボタンを押してログインします。",
-  "Verification pages are not filled yet. Off leaves them alone; Fill only keeps that choice for when filling is available. Passkey verification after a Pateat login is left to the browser in either mode.":
-    "ログイン後の本人確認ページへの入力は未対応です。「オフ」は何もせず、「入力のみ」は対応後に使う設定として保存します。Pateat でログインした後のパスキーによる本人確認は、どちらの設定でもブラウザに任せます。",
+  "Verification pages fill only after a confirmed Pateat login in the same tab, using that account. Off leaves them alone. Buttons, codes and passkey verification stay with you or the browser.":
+    "本人確認ページでは、同じタブで Pateat のログイン成功を確認したアカウントだけを使って入力します。「オフ」では何もしません。ボタン操作、認証コード、パスキーでの本人確認は、ご自身またはブラウザーに任せます。",
   "Filling personal details outside a login is not available yet. Its choices are saved for that feature. Personal details asked during a login follow the sign-in setting.":
     "ログイン以外の個人情報フォームへの入力は未対応です。設定は対応後に使うために保存します。ログインの途中で求められる個人情報には、ログインページの設定が適用されます。",
   "This site already has a rule. Edit it in the list.":
@@ -376,8 +376,8 @@ export const settingsJa = {
     "このホストに保存されたルールは、サブドメインにも適用されます。適用範囲を確認しながら、設定画面で編集してください。",
   "Rule for {{hostname}}": "{{hostname}} のルール",
   "Profile default": "プロファイルの既定値",
-  "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages are not filled yet; Off leaves them alone. Other personal-detail forms are not filled yet.":
-    "「入力のみ」では、ボタン操作、認証コードの入力、画面上のキーボード操作を本人に任せます。ポップアップでアカウントを選んだ場合は、ボタンを押してログインします。ログイン後の本人確認への入力は未対応で、「オフ」なら何もしません。ログイン以外の個人情報フォームへの入力も未対応です。",
+  "Fill only leaves buttons, verification codes and software keyboards to you. Verification pages use the account Pateat confirmed in this tab; Off leaves them alone. Other personal-detail forms are not filled yet.":
+    "「入力のみ」では、ボタン操作、認証コード、画面上のキーボード操作を本人に任せます。本人確認ページには、このタブでログイン成功を確認したアカウントだけで入力し、「オフ」なら何もしません。ログイン以外の個人情報フォームへの入力は未対応です。",
   "Edit profile defaults and site rules": "既定値とサイトのルールを編集",
   "Page behavior saved.": "ページでの動作を保存しました。",
   "Change another profile's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":

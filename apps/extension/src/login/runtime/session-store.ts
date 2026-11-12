@@ -1,4 +1,5 @@
 import { parseAttemptMetadata, type LoginAttemptMetadata } from "@pateat/contracts";
+import { rememberConfirmAuthentication } from "./confirm-state";
 import { recordKey } from "./steps";
 import { terminal } from "./attempt-state";
 import { SITE_MOVE_MS, SITE_WAIT_MS, WATCH_MS } from "./constants";
@@ -66,6 +67,12 @@ export async function keep(
   rt.persisted.delete(key);
   rt.persisted.set(key, { ...next, changedAt: unchanged ? previous.changedAt : Date.now() });
   await write(rt);
+  if (
+    metadata.state === "authenticated" &&
+    !metadata.unconfirmed &&
+    (previous?.state !== "authenticated" || previous.unconfirmed)
+  )
+    await rememberConfirmAuthentication(rt, metadata);
 }
 
 /** Releases one tab's record for one origin, as after a logout (ADR 0062). */

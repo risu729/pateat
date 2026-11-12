@@ -27,9 +27,10 @@ import {
   type ConfirmVisit,
   type Execution,
 } from "./types";
-import { leaveConfirm, previousPage, confirmSigns } from "./markers";
+import { leaveConfirm, previousPage } from "./markers";
+import { noteNotStarted } from "./not-started";
 import { noteUnadmitted, note, loginRelated } from "./generation";
-import { tabAttempt } from "./hold";
+import { tabAttempt, recordFor } from "./hold";
 import { terminal, siteWaitOver, watchOver } from "./attempt-state";
 import { dropReprompt } from "./master-password";
 import { type MoveMiss } from "./report";
@@ -47,6 +48,8 @@ import {
 } from "./moves";
 import { signedInAfterFrame, signedInByMove } from "./passkey";
 import type { Runtime } from "./state";
+import { cancelConfirm, hasConfirmAuthentication } from "./confirm-state";
+import { admitConfirm } from "./confirm-admit";
 import { admitRecord } from "./admit-record";
 import type { AdmitContext } from "./admit-context";
 import { manualAuthorizationCurrent } from "./manual-scope";
@@ -78,6 +81,8 @@ export async function admit(
   await rt.vars.loaded;
 
   await rt.vars.sessionLoaded;
+
+  await rt.confirmFill.loaded;
 
   const document = await identify(rt, sender);
 
@@ -143,6 +148,44 @@ export async function admit(
   }
 
   if (rt.hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
+
+  // Re-announcing the same document must not replace a confirmation's identity while
+  // extraction, a vault read or a delivery is in flight. Other frames gain no authority.
+  const confirming = rt.confirmFill.work.get(document.tabId);
+  if (confirming) {
+    const same = sameLoginDocument(confirming.live.document, document);
+    if (
+      same &&
+      confirming.live.url === url &&
+      confirming.live.topUrl === topUrl &&
+      confirming.live.token === token
+    ) {
+      const visit = rt.confirmVisits.get(document.tabId);
+      if (
+        !confirming.generation &&
+        visit &&
+        sameLoginDocument(visit.document, document) &&
+        visit.path === confirming.live.path
+      )
+        noteNotStarted(rt, confirming.live, shown, "confirm-fill", confirming.recipe, visit);
+      return {
+        ok: false,
+        reason: confirming.generation ? "generating" : "confirm-fill",
+        ...(visit?.document.documentId === document.documentId ? { confirm: visit.first } : {}),
+      };
+    }
+    if (
+      same ||
+      document.frameId === confirming.live.document.frameId ||
+      (document.frameId === 0 &&
+        (confirming.topDocumentId !== document.documentId ||
+          (confirming.live.topUrl ?? confirming.live.url) !== url))
+    ) {
+      cancelConfirm(rt, document.tabId);
+      await send(rt, confirming.live, { type: "login.cancel" }).catch(() => undefined);
+      if (rt.hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
+    } else return { ok: false, reason: "tab-busy" };
+  }
 
   // A tab runs one attempt. Another frame of the tab, such as an embedded widget or the
   // page around a framed login, never takes it over or disturbs it. Only a new page in
@@ -281,7 +324,22 @@ export async function admit(
   // the document, changed in place, announces itself as a new page (ADR 0078).
   const carried = rt.attempts.get(document.tabId);
 
-  if (
+  // Only confirmation handling may revisit an authenticated frame's own document
+  // or another frame of that tab. A valid current top page remains mandatory.
+  const frameConfirmation =
+    !manual &&
+    owner !== undefined &&
+    (document.frameId !== 0 || owner.document.frameId !== 0) &&
+    owner.account.origin === document.origin &&
+    hasConfirmAuthentication(rt, owner) &&
+    recordFor(rt, document.tabId, document.origin)?.id === owner.id &&
+    !rt.manualStarts.get(document.tabId)?.pick &&
+    (document.frameId === 0 ||
+      (page !== undefined &&
+        rt.documents.get(frameKey(page.document)) === page &&
+        page.url === topUrl &&
+        !page.leftUnread));
+  const duplicate =
     sameDocument &&
     (oldLive.token !== token ||
       (carried?.live === oldLive &&
@@ -294,8 +352,8 @@ export async function admit(
             (carried.metadata.watch !== undefined &&
               start?.path === observedPath(new URL(url).pathname) &&
               document.documentId !== carried.metadata.watch.documentId))
-        )))
-  ) {
+        )));
+  if (duplicate && (!frameConfirmation || oldLive.token !== token)) {
     note(rt, document, url, "duplicate-document");
     return { ok: false, reason: "duplicate-document" };
   }
@@ -456,50 +514,8 @@ export async function admit(
 
   // A sign-in input shows on this path, but the page only watches: logged once per
   // document and path, so a login that silently does not start can be told apart.
-  ctx.notStarted = (detail: string, visit?: ConfirmVisit) => {
-    if (ctx.shown?.path !== ctx.live.path || ctx.live.notStarted === detail) return;
-    ctx.live.notStarted = detail;
-    const refused = {
-      type: "refused" as const,
-      tabId: ctx.document.tabId,
-      origin: ctx.document.origin,
-      reason: "not-started",
-      detail,
-      ...(ctx.document.frameId === 0 ? {} : { frame: true as const }),
-    };
-    if (!visit) {
-      const later = ctx.shown?.later;
-      report(rt, ctx.document, {
-        ...refused,
-        ...(detail === "first-step-missing" && ctx.recipe
-          ? { recipeId: ctx.recipe.id, recipeRevision: ctx.recipe.revision }
-          : {}),
-        ...(later
-          ? { laterSteps: later.steps, laterPartial: later.partial, laterMiss: later.miss }
-          : {}),
-      });
-      return;
-    }
-    // A page Pateat does not fill also logs what it shows for the evaluation of page kinds
-    // (ADR 0035), read first, so the entry names this page's URL; its visit logs the
-    // person's submission and the next page once the tab leaves it.
-    const amount = ctx.shown?.amount;
-    visit.logged = confirmSigns(rt, ctx.live).then((signs) => {
-      report(rt, ctx.document, {
-        ...refused,
-        recipeId: visit.recipe.id,
-        recipeRevision: visit.recipe.revision,
-        pageKind: visit.recipe.pageKind,
-        ...(amount === undefined ? {} : { amount }),
-        ...signs,
-        url: ctx.live.url,
-      });
-      // Read as the `signedIn` hint false: the page was read and neither shows, E2 also
-      // when it was not read.
-      return signs.e1 === false && signs.e2 !== true;
-    });
-    void visit.logged.catch(() => undefined);
-  };
+  ctx.notStarted = (detail: string, visit?: ConfirmVisit) =>
+    noteNotStarted(rt, ctx.live, ctx.shown, detail, ctx.recipe, visit);
 
   // The page after a sign-in entry press is checked before anything else runs on it, and
   // one that blocked the entry is neither sent for generation nor logged in to (ADR 0031).
@@ -518,6 +534,34 @@ export async function admit(
   const quiet = ctx.signIn?.passkey
     ? ctx.list || !ctx.entryHello
     : ctx.shown || ctx.list || ctx.unoffered;
+
+  // Try only confirmation handling before a deferred duplicate/frame-owner refusal.
+  // A refusal to classify/fill must not turn this exception into ordinary login.
+  const currentTop = rt.documents.get(frameKey({ tabId: ctx.document.tabId, frameId: 0 }));
+  if (
+    (busy || duplicate) &&
+    frameConfirmation &&
+    rt.vars.storageHealthy &&
+    owner !== undefined &&
+    hasConfirmAuthentication(rt, owner) &&
+    recordFor(rt, ctx.document.tabId, ctx.document.origin)?.id === owner.id &&
+    !rt.manualStarts.get(ctx.document.tabId)?.pick &&
+    (ctx.document.frameId === 0
+      ? currentTop === ctx.live
+      : currentTop === page &&
+        page !== undefined &&
+        page.url === ctx.live.topUrl &&
+        !page.leftUnread)
+  ) {
+    ctx.recorded = owner;
+    const confirmation = await admitConfirm(rt, ctx);
+    if (confirmation) return confirmation;
+    ctx.recorded = undefined;
+  }
+  if (duplicate) {
+    note(rt, document, url, "duplicate-document");
+    return { ok: false, reason: "duplicate-document" };
+  }
 
   if (busy)
     return quiet && !ctx.start && (!ctx.signIn || ctx.signIn.passkey)

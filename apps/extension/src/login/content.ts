@@ -1902,6 +1902,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return fail("cancelled", "page-changed");
       used.add(operation.operationId);
       const step = operation.step;
+      if (
+        operation.signInFill &&
+        (step.kind === "click" ||
+          command.code ||
+          command.choose ||
+          (step.kind === "fill" &&
+            (step.effect !== "prepare" || step.fields.some((field) => field.keypad))))
+      )
+        return fail("cancelled", "not-authorized");
       // Another attempt in this document starts from nothing filled.
       if (operation.attemptId !== filledAttempt) {
         filled = new WeakSet();
@@ -2127,7 +2136,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // A username or password never goes into a code input (issue #1413).
         const usable = (input: Element | undefined, index: number) =>
           (step.fields[index]!.keypad ? keyable(input) : takes(input, secretOf(index))) &&
-          !(signInSlot(step.fields[index]!.slot) && codeMarked(input));
+          !(signInSlot(step.fields[index]!.slot) && codeMarked(input)) &&
+          !(operation.signInFill && codeMarked(input));
         if (inputs.some((input, index) => !usable(input, index)))
           return fail("structural-mismatch", "target-missing");
         // Each field's keypad, which holds the keys, shown or not yet.
@@ -2162,9 +2172,20 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           return fail("structural-mismatch", "fields-split");
         // The form sends its values only to this document's origin, or to a destination
         // the background allows (ADR 0051).
-        const formRefused = await destinationRefusal(() =>
-          formDestinations(writableInputs[0]!, "fill"),
-        );
+        // Passive fills leave submission to the person. Every submitter, including a
+        // hidden/default button or an externally associated image input, can receive
+        // these values through its formaction and must be checked before filling.
+        const fillDestinations = () =>
+          operation.signInFill
+            ? [
+                ...writableInputs.flatMap((input) => formDestinations(input, "fill")),
+                ...submitterDestinations(writableInputs),
+              ]
+            : formDestinations(writableInputs[0]!, "fill");
+        const destinationSnapshot = JSON.stringify(fillDestinations());
+        const passiveDestinationsCurrent = () =>
+          !operation.signInFill || JSON.stringify(fillDestinations()) === destinationSnapshot;
+        const formRefused = await destinationRefusal(fillDestinations);
         if (formRefused === "document-cancelled" || formRefused === "operation-expired")
           return fail("cancelled", formRefused);
         if (formRefused) return fail("structural-mismatch", formRefused);
@@ -2307,8 +2328,20 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           codeIn &&
           (stopped !== "refused" || !input.isConnected || !writable(input) || input.value === "");
         try {
-          if (operation.signInFill && !fillEditsReady(window))
-            return fail("cancelled", "document-cancelled");
+          if (operation.signInFill) {
+            // DOM/account readiness can await the page after the first authorization.
+            // Recheck current authority and the full destination snapshot before mutation.
+            const stillAuthorized: unknown = await sendMessage("login", {
+              version: 1,
+              type: "login.operation.authorize",
+              token,
+              attemptId: operation.attemptId,
+              operationId: operation.operationId,
+            }).catch(() => undefined);
+            if (stillAuthorized !== true) return fail("cancelled", "not-authorized");
+            if (!passiveDestinationsCurrent()) return fail("cancelled", "form-changed");
+            if (!fillEditsReady(window)) return fail("cancelled", "document-cancelled");
+          }
           for (const [index, field] of step.fields.entries()) {
             const input = inputs[index] as Control;
             // A preparing fill lets the page's handlers for the previous field run first.
@@ -2318,6 +2351,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             // fields may change the page.
             const current = matches(field.target);
             const value = command.values.find((entry) => entry.slot === field.slot)!;
+            if (!passiveDestinationsCurrent()) return fail("cancelled", "form-changed");
             if (
               cancelled ||
               pagePath() !== step.path ||
@@ -2338,7 +2372,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               );
             if (
               operation.signInFill &&
-              !claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot)
+              (input.value !== "" ||
+                !claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot))
             ) {
               value.value = "";
               continue;
@@ -2485,6 +2520,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   beforeInput: buttonless ? lastIn : code?.typed,
                   between: () => {
                     if (cancelled) return "document-cancelled";
+                    if (!passiveDestinationsCurrent()) return "form-changed";
                     if (operation.signInFill && !fillUntouched(window, input))
                       return "field-changed";
                     if (pagePath() !== step.path) return "page-changed";

@@ -181,8 +181,8 @@ export const en = {
     "the last login on this site stopped in this tab",
   "the sign-in form shows, but the recipe's first step was not found":
     "the sign-in form shows, but the recipe's first step was not found",
-  "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again":
-    "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
+  "verification autofill needs a confirmed Pateat login in this tab and browser session; nothing is pressed":
+    "verification autofill needs a confirmed Pateat login in this tab and browser session; nothing is pressed",
   "no recipe of this site starts on this page": "no recipe of this site starts on this page",
   "Pateat waits for you to choose an account": "Pateat waits for you to choose an account",
   "Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again":
@@ -511,5 +511,9 @@ export const en = {
     "Autofill only: Pateat may fill sign-in fields and presses nothing. Continue the site's steps yourself.",
   "Autofill stopped: {{why}}. Nothing was pressed.":
     "Autofill stopped: {{why}}. Nothing was pressed.",
+  "verification autofill checked this page; review its fields and press the button yourself":
+    "verification autofill checked this page; review its fields and press the button yourself",
+  "verification autofill stopped; check the page, vault and settings before continuing":
+    "verification autofill stopped; check the page, vault and settings before continuing",
 } as const;
 import { manualEn } from "./manual-en";
