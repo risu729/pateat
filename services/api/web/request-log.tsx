@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
 import { formatTime } from "./devices";
+import { LOGIN_HISTORY_QUERY_KEY, LoginHistory } from "./login-history";
 import { PROBLEMS_QUERY_KEY } from "./problems";
 import { ErrorNotice, Line, Lines, PAGE_TITLE_CLASSES, SuccessNotice } from "./ui";
 
@@ -52,6 +53,7 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
     onSettled: () => {
       setConfirming(false);
       void queryClient.invalidateQueries({ queryKey: REQUEST_LOG_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: LOGIN_HISTORY_QUERY_KEY });
       // Delete all deletes the problem lines too (ADR 0066).
       void queryClient.invalidateQueries({ queryKey: PROBLEMS_QUERY_KEY });
     },
@@ -144,6 +146,7 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
           Delete all
         </Button>
       )}
+      <LoginHistory client={client} />
       <Lines>
         <Line icon={<Clock size={16} aria-hidden />}>
           Each request, login result, login record and problem line is kept for {RETENTION_DAYS}{" "}

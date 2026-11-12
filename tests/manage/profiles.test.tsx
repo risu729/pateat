@@ -55,6 +55,11 @@ test("selecting another profile clears the old policy view and writes only to th
     deleteProfile: vi.fn(),
     assignProfile: vi.fn(),
     devices: vi.fn(),
+    loginHistory: vi.fn<ManageClient["loginHistory"]>(async () => ({
+      version: 1,
+      entries: [],
+      next: null,
+    })),
     dashboard: vi.fn(),
     models: vi.fn(),
     saveModels: vi.fn(),

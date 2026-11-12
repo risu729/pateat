@@ -61,6 +61,11 @@ function mockClient(initial = devices()) {
     oldestAt: PAIRED,
   };
   return {
+    loginHistory: vi.fn<ManageClient["loginHistory"]>(async () => ({
+      version: 1,
+      entries: [],
+      next: null,
+    })),
     dashboard: vi.fn<ManageClient["dashboard"]>(),
     profileId: "00000000-0000-4000-8000-000000000001",
     selectProfile: vi.fn<ManageClient["selectProfile"]>(),
@@ -305,7 +310,11 @@ test("deletes the whole request log after a confirmation", async () => {
   await page.getByRole("button", { name: "Confirm" }).click();
   expect(client.deleteRequestLog).toHaveBeenCalledTimes(1);
   await expect
-    .element(page.getByRole("status"))
+    .element(
+      page.getByText("3 requests, 1 first login result, and 12 login records deleted", {
+        exact: true,
+      }),
+    )
     .toHaveTextContent("3 requests, 1 first login result, and 12 login records deleted");
   await expect.element(page.getByText("No requests are logged.")).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Delete all" })).toBeDisabled();

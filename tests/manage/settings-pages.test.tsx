@@ -59,6 +59,11 @@ const bankDefault = {
 function mockClient(initial: SyncSettingsState, recipes: ManageRecipes["recipes"] = []) {
   let state = initial;
   return {
+    loginHistory: vi.fn<ManageClient["loginHistory"]>(async () => ({
+      version: 1,
+      entries: [],
+      next: null,
+    })),
     dashboard: vi.fn<ManageClient["dashboard"]>(),
     profileId: "00000000-0000-4000-8000-000000000001",
     selectProfile: vi.fn<ManageClient["selectProfile"]>(),

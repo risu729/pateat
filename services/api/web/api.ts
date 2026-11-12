@@ -1,5 +1,7 @@
 import {
   manageDashboardSchema,
+  manageLoginHistorySchema,
+  type ManageLoginHistoryQuery,
   manageClaudeSchema,
   manageClaudeTestSchema,
   manageDevicesSchema,
@@ -95,6 +97,13 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
     /** The dashboard's aggregates over the range, ending now. */
     async dashboard(range: ManageDashboardRange) {
       return read(await call(fetcher, `/dashboard?range=${range}`), manageDashboardSchema);
+    },
+    async loginHistory(query: ManageLoginHistoryQuery = {}) {
+      const search = new URLSearchParams();
+      for (const [key, value] of Object.entries(query)) {
+        if (value !== undefined) search.set(key, String(value));
+      }
+      return read(await call(fetcher, `/logins?${search}`), manageLoginHistorySchema);
     },
     get profileId() {
       return selectedProfile;

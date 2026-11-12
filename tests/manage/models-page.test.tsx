@@ -57,6 +57,11 @@ const VIEW: ManageModels = {
 function mockClient(saveError?: ManageApiError) {
   let view = structuredClone(VIEW);
   return {
+    loginHistory: vi.fn<ManageClient["loginHistory"]>(async () => ({
+      version: 1,
+      entries: [],
+      next: null,
+    })),
     dashboard: vi.fn<ManageClient["dashboard"]>(),
     devices: vi.fn<ManageClient["devices"]>(),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),

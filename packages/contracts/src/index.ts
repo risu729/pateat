@@ -10,6 +10,7 @@ export * from "./login-attempt";
 export * from "./login-attempt-hold";
 export * from "./logout-words";
 export * from "./manage";
+export * from "./manage-logins";
 export * from "./models";
 export * from "./observation";
 export * from "./pairing";

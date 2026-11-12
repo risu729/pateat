@@ -4144,7 +4144,17 @@ field exclusions and custom-field review, which need the device's vault catalog
     year, and Delete all, which after a confirmation naming the counts deletes every one
     of the owner's rows of all three, and the record of which call made each part of a
     recipe (ADR 0060). Recipes, settings, judged pages and the spend the limits count
-    stay.
+    stay. Its Login history section browses the already retained login records, newest
+    first, 50 at a time, with exact site-origin and result filters applied before the
+    limit. Older advances by the last record's time and ID; Newest returns to the first
+    page and refreshes it. Each row shows the site, time and result, with the recipe and
+    revision, extension build, result code and cause, and recorded durations in Details.
+    Network time is a lower bound within service time, not an additional duration.
+    Records beyond the one-year retention boundary are not listed, even before the
+    next purge. This owner-only metadata view neither reads request bodies nor sends
+    logs back to devices. Deleting the log refreshes the list; filter input stays as
+    typed while it loads. This browsing UI is implemented; hosted and real-account
+    verification remain separate from synthetic checks.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
     count, its default account ("<item> in <account>") and its binding count, and
