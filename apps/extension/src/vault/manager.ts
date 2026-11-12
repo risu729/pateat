@@ -222,6 +222,21 @@ export function createLocalVaultManager(options: {
       return vaultFailure("storage-uncertain");
     }
   }
+  /** Run against one live session only while its durable authority still holds. */
+  async function withLiveVault<T>(
+    handle: LocalVaultHandle,
+    invoke: (session: OpenedHostSession["session"]) => Promise<VaultResult<T>>,
+  ): Promise<VaultResult<T>> {
+    if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
+    const owner = live;
+    const before = await checkDurable(owner);
+    if (!before.ok || !validHandle(handle))
+      return before.ok ? vaultFailure("stale-vault-handle") : before;
+    const result = await invoke(owner.opened.session);
+    const after = await checkDurable(owner);
+    if (!after.ok) return after;
+    return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+  }
   function continuity(
     prepared: PreparedBitwardenAccount,
     old: VaultEntry | null,
@@ -953,17 +968,7 @@ export function createLocalVaultManager(options: {
       } catch {
         return vaultFailure("invalid-request");
       }
-      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
-      const currentLive = live;
-      const before = await checkDurable(currentLive);
-      if (!before.ok || !validHandle(handle))
-        return before.ok ? vaultFailure("stale-vault-handle") : before;
-      const result = await options.host.listFields(currentLive.opened.session, itemId, signal);
-      const after = await checkDurable(currentLive);
-      if (!after.ok) return after;
-      return validHandle(handle) && live === currentLive
-        ? result
-        : vaultFailure("stale-vault-handle");
+      return withLiveVault(handle, (session) => options.host.listFields(session, itemId, signal));
     },
     async catalog(handle: LocalVaultHandle, signal?: AbortSignal) {
       try {
@@ -971,15 +976,7 @@ export function createLocalVaultManager(options: {
       } catch {
         return vaultFailure("invalid-request");
       }
-      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
-      const owner = live;
-      const before = await checkDurable(owner);
-      if (!before.ok || !validHandle(handle))
-        return before.ok ? vaultFailure("stale-vault-handle") : before;
-      const result = await options.host.catalog(owner.opened.session, signal);
-      const after = await checkDurable(owner);
-      if (!after.ok) return after;
-      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+      return withLiveVault(handle, (session) => options.host.catalog(session, signal));
     },
     /** Candidate signal for the live accepted snapshot only; it grants no field release. */
     async matchUris(handle: LocalVaultHandle, targetUrl: string, signal?: AbortSignal) {
@@ -989,15 +986,7 @@ export function createLocalVaultManager(options: {
         return vaultFailure("invalid-request");
       }
       if (typeof targetUrl !== "string") return vaultFailure("invalid-uri-input");
-      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
-      const owner = live;
-      const before = await checkDurable(owner);
-      if (!before.ok || !validHandle(handle))
-        return before.ok ? vaultFailure("stale-vault-handle") : before;
-      const result = await options.host.matchUris(owner.opened.session, targetUrl, signal);
-      const after = await checkDurable(owner);
-      if (!after.ok) return after;
-      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+      return withLiveVault(handle, (session) => options.host.matchUris(session, targetUrl, signal));
     },
     /**
      * The login usernames of these items in the live accepted snapshot, which its crypto
@@ -1015,15 +1004,7 @@ export function createLocalVaultManager(options: {
       } catch {
         return vaultFailure("invalid-request");
       }
-      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
-      const owner = live;
-      const before = await checkDurable(owner);
-      if (!before.ok || !validHandle(handle))
-        return before.ok ? vaultFailure("stale-vault-handle") : before;
-      const result = await options.host.loginUsernames(owner.opened.session, ids, signal);
-      const after = await checkDurable(owner);
-      if (!after.ok) return after;
-      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+      return withLiveVault(handle, (session) => options.host.loginUsernames(session, ids, signal));
     },
     /** Secret-free metadata for the live accepted snapshot's passkeys with this RP ID. */
     async findPasskeys(handle: LocalVaultHandle, rpId: string, signal?: AbortSignal) {
@@ -1033,15 +1014,7 @@ export function createLocalVaultManager(options: {
         return vaultFailure("invalid-request");
       }
       if (typeof rpId !== "string") return vaultFailure("invalid-request");
-      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
-      const owner = live;
-      const before = await checkDurable(owner);
-      if (!before.ok || !validHandle(handle))
-        return before.ok ? vaultFailure("stale-vault-handle") : before;
-      const result = await options.host.findPasskeys(owner.opened.session, rpId, signal);
-      const after = await checkDurable(owner);
-      if (!after.ok) return after;
-      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+      return withLiveVault(handle, (session) => options.host.findPasskeys(session, rpId, signal));
     },
     /** The RP IDs of one item's stored passkeys in the live accepted snapshot (ADR 0084). */
     async passkeyRpIds(handle: LocalVaultHandle, itemId: string, signal?: AbortSignal) {
@@ -1051,15 +1024,7 @@ export function createLocalVaultManager(options: {
         return vaultFailure("invalid-request");
       }
       if (typeof itemId !== "string") return vaultFailure("invalid-request");
-      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
-      const owner = live;
-      const before = await checkDurable(owner);
-      if (!before.ok || !validHandle(handle))
-        return before.ok ? vaultFailure("stale-vault-handle") : before;
-      const result = await options.host.passkeyRpIds(owner.opened.session, itemId, signal);
-      const after = await checkDurable(owner);
-      if (!after.ok) return after;
-      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+      return withLiveVault(handle, (session) => options.host.passkeyRpIds(session, itemId, signal));
     },
     /** One assertion signature from the live snapshot's stored key for that item. */
     async signPasskey(
@@ -1074,15 +1039,7 @@ export function createLocalVaultManager(options: {
         return vaultFailure("invalid-request");
       }
       if (typeof input !== "object" || input === null) return vaultFailure("invalid-request");
-      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
-      const owner = live;
-      const before = await checkDurable(owner);
-      if (!before.ok || !validHandle(handle))
-        return before.ok ? vaultFailure("stale-vault-handle") : before;
-      const result = await options.host.signPasskey(owner.opened.session, input, signal);
-      const after = await checkDurable(owner);
-      if (!after.ok) return after;
-      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
+      return withLiveVault(handle, (session) => options.host.signPasskey(session, input, signal));
     },
     /**
      * Whether `password` is the master password of the live session's account, checked
@@ -1095,19 +1052,9 @@ export function createLocalVaultManager(options: {
         return vaultFailure("invalid-request");
       }
       if (typeof password !== "string" || !password) return vaultFailure("invalid-request");
-      if (!validHandle(handle) || !live) return vaultFailure("stale-vault-handle");
-      const owner = live;
-      const before = await checkDurable(owner);
-      if (!before.ok || !validHandle(handle))
-        return before.ok ? vaultFailure("stale-vault-handle") : before;
-      const result = await options.host.verifyMasterPassword(
-        owner.opened.session,
-        password,
-        signal,
+      return withLiveVault(handle, (session) =>
+        options.host.verifyMasterPassword(session, password, signal),
       );
-      const after = await checkDurable(owner);
-      if (!after.ok) return after;
-      return validHandle(handle) && live === owner ? result : vaultFailure("stale-vault-handle");
     },
     async resolveField(
       handle: LocalVaultHandle,

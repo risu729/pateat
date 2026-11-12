@@ -416,6 +416,14 @@ read and SDK verification. Immutable records preserve snapshot identity across
 restart, while replacement data receives a fresh snapshot and requires policy
 reconciliation before credential release.
 
+The local vault manager uses one live-session guard for field listings, the catalog,
+URI matches, login usernames, passkey discovery and signing, and master-password
+verification. Each operation validates its input before the guard checks the handle
+and durable record, calls the crypto host with that session, then checks the durable
+record and live-session identity again before returning. Field resolution retains its
+own snapshot-grant checks; batch resolution checks durable authority once before and
+once after the batch.
+
 Initially vault use does not write back: passwords, TOTP and counter-zero
 assertions only. Nonzero counters produce an unsupported result. Do not reset
 them to zero or keep an unsynchronized local substitute. Later writeback needs
