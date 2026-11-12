@@ -4,7 +4,10 @@
 // that may hold a form, whether a form variable or a node a walk of the page may meet,
 // reads its properties through these and calls its methods through the platform's
 // prototypes, as `Node.prototype.contains.call(form, node)`; the prototypes of the content
-// script's world are the platform's own.
+// script's world are the platform's own. A document does the same with its named
+// `<img>`, `<form>`, `<embed>`, `<object>` and `<iframe>` elements
+// (`<img name="querySelectorAll">` hides `document.querySelectorAll`), so the shared
+// helpers that read a document go through `Document.prototype` too.
 
 /** The keys of `T` that are no methods. */
 type Property<T> = {
@@ -14,6 +17,14 @@ type Property<T> = {
 /** `node[key]` as `Node` defines it, never a form's control named `key`. */
 export function nodeProperty<K extends Property<Node>>(node: Node, key: K): Node[K] {
   return Reflect.get(Node.prototype, key, node) as Node[K];
+}
+
+/** `document[key]` as `Document` defines it, never a named element of the page. */
+export function documentProperty<K extends Property<Document>>(
+  document: Document,
+  key: K,
+): Document[K] {
+  return Reflect.get(Document.prototype, key, document) as Document[K];
 }
 
 /** `element[key]` as `Element` defines it, never a form's control named `key`. */

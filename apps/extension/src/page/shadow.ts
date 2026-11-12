@@ -6,7 +6,7 @@
 // host and before the host's own children, as Bitwarden's tree walker visits them.
 
 import { browser } from "wxt/browser";
-import { elementProperty, nodeProperty } from "./form-native";
+import { documentProperty, elementProperty, nodeProperty } from "./form-native";
 
 /**
  * The elements besides custom elements that `attachShadow` accepts (DOM standard), the
@@ -46,7 +46,9 @@ const hostNames = new Set([
  * as not there too.
  */
 function overlaysPage(host: Element): boolean {
-  const { body, documentElement } = host.ownerDocument;
+  const document = elementProperty(host, "ownerDocument");
+  const body = documentProperty(document, "body");
+  const documentElement = documentProperty(document, "documentElement");
   const parent = host.parentNode;
   if (host === body || (parent !== body && parent !== documentElement)) return false;
   return !(host.localName.includes("-") && host.matches(":defined"));
@@ -102,13 +104,18 @@ export function readingPage<Result>(read: () => Result): Result {
 
 const isHost = (element: Element) => shadowRootOf(element) !== null;
 
-/** `scope.querySelectorAll(selector)`, also for a form `scope` (`form-native.ts`). */
+/**
+ * `scope.querySelectorAll(selector)`, also for a form or a document whose named elements
+ * hide it (`form-native.ts`).
+ */
 function selectAll<E extends Element>(scope: Document | ShadowRoot | Element, selector: string) {
-  return [
-    ...(scope instanceof Element
-      ? (Element.prototype.querySelectorAll.call(scope, selector) as NodeListOf<E>)
-      : scope.querySelectorAll<E>(selector)),
-  ];
+  const found =
+    scope instanceof Element
+      ? Element.prototype.querySelectorAll.call(scope, selector)
+      : scope instanceof Document
+        ? Document.prototype.querySelectorAll.call(scope, selector)
+        : scope.querySelectorAll(selector);
+  return [...found] as E[];
 }
 
 /**
@@ -121,7 +128,7 @@ function hostsUnder(scope: Document | ShadowRoot | Element): Element[] {
   const tree = scope instanceof Element ? treeOf(scope) : scope;
   let hosts = reading.hosts.get(tree);
   if (!hosts) {
-    hosts = [...tree.querySelectorAll("*")].filter(isHost);
+    hosts = selectAll(tree, "*").filter(isHost);
     reading.hosts.set(tree, hosts);
   }
   return scope === tree
@@ -219,9 +226,13 @@ export function textWalker(
   start: Node,
   accept: (text: Text) => boolean,
 ): { nextNode: () => Text | null } {
-  const document = start.ownerDocument ?? (start as Document);
+  const document = nodeProperty(start, "ownerDocument") ?? (start as Document);
   const walk = (root: Node) =>
-    document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    Document.prototype.createTreeWalker.call(
+      document,
+      root,
+      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    );
   const walkers = [walk(start)];
   const own = start instanceof Element ? shadowRootOf(start) : null;
   if (own) walkers.push(walk(own));

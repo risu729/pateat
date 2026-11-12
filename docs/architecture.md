@@ -2752,13 +2752,16 @@ through the form's default button or `requestSubmit()`, never through a default 
 that showed when the fill began, is disabled or sits outside the form
 ([ADR 0064](adr/0064-enter-in-a-form-without-a-button.md)).
 A form exposes each named control as a property that hides the form's own member of that
-name, inherited ones such as `contains`, `isConnected` or `getAttribute` too. So code
+name, inherited ones such as `contains`, `isConnected` or `getAttribute` too, and a
+document does the same with its named images, forms, embeds, objects and frames. So code
 that reads a form, or a node a walk of the page may meet, goes through the platform's
 prototypes: this step's constraint validation, `novalidate` attribute, fallback
 submission and checks that the form is still connected and holds its button, and
-elsewhere the shadow-tree queries, the check that an element shows, the rendered-text
-reader and every read of a form's attributes, document or connection. A control named
-after any of them changes nothing.
+elsewhere the shadow-tree queries and walks (the document's members included), the check
+that an element shows, the rendered-text reader, the reading behind an open modal and
+every read of a form's attributes, document, fields or connection. A control or element
+named after any of them changes nothing there; other reads of the document outside those
+helpers still use its members directly.
 
 A stored recipe is either a login recipe, with `pageKind`, `slots`, `steps`,
 `maxSubmissions` and the optional route members, or an entry recipe

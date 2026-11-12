@@ -8,9 +8,10 @@ import {
   hostOf,
   queryAll,
   shadowRootOf,
+  textWalker,
   treeOf,
 } from "./shadow";
-import { renderedText, shown } from "./text";
+import { openModals, readBehindModal, renderedText, shown } from "./text";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -82,5 +83,33 @@ describe("forms whose named controls hide their own members", () => {
       "Before Pay ¥1,000",
     );
     expect(showsAmount(form)).toBe(true);
+  });
+});
+
+describe("pages whose named elements hide the document's own members", () => {
+  it("queries and walks the document through Document", () => {
+    document.body.innerHTML = `<img name="querySelectorAll" alt="">
+      <form name="createTreeWalker"><p id="text">Signed in</p></form>`;
+    expect(Reflect.get(document, "querySelectorAll")).toBeInstanceOf(HTMLImageElement);
+    expect(Reflect.get(document, "createTreeWalker")).toBeInstanceOf(HTMLFormElement);
+    expect(queryAll(document, "#text")).toEqual([document.querySelector("#text")]);
+    const walker = textWalker(document.body, (text) => text.data.includes("Signed"));
+    expect(walker.nextNode()?.data).toBe("Signed in");
+  });
+});
+
+describe("modals beside forms whose named controls hide their own members", () => {
+  it("reads the page behind a modal through such forms", () => {
+    const named = ["matches", "children", "parentNode", "getAttribute"]
+      .map((name) => `<input type="hidden" name="${name}">`)
+      .join("");
+    document.body.innerHTML = `<form id="beside">${named}</form>
+      <form id="outer">${named}<div id="behind" aria-hidden="true"><p id="text">Behind</p></div>
+      <div id="modal" role="dialog" aria-modal="true">Offer</div></form>
+      <form id="dialog" role="dialog" aria-modal="true">${named}Form dialog</form>`;
+    const text = document.querySelector("#text")!;
+    expect(openModals(document).map((modal) => modal.id)).toEqual(["modal", "dialog"]);
+    expect(shown(text)).toBe(false);
+    expect(readBehindModal(document, () => shown(text))).toBe(true);
   });
 });

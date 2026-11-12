@@ -139,10 +139,10 @@ export function accountText(document: Document, form: HTMLFormElement | null): s
 
 /**
  * The accounts `form` (or the page, without one) shows, and the addresses it would submit
- * from an input for an account identifier the person cannot type into, hidden or
- * read-only: a form for a remembered account may keep the address only there (ADR 0049),
- * and {@link accountText} never includes an input's value. What a person types is never
- * read (#932).
+ * from an input for an account identifier the person cannot type into, hidden, read-only
+ * or disabled (`:disabled`, including a disabled fieldset): a form for a remembered
+ * account may keep the address only there (ADR 0049), and {@link accountText} never
+ * includes an input's value. What a person types is never read (#932).
  */
 export function formAccounts(document: Document, form: HTMLFormElement | null): string[] {
   const identifier = /user|mail|login|account|ident/iu;

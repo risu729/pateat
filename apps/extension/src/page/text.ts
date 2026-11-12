@@ -38,14 +38,15 @@ let behindModal: ReadonlySet<Element> | undefined;
  * `<dialog>` opened with `showModal()`.
  */
 export function openModals(document: Document): HTMLElement[] {
+  // A form may carry `aria-modal`, so its members are read through `Element`.
+  const attribute = (element: Element, name: string) =>
+    Element.prototype.getAttribute.call(element, name)?.trim().toLowerCase();
   return queryAll(document, "[aria-modal='true' i], dialog").filter(
     (element): element is HTMLElement =>
-      (element.matches(":modal") ||
-        (element.getAttribute("aria-modal")?.trim().toLowerCase() === "true" &&
+      (Element.prototype.matches.call(element, ":modal") ||
+        (attribute(element, "aria-modal") === "true" &&
           (element instanceof HTMLDialogElement ||
-            /^(?:alert)?dialog$/u.test(
-              element.getAttribute("role")?.trim().toLowerCase().split(/\s+/u)[0] ?? "",
-            )))) &&
+            /^(?:alert)?dialog$/u.test(attribute(element, "role")?.split(/\s+/u)[0] ?? "")))) &&
       shown(element),
   );
 }
@@ -69,9 +70,16 @@ export function readBehindModal<Result>(document: Document, read: () => Result):
   // (ADR 0070).
   for (const modal of modals)
     for (let node: Element | null = modal; node; node = composedParent(node)) {
-      const parent = node.parentNode;
-      if (parent instanceof Element || parent instanceof ShadowRoot)
-        for (const sibling of parent.children) if (sibling.matches(hiders)) hidden.add(sibling);
+      // Any of these may be a form, so its members are read through the prototypes.
+      const parent = nodeProperty(node, "parentNode");
+      const siblings =
+        parent instanceof Element
+          ? elementProperty(parent, "children")
+          : parent instanceof ShadowRoot
+            ? parent.children
+            : [];
+      for (const sibling of siblings)
+        if (Element.prototype.matches.call(sibling, hiders)) hidden.add(sibling);
     }
   behindModal = hidden.size > 0 ? hidden : outer;
   try {

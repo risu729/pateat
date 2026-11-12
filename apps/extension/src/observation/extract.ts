@@ -196,6 +196,12 @@ const actionTypes = new Set(["submit", "button", "image"]);
 const ignoredTypes = new Set(["hidden", "reset"]);
 const controls = "input:not([type='hidden']), select, textarea, button";
 const fields = "input:not([type='hidden']), select, textarea";
+/**
+ * Whether `form` holds a field: through `Element`, as the form's named controls hide its
+ * own `querySelector` (`form-native.ts`).
+ */
+const holdsField = (form: Element | null) =>
+  form !== null && Element.prototype.querySelector.call(form, fields) !== null;
 /** Every element `describe` may accept, script buttons included. */
 const observed = `input, select, textarea, button, a, ${scriptControls}`;
 /**
@@ -2655,11 +2661,8 @@ function readLogout(document: Document): ObservationResult {
   if (!location) return { ok: false, reason: "unsupported-page" };
   const tokens = redactsPath(location.pathname);
   const index = locatorIndex(document);
-  const inFieldForm = (element: Element, form?: HTMLFormElement | null) => {
-    const holder = form ?? closestAcross(element, "form");
-    // The form's named controls hide its own `querySelector` (`form-native.ts`).
-    return holder !== null && Element.prototype.querySelector.call(holder, fields) !== null;
-  };
+  const inFieldForm = (element: Element, form?: HTMLFormElement | null) =>
+    holdsField(form ?? closestAcross(element, "form"));
   const described = describeAll(document).flatMap((entry) => {
     if (entry.kind !== "candidate") return [];
     const { element, role } = entry.draft;
@@ -2757,7 +2760,7 @@ export function extractLocalLogout(
   if (!location) return { ok: false, reason: "none" };
   const control = localLogoutControl(document);
   if (typeof control === "string") return { ok: false, reason: control };
-  if (!enabled(control) || closestAcross(control, "form")?.querySelector(fields))
+  if (!enabled(control) || holdsField(closestAcross(control, "form")))
     return { ok: false, reason: "none" };
   const refusal = entryElementRefusal(control);
   if (refusal === "new-window" || refusal === "download") return { ok: false, reason: "none" };
