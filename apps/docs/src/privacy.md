@@ -81,8 +81,10 @@ references and operation identifiers; that record does not restore permission to
 To write or repair an SSO entry recipe, Pateat sends the selected method's bracketed
 provider label with the sanitized site-page description to the paired service and the
 selected AI provider, or directly to that provider when using a key without a pairing.
-The service retains that request under the request-log rules below. The rest of the
-SSO field, the provider username, comparison proofs and saved mapping are not sent.
+For a URL-form method, the label comes from the selected page control after the same
+local username redaction as the page description. The service retains the request
+under the request-log rules below. The rest of the SSO field, the provider username,
+comparison proofs and saved mapping are not sent.
 The provider account's credentials are used only on its permitted sign-in origin.
 
 When local evidence cannot confirm the return to the original site, Pateat can also
