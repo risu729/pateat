@@ -509,6 +509,8 @@ export const manageErrorCodeSchema = v.picklist([
   "not_paired",
   "method_not_allowed",
   "payload_too_large",
+  /** Shared settings would make at least one live profile exceed the document byte limit. */
+  "settings_limit",
   "unsupported_media_type",
   /** A model choice names a model, effort or speed the model list does not offer. */
   "model_unavailable",

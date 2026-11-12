@@ -590,6 +590,20 @@ describe("settings", () => {
     ).toEqual({ kind: "failed", error: "unexpected-response" });
   });
 
+  it("distinguishes another profile's composed settings limit from a request body limit", async () => {
+    const fetch = respond(413, { error: "settings_limit" });
+    expect(
+      await untimed(
+        createServiceTransport({ fetch }).saveSettings(ORIGIN, CREDENTIAL, {
+          version: 1,
+          expectedRevision: 4,
+          settings: document,
+        }),
+      ),
+    ).toEqual({ kind: "limited" });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("reports a rejected device", async () => {
     expect(
       await untimed(

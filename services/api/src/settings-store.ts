@@ -1,4 +1,7 @@
 import {
+  localSettingsSchema,
+  MAX_SETTINGS_DOCUMENT_BYTES,
+  settingsDocumentBytes,
   syncSettingsStateSchema,
   type LocalSettings,
   type SavedLoginBinding,
@@ -50,6 +53,44 @@ export const ownerDocument = (document: LocalSettings) => ({
   detailLinks: document.detailLinks,
 });
 
+/** The exact document read back and uploaded, including schema defaults. */
+function composeSettings(
+  shared: Partial<ReturnType<typeof ownerDocument>>,
+  profile: Partial<ReturnType<typeof profileDocument>>,
+): LocalSettings {
+  return v.parse(localSettingsSchema, {
+    connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
+    excludedSites: [],
+    repromptSites: [],
+    siteDefaults: [],
+    ...profile,
+    bindings: shared.bindings,
+    ...(shared.detailLinks ? { detailLinks: shared.detailLinks } : {}),
+  });
+}
+
+/** The owner's stored shared parts; before the first write there are no bindings. */
+const storedShared = (document: string | null): Partial<ReturnType<typeof ownerDocument>> =>
+  document ? JSON.parse(document) : { bindings: [] };
+
+/**
+ * UTF-8 bytes of the composed document, or undefined when stored parts no longer compose:
+ * a stored document that fails to parse or no longer passes the schema.
+ */
+function composedBytes(
+  shared: () => Partial<ReturnType<typeof ownerDocument>>,
+  profile: () => Partial<ReturnType<typeof profileDocument>>,
+): number | undefined {
+  try {
+    return settingsDocumentBytes(composeSettings(shared(), profile()));
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Reads the profile and the owner's shared parts at the owner's revision in one statement. A
  * profile with no document of its own yet answers `newProfile`, so the first device to
@@ -75,30 +116,15 @@ export async function readSettings(
       written: string | null;
     }>();
   if (!row) throw new Error("profile-not-found");
-  const shared: Partial<ReturnType<typeof ownerDocument>> = row.shared
-    ? JSON.parse(row.shared)
-    : { bindings: [] };
-  const profile = {
-    accountPolicies: [],
-    itemPolicies: [],
-    customFieldReviews: [],
-    excludedSites: [],
-    repromptSites: [],
-    siteDefaults: [],
-    ...(row.document ? JSON.parse(row.document) : {}),
-  };
+  const shared = storedShared(row.shared);
+  const profile: Partial<ReturnType<typeof profileDocument>> = row.document
+    ? JSON.parse(row.document)
+    : {};
   return v.parse(syncSettingsStateSchema, {
     version: 1,
     profileId,
     revision: row.revision ?? 0,
-    settings: row.revision
-      ? {
-          connections: [],
-          ...profile,
-          bindings: shared.bindings,
-          ...(shared.detailLinks ? { detailLinks: shared.detailLinks } : {}),
-        }
-      : null,
+    settings: row.revision ? composeSettings(shared, profile) : null,
     ...(row.revision && !row.document ? { newProfile: true } : {}),
     ...(row.written === null ? {} : { written: row.written }),
   });
@@ -129,6 +155,31 @@ export async function recipeBindingSlots(
 }
 
 /**
+ * A refused write's answer: the current state of the profile the writer now syncs, or
+ * nothing when that profile was deleted.
+ */
+async function conflict(
+  db: D1Database,
+  ownerId: string,
+  profileId: string,
+  writer: string | null,
+): Promise<{ ok: false; current: SyncSettingsState | undefined }> {
+  const currentProfile = writer
+    ? await db
+        .prepare("SELECT profile_id FROM devices WHERE owner_id = ? AND id = ?")
+        .bind(ownerId, writer)
+        .first<{ profile_id: string }>()
+    : null;
+  const target = currentProfile?.profile_id ?? profileId;
+  return {
+    ok: false,
+    current: (await hasProfile(db, ownerId, target))
+      ? await readSettings(db, ownerId, target, writer)
+      : undefined,
+  };
+}
+
+/**
  * One owner revision covers the owner's shared parts and every profile. D1 batches are
  * atomic.
  */
@@ -140,10 +191,46 @@ export async function writeSettings(
   writer: string | null,
 ): Promise<
   | { ok: true; state: SyncSettingsState }
+  | { ok: false; error: "settings_limit" }
   /** `current` is missing when the profile was deleted meanwhile. */
   | { ok: false; current: SyncSettingsState | undefined }
 > {
-  const settings = write.settings;
+  // One statement reads every live profile and the owner's shared parts at the same owner
+  // revision. The CAS below refuses an intervening settings write, profile copy, deletion
+  // or device reassignment. ensureProfile only adds an empty profile: its composition
+  // cannot exceed this write's.
+  const profiles = await db
+    .prepare(`SELECT p.id, p.document, s.document AS shared, COALESCE(s.revision, 0) AS revision
+      FROM profiles p LEFT JOIN settings s ON s.owner_id = p.owner_id
+      WHERE p.owner_id = ? AND p.deleted_at IS NULL`)
+    .bind(ownerId)
+    .all<{ id: string; document: string | null; shared: string | null; revision: number }>();
+  // Without the profile, or at another revision, the CAS would fail or, if a concurrent
+  // write reached `expectedRevision` meanwhile, commit a composition never checked here.
+  if (
+    !profiles.results.some((profile) => profile.id === profileId) ||
+    profiles.results.some((profile) => profile.revision !== write.expectedRevision)
+  )
+    return conflict(db, ownerId, profileId, writer);
+  const shared = ownerDocument(write.settings);
+  const written = profileDocument(write.settings);
+  // A write may not grow any live profile's composition past the limit. One already over
+  // it, as stored before the limit covered every profile, does not block writes that
+  // leave it as large or make it smaller.
+  const tooLarge = profiles.results.some((profile) => {
+    const stored = () => (profile.document ? JSON.parse(profile.document) : {});
+    const next = composedBytes(() => shared, profile.id === profileId ? () => written : stored);
+    // Another profile whose stored document no longer composes cannot be read back
+    // either; it is skipped rather than failing every write. Its own next write is
+    // checked in full.
+    if (next === undefined || next <= MAX_SETTINGS_DOCUMENT_BYTES) return false;
+    // The written profile always stays within the limit, as the route schemas also ensure.
+    if (profile.id === profileId) return true;
+    // When the stored parts no longer compose, the write must stay within the limit.
+    const current = composedBytes(() => storedShared(profile.shared), stored) ?? 0;
+    return next > current;
+  });
+  if (tooLarge) return { ok: false, error: "settings_limit" };
   // Both statements use the exact same compare-and-swap predicate. The profile write
   // runs first; changes() gates the revision write so losing writers update neither, and
   // the revision write's changes() gates the writing device's record of it (`written`).
@@ -153,7 +240,7 @@ export async function writeSettings(
       AND COALESCE((SELECT revision FROM settings WHERE owner_id = ?), 0) = ?
       AND (? IS NULL OR EXISTS (SELECT 1 FROM devices WHERE id = ? AND owner_id = ? AND profile_id = ?))`)
       .bind(
-        JSON.stringify(profileDocument(write.settings)),
+        JSON.stringify(written),
         ownerId,
         profileId,
         ownerId,
@@ -169,41 +256,21 @@ export async function writeSettings(
       ON CONFLICT(owner_id) DO UPDATE SET revision = excluded.revision,
         document = excluded.document, updated_at = excluded.updated_at,
         updated_by_device_id = excluded.updated_by_device_id`)
-      .bind(
-        ownerId,
-        write.expectedRevision + 1,
-        JSON.stringify(ownerDocument(settings)),
-        Date.now(),
-        writer,
-      ),
+      .bind(ownerId, write.expectedRevision + 1, JSON.stringify(shared), Date.now(), writer),
     db
       .prepare(
         "UPDATE devices SET settings_write_id = ? WHERE id = ? AND owner_id = ? AND changes() = 1",
       )
       .bind(write.writeId ?? null, writer, ownerId),
   ]);
-  if (results[1]?.meta.changes !== 1) {
-    const currentProfile = writer
-      ? await db
-          .prepare("SELECT profile_id FROM devices WHERE owner_id = ? AND id = ?")
-          .bind(ownerId, writer)
-          .first<{ profile_id: string }>()
-      : null;
-    const target = currentProfile?.profile_id ?? profileId;
-    return {
-      ok: false,
-      current: (await hasProfile(db, ownerId, target))
-        ? await readSettings(db, ownerId, target, writer)
-        : undefined,
-    };
-  }
+  if (results[1]?.meta.changes !== 1) return conflict(db, ownerId, profileId, writer);
   return {
     ok: true,
     state: {
       version: 1,
       profileId,
       revision: write.expectedRevision + 1,
-      settings,
+      settings: write.settings,
       ...(writer === null || write.writeId === undefined ? {} : { written: write.writeId }),
     },
   };

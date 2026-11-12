@@ -777,6 +777,7 @@ describe("settings sync after the first", () => {
   it.each([
     [{ kind: "rejected" } as const, "rejected"],
     [{ kind: "failed", error: "rate-limited" } as const, "rate-limited"],
+    [{ kind: "limited" } as const, "settings-limit"],
   ])("stops when the write answers %o", async (result, outcome) => {
     const {
       sync,
@@ -804,6 +805,25 @@ describe("settings sync after the first", () => {
         local: settingsOf({ ...agreed, excludedSites: [] }),
       },
     });
+  });
+
+  it("keeps pending edits across a composed-size failure and worker restart, then syncs later edits on recovery", async () => {
+    const local = { ...agreed, excludedSites: [] };
+    const h = setup({ local, service: state(4, agreed), base: baseOf(4, agreed) });
+    h.transport.saveSettings.mockResolvedValueOnce({ kind: "limited" });
+    expect(await h.sync.run(CONNECTION, never)).toBe("settings-limit");
+    expect(h.local()?.settings).toEqual(local);
+    expect(h.service()).toEqual(state(4, agreed));
+    expect(h.base()).toMatchObject({ revision: 4, settings: agreed, pending: { settings: local } });
+    expect(h.applied).not.toHaveBeenCalled();
+    await h.store.update(undefined, "settings-save", (snapshot) => ({
+      ...snapshot,
+      settings: { ...snapshot.settings, language: "ja" },
+    }));
+    expect(await h.restart().run(CONNECTION, never)).toBe("synced");
+    expect(h.local()?.settings).toMatchObject({ excludedSites: [], language: "ja" });
+    expect(h.service().settings).toMatchObject({ excludedSites: [], language: "ja" });
+    expect(h.base()).not.toHaveProperty("pending");
   });
 
   it("changes neither side when the merge exceeds the entry limits", async () => {

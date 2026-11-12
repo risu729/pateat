@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { extractLoginObservation } from "../observation/extract";
+import { identifierInput } from "./identifier-field";
+import { keypadInput, pressable } from "./keypad";
 import { clickable, keyable, writable } from "./target-state";
 
 afterEach(() => {
@@ -70,5 +73,58 @@ describe("native controls inside disabled fieldsets", () => {
     check(document, true);
     fieldset.disabled = true;
     check(document, false);
+  });
+});
+
+describe("page reading inside disabled fieldsets", () => {
+  it("counts no keypad key in a disabled fieldset as pressable, apart from its first legend's", () => {
+    document.body.innerHTML = `<input id="pin" type="password" readonly>
+      <fieldset disabled><legend><button type="button" id="one">1</button></legend>
+      <button type="button" id="two">2</button><input type="button" id="three" value="3">
+      <span id="four" role="button" onclick="">4</span></fieldset>`;
+    const key = (id: string) => document.querySelector<HTMLElement>(`#${id}`)!;
+    expect(["one", "two", "three", "four"].map((id) => pressable(key(id)))).toEqual([
+      true,
+      false,
+      false,
+      // A script key has no native disabled state.
+      true,
+    ]);
+    document.querySelector("fieldset")!.disabled = false;
+    expect(["one", "two", "three"].every((id) => pressable(key(id)))).toBe(true);
+  });
+
+  it("takes no keypad characters into a field in a disabled fieldset, apart from its first legend's", () => {
+    document.body.innerHTML = `<fieldset disabled>
+      <legend><input id="legend" type="password" readonly></legend>
+      <input id="body" type="password" readonly></fieldset>`;
+    const field = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)!;
+    expect(keypadInput(field("legend"))).toBe(true);
+    expect(keypadInput(field("body"))).toBe(false);
+  });
+
+  it("finds no identifier input in a disabled fieldset, apart from its first legend's", () => {
+    document.body.innerHTML = `<fieldset disabled><input type="email" name="email"></fieldset>`;
+    expect(identifierInput(document)).toBeUndefined();
+    document.body.innerHTML = `<fieldset disabled><legend><input type="email" name="email">
+      </legend></fieldset>`;
+    expect(identifierInput(document)).toBe("sole");
+  });
+
+  it("observes fields in a disabled fieldset as unfillable, apart from its first legend's", () => {
+    const form = (fields: string) => `<form id="f">${fields}<button id="go">Log in</button></form>`;
+    const fields = '<input id="u" autocomplete="username"><input id="p" type="password">';
+    document.body.innerHTML = form(`<fieldset disabled>${fields}</fieldset>`);
+    const disabled = extractLoginObservation();
+    expect(disabled.ok && [disabled.observation.complete, disabled.gap]).toEqual([
+      false,
+      "unfillable-field",
+    ]);
+    document.body.innerHTML = form(`<fieldset disabled><legend>${fields}</legend></fieldset>`);
+    const legend = extractLoginObservation();
+    expect(legend.ok && legend.observation.complete).toBe(true);
+    expect(
+      legend.ok && legend.observation.candidates.map((candidate) => candidate.target.value),
+    ).toEqual(["u", "p", "go"]);
   });
 });

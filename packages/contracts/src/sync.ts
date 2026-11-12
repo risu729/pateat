@@ -167,6 +167,8 @@ export const syncErrorCodeSchema = v.picklist([
   "not_found",
   "method_not_allowed",
   "payload_too_large",
+  /** Shared settings would make at least one live profile exceed the document byte limit. */
+  "settings_limit",
   "unsupported_media_type",
   "rate_limited",
   /** The write would make the owner hold more active recipes or recipe bytes than the service keeps. */

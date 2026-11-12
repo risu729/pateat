@@ -79,6 +79,8 @@ const connectionSchema = v.strictObject({
       login: count,
       totp: count,
       passkey: count,
+      /** Login items whose content is sealed, so their TOTP and passkeys are not counted. */
+      sealed: count,
       unsupported: count,
     }),
   ),
@@ -146,6 +148,7 @@ const serviceSchema = v.strictObject({
   kind: v.picklist(["not-configured", "connected", "unavailable"]),
   rejected: v.optional(v.literal(true)),
   cacheFull: v.optional(v.literal(true)),
+  settingsLimited: v.optional(v.literal(true)),
   siteAccess: v.optional(v.boolean()),
   syncedAt: v.optional(time),
   settingsRevision: v.optional(count),

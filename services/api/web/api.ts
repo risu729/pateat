@@ -256,6 +256,8 @@ export function describeError(error: unknown): string {
       return "It no longer exists. Reload the page.";
     case "not_paired":
       return "No device is paired with this account yet. Pair a device first; settings and Claude identifiers belong to an account with a paired device.";
+    case "settings_limit":
+      return "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.";
     case "payload_too_large":
       return "The change was refused because the settings would be too large. Remove some entries first.";
     case "recipe_conflict":

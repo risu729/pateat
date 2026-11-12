@@ -192,16 +192,15 @@ function Connections({ status }: { status: DiagnosticsStatus }) {
           <Row term="Vault synced">{time(entry.acceptedAt)}</Row>
           {entry.items && (
             <Row term="Items">
-              {t(
-                "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported",
-                {
-                  total: entry.items.total,
-                  login: entry.items.login,
-                  totp: entry.items.totp,
-                  passkey: entry.items.passkey,
-                  unsupported: entry.items.unsupported,
-                },
-              )}
+              {entry.items.sealed > 0
+                ? t(
+                    "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}; of the logins, sealed {{sealed}}: their TOTP and passkeys are not counted) + {{unsupported}} unsupported",
+                    entry.items,
+                  )
+                : t(
+                    "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported",
+                    entry.items,
+                  )}
             </Row>
           )}
           {entry.unlockKdf && (
@@ -226,6 +225,7 @@ function Service({ status }: { status: DiagnosticsStatus }) {
           {diagnosticsCode(service.kind, t)}
           {service.rejected && t(" (rejected)")}
           {service.cacheFull && t(" (recipe cache full)")}
+          {service.settingsLimited && t(" (settings profile too large)")}
         </Row>
         {service.siteAccess !== undefined && (
           <Row term="Site access">{t(service.siteAccess ? "granted" : "withheld")}</Row>
@@ -391,6 +391,8 @@ function Logs({
   }
   const debugOff = logs?.debugUntil === undefined;
   const choice = pending ?? preview;
+  // The controls' current choice, so the filter note follows a pending export too.
+  const scope = choice?.scope ?? ALL_LOG_ENTRIES;
   const counts = preview ? logExportCounts(preview.text) : undefined;
   return (
     <section aria-labelledby="logs-heading" className={PANEL}>
@@ -539,8 +541,8 @@ function Logs({
             {t("This exact text is saved or copied. Check it before attaching it to a bug report.")}
           </p>
           <LogScopeControls
-            scope={choice?.scope ?? ALL_LOG_ENTRIES}
-            onChange={(scope) => void open(choice?.includeSites ?? true, scope)}
+            scope={scope}
+            onChange={(next) => void open(choice?.includeSites ?? true, next)}
           />
           {pending === undefined && counts && (
             <p className={NOTE}>
@@ -548,7 +550,7 @@ function Logs({
               {counts.selected === 0 && <> {t("No entries match these filters.")}</>}
             </p>
           )}
-          {(preview.scope.range !== "all" || preview.scope.severity !== "all") && (
+          {(scope.range !== "all" || scope.severity !== "all") && (
             <p className={NOTE}>
               {t("A filtered export can leave out earlier steps and related events.")}
             </p>
@@ -558,9 +560,7 @@ function Logs({
               id="hide-sites"
               type="checkbox"
               checked={!(choice?.includeSites ?? true)}
-              onChange={(event) =>
-                void open(!event.target.checked, choice?.scope ?? ALL_LOG_ENTRIES)
-              }
+              onChange={(event) => void open(!event.target.checked, scope)}
             />
             {t("Hide site addresses and recipe IDs")}
           </label>

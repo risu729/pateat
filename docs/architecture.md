@@ -661,17 +661,17 @@ store ([ADR 0021](adr/0021-account-choice-outside-settings.md),
 "Pateat on this site" switch, pauses automatic login of the tab's registrable site for
 10 minutes or an hour on this device, or "Until turned back on", which adds the
 exclusion rule `{hostname: <registrable site>, includeSubdomains: true}`; Resume ends a
-timed pause or removes the site's own covering rules. The popup and owner web UI use
-one pure pause-rule policy (`sitePauseRules` in `packages/contracts/src/site.ts`): it
-identifies those rules and broader shared rules, and transforms the latest exclusion
-list when an edit is applied, so changes made while an edit waits are kept. When a rule
-for a parent of the site covers it, the row links each such rule to the settings page,
-and in a private window while automatic login is off there it links that setting. While
-the allowed sites
-are on ([ADR 0077](adr/0077-allowed-sites.md)) and leave the tab's site out, the site is
-paused as by a rule: the popup lists its accounts, and its pause row says "Paused, as
-this is not an allowed site" and offers "Allow <registrable site>", which adds the allow
-rule `{hostname: <registrable site>, includeSubdomains: true}`. While the tab's page
+timed pause or removes the site's own covering rules. The popup, the extension's
+settings page and the owner web UI use one pure pause-rule policy (`sitePauseRules` in
+`packages/contracts/src/site.ts`): it identifies those rules and broader shared rules,
+and transforms the latest exclusion list when an edit is applied, so changes made while
+an edit waits are kept. When a rule for a parent of the site covers it, the row links
+each such rule to the settings page, and in a private window while automatic login is
+off there it links that setting. While the allowed sites are on
+([ADR 0077](adr/0077-allowed-sites.md)) and leave the tab's site out, the site is paused
+as by a rule: the popup lists its accounts, and its pause row says "Paused, as this is
+not an allowed site" and offers "Allow <registrable site>", which adds the allow rule
+`{hostname: <registrable site>, includeSubdomains: true}`. While the tab's page
 waits for an account choice, the choice is the popup's only list (the owner asked for
 one list on 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the
 default" checkbox makes the picked account the default once that login succeeds (a pick
@@ -985,12 +985,27 @@ without slots, only when its URL names another path of its site in a query value
 asks no secret answer ([ADR 0035](adr/0035-page-kinds-per-site.md)), and a cached entry
 recipe on a page's path is pressed: one click on a same-site link in the top document,
 then the tab's next page is checked ([ADR 0031](adr/0031-sign-in-entry-pages.md); see
-[Declarative recipes and AI](#declarative-recipes-and-ai)). A page that shows no input
-but an enabled button naming a passkey or security key, not a registration, is decided
-in the same wait (ADR 0057) and sent with `passkeyOnly: true` and no slots, only when
-one of the URI-matching items holds a discoverable, usable passkey for the page's RP ID;
-its recipe has only the `passkey` route, so a password-only item never presses the
-button ([ADR 0053](adr/0053-passkey-only-generation.md)). Beside a sign-in entry the
+[Declarative recipes and AI](#declarative-recipes-and-ai)).
+
+The page watch observes every node, text and attribute change in the document and its
+shadow trees, since any attribute can change a target's name, as `aria-label` or a
+label's `for` do, or, through the page's CSS selectors, whether it shows. Its
+first-step checks stay limited to one per 100 ms. The pending one-second quiet wait
+counts only node and text changes and changes of the attributes that can change whether
+a target matches, shows or accepts input (`quietAttributes` in `page/quiet.ts`, such as
+`class`, `style`, `hidden` or `value`, without a namespace), as ADR 0057 defines a DOM
+change (note of 2026-11-12): a page whose only movement is an attribute animation, as
+an SVG's `transform` or a progress bar's `aria-valuenow` each frame, is still decided
+after a quiet second rather than at the five-second cap. The looks for a sign-in input
+shown later, in place or after a same-document URL change, read the page at most once
+per frame and once per 100 ms too, and watch the shadow trees they find.
+
+A page that shows no input but an enabled button naming a passkey or security key, not
+a registration, is decided in the same wait (ADR 0057) and sent with `passkeyOnly: true`
+and no slots, only when one of the URI-matching items holds a discoverable, usable
+passkey for the page's RP ID; its recipe has only the `passkey` route, so a
+password-only item never presses the button
+([ADR 0053](adr/0053-passkey-only-generation.md)). Beside a sign-in entry the
 button is used only when every matching item holds such a passkey, since the page's
 recipe is shared; otherwise the entry is handled as without it (owner, 2026-10-19 22:44
 UTC). Beside a list of accounts the page is sent as a list, whose observation carries
@@ -1221,11 +1236,14 @@ time: only one input has focus, and typing two at once would move focus, and run
 page's blur and focus checks, at every character; one task apart, a field's characters
 take a few milliseconds, so typing the fields in turn costs little (owner, 2026-10-13).
 
-Native inputs and buttons must be enabled under the browser's `:disabled` rule before
+Native inputs and buttons must not match the browser's `:disabled` pseudo-class before
 being filled, entered through a software keypad or clicked. A disabled fieldset disables
 its descendants too, except controls inside its first legend, as HTML defines. Selects
-use the same enabled-state rule. Visibility, input read-only state and the existing
-click restrictions still apply.
+use the same enabled-state rule, and so do a software keypad's keys and the read-only
+field they enter, the sign-in state's reading of fields and forms, and the page
+observation's disabled fields: a control's own `disabled` property misses a disabled
+fieldset. Visibility, input read-only state and the existing click restrictions still
+apply.
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to blindly
 replay a submit. Input and change handlers can submit without a click. Declare whether a
@@ -1337,7 +1355,9 @@ account the typed values are cleared and nothing is pressed
 ([ADR 0049](adr/0049-start-at-a-later-step.md#amendment-2026-11-03-the-shown-account-checked-at-the-click)).
 A fill-only login's, a software keyboard's or a code's fill, or one that may submit by
 itself, first waits until the document has loaded and its DOM has not changed for 1
-second, for at most 5 seconds and until 2 seconds before the operation expires. The
+second, for at most 5 seconds and until 2 seconds before the operation expires; this
+wait and the switch's below count DOM changes as the offer's quiet wait does, so an
+attribute animation alone does not hold them to 5 seconds. The
 content script compares the username with the account identifiers shown in the form, or
 the page when there is no form, and the first eight `h1`-`h3` headings; every element
 boundary but a `<wbr>` separates words, format characters are left out (so
@@ -1727,12 +1747,13 @@ last four digits of a phone number, with each input's detail and the button that
 them. The owner's settings link the login item, per site and detail, to the identity or
 card item's field that holds the value (`detailLinks`, synced as the owner's like the
 bindings). Every link, confirmed question and refused detail is scoped to the site's
-origin, provider, server, vault user and login item. Accounts copied to another server
-keep independent links: syncing, replacing or removing one server's link leaves the
-other's intact. The shared contract identities govern validation, sync and runtime
-matching; secret-question links additionally name their source field. A login fills the
-first input with a usable link that is writable, checking
-the radio button that chooses it first, and clicks the button; the value is made in the
+origin, provider, server, vault user and login item. The same user and item IDs on
+another server keep their own links: syncing, replacing or removing one server's link
+leaves the other's intact. One identity
+(`packages/contracts/src/settings/detail-link-identity.ts`) is used for validation, sync
+and runtime matching; secret-question links additionally name their source field. A
+login fills the first input with a usable link that is writable, checking the radio
+button that chooses it first, and clicks the button; the value is made in the
 service worker from the vault read (the date or card expiry date in the input's format,
 the last four digits, a card code, a whole card number or a PIN, read only from the
 login item or a card item, as its digits; every linked value is filled, a whole card
@@ -2302,7 +2323,9 @@ that exact page URL and returns a value-free summary
   another third-party server, whose version is the Bitwarden version it is compatible
   with), setup state, automatic unlock, sync sign-in, the vault record's accepted time
   and read failure code, item counts by type (trash excluded) while the vault is
-  unlocked, the unlock KDF family (`PBKDF2` or `Argon2id`) and, on the page only, its
+  unlocked, read from the still encrypted record (a sealed login item, whose content is
+  in an encrypted `data` blob, counts as `sealed`, and its TOTP and passkeys are not
+  counted), the unlock KDF family (`PBKDF2` or `Argon2id`) and, on the page only, its
   parameters;
 - the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
   paired origin, its `/health` revision, the last recipe sync, next scheduled sync (now,
@@ -2486,9 +2509,10 @@ and `error` entries, pruned at worker start and every 500 writes.
 Each diagnostics refresh reads and admits the stored log once, then derives its size,
 problem counts and recent lines from that same snapshot and reference time. A failed
 entry read makes both projections unavailable, rather than trying separate reads that
-could describe different logs. Debug-deadline metadata does not determine whether
-recent lines are available; if its lookup unexpectedly fails, only the summary is
-unavailable. The snapshot changes no log fields, retention or export redaction.
+could describe different logs. A failed debug-deadline read counts as debug logging off,
+and a failed write that keeps it on (while debug logging stays on) as on until turned
+off; neither changes the summary's counts or the recent lines. The snapshot changes no
+log fields, retention or export redaction.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
 `diagnostics.logs.clear` and `diagnostics.logs.debug` (with `enabled`), accepted from
@@ -2505,7 +2529,10 @@ many entries it copied. The export shows sites and recipe IDs as logged. When
 **Hide site addresses and recipe IDs** is checked, every origin, pseudonymized origin
 and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that export.
 The preview can limit the export to the last 15 minutes, hour or 24 hours, and to
-warnings and errors. The default keeps all retained entries at every level, including
+problem lines (**Warnings, errors and reasons Pateat did nothing**): every `warn` and
+`error` entry and the `info` entries that say why Pateat did nothing (`problemEntry`,
+the predicate `sentToService` also uses, which then leaves out lines kept on the
+device). The default keeps all retained entries at every level, including
 entries ahead of the clock. A time window includes both endpoints, from its duration
 before the export time through the export time, which is captured after reading the
 entries. The preview shows selected and retained counts from that exact export. A
@@ -2739,9 +2766,17 @@ with that field as its target: the executor then submits the field's form as Ent
 through the form's default button or `requestSubmit()`, never through a default button
 that showed when the fill began, is disabled or sits outside the form
 ([ADR 0064](adr/0064-enter-in-a-form-without-a-button.md)).
-Constraint validation, the form's `novalidate` attribute and the fallback submission
-are accessed through platform prototypes, so controls named `checkValidity`,
-`noValidate` or `requestSubmit` do not replace the form APIs used for this step.
+A form exposes each named control as a property that hides the form's own member of that
+name, inherited ones such as `contains`, `isConnected` or `getAttribute` too, and a
+document does the same with its named images, forms, embeds, objects and frames. So code
+that reads a form, or a node a walk of the page may meet, goes through the platform's
+prototypes: this step's constraint validation, `novalidate` attribute, fallback
+submission and checks that the form is still connected and holds its button, and
+elsewhere the shadow-tree queries and walks (the document's members included), the check
+that an element shows, the rendered-text reader, the reading behind an open modal and
+every read of a form's attributes, document, fields or connection. A control or element
+named after any of them changes nothing there; other reads of the document outside those
+helpers still use its members directly.
 
 A stored recipe is either a login recipe, with `pageKind`, `slots`, `steps`,
 `maxSubmissions` and the optional route members, or an entry recipe
@@ -3899,9 +3934,24 @@ people.
   that the cap refuses answers `recipe-limit`. The cap and
   `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts; no migration is
   required.
-- Unchanged. Settings are one document of at most 120 KiB per owner. The inference
-  request log, the login result codes and the login records are kept one year (owner,
-  2026-10-18). The log's calls are bounded by the $5 daily spend limit; requests
+- Settings. Every live profile's document, composed with the owner's shared account
+  bindings and personal-detail links, is at most 120 KiB of UTF-8 JSON. A settings
+  replacement checks the proposed shared parts with every live profile, including
+  profiles that no device uses, and may not grow any composition past the limit. A
+  profile already over it, as stored before this check, does not block writes that leave
+  it as large or make it smaller. The same composition and schema defaults are used for
+  readback and byte validation. The owner revision guards the atomic write after that
+  check: concurrent settings writes, profile copies, deletions and device assignments
+  make it conflict instead of committing a composition checked against old data, and a
+  write whose expected revision is not the one read conflicts before writing. A new
+  empty profile cannot be larger than the valid selected profile with those shared
+  parts. A refused composition answers 413 `settings_limit` without changing settings,
+  the revision or the writing device's acknowledgement. Device sync and both profile
+  editors retain pending edits and report the size failure; device sync retries after
+  entries are reduced. Writes replace the shared parts too: omitting `detailLinks`
+  clears them rather than retaining earlier links.
+- The inference request log, login result codes and login records are kept one year
+  (owner, 2026-10-18). The log's calls are bounded by the $5 daily spend limit; requests
   answered without a call are logged too (owner, 08:04 UTC) within the request limit
   above, the same request answered the same way once in 10 minutes and at most 500 such
   rows per owner a UTC day; a repeat login's signed-in page is logged as a `sampled` row
@@ -4199,8 +4249,8 @@ field exclusions and custom-field review, which need the device's vault catalog
     form the owner chose on 2026-10-11 to try WIF before the web UI existed, and the
     separate Models tab.
   - Request log (`/manage/request-log`): how many requests the
-    [request log](adr/0012-inference-request-log.md) holds for the owner
-    (requests answered without Claude included), and how many
+    [request log](adr/0012-inference-request-log.md) holds for the owner (requests
+    answered without Claude included), and how many
     [login result codes](#first-login-results-on-the-service) and
     [login records](#login-records-on-the-service), since when, that each is kept one
     year, and Delete all, which after a confirmation naming the counts deletes every one
@@ -4208,15 +4258,20 @@ field exclusions and custom-field review, which need the device's vault catalog
     recipe (ADR 0060). Recipes, settings, judged pages and the spend the limits count
     stay. Its Login history section browses the already retained login records, newest
     first, 50 at a time, with exact site-origin and result filters applied before the
-    limit. Older advances by the last record's time and ID; Newest returns to the first
-    page and refreshes it. Each row shows the site, time and result, with the recipe and
-    revision, extension build, result code and cause, and recorded durations in Details.
-    Network time is a lower bound within service time, not an additional duration.
-    Records beyond the one-year retention boundary are not listed, even before the
-    next purge. This owner-only metadata view neither reads request bodies nor sends
-    logs back to devices. Deleting the log refreshes the list; filter input stays as
-    typed while it loads. This browsing UI is implemented; hosted and real-account
-    verification remain separate from synthetic checks.
+    limit. The Site filter keeps only the origin of what is typed, so a trailing slash,
+    a path or an uppercase host still matches, and the count names the applied filters,
+    which inputs typed since may not match. Older advances by the last record's time and
+    ID, a cursor that also bounds the owner and time index from above; Newest returns to
+    the first page and refreshes it. A row whose codes the current contract no longer
+    accepts is left out of its page, and the cursor still advances past it. Each row
+    shows the site, time and result, with the recipe and revision, extension build,
+    result code and cause, and recorded durations in Details. Network time is a lower
+    bound within service time, not an additional duration. Records beyond the one-year
+    retention boundary are not listed, even before the next purge. This owner-only
+    metadata view neither reads request bodies nor sends logs back to devices. Deleting
+    the log refreshes the list; filter input stays as typed while it loads. This
+    browsing UI is implemented; hosted and real-account verification remain separate
+    from synthetic checks.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
     count, its default account ("<item> in <account>") and its binding count, and
@@ -4261,16 +4316,16 @@ field exclusions and custom-field review, which need the device's vault catalog
   code of `/v1/settings` and `/v1/recipes/:recipeId`. Settings and recipe writes carry
   the revision the page last read; a stale write changes nothing and returns the current
   state. The service copy of settings holds no `connections`: the extension uploads
-  none, a web write must have none, and the page drops any that another client stored.
-  A web write also stays within the 120 KiB document size devices upload. An identity
+  none, a web write must have none, and the page drops any that another client stored. A
+  web write also may not grow any live profile's composed document past 120 KiB
+  ([service limits](#service-limits)); a size refusal keeps pending edits. An identity
   with no paired device has no settings to edit and is told to pair one. Devices receive
   the change on their next settings or recipe sync. The device ID columns recording who
   wrote a settings or recipe revision are nullable; null means the web UI wrote it. A
   web write records no device's `settings_write_id`, which only a device's own winning
-  write sets ([plan](plan.md#service-sync-progress)). The
-  Claude identifiers are written whole by `PUT /manage/api/claude` without a revision,
-  since only the owner edits them and devices never do; an identity with no paired
-  device has none either.
+  write sets ([plan](plan.md#service-sync-progress)). The Claude identifiers are written
+  whole by `PUT /manage/api/claude` without a revision, since only the owner edits them
+  and devices never do; an identity with no paired device has none either.
 - Display names. Site defaults and bindings keep display-only names beside their IDs, so
   the page can name them: `itemName`, the item's label (optional on a site default), and
   an optional `accountName`, the label the owner gave the vault connection the account

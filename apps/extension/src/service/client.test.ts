@@ -73,6 +73,16 @@ describe("profile editor", () => {
       "extension-not-allowed",
     ],
     ["a 409", () => Response.json({ error: "conflict" }, { status: 409 }), "conflict"],
+    [
+      "a 413 settings limit",
+      () => Response.json({ error: "settings_limit" }, { status: 413 }),
+      "settings-limit",
+    ],
+    [
+      "a 413 too-large body",
+      () => Response.json({ error: "payload_too_large" }, { status: 413 }),
+      "unexpected-response",
+    ],
     ["a 404", () => Response.json({ error: "not_found" }, { status: 404 }), "not-found"],
     [
       "a 500",

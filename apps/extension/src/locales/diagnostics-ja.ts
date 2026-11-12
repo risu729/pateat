@@ -96,8 +96,11 @@ export const diagnosticsJa = {
   "{{version}} ({{revision}}) {{mode}} build": "{{version}}（{{revision}}）{{mode}} ビルド",
   "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported":
     "{{total}} 件（ログイン {{login}}、TOTP {{totp}}、パスキー {{passkey}}）+ 未対応 {{unsupported}} 件",
+  "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}; of the logins, sealed {{sealed}}: their TOTP and passkeys are not counted) + {{unsupported}} unsupported":
+    "{{total}} 件（ログイン {{login}}、TOTP {{totp}}、パスキー {{passkey}}。ログインのうち一括暗号化 {{sealed}}：その TOTP とパスキーは数えていません）+ 未対応 {{unsupported}} 件",
   " (rejected)": "（拒否）",
   " (recipe cache full)": "（レシピの保存容量超過）",
+  " (settings profile too large)": "（設定プロファイルの容量超過）",
   granted: "許可",
   withheld: "未許可",
   "unavailable ({{error}})": "利用不可（{{error}}）",
@@ -223,7 +226,7 @@ export const diagnosticsJa = {
   "Last 24 hours": "過去 24 時間",
   Severity: "重要度",
   "All levels": "すべての重要度",
-  "Warnings and errors": "警告とエラー",
+  "Warnings, errors and reasons Pateat did nothing": "警告、エラー、Pateat が何もしなかった理由",
   "Showing {{selected}} of {{retained}} retained entries.":
     "保存されている {{retained}} 件のうち {{selected}} 件を表示しています。",
   "No entries match these filters.": "この条件に一致するログはありません。",

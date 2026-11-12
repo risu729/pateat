@@ -1,3 +1,4 @@
+import { elementProperty, nodeProperty } from "./form-native";
 import { closestAcross, composedParent, queryAll, shadowRootOf, treeOf } from "./shadow";
 
 /** Elements whose text is never page text: code, styles, raw markup and control contents. */
@@ -37,14 +38,15 @@ let behindModal: ReadonlySet<Element> | undefined;
  * `<dialog>` opened with `showModal()`.
  */
 export function openModals(document: Document): HTMLElement[] {
+  // A form may carry `aria-modal`, so its members are read through `Element`.
+  const attribute = (element: Element, name: string) =>
+    Element.prototype.getAttribute.call(element, name)?.trim().toLowerCase();
   return queryAll(document, "[aria-modal='true' i], dialog").filter(
     (element): element is HTMLElement =>
-      (element.matches(":modal") ||
-        (element.getAttribute("aria-modal")?.trim().toLowerCase() === "true" &&
+      (Element.prototype.matches.call(element, ":modal") ||
+        (attribute(element, "aria-modal") === "true" &&
           (element instanceof HTMLDialogElement ||
-            /^(?:alert)?dialog$/u.test(
-              element.getAttribute("role")?.trim().toLowerCase().split(/\s+/u)[0] ?? "",
-            )))) &&
+            /^(?:alert)?dialog$/u.test(attribute(element, "role")?.split(/\s+/u)[0] ?? "")))) &&
       shown(element),
   );
 }
@@ -68,9 +70,16 @@ export function readBehindModal<Result>(document: Document, read: () => Result):
   // (ADR 0070).
   for (const modal of modals)
     for (let node: Element | null = modal; node; node = composedParent(node)) {
-      const parent = node.parentNode;
-      if (parent instanceof Element || parent instanceof ShadowRoot)
-        for (const sibling of parent.children) if (sibling.matches(hiders)) hidden.add(sibling);
+      // Any of these may be a form, so its members are read through the prototypes.
+      const parent = nodeProperty(node, "parentNode");
+      const siblings =
+        parent instanceof Element
+          ? elementProperty(parent, "children")
+          : parent instanceof ShadowRoot
+            ? parent.children
+            : [];
+      for (const sibling of siblings)
+        if (Element.prototype.matches.call(sibling, hiders)) hidden.add(sibling);
     }
   behindModal = hidden.size > 0 ? hidden : outer;
   try {
@@ -127,10 +136,11 @@ export function attributeHidden(element: Element): boolean {
  * `dom.openOrClosedShadowRoot`.
  */
 function flatParent(element: Element): Element | null | undefined {
-  if (element.assignedSlot) return element.assignedSlot;
-  const parent = element.parentNode;
+  const assigned = elementProperty(element, "assignedSlot");
+  if (assigned) return assigned;
+  const parent = nodeProperty(element, "parentNode");
   if (parent instanceof ShadowRoot) return parent.host;
-  const host = element.parentElement;
+  const host = nodeProperty(element, "parentElement");
   const root = host && shadowRootOf(host);
   if (!root) return host;
   return [...root.querySelectorAll("slot")].find((slot) => slot.assignedNodes().includes(element));
@@ -156,7 +166,7 @@ function forward(animation: Animation, timing: ComputedEffectTiming): boolean {
  * iteration's start.
  */
 function fades(element: Element): boolean {
-  return element.getAnimations().some((animation) => {
+  return Element.prototype.getAnimations.call(element).some((animation) => {
     const effect = animation.effect;
     if (
       (animation.playState !== "running" && animation.playState !== "paused") ||
@@ -190,7 +200,7 @@ function fades(element: Element): boolean {
  * animation, as a trap, is not fading.
  */
 function fadingIn(element: Element): boolean {
-  const view = element.ownerDocument.defaultView;
+  const view = elementProperty(element, "ownerDocument").defaultView;
   if (!view) return false;
   let transparent = false;
   for (let node: Element | null = element; node;) {
@@ -240,10 +250,12 @@ function revealedByLabel(element: Element): boolean {
  * counted as opaque.
  */
 function rendered(element: Element, opacity: boolean): boolean {
+  const checkVisibility = (options: CheckVisibilityOptions) =>
+    Element.prototype.checkVisibility.call(element, options);
   return (
-    element.checkVisibility(visibility(opacity)) ||
+    checkVisibility(visibility(opacity)) ||
     (opacity &&
-      element.checkVisibility(visibility(false)) &&
+      checkVisibility(visibility(false)) &&
       (fadingIn(element) || revealedByLabel(element)))
   );
 }
@@ -259,16 +271,18 @@ function rendered(element: Element, opacity: boolean): boolean {
  * profiles wrap each address in one, 2026-10-12).
  */
 export function shown(element: Element, opacity = true): element is HTMLElement {
+  // `element` may be a form: its own members are read through the prototypes, as its
+  // named controls hide them (`form-native.ts`).
   if (
     !(element instanceof HTMLElement) ||
-    !element.isConnected ||
+    !nodeProperty(element, "isConnected") ||
     closestAcross(element, "[hidden]") ||
     hiddenByAttribute(element)
   )
     return false;
   if (rendered(element, opacity)) return true;
   const parent = composedParent(element);
-  const view = element.ownerDocument.defaultView;
+  const view = elementProperty(element, "ownerDocument").defaultView;
   const style = view?.getComputedStyle(element);
   if (
     !parent ||
@@ -282,7 +296,7 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
   )
     return false;
   // Children are checked themselves; a nested `display: contents` one counts as rendered.
-  const children = [...element.children];
+  const children = [...elementProperty(element, "children")];
   return (
     !children.length ||
     children.some(
@@ -319,11 +333,12 @@ export function renderedText(
     separator?: string;
   } = {},
 ): string | undefined {
-  if (!shown(root) || textless.has(root.tagName)) return undefined;
+  // Any element read may be a form, so its members are read through the prototypes.
+  if (!shown(root) || textless.has(elementProperty(root, "tagName"))) return undefined;
   if (leave?.size)
     for (let node: Element | null = root; node; node = composedParent(node))
       if (leave.has(node)) return undefined;
-  const view = root.ownerDocument.defaultView;
+  const view = elementProperty(root, "ownerDocument").defaultView;
   let text = "";
   // `undefined` marks the end of a block, so its text never joins the text after it.
   const pending: (ChildNode | undefined)[] = [];
@@ -336,7 +351,12 @@ export function renderedText(
       return;
     }
     const from = shadowRootOf(parent) ?? parent;
-    for (let child = from.lastChild; child; child = child.previousSibling) pending.push(child);
+    for (
+      let child = nodeProperty(from, "lastChild");
+      child;
+      child = nodeProperty(child, "previousSibling")
+    )
+      pending.push(child);
   };
   enqueue(root);
   while (pending.length > 0 && text.length <= limit) {
@@ -346,14 +366,14 @@ export function renderedText(
       text += node.data.replace(/\p{Cf}+/gu, "").replaceAll(separator, " ");
     else if (
       node instanceof Element &&
-      !textless.has(node.tagName) &&
+      !textless.has(elementProperty(node, "tagName")) &&
       shown(node) &&
-      !(skip && node.matches(skip)) &&
+      !(skip && Element.prototype.matches.call(node, skip)) &&
       !leave?.has(node)
     ) {
       if (node instanceof HTMLBRElement) text += separator;
       else if (
-        node.localName !== "wbr" &&
+        elementProperty(node, "localName") !== "wbr" &&
         (everyElement || !view?.getComputedStyle(node).display.startsWith("inline"))
       ) {
         text += separator;

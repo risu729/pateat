@@ -36,7 +36,7 @@ export function LogScopeControls({
           }
         >
           <option value="all">{t("All levels")}</option>
-          <option value="problems">{t("Warnings and errors")}</option>
+          <option value="problems">{t("Warnings, errors and reasons Pateat did nothing")}</option>
         </select>
       </label>
     </div>

@@ -362,6 +362,22 @@ describe("background sync access", () => {
     expect(response.ok && response.state).not.toHaveProperty("cacheFull");
   });
 
+  it("keeps a service settings limit distinct from a full recipe cache until a complete sync", async () => {
+    const { runtime } = setup({ storage: memoryStorage(connected) });
+    await runtime.recordSync(ISSUED.deviceId, { settingsLimited: true });
+    let response = await runtime.handle({ version: 1, type: "service.get" });
+    expect(response).toMatchObject({ state: { settingsLimited: true } });
+    expect(response.ok && response.state).not.toHaveProperty("cacheFull");
+    await runtime.recordSync("7a2e4d2f-6e1c-4b63-8e66-4e8b9f1f3c52", { syncedAt: 8_000 });
+    expect(await runtime.handle({ version: 1, type: "service.get" })).toMatchObject({
+      state: { settingsLimited: true },
+    });
+    await runtime.recordSync(ISSUED.deviceId, { syncedAt: 9_000 });
+    response = await runtime.handle({ version: 1, type: "service.get" });
+    expect(response).toMatchObject({ state: { syncedAt: 9_000 } });
+    expect(response.ok && response.state).not.toHaveProperty("settingsLimited");
+  });
+
   it("answers a lookup without waiting behind a slow revocation", async () => {
     let finish: (result: RevokeResult) => void = () => undefined;
     const transport = fakeTransport();

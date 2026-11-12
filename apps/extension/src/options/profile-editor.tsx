@@ -21,6 +21,8 @@ const failures: Record<ProfileEditorFailure, string> = {
   "extension-not-allowed":
     "This service does not accept this build of Pateat. Its operator must add this extension's ID to PAIRING_EXTENSION_IDS.",
   conflict: "Settings changed elsewhere. Reload this profile before saving again.",
+  "settings-limit":
+    "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.",
   "not-found": "That profile was deleted. Load the profiles again.",
   unreachable: "The service could not be reached. Try again later.",
   "unexpected-response": "The service gave an unexpected answer. Try again later.",

@@ -11,6 +11,7 @@ import {
   linkText,
   scriptControls,
 } from "./text";
+import { elementProperty } from "./form-native";
 import { closestAcross, formOf, inputsOf, queryAll, shadowRootOf } from "./shadow";
 
 const attributes = {
@@ -213,7 +214,7 @@ const formAround = (element: Element): HTMLFormElement | null =>
 function signInForm(form: HTMLFormElement | null, hidden: boolean): boolean {
   return (
     form !== null &&
-    inputsOf(form, form.ownerDocument).some(
+    inputsOf(form, elementProperty(form, "ownerDocument")).some(
       (element) =>
         element.type === "password" &&
         !autocompleteTokens(element).includes("new-password") &&

@@ -167,6 +167,8 @@ export type SettingsResult = (
   | { kind: "state"; state: SyncSettingsState }
   /** The write named a stale revision; `current` is the service's state now. */
   | { kind: "conflict"; current: SyncSettingsState }
+  /** Shared settings would make this or another live profile too large. */
+  | { kind: "limited" }
   | { kind: "rejected" }
   | { kind: "failed"; error: TransportFailure }
 ) &
@@ -362,6 +364,7 @@ const settingsConflictSchema = v.strictObject({
   error: v.literal("settings_conflict"),
   current: syncSettingsStateSchema,
 });
+const settingsLimitSchema = v.strictObject({ error: v.literal("settings_limit") });
 const recipeLimitSchema = v.strictObject({ error: v.literal("recipe_limit") });
 const recipeConflictSchema = v.strictObject({
   error: v.literal("recipe_conflict"),
@@ -749,6 +752,8 @@ export function createServiceTransport(
   function settingsResult(response: Awaited<ReturnType<typeof call>>): SettingsResult {
     const timed = { timing: response.timing };
     if ("failed" in response) return { kind: "failed", error: response.failed, ...timed };
+    if (response.status === 413 && v.is(settingsLimitSchema, response.body))
+      return { kind: "limited", ...timed };
     if (response.status === 200) {
       const parsed = v.safeParse(syncSettingsStateSchema, response.body);
       return parsed.success

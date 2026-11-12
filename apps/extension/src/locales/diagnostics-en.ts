@@ -92,8 +92,11 @@ export const diagnosticsEn = {
   "{{version}} ({{revision}}) {{mode}} build": "{{version}} ({{revision}}) {{mode}} build",
   "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported":
     "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported",
+  "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}; of the logins, sealed {{sealed}}: their TOTP and passkeys are not counted) + {{unsupported}} unsupported":
+    "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}; of the logins, sealed {{sealed}}: their TOTP and passkeys are not counted) + {{unsupported}} unsupported",
   " (rejected)": " (rejected)",
   " (recipe cache full)": " (recipe cache full)",
+  " (settings profile too large)": " (settings profile too large)",
   granted: "granted",
   withheld: "withheld",
   "unavailable ({{error}})": "unavailable ({{error}})",
@@ -220,7 +223,8 @@ export const diagnosticsEn = {
   "Last 24 hours": "Last 24 hours",
   Severity: "Severity",
   "All levels": "All levels",
-  "Warnings and errors": "Warnings and errors",
+  "Warnings, errors and reasons Pateat did nothing":
+    "Warnings, errors and reasons Pateat did nothing",
   "Showing {{selected}} of {{retained}} retained entries.":
     "Showing {{selected}} of {{retained}} retained entries.",
   "No entries match these filters.": "No entries match these filters.",

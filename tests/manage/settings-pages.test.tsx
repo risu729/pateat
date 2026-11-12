@@ -313,6 +313,32 @@ test("removes a site's default account on its page, keeping the rest", async () 
   expect(saved[1].bindings).toEqual([binding]);
 });
 
+test("composition limit keeps a management site draft for a successful retry", async () => {
+  const client = mockClient({
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 4,
+    settings: settingsOf(),
+  });
+  client.saveSettings.mockRejectedValueOnce(new ManageApiError("settings_limit"));
+  await mount(client, "/manage/sites");
+  await page.getByLabelText("Hostname").fill("draft.example");
+  await page.getByLabelText("Pause subdomains too").click();
+  await page.getByRole("button", { name: "Pause site", exact: true }).click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toMatchTextContent("Your changes have not been saved");
+  await expect.element(page.getByLabelText("Hostname")).toHaveValue("draft.example");
+  await expect.element(page.getByLabelText("Pause subdomains too")).toBeChecked();
+  expect(client.settings).toHaveBeenCalledTimes(1);
+  await page.getByRole("button", { name: "Pause site", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Resume draft.example and subdomains", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  expect(client.saveSettings.mock.calls[1]).toEqual(client.saveSettings.mock.calls[0]);
+});
+
 test("a write that lost to another writer shows the current settings and changes nothing", async () => {
   const client = mockClient({
     version: 1,

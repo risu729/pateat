@@ -59,7 +59,7 @@ export function choosingRadio(
 export function chooseFor(input: HTMLInputElement | HTMLSelectElement): boolean {
   const radio = choosingRadio(input);
   if (!radio || radio.checked) return true;
-  if (radio.disabled) return false;
+  if (radio.matches(":disabled")) return false;
   radio.click();
   return radio.checked;
 }

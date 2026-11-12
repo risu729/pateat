@@ -43,7 +43,7 @@ function connectionLine(entry: DiagnosticsConnection): string {
   if (entry.kdfType) parts.push(`KDF ${entry.kdfType}`);
   if (entry.items)
     parts.push(
-      `${plural(entry.items.total, "item")} (login ${entry.items.login}, TOTP ${entry.items.totp}, passkey ${entry.items.passkey}) + ${entry.items.unsupported} unsupported`,
+      `${plural(entry.items.total, "item")} (login ${entry.items.login}, TOTP ${entry.items.totp}, passkey ${entry.items.passkey}${entry.items.sealed > 0 ? `; of the logins, sealed ${entry.items.sealed}: their TOTP and passkeys are not counted` : ""}) + ${entry.items.unsupported} unsupported`,
     );
   return `${entry.id}: ${parts.join(" · ")}`;
 }
@@ -52,6 +52,7 @@ function serviceLine(service: DiagnosticsStatus["service"]): string {
   const parts: string[] = [service.kind];
   if (service.rejected) parts.push("rejected");
   if (service.cacheFull) parts.push("cache full");
+  if (service.settingsLimited) parts.push("settings limited");
   if (service.health)
     parts.push(
       service.health.ok
