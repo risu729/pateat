@@ -66,6 +66,7 @@ export function createVaultSsoSource(
       account.itemId,
     );
     if (!found.eligible) return { ok: false as const, reason: found.reason };
+    if (found.item.inactive) return { ok: false as const, reason: "item-inactive" };
     if (
       !connection ||
       connection.quarantinedItemIds?.includes(account.itemId) ||

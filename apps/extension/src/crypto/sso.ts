@@ -89,7 +89,12 @@ export async function describeSsoMethods(
     connectionId: state.ref.connectionId,
     cipher,
   });
-  if (!decrypted.ok || decrypted.data.type !== 1 || decrypted.data.deletedDate)
+  if (
+    !decrypted.ok ||
+    decrypted.data.type !== 1 ||
+    decrypted.data.deletedDate ||
+    decrypted.data.archivedDate
+  )
     return refused("item-unavailable");
   // A repaired encrypted item may have lost even a field name. Its unreadable custom
   // fields cannot safely establish that the preferred SSO method is absent.
@@ -199,7 +204,12 @@ export async function findSsoCandidates(
       connectionId: state.ref.connectionId,
       cipher,
     });
-    if (!decrypted.ok || decrypted.data.type !== 1 || decrypted.data.deletedDate) {
+    if (
+      !decrypted.ok ||
+      decrypted.data.type !== 1 ||
+      decrypted.data.deletedDate ||
+      decrypted.data.archivedDate
+    ) {
       candidates.push({ itemId, origins: [], unavailable: "item-unavailable" });
       continue;
     }
