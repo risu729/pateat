@@ -300,9 +300,11 @@ dropped and the attempt stops at its first step without filling. Origin, destina
 eligibility, field exclusions and SSO checks still run, and so does Bitwarden's master
 password re-prompt: the override stays with the document while the window asks, and
 the restart after the password uses it without a second pick. A window closed or
-unable to open, another document in that frame or a closed tab drops it. The popup's
-polls never ask a page to announce again; only its first read does, as after a worker
-restart.
+unable to open, another document in that frame or a closed tab drops it. When the
+password is verified but the restart never reaches the page, the override stays with
+that page and item, and once the password grant has expired the next start asks for
+the password again. The popup's polls never ask a page to announce again; only its
+first successful read does, as after a worker restart.
 
 Only confirmed `authenticated` saves the rewritten binding. Filling alone, an unknown
 outcome or a rejection saves nothing, and a challenge saves nothing until a confirmed

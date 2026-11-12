@@ -101,7 +101,8 @@ function waitsForPassword(rt: Runtime, review: BindingReviewState) {
     (waiting?.document.documentId === review.document.documentId &&
       waiting.account.connectionId === review.connectionId &&
       waiting.account.itemId === review.binding.itemId) ||
-    rt.passwordAsks.get(key)?.connectionId === review.connectionId ||
+    (rt.passwordAsks.get(key)?.kind === "login" &&
+      rt.passwordAsks.get(key)?.connectionId === review.connectionId) ||
     (grant?.connectionId === review.connectionId && grant.itemId === review.binding.itemId)
   );
 }

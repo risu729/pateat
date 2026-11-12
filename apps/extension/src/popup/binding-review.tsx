@@ -48,10 +48,11 @@ export function BindingReviewSection({
   const read = useRef(false);
   const query = useQuery({
     queryKey: ["popup", "binding-review", tabId],
-    queryFn: () => {
-      const first = !read.current;
+    queryFn: async () => {
+      const result = await client.get(tabId, !read.current);
+      // A failed first read leaves the next poll to ask again.
       read.current = true;
-      return client.get(tabId, first);
+      return result;
     },
     refetchInterval: 1000,
     staleTime: 0,
