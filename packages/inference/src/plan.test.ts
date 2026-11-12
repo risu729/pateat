@@ -8,10 +8,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   actionPurpose,
-  carriedSlotNames,
   customSlotNames,
-  namesPasskey,
-  registersPasskey,
   slotAccepts,
   slotAcceptsOn,
   validateGeneratedPage,
@@ -19,10 +16,24 @@ import {
   type GeneratedPagePlan,
   type PagePlan,
 } from "./plan";
+import { registerActionPurpose } from "../test/plan/action-purpose";
+import { registerCustomSlotNames, registerCustomSlotStorage } from "../test/plan/custom-slot-names";
+import { registerIdentifierSets } from "../test/plan/identifier-sets";
+import { registerPasskeyButton } from "../test/plan/passkey-button";
+import { registerCarriedSlotNames, registerSavedBindingMatches } from "../test/plan/saved-bindings";
 
 // Synthetic page only: custom-field slot names and the Hidden fill rule (ADR 0027).
 
-type Candidate = LoginObservation["candidates"][number];
+export type Candidate = LoginObservation["candidates"][number];
+export type PlanTestFixtures = {
+  observation: typeof observation;
+  slots: typeof slots;
+  action: typeof action;
+  input: typeof input;
+  branch: typeof branch;
+  account: typeof account;
+};
+
 const input = (id: string, extra: Partial<Candidate> = {}): Candidate => ({
   id,
   role: "text",
@@ -275,38 +286,7 @@ describe("a field on the page's software keyboard (ADR 0067)", () => {
 });
 
 describe("custom-field slot names from the page (ADR 0027)", () => {
-  it("stores a custom-field slot under its field's text and keeps the requested ID", () => {
-    const page: LoginObservation = {
-      ...observation,
-      candidates: observation.candidates.map((entry) =>
-        entry.id === "branch" ? { ...entry, label: "店番号" } : entry,
-      ),
-    };
-    const result = validatePagePlan(page, slots, {
-      fields: [
-        { slot: "username", candidate: "user" },
-        { slot: "custom-1", candidate: "branch" },
-        { slot: "password", candidate: "password" },
-      ],
-      action,
-    });
-    if (!result.ok) throw new Error(result.reason);
-    expect(result.plan.fields).toEqual([
-      { slot: "username", candidate: "user" },
-      { slot: "custom-1", candidate: "branch", name: "店番号" },
-      { slot: "password", candidate: "password" },
-    ]);
-    expect(result.plan.steps[0]).toMatchObject({
-      kind: "fill",
-      fields: [
-        { slot: "username", target: { by: "id", value: "user" } },
-        { slot: "店番号", target: { by: "id", value: "branch" } },
-        { slot: "password", target: { by: "id", value: "password" } },
-      ],
-    });
-    // The owner's field name never reaches the steps.
-    expect(JSON.stringify(result.plan.steps)).not.toContain("支店番号");
-  });
+  registerCustomSlotStorage({ observation, slots, action });
 
   /** The name the branch slot gets when its field looks like `extra`. */
   const nameOf = (
@@ -320,149 +300,7 @@ describe("custom-field slot names from the page (ADR 0027)", () => {
       [{ fields: [{ slot: "custom-1", candidate: "branch" }] }],
     ).get("custom-1");
 
-  it.each<[string, Partial<Candidate>, string]>([
-    ["its label first", { label: "店番号", placeholder: "店番", description: "支店" }, "店番号"],
-    ["its placeholder without a label", { placeholder: "店番", description: "支店" }, "店番"],
-    ["its description without a label or placeholder", { description: "支店" }, "支店"],
-    ["its id without any of those", { target: { by: "id", value: "brchNum" } }, "brchNum"],
-    ["its name attribute", { target: { by: "name", value: "branch_code" } }, "branch_code"],
-    ["its test ID", { target: { by: "test-id", value: "branch.code" } }, "branch.code"],
-    [
-      "a number, never its visible-name locator",
-      { target: { by: "label", value: "店番" } },
-      "欄 1",
-    ],
-    [
-      "a number, never its autocomplete token",
-      { target: { by: "autocomplete", value: "username" } },
-      "欄 1",
-    ],
-    // Owner's choice, 2026-10-18: any language and length, as the page shows it.
-    ["Latin text as it is", { label: "Enter your Security number" }, "Enter your Security number"],
-  ])("names a field by %s", (_label, extra, name) => {
-    expect(nameOf(extra)).toBe(name);
-  });
-
-  it.each<[string, Partial<Candidate>, string]>([
-    ["a redaction mark", { label: "[account] の店番", placeholder: "店番" }, "店番"],
-    [
-      "any redaction mark",
-      { label: "[email]", placeholder: "[masked]", description: "[number]" },
-      "branch",
-    ],
-    ["a number", { label: "口座 1234567", placeholder: "支店 045" }, "branch"],
-    ["a full-width number", { label: "店番３" }, "branch"],
-    ["a number in the locator", { target: { by: "id", value: "ctl00$branch" } }, "欄 1"],
-  ])("skips text with %s", (_label, extra, name) => {
-    expect(nameOf(extra)).toBe(name);
-  });
-
-  it("skips a mark or a number past the 60-character cut", () => {
-    const long = "a".repeat(55);
-    expect(nameOf({ label: `${long} [number] x`, placeholder: "店番" })).toBe("店番");
-    expect(nameOf({ label: `${long} b c d 1`, placeholder: "店番" })).toBe("店番");
-  });
-
-  it("takes NFKC text with whitespace collapsed and trimmed", () => {
-    expect(nameOf({ label: " Ｂｒａｎｃｈ\u3000 ｺｰﾄﾞ\t" })).toBe("Branch コード");
-  });
-
-  it("drops invisible characters from the text", () => {
-    expect(nameOf({ label: "店\u034f番\ufe0f号\u200b" })).toBe("店番号");
-    expect(nameOf({ label: "\u2060\u3164", placeholder: "店番" })).toBe("店番");
-  });
-
-  it("drops a trailing copy of the placeholder or description from the label", () => {
-    expect(nameOf({ label: "店番 半角数字3桁", placeholder: "半角数字3桁" })).toBe("店番");
-    expect(nameOf({ label: "口座番号 半角数字7桁", description: "半角数字7桁" })).toBe("口座番号");
-    expect(nameOf({ label: "店番半角数字", placeholder: "半角数字" })).toBe("店番");
-    // Never inside a Latin word.
-    expect(nameOf({ label: "Keyword", placeholder: "word" })).toBe("Keyword");
-    // A label that is only the hint falls to the next source.
-    expect(nameOf({ label: "支店コード", placeholder: "支店コード" })).toBe("支店コード");
-    expect(nameOf({ label: "3桁", placeholder: "3桁", description: "支店" })).toBe("支店");
-  });
-
-  it("cuts a name to 60 characters, never inside a character", () => {
-    expect(nameOf({ label: `${"a".repeat(59)} b` })).toBe("a".repeat(59));
-    expect(nameOf({ label: "店".repeat(70) })).toBe("店".repeat(60));
-    expect(nameOf({ label: `${"a".repeat(59)}😀` })).toBe("a".repeat(59));
-  });
-
-  it("numbers fields without a name from the top of the page, in its language", () => {
-    const unnamed = [input("c1", { target: { by: "autocomplete", value: "email" } })];
-    const named = [input("c2", { label: "メール" }), input("go", { role: "button" })];
-    const target = { by: "label" as const, value: "店番" };
-    expect(nameOf({ target }, {}, [...unnamed, ...named])).toBe("欄 2");
-    expect(nameOf({ target }, { language: "en" }, [...unnamed, ...named])).toBe("field 2");
-    expect(nameOf({ target }, { language: "mixed" }, named)).toBe("欄 1");
-  });
-
-  it("numbers equal names apart in page order, without case", () => {
-    const page: LoginObservation = {
-      ...observation,
-      candidates: [
-        input("branch", { label: "PIN" }),
-        input("account", { label: "pin" }),
-        input("pin", { role: "password", label: "Pin" }),
-        input("login", { role: "button" }),
-      ],
-    };
-    // The model's order never changes the names.
-    const names = customSlotNames(page, slots, [
-      {
-        fields: [
-          { slot: "custom-3", candidate: "pin" },
-          { slot: "custom-2", candidate: "account" },
-          { slot: "custom-1", candidate: "branch" },
-        ],
-      },
-    ]);
-    expect(Object.fromEntries(names)).toEqual({
-      "custom-1": "PIN",
-      "custom-2": "pin 2",
-      "custom-3": "Pin 3",
-    });
-  });
-
-  it("keeps a name apart from the built-in slots and the request's slot IDs", () => {
-    expect(nameOf({ label: "Password" })).toBe("Password 2");
-    expect(nameOf({ label: "TOTP" })).toBe("TOTP 2");
-    const requested = [{ ...branch, id: "Branch" }, account];
-    const page = { ...observation, candidates: [input("account", { label: "branch" })] };
-    expect(
-      customSlotNames(page, requested, [{ fields: [{ slot: "custom-2", candidate: "account" }] }]),
-    ).toEqual(new Map([["custom-2", "branch 2"]]));
-    // A numbered name still fits in 60 characters.
-    const long = "a".repeat(60);
-    const twice: LoginObservation = {
-      ...observation,
-      candidates: [input("branch", { label: long }), input("account", { label: long })],
-    };
-    expect(
-      customSlotNames(twice, slots, [
-        {
-          fields: [
-            { slot: "custom-1", candidate: "branch" },
-            { slot: "custom-2", candidate: "account" },
-          ],
-        },
-      ]).get("custom-2"),
-    ).toBe(`${"a".repeat(58)} 2`);
-  });
-
-  it("names built-in slots never and leaves out unknown elements", () => {
-    expect(
-      customSlotNames(observation, slots, [
-        {
-          fields: [
-            { slot: "username", candidate: "user" },
-            { slot: "custom-1", candidate: "nowhere" },
-          ],
-        },
-      ]),
-    ).toEqual(new Map());
-  });
+  registerCustomSlotNames({ nameOf, observation, slots, input, branch, account });
 });
 
 describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", () => {
@@ -477,44 +315,7 @@ describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", ()
     slots: entries.map(([slot, field]) => ({ slot, field })),
   });
 
-  it("matches a custom field by name, position and count", () => {
-    expect(
-      Object.fromEntries(
-        carriedSlotNames(requested, [
-          binding(
-            ["店番", { custom: "支店番号" }],
-            ["口座 2", { custom: "口座番号", position: 2, count: 2 }],
-          ),
-        ]),
-      ),
-    ).toEqual({ "custom-1": "店番", "custom-4": "口座 2" });
-    // A position or count that differs is another field.
-    expect(
-      carriedSlotNames(requested, [
-        binding(["口座", { custom: "口座番号", position: 1, count: 2 }]),
-        binding(["口座 3", { custom: "口座番号", position: 2, count: 3 }]),
-      ]),
-    ).toEqual(new Map());
-  });
-
-  it("matches no built-in field", () => {
-    expect(
-      carriedSlotNames(requested, [
-        binding(["username", "username"], ["password", "password"], ["totp", "totp"]),
-      ]),
-    ).toEqual(new Map());
-  });
-
-  it("carries nothing for a field the bindings name differently", () => {
-    expect(
-      Object.fromEntries(
-        carriedSlotNames(requested, [
-          binding(["店番", { custom: "支店番号" }], ["口座", { custom: "口座番号" }]),
-          binding(["支店", { custom: "支店番号" }], ["口座", { custom: "口座番号" }]),
-        ]),
-      ),
-    ).toEqual({ "custom-2": "口座" });
-  });
+  registerSavedBindingMatches({ requested, binding });
 
   const labelled: LoginObservation = {
     ...observation,
@@ -535,79 +336,7 @@ describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", ()
     },
   ];
 
-  it("takes a carried name before any page text, which is numbered apart", () => {
-    // The account field's own label is the branch field's carried name.
-    expect(
-      Object.fromEntries(customSlotNames(labelled, slots, both, new Map([["custom-1", "店番"]]))),
-    ).toEqual({ "custom-1": "店番", "custom-2": "店番 2" });
-  });
-
-  it.each<[string, string]>([
-    ["a built-in slot", "Password"],
-    ["a request slot ID", "CUSTOM-3"],
-    ["no recipe slot ID", "店番  号"],
-    ["a name too long", "a".repeat(61)],
-  ])("keeps the page's text over %s", (_label, carried) => {
-    expect(
-      customSlotNames(labelled, slots, both, new Map([["custom-1", carried]])).get("custom-1"),
-    ).toBe("支店コード");
-  });
-
-  it("carries a name two slots would share for neither", () => {
-    expect(
-      Object.fromEntries(
-        customSlotNames(
-          labelled,
-          slots,
-          both,
-          new Map([
-            ["custom-1", "Branch"],
-            ["custom-2", "branch"],
-          ]),
-        ),
-      ),
-    ).toEqual({ "custom-1": "支店コード", "custom-2": "店番" });
-  });
-
-  it("reserves the carried name of a slot the page does not fill", () => {
-    // The account field's label is the name the unfilled PIN slot carries to a later page.
-    const fillsAccount = [{ fields: [{ slot: "custom-2", candidate: "account" }] }];
-    expect(
-      Object.fromEntries(
-        customSlotNames(labelled, slots, fillsAccount, new Map([["custom-3", "店番"]])),
-      ),
-    ).toEqual({ "custom-2": "店番 2" });
-    // Two filled slots carrying one name both take page names, which still avoid it.
-    expect(
-      Object.fromEntries(
-        customSlotNames(
-          labelled,
-          slots,
-          both,
-          new Map([
-            ["custom-1", "店番"],
-            ["custom-2", "店番"],
-          ]),
-        ),
-      ),
-    ).toEqual({ "custom-1": "支店コード", "custom-2": "店番 2" });
-  });
-
-  it("carries a name on a page after the start page and stores it in the steps", () => {
-    const result = validateGeneratedPage(
-      labelled,
-      slots,
-      { fields: [{ slot: "custom-1", candidate: "branch" }], action },
-      false,
-      new Map([["custom-1", "店番"]]),
-    );
-    if (!result.ok) throw new Error(result.reason);
-    expect(result.plan.fields).toEqual([{ slot: "custom-1", candidate: "branch", name: "店番" }]);
-    expect(result.plan.steps[0]).toMatchObject({
-      fields: [{ slot: "店番", target: { by: "id", value: "branch" } }],
-    });
-    expect(JSON.stringify(result.plan.steps)).not.toContain("支店番号");
-  });
+  registerCarriedSlotNames({ labelled, slots, both, action });
 });
 
 describe("fields located by their visible name (ADR 0037)", () => {
@@ -961,202 +690,7 @@ describe("several identifier sets on one page (ADR 0027)", () => {
     expect(check([])).toEqual(validatePagePlan(page, all, primary));
   });
 
-  it("names a slot from its element in the first set that fills it, in every set", () => {
-    const result = check([
-      {
-        fields: [
-          { slot: "custom-4", candidate: "contract" },
-          { slot: "custom-2", candidate: "user" },
-        ],
-        action,
-      },
-    ]);
-    if (!result.ok) throw new Error(result.reason);
-    expect(result.plan.alternatives![0]!.fields).toEqual([
-      { slot: "custom-4", candidate: "contract", name: "契約番号" },
-      { slot: "custom-2", candidate: "user", name: "account" },
-    ]);
-  });
-
-  it("on a later page, names slots from the first set alone and drops the rest", () => {
-    // An earlier field of the same name, which only the alternative fills.
-    const later: LoginObservation = {
-      ...page,
-      candidates: [
-        input("old", { label: "契約番号" }),
-        ...page.candidates,
-        input("passkey-login", { role: "button", label: "パスキーでログイン" }),
-      ],
-    };
-    const draft: GeneratedPagePlan = {
-      fields: [
-        { slot: "custom-2", candidate: "contract" },
-        { slot: "password", candidate: "password" },
-      ],
-      action,
-      alternatives: [{ ...byContract, fields: [{ slot: "custom-4", candidate: "old" }] }],
-      passkeyButton: "passkey-login",
-    };
-    const start = validateGeneratedPage(later, all, draft);
-    if (!start.ok) throw new Error(start.reason);
-    expect(start.plan.fields[0]).toEqual({
-      slot: "custom-2",
-      candidate: "contract",
-      name: "契約番号 2",
-    });
-    expect(start.plan.alternatives).toHaveLength(1);
-    expect(start.plan.passkeyButton).toBe("passkey-login");
-    const next = validateGeneratedPage(later, all, draft, false);
-    if (!next.ok) throw new Error(next.reason);
-    expect(next.plan.fields[0]).toEqual({
-      slot: "custom-2",
-      candidate: "contract",
-      name: "契約番号",
-    });
-    expect(next.plan.steps[0]).toMatchObject({
-      fields: [{ slot: "契約番号" }, { slot: "password" }],
-    });
-    expect(next.plan).not.toHaveProperty("alternatives");
-    expect(next.plan).not.toHaveProperty("passkeyButton");
-    expect(next.plan).not.toHaveProperty("passkeyTarget");
-    // The dropped alternatives are still checked.
-    expect(
-      validateGeneratedPage(
-        later,
-        all,
-        {
-          ...draft,
-          alternatives: [{ fields: [{ slot: "custom-4", candidate: "nowhere" }], action }],
-        },
-        false,
-      ),
-    ).toEqual({ ok: false, reason: "unknown-candidate" });
-  });
-
-  it.each<[string, GeneratedPagePlan["alternatives"], string]>([
-    [
-      "an alternative that fails plan validation",
-      [
-        {
-          ...byContract,
-          fields: [{ slot: "custom-4", candidate: "nowhere" }],
-        },
-      ],
-      "unknown-candidate",
-    ],
-    [
-      "the same slots again",
-      [{ ...primary, fields: [...primary.fields].reverse() }],
-      "duplicate-variant",
-    ],
-    [
-      "a subset of the first set",
-      [{ fields: [{ slot: "password", candidate: "pin" }], action }],
-      "duplicate-variant",
-    ],
-    [
-      "an action that advances",
-      [{ ...byContract, action: { candidate: "login", purpose: "advance" as const } }],
-      "variant-advance",
-    ],
-    [
-      // Both sets type one element under different slots: an ambiguous mapping, which
-      // could also put a Hidden PIN where the other set puts an identifier.
-      "an element filled under another recipe slot",
-      [
-        {
-          fields: [
-            { slot: "custom-4", candidate: "branch" },
-            { slot: "password", candidate: "password" },
-          ],
-          action,
-        },
-      ],
-      "inconsistent-candidate",
-    ],
-  ])("refuses %s", (_label, alternatives, reason) => {
-    expect(check(alternatives)).toEqual({ ok: false, reason });
-  });
-
-  it("refuses a first set that advances once alternatives exist", () => {
-    expect(check([byContract], { action: { candidate: "login", purpose: "advance" } })).toEqual({
-      ok: false,
-      reason: "variant-advance",
-    });
-  });
-
-  it("refuses an account switch that an alternative fills or clicks", () => {
-    expect(check([byContract], { accountSwitch: "switch" })).toMatchObject({ ok: true });
-    const switching = {
-      fields: [{ slot: "username", candidate: "user" }],
-      action: { candidate: "switch", purpose: "submit" as const },
-    };
-    expect(
-      validateGeneratedPage(
-        {
-          ...page,
-          candidates: page.candidates.map((entry) =>
-            entry.id === "switch" ? { ...entry, role: "button" } : entry,
-          ),
-        },
-        all,
-        { ...primary, accountSwitch: "switch", alternatives: [switching] },
-      ),
-    ).toEqual({ ok: false, reason: "duplicate-candidate" });
-  });
-
-  it("refuses more than 3 alternatives even when each is a distinct valid set", () => {
-    const distinct = [
-      byContract,
-      {
-        fields: [
-          { slot: "username", candidate: "user" },
-          { slot: "password", candidate: "password" },
-        ],
-        action,
-      },
-      {
-        fields: [
-          { slot: "custom-1", candidate: "branch" },
-          { slot: "custom-3", candidate: "pin" },
-        ],
-        action,
-      },
-      {
-        fields: [
-          { slot: "custom-2", candidate: "account" },
-          { slot: "custom-4", candidate: "contract" },
-        ],
-        action,
-      },
-    ];
-    const three = check(distinct.slice(0, 3));
-    if (!three.ok) throw new Error(three.reason);
-    expect(three.plan.alternatives).toHaveLength(3);
-    expect(check(distinct)).toEqual({ ok: false, reason: "too-many-variants" });
-  });
-
-  it("refuses a set that contains another set, whichever comes first", () => {
-    // An alternative that adds a field to the first set.
-    expect(
-      check([
-        {
-          fields: [...primary.fields, { slot: "custom-4", candidate: "contract" }],
-          action,
-        },
-      ]),
-    ).toEqual({ ok: false, reason: "duplicate-variant" });
-    // Two alternatives where the later one adds a field to the earlier one.
-    expect(
-      check([
-        byContract,
-        {
-          fields: [...byContract.fields, { slot: "custom-3", candidate: "pin" }],
-          action,
-        },
-      ]),
-    ).toEqual({ ok: false, reason: "duplicate-variant" });
-  });
+  registerIdentifierSets({ check, page, all, primary, byContract, input, action });
 });
 
 describe("the start page's passkey sign-in button (ADR 0027)", () => {
@@ -1189,186 +723,7 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
   const generate = (passkeyButton: string | undefined, change: Partial<GeneratedPagePlan> = {}) =>
     validateGeneratedPage(page, slots, { fields, action, passkeyButton, ...change });
 
-  it("keeps a sign-in button the plan does not use, with its locator", () => {
-    const result = generate("passkey-login");
-    if (!result.ok) throw new Error(result.reason);
-    expect(result.plan).toMatchObject({
-      passkeyButton: "passkey-login",
-      passkeyTarget: { by: "id", value: "passkey-login" },
-    });
-    // The password plan itself is unchanged.
-    expect(result.plan.fields).toEqual(fields);
-    const plain = validatePagePlan(page, slots, { fields, action });
-    if (!plain.ok) throw new Error(plain.reason);
-    expect(result.plan.steps).toEqual(plain.plan.steps);
-  });
-
-  it.each([
-    ["a link", "passkey-help"],
-    ["an unknown candidate", "missing"],
-    ["a button whose locator reads as adding a passkey", "add-passkey"],
-    ["a registration button", "register"],
-    ["a field instead of a button", "password"],
-    ["a button with the action's locator", "login-copy"],
-  ])("drops %s and keeps the plan", (_label, candidate) => {
-    const result = generate(candidate);
-    if (!result.ok) throw new Error(result.reason);
-    expect(result.plan).not.toHaveProperty("passkeyButton");
-    expect(result.plan).not.toHaveProperty("passkeyTarget");
-    expect(result.plan.fields).toEqual(fields);
-  });
-
-  it("drops the account switch and any element of an alternative set", () => {
-    const withSwitch = validateGeneratedPage(
-      {
-        ...page,
-        candidates: [
-          ...page.candidates,
-          input("other", { role: "button", label: "Sign in with a passkey" }),
-        ],
-      },
-      slots,
-      { fields, action, accountSwitch: "other", passkeyButton: "other" },
-    );
-    if (!withSwitch.ok) throw new Error(withSwitch.reason);
-    expect(withSwitch.plan).toMatchObject({ accountSwitch: "other" });
-    expect(withSwitch.plan).not.toHaveProperty("passkeyButton");
-    const contract: SemanticSlot = { ...branch, id: "custom-4", fieldName: "契約者番号" };
-    const alternative = {
-      fields: [
-        { slot: "custom-4", candidate: "contract" },
-        { slot: "password", candidate: "password" },
-      ],
-      action: { candidate: "passkey-login", purpose: "submit" as const },
-    };
-    const varied = validateGeneratedPage(page, [...slots, contract], {
-      fields,
-      action,
-      alternatives: [alternative],
-      passkeyButton: "passkey-login",
-    });
-    if (!varied.ok) throw new Error(varied.reason);
-    expect(varied.plan.alternatives).toHaveLength(1);
-    expect(varied.plan).not.toHaveProperty("passkeyButton");
-  });
-
-  it("drops the plan's own action even when it names a passkey", () => {
-    const result = generate("passkey-login", {
-      action: { candidate: "passkey-login", purpose: "submit" },
-    });
-    if (!result.ok) throw new Error(result.reason);
-    expect(result.plan).not.toHaveProperty("passkeyButton");
-  });
-
-  it.each([
-    ["a Google sign-in button", "google"],
-    ["an SSO button", "sso"],
-    ["a button that names no passkey", "plain"],
-  ])("drops %s, which names no passkey or security key", (_label, candidate) => {
-    const result = generate(candidate);
-    if (!result.ok) throw new Error(result.reason);
-    expect(result.plan).not.toHaveProperty("passkeyButton");
-    expect(result.plan).not.toHaveProperty("passkeyTarget");
-  });
-
-  it("reads passkey words in the label, text and locator alike", () => {
-    const button = (label: string | undefined, value: string) => ({
-      label,
-      target: { by: "id" as const, value },
-    });
-    for (const [label, value] of [
-      [undefined, "passkeyLoginButtonAD"],
-      ["Sign in with a passkey", "login"],
-      ["Sign in with a Pass Key", "login"],
-      ["Use security key", "login"],
-      ["Use a SecurityKey", "login"],
-      ["パスキーでログイン", "login"],
-      ["セキュリティキーでログイン", "login"],
-      ["生体認証でログイン", "login"],
-      ["Sign in", "webauthn-login"],
-      ["FIDO2", "login"],
-      [undefined, "signInWithPassKey"],
-      ["Use your passkeys", "login"],
-      ["セキュリティーキーでログイン", "login"],
-      ["Sign in", "fido-login"],
-      ["Sign in", "myFido"],
-      ["セキュリティキー", "login"],
-      ["セキュリティキーを使用", "login"],
-    ] as const)
-      expect(namesPasskey(button(label, value)), `${label} ${value}`).toBe(true);
-    for (const [label, value] of [
-      ["Sign in with Google", "google"],
-      ["Sign in with SSO", "sso"],
-      ["Log in", "login"],
-      ["Forgot your password?", "password-reset"],
-      ["パスワードでログイン", "password"],
-      [undefined, "submit"],
-      // Latin words match whole words only.
-      ["MyFido", "login"],
-      ["Fidor Bank", "login"],
-      ["Passkeyless", "login"],
-      ["Sign in", "fidorBank"],
-      ["Sign in", "passkeyless"],
-      // A software keyboard or keypad is not a security key.
-      ["Security keyboard", "login"],
-      ["Sign in", "securityKeyboard"],
-      ["セキュリティキーボード", "login"],
-      ["セキュリティーキーボード", "login"],
-      ["セキュリティキーパッド", "login"],
-      ["セキュリティキーボードを使う", "login"],
-    ] as const)
-      expect(namesPasskey(button(label, value)), `${label} ${value}`).toBe(false);
-    // A text locator reads as a label, never split inside a word.
-    expect(namesPasskey({ target: { by: "text", value: "MyFido" } })).toBe(false);
-    expect(namesPasskey({ target: { by: "text", value: "Sign in with a passkey" } })).toBe(true);
-  });
-
-  it("never rescues a plan that fails its own checks", () => {
-    expect(
-      generate("passkey-login", { action: { candidate: "passkey-help", purpose: "submit" } }),
-    ).toEqual({ ok: false, reason: "incompatible-role" });
-  });
-
-  it("reads registration words in the label, text and locator alike", () => {
-    const button = (label: string | undefined, value: string) => ({
-      label,
-      target: { by: "id" as const, value },
-    });
-    for (const [label, value] of [
-      ["Add a passkey", "key"],
-      ["Set up security key", "key"],
-      ["パスキーを登録", "key"],
-      ["パスキーを追加", "key"],
-      ["パスキーを作成", "key"],
-      ["Sign in", "addPasskey"],
-      ["Sign in", "register_key"],
-      ["Sign in", "set-up-key"],
-      ["Create passkey", "key"],
-      ["パスキーを設定", "key"],
-      ["生体認証を設定する", "key"],
-      ["パスキーを有効にする", "key"],
-      ["パスキーを管理", "key"],
-      ["Manage passkeys", "key"],
-      ["Enable passkey", "key"],
-      ["Turn on security key", "key"],
-      ["Sign in", "managePasskeys"],
-      ["Sign in", "enable-passkey"],
-    ] as const)
-      expect(registersPasskey(button(label, value)), `${label} ${value}`).toBe(true);
-    for (const [label, value] of [
-      ["Sign in with a passkey", "passkeyLoginButtonAD"],
-      ["パスキーでログイン", "passkey"],
-      ["Use security key", "key"],
-      [undefined, "signin-passkey"],
-      ["セキュリティキーでログイン", "login"],
-      ["生体認証でログイン", "login"],
-      ["Sign in with a passkey", "login"],
-      ["パスキー（設定済みの方）でログイン", "login"],
-      ["設定済みのパスキーでログイン", "login"],
-      ["有効なパスキーでログイン", "login"],
-    ] as const)
-      expect(registersPasskey(button(label, value)), `${label} ${value}`).toBe(false);
-  });
+  registerPasskeyButton({ generate, page, fields, slots, branch, input, action });
 });
 
 describe("the action's purpose read from the page (owner 2026-10-22, #834)", () => {
@@ -1387,140 +742,7 @@ describe("the action's purpose read from the page (owner 2026-10-22, #834)", () 
     return [result.plan.action.purpose, result.plan.steps.at(-1)];
   };
 
-  it("advances after an identifier alone, whatever the model answered", () => {
-    for (const answered of ["submit", "advance"] as const)
-      expect(purposeOf(emailOnly(emailPage, answered))).toEqual([
-        "advance",
-        {
-          kind: "click",
-          path: "/sign_in",
-          target: { by: "id", value: "next" },
-          purpose: "advance",
-        },
-      ]);
-  });
-
-  it("submits when the form also shows a password or code input the plan leaves empty", () => {
-    for (const extra of [
-      input("password", { role: "password" }),
-      input("code", { role: "tel", maxLength: 6 }),
-      input("otp", { autocomplete: "one-time-code" }),
-    ]) {
-      const page = { ...emailPage, candidates: [...emailPage.candidates, extra] };
-      expect(purposeOf(emailOnly(page, "advance"))[0], extra.id).toBe("submit");
-    }
-  });
-
-  it("advances when that input belongs to another form", () => {
-    const page: LoginObservation = {
-      ...emailPage,
-      candidates: [
-        input("email", { role: "email", group: "a" }),
-        input("next", { role: "button", group: "a" }),
-        input("password", { role: "password", group: "b" }),
-      ],
-    };
-    expect(purposeOf(emailOnly(page, "submit"))[0]).toBe("advance");
-  });
-
-  it("counts inputs outside any form as one form, apart from a form's own", () => {
-    const page: LoginObservation = {
-      ...emailPage,
-      candidates: [
-        input("email", { role: "email" }),
-        input("next", { role: "button" }),
-        input("password", { role: "password", group: "b" }),
-      ],
-    };
-    expect(purposeOf(emailOnly(page, "submit"))[0]).toBe("advance");
-    const outside = {
-      ...page,
-      candidates: [...page.candidates, input("other", { role: "password" })],
-    };
-    expect(purposeOf(emailOnly(outside, "advance"))[0]).toBe("submit");
-  });
-
-  it("reads a later page's purpose from the set it keeps, once alternatives are dropped", () => {
-    const page: LoginObservation = {
-      ...emailPage,
-      candidates: [
-        input("email", { role: "email" }),
-        input("phone", { role: "tel" }),
-        input("next", { role: "button" }),
-      ],
-    };
-    const result = validateGeneratedPage(
-      page,
-      [...slots, { ...branch, id: "custom-4", fieldName: "電話番号" }],
-      {
-        fields: [{ slot: "username", candidate: "email" }],
-        action: { candidate: "next", purpose: "submit" },
-        alternatives: [
-          {
-            fields: [{ slot: "custom-4", candidate: "phone" }],
-            action: { candidate: "next", purpose: "submit" },
-          },
-        ],
-      },
-      false,
-    );
-    expect(purposeOf(result)).toEqual([
-      "advance",
-      { kind: "click", path: "/sign_in", target: { by: "id", value: "next" }, purpose: "advance" },
-    ]);
-  });
-
-  it("advances after short numeric identifiers the plan fills itself", () => {
-    const page: LoginObservation = {
-      ...emailPage,
-      candidates: [
-        input("branch", { role: "tel", maxLength: 3 }),
-        input("account", { role: "tel", maxLength: 7 }),
-        input("next", { role: "button" }),
-      ],
-    };
-    const result = validateGeneratedPage(page, slots, {
-      fields: [
-        { slot: "custom-1", candidate: "branch" },
-        { slot: "custom-2", candidate: "account" },
-      ],
-      action: { candidate: "next", purpose: "submit" },
-    });
-    expect(purposeOf(result)[0]).toBe("advance");
-  });
-
-  it("submits after a password, a hidden value or a code, whatever the model answered", () => {
-    const result = validateGeneratedPage(observation, slots, {
-      fields: [
-        { slot: "username", candidate: "user" },
-        { slot: "password", candidate: "password" },
-      ],
-      action: { candidate: "login", purpose: "advance" },
-    });
-    expect(purposeOf(result)[0]).toBe("submit");
-    const pinOnly = validateGeneratedPage(observation, slots, {
-      fields: [{ slot: "custom-3", candidate: "pin" }],
-      action: { candidate: "login", purpose: "advance" },
-    });
-    expect(purposeOf(pinOnly)[0]).toBe("submit");
-  });
-
-  it("keeps the model's purpose for a page with alternatives, where every set submits", () => {
-    const result = validateGeneratedPage(observation, slots, {
-      fields: [{ slot: "username", candidate: "user" }],
-      action: { candidate: "login", purpose: "advance" },
-      alternatives: [
-        {
-          fields: [
-            { slot: "custom-1", candidate: "branch" },
-            { slot: "custom-2", candidate: "account" },
-          ],
-          action: { candidate: "login", purpose: "submit" },
-        },
-      ],
-    });
-    expect(result).toEqual({ ok: false, reason: "variant-advance" });
-  });
+  registerActionPurpose({ emailPage, emailOnly, purposeOf, branch, input, observation, slots });
 });
 
 describe("a form that shows no button (ADR 0064)", () => {
