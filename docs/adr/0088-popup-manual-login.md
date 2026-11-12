@@ -62,10 +62,10 @@ which is unnecessary for one requested login.
 
 ## Interaction with page permissions
 
-Delivery 2 of ADR 0035 adds a passive sign-in attempt. **Log in now** may take over
-that attempt only while it is parked on its read-only page-change wait, with no input,
-acknowledgement, generation or passkey request in flight. A restored passive record
-with no running operation can also yield. Planning, active field reads, mutation intents,
+Delivery 2 of ADR 0035 adds a passive sign-in attempt. **Log in now** may take over that
+attempt only while it is parked on its read-only page-change wait, with no input,
+acknowledgement, generation or passkey request in flight. A restored passive record with
+no running operation can also yield. Planning, active field reads, mutation intents,
 challenge watches and account switches keep their existing refusal rules.
 
 The final authorization checks and removal of the old run occur without an intervening
