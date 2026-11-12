@@ -62,7 +62,6 @@
         "packages/inference/src/plan.test.ts",
         "services/api/test/generation.test.ts",
         "services/api/test/owner.test.ts",
-        "services/api/test/sync.test.ts",
         "tests/extension/login-generation.spec.ts",
         "tests/extension/login-server.ts",
         "tests/extension/login.spec.ts",
