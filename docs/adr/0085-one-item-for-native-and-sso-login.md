@@ -21,8 +21,8 @@ implementation details and were accepted with it. Amends
 used, field rules and item-wide exclusions) and
 [ADR 0027](0027-per-account-login-routes.md) (the `sso` fact, the route order, the
 custom-field offers and what the model receives), each in a dated amendment section. The
-`sso` route itself is still unimplemented (ADR 0027 delivery 5); the reserved field
-names are implemented
+`sso` route is now implemented with synthetic verification and independent review gates
+still open (ADR 0027 delivery 5); the reserved field names are implemented
 ([amendment](#amendment-2026-11-07-the-reserved-field-names-implemented)).
 
 Date: 2026-11-07

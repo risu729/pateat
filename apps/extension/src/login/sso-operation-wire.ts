@@ -2,6 +2,12 @@ import * as v from "valibot";
 import { loginTargetSchema } from "@pateat/contracts";
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
 const url = v.pipe(v.string(), v.minLength(1), v.maxLength(2 * 1024 * 1024));
+/** Ephemeral local IdP identity fence; never part of a journal or remote request. */
+export const ssoIdpExpectationSchema = v.strictObject({
+  username: v.pipe(v.string(), v.minLength(1), v.maxLength(1024)),
+  kind: v.picklist(["account", "continue", "stay-signed-in"]),
+});
+export type SsoIdpExpectation = v.InferOutput<typeof ssoIdpExpectationSchema>;
 export const ssoCommandSchemas = [
   v.strictObject({
     version: v.literal(1),
@@ -22,6 +28,7 @@ export const ssoCommandSchemas = [
     flowId: id,
     operationId: id,
     target: loginTargetSchema,
+    idp: v.optional(ssoIdpExpectationSchema),
   }),
   v.strictObject({
     version: v.literal(1),

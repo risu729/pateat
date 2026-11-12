@@ -1,4 +1,4 @@
-import type { LoginTarget } from "@pateat/contracts";
+import { sameLoginTarget, type LoginTarget } from "@pateat/contracts";
 import { newId } from "@pateat/contracts/ids";
 import { clickDestinations, ssoClickDestinations } from "../page/form-destination";
 import { visible } from "../page/code-submission";
@@ -12,7 +12,12 @@ import {
   extractPasskeyObservation,
 } from "../observation/extract";
 import { showsSignUp } from "../page/entry";
-import type { SsoContentCommand, SsoInspection, SsoIdpReading } from "./sso-operation-wire";
+import type {
+  SsoContentCommand,
+  SsoInspection,
+  SsoIdpReading,
+  SsoIdpExpectation,
+} from "./sso-operation-wire";
 
 const unsafe =
   /(?:\bconsent\b|\bauthori[sz]e\b|\bpermissions?\b|\bgrant\b.*\baccess\b|\bshar(?:e|ing)\b.*\b(?:email|account|data)\b|\b(?:create|register)\b.*\baccount\b|\bsign[ -]?up\b|新規|アカウント.*作成|権限|同意|共有)/iu;
@@ -184,6 +189,12 @@ export function readSsoReturn(
     );
   return { ok: true, identity: matched ? "match" : "absent" };
 }
+function idpCurrent(document: Document, target: LoginTarget, expected: SsoIdpExpectation): boolean {
+  const current = readSsoIdp(document, expected.username);
+  return (
+    current.kind === expected.kind && "target" in current && sameLoginTarget(current.target, target)
+  );
+}
 /** A prepared DOM object is single-use. The background must authorize after intent is durable. */
 export function createSsoContent(
   document: Document,
@@ -206,15 +217,25 @@ export function createSsoContent(
       element: HTMLElement;
       url: string;
       destinations: string[];
+      idp?: SsoIdpExpectation;
+      expiresAt: number;
+      timer: ReturnType<typeof setTimeout>;
     }
   >();
+  const clearPrepared = () => {
+    for (const held of prepared.values()) {
+      clearTimeout(held.timer);
+      if (held.idp) held.idp.username = "";
+    }
+    prepared.clear();
+  };
   return async (
     command: SsoContentCommand,
   ): Promise<
     SsoInspection | SsoIdpReading | { ok: boolean } | ReturnType<typeof readSsoReturn>
   > => {
     if (options.cancelled()) {
-      prepared.clear();
+      clearPrepared();
       return { ok: false, reason: "cancelled" };
     }
     if (command.type === "login.sso.return") return readSsoReturn(document, command.username);
@@ -224,37 +245,57 @@ export function createSsoContent(
       prepared.delete(command.handle);
       if (!held || held.flowId !== command.flowId || held.operationId !== command.operationId)
         return { ok: false, reason: "operation-gone" };
-      if (!(await options.authorize({ ...command, phase: "pointer" })))
-        return { ok: false, reason: "not-authorized" };
-      const current = () => {
-        if (options.cancelled() || document.URL !== held.url) return false;
-        const latest = inspected(document, held.target);
-        return (
-          !("reason" in latest) &&
-          latest.element === held.element &&
-          JSON.stringify(latest.destinations) === JSON.stringify(held.destinations)
-        );
-      };
-      if (!current()) return { ok: false, reason: "target-changed" };
-      const pressed = await pressPointer(held.element, current);
-      if (pressed !== "pressed" || !current()) return { ok: false, reason: "target-changed" };
-      if (!(await options.authorize({ ...command, phase: "click" })) || !current())
-        return { ok: false, reason: "not-authorized" };
-      HTMLElement.prototype.click.call(held.element);
-      return { ok: true };
+      try {
+        if (!(await options.authorize({ ...command, phase: "pointer" })))
+          return { ok: false, reason: "not-authorized" };
+        const current = () => {
+          if (
+            options.cancelled() ||
+            document.URL !== held.url ||
+            Date.now() >= held.expiresAt ||
+            (held.idp && !idpCurrent(document, held.target, held.idp))
+          )
+            return false;
+          const latest = inspected(document, held.target);
+          return (
+            !("reason" in latest) &&
+            latest.element === held.element &&
+            JSON.stringify(latest.destinations) === JSON.stringify(held.destinations)
+          );
+        };
+        if (!current()) return { ok: false, reason: "target-changed" };
+        const pressed = await pressPointer(held.element, current);
+        if (pressed !== "pressed" || !current()) return { ok: false, reason: "target-changed" };
+        if (!(await options.authorize({ ...command, phase: "click" })) || !current())
+          return { ok: false, reason: "not-authorized" };
+        HTMLElement.prototype.click.call(held.element);
+        return { ok: true };
+      } finally {
+        clearTimeout(held.timer);
+        if (held.idp) held.idp.username = "";
+      }
     }
     const found = inspected(document, command.target);
     if ("reason" in found) return { ok: false, reason: found.reason };
     if (command.type === "login.sso.inspect")
       return { ok: true, url: document.URL, destinations: found.destinations };
-    prepared.clear();
+    if (command.idp && !idpCurrent(document, command.target, command.idp))
+      return { ok: false, reason: "idp-identity-changed" };
+    clearPrepared();
     const handle = newId();
+    const idp = command.idp ? { ...command.idp } : undefined;
     prepared.set(handle, {
       ...found,
       flowId: command.flowId,
       operationId: command.operationId,
       target: command.target,
       url: document.URL,
+      ...(idp ? { idp } : {}),
+      expiresAt: Date.now() + 30_000,
+      timer: setTimeout(() => {
+        if (idp) idp.username = "";
+        prepared.delete(handle);
+      }, 30_000),
     });
     return { ok: true, url: document.URL, destinations: found.destinations, handle };
   };
