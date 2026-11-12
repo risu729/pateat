@@ -338,7 +338,8 @@ account creation. It does not handle a new window or a browser-managed identity
 dialog. Signing in to the provider alone is not success: the original site must
 confirm the completed sign-in. An interrupted flow is not automatically replayed.
 
-Site access, vault restrictions, master-password checks and page behavior still apply
-at both sites. Automatic **Fill only** behavior does not press SSO entries or
-continuation controls.
-Pateat does not create accounts, change provider grants or rewrite vault items.
+Both the original site and the provider must allow **Auto** sign-in and be unpaused.
+A one-page **Sign in now** request does not override these settings for an SSO hop.
+Site access, vault restrictions and master-password checks still apply at both sites.
+**Fill only** does not press SSO entries or continuation controls. Pateat does not
+create accounts, change provider grants or rewrite vault items.
