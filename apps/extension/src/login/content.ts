@@ -1283,7 +1283,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           return { ok: false };
         const destinations = () => [
           ...controls.flatMap((control) => formDestinations(control as Control, "fill")),
-          ...controls.flatMap((control) => submitterDestinations(control as Control)),
+          ...submitterDestinations(controls as Control[]),
           ...clickDestinations(button),
         ];
         const before = destinations();
