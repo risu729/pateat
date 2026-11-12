@@ -643,16 +643,16 @@ names and counts as well as the local Worker tests when changing this layout.
 ### Observation reader test organization
 
 `apps/extension/src/observation/extract.test.ts` remains the discovered Chromium
-suite and owns its hoisted shadow-root mock, shared page readers, root setup and
-cleanup, and original describe nesting. Plain registration modules under
-`apps/extension/test/observation/` own the contiguous login reader, locator,
-candidate, visibility, known-field and shadow/redaction groups, and the signed-in
-reader, nearby-button text and candidate groups. The entry calls each registrar
-synchronously at the original position and passes the same shared helper functions;
-modules do not register tests when imported. The existing nested setup and cleanup
-stay with their cases. These modules sit outside the production coverage root and
-keep the same callbacks, assertions and parameter tables without changing test
-discovery, test ordering or runner configuration.
+suite and owns its hoisted shadow-root mock, the shared `page`, `shadow`, `observe`,
+`summary` and `signedIn` helpers, the root setup and cleanup, and the original
+describe nesting. Plain registration modules under `apps/extension/test/observation/`
+own the contiguous login reader, locator, candidate, visibility, known-field and
+shadow/redaction groups, and the signed-in reader, nearby-button text and candidate
+groups. The entry calls each registrar synchronously at the original position and
+passes the same helper functions; modules do not register tests when imported. Each
+file follows the 1,000-line limit. These modules sit outside the production coverage
+root and keep the same callbacks, assertions and parameter tables without changing
+test discovery, test ordering or runner configuration.
 
 ### Login wire contracts
 
