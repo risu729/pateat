@@ -48,6 +48,17 @@ account-option and rule decisions; `site-policy-rows.tsx` owns the reusable site
 component and default-account editor. Existing controls, keys, focus behavior and
 public exports are preserved.
 
+The Bitwarden settings panel keeps its public component in
+`options/bitwarden-setup.tsx`. `use-bitwarden-setup.ts` owns the page's state, actions,
+response fences, challenge heartbeat and focus effects in their original hook order and
+client lifetime. `bitwarden-setup-view.tsx`, `bitwarden-connection-rows.tsx` and
+`bitwarden-setup-review.tsx` render the panel, connection rows and field reviews through
+hook-free synchronous render functions, preserving element ancestry and existing
+component identities. Status and message projections live in
+`bitwarden-connection-status.tsx` and `bitwarden-setup-messages.ts`. The shared delete
+dialog handle stays at module scope; secret clearing, cancellation, deadlines and
+generation guards keep their existing order. Existing tests stay in place.
+
 The extension's `service/transport.ts` retains endpoint contracts and response mapping.
 `service-call.ts` owns bounded JSON fetching, credential and redirect rules,
 cancellation and request timing. `service-timing.ts` owns pure timing parsing and
