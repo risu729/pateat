@@ -47,6 +47,7 @@ afterEach(() => {
   history.replaceState(null, "", initialUrl);
   document.title = initialTitle;
   document.body.innerHTML = "";
+  document.getElementById("sso-test-base")?.remove();
 });
 
 describe("SSO prepared DOM operations", () => {
@@ -142,7 +143,12 @@ describe("SSO prepared DOM operations", () => {
       });
       expect(await h.run(commit)).toEqual({ ok: false, reason: "target-changed" });
       expect(h.events).toEqual([]);
-      expect(await h.run(commit)).toEqual({ ok: false, reason: "operation-gone" });
+      expect(await h.run(commit)).toEqual({
+        ok: false,
+        reason: change === "cancel" ? "cancelled" : "operation-gone",
+      });
+      expect(h.authorize).toHaveBeenCalledTimes(1);
+      expect(h.events).toEqual([]);
     },
   );
   it("rechecks the exact observed navigation destination after authorization", async () => {
@@ -183,7 +189,7 @@ describe("SSO prepared DOM operations", () => {
       document.title = "Share account data";
     });
     const commit = await prepare(h.run);
-    await h.run(commit);
+    expect(await h.run(commit)).toEqual({ ok: false });
     expect(h.events).toContain("pointerdown");
     expect(h.events).not.toContain("click");
     expect(await h.run(commit)).toEqual({ ok: false, reason: "operation-gone" });
@@ -193,6 +199,63 @@ describe("SSO prepared DOM operations", () => {
     const commit = await prepare(h.run);
     h.cancel();
     expect(await h.run(commit)).toEqual({ ok: false, reason: "cancelled" });
+    expect(h.authorize).not.toHaveBeenCalled();
+    expect(h.events).toEqual([]);
+  });
+  it.each(
+    ["pointerdown", "mousedown", "pointerup"].flatMap((eventType) =>
+      ["cancel", "replace", "path", "unsafe"].map((change) => [eventType, change] as const),
+    ),
+  )(
+    "reports a stopped %s press after %s as failure and never replays its handle",
+    async (eventType, change) => {
+      const h = harness();
+      const entry = document.getElementById("entry")!;
+      entry.addEventListener(eventType, () => {
+        if (change === "cancel") h.cancel();
+        if (change === "replace") entry.replaceWith(entry.cloneNode(true));
+        if (change === "path")
+          history.replaceState(null, "", location.pathname + "?changed=" + eventType);
+        if (change === "unsafe") document.title = "Share account data";
+      });
+      const commit = await prepare(h.run);
+      expect(await h.run(commit)).toEqual({ ok: false });
+      expect(h.events).toContain(eventType);
+      expect(h.events).not.toContain("click");
+      expect(await h.run(commit)).toMatchObject({ ok: false });
+      expect(h.authorize).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each([
+    '<a id="entry" href="https://idp.example.test/">Continue</a>',
+    '<a id="entry" href="https://idp.example.test/" target="">Continue</a>',
+    '<form action="https://idp.example.test/"><button id="entry">Continue</button></form>',
+    '<form action="https://idp.example.test/" target=""><input id="entry" type="submit" value="Continue"></form>',
+  ])("refuses an inherited base browsing context for entry %#", async (markup) => {
+    const base = document.createElement("base");
+    base.id = "sso-test-base";
+    base.target = "_blank";
+    document.head.append(base);
+    html(markup);
+    const h = harness();
+    expect(await h.run(command("prepare"))).toMatchObject({ ok: false });
+    expect(h.authorize).not.toHaveBeenCalled();
+    expect(h.events).toEqual([]);
+  });
+  it.each([
+    '<a id="entry" href="https://idp.example.test/" target="_self">Continue</a>',
+    '<form action="https://idp.example.test/" target="_self"><button id="entry">Continue</button></form>',
+    '<form action="https://idp.example.test/"><button id="entry" formtarget="_self">Continue</button></form>',
+    '<form action="https://idp.example.test/" target="_blank"><button id="entry" formtarget="_self">Continue</button></form>',
+    '<form id="sso-form" action="https://idp.example.test/" target="_blank"></form><button id="entry" form="sso-form" formtarget="_self">Continue</button>',
+  ])("honors the effective explicit self override for entry %#", async (markup) => {
+    const base = document.createElement("base");
+    base.id = "sso-test-base";
+    base.target = "_blank";
+    document.head.append(base);
+    html(markup);
+    const h = harness();
+    expect(await h.run(command("prepare"))).toMatchObject({ ok: true });
     expect(h.authorize).not.toHaveBeenCalled();
     expect(h.events).toEqual([]);
   });
@@ -303,4 +366,29 @@ describe("finite local IdP page reading", () => {
     );
     expect(["unknown", "unsafe"]).toContain(readSsoIdp(document, "synthetic-user").kind);
   });
+  it.each(["Continue as attacker", "attackerでログイン"])(
+    "refuses an action for another named identity despite the selected identity elsewhere: %s",
+    (label) => {
+      html('<h1>Continue</h1><p>targetuser</p><button id="entry">' + label + "</button>");
+      expect(["unknown", "unsafe"]).toContain(readSsoIdp(document, "targetuser").kind);
+    },
+  );
+  it.each([
+    "Continue as other@example.test (target@example.test)",
+    "target@example.test / other@example.test",
+    "other@example.test と target@example.test でログイン",
+  ])("refuses one account control naming conflicting full identities: %s", (label) => {
+    html('<h1>Choose an account</h1><button id="entry">' + label + "</button>");
+    expect(readSsoIdp(document, "target@example.test").kind).toBe("unsafe");
+  });
+  it.each(["Continue as targetuser", "targetuserでログイン"])(
+    "permits the full matching named non-email identity: %s",
+    (label) => {
+      html('<h1>Continue</h1><p>targetuser</p><button id="entry">' + label + "</button>");
+      expect(readSsoIdp(document, "targetuser")).toMatchObject({
+        kind: "continue",
+        target: { by: "id", value: "entry" },
+      });
+    },
+  );
 });
