@@ -2702,6 +2702,9 @@ with that field as its target: the executor then submits the field's form as Ent
 through the form's default button or `requestSubmit()`, never through a default button
 that showed when the fill began, is disabled or sits outside the form
 ([ADR 0064](adr/0064-enter-in-a-form-without-a-button.md)).
+Constraint validation, the form's `novalidate` attribute and the fallback submission
+are accessed through platform prototypes, so controls named `checkValidity`,
+`noValidate` or `requestSubmit` do not replace the form APIs used for this step.
 
 A stored recipe is either a login recipe, with `pageKind`, `slots`, `steps`,
 `maxSubmissions` and the optional route members, or an entry recipe
