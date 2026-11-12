@@ -796,3 +796,110 @@ test("a page whose recipe was generated as a verification only watches, and logs
     await fixture.close();
   }
 });
+
+test("a synced confirmation recipe fills the authenticated encrypted-vault account and never presses its guarded action", async () => {
+  const fixture = await startLoginFixture(0, { password: "test_password" });
+  const service = await startSyncService();
+  const confirmation: LoginRecipe = {
+    ...route,
+    id: "synthetic-confirmation",
+    pageKind: "confirm",
+    slots: ["password"],
+    steps: [
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/confirm-access",
+        fields: [{ slot: "password", target: target("verification-password") }],
+      },
+      {
+        kind: "click",
+        path: "/confirm-access",
+        target: target("guarded-action"),
+        purpose: "submit",
+      },
+    ],
+  };
+  const confirmationDocument: LoginRecipeDocument = {
+    version: 1,
+    id: confirmation.id,
+    revision: 1,
+    origin: site,
+    layouts: [toLoginLayout(confirmation, { key: newLayoutKey(createdAt, []), createdAt })],
+  };
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        await browser.context.route(`${site}/confirm-access`, async (request) =>
+          request.fulfill({
+            contentType: "text/html",
+            body: `<!doctype html><title>Confirm access</title><h1>Confirm access</h1><form><label>Password<input id="verification-password" type="password" autocomplete="current-password"></label><button id="guarded-action">Perform guarded action</button></form><script>window.effects={clicks:0,enters:0,submits:0};document.querySelector('button').addEventListener('click',()=>window.effects.clicks++);document.addEventListener('keydown',e=>{if(e.key==='Enter')window.effects.enters++});document.querySelector('form').addEventListener('submit',e=>{e.preventDefault();window.effects.submits++})</script>`,
+          }),
+        );
+        await setupProbe(browser.page, { action: "configure", variant: "uri" });
+        const { options, accepted } = await prepare(browser, service, undefined, [
+          confirmationDocument,
+        ]);
+        const page = await browser.context.newPage();
+        const runId = fixture.createRun();
+        await page.goto(`${site}/identity?runId=${runId}`);
+        await expect(page.locator("#authenticated")).toBeVisible();
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({ attempts: [{ state: "authenticated", outcome: "authenticated" }] });
+        const before = (await send(options, { version: 1, type: "login.probe.status" })) as {
+          attempts: unknown[];
+        };
+        const settings = await settingsRequest(options);
+        await page.goto(`${site}/confirm-access`);
+        await expect(page.locator("#verification-password")).toHaveValue("test_password");
+        expect(
+          await page.evaluate(() => (window as unknown as { effects: unknown }).effects),
+        ).toEqual({ clicks: 0, enters: 0, submits: 0 });
+        const after = (await send(options, { version: 1, type: "login.probe.status" })) as {
+          attempts: unknown[];
+        };
+        expect(after.attempts).toEqual(before.attempts);
+        expect((await settingsRequest(options)).snapshot).toEqual(settings.snapshot);
+        const session = await browser.background.evaluate(async () => {
+          const chrome = (
+            globalThis as unknown as {
+              chrome: {
+                storage: { session: { get(key: string): Promise<Record<string, unknown>> } };
+              };
+            }
+          ).chrome;
+          return (await chrome.storage.session.get("pateat.confirm-fills.v1"))[
+            "pateat.confirm-fills.v1"
+          ];
+        });
+        expect(session).toMatchObject({
+          proofs: [expect.objectContaining({ connectionId: accepted.connectionId })],
+          claims: [expect.anything()],
+        });
+        expect(JSON.stringify(session)).not.toContain("test_password");
+        const elsewhere = await browser.context.newPage();
+        await elsewhere.goto(`${site}/confirm-access`);
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({
+            documents: [
+              expect.objectContaining({ reason: "confirm-fill" }),
+              expect.objectContaining({ state: "watching" }),
+            ],
+          });
+        await expect(elsewhere.locator("#verification-password")).toHaveValue("");
+        expect(
+          await elsewhere.evaluate(() => (window as unknown as { effects: unknown }).effects),
+        ).toEqual({ clicks: 0, enters: 0, submits: 0 });
+        expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});

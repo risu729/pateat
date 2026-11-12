@@ -66,12 +66,7 @@ describe("production login document admission", () => {
     fake.state.incognito = new Set();
     fake.state.openTabs = undefined;
   });
-  const signinStart = {
-    path: "/signin",
-    require: "writable",
-    targets: [{ by: "id", value: "password" }],
-    signIn: [{ by: "id", value: "password" }],
-  };
+
   const branchRecipe = parseLoginRecipe({
     ...recipe,
     slots: ["branch", "password"],
@@ -332,16 +327,14 @@ describe("production login document admission", () => {
           };
           expect(await h.hello({ documentId: "verify" })).toEqual({
             ok: false,
-            reason: "logged-in",
-            starts: [signinStart],
+            reason: "confirm-fill",
             confirm: confirming,
           });
           expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
           expect(attempts()).toMatchObject([{ state: "authenticated" }]);
           expect(await shownHello(h, { documentId: "verify" })).toEqual({
             ok: false,
-            reason: "logged-in",
-            starts: [signinStart],
+            reason: "confirm-fill",
             confirm: confirming,
           });
           // It logs what the page showed, never a value: the recipes' signed-in marker (E1),
@@ -349,26 +342,39 @@ describe("production login document admission", () => {
           const refusals = () =>
             report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
           await vi.waitFor(() =>
-            expect(refusals()).toEqual([
-              {
-                type: "refused",
-                tabId: 1,
-                origin,
-                reason: "not-started",
-                detail: "confirm-unsupported",
-                recipeId: "gen-confirm",
-                recipeRevision: confirm.revision,
-                pageKind: "confirm",
-                e1: true,
-                e2: false,
-                previousUrl: `${origin}/signin`,
-              },
-            ]),
+            expect(refusals()).toEqual(
+              expect.arrayContaining([
+                {
+                  type: "refused",
+                  tabId: 1,
+                  origin,
+                  reason: "not-started",
+                  detail: "confirm-fill",
+                  recipeId: "gen-confirm",
+                  recipeRevision: confirm.revision,
+                  pageKind: "confirm",
+                  e1: true,
+                  e2: false,
+                  previousUrl: `${origin}/signin`,
+                },
+              ]),
+            ),
           );
-          // Nothing is filled, and the login stays signed in.
-          expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual(
-            executed,
+          // Only the safe preparing fields are filled; the original login stays signed in.
+          await vi.waitFor(() =>
+            expect(
+              fake.state.messages.filter((entry) => entry.type === "login.execute"),
+            ).toHaveLength(executed.length + 1),
           );
+          expect(
+            fake.state.messages.filter((entry) => entry.type === "login.execute").at(-1),
+          ).toMatchObject({
+            operation: {
+              attemptId: expect.stringMatching(/^confirm:/u),
+              signInFill: true,
+              step: { kind: "fill", effect: "prepare" },
+            },
+          });
           expect(attempts()).toMatchObject([{ state: "authenticated" }]);
           // The tab leaves the page without the person's submit. E1 showed there, so the
           // next page is not read for it.

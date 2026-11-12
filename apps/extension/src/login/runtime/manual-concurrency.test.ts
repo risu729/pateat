@@ -36,6 +36,14 @@ function harness() {
     timing: { since: 0, serviceMs: 0, networkMs: 0, personMs: 0 },
   };
   const rt = {
+    confirmFill: {
+      loaded: Promise.resolve(),
+      healthy: true,
+      proofs: [],
+      claims: [],
+      work: new Map(),
+      queue: Promise.resolve(),
+    },
     options: {},
     vars: { loaded: Promise.resolve(), sessionLoaded: Promise.resolve() },
     settings: {
