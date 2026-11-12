@@ -172,8 +172,7 @@ levels and limits; `log-fields.ts` owns the stored-value schemas; `log-format.ts
 owns URL filtering and the pure export, problem-line and recent-log projections.
 The writer uses those same schemas and projections, so values written, downloaded
 and sent to the service share their checks. Existing callers keep importing from
-`log.ts`; its browser test suite stays in one file with its assertions and tables
-unchanged.
+`log.ts`.
 
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
@@ -479,6 +478,16 @@ file on GitHub Releases, loaded with **Load unpacked**. `apps/docs/package.json`
 `license` field, like `services/api`, until the owner decides whether
 [LICENSING.md](../LICENSING.md)'s installation material covers the site.
 
+### Login contract test organization
+
+The login contract tests keep `packages/contracts/src/login.test.ts` as their only
+discovered entry. It owns the shared fixture factories and the second-factor suite's
+local helpers. Plain modules under `packages/contracts/test/login/` export synchronous
+registration functions called at the original positions and describe nesting; importing
+a module registers no tests. The case callbacks, tables, titles, hooks and registration
+order stay unchanged. These test modules live outside `src/` so they do not enter the
+production coverage denominator.
+
 ### Test coverage
 
 CI measures test coverage and reports it without failing on it (owner decision,
@@ -628,6 +637,70 @@ Harness modules are excluded from coverage. Test files and helpers follow the
 expanded test count. The owner approved this organization with the runtime split
 on 2026-10-30. Compare the full Verify job as well as test counts when changing the
 suite layout, since each file loads the runtime and harness separately.
+
+### API sync test organization
+
+`services/api/test/sync.test.ts` remains the sole discovered entry for the sync
+suite. Plain modules in `services/api/test/sync/` export synchronous registration
+functions, called by that entry in the original describe order; importing a leaf
+registers no cases. `harness.ts` holds the shared synthetic owners, devices,
+settings and recipe helpers once. The existing describe nesting, registration
+order, callbacks, parameter tables and migration SQL remain unchanged. Each file
+follows the 1,000-line limit. The API coverage configuration covers production
+`src/` only, so these test helpers remain outside it. Compare expanded collection
+names and counts as well as the local Worker tests when changing this layout.
+
+### Observation reader test organization
+
+`apps/extension/src/observation/extract.test.ts` remains the discovered Chromium
+suite and owns its hoisted shadow-root mock, the shared `page`, `shadow`, `observe`,
+`summary` and `signedIn` helpers, the root setup and cleanup, and the original
+describe nesting. Plain registration modules under `apps/extension/test/observation/`
+own the contiguous login reader, locator, candidate, visibility, known-field and
+shadow/redaction groups, and the signed-in reader, nearby-button text and candidate
+groups. The entry calls each registrar synchronously at the original position and
+passes the same helper functions; modules do not register tests when imported. Each
+file follows the 1,000-line limit. These modules sit outside the production coverage
+root and keep the same callbacks, assertions and parameter tables without changing
+test discovery, test ordering or runner configuration.
+
+### Passkey runtime test organization
+
+`apps/extension/src/passkeys/runtime.test.ts` is the discovered entry for the passkey
+runtime suite. It owns the describe scopes, the shared fixtures and the timer cleanup
+of the immediate-request cases. Plain modules in `apps/extension/test/passkeys/`
+export synchronous registration functions for contiguous case groups, which the entry
+calls inside those scopes with the same fixture and helper references; importing a
+module registers no cases. `runtime-context.ts` holds the fixture types. The modules
+sit outside `src/`, so they stay outside the production coverage root without an
+exclude. Each file follows the 1,000-line limit.
+
+### Connection settings test organization
+
+The options connection suite keeps `tests/options/connection-setup.test.tsx` as its
+only discovered entry. It owns the options stylesheet import, shared synthetic
+clients and fixtures, mount/query helpers, timer and focus helpers, and root cleanup.
+Its synchronous registrar modules under `tests/options/connection-setup/` register
+contiguous scenarios in the original root order, without their own hooks or suites.
+The modules own adding and verification, challenge lifetimes, catalog saves and
+reloads, connection management and recovery, policy and limits, keyboard focus, and
+vault locking and status. `context.ts` owns their type-only shared-helper contract.
+The challenge registrar reads the registered-connection fixture, which the entry
+initializes after the call, through a getter inside its test callback. The entry owns
+cleanup and mock restoration. Each file follows the 1,000-line limit.
+
+### Diagnostics log test organization
+
+`apps/extension/src/diagnostics/log.test.ts` is the discovered Chromium entry for the
+diagnostics log suite. It owns the describe scopes, the shared `setup` helper, which
+names a fresh database on each call, and the shared fixtures. Plain modules in
+`apps/extension/test/diagnostics/` export synchronous registration functions for
+contiguous case groups: stored fields, background, vault, event, login and page
+reports, retention, export, recent logs and problem lines. The entry calls them
+inside its describe scopes with the same helper and fixture references; importing a
+module registers no cases. `context.ts` holds the shared types. The modules sit
+outside `src/`, so they stay outside the production coverage root. Each file follows
+the 1,000-line limit.
 
 ### Login wire contracts
 
