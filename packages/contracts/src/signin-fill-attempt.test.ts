@@ -246,6 +246,18 @@ describe("sign-in autofill attempt contracts", () => {
       submissions: 0,
     });
     expect(nextLoginOperation(expired, recipe, document, "expired")).toBeUndefined();
+    const done = transitionLoginAttempt(progressed, { type: "FILL_DONE" });
+    expect(done).toMatchObject({
+      state: "blocked",
+      outcome: "cancelled",
+      fillDone: true,
+      stepIndex: 2,
+      submissions: 0,
+    });
+    expect(done.fillExpired).toBeUndefined();
+    expect(nextLoginOperation(done, recipe, document, "done")).toBeUndefined();
+    const { signInFill: _, ...ordinary } = progressed;
+    expect(transitionLoginAttempt(ordinary, { type: "FILL_DONE" })).toEqual(ordinary);
   });
 
   it("ignores automatic judgement, passkey route switches and automatic submissions", () => {

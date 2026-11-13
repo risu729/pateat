@@ -1,7 +1,7 @@
 // Value-free document-start guard for profile/site autofill (ADR 0035).
 // The isolated world's state survives worker restarts and content reconnects. Identity
 // aliases protect a replacement input too; an ambiguous identity sacrifices autofill.
-import { shadowRoots } from "./shadow";
+import { shadowRootOf, shadowRoots } from "./shadow";
 
 const key = Symbol.for("pateat.fillEdits");
 type State = {
@@ -35,17 +35,21 @@ export function recordFillEdits(document: Document, window: Window): () => void 
     filled: new Set(),
   };
   holder[key] = state;
+  const roots = new Set<ShadowRoot>();
   const typed = (event: Event) => {
     if (!event.isTrusted) return;
-    const input = event
-      .composedPath()
-      .find(
-        (node): node is Element =>
-          node instanceof Element && ["input", "select", "textarea"].includes(node.localName),
-      );
+    const path = event.composedPath();
+    const input = path.find(
+      (node): node is Element =>
+        node instanceof Element && ["input", "select", "textarea"].includes(node.localName),
+    );
     if (!input) {
-      // A closed shadow root conceals the target: no later field can be proved untouched.
-      state.opaque = true;
+      // A closed shadow root conceals the target from a listener outside it; the root's
+      // own listener sees it. One not listened to yet leaves no later field provably
+      // untouched. An edit of no field, as of an editable region, touches none.
+      const [origin] = path;
+      const root = origin instanceof Element ? shadowRootOf(origin) : null;
+      if (root && !roots.has(root)) state.opaque = true;
       return;
     }
     state.touched.add(input);
@@ -53,7 +57,6 @@ export function recordFillEdits(document: Document, window: Window): () => void 
     if (state.identities.size > 1024) state.opaque = true;
   };
   const events = ["beforeinput", "input", "change", "paste", "drop", "compositionstart"];
-  const roots = new Set<ShadowRoot>();
   const attach = () => {
     for (const root of shadowRoots(document))
       if (!roots.has(root)) {

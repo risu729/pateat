@@ -504,8 +504,8 @@ export const en = {
   "Unlock in settings": "Unlock in settings",
   "verification filling is turned off for this site or profile":
     "verification filling is turned off for this site or profile",
-  "Autofill stopped after 10 minutes. Reload the page or choose an account to continue.":
-    "Autofill stopped after 10 minutes. Reload the page or choose an account to continue.",
+  "Autofill stopped after {{minutes}} minutes. Reload the page or choose an account to continue.":
+    "Autofill stopped after {{minutes}} minutes. Reload the page or choose an account to continue.",
   "Autofill only: Pateat may fill sign-in fields and presses nothing. Continue the site's steps yourself.":
     "Autofill only: Pateat may fill sign-in fields and presses nothing. Continue the site's steps yourself.",
   "Autofill stopped: {{why}}. Nothing was pressed.":

@@ -181,7 +181,6 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       documentOperations >= MAX_DOCUMENT_OPERATIONS
     )
       return { kind: "delegate", reason: "busy" };
-
     if (admission.kind === "delegate") {
       if (admission.reason === "invalid-request") {
         const invalid = describeInvalidRequest(message.request);
@@ -192,7 +191,6 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       }
       return admission;
     }
-
     if (permissionRefusal) return { kind: "delegate", reason: permissionRefusal };
     detail.rpId = admission.request.rpId;
     detail.allowCredentials = admission.request.allowCredentialIds.length;

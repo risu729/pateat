@@ -510,8 +510,8 @@ export const ja = {
   "Unlock in settings": "設定でロック解除",
   "verification filling is turned off for this site or profile":
     "このサイトまたはプロファイルでは、再確認ページへの入力がオフです",
-  "Autofill stopped after 10 minutes. Reload the page or choose an account to continue.":
-    "10 分が経過したため自動入力を停止しました。続けるには、ページを再読み込みするかアカウントを選んでください。",
+  "Autofill stopped after {{minutes}} minutes. Reload the page or choose an account to continue.":
+    "{{minutes}} 分が経過したため自動入力を停止しました。続けるには、ページを再読み込みするかアカウントを選んでください。",
   "Autofill only: Pateat may fill sign-in fields and presses nothing. Continue the site's steps yourself.":
     "自動入力のみ：Pateat はログイン欄に入力する場合がありますが、ボタンは押しません。サイトの手順はご自身で進めてください。",
   "Autofill stopped: {{why}}. Nothing was pressed.":

@@ -1,10 +1,5 @@
 import * as v from "valibot";
-import {
-  parseAttemptMetadata,
-  recoverLoginAttempt,
-  resolvePagePermission,
-  type LocalSettings,
-} from "@pateat/contracts";
+import { parseAttemptMetadata, recoverLoginAttempt, type LocalSettings } from "@pateat/contracts";
 import { browser, type Browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
 import { configureSchema } from "../wire";
@@ -61,7 +56,7 @@ import {
   conditionalRequest,
 } from "./passkey";
 import type { Runtime } from "./state";
-import { terminal } from "./attempt-state";
+import { explicitlyPicked, pagePermission, signInPermission } from "./page-permission";
 import { createRuntimeState } from "./state";
 import type { SettingsRuntime, LoginRuntimeOptions } from "./deps";
 
@@ -102,34 +97,26 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
       await rt.vars.sessionLoaded;
       const snapshot = await settings.handle({ version: 1, type: "settings.get" });
       if (!snapshot.ok) return "settings-unavailable";
-      const permission = resolvePagePermission(snapshot.snapshot.settings, input.origin, "sign-in");
       if (
         input.allowCredentials &&
         !input.conditional &&
         (await passkeyReverification(rt, input.tabId, input.origin))
       ) {
-        const confirm = resolvePagePermission(snapshot.snapshot.settings, input.origin, "confirm");
-        return confirm?.permission !== "fill" ? "confirm-off" : "confirm-fill";
+        const confirm = pagePermission(snapshot.snapshot.settings, input.origin, "confirm");
+        return confirm.permission !== "fill" ? "confirm-off" : "confirm-fill";
       }
-      const run = rt.attempts.get(input.tabId);
-      const pick = rt.picked.get(input.tabId);
-      const explicit =
-        pick &&
-        !pick.site &&
-        pick.origin === input.origin &&
-        (pick.attemptId === undefined
-          ? pick.documentId === input.documentId
-          : run &&
-            !terminal(run.metadata) &&
-            !run.metadata.signInFill &&
-            run.metadata.account.origin === input.origin &&
-            pick.attemptId === run.metadata.id);
-      if (
-        permission?.permission !== "auto" &&
-        !explicit &&
-        (input.conditional || !input.userActivation)
-      )
-        return "sign-in-fill";
+      if (input.userActivation && !input.conditional) return undefined;
+      if (explicitlyPicked(rt, input)) return undefined;
+      // A frame's request follows the rule of its tab's site too, as its logins do.
+      const topUrl = await browser.tabs.get(input.tabId).then(
+        (tab) => tab.url,
+        () => undefined,
+      );
+      const permission = signInPermission(snapshot.snapshot.settings, {
+        url: input.origin,
+        ...(topUrl ? { topUrl } : {}),
+      });
+      if (permission.permission !== "auto") return "sign-in-fill";
       return undefined;
     },
     handle: (message: unknown, sender: Sender) => handle(rt, message, sender),

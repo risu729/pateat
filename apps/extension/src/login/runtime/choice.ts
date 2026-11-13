@@ -293,6 +293,7 @@ export async function popupStatus(rt: Runtime, tabId: number): Promise<StatusRes
             ...(known.login.fillOnly ? { fillOnly: true as const } : {}),
             ...(known.login.signInFill ? { signInFill: true as const } : {}),
             ...(known.login.fillExpired ? { fillExpired: true as const } : {}),
+            ...(known.login.fillDone ? { fillDone: true as const } : {}),
             ...(settled ? { settled: true as const } : {}),
           },
         }

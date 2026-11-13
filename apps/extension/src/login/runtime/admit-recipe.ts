@@ -1,5 +1,4 @@
 import {
-  resolvePagePermission,
   continuesRecipe,
   extendsRecipe,
   passwordVariants,
@@ -56,8 +55,8 @@ import { repairChooserForm, repairStale } from "./repair-run";
 import type { Runtime } from "./state";
 import { admitStart } from "./admit-start";
 import type { AdmitContext, AdmitStartContext } from "./admit-context";
-
-import { automaticFill, pageOff } from "./sign-in-fill";
+import { passiveSignIn, pageOff } from "./sign-in-fill";
+import { pagePermission } from "./page-permission";
 
 export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readiness> {
   // The tab asks for an account after the site rejected its login or another tab's login
@@ -399,7 +398,10 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
             (candidate) => candidate.entry.path === ctx.live.path,
           );
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
-    if (entryRecipe && !(await automaticFill(rt, ctx.live))) {
+    // A page that only fills presses no entry (ADR 0035).
+    const passive = entryRecipe ? await passiveSignIn(rt, ctx.live) : false;
+    if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+    if (entryRecipe && !passive) {
       ctx.live.state = "watching";
       delete ctx.live.reason;
       await publish(rt, ctx.live);
@@ -420,9 +422,9 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
       const snapshot = await rt.settings.handle({ version: 1, type: "settings.get" });
       if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
       if (!snapshot.ok) return ctx.refuse("settings-unavailable");
-      const permission = resolvePagePermission(snapshot.snapshot.settings, ctx.live.url, "confirm");
-      if (permission?.permission !== "fill")
-        return pageOff(rt, ctx.live, confirm, permission?.source ?? "default", ctx.shown?.amount);
+      const permission = pagePermission(snapshot.snapshot.settings, ctx.live.url, "confirm");
+      if (permission.permission !== "fill")
+        return pageOff(rt, ctx.live, confirm, permission.source, ctx.shown?.amount);
       const visit = confirmPage(rt, ctx.live, confirm);
       ctx.notStarted("confirm-unsupported", visit);
       ctx.live.state = "watching";
@@ -492,14 +494,18 @@ export async function admitRecipe(rt: Runtime, ctx: AdmitContext): Promise<Readi
     const listing = shownList && (shownList.names || !shownList.missed) ? shownList : undefined;
     // A page whose URL names another path of its site may be sent as a sign-in entry
     // once no sign-in input showed (ADR 0031); a list of accounts goes first.
-    // A frame's page is never one: an entry's press leads the tab's page (ADR 0086).
+    // A frame's page is never one: an entry's press leads the tab's page (ADR 0086). Nor
+    // is a page that only fills, which never presses the entry it would pay to generate
+    // (ADR 0035).
     const entryPage =
       offer &&
       ctx.document.frameId === 0 &&
       (namesReturnPath(new URL(ctx.live.url), sameSiteAs(ctx.live.url)) ||
-        (await switchingTab(rt, ctx.live)))
+        (await switchingTab(rt, ctx.live))) &&
+      !(await passiveSignIn(rt, ctx.live))
         ? true
         : undefined;
+    if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
     const entryOffer = !plain && ctx.entryHello?.path === ctx.live.path;
     // A page with a passkey button is sent as a passkey-only page when a matching item
     // holds a discoverable passkey; otherwise the entry it also shows is handled below as

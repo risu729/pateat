@@ -104,6 +104,7 @@ export type PageStatus = {
     fillOnly?: true;
     signInFill?: true;
     fillExpired?: true;
+    fillDone?: true;
   };
   /** A refusal that shows a failure badge, until a login of the tab moves on. */
   refused?: { reason: string; detail?: string };
@@ -510,6 +511,7 @@ export function createLoginBadge(deps: {
           ...(report.reason === "fill-only" ? { fillOnly: true as const } : {}),
           ...(report.fillMode === "sign-in-fill" ? { signInFill: true as const } : {}),
           ...(report.fillExpired ? { fillExpired: true as const } : {}),
+          ...(report.fillDone ? { fillDone: true as const } : {}),
         },
       };
     else if (report.type === "generation" && report.outcome !== "skipped") {
@@ -818,6 +820,7 @@ const storedSchema = v.object({
             fillOnly: v.exactOptional(v.literal(true)),
             signInFill: v.exactOptional(v.literal(true)),
             fillExpired: v.exactOptional(v.literal(true)),
+            fillDone: v.exactOptional(v.literal(true)),
           }),
         ),
         refused: v.exactOptional(

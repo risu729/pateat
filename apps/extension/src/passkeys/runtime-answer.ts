@@ -96,8 +96,8 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     const selection: typeof found = unset
       ? { kind: "delegate", reason: "ambiguous-credential" }
       : found;
-    const signWith = async (candidate: TCandidate) => {
-      await unlisted(signal);
+    // The page's permission is read before signing, and again before an assertion leaves.
+    const refused = async () => {
       const refusal = await abortable(
         Promise.try(() =>
           options.pagePermission?.({
@@ -111,6 +111,11 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
         signal,
       );
       signal.throwIfAborted();
+      return refusal;
+    };
+    const signWith = async (candidate: TCandidate) => {
+      await unlisted(signal);
+      const refusal = await refused();
       if (refusal) throw new PagePermissionRefusal(refusal);
       setStep("signing");
       return abortable(
@@ -263,19 +268,7 @@ export function createPasskeyAnswer<TCandidate extends PasskeyCandidate>({
     }
     // A chooser stays open across settings changes. Recheck after asynchronous signing
     // as well, before any assertion or remembered choice can leave this request.
-    const refusal = await abortable(
-      Promise.try(() =>
-        options.pagePermission?.({
-          ...context,
-          origin,
-          conditional: request.conditional === true,
-          userActivation: message.userActivation,
-          allowCredentials: request.allowCredentialIds.length > 0,
-        }),
-      ).catch(() => "settings-unavailable"),
-      signal,
-    );
-    signal.throwIfAborted();
+    const refusal = await refused();
     if (refusal) return { kind: "delegate", reason: refusal };
     if (makeDefault) after.remember = credential;
     after.signed = credential;

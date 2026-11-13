@@ -197,6 +197,8 @@ export type LoginReport = (
       fillOnly?: true;
       fillMode?: "sign-in-fill";
       fillExpired?: true;
+      /** A sign-in fill filled its last safe field; the person goes on (ADR 0035). */
+      fillDone?: true;
       permissionSource?: "site" | "default";
       /** Why the login just changed route (ADR 0034). */
       routeChange?: RouteChange;

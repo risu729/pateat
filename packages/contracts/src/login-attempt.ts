@@ -30,6 +30,7 @@ import {
   type LoginRouteChoice,
   type LoginStep,
 } from "./login";
+import { signInFillTransition } from "./login-attempt-sign-in-fill";
 
 const identifier = v.pipe(
   v.string(),
@@ -253,6 +254,8 @@ export const attemptMetadataSchema = v.pipe(
     /** Profile/site autofill across pages (ADR 0035), distinct from logout autofill. */
     signInFill: v.optional(v.literal(true)),
     fillExpired: v.optional(v.literal(true)),
+    /** It filled its last safe field; the person goes on with the site's steps. */
+    fillDone: v.optional(v.literal(true)),
     fillSince: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
     fillPermissionSource: v.optional(v.picklist(["site", "default"])),
     /** Structural state before a fill, retained across document/worker replacement. */
@@ -406,6 +409,7 @@ export const parseAttemptMetadata = (value: unknown): LoginAttemptMetadata =>
 export const loginAttemptEventSchema = v.variant("type", [
   v.strictObject({ type: v.literal("RESOLVE") }),
   v.strictObject({ type: v.literal("FILL_EXPIRED") }),
+  v.strictObject({ type: v.literal("FILL_DONE") }),
   v.strictObject({ type: v.literal("FILL_CONTINUING"), after: integer(MAX_ATTEMPT_STEPS) }),
   v.strictObject({ type: v.literal("FILL_UNCONTINUED"), after: integer(MAX_ATTEMPT_STEPS) }),
   v.strictObject({ type: v.literal("FILL_PROGRESS"), stepIndex: integer(MAX_ATTEMPT_STEPS) }),
@@ -1952,158 +1956,20 @@ export function transitionLoginAttempt(
   const event = v.parse(loginAttemptEventSchema, eventValue);
   if (metadata.state === "authenticated" || metadata.state === "blocked") return metadata;
   if (metadata.signInFill) {
-    const clear = {
-      operationId: undefined,
-      operationKind: undefined,
-      operationEffect: undefined,
-      operationPresses: undefined,
-      mutationIntent: undefined,
-      retryRequired: undefined,
-      outcome: undefined,
-      settled: undefined,
-      watch: undefined,
-    };
-    // A restarted worker never replays a fill whose persisted intent may have reached
-    // the document. No click, submission, result judgement or logout is synthesized.
-    if (event.type === "INTERRUPTED")
-      return parseAttemptMetadata({
-        ...metadata,
-        ...clear,
-        state: "ready",
-        stepIndex: Math.min(
-          metadata.stepCount,
-          metadata.stepIndex +
-            (metadata.operationKind === "fill" && metadata.mutationIntent ? 1 : 0),
-        ),
-      });
-    if (event.type === "NAVIGATED" && sameScope(metadata.document, event.document))
-      return parseAttemptMetadata({
-        ...metadata,
-        ...clear,
-        state: "ready",
-        document: event.document,
-        stepIndex: Math.min(
-          metadata.stepCount,
-          metadata.stepIndex +
-            (metadata.document.documentId !== event.document.documentId &&
-            metadata.operationKind === "fill" &&
-            metadata.mutationIntent
-              ? 1
-              : 0),
-        ),
-      });
-    if (event.type === "FILL_EXPIRED")
-      return parseAttemptMetadata({
-        ...metadata,
-        ...clear,
-        state: "blocked",
-        outcome: "cancelled",
-        fillExpired: true,
-      });
-    if (event.type === "FILL_BASELINE" && metadata.state === "ready")
-      return parseAttemptMetadata({
-        ...metadata,
-        fillBaseline: {
-          stepIndex: metadata.stepIndex,
-          nextStep: event.nextStep,
-          documentId: metadata.document.documentId,
-          path: event.path,
-          ready: event.ready,
-        },
-      });
-    if (
-      event.type === "FILL_PROGRESS" &&
-      metadata.state === "ready" &&
-      event.stepIndex > metadata.stepIndex &&
-      event.stepIndex <= metadata.stepCount
-    )
-      return parseAttemptMetadata({ ...metadata, ...clear, stepIndex: event.stepIndex });
-    if (
-      event.type === "HANDLER" &&
-      metadata.state === "ready" &&
-      sameLoginDocument(metadata.document, event.document) &&
-      !metadata.handlers.some((entry) => entry.index === event.handler) &&
-      metadata.stepCount + event.steps <= MAX_ATTEMPT_STEPS
-    )
-      return parseAttemptMetadata({
-        ...metadata,
-        ...clear,
-        handlers: [
-          ...metadata.handlers,
-          {
-            index: event.handler,
-            start: metadata.stepIndex,
-            ...(event.field === undefined ? {} : { field: event.field }),
-          },
-        ],
-        stepCount: metadata.stepCount + event.steps,
-      });
-    if (
-      event.type === "CONTINUING" &&
-      "before" in event &&
-      metadata.state === "ready" &&
-      replaceable(metadata) &&
-      event.before === metadata.stepIndex &&
-      !metadata.continuation
-    )
-      return parseAttemptMetadata({ ...metadata, continuation: { before: event.before } });
-    if (
-      event.type === "UNCONTINUED" &&
-      "before" in event &&
-      metadata.continuation &&
-      "before" in metadata.continuation &&
-      metadata.continuation.before === event.before
-    )
-      return parseAttemptMetadata({ ...metadata, continuation: undefined });
-    if (
-      event.type === "FILL_CONTINUING" &&
-      metadata.state === "ready" &&
-      replaceable(metadata) &&
-      event.after === metadata.stepIndex &&
-      !metadata.continuation
-    )
-      return parseAttemptMetadata({ ...metadata, continuation: { after: event.after } });
-    if (
-      event.type === "FILL_UNCONTINUED" &&
-      metadata.continuation &&
-      "after" in metadata.continuation &&
-      metadata.continuation.after === event.after
-    )
-      return parseAttemptMetadata({ ...metadata, continuation: undefined });
-    if (
-      event.type === "CONTINUED" &&
-      event.replacesLast !== true &&
-      metadata.state === "ready" &&
-      replaceable(metadata) &&
-      metadata.continuation &&
-      "after" in metadata.continuation &&
-      metadata.continuation.after === metadata.stepIndex &&
-      event.recipeRevision > metadata.recipeRevision &&
-      metadata.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
-      metadata.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
-      sameLoginDocument(metadata.document, event.document)
-    )
-      return parseAttemptMetadata({
-        ...metadata,
-        ...clear,
-        recipeRevision: event.recipeRevision,
-        stepIndex: metadata.stepIndex + 1,
-        stepCount: metadata.stepCount + event.steps,
-        maxSubmissions: metadata.maxSubmissions + event.effects,
-        continuation: undefined,
-      });
-    // These paths are for automatic execution, never for passive autofill.
-    if (
-      ["OBSERVED", "JUDGING", "STOP_JUDGING", "AUTO_SUBMITTED", "ROUTE", "STOP_ANSWERED"].includes(
-        event.type,
-      )
-    )
-      return metadata;
+    const next = signInFillTransition(metadata, event, {
+      sameScope,
+      replaceable: replaceable(metadata),
+      maxSteps: MAX_ATTEMPT_STEPS,
+      maxSubmissions: MAX_ATTEMPT_SUBMISSIONS,
+    });
+    if (next === metadata) return metadata;
+    if (next) return parseAttemptMetadata(next);
   }
   if (
     event.type === "FILL_PROGRESS" ||
     event.type === "FILL_BASELINE" ||
     event.type === "FILL_EXPIRED" ||
+    event.type === "FILL_DONE" ||
     event.type === "FILL_CONTINUING" ||
     event.type === "FILL_UNCONTINUED"
   )
