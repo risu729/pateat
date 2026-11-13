@@ -348,7 +348,7 @@ export const settingsJa = {
   "Use {{hostname}}'s rule ({{behavior}})": "{{hostname}} のルールを使う（{{behavior}}）",
   "Use profile default ({{behavior}})": "プロファイルの既定値を使う（{{behavior}}）",
   "Auto fills and submits sign-in pages. Fill only leaves buttons, verification codes and software keyboards to you. Fields that advance or submit the page stay empty. Choosing an account in the popup logs in with presses.":
-    "「自動」はログインページに入力し、送信します。「入力のみ」では、ボタン、認証コード、ソフトウェアキーボードは自分で操作します。入力だけでページが進んだり送信されたりする項目は空欄のままにします。ポップアップでアカウントを選ぶと、ボタンを押してログインします。",
+    "「自動」はログインページに入力し、送信します。「入力のみ」では、ボタンの操作、認証コードの入力、ソフトウェアキーボードの操作は自分で行います。入力だけでページが進んだり送信されたりする項目は空欄のままにします。ポップアップでアカウントを選ぶと、ボタンを押してログインします。",
   "Verification pages are not filled yet. Off leaves them alone; Fill only keeps that choice for when filling is available. Passkey verification after a Pateat login is left to the browser in either mode.":
     "ログイン後の本人確認ページへの入力は未対応です。「オフ」は何もせず、「入力のみ」は対応後に使う設定として保存します。Pateat でログインした後のパスキーによる本人確認は、どちらの設定でもブラウザーに任せます。",
   "Filling personal details outside a login is not available yet. Its choices are saved for that feature. Personal details asked during a login follow the sign-in setting.":
@@ -377,7 +377,7 @@ export const settingsJa = {
   "Rule for {{hostname}}": "{{hostname}} のルール",
   "Profile default": "プロファイルの既定値",
   "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages are not filled yet; Off leaves them alone. Other personal-detail forms are not filled yet.":
-    "「入力のみ」では、ボタン、認証コード、ソフトウェアキーボードは自分で操作します。ポップアップでアカウントを選んだ場合は、ボタンを押してログインします。ログイン後の本人確認への入力は未対応で、「オフ」なら何もしません。ログイン以外の個人情報フォームへの入力も未対応です。",
+    "「入力のみ」では、ボタンの操作、認証コードの入力、ソフトウェアキーボードの操作は自分で行います。ポップアップでアカウントを選んだ場合は、ボタンを押してログインします。ログイン後の本人確認への入力は未対応で、「オフ」なら何もしません。ログイン以外の個人情報フォームへの入力も未対応です。",
   "Edit profile defaults and site rules": "既定値とサイトのルールを編集",
   "Page behavior saved.": "ページでの動作を保存しました。",
 } satisfies Record<keyof typeof settingsEn, string>;
