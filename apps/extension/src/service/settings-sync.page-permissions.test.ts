@@ -8,7 +8,12 @@ import {
   type SyncSettingsState,
 } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { createSettingsSync, mergeSyncedSettings, syncedSettings } from "./settings-sync";
+import {
+  createSettingsSync,
+  importedSettings,
+  mergeSyncedSettings,
+  syncedSettings,
+} from "./settings-sync";
 import type { ServiceTransport } from "./transport";
 
 const SERVICE = "https://pateat.example.com";
@@ -36,7 +41,12 @@ const state = (revision: number, settings: LocalSettings | null): SyncSettingsSt
   settings,
 });
 
-function setup(local: LocalSettings, initial: SyncSettingsState, agreed?: LocalSettings) {
+function setup(
+  local: LocalSettings,
+  initial: SyncSettingsState,
+  agreed?: LocalSettings,
+  agreedProfile = PROFILE,
+) {
   let snapshot: SettingsSnapshot = { version: 1, revision: 3, settings: local };
   let remote = initial;
   let base: unknown = agreed
@@ -44,7 +54,7 @@ function setup(local: LocalSettings, initial: SyncSettingsState, agreed?: LocalS
         version: 1,
         origin: SERVICE,
         deviceId: DEVICE,
-        profileId: PROFILE,
+        profileId: agreedProfile,
         revision: 1,
         settings: agreed,
         local: agreed,
@@ -272,5 +282,54 @@ describe("profile page permission synchronization", () => {
     expect(test.local().settings.pagePermissionDefaults).toEqual(
       test.remote().settings?.pagePermissionDefaults,
     );
+  });
+
+  it("uploads nothing when both sides hold the same rows in another order", async () => {
+    const rows = [row("a.example", { confirm: "off" }), row("b.example", { "sign-in": "fill" })];
+    const reversed = rows.toReversed();
+    const test = setup(
+      settingsOf({ sitePagePermissions: rows }),
+      state(2, settingsOf({ sitePagePermissions: reversed })),
+      settingsOf({ sitePagePermissions: rows }),
+    );
+    expect(await test.sync.run(connection, () => false)).toBe("synced");
+    expect(test.transport.saveSettings).not.toHaveBeenCalled();
+    expect(test.local().settings.sitePagePermissions).toHaveLength(2);
+    expect(test.local().settings.sitePagePermissions).toEqual(expect.arrayContaining(rows));
+  });
+
+  it("keeps local permissions when an imported file holds none", () => {
+    const local = settingsOf({
+      pagePermissionDefaults: defaults,
+      sitePagePermissions: [row("bank.example", { confirm: "off" })],
+    });
+    const imported = importedSettings(local, settingsOf());
+    expect(imported.pagePermissionDefaults).toEqual(defaults);
+    expect(imported.sitePagePermissions).toEqual([row("bank.example", { confirm: "off" })]);
+  });
+
+  it("a profile switch replaces local permissions with the new profile's instead of merging", async () => {
+    const other = "00000000-0000-4000-8000-000000000011";
+    const test = setup(
+      settingsOf({
+        pagePermissionDefaults: defaults,
+        sitePagePermissions: [row("old.example", { confirm: "off" })],
+      }),
+      state(
+        4,
+        settingsOf({ sitePagePermissions: [row("profile.example", { "sign-in": "fill" })] }),
+      ),
+      settingsOf({
+        pagePermissionDefaults: defaults,
+        sitePagePermissions: [row("old.example", { confirm: "off" })],
+      }),
+      other,
+    );
+    expect(await test.sync.run(connection, () => false)).toBe("synced");
+    expect(test.transport.saveSettings).not.toHaveBeenCalled();
+    expect(test.local().settings).not.toHaveProperty("pagePermissionDefaults");
+    expect(test.local().settings.sitePagePermissions).toEqual([
+      row("profile.example", { "sign-in": "fill" }),
+    ]);
   });
 });
