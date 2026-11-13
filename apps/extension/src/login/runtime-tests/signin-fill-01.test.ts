@@ -472,8 +472,14 @@ describe("profile sign-in autofill runtime", () => {
       ).operation.document.documentId,
     ).toBe("navigated-before-ack");
     // The old document's late acknowledgement fills nothing more.
+    // The page answers the old fill late; a request handled after that answer sees its
+    // outcome.
+    const late = vi
+      .mocked(fake.browser.tabs.sendMessage)
+      .mock.calls.findIndex(([, message]) => message["type"] === "login.execute");
     acknowledge!();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.mocked(fake.browser.tabs.sendMessage).mock.results[late]!.value;
+    await h.login.handle({ version: 1, type: "login.status.get", tabId: 1 }, popup);
     expect(executes()).toHaveLength(2);
     expect(h.fields).toHaveBeenCalledTimes(2);
   });
