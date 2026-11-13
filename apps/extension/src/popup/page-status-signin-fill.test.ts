@@ -42,6 +42,15 @@ describe("autofill page status and badge persistence", () => {
     },
   );
 
+  it("keeps naming autofill only once the last field is filled, not a stopped login", () => {
+    expect(
+      line(status({ state: "blocked", outcome: "cancelled", signInFill: true, fillDone: true }))
+        ?.text,
+    ).toBe(
+      "Autofill only: Pateat may fill sign-in fields and presses nothing. Continue the site's steps yourself.",
+    );
+  });
+
   it("distinguishes profile autofill from the existing logout fill status", () => {
     expect(line(status({ state: "blocked", outcome: "cancelled", signInFill: true }))?.text).toBe(
       "Autofill stopped: the login was cancelled. Nothing was pressed.",

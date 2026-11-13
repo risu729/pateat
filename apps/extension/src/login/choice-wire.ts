@@ -362,6 +362,7 @@ export const statusResponseSchema = v.variant("ok", [
         fillOnly: v.optional(v.literal(true)),
         signInFill: v.optional(v.literal(true)),
         fillExpired: v.optional(v.literal(true)),
+        fillDone: v.optional(v.literal(true)),
         settled: v.optional(v.literal(true)),
       }),
     ),

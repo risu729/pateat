@@ -5,6 +5,7 @@ import { Bug, CircleCheck, CircleX, Info, LoaderCircle, TriangleAlert } from "lu
 import type { ReactNode } from "react";
 import { normalizeHostname } from "@pateat/contracts";
 import type { StatusResponse } from "../login/choice-wire";
+import { DESCRIBED_WATCH_MAX_MS } from "../login/wire/constants";
 
 type Status = Extract<StatusResponse, { ok: true }>;
 export type StatusTone = "idle" | "busy" | "ok" | "warn" | "err";
@@ -296,11 +297,13 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
           id: "login",
           tone: "idle",
           text: t(
-            "Autofill stopped after 10 minutes. Reload the page or choose an account to continue.",
+            "Autofill stopped after {{minutes}} minutes. Reload the page or choose an account to continue.",
+            { minutes: DESCRIBED_WATCH_MAX_MS / 60_000 },
           ),
         },
       ];
-    if (login.state !== "blocked")
+    // Filled with nothing left to fill: the person goes on as the line says.
+    if (login.state !== "blocked" || login.fillDone)
       return [
         {
           id: "login",
