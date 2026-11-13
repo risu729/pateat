@@ -400,6 +400,11 @@ additional owner decisions:
   mode, independently of the profile's presence flag. Requests deliberately initiated
   by the person keep the existing selection and verification rules. The setting is
   checked again before answering.
+- After review, a passive attempt ends once its last safe field is filled and nothing it
+  could still fill can follow, and it waits for the next step's readiness at page
+  changes rather than polling. A frame takes `sign-in: fill` from its own or its tab's
+  site rule; an unnameable hostname takes the profile default. A prefilled password is
+  kept, as Bitwarden's page-load autofill fills only empty fields.
 - `confirm: off` reports `page-off`; `confirm: fill` remains unsupported for filling.
   The UI says this explicitly. Both leave passkey re-verification after Pateat's own
   login to the browser. Personal-detail choices are stored for delivery 4; they do not

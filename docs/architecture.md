@@ -4454,4 +4454,21 @@ invalidated recorder refuses autofill. Ambiguous edited identities suppress fill
 The persisted mutation intent also fences a worker restart before acknowledgement.
 A passive mode delegates conditional and unactivated passkey requests, even when the
 profile's presence policy is `always`; activated requests keep the existing account
-and origin checks. The permission is read again immediately before signing.
+and origin checks. The permission is read again immediately before signing, and once
+more before an assertion leaves the request.
+
+A document takes `sign-in: fill` from its own site rule or from its tab's site rule, so a
+framed sign-in form follows the page around it. A hostname that no site rule can name,
+such as one with an underscore, takes the profile's default. A passive attempt ends with
+`fillDone` once its last safe field is filled and no continuation or detail handler can
+follow; it holds no page of the tab after that. Until then, the content script waits for
+the next step's readiness and checks it again at each page change, with the step wait
+only as the bound, so a quiet page reads no settings or vault. A new document that shows
+the first step again, a terminal record, an explicit popup pick, and a pause each end the
+previous passive attempt and start from the current page. The document also refuses a
+passive fill command that asks for a click, an effectful fill, a keypad, a code, or a
+choice, whatever the background sent. As Bitwarden's page-load autofill fills only empty
+fields, a passive fill keeps a password the page or person already entered. The edit
+recorder also keeps each edited field's bare kind, such as a text input, so one edit
+leaves every field of that kind in the document to the person: a known, conservative
+limit that a later change may narrow.
