@@ -83,6 +83,7 @@ export const LOCAL_ONLY_FIELDS = {
   "login.attempt": [
     "fillMode",
     "fillExpired",
+    "fillDone",
     "permissionSource",
     "beforeShownMs",
     "startMs",
