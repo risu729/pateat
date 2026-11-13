@@ -139,6 +139,7 @@ export const reportAttempt = (
           fillMode: "sign-in-fill" as const,
           permissionSource: metadata.fillPermissionSource ?? "default",
           ...(metadata.fillExpired ? { fillExpired: true as const } : {}),
+          ...(metadata.fillDone ? { fillDone: true as const } : {}),
         }
       : {}),
     ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),

@@ -502,6 +502,7 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             fillOnly: report.fillOnly,
             fillMode: report.fillMode,
             fillExpired: report.fillExpired,
+            fillDone: report.fillDone,
             permissionSource: report.permissionSource,
             routeChange: report.routeChange,
             // A switch of layouts names both (ADR 0060).

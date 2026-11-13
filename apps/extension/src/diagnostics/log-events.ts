@@ -194,6 +194,7 @@ export const LOG_EVENTS = {
       fillOnly: "flag",
       fillMode: "code",
       fillExpired: "flag",
+      fillDone: "flag",
       permissionSource: "code",
       routeChange: "code",
       layout: "code",

@@ -53,9 +53,8 @@ import { switchLayout, siblingsAt } from "./continuation";
 import { continueBefore, replaceableClick } from "./continue-before";
 import { detailFill, reportDetail } from "./detail-fill";
 import { pause } from "./session-store";
-import type { Runtime } from "./state";
-
 import { fillBaseline, fillBoundary, isFillAction } from "./sign-in-fill";
+import type { Runtime } from "./state";
 
 /* eslint-disable no-await-in-loop */
 export async function drive(rt: Runtime, run: Execution): Promise<void> {

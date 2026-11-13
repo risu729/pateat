@@ -59,6 +59,8 @@ import { askDefinitions, ELEMENT_DEFINED } from "../page/element-definitions";
 import { nextFrame } from "../page/frames";
 import { watchFrameShown } from "../page/frame-shown";
 import { pageChange } from "../page/page-change";
+import { claimFill, fillUntouched, fillEditsReady } from "../page/fill-edits";
+import { awaitFillChange, beyondSignInFill } from "./sign-in-fill-page";
 import { documentLoaded } from "../page/document-load";
 import { breaksQuiet, pageWatch, settled } from "../page/quiet";
 import {
@@ -508,7 +510,6 @@ function lookOnChange(
     },
   };
 }
-import { claimFill, fillUntouched, fillEditsReady } from "../page/fill-edits";
 
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
@@ -1411,10 +1412,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       return true;
     }
     if (command.type === "login.fill.change") {
-      void pageChange(document, Date.now() + command.timeoutMs, waits.signal).then(
-        () => respond({ ok: !cancelled }),
-        () => respond({ ok: false }),
-      );
+      void awaitFillChange(document, command, {
+        ready,
+        path: pagePath,
+        cancelled: () => cancelled,
+        signal: waits.signal,
+      }).then(respond, () => respond({ ok: false }));
       return true;
     }
     if (command.type === "login.await") {
@@ -1902,6 +1905,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return fail("cancelled", "page-changed");
       used.add(operation.operationId);
       const step = operation.step;
+      // A sign-in fill is authorized to fill ordinary fields only (ADR 0035).
+      if (operation.signInFill && beyondSignInFill(command))
+        return fail("cancelled", "not-authorized");
       // Another attempt in this document starts from nothing filled.
       if (operation.attemptId !== filledAttempt) {
         filled = new WeakSet();
@@ -2336,9 +2342,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                     ? "page-changed"
                     : "field-changed",
               );
+            // As Bitwarden's autofill on page load fills only empty password fields
+            // (`onlyEmptyFields`), a sign-in fill keeps a password already in its input.
+            const keptPassword =
+              (value.secret === "password" ||
+                (input instanceof HTMLInputElement && input.type === "password")) &&
+              input.value.trim() !== "";
             if (
               operation.signInFill &&
-              !claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot)
+              (keptPassword ||
+                !claimFill(window, input, operation.attemptId, operation.stepIndex, field.slot))
             ) {
               value.value = "";
               continue;

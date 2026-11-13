@@ -55,6 +55,13 @@ export const commandSchema = v.variant("type", [
     type: v.literal("login.fill.change"),
     token: id,
     timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(LOGIN_STEP_WAIT_MS)),
+    /**
+     * A sign-in fill's next step (ADR 0035): answered once it is ready, else at the next
+     * sign of a change of the page. With `settled`, it was ready before the fill already,
+     * and only a move of the page to another path answers.
+     */
+    readiness: v.optional(loginReadinessSchema),
+    settled: v.optional(v.literal(true)),
   }),
   v.strictObject({
     version: v.literal(1),
