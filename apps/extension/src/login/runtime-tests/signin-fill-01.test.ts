@@ -8,6 +8,7 @@ import {
 import { createLoginBadge, memoryBadgeStorage } from "../badge";
 import type { LoginReport } from "../runtime/report";
 import type { LoginGeneration } from "../runtime/deps";
+import type { LiveUriMatcher } from "../../vault/site-candidates";
 const fake = await vi.hoisted(async () => (await import("./browser-fake")).createBrowserFake());
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
@@ -22,6 +23,7 @@ const {
   savedBinding,
   uriMatch,
   harness,
+  setPause,
   realTime,
 } = createRuntimeTestHarness(fake);
 const popup = {
@@ -114,9 +116,14 @@ function start(overrides: Partial<LocalSettings> = {}, live: Parameters<typeof h
   );
   return { h, reports };
 }
+/** The page got `count` fills, and the attempt waits for its next step or is done. */
 async function filled(count = 1) {
   await vi.waitFor(() => expect(executes()).toHaveLength(count));
-  await vi.waitFor(() => expect(changes.length).toBeGreaterThan(0));
+  await vi.waitFor(() =>
+    expect(changes.length > 0 || stored()[0]?.fillDone === true, JSON.stringify(stored())).toBe(
+      true,
+    ),
+  );
 }
 const bothPages = (path = "/password") =>
   parseLoginRecipe({
@@ -131,7 +138,7 @@ const bothPages = (path = "/password") =>
     ],
     maxSubmissions: 2,
   });
-const twoPageStart = (path = "/password") => {
+const twoPageStart = (path = "/password", live: Parameters<typeof harness>[1] = {}) => {
   const used = bothPages(path);
   const test = start(
     {
@@ -146,7 +153,7 @@ const twoPageStart = (path = "/password") => {
         },
       ],
     },
-    { username: true },
+    { username: true, ...live },
   );
   test.h.recipes.recipe.mockResolvedValue(used);
   fake.state.present = new Set(["email", "next"]);
@@ -287,7 +294,8 @@ describe("profile sign-in autofill runtime", () => {
         fake.state.observedPath = "/password";
         await h.hello({ url: fake.state.pageUrl });
       } else if (move === "new-document") {
-        await h.hello({ documentId: "replacement-document" });
+        // The first step does not show there, so the document announces no start.
+        await h.hello({ documentId: "replacement-document" }, false);
       }
       change();
       await filled(2);
@@ -439,19 +447,53 @@ describe("profile sign-in autofill runtime", () => {
       }),
     );
     expect(h.fields).toHaveBeenCalledTimes(1);
+    const old = stored()[0]!.id;
+    fake.state.onExecute = undefined;
+    // A document that shows the sign-in form again, as after a reload, is filled anew.
     expect(await h.hello({ documentId: "navigated-before-ack" })).toEqual({ ok: true });
-    await vi.waitFor(() =>
-      expect(stored()[0]).toMatchObject({
-        stepIndex: 1,
-        document: { documentId: "navigated-before-ack" },
-        submissions: 0,
-      }),
-    );
+    await filled(2);
+    expect(stored()).toHaveLength(1);
+    expect(stored()[0]!.id).not.toBe(old);
+    expect(stored()[0]).toMatchObject({
+      document: { documentId: "navigated-before-ack" },
+      submissions: 0,
+      fillDone: true,
+    });
+    expect(
+      (
+        fake.state.messages.filter((entry) => entry.type === "login.execute").at(-1) as never as {
+          operation: { document: { documentId: string } };
+        }
+      ).operation.document.documentId,
+    ).toBe("navigated-before-ack");
+    // The old document's late acknowledgement fills nothing more.
     acknowledge!();
-    await vi.waitFor(() => expect(changes.length).toBeGreaterThan(0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(executes()).toHaveLength(2);
+    expect(h.fields).toHaveBeenCalledTimes(2);
+  });
+
+  it("ends after its last fill, so later pages neither resume nor expire it", async () => {
+    const badge = createLoginBadge({
+      storage: memoryBadgeStorage(),
+      setBadge: async () => undefined,
+    });
+    const { h } = start({}, { badge, report: (entry) => badge.observe(entry) });
+    await h.hello();
+    await filled();
+    expect(stored()[0]).toMatchObject({ state: "blocked", fillDone: true, submissions: 0 });
+    expect(changes).toHaveLength(0);
+    expect(executes().every((entry) => entry.operation.step.kind === "fill")).toBe(true);
+    const status = await h.login.handle({ version: 1, type: "login.status.get", tabId: 1 }, popup);
+    expect(status).toMatchObject({ login: { signInFill: true, fillDone: true, state: "blocked" } });
+    // The person submits; the signed-in page shows no sign-in form and starts nothing.
+    fake.state.pageUrl = `${origin}/home`;
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set(["authenticated"]);
+    h.recipes.recipe.mockResolvedValue(undefined);
+    await h.hello({ url: fake.state.pageUrl, documentId: "signed-in" }, false);
+    expect(stored()).toEqual([]);
     expect(executes()).toHaveLength(1);
-    expect(h.fields).toHaveBeenCalledTimes(1);
-    expect(stored()[0]?.stepIndex).toBe(1);
   });
 
   it("persists expiration without same-document replay and permits a fresh reload", async () => {
@@ -459,7 +501,7 @@ describe("profile sign-in autofill runtime", () => {
       storage: memoryBadgeStorage(),
       setBadge: async () => undefined,
     });
-    const { h } = start({}, { badge, report: (entry) => badge.observe(entry) });
+    const { h } = twoPageStart("/signin", { badge, report: (entry) => badge.observe(entry) });
     await h.hello();
     await filled();
     const id = stored()[0]!.id;
@@ -551,7 +593,7 @@ describe("profile sign-in autofill runtime", () => {
       if (flow === "new-page") {
         fake.state.pageUrl = `${origin}/password`;
         fake.state.observedPath = "/password";
-        await h.hello({ url: fake.state.pageUrl, documentId: "password-page" });
+        await h.hello({ url: fake.state.pageUrl, documentId: "password-page" }, false);
       }
       fake.state.extracted["login"] = {
         ok: true,
@@ -657,7 +699,10 @@ describe("profile sign-in autofill runtime", () => {
     fake.state.present = new Set(["password", "login"]);
     change();
     await vi.waitFor(() =>
-      expect(stored()[0]).toMatchObject({ state: "blocked", outcome: "policy-changed" }),
+      expect(stored()[0], JSON.stringify([stored(), executes()])).toMatchObject({
+        state: "blocked",
+        outcome: "policy-changed",
+      }),
     );
     expect(executes()).toHaveLength(1);
     expect(h.fields.mock.calls.map(([read]) => read.fieldId)).toEqual(["login.username"]);
@@ -674,5 +719,107 @@ describe("profile sign-in autofill runtime", () => {
     expect(
       await h.login.passkeyPagePermission({ ...input, conditional: false, userActivation: true }),
     ).toBeUndefined();
+  });
+
+  it("fills the username again when the first page shows again in a new document", async () => {
+    const { h } = twoPageStart("/password");
+    await h.hello();
+    await filled();
+    const old = stored()[0]!.id;
+    // A reload while it waits for the password page: the username is empty again.
+    expect(await h.hello({ documentId: "reloaded" })).toEqual({ ok: true });
+    await filled(2);
+    expect(executes().map((entry) => entry.operation.stepIndex)).toEqual([0, 0]);
+    expect(stored()).toHaveLength(1);
+    expect(stored()[0]!.id).not.toBe(old);
+    expect(stored()[0]).toMatchObject({ document: { documentId: "reloaded" }, stepIndex: 1 });
+  });
+
+  it("stops a waiting fill that a restarted worker resumes on a paused site", async () => {
+    fake.state.openTabs = [1];
+    const first = twoPageStart("/password");
+    await first.h.hello();
+    await filled();
+    const restarted = twoPageStart("/password");
+    expect(await setPause(restarted.h, true, 1, "10m")).toMatchObject({ ok: true });
+    fake.state.pageUrl = `${origin}/password`;
+    fake.state.observedPath = "/password";
+    fake.state.present = new Set(["password", "login"]);
+    expect(
+      await restarted.h.hello({ url: fake.state.pageUrl, documentId: "password-page" }, false),
+    ).toMatchObject({ ok: false });
+    await vi.waitFor(() =>
+      expect(restarted.reports).toContainEqual(
+        expect.objectContaining({
+          type: "attempt",
+          state: "blocked",
+          outcome: "policy-changed",
+          cause: "paused",
+        }),
+      ),
+    );
+    expect(stored()).toEqual([]);
+    expect(executes()).toHaveLength(1);
+    expect(restarted.h.fields).not.toHaveBeenCalled();
+  });
+
+  it("follows the tab's site rule in a frame of that tab", async () => {
+    const portal = "https://portal.example/account";
+    const { h } = start(
+      {
+        pagePermissionDefaults: undefined,
+        sitePagePermissions: [
+          {
+            hostname: "portal.example",
+            includeSubdomains: false,
+            permissions: { "sign-in": "fill" },
+          },
+        ],
+      },
+      {
+        allowedOrigins: [],
+        uris: vi.fn<LiveUriMatcher>(async (_connection, url) => ({
+          ok: true,
+          data: uriMatch({ targetOrigin: new URL(url).origin }),
+        })),
+      },
+    );
+    fake.state.tabUrls[1] = portal;
+    await h.hello({ documentId: "portal-page", url: portal }, false);
+    expect(
+      await h.hello({ frameId: 3, documentId: "frame-one", tab: { id: 1, url: portal } }),
+    ).toEqual({ ok: true });
+    await filled();
+    expect(stored()[0]).toMatchObject({ signInFill: true, fillPermissionSource: "site" });
+    expect(executes().every((entry) => entry.operation.step.kind === "fill")).toBe(true);
+    expect(
+      await h.login.passkeyPagePermission({
+        tabId: 1,
+        origin,
+        documentId: "frame-one",
+        allowCredentials: false,
+        conditional: true,
+        userActivation: false,
+      }),
+    ).toBe("sign-in-fill");
+  });
+
+  it("stops on a later page when its account is no longer the one a new fill would choose", async () => {
+    const { h } = twoPageStart("/password");
+    await h.hello();
+    await filled();
+    // Another item became the site's saved default meanwhile.
+    h.settings.settings.siteDefaults = [
+      { ...h.settings.settings.siteDefaults[0]!, itemId: otherItemId },
+    ];
+    fake.state.pageUrl = `${origin}/password`;
+    fake.state.observedPath = "/password";
+    fake.state.present = new Set(["password", "login"]);
+    expect(await h.hello({ url: fake.state.pageUrl, documentId: "password-page" }, false)).toEqual({
+      ok: false,
+      reason: "account-changed",
+    });
+    expect(executes()).toHaveLength(1);
+    expect(h.fields.mock.calls.map(([read]) => read.fieldId)).toEqual(["login.username"]);
   });
 });

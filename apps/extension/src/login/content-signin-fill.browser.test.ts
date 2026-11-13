@@ -69,7 +69,14 @@ async function install(html: string, recording = true) {
 }
 async function fill(
   target: string,
-  { stepIndex = 0, slot = "username", value = "fixture@example.com", secret = "" } = {},
+  {
+    stepIndex = 0,
+    slot = "username",
+    value = "fixture@example.com",
+    secret = "",
+    step = undefined as Record<string, unknown> | undefined,
+    extra = {} as Record<string, unknown>,
+  } = {},
 ) {
   const token = sent.find((entry) => typeof entry["token"] === "string")?.["token"];
   let answer: unknown;
@@ -87,14 +94,15 @@ async function fill(
       document: { origin: self.origin, tabId: 1, frameId: 0, documentId: "document-fill" },
       stepIndex,
       signInFill: true,
-      step: {
+      step: step ?? {
         kind: "fill",
         effect: "prepare",
         path: observedPath(location.pathname),
         fields: [{ slot, target: { by: "id", value: target } }],
       },
     },
-    values: [{ slot, value, ...(secret ? { secret } : {}) }],
+    values: step && step["kind"] !== "fill" ? [] : [{ slot, value, ...(secret ? { secret } : {}) }],
+    ...extra,
   };
   for (const listener of listeners)
     listener(message, { id: "synthetic-extension" }, (reply) => {
@@ -207,4 +215,68 @@ test("a lost fill acknowledgement and content reconnect never repeat the claimed
   });
   expect(input("username").value).toBe("");
   expect(writes).toBe(initialWrites);
+});
+
+test("a sign-in fill refuses a click, an effectful fill or a choice but checks the page", async () => {
+  await install(
+    '<form><label>Username<input id="username" type="email"></label>' +
+      '<button id="next" type="button">Next</button></form>',
+  );
+  let clicks = 0;
+  document.getElementById("next")!.addEventListener("click", () => {
+    clicks += 1;
+  });
+  const path = observedPath(location.pathname);
+  const refused = { ok: false, reason: "cancelled", detail: "not-authorized", mutation: "none" };
+  expect(
+    await fill("username", {
+      step: { kind: "click", path, target: { by: "id", value: "next" }, purpose: "advance" },
+    }),
+  ).toMatchObject(refused);
+  expect(
+    await fill("username", {
+      step: {
+        kind: "fill",
+        effect: "submit",
+        event: "change",
+        path,
+        fields: [{ slot: "username", target: { by: "id", value: "username" } }],
+      },
+    }),
+  ).toMatchObject(refused);
+  expect(await fill("username", { extra: { choose: true } })).toMatchObject(refused);
+  expect(await fill("username", { extra: { otherSwitch: true } })).toMatchObject(refused);
+  // A step that only checks the page, as one before the person's Next, still answers.
+  expect(
+    await fill("username", {
+      step: { kind: "assert", path, target: { by: "id", value: "next" }, present: true },
+    }),
+  ).toMatchObject({ ok: true });
+  expect(clicks).toBe(0);
+  expect(input("username").value).toBe("");
+});
+
+test("a sign-in fill keeps a password already in its input, as Bitwarden's page-load fill", async () => {
+  await install(
+    '<label>Password<input id="password" type="password" autocomplete="current-password"></label>',
+  );
+  input("password").value = "kept";
+  const answer = await fill("password", {
+    slot: "password",
+    secret: "password",
+    value: "Synthetic-only!",
+  });
+  expect(answer).toMatchObject({ ok: true });
+  expect(input("password").value).toBe("kept");
+});
+
+test("typing in an editable region that is no field leaves the sign-in fields to fill", async () => {
+  await install(
+    '<div id="note" contenteditable="true">Note</div>' +
+      '<label>Username<input id="username" type="email"></label>',
+  );
+  await userEvent.type(document.getElementById("note")!, " typed");
+  expect(fillUntouched(window, input("username"))).toBe(true);
+  expect(await fill("username")).toMatchObject({ ok: true });
+  expect(input("username").value).toBe("fixture@example.com");
 });

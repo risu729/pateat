@@ -43,6 +43,21 @@ async function waiting(options: Page, stepIndex: number) {
       attempts: [{ signInFill: true, state: "ready", stepIndex, submissions: 0 }],
     });
 }
+/** The fill filled what it could and ended, leaving the rest of the steps to the person. */
+async function done(options: Page, stepIndex: number) {
+  await expect
+    .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+    .toMatchObject({
+      attempts: [{ signInFill: true, state: "blocked", fillDone: true, stepIndex, submissions: 0 }],
+    });
+}
+/** A closed tab forgets its fill, so the next scenario's tab is the only one listed. */
+async function closed(options: Page, page: Page) {
+  await page.close();
+  await expect
+    .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+    .toMatchObject({ attempts: [] });
+}
 async function counts(page: Page) {
   return page.evaluate(() => ({
     next: Number(sessionStorage.getItem("identityClicks") || 0),
@@ -50,12 +65,13 @@ async function counts(page: Page) {
   }));
 }
 
-test("profile autofill crosses documents only after the person presses Next and leaves submission to them", async () => {
+test("profile autofill follows the person's Next across and within documents and leaves submission to them", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
       const options = await context.newPage();
       await configure(options, id, fixture.origin);
+      // A new document after the person's Next.
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/identity`);
       await expect(page.getByLabel("Branch", { exact: true })).toHaveValue("007");
@@ -67,51 +83,42 @@ test("profile autofill crosses documents only after the person presses Next and 
       await expect(page.getByLabel("Password", { exact: true })).toHaveValue(
         "Pateat-synthetic-only!",
       );
-      await waiting(options, 5);
+      await done(options, 5);
       expect(await counts(page)).toEqual({ next: 1, submit: 0 });
       await page.getByRole("button", { name: "Log in", exact: true }).click();
       await expect(
         page.getByRole("heading", { name: "Authenticated synthetic account", exact: true }),
       ).toBeVisible();
       expect(await counts(page)).toEqual({ next: 1, submit: 1 });
-    });
-  } finally {
-    await fixture.close();
-  }
-});
-
-test("profile autofill follows the person's same-document Next without pressing a button", async () => {
-  const fixture = await startLoginFixture();
-  try {
-    await withLoginExtension(async (context, _worker, id) => {
-      const options = await context.newPage();
-      await configure(options, id, fixture.origin);
-      const page = await context.newPage();
-      await page.goto(`${fixture.origin}/identifier-first`);
-      await expect(page.locator("#account")).toHaveValue("00001234");
+      await closed(options, page);
+      // The same document after the person's Next.
+      const inPlace = await context.newPage();
+      await inPlace.goto(`${fixture.origin}/identifier-first`);
+      await expect(inPlace.locator("#account")).toHaveValue("00001234");
       await waiting(options, 1);
-      expect(await counts(page)).toEqual({ next: 0, submit: 0 });
-      await page.getByRole("button", { name: "Next", exact: true }).click();
-      await expect(page.locator("#password")).toHaveValue("Pateat-synthetic-only!");
-      await waiting(options, 3);
-      expect(await counts(page)).toEqual({ next: 1, submit: 0 });
-      await expect(page).toHaveURL(`${fixture.origin}/identifier-first`);
+      expect(await counts(inPlace)).toEqual({ next: 0, submit: 0 });
+      await inPlace.getByRole("button", { name: "Next", exact: true }).click();
+      await expect(inPlace.locator("#password")).toHaveValue("Pateat-synthetic-only!");
+      await done(options, 3);
+      expect(await counts(inPlace)).toEqual({ next: 1, submit: 0 });
+      await expect(inPlace).toHaveURL(`${fixture.origin}/identifier-first`);
     });
   } finally {
     await fixture.close();
   }
 });
 
-test("an effectful fill is left empty without a POST or fallback click under profile autofill", async () => {
+test("profile autofill leaves an effectful fill and a password the person typed alone", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
       const options = await context.newPage();
       await configure(options, id, fixture.origin);
+      // An effectful fill is left empty, without a POST or a fallback click.
       const runId = fixture.createRun();
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/input-submit?runId=${runId}`);
-      await waiting(options, 0);
+      await done(options, 0);
       await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
       expect(fixture.evidence(runId)).toEqual({
         posts: 0,
@@ -121,18 +128,9 @@ test("an effectful fill is left empty without a POST or fallback click under pro
       });
       await expect(page.locator("#effect-status")).toHaveText("No POST observed");
       expect(await counts(page)).toEqual({ next: 0, submit: 0 });
-    });
-  } finally {
-    await fixture.close();
-  }
-});
-
-test("a person typing before value delivery keeps their password with the real document-start recorder", async () => {
-  const fixture = await startLoginFixture();
-  try {
-    await withLoginExtension(async (context, _worker, id) => {
-      const options = await context.newPage();
-      await configure(options, id, fixture.origin);
+      await closed(options, page);
+      // A person typing before value delivery keeps their password, with the real
+      // document-start recorder.
       expect(
         await send(options, {
           version: 1,
@@ -141,22 +139,22 @@ test("a person typing before value delivery keeps their password with the real d
           checkpoint: "before-delivery",
         }),
       ).toMatchObject({ ok: true });
-      const page = await context.newPage();
-      await page.goto(`${fixture.origin}/single`);
+      const typed = await context.newPage();
+      await typed.goto(`${fixture.origin}/single`);
       await expect
         .poll(() => send(options, { version: 1, type: "login.probe.status" }))
         .toMatchObject({
           checkpoint: "before-delivery",
           attempts: [{ signInFill: true, operationKind: "fill", submissions: 0 }],
         });
-      const password = page.getByLabel("Password", { exact: true });
+      const password = typed.getByLabel("Password", { exact: true });
       await password.pressSequentially("Person-chosen-synthetic!");
       expect(
         await send(options, { version: 1, type: "login.probe.control", action: "release" }),
       ).toMatchObject({ ok: true });
-      await waiting(options, 1);
+      await done(options, 1);
       await expect(password).toHaveValue("Person-chosen-synthetic!");
-      expect(await counts(page)).toEqual({ next: 0, submit: 0 });
+      expect(await counts(typed)).toEqual({ next: 0, submit: 0 });
     });
   } finally {
     await fixture.close();
