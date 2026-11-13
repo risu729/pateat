@@ -3,6 +3,7 @@ import {
   MAX_SETTINGS_DOCUMENT_BYTES,
   settingsDocumentBytes,
   syncSettingsStateSchema,
+  pagePermissionDocument,
   type LocalSettings,
   type SavedLoginBinding,
   type SyncSettingsState,
@@ -24,6 +25,7 @@ export const profileDocument = (document: LocalSettings) => ({
   itemPolicies: document.itemPolicies,
   customFieldReviews: document.customFieldReviews,
   excludedSites: document.excludedSites,
+  ...pagePermissionDocument(document),
   repromptSites: document.repromptSites,
   // Allowed sites that are empty and off are left out, which reads back the same (ADR 0077).
   ...(document.allowedSites?.length ? { allowedSites: document.allowedSites } : {}),

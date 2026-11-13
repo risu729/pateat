@@ -57,6 +57,7 @@ import {
 } from "../login/detail-wire";
 import { pauseSite } from "../login/pause";
 import { hostnameOf, PageStatusSection } from "./page-status";
+import { PopupPagePermissions } from "./page-permissions";
 import { PopupBindingReview, type BindingReviewClient } from "./binding-review";
 import {
   PAUSE_CHOICES,
@@ -1622,6 +1623,15 @@ export function SiteApp({
             {switchSection}
           </>
         )}
+        <PopupPagePermissions
+          settings={saved.snapshot.settings}
+          origin={origin}
+          disabled={busy}
+          onChange={(update) =>
+            void change(update, (translate) => translate("Page behavior saved."))
+          }
+          onOpenSettings={(section) => host.openSettings(section)}
+        />
         <RepromptSwitch
           site={reprompt}
           pending={reprompting}

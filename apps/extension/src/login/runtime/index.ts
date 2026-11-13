@@ -56,6 +56,7 @@ import {
   conditionalRequest,
 } from "./passkey";
 import type { Runtime } from "./state";
+import { explicitlyPicked, pagePermission, signInPermission } from "./page-permission";
 import { createRuntimeState } from "./state";
 import type { SettingsRuntime, LoginRuntimeOptions } from "./deps";
 
@@ -84,6 +85,40 @@ export function createLoginRuntime(settings: SettingsRuntime, options: LoginRunt
     },
   };
   return {
+    async passkeyPagePermission(input: {
+      tabId: number;
+      origin: string;
+      documentId: string;
+      conditional: boolean;
+      userActivation: boolean;
+      allowCredentials: boolean;
+    }): Promise<string | undefined> {
+      await rt.vars.loaded;
+      await rt.vars.sessionLoaded;
+      const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+      if (!snapshot.ok) return "settings-unavailable";
+      if (
+        input.allowCredentials &&
+        !input.conditional &&
+        (await passkeyReverification(rt, input.tabId, input.origin))
+      ) {
+        const confirm = pagePermission(snapshot.snapshot.settings, input.origin, "confirm");
+        return confirm.permission !== "fill" ? "confirm-off" : "confirm-fill";
+      }
+      if (input.userActivation && !input.conditional) return undefined;
+      if (explicitlyPicked(rt, input)) return undefined;
+      // A frame's request follows the rule of its tab's site too, as its logins do.
+      const topUrl = await browser.tabs.get(input.tabId).then(
+        (tab) => tab.url,
+        () => undefined,
+      );
+      const permission = signInPermission(snapshot.snapshot.settings, {
+        url: input.origin,
+        ...(topUrl ? { topUrl } : {}),
+      });
+      if (permission.permission !== "auto") return "sign-in-fill";
+      return undefined;
+    },
     handle: (message: unknown, sender: Sender) => handle(rt, message, sender),
     settingsChanged: (source: "synced" | "saved") => settingsChanged(rt, source),
     siteCount,

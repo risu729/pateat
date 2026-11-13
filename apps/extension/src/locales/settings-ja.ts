@@ -337,4 +337,47 @@ export const settingsJa = {
     "Pateat 自身は確認をしません。保管庫のロックが解除されていて、サイトのアカウントが選ばれていれば応じます。オフにすると、クリックなしのリクエストや本人確認が必須のリクエストはブラウザーか別の拡張機能に任せるので、そのサイトでは Pateat がパスキーで自動ログインできなくなります。すべてのデバイスに適用されます。",
   "These changes would make a settings profile too large when combined with shared account bindings and personal-detail links. Your changes have not been saved. Remove some entries from the affected profiles and try again.":
     "共有のアカウント関連付けや個人情報のリンクと組み合わせると、設定プロファイルの容量を超えるため保存できませんでした。編集内容は残っています。該当するプロファイルの項目を減らしてから再試行してください。",
+
+  "Sign-in pages": "ログインページ",
+  "Verification while signed in": "ログイン後の本人確認",
+  "Other personal-detail forms": "ログイン以外の個人情報フォーム",
+  Auto: "自動",
+  "Fill only": "入力のみ",
+  Off: "オフ",
+  "Use profile default": "プロファイルの既定値を使う",
+  "Use {{hostname}}'s rule ({{behavior}})": "{{hostname}} のルールを使う（{{behavior}}）",
+  "Use profile default ({{behavior}})": "プロファイルの既定値を使う（{{behavior}}）",
+  "Auto fills and submits sign-in pages. Fill only leaves buttons, verification codes and software keyboards to you. Fields that advance or submit the page stay empty. Choosing an account in the popup logs in with presses.":
+    "「自動」はログインページに入力し、送信します。「入力のみ」では、ボタンの操作、認証コードの入力、ソフトウェアキーボードの操作は自分で行います。入力だけでページが進んだり送信されたりする項目は空欄のままにします。ポップアップでアカウントを選ぶと、ボタンを押してログインします。",
+  "Verification pages are not filled yet. Off leaves them alone; Fill only keeps that choice for when filling is available. Passkey verification after a Pateat login is left to the browser in either mode.":
+    "ログイン後の本人確認ページへの入力は未対応です。「オフ」は何もせず、「入力のみ」は対応後に使う設定として保存します。Pateat でログインした後のパスキーによる本人確認は、どちらの設定でもブラウザーに任せます。",
+  "Filling personal details outside a login is not available yet. Its choices are saved for that feature. Personal details asked during a login follow the sign-in setting.":
+    "ログイン以外の個人情報フォームへの入力は未対応です。設定は対応後に使うために保存します。ログインの途中で求められる個人情報には、ログインページの設定が適用されます。",
+  "This site already has a rule. Edit it in the list.":
+    "このサイトには既にルールがあります。一覧で編集してください。",
+  "There are already 1,000 site rules. Remove one before adding another.":
+    "サイトのルールは上限の 1,000 件に達しています。追加する前に既存のルールを削除してください。",
+  "Page behavior": "ページでの動作",
+  "These defaults and site rules are shared by devices using this settings profile. Pauses and allowed sites still decide where automatic login runs.":
+    "この既定値とサイトのルールは、同じ設定プロファイルを使うデバイスで共有します。自動ログインを実行するサイトには、一時停止と許可サイトの設定も適用されます。",
+  "Profile defaults": "プロファイルの既定値",
+  "Site rules": "サイトごとのルール",
+  "Each page kind uses the most specific matching site's choice. A choice left at its default can still inherit a broader site's rule. Removing the last choice removes that site's rule.":
+    "ページの種類ごとに、最も具体的なサイトの設定を使います。設定を継承する場合は、上位のサイトのルールが適用されることがあります。最後の個別設定を解除すると、そのサイトのルールを削除します。",
+  "No site rules. Every site uses the profile defaults.":
+    "サイトのルールはありません。すべてのサイトでプロファイルの既定値を使います。",
+  "Remove page behavior for {{hostname}}": "{{hostname}} のルールを削除",
+  "Apply to subdomains too": "サブドメインにも適用する",
+  "Add site rule": "サイトのルールを追加",
+  "New site rule": "新しいサイトのルール",
+  "Changes here apply to {{hostname}} only and sync with this settings profile.":
+    "ここでの変更は {{hostname}} のみに適用し、この設定プロファイルで同期します。",
+  "This host's saved rule also covers its subdomains. Edit it in Settings to keep its scope clear.":
+    "このホストに保存されたルールは、サブドメインにも適用されます。適用範囲を確認しながら、設定画面で編集してください。",
+  "Rule for {{hostname}}": "{{hostname}} のルール",
+  "Profile default": "プロファイルの既定値",
+  "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages are not filled yet; Off leaves them alone. Other personal-detail forms are not filled yet.":
+    "「入力のみ」では、ボタンの操作、認証コードの入力、ソフトウェアキーボードの操作は自分で行います。ポップアップでアカウントを選んだ場合は、ボタンを押してログインします。ログイン後の本人確認への入力は未対応で、「オフ」なら何もしません。ログイン以外の個人情報フォームへの入力も未対応です。",
+  "Edit profile defaults and site rules": "既定値とサイトのルールを編集",
+  "Page behavior saved.": "ページでの動作を保存しました。",
 } satisfies Record<keyof typeof settingsEn, string>;

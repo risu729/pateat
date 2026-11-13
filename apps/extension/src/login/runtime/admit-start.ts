@@ -35,6 +35,7 @@ import { type Readiness, type Execution } from "./types";
 import { listClick, showsNow } from "./markers";
 import { note, recipeInUse, retryAfterSync, choicesSaved } from "./generation";
 import { tabAttempt, recordFor, heldElsewhere, showHeld } from "./hold";
+import { signInPermission } from "./page-permission";
 import { terminal, holdsSite } from "./attempt-state";
 import { askMasterPassword, holdPassword } from "./master-password";
 import { type PolicyChange } from "./report";
@@ -183,7 +184,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
       ? chooserRoute(ctx.chooser, "passkey")
       : undefined;
   let viaPasskey = false;
-  if (passkeyRoute && !(plan.ok && "fillOnly" in plan)) {
+  if (passkeyRoute && !(plan.ok && ("fillOnly" in plan || "signInFill" in plan))) {
     const pressed = await planFor(rt, snapshot, ctx.live, passkeyRoute, {
       ...(asking ? { asking } : {}),
       ...(pausedStart ? { paused: true } : {}),
@@ -375,7 +376,13 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
 
   let listMiss: ListMiss | undefined;
 
-  if (!ctx.previous && ctx.chooser && !ctx.shownOther && !viaPasskey && !("fillOnly" in plan)) {
+  if (
+    !ctx.previous &&
+    ctx.chooser &&
+    !ctx.shownOther &&
+    !viaPasskey &&
+    !("fillOnly" in plan || "signInFill" in plan)
+  ) {
     const chosen = await listClick(rt, snapshot, ctx.live, ctx.chooser, plan.account);
     if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
     // Without the account's username nothing on the list can be compared with it.
@@ -558,6 +565,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
     // itself, and it is never filled again (ADR 0027).
     // So did a software keyboard's page once a key was pressed (ADR 0067).
     if (
+      !ctx.previous.signInFill &&
       ctx.previous.document.documentId !== ctx.document.documentId &&
       codeAwaitsClick(ctx.recipe, resumed, rt.keypadPresses.get(resumed.id))
     )
@@ -640,6 +648,8 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
         ...(ctx.document.frameId === 0 ? {} : { pageOrigin: ctx.siteOrigin }),
         accountSwitched: ctx.switched,
         fillOnly: "fillOnly" in plan,
+        signInFill: "signInFill" in plan,
+        fillPermissionSource: signInPermission(snapshot.snapshot.settings, ctx.live).source,
         ...(ctx.chooser
           ? { chooser: click === undefined || click === "none" ? "entry" : click }
           : {}),
@@ -725,7 +735,13 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
               : {}),
           }
         : {}),
-      ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
+      ...(metadata.fillOnly || metadata.signInFill ? { fillOnly: true as const } : {}),
+      ...(metadata.signInFill
+        ? {
+            fillMode: "sign-in-fill" as const,
+            permissionSource: metadata.fillPermissionSource ?? "default",
+          }
+        : {}),
       ...(metadata.startStep === undefined ? {} : { startStep: metadata.startStep }),
       ...(metadata.startPartial ? { startPartial: true as const } : {}),
       ...(click ? { click } : {}),

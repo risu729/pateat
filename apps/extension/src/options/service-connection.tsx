@@ -1,5 +1,6 @@
 import {
   deviceLabelSchema,
+  pagePermissionDocument,
   VISIBLE_LABEL_CHARACTER,
   normalizeServiceOrigin,
   profileNameSchema,
@@ -95,6 +96,8 @@ type Replacement = {
   allowed: number;
   reprompt: number;
   defaults: number;
+  pageRules: number;
+  pageDefaultsChanged: boolean;
 };
 
 export function ServiceConnection({
@@ -275,12 +278,27 @@ export function ServiceConnection({
       const allowed = settings ? (settings.allowedSites?.length ?? 0) : -1;
       const reprompt = settings ? settings.repromptSites.length : -1;
       const defaults = settings ? settings.siteDefaults.length : -1;
+      const pageRules = settings ? (settings.sitePagePermissions?.length ?? 0) : -1;
+      const pageDefaultsChanged =
+        settings !== undefined &&
+        pagePermissionDocument(settings).pagePermissionDefaults !== undefined;
       // Allowed sites that are on but empty are a setting too: Pateat runs nowhere (ADR 0077).
       if (
-        [exclusions, allowed, reprompt, defaults].some((count) => count !== 0) ||
-        settings?.allowedSitesEnabled
+        [exclusions, allowed, reprompt, defaults, pageRules].some((count) => count !== 0) ||
+        settings?.allowedSitesEnabled ||
+        pageDefaultsChanged
       ) {
-        setReplacement({ origin, label: name, profile, exclusions, allowed, reprompt, defaults });
+        setReplacement({
+          origin,
+          label: name,
+          profile,
+          exclusions,
+          allowed,
+          reprompt,
+          defaults,
+          pageRules,
+          pageDefaultsChanged,
+        });
         return;
       }
     }
@@ -344,6 +362,21 @@ export function ServiceConnection({
     // `receive` touches only state setters and refs; restart only when waiting toggles.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [client, awaitingSync, pollMs]);
+
+  // The counted warning lists no page behavior, so its changes are named separately.
+  const pageReplacement =
+    replacement &&
+    (replacement.pageDefaultsChanged
+      ? replacement.pageRules > 0
+        ? t("Your page behavior defaults and {{count}} site rule are replaced too.", {
+            count: replacement.pageRules,
+          })
+        : t("Your page behavior defaults are replaced too.")
+      : replacement.pageRules > 0
+        ? t("Your {{count}} page behavior site rule is replaced too.", {
+            count: replacement.pageRules,
+          })
+        : undefined);
 
   return (
     <Panel id="sync" headingId="sync-service-heading" title={t("Sync service")}>
@@ -516,7 +549,7 @@ export function ServiceConnection({
               <legend className="mb-1.5 p-0 text-sm font-semibold">{t("Settings profile")}</legend>
               <p id="sync-service-profile-hint" className="m-0 text-sm text-ink-muted">
                 {t(
-                  "A profile holds site exclusions, allowed sites, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.",
+                  "A profile holds site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.",
                 )}
               </p>
               {profiles.map((profile) => (
@@ -564,7 +597,11 @@ export function ServiceConnection({
           )}
           {replacement && (
             <fieldset
-              aria-describedby="sync-service-replace-detail"
+              aria-describedby={[
+                "sync-service-replace-detail",
+                ...(pageReplacement ? ["sync-service-replace-page"] : []),
+                "sync-service-replace-keep",
+              ].join(" ")}
               className="m-0 flex min-w-0 flex-col gap-3 rounded-xl border-0 bg-warning-tint px-4 py-3 text-sm/5"
             >
               <legend className="float-left m-0 flex w-full items-start gap-2 p-0 font-semibold">
@@ -581,7 +618,7 @@ export function ServiceConnection({
               <p id="sync-service-replace-detail" className="m-0">
                 {replacement.exclusions < 0
                   ? t(
-                      "This device's site exclusions, allowed sites, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.",
+                      "This device's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.",
                       { profile: replacement.profile.name },
                     )
                   : t(
@@ -593,7 +630,14 @@ export function ServiceConnection({
                         reprompt: replacement.reprompt,
                         defaults: replacement.defaults,
                       },
-                    )}{" "}
+                    )}
+              </p>
+              {pageReplacement && (
+                <p id="sync-service-replace-page" className="m-0">
+                  {pageReplacement}
+                </p>
+              )}
+              <p id="sync-service-replace-keep" className="m-0">
                 {t("To keep them, create a new profile from this device instead.")}
               </p>
               <div className="flex flex-wrap gap-2">
@@ -663,7 +707,7 @@ export function ServiceConnection({
                 tone: "idle",
                 icon: Lock,
                 text: t(
-                  "Syncs recipes, site exclusions, allowed sites, default accounts and account bindings. Never sends vault values, passwords or keys.",
+                  "Syncs recipes, site exclusions, allowed sites, page behavior, default accounts and account bindings. Never sends vault values, passwords or keys.",
                 ),
               },
             ]}

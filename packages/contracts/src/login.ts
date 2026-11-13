@@ -1503,6 +1503,7 @@ export const loginOperationSchema = v.strictObject({
   // Route steps (at most 32) and the steps of handlers entered during the attempt.
   stepIndex: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(39)),
   step: loginStepSchema,
+  signInFill: v.optional(v.literal(true)),
 });
 export const loginOutcomeSchema = v.picklist([
   "authenticated",

@@ -192,6 +192,10 @@ export const LOG_EVENTS = {
       unsubmitted: "flag",
       // A fill-only login of a tab that asks (ADR 0062 B), whose lines stay local (ADR 0066).
       fillOnly: "flag",
+      fillMode: "code",
+      fillExpired: "flag",
+      fillDone: "flag",
+      permissionSource: "code",
       routeChange: "code",
       layout: "code",
       layoutFrom: "code",
@@ -315,6 +319,7 @@ export const LOG_EVENTS = {
       recipe: "recipe",
       recipeRevision: "count",
       pageKind: "code",
+      permissionSource: "code",
       // Also for `confirm-unsupported`, for the evaluation of page kinds: whether an amount
       // shows in the form, ADR 0029's E1 and E2, and the tab's previous page (ADR 0035).
       amount: "flag",
@@ -359,6 +364,9 @@ export const LOG_EVENTS = {
       candidates: "count",
       item: "item",
       fillOnly: "flag",
+      fillMode: "code",
+      fillExpired: "flag",
+      permissionSource: "code",
       startStep: "count",
       startPartial: "flag",
       list: "code",
@@ -416,6 +424,9 @@ export const LOG_EVENTS = {
       step: "count",
       unsubmitted: "flag",
       fillOnly: "flag",
+      fillMode: "code",
+      fillExpired: "flag",
+      permissionSource: "code",
       name: "name",
       message: "code",
       stack: "stack",

@@ -80,7 +80,14 @@ body is read. Each accepted request renews the device's `last_used_at`, at most 
 day; migration 0007 started existing devices at their pairing time. Bodies must be
 `application/json` and at most 128 KiB. Synced settings are server-readable policy
 metadata; device-local field policies, vault values and provider sessions are rejected
-by the strict schemas. Stored documents are revalidated on read and fail closed with a
+by the strict schemas. Page-permission defaults and per-host overrides (ADR 0035)
+are profile policy in these same settings routes, including the extension profile
+editor and profile copies; they never become shared owner bindings. A present defaults
+object requires every page kind, and overrides allow at most 1,000 unique canonical
+hostnames with a nonempty permission map. Default values and an empty override list
+are omitted when a profile is stored. These are policy transport contracts; runtime
+support is tracked in [ADR 0035](../../docs/adr/0035-page-kinds-per-site.md).
+Stored documents are revalidated on read and fail closed with a
 500 `internal_error`, except an active recipe whose document no longer validates, which
 devices receive as revoked
 ([minimal service](../../docs/architecture.md#minimal-service)).

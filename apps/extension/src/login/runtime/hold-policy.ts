@@ -24,6 +24,7 @@ export function heldElsewhere(
 ): boolean {
   for (const entry of records)
     if (
+      !entry.signInFill &&
       entry.account.origin === siteOrigin &&
       entry.document.tabId !== tabId &&
       sharesCookies(incognitoTabs, entry.document.tabId, tabId) &&
@@ -43,6 +44,7 @@ export function siteHeldElsewhere(
 ): boolean {
   for (const entry of records)
     if (
+      !entry.signInFill &&
       entry.document.tabId !== tabId &&
       siteOf(entry.account.origin) === site &&
       sharesCookies(incognitoTabs, entry.document.tabId, tabId) &&

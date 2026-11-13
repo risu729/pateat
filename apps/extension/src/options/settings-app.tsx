@@ -22,6 +22,7 @@ import {
   ListChecks,
   Send,
   Shield,
+  SlidersHorizontal,
   Timer,
   TriangleAlert,
   Vault,
@@ -35,6 +36,8 @@ import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { VaultAccess, VaultRows } from "./connections";
 import { PRIVATE_WINDOWS_SECTION } from "../popup/pause";
 import { PrivateWindows } from "./private-windows";
+import { PagePermissions } from "./page-permissions";
+import { PAGE_PERMISSIONS_SECTION } from "./page-permission-controls";
 import { SitePolicy } from "./site-policy";
 import { AllowedSites } from "./allowed-sites";
 import { BitwardenSetup } from "./bitwarden-setup";
@@ -307,6 +310,8 @@ export function SettingsApp({
     form.setFieldValue("allowedSites", value.allowedSites);
     form.setFieldValue("allowedSitesEnabled", value.allowedSitesEnabled);
     form.setFieldValue("siteDefaults", value.siteDefaults);
+    form.setFieldValue("pagePermissionDefaults", value.pagePermissionDefaults);
+    form.setFieldValue("sitePagePermissions", value.sitePagePermissions);
     form.setFieldValue("bindings", value.bindings);
     form.setFieldValue("detailLinks", value.detailLinks);
     form.setFieldValue("loginInPrivateWindows", value.loginInPrivateWindows);
@@ -397,6 +402,8 @@ export function SettingsApp({
     form.setFieldValue("allowedSites", next.allowedSites);
     form.setFieldValue("allowedSitesEnabled", next.allowedSitesEnabled);
     form.setFieldValue("siteDefaults", next.siteDefaults);
+    form.setFieldValue("pagePermissionDefaults", next.pagePermissionDefaults);
+    form.setFieldValue("sitePagePermissions", next.sitePagePermissions);
     form.setFieldValue("bindings", next.bindings);
     form.setFieldValue("detailLinks", next.detailLinks);
     form.setFieldValue("loginInPrivateWindows", next.loginInPrivateWindows);
@@ -546,6 +553,7 @@ export function SettingsApp({
     ...(vaultTimeout ? [{ id: "vault-timeout", label: t("Vault timeout"), icon: Timer }] : []),
     { id: "sites", label: t("Sites"), icon: Globe },
     { id: "allowed-sites", label: t("Allowed sites"), icon: ListChecks },
+    { id: PAGE_PERMISSIONS_SECTION, label: t("Page behavior"), icon: SlidersHorizontal },
     { id: PRIVATE_WINDOWS_SECTION, label: t("Private windows"), icon: EyeOff },
     { id: PASSKEYS_SECTION, label: t("Passkeys"), icon: Fingerprint },
     { id: SERVICE_REPORTS_SECTION, label: t("Reports to the service"), icon: Send },
@@ -740,6 +748,9 @@ export function SettingsApp({
               >
                 <ul id="allowed-site-list" className="hidden" />
               </Panel>
+            )}
+            {accepted && (
+              <PagePermissions key={`page-permissions-${generation}`} draft={draft} edit={edit} />
             )}
             {accepted && <PrivateWindows draft={draft} edit={edit} />}
             {accepted && <PasskeyPolicyPanel draft={draft} edit={edit} />}

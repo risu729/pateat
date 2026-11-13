@@ -347,6 +347,13 @@ export const siteRulesSchema = v.pipe(
   ),
 );
 
+/** Whether a site rule covers a canonical hostname: its own, or a subdomain's if included. */
+export function siteRuleCovers(rule: SiteRule, hostname: string): boolean {
+  return (
+    hostname === rule.hostname || (rule.includeSubdomains && hostname.endsWith(`.${rule.hostname}`))
+  );
+}
+
 /**
  * A vault connection on this device, before its provider account is known: the add form's
  * choice whether to use it, applied when the account first syncs (ADR 0023). Never synced.

@@ -113,6 +113,7 @@ export function armSiteWait(rt: Runtime, now = Date.now()): void {
     for (const [since, duration] of [
       [record.timing.pageSince, SITE_WAIT_MS],
       [record.watch?.since, WATCH_MS],
+      [record.signInFill ? record.fillSince : undefined, WATCH_MS],
     ] as const) {
       if (since === undefined) continue;
       // A clock set back before either wait began ends it too.

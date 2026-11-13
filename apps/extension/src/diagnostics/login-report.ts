@@ -45,6 +45,7 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             recipe: report.recipeId,
             recipeRevision: report.recipeRevision,
             pageKind: report.pageKind,
+            permissionSource: report.permissionSource,
             amount: report.amount,
             e1: report.e1,
             e2: report.e2,
@@ -83,6 +84,9 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             candidates: report.candidates,
             item: report.itemId,
             fillOnly: report.fillOnly,
+            fillMode: report.fillMode,
+            fillExpired: report.fillExpired,
+            permissionSource: report.permissionSource,
             startStep: report.startStep,
             startPartial: report.startPartial,
             list: report.click,
@@ -131,6 +135,9 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             settled: report.settled,
             unsubmitted: report.unsubmitted,
             fillOnly: report.fillOnly,
+            fillMode: report.fillMode,
+            fillExpired: report.fillExpired,
+            permissionSource: report.permissionSource,
           },
           { source, level: report.watched ? "warn" : "info" },
         );
@@ -189,6 +196,9 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             step: report.stepIndex,
             unsubmitted: report.unsubmitted,
             fillOnly: report.fillOnly,
+            fillMode: report.fillMode,
+            fillExpired: report.fillExpired,
+            permissionSource: report.permissionSource,
             name: report.name,
             // Engine messages can quote input; only Pateat's own codes are kept.
             message:
@@ -490,6 +500,10 @@ export function createLoginReporter(logger: Pick<ReturnType<typeof createLogger>
             corrected: report.corrected,
             unsubmitted: report.unsubmitted,
             fillOnly: report.fillOnly,
+            fillMode: report.fillMode,
+            fillExpired: report.fillExpired,
+            fillDone: report.fillDone,
+            permissionSource: report.permissionSource,
             routeChange: report.routeChange,
             // A switch of layouts names both (ADR 0060).
             layout: report.layoutFrom === undefined ? undefined : report.branch,

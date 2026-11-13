@@ -45,7 +45,7 @@ export async function askContinuation(
   rt: Runtime,
   run: Execution,
   options: {
-    key: { operationId: string } | { before: number };
+    key: { operationId: string } | { before: number } | { after: number };
     path: string;
     byPassword: boolean;
     byIdentifier: boolean;
@@ -194,7 +194,11 @@ export async function askContinuation(
     return "refuse";
   }
   // Recorded before the request, so a restart never sends this step's page again.
-  await change(rt, run, { type: "CONTINUING", ...key });
+  await change(
+    rt,
+    run,
+    "after" in key ? { type: "FILL_CONTINUING", after: key.after } : { type: "CONTINUING", ...key },
+  );
   // Left during the write, the record may hold `CONTINUING` with nothing sent: fail-closed,
   // the step's page then settles `unknown` unless the cache brings the continuation.
   if (!current(rt, run)) return "moved";
@@ -262,13 +266,15 @@ export async function askContinuation(
 /** Whether the attempt records the continuation request `key` as sent. */
 export function recordedContinuation(
   run: Execution,
-  key: { operationId: string } | { before: number },
+  key: { operationId: string } | { before: number } | { after: number },
 ): boolean {
   const recorded = run.metadata.continuation;
   if (!recorded) return false;
   return "before" in key
     ? "before" in recorded && recorded.before === key.before
-    : "operationId" in recorded && recorded.operationId === key.operationId;
+    : "after" in key
+      ? "after" in recorded && recorded.after === key.after
+      : "operationId" in recorded && recorded.operationId === key.operationId;
 }
 
 /**

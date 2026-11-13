@@ -2,6 +2,7 @@ import { attemptRouteChoice, handlerSlots } from "@pateat/contracts";
 import { type Execution, type Authorized } from "./types";
 import { current, change } from "./attempt";
 import { planFor } from "./plan";
+import { signInPermission } from "./page-permission";
 import type { Runtime } from "./state";
 
 /** Resolve against a fresh live catalog; returns the authorizing metadata and binding. */
@@ -29,6 +30,13 @@ export async function allowed(rt: Runtime, run: Execution): Promise<Authorized |
       { type: "POLICY_CHANGED" },
       { cause: snapshot.ok ? "settings-revision" : "settings-unavailable" },
     );
+    return undefined;
+  }
+  if (
+    run.metadata.signInFill &&
+    signInPermission(snapshot.snapshot.settings, run.live).permission !== "fill"
+  ) {
+    await change(rt, run, { type: "POLICY_CHANGED" }, { cause: "settings-revision" });
     return undefined;
   }
   // The recorded route alone is checked, so an excluded field of another variant never

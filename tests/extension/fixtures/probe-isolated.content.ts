@@ -1,11 +1,14 @@
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
+import { recordFillEdits } from "../../../apps/extension/src/page/fill-edits";
 import { sendMessage } from "../../../apps/extension/src/messaging/protocol";
 
 export default defineContentScript({
   matches: ["http://127.0.0.1/*"],
+  allFrames: true,
   runAt: "document_start",
   main(ctx) {
+    ctx.onInvalidated(recordFillEdits(document, window));
     ctx.addEventListener(window, "message", (event: MessageEvent<unknown>) => {
       if (event.source !== window || event.origin !== location.origin) return;
       const data = event.data as {

@@ -8,6 +8,7 @@ import {
   SYNC_POLL_MS,
 } from "../../apps/extension/src/options/service-connection";
 import type {
+  LocalSettings,
   ServiceErrorCode,
   ServiceResponse,
   ServiceState,
@@ -614,11 +615,7 @@ const profileRequired: ServiceResponse = {
   ],
 };
 /** Local settings holding two site exclusions and one saved account. */
-function localSettings(
-  excludedSites = 2,
-  siteDefaults = 1,
-  allowed: { allowedSites?: unknown[]; allowedSitesEnabled?: boolean } = {},
-) {
+function localSettings(excludedSites = 2, siteDefaults = 1, allowed: Partial<LocalSettings> = {}) {
   const settings = {
     ...allowed,
     connections: [],
@@ -660,7 +657,7 @@ test("asks which profile to use before pairing an owner's further device", async
   await expect
     .element(page.getByRole("group", { name: "Settings profile", exact: true }))
     .toHaveAccessibleDescription(
-      "A profile holds site exclusions, allowed sites, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile. Choose a profile for this device.",
+      "A profile holds site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile. Choose a profile for this device.",
     );
   await expect
     .element(page.getByRole("radio", { name: "Local browser", exact: true }))
@@ -774,4 +771,85 @@ test("creates a new profile from the warning, named after the device by default"
     newProfile: "Agent browser 2",
   });
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+});
+
+const bankRule = {
+  hostname: "bank.example",
+  includeSubdomains: false,
+  permissions: { "sign-in": "fill" as const },
+};
+test.each<[Partial<LocalSettings>, string]>([
+  [
+    { pagePermissionDefaults: { "sign-in": "fill", confirm: "fill", "personal-details": "fill" } },
+    "Your page behavior defaults are replaced too.",
+  ],
+  [
+    { pagePermissionDefaults: { "sign-in": "auto", confirm: "off", "personal-details": "fill" } },
+    "Your page behavior defaults are replaced too.",
+  ],
+  [
+    { pagePermissionDefaults: { "sign-in": "auto", confirm: "fill", "personal-details": "off" } },
+    "Your page behavior defaults are replaced too.",
+  ],
+  [{ sitePagePermissions: [bankRule] }, "Your 1 page behavior site rule is replaced too."],
+  [
+    { sitePagePermissions: [bankRule, { ...bankRule, hostname: "mail.example" }] },
+    "Your 2 page behavior site rules are replaced too.",
+  ],
+  [
+    {
+      pagePermissionDefaults: { "sign-in": "fill", confirm: "fill", "personal-details": "fill" },
+      sitePagePermissions: [bankRule],
+    },
+    "Your page behavior defaults and 1 site rule are replaced too.",
+  ],
+])("warns when only page behavior would be replaced %o", async (policy, sentence) => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(profileRequired);
+  await render(
+    <ServiceConnection
+      client={client}
+      pollMs={60_000}
+      settingsClient={localSettings(0, 0, policy)}
+    />,
+  );
+  await submitPair();
+  await page.getByRole("radio", { name: "Local browser", exact: true }).click();
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  const warning = page.getByRole("group", {
+    name: "Replace this device's site settings with Local browser's?",
+    exact: true,
+  });
+  await expect.element(warning).toBeVisible();
+  await expect
+    .element(warning)
+    .toHaveAccessibleDescription(
+      `This device's site exclusions (0), allowed sites (0), sites that ask for the master password (0) and saved accounts (0) are removed and Local browser's are used instead. Account bindings are kept. ${sentence} To keep them, create a new profile from this device instead.`,
+    );
+  expect(client.pair).toHaveBeenCalledOnce();
+  await warning.getByRole("button", { name: "Pair and replace", exact: true }).click();
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", { profileId: LOCAL_PROFILE });
+});
+
+test("explicit normal page defaults and an empty rule list do not warn on pairing", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(profileRequired);
+  await render(
+    <ServiceConnection
+      client={client}
+      pollMs={60_000}
+      settingsClient={localSettings(0, 0, {
+        pagePermissionDefaults: { "sign-in": "auto", confirm: "fill", "personal-details": "fill" },
+        sitePagePermissions: [],
+      })}
+    />,
+  );
+  await submitPair();
+  await page.getByRole("radio", { name: "Local browser", exact: true }).click();
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: "Pair and replace", exact: true }))
+    .not.toBeInTheDocument();
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", { profileId: LOCAL_PROFILE });
 });

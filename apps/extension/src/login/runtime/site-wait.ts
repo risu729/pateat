@@ -37,6 +37,7 @@ export function lapsed(
   tab: { url?: string | undefined } | undefined,
   at: number,
 ): LoginAttemptMetadata {
+  if (metadata.signInFill) return transitionLoginAttempt(metadata, { type: "FILL_EXPIRED" }, at);
   const tabUrl = tab?.url;
   const origin = webOrigin(tabUrl);
   // A tab that could not be read, as one Chrome replaced whose record has not moved yet,

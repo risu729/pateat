@@ -105,9 +105,9 @@ export function ProfilesPage({ client }: { client: ManageClient }) {
         Profiles
       </h1>
       <p className="text-sm text-ink-muted">
-        A profile holds site exclusions, allowed sites, sites that ask for the master password and
-        saved accounts. Each device uses one, chosen when it pairs or on the Devices page. Account
-        bindings and personal-detail links are shared by every profile.
+        A profile holds site exclusions, allowed sites, page behavior, sites that ask for the master
+        password and saved accounts. Each device uses one, chosen when it pairs or on the Devices
+        page. Account bindings and personal-detail links are shared by every profile.
       </p>
       <SuccessNotice id="profiles-notice" message={notice} />
       {failed?.error && (

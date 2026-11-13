@@ -32,6 +32,7 @@ import { choiceDefaults } from "./messages";
 import { type PendingChoice, type PickedAccount } from "./session-schemas";
 import { quietly } from "./session-store";
 import { recordFor } from "./hold";
+import { signInPermission } from "./page-permission";
 import { parkedFor, reviewRequests } from "./passkey";
 import type { Runtime } from "./state";
 
@@ -231,7 +232,11 @@ export async function choose(
   // The page's own account input is honoured only where an automatic login would choose
   // among several matches: never on a paused site or a tab that asks (ADR 0062), where
   // only the person's pick logs in.
-  if (pick?.site && pick.attemptId === undefined && (paused || asking)) {
+  if (
+    pick?.site &&
+    ((pick.attemptId === undefined && (paused || asking)) ||
+      signInPermission(snapshot.snapshot.settings, live).permission !== "auto")
+  ) {
     rt.picked.delete(live.document.tabId);
     void quietly(rt, () => saveSession(rt));
     pick = undefined;
@@ -333,7 +338,9 @@ export async function choose(
     // for this document and the login it starts only, and is never saved (ADR 0028
     // amendment of 2026-10-23). It is kept as a pick, which the login's later pages use.
     const shown =
-      accountTargets.length > 0 && !live.siteAsked
+      signInPermission(snapshot.snapshot.settings, live).permission === "auto" &&
+      accountTargets.length > 0 &&
+      !live.siteAsked
         ? await siteAccount(rt, snapshot, live, candidates, accountTargets)
         : undefined;
     if (shown) {

@@ -102,6 +102,9 @@ export type PageStatus = {
     cause?: string;
     unconfirmed?: true;
     fillOnly?: true;
+    signInFill?: true;
+    fillExpired?: true;
+    fillDone?: true;
   };
   /** A refusal that shows a failure badge, until a login of the tab moves on. */
   refused?: { reason: string; detail?: string };
@@ -482,7 +485,13 @@ export function createLoginBadge(deps: {
    */
   function record(report: LoginReport): boolean {
     let change: Partial<Omit<PageStatus, "origin">> | undefined;
-    if (report.type === "start") change = { login: { state: "started" } };
+    if (report.type === "start")
+      change = {
+        login: {
+          state: "started",
+          ...(report.fillMode === "sign-in-fill" ? { signInFill: true as const } : {}),
+        },
+      };
     else if (
       report.type === "refused" &&
       !report.repeat &&
@@ -500,6 +509,9 @@ export function createLoginBadge(deps: {
           ...(report.cause ? { cause: report.cause } : {}),
           ...(report.unconfirmed ? { unconfirmed: true as const } : {}),
           ...(report.reason === "fill-only" ? { fillOnly: true as const } : {}),
+          ...(report.fillMode === "sign-in-fill" ? { signInFill: true as const } : {}),
+          ...(report.fillExpired ? { fillExpired: true as const } : {}),
+          ...(report.fillDone ? { fillDone: true as const } : {}),
         },
       };
     else if (report.type === "generation" && report.outcome !== "skipped") {
@@ -806,6 +818,9 @@ const storedSchema = v.object({
             cause: v.exactOptional(v.string()),
             unconfirmed: v.exactOptional(v.literal(true)),
             fillOnly: v.exactOptional(v.literal(true)),
+            signInFill: v.exactOptional(v.literal(true)),
+            fillExpired: v.exactOptional(v.literal(true)),
+            fillDone: v.exactOptional(v.literal(true)),
           }),
         ),
         refused: v.exactOptional(

@@ -75,7 +75,16 @@ export const LOCAL_ONLY_FIELDS = {
   "vault.sync": ["revised"],
   "vault.sign-in": ["revised"],
   "vault.check": ["revised"],
+  // Page-permission mode, expiry and its deciding rule explain local autofill only.
+  // Keep the service's strict problem-report field contract unchanged (ADR 0035).
+  "login.start": ["fillMode", "fillExpired", "permissionSource"],
+  "login.exception": ["fillMode", "fillExpired", "permissionSource"],
+  "login.refused": ["permissionSource"],
   "login.attempt": [
+    "fillMode",
+    "fillExpired",
+    "fillDone",
+    "permissionSource",
     "beforeShownMs",
     "startMs",
     "awaitMs",

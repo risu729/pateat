@@ -5,6 +5,7 @@ import { Bug, CircleCheck, CircleX, Info, LoaderCircle, TriangleAlert } from "lu
 import type { ReactNode } from "react";
 import { normalizeHostname } from "@pateat/contracts";
 import type { StatusResponse } from "../login/choice-wire";
+import { DESCRIBED_WATCH_MAX_MS } from "../login/wire/constants";
 
 type Status = Extract<StatusResponse, { ok: true }>;
 export type StatusTone = "idle" | "busy" | "ok" | "warn" | "err";
@@ -62,6 +63,7 @@ const NOT_STARTED: Record<string, string> = {
   "account-asked": "Pateat waits for you to choose an account",
   "relogin-limit":
     "Pateat logged in to this site twice in the last 10 minutes; choose an account to log in again",
+  "page-off": "verification filling is turned off for this site or profile",
   "confirm-unsupported":
     "the AI classified this page as a verification while signed in, or could not tell, so Pateat does not fill it; if that is wrong, revoke its recipe on the service's Sites page (/manage/sites) so the page is sent again",
   "account-ambiguous": "several accounts match; choose one to log in",
@@ -243,7 +245,7 @@ function loginLines(status: Status, t: TFunction): StatusLine[] {
     ? [
         {
           id: "refused",
-          tone: "err",
+          tone: status.refused.reason === "page-off" ? "idle" : "err",
           text: t("Pateat did not log in: {{why}}.", { why: refusalText(status.refused, t) }),
         },
       ]
@@ -285,6 +287,38 @@ function attemptLines(status: Status, t: TFunction): StatusLine[] {
         id: "login",
         tone: "idle",
         text: t("No login started: {{why}}.", { why: plain(NOT_STARTED, why, t) }),
+      },
+    ];
+  }
+  if (login.signInFill) {
+    if (login.fillExpired)
+      return [
+        {
+          id: "login",
+          tone: "idle",
+          text: t(
+            "Autofill stopped after {{minutes}} minutes. Reload the page or choose an account to continue.",
+            { minutes: DESCRIBED_WATCH_MAX_MS / 60_000 },
+          ),
+        },
+      ];
+    // Filled with nothing left to fill: the person goes on as the line says.
+    if (login.state !== "blocked" || login.fillDone)
+      return [
+        {
+          id: "login",
+          tone: "idle",
+          text: t(
+            "Autofill only: Pateat may fill sign-in fields and presses nothing. Continue the site's steps yourself.",
+          ),
+        },
+      ];
+    const why = plain(OUTCOMES, login.outcome ?? "cancelled", t);
+    return [
+      {
+        id: "login",
+        tone: "idle",
+        text: t("Autofill stopped: {{why}}. Nothing was pressed.", { why }),
       },
     ];
   }

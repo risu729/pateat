@@ -53,6 +53,7 @@ import { switchLayout, siblingsAt } from "./continuation";
 import { continueBefore, replaceableClick } from "./continue-before";
 import { detailFill, reportDetail } from "./detail-fill";
 import { pause } from "./session-store";
+import { fillBaseline, fillBoundary, isFillAction } from "./sign-in-fill";
 import type { Runtime } from "./state";
 
 /* eslint-disable no-await-in-loop */
@@ -92,7 +93,7 @@ export async function drive(rt: Runtime, run: Execution): Promise<void> {
           state: run.metadata.state,
           stepIndex: run.metadata.stepIndex,
           ...(unsubmitted(rt, run.metadata) ? { unsubmitted: true as const } : {}),
-          ...(run.metadata.fillOnly ? { fillOnly: true as const } : {}),
+          ...(run.metadata.fillOnly || run.metadata.signInFill ? { fillOnly: true as const } : {}),
           name: error instanceof Error ? error.name : typeof error,
           ...(error instanceof Error ? { message: error.message } : {}),
           ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
@@ -110,6 +111,14 @@ export async function drive(rt: Runtime, run: Execution): Promise<void> {
 
 /** Runs the attempt's steps until it leaves `ready`; `drive` owns errors and retries. */
 export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
+  if (
+    run.metadata.signInFill &&
+    (run.metadata.state === "reconciling" || run.metadata.state === "awaiting-result")
+  ) {
+    run.metadata = recoverLoginAttempt(run.metadata);
+    await save(rt, run);
+  }
+  if (run.metadata.signInFill && run.metadata.state !== "ready") return;
   // A route the watch's own document took since, as a single-page site's after its
   // sign-in, is read once as the tab's next page, recorded first so a restarted worker
   // does not read it again (ADR 0027 amendment of 2026-10-25).
@@ -149,7 +158,7 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
   while (current(rt, run) && run.metadata.state === "ready") {
     // The page's own passkey request decides the route before anything is submitted,
     // and that route answers it instead of taking a step on the page (ADR 0034).
-    if (await switchToPasskey(rt, run)) continue;
+    if (!run.metadata.signInFill && (await switchToPasskey(rt, run))) continue;
     if (
       run.metadata.route === "passkey" &&
       run.metadata.stepIndex === 0 &&
@@ -169,7 +178,7 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
     }
     // A login of an item without a password fills nothing at its stop, but answers its
     // page's passkey request there (ADR 0036).
-    if (atStop(run.metadata)) {
+    if (!run.metadata.signInFill && atStop(run.metadata)) {
       await stopBeforePassword(rt, run);
       if (current(rt, run) && run.metadata.state === "ready" && atStop(run.metadata)) return;
       continue;
@@ -178,6 +187,14 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
     // A fill or click waits for its elements before any intent, vault read or value
     // delivery; a slow render is not a failure until the owner-approved limit passes.
     const upcoming = attemptPlan(run.recipe, run.metadata)?.[run.metadata.stepIndex]?.step;
+    if (run.metadata.signInFill) {
+      if (!upcoming || !isFillAction(upcoming)) {
+        if (await fillBoundary(rt, run)) continue;
+        return;
+      }
+      await fillBaseline(rt, run);
+      if (!current(rt, run) || run.metadata.state !== "ready") return;
+    }
     // A fill-only login stops before anything that may advance or submit, and before a
     // fill on a software keyboard or of a TOTP code, which the page may act on as a PIN
     // pad does at its last digit (ADR 0021 D, 0067).
@@ -259,7 +276,7 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       if (waited !== "ready" || !(await timed(rt, run, "checkMs", () => allowed(rt, run)))) return;
       // A request the page made while the step waited still decides the route before the
       // first submission, as a chooser login's click on its list is (ADR 0034).
-      if (await switchToPasskey(rt, run)) continue;
+      if (!run.metadata.signInFill && (await switchToPasskey(rt, run))) continue;
     }
     const operation = nextLoginOperation(run.metadata, run.recipe, run.live.document, newId());
     if (!operation) {
@@ -603,6 +620,7 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       const accountAtPress =
         expected !== undefined &&
         !run.metadata.fillOnly &&
+        !run.metadata.signInFill &&
         operation.step.kind === "fill" &&
         loginStepEffect(operation.step) === "prepare" &&
         !keypadStep(operation.step) &&
@@ -621,7 +639,10 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
           ...(list ? { list } : {}),
           // One switch per tab: an attempt that follows a switch never clicks another.
           // A fill-only login never clicks, not even a switch (ADR 0021 D).
-          ...(expected && !run.metadata.accountSwitched && !run.metadata.fillOnly
+          ...(expected &&
+          !run.metadata.accountSwitched &&
+          !run.metadata.fillOnly &&
+          !run.metadata.signInFill
             ? run.recipe.accountSwitch
               ? { accountSwitch: run.recipe.accountSwitch }
               : { otherSwitch: true as const }
@@ -638,7 +659,8 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
           ...(passwordChoice ? { passwordChoice: true as const } : {}),
           ...(authenticatorChoice ? { authenticatorChoice: true as const } : {}),
           // A `detail` handler's input is filled after its choosing radio (ADR 0061).
-          ...(operation.step.kind === "fill" &&
+          ...(!run.metadata.signInFill &&
+          operation.step.kind === "fill" &&
           operation.step.fields.some((field) => isDetailSlot(field.slot))
             ? { choose: true as const }
             : {}),
@@ -712,7 +734,8 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
       const switched =
         result.output.switchable === true &&
         !run.metadata.accountSwitched &&
-        !run.metadata.fillOnly;
+        !run.metadata.fillOnly &&
+        !run.metadata.signInFill;
       await change(rt, run, {
         type: "WRONG_ACCOUNT",
         operationId: operation.operationId,
@@ -720,6 +743,7 @@ export async function runSteps(rt: Runtime, run: Execution): Promise<void> {
         ...(switched ? { switched: true } : {}),
       });
       // The page shows another account: a fill-only login ends and asks.
+      if (run.metadata.signInFill) return;
       if (run.metadata.fillOnly) {
         await endFillOnly(rt, run);
         return;

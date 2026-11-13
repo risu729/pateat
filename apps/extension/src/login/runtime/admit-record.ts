@@ -2,6 +2,7 @@ import {
   recoverLoginAttempt,
   transitionLoginAttempt,
   type LoginAttemptMetadata,
+  type LoginRecipe,
 } from "@pateat/contracts";
 import { quietly, keep, forget } from "./session-store";
 import { recordKey, documentKey } from "./steps";
@@ -14,6 +15,10 @@ import { nextRecordStep, type RecordPhase, type RecordSeen } from "./admit-recor
 import { addAskFill } from "./relogin";
 import { confirmRecipeOn, startsFor } from "./generation-scope";
 import type { Runtime } from "./state";
+import { pageOff, recordedFillShows } from "./sign-in-fill";
+import { probeRecipe } from "../dummy";
+import { explicitlyPicked, pagePermission } from "./page-permission";
+import { terminal } from "./attempt-state";
 import { admitRecipe } from "./admit-recipe";
 import type { AdmitContext } from "./admit-context";
 
@@ -23,6 +28,85 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
   ctx.recorded = recordFor(rt, ctx.document.tabId, ctx.document.origin);
 
   ctx.askKey = recordKey(ctx.document.tabId, ctx.document.origin);
+
+  // Autofill follows its own account and step ledger; it performs no logout detection.
+  if (ctx.recorded?.signInFill) {
+    const recorded = ctx.recorded;
+    const ended = terminal(recorded);
+    // A valid explicit pick starts a normal login instead, with all normal scope checks.
+    // A new document starts the fill again once its sign-in form shows, as after a reload
+    // or the site showing the form again, unless the fill's next field is ready there too,
+    // as in a form posted back to its own path; any new document after one that ended
+    // starts again. Only replay into the same document is fenced.
+    const picked = explicitlyPicked(rt, ctx.document);
+    const fresh = recorded.document.documentId !== ctx.document.documentId;
+    let restart = picked || (fresh && ended);
+    if (!restart && fresh && ctx.start?.path === ctx.live.path) {
+      const recipe =
+        probeMode && ctx.document.origin === rt.vars.origin
+          ? probeRecipe(rt.vars.origin, `/${recorded.recipeId.replace(/^demo-/, "")}`)
+          : recorded.chooser
+            ? undefined
+            : await Promise.resolve(
+                rt.recipes.recipe(
+                  ctx.document.origin,
+                  ctx.live.path,
+                  recorded.recipeId,
+                  recorded.layout,
+                ),
+              ).catch(() => undefined);
+      const goesOn =
+        recipe !== undefined && (await recordedFillShows(rt, ctx.live, recipe, recorded));
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      restart = !goesOn;
+    }
+    // A paused site's fill that has not ended stops on its next page before any step, as
+    // a paused automatic login does (ADR 0062), also one a restarted worker resumes.
+    const paused =
+      ctx.paused && !ended && rt.picked.get(ctx.document.tabId)?.attemptId !== recorded.id;
+    if (restart || paused) {
+      const run = rt.attempts.get(ctx.document.tabId);
+      const own = run?.metadata.id === recorded.id ? run : undefined;
+      if (!ended) {
+        const stopped = transitionLoginAttempt(own?.metadata ?? recoverLoginAttempt(recorded), {
+          type: "POLICY_CHANGED",
+        });
+        if (own) own.metadata = stopped;
+        reportAttempt(
+          rt,
+          stopped,
+          own?.recipe,
+          picked
+            ? { cause: "plan", reason: "account-picked" }
+            : paused
+              ? { cause: "paused" }
+              : { cause: "plan", reason: "sign-in-shown" },
+        );
+      }
+      if (own) rt.attempts.delete(ctx.document.tabId);
+      try {
+        await forget(rt, ctx.askKey);
+      } catch {
+        return ctx.refuse("storage-unavailable");
+      }
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      ctx.recorded = undefined;
+    }
+    return admitRecipe(rt, ctx);
+  }
+
+  /** A `confirm` page set to `off` only reports itself, as on a fresh visit (ADR 0035). */
+  const confirmOff = async (confirm: LoginRecipe): Promise<Readiness | undefined> => {
+    const snapshot = await rt.settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+    if (!snapshot?.ok) return undefined;
+    const permission = pagePermission(snapshot.snapshot.settings, ctx.live.url, "confirm");
+    return permission.permission === "fill"
+      ? undefined
+      : pageOff(rt, ctx.live, confirm, permission.source, ctx.shown?.amount);
+  };
 
   // Each decision sees the current context and picks after the preceding awaited effect.
   const recordStep = (phase: RecordPhase, seen: Omit<RecordSeen, "phase"> = {}, now = 0) =>
@@ -239,6 +323,8 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
     if (release.kind === "keep-watching") {
       const starts = await startsFor(rt, ctx.document.origin);
       if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      const off = confirm && (await confirmOff(confirm));
+      if (off) return off;
       // Not a recipe's first step on its path, so the login stays (ADR 0021 D).
       const visit = confirm && confirmPage(rt, ctx.live, confirm);
       if (visit) ctx.notStarted("confirm-unsupported", visit);
@@ -312,6 +398,8 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
     ) {
       const starts = await startsFor(rt, ctx.document.origin);
       if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      const off = confirm && (await confirmOff(confirm));
+      if (off) return off;
       const visit = confirm && confirmPage(rt, ctx.live, confirm);
       if (visit) ctx.notStarted("confirm-unsupported", visit);
       else ctx.notStarted("stopped-login");

@@ -182,6 +182,7 @@ const PRE_PRESS_ENTRY_REFUSALS: ReadonlySet<unknown> = new Set([
   "paused",
   "press-limit",
   "settings-unavailable",
+  "sign-in-fill",
   "no-vault-match",
   "storage-unavailable",
   "in-progress",

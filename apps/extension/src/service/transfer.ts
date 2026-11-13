@@ -1,5 +1,6 @@
 import {
   localSettingsSchema,
+  getPagePermissionDefaults,
   MAX_ACTIVE_RECIPES,
   MAX_SETTINGS_DOCUMENT_BYTES,
   settingsDocumentBytes,
@@ -92,6 +93,9 @@ function changes(before: LocalSettings, after: LocalSettings) {
       rules("excludedSites") +
       rules("passkeyBrowserSites") +
       rules("repromptSites") +
+      new Set(changed(was.sitePagePermissions ?? [], now.sitePagePermissions ?? []).map(siteKey))
+        .size +
+      (same(getPagePermissionDefaults(was), getPagePermissionDefaults(now)) ? 0 : 1) +
       new Set(changed(was.allowedSites, now.allowedSites).map(siteKey)).size +
       (was.allowedSitesEnabled === now.allowedSitesEnabled ? 0 : 1) +
       (was.loginInPrivateWindows === now.loginInPrivateWindows ? 0 : 1) +

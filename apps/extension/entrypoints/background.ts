@@ -683,6 +683,7 @@ export default defineBackground(() => {
         extensionId: browser.runtime.id,
         timeoutMs: passkeyProbe.timeoutMs,
         policy: passkeyProbe.policy,
+        pagePermission: login.passkeyPagePermission,
         chooser: passkeyChooser,
         browserSite: passkeyBrowserSite,
         addBrowserSite,
@@ -700,6 +701,7 @@ export default defineBackground(() => {
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
         relatedOrigins,
+        pagePermission: login.passkeyPagePermission,
         // ADR 0007: presence and verification as the profile's setting says, read per request.
         policy: () => readPasskeyPolicy(async () => (await settings.read()).settings),
         // Only the local log keeps it; the page never learns why.

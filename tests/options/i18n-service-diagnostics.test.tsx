@@ -51,6 +51,8 @@ const status: DiagnosticsStatus = {
     siteDefaults: 0,
     bindings: 0,
     passkeyBrowserSites: 0,
+    pageRules: 0,
+    pageDefaults: "default",
   },
   storage: { localBytes: 100 },
   logs: { entries: 2, bytes: 100, recentErrors: 0, recentWarnings: 0 },

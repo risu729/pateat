@@ -86,7 +86,7 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
   ];
   if (status.settings)
     lines.push(
-      `Settings: excluded sites ${status.settings.excludedSites} · allowed sites ${status.settings.allowedSites} (${status.settings.allowedSitesEnabled ? "on" : "off"}) · site defaults ${status.settings.siteDefaults} · bindings ${status.settings.bindings} · passkey browser sites ${status.settings.passkeyBrowserSites}`,
+      `Settings: excluded sites ${status.settings.excludedSites} · allowed sites ${status.settings.allowedSites} (${status.settings.allowedSitesEnabled ? "on" : "off"}) · site defaults ${status.settings.siteDefaults} · bindings ${status.settings.bindings} · passkey browser sites ${status.settings.passkeyBrowserSites} · page rules ${status.settings.pageRules} · page defaults ${status.settings.pageDefaults}`,
     );
   lines.push(`Toolbar icon: ${status.actionIcon}`);
   if (status.vaultTimeout) lines.push(`Vault timeout: ${vaultTimeoutText(status.vaultTimeout)}`);

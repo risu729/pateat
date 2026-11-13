@@ -744,6 +744,30 @@ drops its merge base for them, while bindings and personal-detail links keep mer
 Chrome use access to these pages is not assumed. Keep settings and execution operations
 independent of their UI.
 
+Page behavior
+([ADR 0035 delivery 2](adr/0035-page-kinds-per-site.md#implementation-of-delivery-2)) is
+the profile's `pagePermissionDefaults` and `sitePagePermissions`, carried by profile
+copying, adoption, three-way sync and file transfer. An absent `pagePermissionDefaults`
+means `sign-in: auto`, `confirm: fill` and `personal-details: fill`; when present it
+holds all three keys. An absent or empty `sitePagePermissions` means no overrides. A row
+names a canonical hostname, whether it includes subdomains and at least one kind's
+permission; at most 1,000 distinct hostnames are accepted. The longest covering hostname
+decides each kind separately. Canonical synced documents omit the default object and the
+empty override list; concurrent default changes merge per kind and site rows per
+hostname, with the service winning concurrent changes to the same entry. The extension's
+settings page edits the defaults and every site rule in its Page behavior section
+(`apps/extension/src/options/page-permissions.tsx`), and its remote profile editor shows
+the same section for another profile. The toolbar popup edits only the tab's canonical
+hostname as an exact-host row; when that host's row also covers its subdomains, the
+popup shows the row read only and links to the settings page's section, so it never
+narrows the row silently. Pairing with an existing profile warns when this device has
+site rules or changed defaults. `sign-in: fill` runs the fill-only login described
+under
+[Filling sign-in pages without pressing](#filling-sign-in-pages-without-pressing);
+`confirm: off` leaves a verification page alone and reports `page-off`, while
+`confirm: fill` and filling `personal-details` forms are stored choices without an
+implementation yet.
+
 Each provider account (provider, server and user ID, synced in `accountPolicies`) is
 either used or not, and supports all items except exclusions or selected
 folders/collections/items only; `itemPolicies` keep per-item selection, exclusion and
@@ -4410,3 +4434,56 @@ intended account, login, origin and expiry. Treat codes and authentication links
 as secrets rather than recipe data or model context, and do not treat arbitrary
 message links as navigation authority. Provider choices and retrieval transport
 belong to that later implementation, not an initial inbox/SMS service.
+
+### Filling sign-in pages without pressing
+
+ADR 0035's `sign-in: fill` permission is a distinct local attempt mode. It chooses the
+saved default or the only matching item and uses its password route. Several matches
+ask for an account; a valid explicit popup pick starts the normal login. A passive
+attempt preserves its account and step across document and worker replacement, never
+clicks, submits, judges a page, detects a logout, learns handlers, or remembers a new
+default merely because it filled fields. Its records do not hold other tabs and retire
+after ten minutes. Local attempt lines carry `fillOnly` and `sign-in-fill`.
+
+The next step must actually become usable on a new document/path, or change from not
+ready to ready in the same document. A DOM mutation or elapsed time is not progression.
+The final advance may be continued by normal recipe generation when the missing input
+appears, with the existing per-step request and recipe budgets. When the person/page
+has advanced, a persistent step key records the append request without a synthetic click
+or submission. When the same advance button still shows beside a revealed password,
+the established same-button replacement checks apply instead. Already learned detail
+handlers fill ordinary writable inputs without selecting their radio buttons, also when
+their page shows later in the same document: the content script's wait answers once
+their elements show as well as the next step's. Software
+keyboards, fields marked as advancing/submitting and TOTP/code fields remain empty:
+the current recipe cannot prove that entering their last digit will not submit, even
+when it also names a button. This conservative limit also applies to learned code
+handlers.
+
+A document-start isolated-world recorder keeps only trusted-edit identities and fill
+claims, never typed values. It protects replacements and reconnects; an absent or
+invalidated recorder refuses autofill. Ambiguous edited identities suppress filling.
+The persisted mutation intent also fences a worker restart before acknowledgement.
+A passive mode delegates conditional and unactivated passkey requests, even when the
+profile's presence policy is `always`; activated requests keep the existing account
+and origin checks. The permission is read again immediately before signing, and once
+more before an assertion leaves the request.
+
+A document takes `sign-in: fill` from its own site rule or from its tab's site rule, so
+a framed sign-in form follows the page around it. A hostname that no site rule can name,
+such as one with an underscore, takes the profile's default. A passive attempt ends with
+`fillDone` once its last safe field is filled and no continuation or detail handler can
+follow; it holds no page of the tab after that. Until then, the content script waits for
+the next step's readiness and checks it again at each page change, with the step wait
+only as the bound, so a quiet page reads no settings or vault. After an answer that the
+worker found nothing to do for, the next wait first waits for another page change. A new
+document that shows the first step again, a terminal record, an explicit popup pick, and
+a pause each end the previous passive attempt and start from the current page; a new
+document that also shows the next field ready, as a form posted back to its own path
+does, goes on to fill it instead. The document also refuses
+a passive fill command that asks for a click, an effectful fill, a keypad, a code, or a
+choice, whatever the background sent. As Bitwarden's page-load autofill fills only empty
+fields, a passive fill keeps a password the page or person already entered. The edit
+recorder also keeps each edited field's bare kind, such as a text input, so one edit
+leaves every field of that kind in the document to the person: a known, conservative
+limit that a later change may narrow.

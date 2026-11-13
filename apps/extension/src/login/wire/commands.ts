@@ -52,6 +52,26 @@ const splitPartEntries = {
 export const commandSchema = v.variant("type", [
   v.strictObject({
     version: v.literal(1),
+    type: v.literal("login.fill.change"),
+    token: id,
+    timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(LOGIN_STEP_WAIT_MS)),
+    /**
+     * A sign-in fill's next step (ADR 0035): answered once it is ready, else at the next
+     * sign of a change of the page. With `settled`, it was ready before the fill already,
+     * and only a move of the page to another path answers.
+     */
+    readiness: v.optional(loginReadinessSchema),
+    settled: v.optional(v.literal(true)),
+    /** Learned handlers not entered yet (ADR 0061): answered too once one of them shows. */
+    handlers: v.optional(v.pipe(v.array(loginReadinessSchema), v.minLength(1), v.maxLength(8))),
+    /**
+     * The worker found nothing to do after the previous answer: the page waits for its next
+     * change before it reads the steps again, so a disagreement never repeats at once.
+     */
+    changed: v.optional(v.literal(true)),
+  }),
+  v.strictObject({
+    version: v.literal(1),
     type: v.literal("login.observe"),
     token: id,
     path: v.string(),

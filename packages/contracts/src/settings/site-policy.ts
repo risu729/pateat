@@ -1,20 +1,13 @@
 import {
   normalizeHostname,
+  siteRuleCovers,
   parseSiteUrl,
   type LocalSettings,
   type SiteDefault,
-  type SiteRule,
   type VaultCatalog,
   type VaultItemMetadata,
 } from "./schema";
 import { getItemEligibility, type EligibilityReason } from "./vault-policy";
-
-/** Whether a site rule covers a canonical hostname: its own, or a subdomain's if included. */
-export function siteRuleCovers(rule: SiteRule, hostname: string): boolean {
-  return (
-    hostname === rule.hostname || (rule.includeSubdomains && hostname.endsWith(`.${rule.hostname}`))
-  );
-}
 
 /**
  * Whether Pateat runs on a page at all: an HTTP(S) URL whose hostname policy inputs accept.

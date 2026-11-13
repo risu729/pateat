@@ -1,4 +1,6 @@
 import {
+  fillOnlyStep,
+  routeSteps,
   bindingGaps,
   chooseLoginRoute,
   defaultLoginBinding,
@@ -39,6 +41,8 @@ import { withItemOrigin, sameSiteAs, accountTargetsOn, codeFieldOf, passwordMiss
 import { probeDocument } from "./messages";
 import { probeMode } from "./constants";
 import { choose } from "./choice-save";
+import { recordFor } from "./hold";
+import { signInPermission } from "./page-permission";
 import { listedBrowserSite } from "./pause";
 import type { Runtime } from "./state";
 import { bindingReviewSnapshot } from "./binding-review";
@@ -499,6 +503,17 @@ export async function planFor(
       request.fill === true,
       accountTargetsOn(recipe, live.path),
     );
+    // A sign-in fill goes on only with the account it began with, which its later pages
+    // must still choose as a new one would: the default or the only match (ADR 0035).
+    const recorded = recordFor(rt, live.document.tabId, live.document.origin);
+    if (
+      request.route &&
+      recorded?.signInFill &&
+      !("reason" in found) &&
+      (found.connectionId !== recorded.account.connectionId ||
+        found.itemId !== recorded.account.itemId)
+    )
+      return { ok: false as const, reason: "account-changed" as const };
     if ("reason" in found)
       return {
         ok: false as const,
@@ -516,6 +531,10 @@ export async function planFor(
     if (top) return { ok: false as const, reason: top.reason };
     catalog = scope.catalog;
   }
+  const signInFill =
+    signInPermission(snapshot.snapshot.settings, live).permission !== "auto" &&
+    chosen?.source !== "pick" &&
+    chosen?.source !== "switch";
   // The generated slot map is read at most once per plan.
   let generated: Promise<LoginBindingTemplate | undefined> | undefined;
   const slotMap = () =>
@@ -526,7 +545,19 @@ export async function planFor(
    * rather than having it filled (ADR 0027, amended 2026-10-19).
    */
   const resolveRoute = async (route: LoginRouteChoice, fillGaps = true) => {
-    const slots = routeSlots(recipe, route);
+    // Passive execution never delivers the code, effectful-fill or keypad fields.
+    // Their omitted bindings must not prevent the ordinary fields from being filled.
+    const slots =
+      signInFill && route.route === "password"
+        ? [
+            ...new Set(
+              routeSteps(recipe, route).flatMap((step) => {
+                const fill = fillOnlyStep(step);
+                return fill?.kind === "fill" ? fill.fields.map((field) => field.slot) : [];
+              }),
+            ),
+          ]
+        : routeSlots(recipe, route);
     let policy = snapshot.snapshot;
     let binding: LoginAccountBinding;
     let choice: UnsavedChoice | undefined;
@@ -644,7 +675,10 @@ export async function planFor(
         : {}),
       ...(choice ? { choice } : {}),
       ...(stored ? { stored } : {}),
-      ...(chosen?.fillOnly ? { fillOnly: true as const, asked: chosen.asked ?? [] } : {}),
+      ...(chosen?.fillOnly && !signInFill
+        ? { fillOnly: true as const, asked: chosen.asked ?? [] }
+        : {}),
+      ...(signInFill ? { signInFill: true as const } : {}),
     };
   };
   // A running or resumed login checks its recorded route alone.
@@ -688,7 +722,7 @@ export async function planFor(
   // A pick on a paused site takes the route any pick takes (ADR 0062, amended 2026-11-08):
   // its login answers the passkey request of its own step with the picked item, as the
   // bridge asks no chooser while a login runs.
-  if (passkeyPage && (recipeHasRoute(routeRecipe, "passkey") || pageRequest)) {
+  if (!signInFill && passkeyPage && (recipeHasRoute(routeRecipe, "passkey") || pageRequest)) {
     const resolved = await resolveRoute({ route: "passkey" });
     if (resolved.ok) {
       facts = await factsOf(resolved);
@@ -713,8 +747,12 @@ export async function planFor(
   const password = await passwordPlan();
   // A paused site never hands a login on to the browser's passkey sign-in: an item
   // without a password stops before anything, pressing nothing (ADR 0062).
-  if (request.paused && password.ok && "stopAt" in password)
-    return { ok: false as const, reason: "no-route" as const, detail: "password-empty:paused" };
+  if ((request.paused || signInFill) && password.ok && "stopAt" in password)
+    return {
+      ok: false as const,
+      reason: "no-route" as const,
+      detail: request.paused ? "password-empty:paused" : "password-empty:sign-in-fill",
+    };
   return password;
   /**
    * The first password variant that fits, or why none does. A saved binding is first tried
@@ -819,7 +857,13 @@ export async function planFor(
         continue;
       }
       fits[index] = true;
-      const taken = chooseLoginRoute(routeRecipe, known, fits);
+      // Passive autofill always evaluates the password variant. Its item may still
+      // advertise a passkey, which remains available for the person's own request.
+      const taken = signInFill
+        ? known.password
+          ? route
+          : undefined
+        : chooseLoginRoute(routeRecipe, known, fits);
       if (taken?.route === "password" && taken.variant === index)
         return { ...resolved, facts: known };
       // The first variant that fits decides; without the item's password none is taken.

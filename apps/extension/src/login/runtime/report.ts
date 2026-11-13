@@ -195,6 +195,11 @@ export type LoginReport = (
        * (ADR 0066). Its `reason` is `fill-only` too, unless a stop names another.
        */
       fillOnly?: true;
+      fillMode?: "sign-in-fill";
+      fillExpired?: true;
+      /** A sign-in fill filled its last safe field; the person goes on (ADR 0035). */
+      fillDone?: true;
+      permissionSource?: "site" | "default";
       /** Why the login just changed route (ADR 0034). */
       routeChange?: RouteChange;
       /**
@@ -239,6 +244,7 @@ export type LoginReport = (
       recipeId?: string;
       recipeRevision?: number;
       pageKind?: PageKind;
+      permissionSource?: "site" | "default";
       /**
        * Also for `confirm-unsupported`, what the page showed for the evaluation of page
        * kinds, never a value or page text (ADR 0035): whether an amount shows in the form of
@@ -292,6 +298,9 @@ export type LoginReport = (
        * account (ADR 0021 D).
        */
       fillOnly?: true;
+      fillMode?: "sign-in-fill";
+      fillExpired?: true;
+      permissionSource?: "site" | "default";
       /** The later step of its variant the login started at (ADR 0049). */
       startStep?: number;
       /** It started at that step with the step's password fields alone (ADR 0049). */
@@ -329,6 +338,9 @@ export type LoginReport = (
       unsubmitted?: true;
       /** A fill-only login of a tab that asks (ADR 0062 B). */
       fillOnly?: true;
+      fillMode?: "sign-in-fill";
+      fillExpired?: true;
+      permissionSource?: "site" | "default";
       cause: "tab-closed";
     }
   | {
@@ -437,6 +449,9 @@ export type LoginReport = (
       unsubmitted?: true;
       /** As for `attempt`: a fill-only login of a tab that asks (ADR 0062 B, ADR 0066). */
       fillOnly?: true;
+      fillMode?: "sign-in-fill";
+      fillExpired?: true;
+      permissionSource?: "site" | "default";
       name: string;
       /** Logged only when it is one of Pateat's own error codes. */
       message?: string;

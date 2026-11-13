@@ -2,18 +2,23 @@ import {
   detailLinkKey,
   detailQuestionKey,
   deviceIdSchema,
-  profileIdSchema,
+  getPagePermissionDefaults,
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
+  pagePermissionDocument,
   popupPageSectionShown,
+  profileIdSchema,
   savedLoginBindingSchema,
-  settingsDocumentBytes,
   serviceOriginSchema,
+  settingsDocumentBytes,
   siteDefaultConnection,
   siteDefaultSchema,
   type LocalSettings,
+  type PagePermissionDefaults,
+  type PagePermissionKind,
   type SettingsChangeCause,
   type SettingsSnapshot,
+  type SitePagePermission,
   type SyncSettingsState,
   type VaultCatalog,
 } from "@pateat/contracts";
@@ -58,6 +63,9 @@ export type SyncedSettings = {
   allowedSites: SiteRule[];
   allowedSitesEnabled: boolean;
   siteDefaults: SiteDefault[];
+  /** Page permissions are profile policy; absent at the defaults or with no overrides. */
+  pagePermissionDefaults?: PagePermissionDefaults;
+  sitePagePermissions?: SitePagePermission[];
   /**
    * Automatic login in private windows, absent while off (ADR 0062). Like the sites' rules
    * it says how this profile's browsers log in, so it is synced (ADR 0024).
@@ -91,6 +99,7 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
     itemPolicies: shared(settings.itemPolicies),
     customFieldReviews: shared(settings.customFieldReviews),
     excludedSites: settings.excludedSites,
+    ...pagePermissionDocument(settings),
     passkeyBrowserSites: settings.passkeyBrowserSites,
     repromptSites: settings.repromptSites,
     allowedSites: settings.allowedSites ?? [],
@@ -340,7 +349,36 @@ export function mergeSyncedSettings(
     itemEntries(service.itemPolicies, service.customFieldReviews),
     (entry) => entry.key,
   );
+  const defaultParts = {
+    service: getPagePermissionDefaults(base.service),
+    local: getPagePermissionDefaults(base.local),
+  };
+  const localDefaults = getPagePermissionDefaults(local);
+  const serviceDefaults = getPagePermissionDefaults(service);
+  const defaultFor = <K extends PagePermissionKind>(kind: K) =>
+    mergeValue(
+      { service: defaultParts.service[kind], local: defaultParts.local[kind] },
+      localDefaults[kind],
+      serviceDefaults[kind],
+    );
+  const pagePermissions = pagePermissionDocument({
+    pagePermissionDefaults: {
+      "sign-in": defaultFor("sign-in"),
+      confirm: defaultFor("confirm"),
+      "personal-details": defaultFor("personal-details"),
+    },
+    sitePagePermissions: mergeEntries(
+      {
+        service: base.service.sitePagePermissions ?? [],
+        local: base.local.sitePagePermissions ?? [],
+      },
+      local.sitePagePermissions ?? [],
+      service.sitePagePermissions ?? [],
+      siteKey,
+    ),
+  });
   return {
+    ...pagePermissions,
     accountPolicies: mergeEntries(
       part("accountPolicies"),
       local.accountPolicies,
@@ -470,6 +508,11 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     same(sorted(left.itemPolicies, itemKey), sorted(right.itemPolicies, itemKey)) &&
     same(sorted(left.customFieldReviews, itemKey), sorted(right.customFieldReviews, itemKey)) &&
     same(sorted(left.excludedSites, siteKey), sorted(right.excludedSites, siteKey)) &&
+    same(getPagePermissionDefaults(left), getPagePermissionDefaults(right)) &&
+    same(
+      sorted(left.sitePagePermissions ?? [], siteKey),
+      sorted(right.sitePagePermissions ?? [], siteKey),
+    ) &&
     same(sorted(left.passkeyBrowserSites, siteKey), sorted(right.passkeyBrowserSites, siteKey)) &&
     same(sorted(left.repromptSites, siteKey), sorted(right.repromptSites, siteKey)) &&
     same(sorted(left.allowedSites, siteKey), sorted(right.allowedSites, siteKey)) &&
@@ -497,6 +540,8 @@ function applySynced(settings: LocalSettings, merged: SyncedSettings): LocalSett
   const { popupPageSection, ...lists } = merged;
   const {
     popupPageSection: _replaced,
+    pagePermissionDefaults: _pageDefaults,
+    sitePagePermissions: _pageSites,
     loginInPrivateWindows: _off,
     serviceReports: _reports,
     passkeyPolicy: _policy,
