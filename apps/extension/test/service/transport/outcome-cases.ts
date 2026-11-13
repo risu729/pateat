@@ -1,17 +1,19 @@
 import { expect, it, vi } from "vitest";
-import type { TransportTestContext } from "../../../src/service/transport.test";
-import type { ServiceTransport } from "../../../src/service/transport";
+import { createServiceTransport } from "../../../src/service/transport";
+import type { OutcomeContext } from "./context";
 
-export function registerOutcomeCases({
-  ORIGIN,
-  CREDENTIAL,
-  respond,
-  report,
-  send,
-}: Pick<TransportTestContext, "ORIGIN" | "CREDENTIAL" | "respond"> & {
-  report: Parameters<ServiceTransport["reportOutcome"]>[3];
-  send: (fetch: typeof globalThis.fetch) => ReturnType<ServiceTransport["reportOutcome"]>;
-}) {
+export function registerOutcomeCases({ ORIGIN, CREDENTIAL, respond }: OutcomeContext) {
+  const report = {
+    version: 1,
+    revision: 3,
+    branch: "1760000000000",
+    outcome: "unknown-submit",
+    cause: "settled",
+    step: 1,
+  } as const;
+  const send = (fetch: typeof globalThis.fetch) =>
+    createServiceTransport({ fetch }).reportOutcome(ORIGIN, CREDENTIAL, "gen-0123", report);
+
   it("posts only the codes with the device credential and no cookies", async () => {
     const fetch = respond(204);
     expect(await send(fetch)).toEqual({ kind: "kept" });

@@ -1,27 +1,21 @@
 import { expect, it, vi } from "vitest";
-import type { TransportTestContext } from "../../../src/service/transport.test";
-import { createServiceTransport, type ServiceTransport } from "../../../src/service/transport";
+import { createServiceTransport } from "../../../src/service/transport";
+import type { PairingContext } from "./context";
 
-type PairContext = Pick<TransportTestContext, "ORIGIN" | "respond"> & {
-  LABEL: string;
-  PROFILE: { id: string; name: string };
-  issued: { version: number; deviceId: string; credential: string };
-  pair: (
-    fetch: typeof globalThis.fetch,
-    timeoutMs?: number,
-  ) => ReturnType<ServiceTransport["pair"]>;
-  json: (status: number, body: unknown) => ReturnType<TransportTestContext["respond"]>;
-};
+export function registerPairingCases({ ORIGIN, CREDENTIAL, respond }: PairingContext) {
+  const LABEL = "Work laptop";
+  const PROFILE = { id: "00000000-0000-4000-8000-000000000010", name: "Default" };
+  const issued = {
+    version: 1,
+    deviceId: "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41",
+    credential: CREDENTIAL,
+  };
+  const pair = (fetch: typeof globalThis.fetch, timeoutMs?: number) =>
+    createServiceTransport({ fetch, ...(timeoutMs ? { timeoutMs } : {}) }).pair(ORIGIN, LABEL);
+  /** What the Worker answers: JSON with its own media type. */
+  const json = (status: number, body: unknown) =>
+    respond(status, body, { headers: { "Content-Type": "application/json" } });
 
-export function registerPairRequestCases({
-  ORIGIN,
-  respond,
-  LABEL,
-  PROFILE,
-  issued,
-  pair,
-  json,
-}: PairContext) {
   it("posts only the label with the browser's session and no credential", async () => {
     const fetch = json(201, issued);
     expect(await pair(fetch)).toEqual({ kind: "issued", result: issued });
@@ -83,22 +77,17 @@ export function registerPairRequestCases({
     );
     expect(await pair(fetch)).toEqual({ kind: "sign-in-needed" });
   });
-}
 
-export function registerPairResponseCases({
-  respond,
-  PROFILE,
-  issued,
-  pair,
-  json,
-  page,
-}: Pick<PairContext, "respond" | "PROFILE" | "issued" | "pair" | "json"> & {
-  page: (
-    status: number,
-    body: string,
-    type: string | undefined,
-  ) => ReturnType<TransportTestContext["respond"]>;
-}) {
+  /** A response that is not the Worker's JSON, as Access or the Cloudflare edge sends. */
+  const page = (status: number, body: string, type: string | undefined) =>
+    vi.fn<typeof globalThis.fetch>(async (input) => {
+      const response = new Response(body, { status });
+      if (type) response.headers.set("Content-Type", type);
+      else response.headers.delete("Content-Type");
+      Object.defineProperty(response, "url", { value: String(input) });
+      return response;
+    });
+
   it.each([
     ["an HTML login page", 200, "<!doctype html><title>Sign in</title>", "text/html"],
     ["an HTML 401 page", 401, "<!doctype html><title>Sign in</title>", "text/html"],

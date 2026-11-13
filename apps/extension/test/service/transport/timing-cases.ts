@@ -1,20 +1,28 @@
 import { expect, it, vi } from "vitest";
-import type { TransportTestContext } from "../../../src/service/transport.test";
 import {
   addTimings,
   createServiceTransport,
   serverTimings,
   serviceTiming,
-  type ServiceTransport,
 } from "../../../src/service/transport";
+import type { TimingContext } from "./context";
 
-export function registerTimingCases({
-  ORIGIN,
-  CREDENTIAL,
-  request,
-}: Pick<TransportTestContext, "ORIGIN" | "CREDENTIAL"> & {
-  request: Parameters<ServiceTransport["generateRecipe"]>[2];
-}) {
+export function registerTimingCases({ ORIGIN, CREDENTIAL }: TimingContext) {
+  const request = {
+    version: 1 as const,
+    observation: {
+      version: 1 as const,
+      origin: "https://shop.example",
+      path: "/login",
+      language: "en" as const,
+      complete: true,
+      candidates: [
+        { id: "c1", role: "password" as const, target: { by: "id" as const, value: "pw" } },
+      ],
+    },
+    slots: [{ id: "password", kind: "secret" as const, description: "account password" }],
+  };
+
   it("reads the service's metrics by name among other entries", () => {
     expect(
       serverTimings(

@@ -1,8 +1,6 @@
 import { expect, it, vi } from "vitest";
-import type { TransportTestContext } from "../../../src/service/transport.test";
-import { createServiceTransport, type ServiceTransport } from "../../../src/service/transport";
-
-type GenerationRequest = Parameters<ServiceTransport["generateRecipe"]>[2];
+import { createServiceTransport } from "../../../src/service/transport";
+import type { GenerationContext } from "./context";
 
 export function registerGenerationCases({
   ORIGIN,
@@ -10,15 +8,24 @@ export function registerGenerationCases({
   respond,
   untimed,
   edgeRateLimitPage,
-  observation,
-  request,
-  recipeId,
-}: TransportTestContext & {
-  edgeRateLimitPage: () => ReturnType<TransportTestContext["respond"]>;
-  observation: GenerationRequest["observation"];
-  request: GenerationRequest;
-  recipeId: string;
-}) {
+}: GenerationContext) {
+  const observation = {
+    version: 1 as const,
+    origin: "https://shop.example",
+    path: "/login",
+    language: "en" as const,
+    complete: true,
+    candidates: [
+      { id: "c1", role: "password" as const, target: { by: "id" as const, value: "pw" } },
+    ],
+  };
+  const request = {
+    version: 1 as const,
+    observation,
+    slots: [{ id: "password", kind: "secret" as const, description: "account password" }],
+  };
+  const recipeId = "gen-0123456789abcdef0123456789abcdef";
+
   it("posts one page with the device credential and returns the service's answer", async () => {
     const answer = { version: 1, status: "abstained", reason: "no-login-form" };
     const fetch = respond(200, answer);

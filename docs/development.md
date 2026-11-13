@@ -70,14 +70,8 @@ generation guards keep their existing order. Existing tests stay in place.
 The extension's `service/transport.ts` retains endpoint contracts and response mapping.
 `service-call.ts` owns bounded JSON fetching, credential and redirect rules,
 cancellation and request timing. `service-timing.ts` owns pure timing parsing and
-aggregation. The transport facade preserves its public exports and existing test entry.
-
-The service transport suite keeps `apps/extension/src/service/transport.test.ts` as
-its only test entry and suite owner. Passive registrars in
-`apps/extension/test/service/transport/` register pairing, settings, generation,
-outcome and timing cases at their original positions, using the entry's original
-fixtures and helpers. They add no suites or registration on import and sit outside
-the production coverage include; assertions, tables and test order stay unchanged.
+aggregation. The transport facade preserves its public exports and existing tests stay
+in place.
 
 `apps/extension/src/diagnostics/background.ts` owns the worker logger, connection-state
 watches and the report entry points other than `login`. `diagnostics/login-report.ts`
@@ -1001,6 +995,26 @@ the `*.spec.ts` test match does not discover them. The registrars add no suites,
 or fixture scopes, so every test stays a root test of `login-generation.spec.ts` and its
 own round-robin shard unit. Each file follows the 1,000-line limit. Compare the `--list`
 output for each shard when changing this layout.
+
+### Service transport test organization
+
+`apps/extension/src/service/transport.test.ts` is the discovered entry for the service
+transport's unit cases; the service runtime, sync and report suites stub
+`ServiceTransport` through their own entries, and
+`tests/extension/pairing-service.spec.ts` and `login-service.spec.ts` run the built
+transport against a synthetic service. The entry owns the `ORIGIN` and `CREDENTIAL`
+constants, the `untimed`, `respond` and `edgeRateLimitPage` helpers, all fifteen
+describe scopes and the revocation, device state, recipe change, rate limit, login,
+use and problem report, recipe write and logout generation cases. Plain modules in
+`apps/extension/test/service/transport/` export synchronous registration functions for
+the pairing, settings, recipe generation, outcome report and service timing cases,
+which the entry calls inside those describe scopes with the helpers each uses;
+importing a module registers no cases. Each registrar holds its scope's local
+constants and helpers with its cases. The modules import `vitest` and the production
+exports they use directly. The entry exports its `TransportTestFixtures` type, and
+`context.ts` builds the module contexts from it with `import type`, so there is no
+runtime import cycle. The modules sit outside `src/`, so they stay outside the coverage
+root and are not discovered as test files. Each file follows the 1,000-line limit.
 
 ### Login wire contracts
 

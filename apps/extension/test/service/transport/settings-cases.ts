@@ -1,20 +1,26 @@
 import { expect, it } from "vitest";
-import type { TransportTestContext } from "../../../src/service/transport.test";
-import { createServiceTransport, type ServiceTransport } from "../../../src/service/transport";
+import { createServiceTransport } from "../../../src/service/transport";
+import type { SettingsContext } from "./context";
 
-type SettingsDocument = Parameters<ServiceTransport["saveSettings"]>[2]["settings"];
+export function registerSettingsCases({ ORIGIN, CREDENTIAL, respond, untimed }: SettingsContext) {
+  const document = {
+    connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
+    excludedSites: [],
+    repromptSites: [],
+    passkeyBrowserSites: [],
+    siteDefaults: [],
+    bindings: [],
+  };
+  const state = {
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 4,
+    settings: document,
+  };
 
-export function registerSettingsCases({
-  ORIGIN,
-  CREDENTIAL,
-  respond,
-  untimed,
-  document,
-  state,
-}: TransportTestContext & {
-  document: SettingsDocument;
-  state: { version: number; profileId: string; revision: number; settings: SettingsDocument };
-}) {
   it("reads and conditionally writes the settings document", async () => {
     const read = respond(200, state);
     expect(

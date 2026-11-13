@@ -1,22 +1,11 @@
 import type { ProblemReport, StoredLoginRecipe } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { DEVICE_TIMEOUT_MS, createServiceTransport, type ServiceTransport } from "./transport";
-
-import {
-  registerPairRequestCases,
-  registerPairResponseCases,
-} from "../../test/service/transport/pair";
-import { registerSettingsCases } from "../../test/service/transport/settings";
-import { registerGenerationCases } from "../../test/service/transport/generation";
-import { registerTimingCases } from "../../test/service/transport/timing";
-import { registerOutcomeCases } from "../../test/service/transport/outcome";
-
-export type TransportTestContext = {
-  ORIGIN: typeof ORIGIN;
-  CREDENTIAL: typeof CREDENTIAL;
-  respond: typeof respond;
-  untimed: typeof untimed;
-};
+import { registerPairingCases } from "../../test/service/transport/pairing-cases";
+import { registerSettingsCases } from "../../test/service/transport/settings-cases";
+import { registerGenerationCases } from "../../test/service/transport/generation-cases";
+import { registerOutcomeCases } from "../../test/service/transport/outcome-cases";
+import { registerTimingCases } from "../../test/service/transport/timing-cases";
 
 // Synthetic responses only; no request leaves the test.
 
@@ -40,33 +29,16 @@ function respond(status: number, body?: unknown, init: ResponseInit = {}) {
   });
 }
 
+export type TransportTestFixtures = {
+  ORIGIN: typeof ORIGIN;
+  CREDENTIAL: typeof CREDENTIAL;
+  untimed: typeof untimed;
+  respond: typeof respond;
+  edgeRateLimitPage: typeof edgeRateLimitPage;
+};
+
 describe("pair", () => {
-  const LABEL = "Work laptop";
-  const PROFILE = { id: "00000000-0000-4000-8000-000000000010", name: "Default" };
-  const issued = {
-    version: 1,
-    deviceId: "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41",
-    credential: CREDENTIAL,
-  };
-  const pair = (fetch: typeof globalThis.fetch, timeoutMs?: number) =>
-    createServiceTransport({ fetch, ...(timeoutMs ? { timeoutMs } : {}) }).pair(ORIGIN, LABEL);
-  /** What the Worker answers: JSON with its own media type. */
-  const json = (status: number, body: unknown) =>
-    respond(status, body, { headers: { "Content-Type": "application/json" } });
-
-  registerPairRequestCases({ ORIGIN, respond, LABEL, PROFILE, issued, pair, json });
-
-  /** A response that is not the Worker's JSON, as Access or the Cloudflare edge sends. */
-  const page = (status: number, body: string, type: string | undefined) =>
-    vi.fn<typeof globalThis.fetch>(async (input) => {
-      const response = new Response(body, { status });
-      if (type) response.headers.set("Content-Type", type);
-      else response.headers.delete("Content-Type");
-      Object.defineProperty(response, "url", { value: String(input) });
-      return response;
-    });
-
-  registerPairResponseCases({ respond, PROFILE, issued, pair, json, page });
+  registerPairingCases({ ORIGIN, CREDENTIAL, respond });
 });
 
 describe("revoke", () => {
@@ -331,25 +303,7 @@ describe("recipe changes", () => {
 });
 
 describe("settings", () => {
-  const document = {
-    connections: [],
-    accountPolicies: [],
-    itemPolicies: [],
-    customFieldReviews: [],
-    excludedSites: [],
-    repromptSites: [],
-    passkeyBrowserSites: [],
-    siteDefaults: [],
-    bindings: [],
-  };
-  const state = {
-    version: 1,
-    profileId: "00000000-0000-4000-8000-000000000001",
-    revision: 4,
-    settings: document,
-  };
-
-  registerSettingsCases({ ORIGIN, CREDENTIAL, respond, untimed, document, state });
+  registerSettingsCases({ ORIGIN, CREDENTIAL, respond, untimed });
 });
 
 /** A Cloudflare edge rate-limit page: HTML, not the Worker's JSON. */
@@ -405,48 +359,11 @@ describe("rate limits on device-credential routes", () => {
 });
 
 describe("recipe generation", () => {
-  const observation = {
-    version: 1 as const,
-    origin: "https://shop.example",
-    path: "/login",
-    language: "en" as const,
-    complete: true,
-    candidates: [
-      { id: "c1", role: "password" as const, target: { by: "id" as const, value: "pw" } },
-    ],
-  };
-  const request = {
-    version: 1 as const,
-    observation,
-    slots: [{ id: "password", kind: "secret" as const, description: "account password" }],
-  };
-  const recipeId = "gen-0123456789abcdef0123456789abcdef";
-
-  registerGenerationCases({
-    ORIGIN,
-    CREDENTIAL,
-    respond,
-    untimed,
-    edgeRateLimitPage,
-    observation,
-    request,
-    recipeId,
-  });
+  registerGenerationCases({ ORIGIN, CREDENTIAL, respond, untimed, edgeRateLimitPage });
 });
 
 describe("reportOutcome", () => {
-  const report = {
-    version: 1,
-    revision: 3,
-    branch: "1760000000000",
-    outcome: "unknown-submit",
-    cause: "settled",
-    step: 1,
-  } as const;
-  const send = (fetch: typeof globalThis.fetch) =>
-    createServiceTransport({ fetch }).reportOutcome(ORIGIN, CREDENTIAL, "gen-0123", report);
-
-  registerOutcomeCases({ ORIGIN, CREDENTIAL, respond, report, send });
+  registerOutcomeCases({ ORIGIN, CREDENTIAL, respond });
 });
 
 describe("reportLogin", () => {
@@ -810,22 +727,7 @@ describe("writeRecipe (ADR 0040)", () => {
 });
 
 describe("service timing", () => {
-  const request = {
-    version: 1 as const,
-    observation: {
-      version: 1 as const,
-      origin: "https://shop.example",
-      path: "/login",
-      language: "en" as const,
-      complete: true,
-      candidates: [
-        { id: "c1", role: "password" as const, target: { by: "id" as const, value: "pw" } },
-      ],
-    },
-    slots: [{ id: "password", kind: "secret" as const, description: "account password" }],
-  };
-
-  registerTimingCases({ ORIGIN, CREDENTIAL, request });
+  registerTimingCases({ ORIGIN, CREDENTIAL });
 });
 
 describe("logout generation (ADR 0063)", () => {
