@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
-import { formatLogExport, sentToService } from "./log-format";
+import { formatLogExport, problemLine, sentToService } from "./log-format";
 import { logExportCounts, type LogExportScope } from "./log-export";
 import type { LogEntry } from "./log-fields";
 import { diagnosticsRequestSchema } from "./wire";
@@ -131,6 +131,18 @@ describe("scoped log export", () => {
       "login.entry",
       "recipe.generate",
     ]);
+  });
+
+  it("keeps the entry page of a press refused before it, as for autofill only", () => {
+    const refused = (reason: string) =>
+      problemLine({
+        time: NOW,
+        level: "info",
+        event: "login.entry",
+        fields: { origin: "https://login.example", outcome: "refused", reason, url: "/signin" },
+      })?.fields;
+    expect(refused("sign-in-fill")).toHaveProperty("url");
+    expect(refused("page-changed")).not.toHaveProperty("url");
   });
 
   it("preserves all retained rows and the original header when scope is omitted or all/all", () => {
