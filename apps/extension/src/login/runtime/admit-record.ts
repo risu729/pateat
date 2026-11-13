@@ -15,7 +15,8 @@ import { nextRecordStep, type RecordPhase, type RecordSeen } from "./admit-recor
 import { addAskFill } from "./relogin";
 import { confirmRecipeOn, startsFor } from "./generation-scope";
 import type { Runtime } from "./state";
-import { pageOff } from "./sign-in-fill";
+import { pageOff, recordedFillShows } from "./sign-in-fill";
+import { probeRecipe } from "../dummy";
 import { explicitlyPicked, pagePermission } from "./page-permission";
 import { terminal } from "./attempt-state";
 import { admitRecipe } from "./admit-recipe";
@@ -34,13 +35,31 @@ export async function admitRecord(rt: Runtime, ctx: AdmitContext): Promise<Readi
     const ended = terminal(recorded);
     // A valid explicit pick starts a normal login instead, with all normal scope checks.
     // A new document starts the fill again once its sign-in form shows, as after a reload
-    // or the site showing the form again; so does any new document after one that ended.
-    // Only replay into the same document is fenced.
+    // or the site showing the form again, unless the fill's next field is ready there too,
+    // as in a form posted back to its own path; any new document after one that ended
+    // starts again. Only replay into the same document is fenced.
     const picked = explicitlyPicked(rt, ctx.document);
-    const restart =
-      picked ||
-      (recorded.document.documentId !== ctx.document.documentId &&
-        (ended || ctx.start?.path === ctx.live.path));
+    const fresh = recorded.document.documentId !== ctx.document.documentId;
+    let restart = picked || (fresh && ended);
+    if (!restart && fresh && ctx.start?.path === ctx.live.path) {
+      const recipe =
+        probeMode && ctx.document.origin === rt.vars.origin
+          ? probeRecipe(rt.vars.origin, `/${recorded.recipeId.replace(/^demo-/, "")}`)
+          : recorded.chooser
+            ? undefined
+            : await Promise.resolve(
+                rt.recipes.recipe(
+                  ctx.document.origin,
+                  ctx.live.path,
+                  recorded.recipeId,
+                  recorded.layout,
+                ),
+              ).catch(() => undefined);
+      const goesOn =
+        recipe !== undefined && (await recordedFillShows(rt, ctx.live, recipe, recorded));
+      if (rt.documents.get(ctx.key) !== ctx.live) return { ok: false, reason: "stale-document" };
+      restart = !goesOn;
+    }
     // A paused site's fill that has not ended stops on its next page before any step, as
     // a paused automatic login does (ADR 0062), also one a restarted worker resumes.
     const paused =

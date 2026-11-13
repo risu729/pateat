@@ -4,10 +4,11 @@ import {
   fillOnlyStep,
   loginStepEffect,
   routeFillTargets,
+  type LoginAttemptMetadata,
   type LoginStep,
   type LoginRecipe,
 } from "@pateat/contracts";
-import { LOGIN_STEP_WAIT_MS, loginReadiness } from "../wire";
+import { LOGIN_STEP_WAIT_MS, loginReadiness, observationSchema } from "../wire";
 import { change, current, send, report, publish } from "./attempt";
 import { observe } from "./reconcile";
 import { confirmPage, confirmSigns } from "./markers";
@@ -41,12 +42,48 @@ export async function passiveSignIn(rt: Runtime, live: LiveDocument): Promise<bo
   return !snapshot.ok || signInPermission(snapshot.snapshot.settings, live).permission !== "auto";
 }
 
-/** The plan index of the first safe fill after the attempt's current step, or -1. */
-function nextFill(run: Execution): number {
-  const plan = attemptPlan(run.recipe, run.metadata) ?? [];
+/** The plan index of the first safe fill after `from`, or -1. */
+function fillAfter(recipe: LoginRecipe, metadata: LoginAttemptMetadata, from: number): number {
+  const plan = attemptPlan(recipe, metadata) ?? [];
   return plan.findIndex(
-    (entry, at) =>
-      at > run.metadata.stepIndex && entry.step.kind === "fill" && isFillAction(entry.step),
+    (entry, at) => at > from && entry.step.kind === "fill" && isFillAction(entry.step),
+  );
+}
+
+/** The plan index of the first safe fill after the attempt's current step, or -1. */
+const nextFill = (run: Execution) => fillAfter(run.recipe, run.metadata, run.metadata.stepIndex);
+
+/**
+ * Whether a recorded fill's next field is ready in a new document of its own path, as a
+ * form posted back to that path shows the password beside the identifier again: the fill
+ * then goes on there instead of starting over at the identifier.
+ */
+export async function recordedFillShows(
+  rt: Runtime,
+  live: LiveDocument,
+  recipe: LoginRecipe,
+  metadata: LoginAttemptMetadata,
+): Promise<boolean> {
+  // The first step not run yet: the one after a step in flight, or the current one.
+  const unrun = metadata.operationId === undefined ? metadata.stepIndex : metadata.stepIndex + 1;
+  const index = fillAfter(recipe, metadata, unrun - 1);
+  const step = index < 0 ? undefined : attemptPlan(recipe, metadata)?.[index]?.step;
+  if (!step || step.path !== live.path) return false;
+  const readiness = loginReadiness(step);
+  const observed = v.safeParse(
+    observationSchema,
+    await send(rt, live, {
+      type: "login.observe",
+      path: live.path,
+      targets: readiness.targets,
+      require: readiness.targets.map(() => readiness.require),
+    }).catch(() => undefined),
+  );
+  return (
+    observed.success &&
+    observed.output.path === step.path &&
+    observed.output.targets.length === readiness.targets.length &&
+    observed.output.targets.every((entry) => entry === "unique")
   );
 }
 

@@ -279,7 +279,7 @@ describe("profile sign-in autofill runtime", () => {
     expect(executes().some((entry) => entry.operation.step.kind === "click")).toBe(true);
   });
 
-  it.each(["new-document", "new-path", "same-path"] as const)(
+  it.each(["new-document", "posted-back", "new-path", "same-path"] as const)(
     "fills the next page only after its fields become writable: %s",
     async (move) => {
       const samePath = move !== "new-path";
@@ -296,6 +296,11 @@ describe("profile sign-in autofill runtime", () => {
       } else if (move === "new-document") {
         // The first step does not show there, so the document announces no start.
         await h.hello({ documentId: "replacement-document" }, false);
+      } else if (move === "posted-back") {
+        // The form posts back to its own path and shows the identifier beside the password
+        // again: the first step shows, but so does the next field, which goes on.
+        fake.state.present = new Set(["email", "password", "login"]);
+        await h.hello({ documentId: "posted-back" });
       }
       change();
       await filled(2);
@@ -733,6 +738,17 @@ describe("profile sign-in autofill runtime", () => {
     expect(stored()).toHaveLength(1);
     expect(stored()[0]!.id).not.toBe(old);
     expect(stored()[0]).toMatchObject({ document: { documentId: "reloaded" }, stepIndex: 1 });
+  });
+
+  it("fills the username again when a reload on its own path shows only the first step", async () => {
+    const { h } = twoPageStart("/signin");
+    await h.hello();
+    await filled();
+    const old = stored()[0]!.id;
+    expect(await h.hello({ documentId: "reloaded" })).toEqual({ ok: true });
+    await filled(2);
+    expect(executes().map((entry) => entry.operation.stepIndex)).toEqual([0, 0]);
+    expect(stored()[0]!.id).not.toBe(old);
   });
 
   it("stops a waiting fill that a restarted worker resumes on a paused site", async () => {
