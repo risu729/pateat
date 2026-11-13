@@ -214,6 +214,9 @@ export const diagnosticsStatusSchema = v.strictObject({
       siteDefaults: count,
       bindings: count,
       passkeyBrowserSites: count,
+      /** Page behavior (ADR 0035): how many site rules, and whether the defaults changed. */
+      pageRules: count,
+      pageDefaults: v.picklist(["default", "custom"]),
     }),
   ),
   storage: v.strictObject({ localBytes: v.optional(count) }),

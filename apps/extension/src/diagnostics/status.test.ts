@@ -240,6 +240,8 @@ describe("diagnostics status", () => {
       siteDefaults: 0,
       bindings: 0,
       passkeyBrowserSites: 1,
+      pageRules: 0,
+      pageDefaults: "default",
     });
     expect(status.checks).toContainEqual({
       id: "clock",
@@ -517,7 +519,7 @@ describe("diagnostics status", () => {
     const browser = { name: "Chrome", version: "156", installType: "normal" };
     const off = await collectDiagnostics(dependencies());
     expect(formatReport(off, browser)).toContain(
-      "\nSettings: excluded sites 1 · allowed sites 0 (off) · site defaults 0 · bindings 0 · passkey browser sites 1\n",
+      "\nSettings: excluded sites 1 · allowed sites 0 (off) · site defaults 0 · bindings 0 · passkey browser sites 1 · page rules 0 · page defaults default\n",
     );
     const on = await collectDiagnostics(
       dependencies({
@@ -543,6 +545,43 @@ describe("diagnostics status", () => {
     expect(on.settings).toMatchObject({ allowedSites: 2, allowedSitesEnabled: true });
     const report = formatReport(on, browser);
     expect(report).toContain("· allowed sites 2 (on) ·");
+    expect(report).not.toContain("bank.example");
+    expect(report).not.toContain("mail.example");
+  });
+
+  it("counts the page behavior rules and says whether the defaults changed, never naming a site (ADR 0035)", async () => {
+    const status = await collectDiagnostics(
+      dependencies({
+        settings: async () =>
+          ({
+            connections: [],
+            excludedSites: [],
+            passkeyBrowserSites: [],
+            siteDefaults: [],
+            bindings: [],
+            pagePermissionDefaults: {
+              "sign-in": "fill",
+              confirm: "fill",
+              "personal-details": "fill",
+            },
+            sitePagePermissions: [
+              {
+                hostname: "bank.example",
+                includeSubdomains: false,
+                permissions: { confirm: "off" },
+              },
+              {
+                hostname: "mail.example",
+                includeSubdomains: true,
+                permissions: { "sign-in": "fill" },
+              },
+            ],
+          }) as never,
+      }),
+    );
+    expect(status.settings).toMatchObject({ pageRules: 2, pageDefaults: "custom" });
+    const report = formatReport(status, { name: "Chrome", version: "156", installType: "normal" });
+    expect(report).toContain("· page rules 2 · page defaults custom\n");
     expect(report).not.toContain("bank.example");
     expect(report).not.toContain("mail.example");
   });

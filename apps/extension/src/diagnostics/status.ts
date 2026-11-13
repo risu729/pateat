@@ -2,7 +2,7 @@
 // version, state, count, time or reason code; values, names, emails and hosts stay here.
 import type { VaultSyncEntry } from "../connections/auto-sync";
 import type { BitwardenProfile } from "@pateat/bitwarden";
-import type { LocalSettings, ServiceState } from "@pateat/contracts";
+import { pagePermissionDocument, type LocalSettings, type ServiceState } from "@pateat/contracts";
 import * as v from "valibot";
 import type { SetupReply } from "../connections/types";
 import type { DeviceStateResult } from "../service/transport";
@@ -594,6 +594,11 @@ export async function collectDiagnostics(
             siteDefaults: settings.siteDefaults.length,
             bindings: settings.bindings.length,
             passkeyBrowserSites: settings.passkeyBrowserSites.length,
+            pageRules: settings.sitePagePermissions?.length ?? 0,
+            pageDefaults:
+              pagePermissionDocument(settings).pagePermissionDefaults === undefined
+                ? "default"
+                : "custom",
           },
         }
       : {}),
