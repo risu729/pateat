@@ -32,8 +32,9 @@ export function beyondSignInFill(command: Execute): boolean {
 
 /**
  * Answers `login.fill.change`. Without a step, at the page's next sign of a change. With
- * one, once that step is ready, or with `settled` once the page moved to another path;
- * the page is checked again at each change, and the timeout is only the bound (ADR 0082).
+ * one, once that step or one of `handlers` is ready, or with `settled` once the page moved
+ * to another path; the page is checked again at each change, and the timeout is only the
+ * bound (ADR 0082). With `changed`, the page waits for one change before its first check.
  */
 export async function awaitFillChange(
   document: Document,
@@ -52,7 +53,13 @@ export async function awaitFillChange(
     return { ok: !page.cancelled() };
   }
   const from = page.path();
-  const shown = () => (command.settled ? page.path() !== from : page.ready(readiness));
+  const shown = () =>
+    (command.settled ? page.path() !== from : page.ready(readiness)) ||
+    (command.handlers ?? []).some((handler) => page.ready(handler));
+  if (command.changed) {
+    await pageChange(document, until, page.signal);
+    if (Date.now() >= until) return { ok: !page.cancelled(), timedOut: true };
+  }
   /* eslint-disable no-await-in-loop */
   while (!page.cancelled() && !shown()) {
     if (Date.now() >= until) return { ok: true, timedOut: true };

@@ -62,6 +62,13 @@ export const commandSchema = v.variant("type", [
      */
     readiness: v.optional(loginReadinessSchema),
     settled: v.optional(v.literal(true)),
+    /** Learned handlers not entered yet (ADR 0061): answered too once one of them shows. */
+    handlers: v.optional(v.pipe(v.array(loginReadinessSchema), v.minLength(1), v.maxLength(8))),
+    /**
+     * The worker found nothing to do after the previous answer: the page waits for its next
+     * change before it reads the steps again, so a disagreement never repeats at once.
+     */
+    changed: v.optional(v.literal(true)),
   }),
   v.strictObject({
     version: v.literal(1),

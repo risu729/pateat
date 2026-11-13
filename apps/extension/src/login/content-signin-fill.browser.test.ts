@@ -280,3 +280,40 @@ test("typing in an editable region that is no field leaves the sign-in fields to
   expect(await fill("username")).toMatchObject({ ok: true });
   expect(input("username").value).toBe("fixture@example.com");
 });
+
+function fillChange(extra: Record<string, unknown>) {
+  const token = sent.find((entry) => typeof entry["token"] === "string")?.["token"];
+  let answer: unknown;
+  for (const listener of listeners)
+    listener(
+      { version: 1, token, type: "login.fill.change", ...extra },
+      { id: "synthetic-extension" },
+      (reply) => {
+        answer = reply;
+      },
+    );
+  return () => answer;
+}
+
+test("a waiting sign-in fill answers once a learned handler shows, and after a change", async () => {
+  await install('<label>Username<input id="username" type="email"></label>');
+  const path = observedPath(location.pathname);
+  const at = (...ids: string[]) => ids.map((value) => ({ by: "id", value }));
+  const password = { path, require: "writable", targets: at("password") };
+  const username = { path, require: "writable", targets: at("username") };
+  const handler = { path, require: "present", targets: at("phone", "confirm") };
+  const shown = fillChange({ timeoutMs: 10_000, readiness: password, handlers: [handler] });
+  expect(shown()).toBeUndefined();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    '<input id="phone"><button id="confirm" type="button">Confirm</button>',
+  );
+  await vi.waitFor(() => expect(shown()).toEqual({ ok: true }));
+  // A step ready already is not reported again before the page changes: a quiet page
+  // answers only at the bound.
+  const quiet = fillChange({ timeoutMs: 200, readiness: username, changed: true });
+  await vi.waitFor(() => expect(quiet()).toEqual({ ok: true, timedOut: true }));
+  const changed = fillChange({ timeoutMs: 10_000, readiness: username, changed: true });
+  document.body.insertAdjacentHTML("beforeend", "<p>Changed</p>");
+  await vi.waitFor(() => expect(changed()).toEqual({ ok: true }));
+});

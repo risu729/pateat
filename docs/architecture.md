@@ -4452,7 +4452,9 @@ appears, with the existing per-step request and recipe budgets. When the person/
 has advanced, a persistent step key records the append request without a synthetic click
 or submission. When the same advance button still shows beside a revealed password,
 the established same-button replacement checks apply instead. Already learned detail
-handlers fill ordinary writable inputs without selecting their radio buttons. Software
+handlers fill ordinary writable inputs without selecting their radio buttons, also when
+their page shows later in the same document: the content script's wait answers once
+their elements show as well as the next step's. Software
 keyboards, fields marked as advancing/submitting and TOTP/code fields remain empty:
 the current recipe cannot prove that entering their last digit will not submit, even
 when it also names a button. This conservative limit also applies to learned code
@@ -4473,9 +4475,12 @@ such as one with an underscore, takes the profile's default. A passive attempt e
 `fillDone` once its last safe field is filled and no continuation or detail handler can
 follow; it holds no page of the tab after that. Until then, the content script waits for
 the next step's readiness and checks it again at each page change, with the step wait
-only as the bound, so a quiet page reads no settings or vault. A new document that shows
-the first step again, a terminal record, an explicit popup pick, and a pause each end
-the previous passive attempt and start from the current page. The document also refuses
+only as the bound, so a quiet page reads no settings or vault. After an answer that the
+worker found nothing to do for, the next wait first waits for another page change. A new
+document that shows the first step again, a terminal record, an explicit popup pick, and
+a pause each end the previous passive attempt and start from the current page; a new
+document that also shows the next field ready, as a form posted back to its own path
+does, goes on to fill it instead. The document also refuses
 a passive fill command that asks for a click, an effectful fill, a keypad, a code, or a
 choice, whatever the background sent. As Bitwarden's page-load autofill fills only empty
 fields, a passive fill keeps a password the page or person already entered. The edit

@@ -2,13 +2,19 @@ import * as v from "valibot";
 import {
   attemptPlan,
   fillOnlyStep,
+  handlerTargets,
   loginStepEffect,
   routeFillTargets,
   type LoginAttemptMetadata,
   type LoginStep,
   type LoginRecipe,
 } from "@pateat/contracts";
-import { LOGIN_STEP_WAIT_MS, loginReadiness, observationSchema } from "../wire";
+import {
+  LOGIN_STEP_WAIT_MS,
+  loginReadiness,
+  observationSchema,
+  type LoginReadiness,
+} from "../wire";
 import { change, current, send, report, publish } from "./attempt";
 import { observe } from "./reconcile";
 import { confirmPage, confirmSigns } from "./markers";
@@ -86,6 +92,20 @@ export async function recordedFillShows(
     observed.output.targets.every((entry) => entry === "unique")
   );
 }
+
+/**
+ * The learned `detail` handlers (ADR 0061) not entered yet, as readiness a waiting page
+ * answers on: their elements present, which the worker's own reading then confirms.
+ */
+const handlerWakes = (run: Execution): LoginReadiness[] =>
+  (run.recipe.handlers ?? [])
+    .flatMap((handler, index) =>
+      handler.kind === "detail" && !run.metadata.handlers.some((entry) => entry.index === index)
+        ? [{ path: handler.path, require: "present" as const, targets: handlerTargets(handler) }]
+        : [],
+    )
+    .filter((wake) => wake.targets.length > 0 && wake.targets.length <= 20)
+    .slice(0, 8);
 
 async function ready(rt: Runtime, run: Execution, step: LoginStep): Promise<boolean> {
   const readiness = loginReadiness(step);
@@ -182,8 +202,10 @@ const detailAhead = (run: Execution) =>
  */
 export async function fillBoundary(rt: Runtime, run: Execution): Promise<boolean> {
   // The next step is checked when the boundary is reached, as on a new document, and
-  // again each time the document answers that it may show; never while it is quiet.
+  // again each time the document answers that it may show; never while it is quiet. After
+  // an answer that showed nothing to do, the document first waits for its next change.
   let check = true;
+  let answered = false;
   /* eslint-disable no-await-in-loop */
   while (current(rt, run) && run.metadata.state === "ready") {
     const age = Date.now() - (run.metadata.fillSince ?? 0);
@@ -258,20 +280,23 @@ export async function fillBoundary(rt: Runtime, run: Execution): Promise<boolean
       baseline.ready &&
       baseline.documentId === run.live.document.documentId &&
       baseline.path === pathNow(run.live);
-    // The document answers once the next step shows (or its path moves, when it showed
-    // already), with its timeout only as the bound. Nothing reads the settings or the
-    // vault while it waits; the step is checked under the current policy once it shows.
-    const answer = v.safeParse(
-      fillChangeSchema,
-      await send(rt, run.live, {
-        type: "login.fill.change",
-        timeoutMs: LOGIN_STEP_WAIT_MS,
-        readiness: loginReadiness(next),
-        ...(settled ? { settled: true } : {}),
-      }).catch(() => undefined),
-    );
+    // The document answers once the next step or a handler not entered yet shows (or its
+    // path moves, when the step showed already), with its timeout only as the bound.
+    // Nothing reads the settings or the vault while it waits; what shows is checked under
+    // the current policy.
+    const handlers = handlerWakes(run);
+    const reply: unknown = await send(rt, run.live, {
+      type: "login.fill.change",
+      timeoutMs: LOGIN_STEP_WAIT_MS,
+      readiness: loginReadiness(next),
+      ...(settled ? { settled: true } : {}),
+      ...(handlers.length ? { handlers } : {}),
+      ...(answered ? { changed: true } : {}),
+    }).catch(() => undefined);
+    const answer = v.safeParse(fillChangeSchema, reply);
     if (!answer.success || !answer.output.ok || !current(rt, run)) return false;
     check = answer.output.timedOut !== true;
+    answered = check;
   }
   /* eslint-enable no-await-in-loop */
   return false;

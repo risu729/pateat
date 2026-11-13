@@ -751,6 +751,41 @@ describe("profile sign-in autofill runtime", () => {
     expect(stored()[0]!.id).not.toBe(old);
   });
 
+  it("wakes for a learned detail handler that shows later in the same document", async () => {
+    const handler = {
+      kind: "detail" as const,
+      path: "/signin",
+      fields: [{ detail: "phone-last-4" as const, target: target("phone") }],
+      target: target("confirm"),
+    };
+    const { h } = twoPageStart("/password");
+    h.recipes.recipe.mockResolvedValue(
+      parseLoginRecipe({ ...bothPages("/password"), handlers: [handler] }),
+    );
+    await h.hello();
+    await filled();
+    const waits = () => fake.state.messages.filter((entry) => entry.type === "login.fill.change");
+    const handlerReads = () =>
+      fake.state.messages.filter(
+        (entry) =>
+          entry.type === "login.observe" &&
+          JSON.stringify(entry["targets"]) === JSON.stringify([target("phone"), target("confirm")]),
+      ).length;
+    expect(waits()[0]).toMatchObject({
+      handlers: [
+        { path: "/signin", require: "present", targets: [target("phone"), target("confirm")] },
+      ],
+    });
+    expect(waits()[0]).not.toHaveProperty("changed");
+    const before = handlerReads();
+    // The page answers once the handler's elements show; the worker reads it again, and its
+    // next wait first waits for another change, as the handler is not usable yet.
+    change();
+    await vi.waitFor(() => expect(waits()).toHaveLength(2));
+    expect(handlerReads()).toBe(before + 1);
+    expect(waits()[1]).toMatchObject({ changed: true });
+  });
+
   it("stops a waiting fill that a restarted worker resumes on a paused site", async () => {
     fake.state.openTabs = [1];
     const first = twoPageStart("/password");
