@@ -42,6 +42,26 @@ export function registerNavigationAndPreferences({
     }
   });
 
+  test("the section nav lists the sections in page order, as it marks the last one reached", async () => {
+    await mount(mockClient(), disconnectedService());
+    await expect.element(control("sync")).toBeInTheDocument();
+    const ids = [
+      ...page.getByRole("navigation", { name: "Sections" }).element().querySelectorAll("a"),
+    ].flatMap((link) => {
+      const href = link.getAttribute("href") ?? "";
+      return href.startsWith("#") ? [href.slice(1)] : [];
+    });
+    expect(ids).toContain("page-permissions");
+    const sections = ids.map((id) => document.getElementById(id));
+    expect(sections).not.toContain(null);
+    const inPageOrder = sections.toSorted((left, right) =>
+      left && right && left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING
+        ? -1
+        : 1,
+    );
+    expect(inPageOrder.map((section) => section?.id)).toEqual(ids);
+  });
+
   test("a clicked section link stays current until the user scrolls", async () => {
     await page.viewport(800, 600);
     try {

@@ -348,9 +348,9 @@ export const settingsJa = {
   "Use {{hostname}}'s rule ({{behavior}})": "{{hostname}} のルールを使う（{{behavior}}）",
   "Use profile default ({{behavior}})": "プロファイルの既定値を使う（{{behavior}}）",
   "Auto fills and submits sign-in pages. Fill only leaves buttons, verification codes and software keyboards to you. Fields that advance or submit the page stay empty. Choosing an account in the popup logs in with presses.":
-    "「自動」はログインページに入力し、送信します。「入力のみ」では、ボタン操作、認証コードの入力、画面上のキーボード操作を本人に任せます。入力だけでページが進んだり送信されたりする項目は空欄のままにします。ポップアップでアカウントを選ぶと、ボタンを押してログインします。",
+    "「自動」はログインページに入力し、送信します。「入力のみ」では、ボタン、認証コード、ソフトウェアキーボードは自分で操作します。入力だけでページが進んだり送信されたりする項目は空欄のままにします。ポップアップでアカウントを選ぶと、ボタンを押してログインします。",
   "Verification pages are not filled yet. Off leaves them alone; Fill only keeps that choice for when filling is available. Passkey verification after a Pateat login is left to the browser in either mode.":
-    "ログイン後の本人確認ページへの入力は未対応です。「オフ」は何もせず、「入力のみ」は対応後に使う設定として保存します。Pateat でログインした後のパスキーによる本人確認は、どちらの設定でもブラウザに任せます。",
+    "ログイン後の本人確認ページへの入力は未対応です。「オフ」は何もせず、「入力のみ」は対応後に使う設定として保存します。Pateat でログインした後のパスキーによる本人確認は、どちらの設定でもブラウザーに任せます。",
   "Filling personal details outside a login is not available yet. Its choices are saved for that feature. Personal details asked during a login follow the sign-in setting.":
     "ログイン以外の個人情報フォームへの入力は未対応です。設定は対応後に使うために保存します。ログインの途中で求められる個人情報には、ログインページの設定が適用されます。",
   "This site already has a rule. Edit it in the list.":
@@ -359,16 +359,17 @@ export const settingsJa = {
     "サイトのルールは上限の 1,000 件に達しています。追加する前に既存のルールを削除してください。",
   "Page behavior": "ページでの動作",
   "These defaults and site rules are shared by devices using this settings profile. Pauses and allowed sites still decide where automatic login runs.":
-    "この既定値とサイトのルールは、同じ設定プロファイルを使う端末で共有します。自動ログインを実行するサイトには、一時停止と許可サイトの設定も適用されます。",
+    "この既定値とサイトのルールは、同じ設定プロファイルを使うデバイスで共有します。自動ログインを実行するサイトには、一時停止と許可サイトの設定も適用されます。",
   "Profile defaults": "プロファイルの既定値",
   "Site rules": "サイトごとのルール",
   "Each page kind uses the most specific matching site's choice. A choice left at its default can still inherit a broader site's rule. Removing the last choice removes that site's rule.":
     "ページの種類ごとに、最も具体的なサイトの設定を使います。設定を継承する場合は、上位のサイトのルールが適用されることがあります。最後の個別設定を解除すると、そのサイトのルールを削除します。",
   "No site rules. Every site uses the profile defaults.":
     "サイトのルールはありません。すべてのサイトでプロファイルの既定値を使います。",
-  "Remove page behavior for {{hostname}}": "{{hostname}} のページ動作ルールを削除",
+  "Remove page behavior for {{hostname}}": "{{hostname}} のルールを削除",
   "Apply to subdomains too": "サブドメインにも適用する",
   "Add site rule": "サイトのルールを追加",
+  "New site rule": "新しいサイトのルール",
   "Changes here apply to {{hostname}} only and sync with this settings profile.":
     "ここでの変更は {{hostname}} のみに適用し、この設定プロファイルで同期します。",
   "This host's saved rule also covers its subdomains. Edit it in Settings to keep its scope clear.":
@@ -376,19 +377,7 @@ export const settingsJa = {
   "Rule for {{hostname}}": "{{hostname}} のルール",
   "Profile default": "プロファイルの既定値",
   "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages are not filled yet; Off leaves them alone. Other personal-detail forms are not filled yet.":
-    "「入力のみ」では、ボタン操作、認証コードの入力、画面上のキーボード操作を本人に任せます。ポップアップでアカウントを選んだ場合は、ボタンを押してログインします。ログイン後の本人確認への入力は未対応で、「オフ」なら何もしません。ログイン以外の個人情報フォームへの入力も未対応です。",
+    "「入力のみ」では、ボタン、認証コード、ソフトウェアキーボードは自分で操作します。ポップアップでアカウントを選んだ場合は、ボタンを押してログインします。ログイン後の本人確認への入力は未対応で、「オフ」なら何もしません。ログイン以外の個人情報フォームへの入力も未対応です。",
   "Edit profile defaults and site rules": "既定値とサイトのルールを編集",
   "Page behavior saved.": "ページでの動作を保存しました。",
-  "Change another profile's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
-    "別のプロファイルの除外サイト、許可サイト、ページでの動作、マスターパスワードを確認するサイト、既定のアカウントを変更します。アカウント名はこのブラウザの保管庫から取得します。保存してもこの端末のプロファイルは変わりません。アカウントの紐付けはすべてのプロファイルで共有します。",
-  "A profile holds site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.":
-    "プロファイルには除外サイト、許可サイト、ページでの動作、マスターパスワードを確認するサイト、既定のアカウントを保存します。同じプロファイルの端末間でこれらを共有し、アカウントの紐付けはすべてのプロファイルで共有します。",
-  "This device's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.":
-    "この端末の除外サイト、許可サイト、ページでの動作、マスターパスワードを確認するサイト、既定のアカウントを削除し、代わりに {{profile}} の設定を使います。アカウントの紐付けは保持します。",
-  "Syncs recipes, site exclusions, allowed sites, page behavior, default accounts and account bindings. Never sends vault values, passwords or keys.":
-    "レシピ、除外サイト、許可サイト、ページでの動作、既定のアカウント、アカウントの紐付けを同期します。保管庫の値、パスワード、鍵は送信しません。",
-  "Your page behavior defaults and {{count}} site rule are replaced too._one":
-    "ページ動作の既定値と、{{count}} 件のサイトルールも置き換えます。",
-  "Your page behavior defaults and {{count}} site rule are replaced too._other":
-    "ページ動作の既定値と、{{count}} 件のサイトルールも置き換えます。",
 } satisfies Record<keyof typeof settingsEn, string>;

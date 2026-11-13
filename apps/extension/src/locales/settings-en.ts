@@ -357,6 +357,7 @@ export const settingsEn = {
   "Remove page behavior for {{hostname}}": "Remove page behavior for {{hostname}}",
   "Apply to subdomains too": "Apply to subdomains too",
   "Add site rule": "Add site rule",
+  "New site rule": "New site rule",
   "Changes here apply to {{hostname}} only and sync with this settings profile.":
     "Changes here apply to {{hostname}} only and sync with this settings profile.",
   "This host's saved rule also covers its subdomains. Edit it in Settings to keep its scope clear.":
@@ -367,16 +368,4 @@ export const settingsEn = {
     "Fill only leaves buttons, verification codes and software keyboards to you. A popup account choice still logs in with presses. Verification pages are not filled yet; Off leaves them alone. Other personal-detail forms are not filled yet.",
   "Edit profile defaults and site rules": "Edit profile defaults and site rules",
   "Page behavior saved.": "Page behavior saved.",
-  "Change another profile's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.":
-    "Change another profile's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts from here. Account names come from this browser's vaults. Saving does not change which profile this device uses, and account bindings stay shared by every profile.",
-  "A profile holds site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.":
-    "A profile holds site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts. Devices that share one share them; account bindings are shared by every profile.",
-  "This device's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.":
-    "This device's site exclusions, allowed sites, page behavior, sites that ask for the master password and saved accounts are removed and {{profile}}'s are used instead. Account bindings are kept.",
-  "Syncs recipes, site exclusions, allowed sites, page behavior, default accounts and account bindings. Never sends vault values, passwords or keys.":
-    "Syncs recipes, site exclusions, allowed sites, page behavior, default accounts and account bindings. Never sends vault values, passwords or keys.",
-  "Your page behavior defaults and {{count}} site rule are replaced too._one":
-    "Your page behavior defaults and {{count}} site rule are replaced too.",
-  "Your page behavior defaults and {{count}} site rule are replaced too._other":
-    "Your page behavior defaults and {{count}} site rules are replaced too.",
 } as const;

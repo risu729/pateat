@@ -1,13 +1,15 @@
 import {
-  resolvePagePermission,
+  pagePermissionDefaultsSchema,
   pagePermissionDocument,
+  resolvePagePermission,
   type LocalSettings,
-  type PagePermissionKind,
   type PagePermissionDefaults,
+  type PagePermissionKind,
   type SitePagePermission,
 } from "@pateat/contracts";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
+import * as v from "valibot";
 import { i18n } from "../i18n";
 import { controlClass, fieldClass } from "./ui";
 
@@ -17,7 +19,16 @@ export const PAGE_PERMISSION_KINDS: PagePermissionKind[] = [
   "personal-details",
 ];
 export const PAGE_PERMISSIONS_SECTION = "page-permissions";
-type Permission = PagePermissionDefaults[PagePermissionKind];
+export type Permission = PagePermissionDefaults[PagePermissionKind];
+
+/** `permissions` with `kind` set to `value`, or undefined when `kind` offers no such choice. */
+export function withPagePermission<
+  T extends { [K in PagePermissionKind]?: Permission | undefined },
+>(permissions: T, kind: PagePermissionKind, value: Permission): T | undefined {
+  return v.is(pagePermissionDefaultsSchema.entries[kind], value)
+    ? { ...permissions, [kind]: value }
+    : undefined;
+}
 
 export function pagePermissionName(kind: PagePermissionKind, t: TFunction): string {
   return t(
@@ -82,15 +93,14 @@ export function setSitePagePermission(
   settings: LocalSettings,
   hostname: string,
   kind: PagePermissionKind,
-  value: string,
+  value: Permission | "inherit",
 ): void {
   const rows = settings.sitePagePermissions ?? [];
   const previous = rows.find((entry) => entry.hostname === hostname);
-  const permissions: SitePagePermission["permissions"] = { ...previous?.permissions };
-  if (value === "inherit") delete permissions[kind];
-  else if (kind === "sign-in" && (value === "auto" || value === "fill")) permissions[kind] = value;
-  else if (kind !== "sign-in" && (value === "fill" || value === "off")) permissions[kind] = value;
-  else return;
+  const kept: SitePagePermission["permissions"] = { ...previous?.permissions };
+  delete kept[kind];
+  const permissions = value === "inherit" ? kept : withPagePermission(kept, kind, value);
+  if (!permissions) return;
   settings.sitePagePermissions = rows.filter((entry) => entry.hostname !== hostname);
   if (Object.keys(permissions).length)
     settings.sitePagePermissions.push({
@@ -110,11 +120,11 @@ export function PagePermissionSelect({
   onChange,
 }: {
   kind: PagePermissionKind;
-  value: string;
+  value: Permission | "inherit";
   inherited?: string;
   disabled?: boolean;
   id: string;
-  onChange(value: string): void;
+  onChange(value: Permission | "inherit"): void;
 }) {
   const { t } = useTranslation(undefined, { i18n });
   return (
@@ -125,7 +135,8 @@ export function PagePermissionSelect({
         className={controlClass}
         value={value}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
+        // The options below are the only values the select can hold.
+        onChange={(event) => onChange(event.target.value as Permission | "inherit")}
       >
         {inherited && <option value="inherit">{inherited}</option>}
         {kind === "sign-in" ? (

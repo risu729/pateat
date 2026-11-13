@@ -2303,3 +2303,57 @@ test("no locked notice shows while every vault is open", async () => {
   await expect.poll(() => client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
   expect(document.querySelector("#popup-vault-locked")).toBeNull();
 });
+
+test("the page behavior control saves an exact-host rule, waits while saving and reloads after a conflict", async () => {
+  const state = store();
+  let release = () => {};
+  const save = state.client.saveSettings.getMockImplementation();
+  if (!save) throw new Error("The store saves settings.");
+  state.client.saveSettings.mockImplementationOnce(async (request) => {
+    await new Promise<void>((done) => {
+      release = done;
+    });
+    return save(request);
+  });
+  const host = await mount(state.client, "https://login.bank.example/");
+  const behavior = page.getByRole("region", { name: "Page behavior", exact: true });
+  const signIn = behavior.getByRole("combobox", { name: "Sign-in pages", exact: true });
+  await expect.element(signIn).toHaveValue("inherit");
+  await signIn.selectOptions("fill");
+  await expect.element(signIn).toBeDisabled();
+  release();
+  await expect.element(page.getByText("Page behavior saved.", { exact: true })).toBeVisible();
+  await expect.element(signIn).toBeEnabled();
+  await expect.element(signIn).toHaveValue("fill");
+  expect(state.current().snapshot).toMatchObject({
+    revision: 1,
+    settings: {
+      sitePagePermissions: [
+        {
+          hostname: "login.bank.example",
+          includeSubdomains: false,
+          permissions: { "sign-in": "fill" },
+        },
+      ],
+    },
+  });
+  const elsewhere = createDefaultSettings();
+  elsewhere.excludedSites.push({ hostname: "mail.example", includeSubdomains: false });
+  state.replace(saved(7, elsewhere));
+  await behavior
+    .getByRole("combobox", { name: "Verification while signed in", exact: true })
+    .selectOptions("off");
+  await expect
+    .element(
+      page.getByText(
+        "The settings changed elsewhere, so this change was not saved. The popup now shows them.",
+      ),
+    )
+    .toBeVisible();
+  expect(state.current().snapshot).toMatchObject({ revision: 7, settings: elsewhere });
+  await expect.element(signIn).toHaveValue("inherit");
+  await behavior
+    .getByRole("button", { name: "Edit profile defaults and site rules", exact: true })
+    .click();
+  expect(host.openSettings).toHaveBeenCalledExactlyOnceWith("page-permissions");
+});

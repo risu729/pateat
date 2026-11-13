@@ -1,4 +1,3 @@
-import { PagePermissions } from "./page-permissions";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { LocalSettings, SyncSettingsState, VaultCatalog } from "@pateat/contracts";
@@ -11,6 +10,7 @@ import {
 import type { SettingsClient } from "./client";
 import { SitePolicy } from "./site-policy";
 import { AllowedSites } from "./allowed-sites";
+import { PagePermissions } from "./page-permissions";
 import { Button } from "./button";
 import { controlClass, fieldClass } from "./ui";
 

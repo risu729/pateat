@@ -1,7 +1,6 @@
 import {
   deviceLabelSchema,
-  getPagePermissionDefaults,
-  DEFAULT_PAGE_PERMISSIONS,
+  pagePermissionDocument,
   VISIBLE_LABEL_CHARACTER,
   normalizeServiceOrigin,
   profileNameSchema,
@@ -280,12 +279,9 @@ export function ServiceConnection({
       const reprompt = settings ? settings.repromptSites.length : -1;
       const defaults = settings ? settings.siteDefaults.length : -1;
       const pageRules = settings ? (settings.sitePagePermissions?.length ?? 0) : -1;
-      const pageDefaults = settings && getPagePermissionDefaults(settings);
       const pageDefaultsChanged =
-        pageDefaults !== undefined &&
-        (Object.keys(DEFAULT_PAGE_PERMISSIONS) as (keyof typeof DEFAULT_PAGE_PERMISSIONS)[]).some(
-          (kind) => pageDefaults[kind] !== DEFAULT_PAGE_PERMISSIONS[kind],
-        );
+        settings !== undefined &&
+        pagePermissionDocument(settings).pagePermissionDefaults !== undefined;
       // Allowed sites that are on but empty are a setting too: Pateat runs nowhere (ADR 0077).
       if (
         [exclusions, allowed, reprompt, defaults, pageRules].some((count) => count !== 0) ||
@@ -366,6 +362,21 @@ export function ServiceConnection({
     // `receive` touches only state setters and refs; restart only when waiting toggles.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [client, awaitingSync, pollMs]);
+
+  // The counted warning lists no page behavior, so its changes are named separately.
+  const pageReplacement =
+    replacement &&
+    (replacement.pageDefaultsChanged
+      ? replacement.pageRules > 0
+        ? t("Your page behavior defaults and {{count}} site rule are replaced too.", {
+            count: replacement.pageRules,
+          })
+        : t("Your page behavior defaults are replaced too.")
+      : replacement.pageRules > 0
+        ? t("Your {{count}} page behavior site rule is replaced too.", {
+            count: replacement.pageRules,
+          })
+        : undefined);
 
   return (
     <Panel id="sync" headingId="sync-service-heading" title={t("Sync service")}>
@@ -586,7 +597,11 @@ export function ServiceConnection({
           )}
           {replacement && (
             <fieldset
-              aria-describedby="sync-service-replace-detail"
+              aria-describedby={[
+                "sync-service-replace-detail",
+                ...(pageReplacement ? ["sync-service-replace-page"] : []),
+                "sync-service-replace-keep",
+              ].join(" ")}
               className="m-0 flex min-w-0 flex-col gap-3 rounded-xl border-0 bg-warning-tint px-4 py-3 text-sm/5"
             >
               <legend className="float-left m-0 flex w-full items-start gap-2 p-0 font-semibold">
@@ -615,16 +630,16 @@ export function ServiceConnection({
                         reprompt: replacement.reprompt,
                         defaults: replacement.defaults,
                       },
-                    )}{" "}
-                {t("To keep them, create a new profile from this device instead.")}
+                    )}
               </p>
-              {(replacement.pageRules > 0 || replacement.pageDefaultsChanged) && (
-                <p className="m-0">
-                  {t("Your page behavior defaults and {{count}} site rule are replaced too.", {
-                    count: replacement.pageRules,
-                  })}
+              {pageReplacement && (
+                <p id="sync-service-replace-page" className="m-0">
+                  {pageReplacement}
                 </p>
               )}
+              <p id="sync-service-replace-keep" className="m-0">
+                {t("To keep them, create a new profile from this device instead.")}
+              </p>
               <div className="flex flex-wrap gap-2">
                 <Button
                   id="sync-service-replace"

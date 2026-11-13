@@ -773,16 +773,37 @@ test("creates a new profile from the warning, named after the device by default"
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
 });
 
-test.each<Partial<LocalSettings>>([
-  { pagePermissionDefaults: { "sign-in": "fill", confirm: "fill", "personal-details": "fill" } },
-  { pagePermissionDefaults: { "sign-in": "auto", confirm: "off", "personal-details": "fill" } },
-  { pagePermissionDefaults: { "sign-in": "auto", confirm: "fill", "personal-details": "off" } },
-  {
-    sitePagePermissions: [
-      { hostname: "bank.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
-    ],
-  },
-])("warns when only page behavior would be replaced %o", async (policy) => {
+const bankRule = {
+  hostname: "bank.example",
+  includeSubdomains: false,
+  permissions: { "sign-in": "fill" as const },
+};
+test.each<[Partial<LocalSettings>, string]>([
+  [
+    { pagePermissionDefaults: { "sign-in": "fill", confirm: "fill", "personal-details": "fill" } },
+    "Your page behavior defaults are replaced too.",
+  ],
+  [
+    { pagePermissionDefaults: { "sign-in": "auto", confirm: "off", "personal-details": "fill" } },
+    "Your page behavior defaults are replaced too.",
+  ],
+  [
+    { pagePermissionDefaults: { "sign-in": "auto", confirm: "fill", "personal-details": "off" } },
+    "Your page behavior defaults are replaced too.",
+  ],
+  [{ sitePagePermissions: [bankRule] }, "Your 1 page behavior site rule is replaced too."],
+  [
+    { sitePagePermissions: [bankRule, { ...bankRule, hostname: "mail.example" }] },
+    "Your 2 page behavior site rules are replaced too.",
+  ],
+  [
+    {
+      pagePermissionDefaults: { "sign-in": "fill", confirm: "fill", "personal-details": "fill" },
+      sitePagePermissions: [bankRule],
+    },
+    "Your page behavior defaults and 1 site rule are replaced too.",
+  ],
+])("warns when only page behavior would be replaced %o", async (policy, sentence) => {
   const client = mockClient();
   client.pair.mockResolvedValueOnce(profileRequired);
   await render(
@@ -800,8 +821,11 @@ test.each<Partial<LocalSettings>>([
     exact: true,
   });
   await expect.element(warning).toBeVisible();
-  await expect.element(warning).toMatchTextContent("Your page behavior defaults");
-  await expect.element(warning).toMatchTextContent("are replaced too.");
+  await expect
+    .element(warning)
+    .toHaveAccessibleDescription(
+      `This device's site exclusions (0), allowed sites (0), sites that ask for the master password (0) and saved accounts (0) are removed and Local browser's are used instead. Account bindings are kept. ${sentence} To keep them, create a new profile from this device instead.`,
+    );
   expect(client.pair).toHaveBeenCalledOnce();
   await warning.getByRole("button", { name: "Pair and replace", exact: true }).click();
   expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", { profileId: LOCAL_PROFILE });

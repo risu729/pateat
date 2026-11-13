@@ -2,6 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
+import * as v from "valibot";
 import {
   createMetadataQueryClient,
   SETTINGS_QUERY_KEY,
@@ -15,6 +16,7 @@ import {
 import { SettingsApp } from "../../apps/extension/src/options/settings-app";
 import {
   createDefaultSettings,
+  sitePagePermissionsSchema,
   type LocalSettings,
   type SettingsResponse,
   type SyncSettingsState,
@@ -271,4 +273,38 @@ test("a background-only conflict reapplies both page policy fields before saving
   await expect
     .element(behavior().getByRole("group", { name: "bank.example", exact: true }))
     .toBeVisible();
+});
+
+test("an added rule replaces a rule that sync saved for the same host meanwhile", async () => {
+  const local = client();
+  const write = deferred<SettingsResponse>();
+  local.saveSettings.mockReturnValueOnce(write.promise);
+  await mountLocal(local);
+  await behavior().getByRole("textbox", { name: "Site", exact: true }).fill("bank.example");
+  await behavior().getByRole("button", { name: "Add site rule", exact: true }).click();
+  const synced = settings();
+  synced.sitePagePermissions = [
+    { hostname: "bank.example", includeSubdomains: true, permissions: { confirm: "off" } },
+    { hostname: "other.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
+  ];
+  const background = accepted(synced, 1);
+  background.snapshot.changes = [{ revision: 1, cause: "service-sync" }];
+  local.getSettings.mockResolvedValue(background);
+  write.resolve({
+    version: 1,
+    ok: false,
+    error: {
+      code: "revision-conflict",
+      message: "Synthetic sync update",
+      causes: ["service-sync"],
+    },
+  });
+  await vi.waitFor(() => expect(local.saveSettings).toHaveBeenCalledTimes(2));
+  const rebased = local.saveSettings.mock.calls[1]?.[0];
+  expect(rebased?.expectedRevision).toBe(1);
+  expect(rebased?.settings.sitePagePermissions).toEqual([
+    { hostname: "other.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
+    { hostname: "bank.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
+  ]);
+  expect(v.is(sitePagePermissionsSchema, rebased?.settings.sitePagePermissions)).toBe(true);
 });

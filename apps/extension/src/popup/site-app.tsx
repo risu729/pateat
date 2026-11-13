@@ -1,4 +1,3 @@
-import { PopupPagePermissions } from "./page-permissions";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
@@ -58,6 +57,7 @@ import {
 } from "../login/detail-wire";
 import { pauseSite } from "../login/pause";
 import { hostnameOf, PageStatusSection } from "./page-status";
+import { PopupPagePermissions } from "./page-permissions";
 import { PopupBindingReview, type BindingReviewClient } from "./binding-review";
 import {
   PAUSE_CHOICES,

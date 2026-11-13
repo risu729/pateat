@@ -45,7 +45,8 @@ async function mount(initial = settings(), popupOrigin?: string) {
 const select = (name: string) => page.getByRole("combobox", { name, exact: true });
 const defaults = () => page.getByRole("group", { name: "Profile defaults", exact: true });
 const row = (hostname: string) => page.getByRole("group", { name: hostname, exact: true });
-const site = () => page.getByRole("textbox", { name: "Site", exact: true });
+const newRule = () => page.getByRole("group", { name: "New site rule", exact: true });
+const site = () => newRule().getByRole("textbox", { name: "Site", exact: true });
 const add = () => page.getByRole("button", { name: "Add site rule", exact: true }).click();
 beforeEach(() => {
   localStorage.clear();
@@ -318,8 +319,67 @@ test("a site's subdomain scope is explicit when adding and can be narrowed in se
   expect(changed.mock.lastCall?.[0].sitePagePermissions).toEqual([
     { hostname: "scope.example", includeSubdomains: true, permissions: { "sign-in": "fill" } },
   ]);
-  await page.getByRole("checkbox", { name: "Apply to subdomains too", exact: true }).nth(0).click();
+  await row("scope.example")
+    .getByRole("checkbox", { name: "Apply to subdomains too", exact: true })
+    .click();
   expect(changed.mock.lastCall?.[0].sitePagePermissions).toEqual([
     { hostname: "scope.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
   ]);
+});
+
+test("the new rule's controls are named apart from the defaults, and inheriting a row's last choice keeps focus", async () => {
+  const initial = settings();
+  initial.sitePagePermissions = [
+    { hostname: "bank.example", includeSubdomains: false, permissions: { confirm: "off" } },
+  ];
+  const { changed } = await mount(initial);
+  await expect
+    .element(newRule().getByRole("combobox", { name: "Sign-in pages", exact: true }))
+    .toHaveValue("fill");
+  await expect
+    .element(newRule().getByRole("checkbox", { name: "Apply to subdomains too", exact: true }))
+    .not.toBeChecked();
+  await expect
+    .element(
+      row("bank.example").getByRole("checkbox", { name: "Apply to subdomains too", exact: true }),
+    )
+    .not.toBeChecked();
+  await row("bank.example")
+    .getByRole("combobox", { name: "Verification while signed in", exact: true })
+    .selectOptions("inherit");
+  expect(changed.mock.lastCall?.[0]).not.toHaveProperty("sitePagePermissions");
+  await expect.element(row("bank.example")).not.toBeInTheDocument();
+  await expect.element(site()).toHaveFocus();
+});
+
+test("an inherited choice that leaves other choices on the row keeps the row", async () => {
+  const initial = settings();
+  initial.sitePagePermissions = [
+    {
+      hostname: "bank.example",
+      includeSubdomains: false,
+      permissions: { "sign-in": "fill", confirm: "off" },
+    },
+  ];
+  await mount(initial);
+  const confirm = row("bank.example").getByRole("combobox", {
+    name: "Verification while signed in",
+    exact: true,
+  });
+  await confirm.selectOptions("inherit");
+  await expect.element(confirm).toHaveValue("inherit");
+  await expect.element(site()).not.toHaveFocus();
+});
+
+test("a link to the section scrolls to it and focuses its first default", async () => {
+  const before = window.location.href;
+  history.replaceState(null, "", "#page-permissions");
+  try {
+    await mount();
+    await expect
+      .element(defaults().getByRole("combobox", { name: "Sign-in pages", exact: true }))
+      .toHaveFocus();
+  } finally {
+    history.replaceState(null, "", before);
+  }
 });

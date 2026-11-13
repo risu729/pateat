@@ -1,5 +1,5 @@
 import { getPagePermissionDefaults, type LocalSettings } from "@pateat/contracts";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import { enteredHostname } from "./allowed-sites";
@@ -12,10 +12,14 @@ import {
   pagePermissionSource,
   setSitePagePermission,
   normalizePagePermissionSettings,
+  withPagePermission,
 } from "./page-permission-controls";
 import { checkClass, controlClass, fieldClass, Panel, RowList } from "./ui";
 
-/** The same draft editor serves this device and the separately selected remote profile. */
+/**
+ * The same draft editor serves this device and the separately selected remote profile.
+ * The popup's link opens this device's page at this section.
+ */
 export function PagePermissions({
   draft,
   edit,
@@ -34,6 +38,11 @@ export function PagePermissions({
   const defaults = getPagePermissionDefaults(draft);
   const rows = draft.sitePagePermissions ?? [];
   const prefix = `${idPrefix}page-permissions`;
+  useEffect(() => {
+    if (idPrefix || window.location.hash !== `#${PAGE_PERMISSIONS_SECTION}`) return;
+    document.getElementById(PAGE_PERMISSIONS_SECTION)?.scrollIntoView();
+    document.getElementById(`${prefix}-default-sign-in`)?.focus();
+  }, [idPrefix, prefix]);
   function add() {
     const hostname = enteredHostname(site);
     if (!hostname) setError("Enter a site such as https://bank.example or bank.example.");
@@ -43,8 +52,9 @@ export function PagePermissions({
       setError("There are already 1,000 site rules. Remove one before adding another.");
     else if (
       edit((settings) => {
+        // A rule saved meanwhile for this host, such as by sync, is replaced, not repeated.
         settings.sitePagePermissions = [
-          ...(settings.sitePagePermissions ?? []),
+          ...(settings.sitePagePermissions ?? []).filter((entry) => entry.hostname !== hostname),
           { hostname, includeSubdomains: subdomains, permissions: { "sign-in": behavior } },
         ];
         normalizePagePermissionSettings(settings);
@@ -76,17 +86,18 @@ export function PagePermissions({
               id={`${prefix}-default-${kind}`}
               kind={kind}
               value={defaults[kind]}
-              onChange={(selected) =>
+              onChange={(selected) => {
+                if (selected === "inherit") return;
                 edit((settings) => {
-                  const next = { ...getPagePermissionDefaults(settings) };
-                  if (kind === "sign-in" && (selected === "auto" || selected === "fill"))
-                    next[kind] = selected;
-                  else if (kind !== "sign-in" && (selected === "fill" || selected === "off"))
-                    next[kind] = selected;
-                  settings.pagePermissionDefaults = next;
+                  const next = withPagePermission(
+                    getPagePermissionDefaults(settings),
+                    kind,
+                    selected,
+                  );
+                  if (next) settings.pagePermissionDefaults = next;
                   normalizePagePermissionSettings(settings);
-                })
-              }
+                });
+              }}
             />
           ))}
         </div>
@@ -137,98 +148,109 @@ export function PagePermissions({
                     {t("Remove")}
                   </Button>
                 </div>
-                <label className={checkClass}>
-                  <input
-                    type="checkbox"
-                    checked={row.includeSubdomains}
-                    onChange={(event) => {
-                      const included = event.target.checked;
-                      edit((settings) => {
-                        const current = settings.sitePagePermissions?.find(
-                          (entry) => entry.hostname === row.hostname,
-                        );
-                        if (current) current.includeSubdomains = included;
-                        normalizePagePermissionSettings(settings);
-                      });
-                    }}
-                  />
-                  {t("Apply to subdomains too")}
-                </label>
                 <fieldset
                   aria-labelledby={`${prefix}-${row.hostname}-heading`}
-                  className="m-0 grid gap-3 border-0 p-0 sm:grid-cols-3"
+                  className="m-0 flex flex-col gap-3 border-0 p-0"
                 >
-                  {PAGE_PERMISSION_KINDS.map((kind) => (
-                    <PagePermissionSelect
-                      key={kind}
-                      id={`${prefix}-${row.hostname}-${kind}`}
-                      kind={kind}
-                      value={row.permissions[kind] ?? "inherit"}
-                      inherited={pagePermissionSource(draft, row.hostname, kind, t)}
-                      onChange={(selected) =>
-                        edit((settings) =>
-                          setSitePagePermission(settings, row.hostname, kind, selected),
-                        )
-                      }
+                  <label className={checkClass}>
+                    <input
+                      type="checkbox"
+                      checked={row.includeSubdomains}
+                      onChange={(event) => {
+                        const included = event.target.checked;
+                        edit((settings) => {
+                          const current = settings.sitePagePermissions?.find(
+                            (entry) => entry.hostname === row.hostname,
+                          );
+                          if (current) current.includeSubdomains = included;
+                          normalizePagePermissionSettings(settings);
+                        });
+                      }}
                     />
-                  ))}
+                    {t("Apply to subdomains too")}
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {PAGE_PERMISSION_KINDS.map((kind) => (
+                      <PagePermissionSelect
+                        key={kind}
+                        id={`${prefix}-${row.hostname}-${kind}`}
+                        kind={kind}
+                        value={row.permissions[kind] ?? "inherit"}
+                        inherited={pagePermissionSource(draft, row.hostname, kind, t)}
+                        onChange={(selected) => {
+                          // Inheriting the row's last choice removes the row and this select.
+                          const last =
+                            selected === "inherit" &&
+                            PAGE_PERMISSION_KINDS.every(
+                              (other) => other === kind || row.permissions[other] === undefined,
+                            );
+                          edit((settings) =>
+                            setSitePagePermission(settings, row.hostname, kind, selected),
+                          );
+                          if (last) input.current?.focus();
+                        }}
+                      />
+                    ))}
+                  </div>
                 </fieldset>
               </li>
             ))}
         </RowList>
         <form
-          className="flex flex-col gap-3"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
             add();
           }}
         >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className={fieldClass}>
-              {t("Site")}
-              <input
-                ref={input}
-                id={`${prefix}-site`}
-                className={controlClass}
-                value={site}
-                autoComplete="off"
-                placeholder="bank.example"
-                aria-invalid={Boolean(error)}
-                aria-describedby={error ? `${prefix}-error` : undefined}
-                onChange={(event) => {
-                  setSite(event.target.value);
-                  setError("");
+          <fieldset className="m-0 flex flex-col gap-3 border-0 p-0">
+            <legend className="mb-3 text-base font-semibold">{t("New site rule")}</legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className={fieldClass}>
+                {t("Site")}
+                <input
+                  ref={input}
+                  id={`${prefix}-site`}
+                  className={controlClass}
+                  value={site}
+                  autoComplete="off"
+                  placeholder="bank.example"
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? `${prefix}-error` : undefined}
+                  onChange={(event) => {
+                    setSite(event.target.value);
+                    setError("");
+                  }}
+                />
+              </label>
+              <PagePermissionSelect
+                kind="sign-in"
+                id={`${prefix}-new-sign-in`}
+                value={behavior}
+                onChange={(value) => {
+                  if (value === "auto" || value === "fill") setBehavior(value);
                 }}
               />
+            </div>
+            <label className={checkClass}>
+              <input
+                type="checkbox"
+                checked={subdomains}
+                onChange={(event) => setSubdomains(event.target.checked)}
+              />
+              {t("Apply to subdomains too")}
             </label>
-            <PagePermissionSelect
-              kind="sign-in"
-              id={`${prefix}-new-sign-in`}
-              value={behavior}
-              onChange={(value) => {
-                if (value === "auto" || value === "fill") setBehavior(value);
-              }}
-            />
-          </div>
-          <label className={checkClass}>
-            <input
-              type="checkbox"
-              checked={subdomains}
-              onChange={(event) => setSubdomains(event.target.checked)}
-            />
-            {t("Apply to subdomains too")}
-          </label>
-          {error && (
-            <p id={`${prefix}-error`} role="alert" className="validation-error m-0">
-              {t(error)}
-            </p>
-          )}
-          <div>
-            <Button id={`${prefix}-add`} type="submit" variant="outline">
-              {t("Add site rule")}
-            </Button>
-          </div>
+            {error && (
+              <p id={`${prefix}-error`} role="alert" className="validation-error m-0">
+                {t(error)}
+              </p>
+            )}
+            <div>
+              <Button id={`${prefix}-add`} type="submit" variant="outline">
+                {t("Add site rule")}
+              </Button>
+            </div>
+          </fieldset>
         </form>
       </section>
     </Panel>
