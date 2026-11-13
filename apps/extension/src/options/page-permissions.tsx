@@ -38,10 +38,13 @@ export function PagePermissions({
   const defaults = getPagePermissionDefaults(draft);
   const rows = draft.sitePagePermissions ?? [];
   const prefix = `${idPrefix}page-permissions`;
+  // The popup's link focuses the section once: the hash is dropped, so a later remount,
+  // as after reloading the saved settings, leaves focus where the person put it.
   useEffect(() => {
     if (idPrefix || window.location.hash !== `#${PAGE_PERMISSIONS_SECTION}`) return;
     document.getElementById(PAGE_PERMISSIONS_SECTION)?.scrollIntoView();
     document.getElementById(`${prefix}-default-sign-in`)?.focus();
+    history.replaceState(history.state, "", window.location.pathname + window.location.search);
   }, [idPrefix, prefix]);
   function add() {
     const hostname = enteredHostname(site);
@@ -52,11 +55,17 @@ export function PagePermissions({
       setError("There are already 1,000 site rules. Remove one before adding another.");
     else if (
       edit((settings) => {
-        // A rule saved meanwhile for this host, such as by sync, is replaced, not repeated.
-        settings.sitePagePermissions = [
-          ...(settings.sitePagePermissions ?? []).filter((entry) => entry.hostname !== hostname),
-          { hostname, includeSubdomains: subdomains, permissions: { "sign-in": behavior } },
-        ];
+        // A rule saved meanwhile for this host, such as by sync, keeps its other kinds and
+        // takes the sign-in behavior and scope just chosen here; it is never repeated.
+        const saved = settings.sitePagePermissions ?? [];
+        const rule = (permissions: object = {}) => ({
+          hostname,
+          includeSubdomains: subdomains,
+          permissions: { ...permissions, "sign-in": behavior },
+        });
+        settings.sitePagePermissions = saved.some((entry) => entry.hostname === hostname)
+          ? saved.map((entry) => (entry.hostname === hostname ? rule(entry.permissions) : entry))
+          : [...saved, rule()];
         normalizePagePermissionSettings(settings);
       })
     ) {

@@ -275,7 +275,7 @@ test("a background-only conflict reapplies both page policy fields before saving
     .toBeVisible();
 });
 
-test("an added rule replaces a rule that sync saved for the same host meanwhile", async () => {
+test("an added rule merges into a rule that sync saved for the same host meanwhile", async () => {
   const local = client();
   const write = deferred<SettingsResponse>();
   local.saveSettings.mockReturnValueOnce(write.promise);
@@ -302,9 +302,15 @@ test("an added rule replaces a rule that sync saved for the same host meanwhile"
   await vi.waitFor(() => expect(local.saveSettings).toHaveBeenCalledTimes(2));
   const rebased = local.saveSettings.mock.calls[1]?.[0];
   expect(rebased?.expectedRevision).toBe(1);
+  // The synced row keeps its other kinds; the sign-in behavior and scope are the ones the
+  // person just chose.
   expect(rebased?.settings.sitePagePermissions).toEqual([
+    {
+      hostname: "bank.example",
+      includeSubdomains: false,
+      permissions: { confirm: "off", "sign-in": "fill" },
+    },
     { hostname: "other.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
-    { hostname: "bank.example", includeSubdomains: false, permissions: { "sign-in": "fill" } },
   ]);
   expect(v.is(sitePagePermissionsSchema, rebased?.settings.sitePagePermissions)).toBe(true);
 });

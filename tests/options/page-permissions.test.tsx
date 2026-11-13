@@ -371,14 +371,18 @@ test("an inherited choice that leaves other choices on the row keeps the row", a
   await expect.element(site()).not.toHaveFocus();
 });
 
-test("a link to the section scrolls to it and focuses its first default", async () => {
+test("a link to the section scrolls to it and focuses its first default once", async () => {
   const before = window.location.href;
   history.replaceState(null, "", "#page-permissions");
   try {
     await mount();
-    await expect
-      .element(defaults().getByRole("combobox", { name: "Sign-in pages", exact: true }))
-      .toHaveFocus();
+    const first = defaults().getByRole("combobox", { name: "Sign-in pages", exact: true });
+    await expect.element(first).toHaveFocus();
+    expect(window.location.hash).toBe("");
+    // A remount, as after reloading the saved settings, leaves focus alone.
+    await cleanup();
+    await mount();
+    await expect.element(first).not.toHaveFocus();
   } finally {
     history.replaceState(null, "", before);
   }
