@@ -1,5 +1,4 @@
 import {
-  resolvePagePermission,
   fillOnlyStep,
   routeSteps,
   bindingGaps,
@@ -42,6 +41,8 @@ import { withItemOrigin, sameSiteAs, accountTargetsOn, codeFieldOf, passwordMiss
 import { probeDocument } from "./messages";
 import { probeMode } from "./constants";
 import { choose } from "./choice-save";
+import { recordFor } from "./hold";
+import { signInPermission } from "./page-permission";
 import { listedBrowserSite } from "./pause";
 import type { Runtime } from "./state";
 import { bindingReviewSnapshot } from "./binding-review";
@@ -493,26 +494,26 @@ export async function planFor(
     const top = await topScope(rt, snapshot, live, rt.vars.account, catalog);
     if (top) return { ok: false as const, reason: top.reason };
   } else {
-    const recorded =
-      rt.attempts.get(live.document.tabId)?.metadata ??
-      rt.persisted.get(`${live.document.tabId} ${live.document.origin}`);
-    const found =
-      request.route && recorded?.signInFill && recorded.account.origin === live.document.origin
-        ? {
-            connectionId: recorded.account.connectionId,
-            itemId: recorded.account.itemId,
-            source: "match" as const,
-            saved: false,
-          }
-        : await choose(
-            rt,
-            snapshot,
-            live,
-            request.asking,
-            request.paused === true,
-            request.fill === true,
-            accountTargetsOn(recipe, live.path),
-          );
+    const found = await choose(
+      rt,
+      snapshot,
+      live,
+      request.asking,
+      request.paused === true,
+      request.fill === true,
+      accountTargetsOn(recipe, live.path),
+    );
+    // A sign-in fill goes on only with the account it began with, which its later pages
+    // must still choose as a new one would: the default or the only match (ADR 0035).
+    const recorded = recordFor(rt, live.document.tabId, live.document.origin);
+    if (
+      request.route &&
+      recorded?.signInFill &&
+      !("reason" in found) &&
+      (found.connectionId !== recorded.account.connectionId ||
+        found.itemId !== recorded.account.itemId)
+    )
+      return { ok: false as const, reason: "account-changed" as const };
     if ("reason" in found)
       return {
         ok: false as const,
@@ -531,7 +532,7 @@ export async function planFor(
     catalog = scope.catalog;
   }
   const signInFill =
-    resolvePagePermission(snapshot.snapshot.settings, live.url, "sign-in")?.permission !== "auto" &&
+    signInPermission(snapshot.snapshot.settings, live).permission !== "auto" &&
     chosen?.source !== "pick" &&
     chosen?.source !== "switch";
   // The generated slot map is read at most once per plan.
@@ -747,7 +748,11 @@ export async function planFor(
   // A paused site never hands a login on to the browser's passkey sign-in: an item
   // without a password stops before anything, pressing nothing (ADR 0062).
   if ((request.paused || signInFill) && password.ok && "stopAt" in password)
-    return { ok: false as const, reason: "no-route" as const, detail: "password-empty:paused" };
+    return {
+      ok: false as const,
+      reason: "no-route" as const,
+      detail: request.paused ? "password-empty:paused" : "password-empty:sign-in-fill",
+    };
   return password;
   /**
    * The first password variant that fits, or why none does. A saved binding is first tried

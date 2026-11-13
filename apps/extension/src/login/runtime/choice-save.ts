@@ -1,6 +1,5 @@
 import * as v from "valibot";
 import {
-  resolvePagePermission,
   getItemEligibility,
   isFieldExcluded,
   sameLoginDocument,
@@ -33,6 +32,7 @@ import { choiceDefaults } from "./messages";
 import { type PendingChoice, type PickedAccount } from "./session-schemas";
 import { quietly } from "./session-store";
 import { recordFor } from "./hold";
+import { signInPermission } from "./page-permission";
 import { parkedFor, reviewRequests } from "./passkey";
 import type { Runtime } from "./state";
 
@@ -235,7 +235,7 @@ export async function choose(
   if (
     pick?.site &&
     ((pick.attemptId === undefined && (paused || asking)) ||
-      resolvePagePermission(snapshot.snapshot.settings, live.url, "sign-in")?.permission !== "auto")
+      signInPermission(snapshot.snapshot.settings, live).permission !== "auto")
   ) {
     rt.picked.delete(live.document.tabId);
     void quietly(rt, () => saveSession(rt));
@@ -338,8 +338,7 @@ export async function choose(
     // for this document and the login it starts only, and is never saved (ADR 0028
     // amendment of 2026-10-23). It is kept as a pick, which the login's later pages use.
     const shown =
-      resolvePagePermission(snapshot.snapshot.settings, live.url, "sign-in")?.permission ===
-        "auto" &&
+      signInPermission(snapshot.snapshot.settings, live).permission === "auto" &&
       accountTargets.length > 0 &&
       !live.siteAsked
         ? await siteAccount(rt, snapshot, live, candidates, accountTargets)

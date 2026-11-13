@@ -1,7 +1,8 @@
-import { attemptRouteChoice, handlerSlots, resolvePagePermission } from "@pateat/contracts";
+import { attemptRouteChoice, handlerSlots } from "@pateat/contracts";
 import { type Execution, type Authorized } from "./types";
 import { current, change } from "./attempt";
 import { planFor } from "./plan";
+import { signInPermission } from "./page-permission";
 import type { Runtime } from "./state";
 
 /** Resolve against a fresh live catalog; returns the authorizing metadata and binding. */
@@ -33,8 +34,7 @@ export async function allowed(rt: Runtime, run: Execution): Promise<Authorized |
   }
   if (
     run.metadata.signInFill &&
-    resolvePagePermission(snapshot.snapshot.settings, run.live.url, "sign-in")?.permission !==
-      "fill"
+    signInPermission(snapshot.snapshot.settings, run.live).permission !== "fill"
   ) {
     await change(rt, run, { type: "POLICY_CHANGED" }, { cause: "settings-revision" });
     return undefined;

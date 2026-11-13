@@ -1,5 +1,4 @@
 import {
-  resolvePagePermission,
   attemptRouteChoice,
   createAttemptMetadata,
   isGeneratedRecipeId,
@@ -36,6 +35,7 @@ import { type Readiness, type Execution } from "./types";
 import { listClick, showsNow } from "./markers";
 import { note, recipeInUse, retryAfterSync, choicesSaved } from "./generation";
 import { tabAttempt, recordFor, heldElsewhere, showHeld } from "./hold";
+import { signInPermission } from "./page-permission";
 import { terminal, holdsSite } from "./attempt-state";
 import { askMasterPassword, holdPassword } from "./master-password";
 import { type PolicyChange } from "./report";
@@ -649,9 +649,7 @@ export async function admitStart(rt: Runtime, ctx: AdmitStartContext): Promise<R
         accountSwitched: ctx.switched,
         fillOnly: "fillOnly" in plan,
         signInFill: "signInFill" in plan,
-        fillPermissionSource:
-          resolvePagePermission(snapshot.snapshot.settings, ctx.live.url, "sign-in")?.source ??
-          "default",
+        fillPermissionSource: signInPermission(snapshot.snapshot.settings, ctx.live).source,
         ...(ctx.chooser
           ? { chooser: click === undefined || click === "none" ? "entry" : click }
           : {}),

@@ -46,6 +46,7 @@ import { readUsernames, hideUsernames } from "./markers";
 import { DocumentGone } from "./document-gone";
 import { pauseOf } from "./pause";
 import { repairEntry } from "./repair-run";
+import { explicitlyPicked, signInPermission } from "./page-permission";
 import type { Runtime } from "./state";
 
 /** Whether the tab holds an attempt record for an origin of `site`, ended or not. */
@@ -642,6 +643,13 @@ export async function pressEntry(
       .handle({ version: 1, type: "settings.get" })
       .catch(() => undefined);
     if (!snapshot?.ok) return refuseEntry(rt, live, recipe, "settings-unavailable");
+    // Settings changed to fill only since the page was admitted: nothing is pressed (ADR
+    // 0035), unless the person picked an account for this page in the popup.
+    if (
+      !explicitlyPicked(rt, live.document) &&
+      signInPermission(snapshot.snapshot.settings, live).permission !== "auto"
+    )
+      return refuseEntry(rt, live, recipe, "sign-in-fill");
     if (isSiteExcluded(snapshot.snapshot.settings, destination.href))
       return refuseEntry(rt, live, recipe, "destination-excluded");
     if (!isSiteAllowed(snapshot.snapshot.settings, destination.href))
